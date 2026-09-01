@@ -25,11 +25,17 @@ import android.app.NativeActivity;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Bundle;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 
 import com.azul.a11y.AzulAccessibilityBridge;
 import com.azul.gesture.NativeGestureBridge;
 import com.azul.picker.AzulFilePicker;
+import com.azul.text.NativeTextBridge;
+import com.azul.gamepad.AzulGamepad;
+import com.azul.permission.AzulPermissions;
+import com.azul.sensors.AzulSensors;
 
 public class AzulActivity extends NativeActivity {
 
@@ -96,7 +102,76 @@ public class AzulActivity extends NativeActivity {
         // so an app launched on a dark-mode device rendered light and stayed
         // light. onConfigurationChanged alone would only fix the second half.
         pushUiMode(nativePtr);
+
+        // Window insets: status bar, navigation bar, display cutout and the
+        // IME. Android had NO inset handling at all, so the system bars drew
+        // ON TOP of the app's content — the app's own titlebar rendered under
+        // the clock. Since API 35 edge-to-edge is not opt-in, so this is not a
+        // nicety.
+        NativeTextBridge.installInsetsListener(this, nativePtr);
+
+        // The view the IME attaches to. `onCreateInputConnection` is a VIEW
+        // method, so an Activity cannot supply one — NativeActivity's content
+        // view answers null and every soft-keyboard keystroke was dropped.
+        NativeTextBridge.installInputView(this, nativePtr);
+
+        // Controller hotplug. The native input queue already delivers gamepad
+        // buttons and axes; what it cannot deliver is "a pad appeared", which
+        // only InputManager.InputDeviceListener reports.
+        AzulGamepad.attach(this);
     }
+
+    /**
+     * Runtime-permission results.
+     *
+     * Rust calls Activity.requestPermissions directly, but the ANSWER is a Java
+     * callback that native code cannot receive — so it lands here.
+     */
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                           int[] grantResults) {
+        boolean handled = AzulPermissions.onRequestPermissionsResultProxy(
+                this, requestCode, permissions, grantResults);
+        if (!handled) {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        }
+    }
+
+    // Gamepad buttons and sticks. NativeActivity would consume these itself;
+    // forwarding first lets the hotplug-aware path see them, and returning
+    // false keeps the normal native queue working for everything else.
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event != null && AzulGamepad.onKey(event, event.getAction() == KeyEvent.ACTION_DOWN)) {
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override
+    public boolean dispatchGenericMotionEvent(MotionEvent event) {
+        if (AzulGamepad.onMotion(event)) {
+            return true;
+        }
+        return super.dispatchGenericMotionEvent(event);
+    }
+
+    @Override
+    protected void onPause() {
+        // Sensors and location keep draining the battery behind a backgrounded
+        // app unless something stops them; nothing did.
+        AzulSensors.stop(this);
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        AzulGamepad.detach(this);
+        AzulSensors.stop(this);
+        super.onDestroy();
+    }
+
+
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {

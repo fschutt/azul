@@ -555,6 +555,23 @@ fn record_multi_edit_undo(
 /// - Paint-only changes (e.g. color) → ShouldUpdateDisplayListCurrentWindow
 /// - Layout-affecting changes → ShouldIncrementalRelayout (no DOM rebuild!)
 /// - No changes → ShouldReRenderCurrentWindow
+/// Raise or dismiss the on-screen keyboard.
+///
+/// Driven off the caret-blink decision because that is already the engine's
+/// answer to "is the focused thing editable" — a caret blinks on an editable
+/// node and nowhere else, so keying the keyboard to the same signal keeps the
+/// two from disagreeing (a keyboard over a non-editable node, or an editable
+/// node with no way to type into it).
+///
+/// A no-op everywhere except Android today. Desktop platforms have a physical
+/// keyboard and no concept to drive; iOS needs the same call routed to
+/// `becomeFirstResponder`, which does not exist yet.
+#[allow(unused_variables)]
+fn set_soft_keyboard_visible(visible: bool) {
+    #[cfg(target_os = "android")]
+    crate::desktop::shell2::android::set_soft_keyboard_visible(visible);
+}
+
 fn apply_focus_restyle(
     layout_window: &mut LayoutWindow,
     old_focus: Option<NodeId>,
@@ -7063,13 +7080,16 @@ pub trait PlatformWindow {
                     match timer_action {
                         azul_layout::CursorBlinkTimerAction::Start(timer) => {
                             self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
+                            set_soft_keyboard_visible(true);
                         }
                         azul_layout::CursorBlinkTimerAction::Restart(timer) => {
                             self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
                             self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
+                            set_soft_keyboard_visible(true);
                         }
                         azul_layout::CursorBlinkTimerAction::Stop => {
                             self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
+                            set_soft_keyboard_visible(false);
                         }
                         azul_layout::CursorBlinkTimerAction::NoChange => {}
                     }

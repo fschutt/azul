@@ -15236,6 +15236,55 @@ impl LayoutWindow {
     // method called as `lw.extract_text_from_inline_content(..)` across dll and layout, and
     // converting to an associated fn would break that API at every call site.
     #[allow(clippy::only_used_in_recursion)]
+    /// The focused editable node's text and the caret's byte offset in it.
+    ///
+    /// What an IME needs and had no way to ask for. Android's
+    /// `InputConnection.getTextBeforeCursor` / `getTextAfterCursor` /
+    /// `getSelectedText` are what drive autocorrect, the suggestion strip,
+    /// swipe typing and "double-space inserts a period" — an InputConnection
+    /// that answers them from an empty scratch buffer gets none of that, which
+    /// is exactly the state the Android bridge shipped in.
+    ///
+    /// The offset is derived from the primary cursor's `GraphemeClusterId`:
+    /// `start_byte_in_run` is relative to its own run, so the byte lengths of
+    /// every preceding run are summed to reach an offset into the flattened
+    /// string that `extract_text_from_inline_content` produces. Text and offset
+    /// therefore come from the SAME flattening, and cannot disagree.
+    ///
+    /// `None` when nothing editable has focus.
+    #[must_use]
+    pub fn ime_surrounding_text(&mut self) -> Option<(String, usize)> {
+        let focused = self.focus_manager.get_focused_node().copied()?;
+        let node_id = focused.node.into_crate_internal()?;
+        let content = self.get_text_before_textinput(focused.dom, node_id);
+        let text = self.extract_text_from_inline_content(&content);
+
+        // No cursor yet (focus landed but nothing has been typed) is a valid
+        // state: report the text with the caret at the end, which is where an
+        // IME would assume it is anyway.
+        let Some(cursor) = self.text_edit_manager.get_primary_cursor() else {
+            let len = text.len();
+            return Some((text, len));
+        };
+
+        let run = cursor.cluster_id.source_run as usize;
+        let mut offset = 0usize;
+        for (idx, item) in content.iter().enumerate() {
+            if idx >= run {
+                break;
+            }
+            offset += crate::overlay::flatten_inline_content(
+                core::slice::from_ref(item),
+            )
+            .len();
+        }
+        offset += cursor.cluster_id.start_byte_in_run as usize;
+        // Clamp: a stale cursor from before an edit must not produce an
+        // out-of-bounds slice in the caller.
+        let offset = offset.min(text.len());
+        Some((text, offset))
+    }
+
     pub fn extract_text_from_inline_content(&self, content: &[InlineContent]) -> String {
         // The ONE shared flattening (a11y, convergence GC, exports all agree).
         crate::overlay::flatten_inline_content(content)

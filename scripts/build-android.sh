@@ -150,7 +150,25 @@ HAS_CODE_VALUE="false"
 if (( HAS_JAVA == 1 )); then
     HAS_CODE_VALUE="true"
 fi
+# Dangerous permissions the app opted into, one <uses-permission> per entry.
+# Comma-separated so a caller can pass several without quoting gymnastics.
+EXTRA_PERMISSIONS_XML=""
+if [[ -n "${AZ_ANDROID_PERMISSIONS:-}" ]]; then
+    IFS=',' read -ra _perms <<< "$AZ_ANDROID_PERMISSIONS"
+    for p in "${_perms[@]}"; do
+        p="$(echo "$p" | tr -d '[:space:]')"
+        [[ -z "$p" ]] && continue
+        EXTRA_PERMISSIONS_XML+="    <uses-permission android:name=\"$p\" />"$'\n'
+    done
+fi
+# Written to a file because sed cannot substitute a multi-line replacement
+# portably (GNU and BSD disagree), and `r` needs a file.
+PERM_FILE="$BUILD_DIR/extra-permissions.xml"
+printf '%s' "$EXTRA_PERMISSIONS_XML" > "$PERM_FILE"
+
 sed \
+    -e "/@EXTRA_PERMISSIONS@/r $PERM_FILE" \
+    -e "/@EXTRA_PERMISSIONS@/d" \
     -e "s|@PACKAGE@|$PACKAGE|g" \
     -e "s|@LABEL@|$LABEL|g" \
     -e "s|@LIB_NAME@|${LIB_NAME}|g" \

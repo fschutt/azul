@@ -18,6 +18,26 @@
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
 
+    <!-- Normal permissions: granted at install, no runtime prompt, and needed
+         by so much of the engine (fonts, tiles, updates, the debug server)
+         that withholding them by default helps nobody. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!-- DANGEROUS permissions are opt-in, injected here by build-android.sh
+         from AZ_ANDROID_PERMISSIONS. Declaring CAMERA / RECORD_AUDIO /
+         ACCESS_FINE_LOCATION for every azul app would be least-privilege
+         backwards: a text editor asking for the microphone is a review
+         rejection and a broken promise to the user, and the runtime prompt
+         still gates them anyway. An app that wants one asks for it:
+
+           AZ_ANDROID_PERMISSIONS="android.permission.CAMERA,android.permission.ACCESS_FINE_LOCATION" \
+             bash scripts/build-android.sh ...
+    -->
+@EXTRA_PERMISSIONS@
+
     <application
         android:label="@LABEL@"
         android:hasCode="false">
