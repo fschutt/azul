@@ -385,6 +385,12 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // would name an op no handler recognises and fail with handled=false —
     // which is the op behaving correctly, and useless as a generated test.
     ("custom_op", Some("app-defined op name; the engine cannot know any valid one")),
+    // DENY: both are human-debugging aids that write to the log and assert
+    // NOTHING. A generated scenario that reaches for one has substituted
+    // "show me" for "check this", and passes no matter what the engine did —
+    // `assert_response` is the assertion form of print_response.
+    ("print",          Some("writes to the log and asserts nothing; a generated test needs an assertion")),
+    ("print_response", Some("prints the last response instead of asserting on it; use assert_response")),
     // ALLOW: a read-only snapshot. Denying it would also block HAND-WRITTEN
     // scenarios from using it, and asserting a memory budget from a scenario
     // is the entire reason it exists.
@@ -492,6 +498,10 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     ("get_app_state",             None),
     ("get_dom",                   None),
     ("get_dom_tree",              None),
+    // ALLOW: read-only enumeration of the live DOMs, the same shape as
+    // get_dom_tree. A multi-DOM scenario has no other way to learn the ids it
+    // then addresses.
+    ("list_doms",                 None),
     ("get_node_hierarchy",        None),
     ("get_html_string",           None),
     ("get_node_css_properties",   None),

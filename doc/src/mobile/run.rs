@@ -256,12 +256,26 @@ pub fn deploy_and_run(
     let _ = device.clear_log();
     device.install(artifact)?;
 
-    // The on-device scenario path, for the in-process runner. Pushing it is
-    // cheap and harmless even when the build has no e2e feature compiled in.
+    // Push the scenario and hand its path to the app as AZ_E2E.
+    //
+    // NOTHING READS THIS ON ANDROID YET. `AZ_E2E` is honoured in
+    // `dll/src/desktop/shell2/run.rs`, which is the desktop entry point;
+    // `android_main` has its own driver loop and no equivalent hook, so the
+    // extra arrives and is ignored. It is set anyway because it costs nothing,
+    // it is the right name for the eventual hook, and iOS reaches the shared
+    // path through SIMCTL_CHILD_AZ_E2E. Until that hook exists, the ONLY thing
+    // driving the device is the host replay below — which is why the replay
+    // reports the ops it cannot express instead of assuming the app ran them.
     let mut extras: Vec<(String, String)> = Vec::new();
     if let Some(scenario) = &opts.e2e {
         let remote = device.push(scenario, "az_e2e.json")?;
         println!("  scenario at {remote}");
+        if device.platform == Platform::Android {
+            println!(
+                "  \x1b[90mnote: android_main has no AZ_E2E hook, so only the host replay \
+                 below actually drives the app\x1b[0m"
+            );
+        }
         extras.push(("AZ_E2E".to_string(), remote));
     }
 
