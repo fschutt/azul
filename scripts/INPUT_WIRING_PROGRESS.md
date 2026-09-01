@@ -1,7 +1,26 @@
 # Input wiring — work queue
 
-Branch `feat/input-event-wiring`, off `origin/master` @ fcef148b2.
-Spec: `scripts/INPUT_METHODS_AUDIT_2026_09_01.md`.
+Branch `feat/input-event-wiring`, stacked on **PR #450** (`fix/tablet-and-clipboard-linux`, 28 commits)
+rebased onto `origin/master` @ fcef148b2. Spec: `scripts/INPUT_METHODS_AUDIT_2026_09_01.md`.
+
+## Absorbed from PR #450 (Linux-tested — do NOT redo)
+
+- `PenState.report_rate_hz` — measured EMA of the sample interval; no protocol carries a nominal rate.
+- `TabletDeviceInfo` + `TabletToolKind { Unknown, Stylus, Eraser, Pad, Touch }` + `TabletDeviceInfoVec`,
+  `CallbackInfo::get_tablet_devices()`, backend-populated at window init and on hotplug. **Already in api.json.**
+- Wayland: `handle_tablet_frame` drives the pointer pipeline (cursor, hover hit-test, tip=left, barrel=right);
+  `tool_button`/`hardware_serial`/`capability`/`slider` listeners were noops and now feed `PenState`; per-tool
+  identity applied on `proximity_in`; `proximity_out` clears pen state and releases synthesized buttons.
+- X11: sparse XI2 valuators reuse previous pen state (absent axis = unchanged, not zero); tip contact tracks the
+  tip BUTTON; barrel buttons reach `barrel_button_pressed`; `device_id` is the slave sourceid; `FocusOut` resets
+  pad + pen state.
+- So `tangential_pressure`, `barrel_button_pressed`, `tool_id` and `device_id` are **no longer ragged on
+  Wayland/X11**. macOS and Win32 are untouched by #450.
+
+⚠ **Interaction with item 1a:** #450's Wayland bridge exists precisely *because* pen events dispatch to nothing
+today — it synthesizes `Mouse*` so something reacts. Once 1a lands, real `Pen*` events start dispatching too.
+Check for double-handling (a node subscribed to both `MouseDown` and `PenDown` will now get both) and decide
+whether the bridge should suppress its synthetic mouse events when a `Pen*` subscriber exists.
 
 ## Rules for this arc
 
@@ -106,9 +125,13 @@ Spec: `scripts/INPUT_METHODS_AUDIT_2026_09_01.md`.
       `button_specific_down` helper. All four layers.
 - [ ] 8b `TouchPoint += { major, minor, orientation_rad, tool_type }` + `TouchToolType { Unknown, Finger, Stylus,
       Eraser, Palm, Mouse }`.
-- [ ] 8c `PenToolType { Pen, Eraser, Brush, Pencil, Airbrush, Finger, Mouse, Lens }` + `PenState.hover_distance`;
-      fix the ragged tail (`tangential_pressure`, `barrel_button_pressed`, `tool_id`).
+- [ ] 8c `PenState.hover_distance` (proximity Z). The ragged tail is DONE on Wayland/X11 via #450 — what remains
+      is macOS + Win32 parity. Do NOT invent `PenToolType`: #450 shipped `TabletToolKind { Unknown, Stylus,
+      Eraser, Pad, Touch }`; either widen that toward the 8-value `zwp_tablet_tool_v2` set (Brush, Pencil,
+      Airbrush, Lens) or leave it — but reuse it, don't duplicate it.
 - [ ] 8d `WacomPadState` → `TabletPadState` + `{ strip, strip_active, dial_delta, mode, mode_count }`.
+      #450 left this struct at 2 of 5 pad controls, so it is still fully open. `TabletToolKind::Pad` and
+      `TabletDeviceInfo.button_count` now exist to hang it off.
 - [ ] 8e `SensorKind += RotationVector, Gravity, LinearAcceleration, AmbientLight, Proximity, Barometer,
       StepCounter, HingeAngle`.
 - [ ] 8f `GamepadState += { battery, touchpad, imu }`; buttons `Misc1, Paddle1..4, Touchpad`; `GamepadRumble`.
@@ -118,7 +141,9 @@ Spec: `scripts/INPUT_METHODS_AUDIT_2026_09_01.md`.
 - [ ] 9a `FocusTarget += Directional(FocusDirection)`, `FocusDirection { Up, Down, Left, Right }`, geometric
       nearest-neighbour over the existing focusable set. No shell code.
 - [ ] 9b `PointerSource { Unknown, Mouse, Touchpad, Trackball, Trackpoint, Touchscreen, Pen, Eraser }` on pointer
-      events; `device_id` on mouse and key events.
+      events; `device_id` on mouse and key events. NOTE: #450 already delivered the *tablet* half
+      (`TabletDeviceInfo`, matching `device_id` on `PenState`/`WacomPadState`) — this item is now the
+      mouse/keyboard half plus the per-event `PointerSource` discriminator. Model it on `TabletDeviceInfo`.
 - [ ] 9c `DialState { device_id, delta_rad, detent_count, pressed, contact_position }` + `DialRotate`/`DialClick`
       filters; wire Wayland `zwp_tablet_pad_dial_v2` (already bound) as the first producer.
 - [ ] 9d `RawMouseMotion` window filter + pointer-lock request path; Win32 `WM_INPUT`,
