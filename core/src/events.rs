@@ -1685,10 +1685,6 @@ fn matches_window_filter(
         (Resized, EventType::WindowResize) => true,
         (FrameChanged, EventType::WindowFrameChanged) => true,
         (Moved, EventType::WindowMove) => true,
-        // Same context-menu routing as the Hover and Focus tables: a
-        // window-level right-click handler should also see the Menu/Apps
-        // key and Shift+F10.
-        (RightMouseDown, EventType::ContextMenu) => true,
         (TouchStart, EventType::TouchStart) => true,
         (TouchMove, EventType::TouchMove) => true,
         (TouchEnd, EventType::TouchEnd) => true,

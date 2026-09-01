@@ -50,8 +50,8 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use azul_core::{
-    dom::{DomId, NodeId, ScrollbarOrientation},
-    events::EasingFunction,
+    dom::{DomId, DomNodeId, NodeId, ScrollbarOrientation},
+    events::{EasingFunction, EventData, EventType, SyntheticEvent},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     hit_test::ScrollPosition,
     spaces::Inclusivity,
@@ -4397,7 +4397,7 @@ impl ScrollManager {
     }
 }
 
-impl crate::event_determination::EventProvider for ScrollManager {
+impl azul_core::events::EventProvider for ScrollManager {
     /// Yield `ScrollStart` / `ScrollEnd` for each phase transition observed
     /// since the last drain.
     ///

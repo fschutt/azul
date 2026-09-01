@@ -14,6 +14,7 @@ use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
+    events::SyntheticEvent,
     geom::LogicalRect,
     selection::{MultiCursorState, Selection, SelectionRange, TextCursor},
     styled_dom::NodeHierarchyItemId,
@@ -426,6 +427,8 @@ impl TextEditManager {
             preedit_text: None,
             preedit_cursor_begin: -1,
             preedit_cursor_end: -1,
+            pending_composition: None,
+            composition_text: String::new(),
             display_list_dirty: false,
             tween: TextTweenState::default(),
             pending_edit_notifications: Vec::new(),
@@ -2400,7 +2403,7 @@ mod autotest_generated {
     }
 }
 
-impl crate::event_determination::EventProvider for TextEditManager {
+impl azul_core::events::EventProvider for TextEditManager {
     /// Yield `CompositionStart` / `CompositionUpdate` / `CompositionEnd` for a
     /// composition phase recorded since the last drain.
     ///
@@ -2414,8 +2417,8 @@ impl crate::event_determination::EventProvider for TextEditManager {
     /// for the life of the composition.
     fn get_pending_events(
         &self,
-        timestamp: azul_core::task::Instant,
-    ) -> alloc::vec::Vec<azul_core::events::SyntheticEvent> {
+        timestamp: Instant,
+    ) -> alloc::vec::Vec<SyntheticEvent> {
         use azul_core::events::{
             CompositionEventData, EventData, EventSource, EventType, SyntheticEvent,
         };
@@ -2433,7 +2436,7 @@ impl crate::event_determination::EventProvider for TextEditManager {
         alloc::vec![SyntheticEvent::new(
             event_type,
             EventSource::User,
-            azul_core::dom::DomNodeId::ROOT,
+            DomNodeId::ROOT,
             timestamp,
             EventData::Composition(CompositionEventData {
                 data: self.composition_text.clone(),

@@ -84,6 +84,12 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `SystemChange::{CopyToClipboard, CutToClipboard, PasteFromClipboard}`; the existing
       `post_callback_filter_system_changes(prevent_default, …)` gate then makes them interceptable.
 
+### Follow-ups opened by 4b/4c
+
+- [ ] 4c-i Register `DeviceEventManager` on `LayoutWindow` (field + `new()` + the destructure at
+      `window.rs:830`) and add it to the `EventProvider` slice — same registration debt as 2c-ii and 3d-i.
+      These three should land together.
+
 ### Follow-ups opened by 3c/3d
 
 - [ ] 3d-i Register `TextEditManager` in the `&[&dyn EventProvider]` slice, and clear
@@ -110,7 +116,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `matches_application_filter(f, event, phase)`; write that fn.
 - [x] 4b Producer: gilrs gamepad connect/disconnect → `EventType::DeviceConnected`/`DeviceDisconnected`
       (already pumped via `capability_pump`, all four desktops).
-- [ ] 4c Producer: Wayland — `wl_registry.global_remove` for `wl_output` → monitor events;
+- [~] 4c Producer: Wayland — `wl_registry.global_remove` for `wl_output` → monitor events;
       `wl_seat.capabilities` + `zwp_tablet_seat_v2` add/remove → device events. All handlers already exist.
 - [ ] 4d Producer: Win32 `WM_DISPLAYCHANGE` monitor-list diff; add `WM_DEVICECHANGE` handling.
 - [ ] 4e Producer: macOS `windowDidChangeScreen:` diff + observe `NSApplicationDidChangeScreenParameters`.
