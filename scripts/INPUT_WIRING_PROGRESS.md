@@ -94,6 +94,19 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 10b
+
+- [ ] 10b-i Full `UITextInput` conformance — ~25 methods over `UITextPosition` / `UITextRange` object
+      graphs — buys marked text (a live preedit rendered by the app rather than only the committed
+      result), the edit menu, and dictation. ⚠ Do NOT half-implement it: UIKit probes for the protocol and
+      then calls methods that must return real `UITextPosition` objects, so returning nil CRASHES rather
+      than degrades. That is why 10b shipped `UIKeyInput` instead.
+- [ ] 10b-ii Nothing calls `becomeFirstResponder` on the view, so the keyboard never actually appears
+      even though the view can now accept it. Should be driven by `take_soft_keyboard_request()` (10a-ii)
+      — the same drain, on both mobile shells.
+- [ ] 10b-iii `UIPress` modifier flags (`key.modifierFlags`) are not read, so Cmd-key shortcuts from a
+      Magic Keyboard do not reach the accelerator path.
+
 ### Follow-ups opened by 10a
 
 - [ ] 10a-i The Java side does not exist. `com.azul.text.NativeTextBridge` must own a
@@ -328,7 +341,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 ## Step 10 — mobile parity
 
 - [x] 10a (native side + JNI entry points + keyboard request; the Java class is 10a-i) Android `InputConnection` (JNI bridge) → text input + the composition events from 3d.
-- [ ] 10b iOS `UITextInput` → text input; `UIPress`/`UIKeyCommand` for hardware keyboard.
+- [x] 10b (UIKeyInput + UIPress done; full UITextInput is 10b-i) iOS `UITextInput` → text input; `UIPress`/`UIKeyCommand` for hardware keyboard.
 - [ ] 10c Insets / safe area / keyboard avoidance as a layout input (Android `WindowInsets`, iOS safe area).
 - [ ] 10d iOS `UIPencilInteraction` → `PenSqueeze` + `PenDoubleTap`.
 - [ ] 10e `coalescedTouches` / `predictedTouches` (iOS) and the equivalent elsewhere.

@@ -1025,6 +1025,33 @@ fn get_or_create_view_class() -> &'static Class {
             sel!(touchesCancelled:withEvent:),
             touches_cancelled as extern "C" fn(&Object, Sel, *mut Object, *mut Object),
         );
+        // Text input. UIKit will not deliver text to a view that does not
+        // declare it wants it, and `canBecomeFirstResponder` returning false
+        // (the default) means it is never even asked — which is why the shell
+        // could not type despite having a full touch path.
+        decl.add_method(
+            sel!(canBecomeFirstResponder),
+            ui_can_become_first_responder as extern "C" fn(&Object, Sel) -> bool,
+        );
+        decl.add_method(sel!(hasText), ui_has_text as extern "C" fn(&Object, Sel) -> bool);
+        decl.add_method(
+            sel!(insertText:),
+            ui_insert_text as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(deleteBackward),
+            ui_delete_backward as extern "C" fn(&Object, Sel),
+        );
+        // Hardware keys and TV-remote buttons — a separate stream from both
+        // touches and UIKeyInput.
+        decl.add_method(
+            sel!(pressesBegan:withEvent:),
+            ui_presses_began as extern "C" fn(&Object, Sel, *mut Object, *mut Object),
+        );
+        decl.add_method(
+            sel!(pressesEnded:withEvent:),
+            ui_presses_ended as extern "C" fn(&Object, Sel, *mut Object, *mut Object),
+        );
         decl.add_method(
             sel!(layoutSubviews),
             layout_subviews as extern "C" fn(&Object, Sel),
@@ -1039,6 +1066,16 @@ fn get_or_create_view_class() -> &'static Class {
         // the state iOS shipped in.
         #[cfg(feature = "a11y")]
         accessibility::install_container_methods(&mut decl);
+
+        // UIKeyInput conformance. Unlike UIAccessibilityContainer this IS a
+        // formal protocol, but it is declared by UIKit and only present once
+        // UIKit has loaded — so the lookup is checked rather than unwrapped,
+        // the way the note above warns about. The three methods are already
+        // added; declaring conformance is what makes UIKit ASK for them and
+        // raise the keyboard.
+        if let Some(p) = Protocol::get("UIKeyInput") {
+            decl.add_protocol(p);
+        }
 
         AZUL_VIEW_CLASS = decl.register();
     });
@@ -1628,4 +1665,209 @@ impl PlatformWindow for IOSWindow {
     /// UIKit owns the window geometry outright, so there is nothing to push and
     /// no OS-sync baseline to diff (`os_synced_state` stays `None`).
     fn sync_window_state(&mut self) {}
+}
+
+// ===== Text input and hardware keys =====
+//
+// UIKit will not send a view text unless the view says it wants it. Two
+// protocols do that, at very different costs:
+//
+// - `UIKeyInput` is three methods (`hasText`, `insertText:`, `deleteBackward`)
+//   and is enough to make the soft keyboard appear and deliver typed
+//   characters, including from an IME's candidate bar once committed.
+// - `UITextInput` is ~25 methods over `UITextPosition` / `UITextRange` object
+//   graphs, and buys marked-text (live preedit), the edit menu, and dictation.
+//
+// This implements `UIKeyInput`, which closes "the shell cannot type at all",
+// and leaves the full protocol as a follow-up. That order matters: a partial
+// `UITextInput` conformance is worse than none, because UIKit probes for the
+// protocol and then calls methods that would have to return real
+// `UITextPosition` objects — returning nil from those crashes rather than
+// degrades.
+
+/// `UIKeyInput.hasText` — whether there is anything to delete.
+extern "C" fn ui_has_text(_this: &Object, _cmd: Sel) -> bool {
+    let Some(window) = (unsafe { azul_ios_window() }) else {
+        return false;
+    };
+    window
+        .common
+        .layout_window
+        .as_ref()
+        .is_some_and(|lw| lw.text_edit_manager.get_editing_node_id().is_some())
+}
+
+/// `UIKeyInput.insertText:` — committed text from the keyboard or an IME.
+extern "C" fn ui_insert_text(_this: &Object, _cmd: Sel, text: *mut Object) {
+    let Some(window) = (unsafe { azul_ios_window() }) else {
+        return;
+    };
+    let s = unsafe { ns_string_to_rust(text) };
+    if s.is_empty() {
+        return;
+    }
+    if let Some(lw) = window.common.layout_window.as_mut() {
+        // Commit rather than a bare insert, so CompositionEnd carries the
+        // string on iOS exactly as it does on the desktop shells. An IME's
+        // candidate bar arrives here already committed — UIKeyInput has no
+        // marked-text concept, which is precisely what UITextInput would add.
+        lw.text_edit_manager.commit_composition(s.clone());
+        let _ = lw.record_text_input(&s);
+    }
+    let result = window.process_window_events(0);
+    window.handle_process_event_result(result);
+}
+
+/// `UIKeyInput.deleteBackward` — backspace.
+///
+/// Separate from `insertText:` because UIKit models it that way: a backspace
+/// is never delivered as a key event to a `UIKeyInput` responder, so without
+/// this method the key does nothing at all.
+extern "C" fn ui_delete_backward(_this: &Object, _cmd: Sel) {
+    let Some(window) = (unsafe { azul_ios_window() }) else {
+        return;
+    };
+    if let Some(lw) = window.common.layout_window.as_mut() {
+        if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
+            lw.delete_selection(focused, true);
+        }
+    }
+    let result = window.process_window_events(0);
+    window.handle_process_event_result(result);
+}
+
+/// `canBecomeFirstResponder` — required, or UIKit never asks for text.
+extern "C" fn ui_can_become_first_responder(_this: &Object, _cmd: Sel) -> bool {
+    true
+}
+
+/// `pressesBegan:withEvent:` — hardware keyboard and TV-remote buttons.
+///
+/// `UIPress` is a separate stream from touches and from `UIKeyInput`: an
+/// external keyboard's arrow keys, Escape and function keys arrive here and
+/// nowhere else, and on tvOS this is the ONLY input path a remote has. Without
+/// it an iPad with a Magic Keyboard could type letters (via `insertText:`) but
+/// could not move the caret.
+extern "C" fn ui_presses_began(this: &Object, _cmd: Sel, presses: *mut Object, event: *mut Object) {
+    handle_presses(this, presses, true);
+    // Still call super: UIKit routes unhandled presses up the responder chain
+    // to the system, and swallowing them breaks the remote's Menu button.
+    unsafe { forward_presses_to_super(this, sel!(pressesBegan:withEvent:), presses, event) };
+}
+
+extern "C" fn ui_presses_ended(this: &Object, _cmd: Sel, presses: *mut Object, event: *mut Object) {
+    handle_presses(this, presses, false);
+    unsafe { forward_presses_to_super(this, sel!(pressesEnded:withEvent:), presses, event) };
+}
+
+/// Copy an `NSString` into a Rust `String`.
+///
+/// `UTF8String` returns a pointer into an autoreleased buffer, so it must be
+/// copied before returning — holding it past the current autorelease pool is
+/// a use-after-free, and this is called from inside UIKit callbacks that pop
+/// theirs on return.
+unsafe fn ns_string_to_rust(s: *mut Object) -> String {
+    if s.is_null() {
+        return String::new();
+    }
+    let utf8: *const core::ffi::c_char = msg_send![s, UTF8String];
+    if utf8.is_null() {
+        return String::new();
+    }
+    core::ffi::CStr::from_ptr(utf8)
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Map a `UIPress.key.keyCode` (a USB HID usage) onto a `VirtualKeyCode`.
+///
+/// UIKit reports HID usage codes rather than any Apple-specific numbering,
+/// which is convenient: these are the same values a USB keyboard puts on the
+/// wire, so the table is the HID spec's, not iOS's.
+fn ios_hid_keycode_to_virtual(code: i64) -> Option<azul_core::window::VirtualKeyCode> {
+    use azul_core::window::VirtualKeyCode as V;
+    Some(match code {
+        0x4F => V::Right,
+        0x50 => V::Left,
+        0x51 => V::Down,
+        0x52 => V::Up,
+        0x28 => V::Return,
+        0x29 => V::Escape,
+        0x2A => V::Back,
+        0x2B => V::Tab,
+        0x2C => V::Space,
+        0x4A => V::Home,
+        0x4D => V::End,
+        0x4B => V::PageUp,
+        0x4E => V::PageDown,
+        0x49 => V::Insert,
+        0x4C => V::Delete,
+        0x3A..=0x45 => match code {
+            0x3A => V::F1,
+            0x3B => V::F2,
+            0x3C => V::F3,
+            0x3D => V::F4,
+            0x3E => V::F5,
+            0x3F => V::F6,
+            0x40 => V::F7,
+            0x41 => V::F8,
+            0x42 => V::F9,
+            0x43 => V::F10,
+            0x44 => V::F11,
+            _ => V::F12,
+        },
+        _ => return None,
+    })
+}
+
+/// Fold a `UIPress` set into the keyboard state.
+fn handle_presses(_this: &Object, presses: *mut Object, is_down: bool) {
+    use azul_core::window::OptionVirtualKeyCode;
+
+    let Some(window) = (unsafe { azul_ios_window() }) else {
+        return;
+    };
+    unsafe {
+        let enumerator: *mut Object = msg_send![presses, objectEnumerator];
+        loop {
+            let press: *mut Object = msg_send![enumerator, nextObject];
+            if press.is_null() {
+                break;
+            }
+            // `key` is nil for a press that is not a keyboard key — a remote's
+            // Select or Menu button — so this must be checked rather than
+            // assumed.
+            let key: *mut Object = msg_send![press, key];
+            if key.is_null() {
+                continue;
+            }
+            let code: i64 = msg_send![key, keyCode];
+            let Some(vk) = ios_hid_keycode_to_virtual(code) else {
+                continue;
+            };
+            let ks = window.common.keyboard_state_mut();
+            if is_down {
+                ks.current_virtual_keycode = OptionVirtualKeyCode::Some(vk);
+            } else {
+                ks.current_virtual_keycode = OptionVirtualKeyCode::None;
+            }
+        }
+    }
+    let result = window.process_window_events(0);
+    window.handle_process_event_result(result);
+}
+
+/// Pass a press set on to `super`, so unhandled keys still reach the system.
+unsafe fn forward_presses_to_super(
+    this: &Object,
+    sel: Sel,
+    presses: *mut Object,
+    event: *mut Object,
+) {
+    let superclass: *const Object = msg_send![this, superclass];
+    let sup = objc::runtime::Super {
+        receiver: this,
+        superclass: &*(superclass as *const objc::runtime::Class),
+    };
+    let _: () = objc::__send_super_message(&sup, sel, (presses, event)).unwrap_or(());
 }
