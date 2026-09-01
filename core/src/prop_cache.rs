@@ -509,7 +509,71 @@ impl<T> FlatVecVec<T> {
     /// occurrence of each key (CSS cascade: later source order wins among
     /// equal specificity), then compact into flat storage.
     /// Drains all build-phase Vecs. After this call, only `get_slice()` works.
-    pub fn sort_each_and_flatten<K: Ord + Eq>(&mut self, key_fn: impl Fn(&T) -> K) {
+
+    /// Collapse IDENTICAL per-node runs so nodes with the same property set
+    /// share ONE copy of it.
+    ///
+    /// A stylesheet's declarations repeat across every node they match, and the
+    /// flat store held a private copy for each: on the 50k-node XHTML bench,
+    /// `css_props` was 165 120 entries carrying EIGHT distinct values, at 144
+    /// bytes per entry — 23.8 MB of the same handful of properties written out
+    /// over and over.
+    ///
+    /// Nothing is dropped and no API changes: `get_slice` still returns a real
+    /// contiguous slice, several nodes simply point at the same range. That is
+    /// sound because no caller can obtain a `&mut` to a node's run — the store
+    /// is rebuilt wholesale by `sort_each_and_flatten` / `retain`, never patched
+    /// in place.
+    ///
+    /// The run table is scanned linearly and CAPPED: distinct runs are few in
+    /// practice (a stylesheet has far fewer rule combinations than nodes), and
+    /// the cap turns the pathological case into "stops deduplicating" rather
+    /// than into quadratic time.
+    fn dedup_runs(&mut self)
+    where
+        T: Clone + PartialEq,
+    {
+        /// Beyond this many distinct runs, stop recording new ones. Existing
+        /// runs are still reused, so the result is partial sharing, never wrong.
+        const MAX_RUNS: usize = 1024;
+
+        if self.offsets.is_empty() {
+            return;
+        }
+        let mut new_data: Vec<T> = Vec::new();
+        let mut runs: Vec<(u32, u32)> = Vec::new();
+        let mut new_offsets = Vec::with_capacity(self.offsets.len());
+
+        for &(start, len) in &self.offsets {
+            if len == 0 {
+                new_offsets.push((0, 0));
+                continue;
+            }
+            let s = start as usize;
+            let run = &self.data[s..s + len as usize];
+            let existing = runs.iter().copied().find(|&(rs, rl)| {
+                rl == len && new_data[rs as usize..(rs + rl) as usize] == *run
+            });
+            if let Some((rs, rl)) = existing {
+                new_offsets.push((rs, rl));
+                continue;
+            }
+            let ns = u32::try_from(new_data.len()).unwrap_or(u32::MAX);
+            new_data.extend_from_slice(run);
+            if runs.len() < MAX_RUNS {
+                runs.push((ns, len));
+            }
+            new_offsets.push((ns, len));
+        }
+
+        self.data = new_data;
+        self.offsets = new_offsets;
+    }
+
+    pub fn sort_each_and_flatten<K: Ord + Eq>(&mut self, key_fn: impl Fn(&T) -> K)
+    where
+        T: Clone + PartialEq,
+    {
         let node_count = self.build.len();
         let total: usize = self.build.iter().map(alloc::vec::Vec::len).sum();
 
@@ -544,6 +608,7 @@ impl<T> FlatVecVec<T> {
         self.data = flat_data;
         self.offsets = offsets;
         self.build = Vec::new();
+        self.dedup_runs();
     }
 
     /// Flatten without sorting (for data that's already sorted).
@@ -570,7 +635,7 @@ impl<T> FlatVecVec<T> {
     /// Must be called after flatten. Preserves per-node ordering.
     pub fn retain(&mut self, predicate: impl Fn(&T) -> bool)
     where
-        T: Clone,
+        T: Clone + PartialEq,
     {
         if self.offsets.is_empty() {
             return;
@@ -595,6 +660,7 @@ impl<T> FlatVecVec<T> {
         new_data.shrink_to_fit();
         self.data = new_data;
         self.offsets = new_offsets;
+        self.dedup_runs();
     }
 
     /// Return to build phase from read (flattened) phase, preserving all data, so
