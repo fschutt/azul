@@ -1267,7 +1267,7 @@ pub fn regenerate_layout(
         let seeded = azul_core::animation::seed_moves(
             &mut layout_window.animations,
             correspondences,
-            azul_core::animation::Interp::Spring(azul_core::animation::Spring::SMOOTH),
+            azul_core::animation::InterpolationMode::Spring(azul_core::animation::Spring::SMOOTH),
         );
         if seeded > 0 {
             log_debug!(
