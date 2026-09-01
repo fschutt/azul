@@ -4515,6 +4515,17 @@ pub trait PlatformWindow {
                         // If so, queue it for processing in the next render pass.
                         needs_virtual_view_update =
                             lw.check_and_queue_virtual_view_reinvoke(*dom_id, internal_node_id);
+
+                        // A VirtualView has no scroll frame — its scroll is
+                        // baked into the display-list item's `content_offset`,
+                        // and the lightweight path below rebuilds no display
+                        // list. Without this, scrolling a VirtualView moved the
+                        // scrollbar and left the page frozen underneath it.
+                        // Re-invocation (above) rebuilds the list anyway, so
+                        // only the no-re-invoke case needs the patch.
+                        if !needs_virtual_view_update {
+                            lw.patch_virtual_view_content_offset(*dom_id, internal_node_id);
+                        }
                     }
                 }
 

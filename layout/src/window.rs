@@ -2490,6 +2490,51 @@ impl LayoutWindow {
         )
     }
 
+    /// Re-point the live display list's `VirtualView` item at the CURRENT
+    /// scroll offset, without rebuilding anything.
+    ///
+    /// A `VirtualView` deliberately gets no `PushScrollFrame` pair: its scroll
+    /// is baked into the display-list item as `content_offset`
+    /// (`materialized_window_origin - scroll_offset`). The fast scroll path
+    /// only re-renders — it applies the scroll-frame offsets the renderer
+    /// accumulates and rebuilds no display list — so for a VirtualView it
+    /// moved NOTHING. The scrollbar tracked the ScrollManager and the page
+    /// stayed frozen underneath it, which is the "it only scrolls the
+    /// scrollbar" report.
+    ///
+    /// Returns whether anything changed, so the caller can skip the repaint
+    /// when the offset is already correct.
+    ///
+    /// NEGATIVE CONTROL: stop calling this on the lightweight scroll path and
+    /// a VirtualView freezes again while its scrollbar keeps moving.
+    pub fn patch_virtual_view_content_offset(&mut self, dom_id: DomId, node_id: NodeId) -> bool {
+        let Some(child_dom_id) = self
+            .virtual_view_manager
+            .get_nested_dom_id(dom_id, node_id)
+        else {
+            return false;
+        };
+        let wanted = self.virtual_view_content_offset(dom_id, node_id);
+        let Some(lr) = self.layout_results.get_mut(&dom_id) else {
+            return false;
+        };
+        let mut changed = false;
+        for item in &mut Arc::make_mut(&mut lr.display_list).items {
+            if let solver3::display_list::DisplayListItem::VirtualView {
+                child_dom_id: item_child,
+                content_offset,
+                ..
+            } = item
+            {
+                if *item_child == child_dom_id && *content_offset != wanted {
+                    *content_offset = wanted;
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
     /// The stable session key for an editing session anchored on `node_id`.
     ///
     /// Keyed on the contenteditable HOST above the anchor, never on the anchor
