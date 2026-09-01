@@ -508,6 +508,11 @@ pub struct User32Functions {
 
     // Pointer input (touch + pen, Windows 8+). Optional — None on older Windows.
     pub GetPointerType: Option<unsafe extern "system" fn(u32, *mut u32) -> BOOL>,
+    /// Touch gestures (Windows 7+). Optional for the same reason the pointer
+    /// functions are: the symbol is absent on older Windows and resolving it
+    /// eagerly would fail the whole user32 load.
+    pub GetGestureInfo: Option<unsafe extern "system" fn(isize, *mut GESTUREINFO) -> BOOL>,
+    pub CloseGestureInfoHandle: Option<unsafe extern "system" fn(isize) -> BOOL>,
     pub GetPointerPenInfo:
         Option<unsafe extern "system" fn(u32, *mut winapi::um::winuser::POINTER_PEN_INFO) -> BOOL>,
     pub GetPointerTouchInfo: Option<
@@ -878,6 +883,8 @@ impl Win32Libraries {
 
                 // Pointer input (optional)
                 GetPointerType: user32_dll.get_symbol("GetPointerType").ok(),
+                GetGestureInfo: user32_dll.get_symbol("GetGestureInfo").ok(),
+                CloseGestureInfoHandle: user32_dll.get_symbol("CloseGestureInfoHandle").ok(),
                 GetPointerPenInfo: user32_dll.get_symbol("GetPointerPenInfo").ok(),
                 GetPointerTouchInfo: user32_dll.get_symbol("GetPointerTouchInfo").ok(),
 
@@ -1050,3 +1057,36 @@ mod tests {
         assert!(lib.handle().is_some());
     }
 }
+
+
+/// `GESTUREINFO` (winuser.h). Carries the gesture id, the screen-space anchor
+/// point and a 64-bit argument whose meaning depends on the id — the zoom
+/// distance for `GID_ZOOM`, the rotation angle for `GID_ROTATE`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GESTUREINFO {
+    pub cbSize: u32,
+    pub dwFlags: u32,
+    pub dwID: u32,
+    pub hwndTarget: HWND,
+    pub ptsLocation_x: i16,
+    pub ptsLocation_y: i16,
+    pub dwInstanceID: u32,
+    pub dwSequenceID: u32,
+    pub ullArguments: u64,
+    pub cbExtraArgs: u32,
+}
+
+/// `WM_GESTURE` ids.
+pub const GID_BEGIN: u32 = 1;
+pub const GID_END: u32 = 2;
+pub const GID_ZOOM: u32 = 3;
+pub const GID_PAN: u32 = 4;
+pub const GID_ROTATE: u32 = 5;
+pub const GID_TWOFINGERTAP: u32 = 6;
+pub const GID_PRESSANDTAP: u32 = 7;
+
+/// `GESTUREINFO.dwFlags` — this is the first message of the gesture.
+pub const GF_BEGIN: u32 = 0x0000_0001;
+/// `GESTUREINFO.dwFlags` — this is the last message of the gesture.
+pub const GF_END: u32 = 0x0000_0004;

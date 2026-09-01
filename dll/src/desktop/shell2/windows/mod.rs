@@ -213,6 +213,10 @@ pub struct Win32Window {
 
     // Input state
     /// High surrogate for UTF-16 character composition
+    /// Contact separation at the start of the current WM_GESTURE zoom.
+    /// GID_ZOOM reports an absolute distance in pixels, not a ratio, so the
+    /// first message is a baseline rather than a scale.
+    pub gesture_zoom_baseline: f32,
     pub high_surrogate: Option<u16>,
     /// IME composition string (for preview during typing)
     pub ime_composition: Option<String>,
@@ -755,6 +759,7 @@ impl Win32Window {
             timers: HashMap::new(),
             thread_timer_running: None,
             high_surrogate: None,
+            gesture_zoom_baseline: 0.0,
             ime_composition: None,
             ime_enabled: true,
             ime_saved_himc: std::ptr::null_mut(),
@@ -3699,6 +3704,7 @@ unsafe extern "system" fn window_proc(
     const WM_MBUTTONDOWN: u32 = 0x0207;
     const WM_MBUTTONUP: u32 = 0x0208;
     const WM_DEVICECHANGE: u32 = 0x0219;
+    const WM_GESTURE: u32 = 0x0119;
     const WM_XBUTTONDOWN: u32 = 0x020B;
     const WM_XBUTTONUP: u32 = 0x020C;
     const WM_ENTERSIZEMOVE: u32 = 0x0231;
@@ -5989,6 +5995,109 @@ unsafe extern "system" fn window_proc(
                     .note_monitor_count_change(before, after);
             }
             0
+        }
+
+        WM_GESTURE => {
+            // Touchscreen gestures. DefWindowProc is still called on the
+            // WM_POINTER* arms, so Windows does synthesize these for us — they
+            // simply had no handler.
+            //
+            // Scope worth being honest about: WM_GESTURE is the touch path.
+            // A Windows precision touchpad does NOT deliver pinch here — it
+            // reports pan and zoom as WM_MOUSEWHEEL / WM_MOUSEHWHEEL (zoom as
+            // Ctrl+wheel, which is the convention browsers zoom on), and the
+            // raw finger geometry is only reachable through Direct
+            // Manipulation. So this closes the touchscreen half on Windows;
+            // the touchpad half is a different API and a separate item.
+            let (Some(get_info), Some(close_info)) = (
+                window.win32.user32.GetGestureInfo,
+                window.win32.user32.CloseGestureInfoHandle,
+            ) else {
+                return def_window_proc_w(hwnd, msg, wparam, lparam);
+            };
+
+            let mut gi = dlopen::GESTUREINFO {
+                cbSize: core::mem::size_of::<dlopen::GESTUREINFO>() as u32,
+                ..Default::default()
+            };
+            if unsafe { get_info(lparam, &mut gi) } == 0 {
+                return def_window_proc_w(hwnd, msg, wparam, lparam);
+            }
+
+            // ptsLocation is in SCREEN coordinates; every other gesture path
+            // reports a client-space centre.
+            let center = window.screen_to_logical_client(
+                i32::from(gi.ptsLocation_x),
+                i32::from(gi.ptsLocation_y),
+            );
+
+            use azul_layout::managers::gesture::{
+                DetectedLongPress, DetectedPinch, DetectedRotation, NativeGestureEvent,
+            };
+            const PINCH_NOMINAL_DISTANCE: f32 = 100.0;
+
+            match gi.dwID {
+                dlopen::GID_ZOOM => {
+                    // ullArguments is the current distance between the two
+                    // contacts, in pixels. The FIRST message of a zoom carries
+                    // the baseline and no scale, so it is stored, not acted on.
+                    let distance = gi.ullArguments as f32;
+                    if gi.dwFlags & dlopen::GF_BEGIN != 0 || window.gesture_zoom_baseline <= 0.0 {
+                        window.gesture_zoom_baseline = distance.max(1.0);
+                    } else if let Some(ref mut lw) = window.common.layout_window {
+                        let scale = distance / window.gesture_zoom_baseline;
+                        lw.gesture_drag_manager.inject_native_gesture(
+                            NativeGestureEvent::Pinch(DetectedPinch {
+                                scale,
+                                center,
+                                initial_distance: PINCH_NOMINAL_DISTANCE,
+                                current_distance: PINCH_NOMINAL_DISTANCE * scale,
+                                duration_ms: 0,
+                            }),
+                        );
+                    }
+                }
+                dlopen::GID_ROTATE => {
+                    // The low 32 bits are a rotation angle encoded by
+                    // GID_ROTATE_ANGLE_FROM_ARGUMENT: 0..=65535 maps onto
+                    // -pi..=pi. As with zoom, the begin message is the origin.
+                    if gi.dwFlags & dlopen::GF_BEGIN == 0 {
+                        let raw = (gi.ullArguments & 0xFFFF) as f32;
+                        let angle = (raw / 65535.0) * (core::f32::consts::PI * 2.0)
+                            - core::f32::consts::PI;
+                        if let Some(ref mut lw) = window.common.layout_window {
+                            lw.gesture_drag_manager.inject_native_gesture(
+                                NativeGestureEvent::Rotation(DetectedRotation {
+                                    angle_radians: angle,
+                                    center,
+                                    duration_ms: 0,
+                                }),
+                            );
+                        }
+                    }
+                }
+                dlopen::GID_PRESSANDTAP | dlopen::GID_TWOFINGERTAP => {
+                    // Both are the touch spelling of "secondary action" — the
+                    // same reading the X11 pinch-with-no-movement gets.
+                    if let Some(ref mut lw) = window.common.layout_window {
+                        lw.gesture_drag_manager.inject_native_gesture(
+                            NativeGestureEvent::LongPress(DetectedLongPress {
+                                position: center,
+                                duration_ms: 0,
+                            }),
+                        );
+                    }
+                }
+                dlopen::GID_END => {
+                    window.gesture_zoom_baseline = 0.0;
+                }
+                _ => {}
+            }
+
+            unsafe { close_info(lparam) };
+            // Still hand it to DefWindowProc: it owns the inertia and the
+            // panning fallback, and swallowing the message loses both.
+            def_window_proc_w(hwnd, msg, wparam, lparam)
         }
 
         WM_DEVICECHANGE => {

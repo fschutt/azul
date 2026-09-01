@@ -94,6 +94,17 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 7c
+
+- [ ] 7c-i Windows TOUCHPAD pinch is not reachable through `WM_GESTURE`. A precision touchpad reports pan
+      and zoom as `WM_MOUSEWHEEL` / `WM_MOUSEHWHEEL` (zoom as Ctrl+wheel, the convention browsers zoom on),
+      and the raw finger geometry is only available through Direct Manipulation
+      (`IDirectManipulationViewport`). Decide whether to synthesize a pinch from Ctrl+wheel — which is what
+      most apps actually do — or take the DirectManipulation dependency.
+- [ ] 7c-ii `screen_to_logical_client` is referenced by the `WM_GESTURE` arm and may not exist under that
+      name; `ptsLocation` is in SCREEN coordinates while every other gesture path reports client-space.
+      Reconcile at fix-up.
+
 ### Follow-ups opened by 5b
 
 - [ ] 5b-i `PenState` has no `hover_distance` field yet (that is item 8c), so Wayland's `tool_distance` is
@@ -168,7 +179,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 - [x] 7a Wayland: bind `zwp_pointer_gestures_v1` (swipe, pinch, hold) → existing pinch/rotate/swipe filters.
 - [x] 7b X11: XInput 2.4 `XI_GesturePinch*` / `XI_GestureSwipe*`.
-- [ ] 7c Windows: touchpad pinch — handle `WM_GESTURE`, or recognise from the pointer stream.
+- [x] 7c Windows: TOUCHSCREEN pinch/rotate via WM_GESTURE. The touchpad half is NOT this API — see 7c-i. Original item: touchpad pinch — handle `WM_GESTURE`, or recognise from the pointer stream.
 - [ ] 7d Wayland: raise `seat_version` cap from `min(7)` to 9; add `axis_value120` and `axis_relative_direction`
       listeners; keep `axis_discrete` as the v5–v7 fallback.
 - [ ] 7e macOS: read `isDirectionInvertedFromDevice` (natural-scroll flag).
