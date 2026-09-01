@@ -144,4 +144,129 @@ mod tests {
             "a 5000-node UI's TREE projects to {projected} bytes; the guide claims ~1 MB",
         );
     }
+
+    /// HOW MUCH of `computed_values` is answerable from the compact cache?
+    ///
+    /// `computed_values` is a per-node sorted vec of resolved INHERITABLE
+    /// properties, and it is 58% of the whole style cache. 17 of the 37
+    /// inheritable property types also have a compact encoding, so for those
+    /// the compact cache already holds the answer (it does its own inheritance
+    /// — `compact.rs`, "Step 1: Inherit from parent's COMPACT values"). Only
+    /// the remaining 20 — the rare ones (`hanging-punctuation`,
+    /// `text-combine-upright`, `list-style-position`, `widows`, `orphans` …) —
+    /// genuinely need a tall form.
+    ///
+    /// This counts the split on a real stylesheet, so the decision to write the
+    /// `CssPropertyType` -> compact dispatch is made against a number rather
+    /// than against the shape of the type list.
+    #[test]
+    fn how_much_of_computed_values_the_compact_cache_could_answer() {
+        let Some(xml) = bench_document() else {
+            eprintln!("[skip] doc/xhtml1/chapter-8.xht not present");
+            return;
+        };
+        let styled = crate::xml::parse_xml_to_styled_dom(&xml)
+            .expect("the bench document must parse");
+        let cache = styled.get_css_property_cache();
+
+        let mut compact_covered = 0usize;
+        let mut needs_tall = 0usize;
+        let mut by_type: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        for per_node in &cache.computed_values {
+            for (ty, _) in per_node {
+                if ty.has_compact_encoding() {
+                    compact_covered += 1;
+                } else {
+                    needs_tall += 1;
+                    *by_type.entry(format!("{ty:?}")).or_default() += 1;
+                }
+            }
+        }
+        let total = compact_covered + needs_tall;
+        println!(
+            "computed_values entries: {total} total | {compact_covered} answerable from the \
+             compact cache ({:.1}%) | {needs_tall} genuinely need the tall form",
+            100.0 * compact_covered as f64 / total.max(1) as f64,
+        );
+        println!("  non-compact inherited types actually used: {by_type:?}");
+
+        // Of the compact-covered entries, only some are LOSSLESSLY recoverable:
+        // the compact cache stores font-family as a u64 HASH, and pixel-valued
+        // properties as a px-or-sentinel encoding that discards em/%/vh metrics.
+        // Count the entries a `CssPropertyType -> CssProperty` bridge could
+        // actually answer.
+        let mut recoverable: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        let mut lossy: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        for per_node in &cache.computed_values {
+            for (ty, _) in per_node {
+                if !ty.has_compact_encoding() {
+                    continue;
+                }
+                let name = format!("{ty:?}");
+                // Enum-valued tier-1 properties and the packed colour decode
+                // back exactly; everything else loses its metric or its identity.
+                let lossless = matches!(
+                    name.as_str(),
+                    "font-weight" | "font-style" | "text-align" | "visibility" | "white-space"
+                        | "direction" | "writing-mode" | "border-collapse" | "color"
+                        | "tab-size" | "border-spacing"
+                );
+                if lossless {
+                    *recoverable.entry(name).or_default() += 1;
+                } else {
+                    *lossy.entry(name).or_default() += 1;
+                }
+            }
+        }
+        let rec: usize = recoverable.values().sum();
+        let los: usize = lossy.values().sum();
+        println!(
+            "  of the compact-covered {compact_covered}: {rec} losslessly recoverable ({:.1}% of \
+             ALL entries), {los} lossy",
+            100.0 * rec as f64 / total.max(1) as f64,
+        );
+        println!("    recoverable: {recoverable:?}");
+        println!("    lossy:       {lossy:?}");
+
+        // WHY the remaining entries are still expensive, and what a transposed
+        // store would cost instead. `CssProperty` is a wide enum held BY VALUE
+        // in every entry, so an inherited `cursor: pointer` on a container is
+        // paid for again in every descendant. Counting DISTINCT values per type
+        // sizes the alternative: one copy of each value plus a node-id list.
+        use azul_css::props::property::CssProperty;
+        let entry_sz = core::mem::size_of::<(
+            azul_css::props::property::CssPropertyType,
+            azul_core::prop_cache::CssPropertyWithOrigin,
+        )>();
+        println!(
+            "  size_of CssProperty = {} B, per-entry = {entry_sz} B",
+            core::mem::size_of::<CssProperty>(),
+        );
+        let mut distinct: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+            std::collections::BTreeMap::new();
+        let mut entries = 0usize;
+        for per_node in &cache.computed_values {
+            for (ty, p) in per_node {
+                entries += 1;
+                distinct
+                    .entry(format!("{ty:?}"))
+                    .or_default()
+                    .insert(format!("{:?}", p.property));
+            }
+        }
+        let distinct_total: usize = distinct.values().map(std::collections::BTreeSet::len).sum();
+        let transposed = distinct_total * entry_sz + entries * core::mem::size_of::<u32>();
+        let current = entries * entry_sz;
+        println!(
+            "  {entries} entries over {distinct_total} DISTINCT values: by-value {current} B vs \
+             transposed {transposed} B ({:.0}x smaller)",
+            current as f64 / transposed.max(1) as f64,
+        );
+        for (ty, vals) in &distinct {
+            println!("    {ty}: {} distinct value(s)", vals.len());
+        }
+    }
 }
