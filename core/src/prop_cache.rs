@@ -1126,19 +1126,53 @@ impl CssPropertyCache {
             }
             false
         };
-        // DO NOT prune css_props: regenerate_layout calls
-        // recompute_inheritance_and_compact_cache() every frame, which REBUILDS the
-        // compact cache from css_props (build_compact_cache_with_inheritance reads
-        // css_props in its per-node Step 3). If we drop compact-encoded Normal props
-        // here, that rebuild reads pruned css_props and resets those props to their
-        // CSS-initial value — e.g. white-space:pre-wrap on a node regressed to Normal
-        // on the 2nd (recompute) build, collapsing \n in pre-wrap text into one line
-        // (#8, intermittently — depends on whether the recompute ran). The doc's
-        // premise ("the compact cache is the source of truth", implying permanence)
-        // is false given that per-frame recompute. cascaded_props is NOT read by the
-        // rebuild (Step 1 inherits from the parent's COMPACT value, not cascaded_props),
-        // so pruning it remains safe. TODO: re-enable css_props pruning once recompute
-        // becomes incremental (preserve directly-set compact values instead of rebuilding).
+        // css_props is STILL NOT PRUNED, but not for the reason recorded here
+        // before. That reason — "regenerate_layout rebuilds the compact cache
+        // from css_props every frame" (#8: white-space:pre-wrap collapsing) —
+        // is FALSE, and the measurement is in the module docs of
+        // `StyledDom::cascade_trace`: a 252-pass scenario produced ONE rebuild
+        // and 251 context offers that early-returned unchanged. The rebuild
+        // fires once per distinct dynamic context, not per frame, and
+        // `css_props` is exactly re-derivable from `retained_author_css`, so
+        // re-deriving it around a rebuild is affordable.
+        //
+        // The REAL blocker is the reader set. `css_props` is also read directly
+        // by `transient::extract_subtree_as_dom`, which copies a node's matched
+        // author rules — ALL pseudo-states — into the extracted DOM's inline
+        // style; pruning drops the Normal compact-encoded ones and a scoped
+        // `with_css` width vanishes from the extracted subtree
+        // (`resolved_style_travels_with_the_extracted_subtree` catches it).
+        // `get_property_slow` cannot stand in: it answers one (node, type) at a
+        // time and cannot enumerate a node's pseudo-state rules.
+        //
+        // And the compact cache cannot back-fill what would be dropped:
+        // `FontFamily` has a compact encoding but is stored as a u64 HASH, so a
+        // pruned family is unrecoverable for any reader not going through
+        // `computed_values`.
+        //
+        // So the prerequisite is not incremental recompute — it is giving
+        // extraction a source that survives the prune (its own retained view,
+        // or a lossless `CssPropertyType -> CssProperty` bridge over the compact
+        // cache, which does not exist today).
+        //
+        // MEASURED (`AZ_CASCADE_TRACE=1`, e2e scenario of a click plus 250
+        // keystrokes, 252 layout passes):
+        //
+        //     253 cascade decisions | 1 compact rebuild | 251 context offers
+        //     that early-returned unchanged
+        //
+        // The rebuild is gated behind `set_dynamic_selector_context`, which
+        // returns immediately when the context is equal — so it fires ONCE per
+        // distinct dynamic context (viewport size, theme, focus), i.e. once at
+        // startup, and again per size during a resize. Not per frame.
+        //
+        // What makes the prune SOUND is not the rarity, though — it is that
+        // `css_props` is written only by `restyle()`, wholly from
+        // `retained_author_css`, so it is exactly re-derivable. Every rebuild
+        // site now runs `restyle_retained()` first (see
+        // `StyledDom::set_dynamic_selector_context` and its siblings), which
+        // repopulates `css_props` before the rebuild reads it. #8 cannot recur:
+        // the rebuild never sees a pruned store.
         if !self.cascaded_props.is_flattened() {
             self.cascaded_props
                 .sort_each_and_flatten(|p| (p.state, p.prop_type));
