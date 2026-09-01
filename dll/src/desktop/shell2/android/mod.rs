@@ -1593,6 +1593,66 @@ pub mod text_bridge {
         });
     }
 
+    /// `View.onApplyWindowInsets` — system bars, display cutout and the IME.
+    ///
+    /// Android had NO inset handling at all, which since API 35 is not a
+    /// cosmetic gap: edge-to-edge is mandatory there, so the status and
+    /// navigation bars sit ON TOP of the app's content unless it insets
+    /// itself. Content was being drawn under them.
+    ///
+    /// All values arrive in PHYSICAL pixels — Android insets always do — and
+    /// are converted here, because everything downstream of `SafeAreaInsets`
+    /// is logical.
+    ///
+    /// The IME inset is kept separate from `bottom` rather than added into
+    /// it: the navigation bar is fixed for the life of the window while the
+    /// keyboard appears, animates and leaves, and an app that needs to know
+    /// why its content shrank cannot recover that from one number.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeOnWindowInsets(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+        top_px: i32,
+        bottom_px: i32,
+        left_px: i32,
+        right_px: i32,
+        ime_px: i32,
+    ) {
+        use azul_css::props::basic::pixel::PixelValue;
+        use azul_css::OptionPixelValue;
+
+        with_window(native_ptr, |w| {
+            let scale = w
+                .common
+                .current_window_state()
+                .size
+                .get_hidpi_factor()
+                .inner
+                .get();
+            let to_logical = |px: i32| -> OptionPixelValue {
+                if px <= 0 {
+                    // 0 is "no inset", which is genuinely different from
+                    // "unknown" — the None case is for platforms that cannot
+                    // answer at all.
+                    OptionPixelValue::None
+                } else {
+                    OptionPixelValue::Some(PixelValue::px(px as f32 / scale))
+                }
+            };
+            if let Some(lw) = w.common.layout_window.as_mut() {
+                lw.safe_area_insets = azul_css::system::SafeAreaInsets {
+                    top: to_logical(top_px),
+                    bottom: to_logical(bottom_px),
+                    left: to_logical(left_px),
+                    right: to_logical(right_px),
+                    keyboard: to_logical(ime_px),
+                };
+            }
+            w.common.request_regeneration(RelayoutReason::RefreshDom);
+        });
+    }
+
     /// Whether a composition is currently open — the Java side asks so it can
     /// answer `InputConnection.getComposingText` without duplicating state.
     #[no_mangle]

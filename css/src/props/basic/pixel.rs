@@ -1401,6 +1401,9 @@ mod autotest_generated {
                     bottom: OptionPixelValue::Some(PixelValue::px(9.0)),
                     left: OptionPixelValue::Some(PixelValue::px(10.0)),
                     right: OptionPixelValue::Some(PixelValue::px(11.0)),
+                    // No keyboard inset at this site: a titlebar/desktop
+                    // surface never has an on-screen keyboard over it.
+                    keyboard: OptionPixelValue::None,
                 },
                 ..TitlebarMetrics::default()
             },

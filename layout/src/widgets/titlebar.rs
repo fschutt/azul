@@ -1842,6 +1842,9 @@ mod autotest_generated {
             bottom: OptionPixelValue::None,
             left: OptionPixelValue::Some(PixelValue::px(10.0)),
             right: OptionPixelValue::Some(PixelValue::px(20.0)),
+            // No keyboard inset at this site: a titlebar/desktop
+            // surface never has an on-screen keyboard over it.
+            keyboard: OptionPixelValue::None,
         };
 
         let t = Titlebar::from_system_style(AzString::from("x"), &ss);
@@ -2016,6 +2019,9 @@ mod autotest_generated {
             bottom: OptionPixelValue::Some(PixelValue::px(2.0)),
             left: OptionPixelValue::Some(PixelValue::px(3.0)),
             right: OptionPixelValue::Some(PixelValue::px(4.0)),
+            // No keyboard inset at this site: a titlebar/desktop
+            // surface never has an on-screen keyboard over it.
+            keyboard: OptionPixelValue::None,
         };
 
         let csd = Titlebar::from_system_style_csd(AzString::from("x"), &ss);

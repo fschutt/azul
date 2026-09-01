@@ -629,6 +629,20 @@ pub struct SafeAreaInsets {
     pub left: OptionPixelValue,
     /// Inset from the right edge (rounded corners)
     pub right: OptionPixelValue,
+    /// How much of the window the on-screen keyboard currently covers, from
+    /// the bottom edge. APPENDED for ABI stability.
+    ///
+    /// Deliberately NOT folded into `bottom`. The two have different
+    /// lifetimes and different meanings: `bottom` is the home indicator and is
+    /// fixed for the life of the window, while this appears and disappears and
+    /// is animated by the OS. An app that adds them together gets the right
+    /// answer; one that needs to know why its content shrank cannot recover
+    /// that from a single number.
+    ///
+    /// `None` on desktop and whenever no keyboard is up. Android reports it as
+    /// `WindowInsets.Type.ime()`, iOS as the intersection of
+    /// `UIKeyboardFrameEndUserInfoKey` with the view.
+    pub keyboard: OptionPixelValue,
 }
 
 /// Metrics for titlebar layout and window chrome.
@@ -808,6 +822,9 @@ impl TitlebarMetrics {
                 bottom: OptionPixelValue::Some(PixelValue::px(34.0)),
                 left: OptionPixelValue::None,
                 right: OptionPixelValue::None,
+                // No keyboard inset at this site: a titlebar/desktop
+                // surface never has an on-screen keyboard over it.
+                keyboard: OptionPixelValue::None,
             },
             title_font: OptionString::Some(".SFUI-Semibold".into()),
             title_font_size: OptionF32::Some(17.0),

@@ -94,6 +94,16 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 10c
+
+- [ ] 10c-i iOS does not fill `keyboard`: it needs `UIKeyboardWillChangeFrameNotification` observed and
+      `UIKeyboardFrameEndUserInfoKey` intersected with the view's frame (the raw frame is in screen
+      coordinates and can be wider than the window on iPad split view).
+- [ ] 10c-ii The Java side of `nativeOnWindowInsets` does not exist — `View.setOnApplyWindowInsetsListener`
+      reading `Type.systemBars() | Type.displayCutout()` and `Type.ime()`. Same class as 10a-i.
+- [ ] 10c-iii Nothing CONSUMES the keyboard inset in layout. `env(safe-area-inset-*)` already resolves from
+      `SafeAreaInsets`; a matching `env(keyboard-inset-bottom)` would let CSS react without app code.
+
 ### Follow-ups opened by 10b
 
 - [ ] 10b-i Full `UITextInput` conformance — ~25 methods over `UITextPosition` / `UITextRange` object
@@ -342,7 +352,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 - [x] 10a (native side + JNI entry points + keyboard request; the Java class is 10a-i) Android `InputConnection` (JNI bridge) → text input + the composition events from 3d.
 - [x] 10b (UIKeyInput + UIPress done; full UITextInput is 10b-i) iOS `UITextInput` → text input; `UIPress`/`UIKeyCommand` for hardware keyboard.
-- [ ] 10c Insets / safe area / keyboard avoidance as a layout input (Android `WindowInsets`, iOS safe area).
+- [x] 10c (keyboard inset modelled + Android bridge; safe-area itself already existed on macOS/iOS. iOS keyboard notifications are 10c-i) Insets / safe area / keyboard avoidance as a layout input (Android `WindowInsets`, iOS safe area).
 - [ ] 10d iOS `UIPencilInteraction` → `PenSqueeze` + `PenDoubleTap`.
 - [ ] 10e `coalescedTouches` / `predictedTouches` (iOS) and the equivalent elsewhere.
 - [ ] 10f Real gamepad backends to replace `gamepad/android.rs` (16 lines) and `gamepad/apple.rs` (17 lines).

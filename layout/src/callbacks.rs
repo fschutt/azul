@@ -5004,6 +5004,22 @@ impl CallbackInfo {
             .request_soft_keyboard(visible);
     }
 
+    /// How much of the window the on-screen keyboard currently covers, in
+    /// logical px from the bottom edge. `0.0` when no keyboard is up.
+    ///
+    /// Separate from `get_safe_area_insets().bottom`, which is the home
+    /// indicator or navigation bar and does not move. A layout that needs to
+    /// stay above the keyboard adds the two; one that wants to know why it
+    /// shrank needs them apart.
+    #[must_use]
+    pub fn get_keyboard_inset(&self) -> f32 {
+        use azul_css::OptionPixelValue;
+        match self.get_layout_window().safe_area_insets.keyboard {
+            OptionPixelValue::Some(p) => p.to_pixels(0.0),
+            OptionPixelValue::None => 0.0,
+        }
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     #[must_use]
