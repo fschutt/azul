@@ -20840,7 +20840,7 @@ impl LayoutWindow {
 
 #[cfg(test)]
 mod zombie_tests {
-    use azul_core::animation::{AnimKey, AnimationManager, Interp, Spring};
+    use azul_core::animation::{AnimKey, AnimationManager, InterpolationMode, Spring};
 
     /// A zombie is done only when EVERY exit it waits on has settled. One
     /// straggler must keep the whole retained frame alive, or a subtree gets
@@ -20853,7 +20853,7 @@ mod zombie_tests {
         m.start_exit(
             fast,
             (-50.0, 0.0),
-            Interp::Curve {
+            InterpolationMode::Curve {
                 function: azul_css::props::basic::animation::AnimationInterpolationFunction::Linear,
                 duration_secs: 0.01,
             },
@@ -20861,7 +20861,7 @@ mod zombie_tests {
         m.start_exit(
             slow,
             (-50.0, 0.0),
-            Interp::Curve {
+            InterpolationMode::Curve {
                 function: azul_css::props::basic::animation::AnimationInterpolationFunction::Linear,
                 duration_secs: 10.0,
             },
@@ -20915,9 +20915,9 @@ mod zombie_tests {
                 scale_x: 1.0,
                 scale_y: 1.0,
             },
-            Interp::Spring(Spring::SMOOTH),
+            InterpolationMode::Spring(Spring::SMOOTH),
         );
-        m.start_exit(key, (-50.0, 0.0), Interp::Spring(Spring::SMOOTH));
+        m.start_exit(key, (-50.0, 0.0), InterpolationMode::Spring(Spring::SMOOTH));
         let anim = m.get(key).expect("still animating");
         assert_eq!(anim.class, azul_core::animation::AnimClass::Exit);
         assert_eq!(
