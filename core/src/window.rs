@@ -792,6 +792,31 @@ pub struct TouchState {
     pub touch_points: TouchPointVec,
 }
 
+/// What is making a touch contact.
+///
+/// Mirrors Android's `MotionEvent.TOOL_TYPE_*`, which is the richest of the
+/// platform vocabularies; Windows and Wayland report a subset. `Palm` matters
+/// even though nothing can be done with it directly: a digitizer that can
+/// classify a palm is telling the app to IGNORE that contact, which is the
+/// whole of palm rejection.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum TouchToolType {
+    /// The platform did not say.
+    Unknown,
+    /// A fingertip.
+    Finger,
+    /// A stylus tip.
+    Stylus,
+    /// The inverted end of a stylus.
+    Eraser,
+    /// A resting palm — the digitizer classified this contact as accidental.
+    Palm,
+    /// A mouse, reported through the touch stream (Android `SOURCE_MOUSE`
+    /// contacts, some digitizer pucks).
+    Mouse,
+}
+
 /// Single touch point (finger, stylus, etc.)
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -803,6 +828,22 @@ pub struct TouchPoint {
     /// Force/pressure of the touch (0.0 = no pressure, 1.0 = maximum pressure)
     /// Set to 0.5 if pressure is not available
     pub force: f32,
+    /// Major axis of the contact ellipse, in logical px. `0.0` = not reported.
+    ///
+    /// A contact is an area, not a point, and every platform says so: Wayland
+    /// `wl_touch.shape`, Windows `POINTER_TOUCH_INFO.rcContact`, Android
+    /// `AXIS_TOUCH_MAJOR`. Without it there is no palm rejection, no
+    /// brush-size-from-fingertip, and no way to size a hit target to a thumb
+    /// rather than to a mouse cursor.
+    pub major: f32,
+    /// Minor axis of the contact ellipse, in logical px. `0.0` = not reported.
+    pub minor: f32,
+    /// Rotation of the contact ellipse, radians clockwise from the x-axis.
+    /// `0.0` when unreported OR when a circular contact makes it meaningless —
+    /// check `major`/`minor` before trusting it.
+    pub orientation_rad: f32,
+    /// What is touching. `Unknown` where the platform does not classify.
+    pub tool_type: TouchToolType,
 }
 
 impl_option!(

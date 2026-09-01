@@ -1282,6 +1282,11 @@ mod tests {
                 id: *id,
                 position: LogicalPosition::new(*x, *y),
                 force: 0.5,
+                // Contact geometry: 0.0 = not reported by this backend.
+                major: 0.0,
+                minor: 0.0,
+                orientation_rad: 0.0,
+                tool_type: azul_core::window::TouchToolType::Unknown,
             })
             .collect();
         s.touch_state.num_touches = pts.len();

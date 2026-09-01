@@ -28,3 +28,11 @@ adding. They are appended at the END of the enum, after `DeviceDisconnected`:
 The FILTER variants they serve (`HoverEventFilter::PenSqueeze/PenDoubleTap/PenHover`,
 `WindowEventFilter::` the same three, `ComponentEventFilter::DefaultAction/Selected`) are already in
 api.json and unchanged — this arc gave them producers, it did not add them.
+
+## From step 8b (touch contact geometry)
+
+- `azul_core::window::TouchToolType` — new `#[repr(C)]` enum
+  `{ Unknown, Finger, Stylus, Eraser, Palm, Mouse }`.
+- `azul_core::window::TouchPoint` — four new fields appended:
+  `major: f32`, `minor: f32`, `orientation_rad: f32`, `tool_type: TouchToolType`.
+  Already in api.json as `window.TouchPoint`, so this is a field-level update, not a new class.

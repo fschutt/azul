@@ -379,6 +379,11 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
                     id: id_u64,
                     position: touch_pos,
                     force: normalized,
+                    // Contact geometry: 0.0 = not reported by this backend.
+                    major: 0.0,
+                    minor: 0.0,
+                    orientation_rad: 0.0,
+                    tool_type: azul_core::window::TouchToolType::Unknown,
                 });
 
                 if pos.is_none() {

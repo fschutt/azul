@@ -858,6 +858,11 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                             id: p.pointer_id() as u64,
                             position: pos,
                             force,
+                            // Contact geometry: 0.0 = not reported by this backend.
+                            major: 0.0,
+                            minor: 0.0,
+                            orientation_rad: 0.0,
+                            tool_type: azul_core::window::TouchToolType::Unknown,
                         });
                     }
 

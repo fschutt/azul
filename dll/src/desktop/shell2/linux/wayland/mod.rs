@@ -3412,6 +3412,46 @@ impl WaylandWindow {
     /// Handle pointer motion event
     /// Merge a touch point (down/motion) into touch_state by id, then process.
     /// `x`/`y` are surface-local logical coords (wl_fixed already /256.0).
+    /// `wl_touch.shape` — record the contact ellipse for one point.
+    ///
+    /// Arrives BETWEEN `down`/`motion` and `frame`, describing a point that
+    /// already exists, so an id with no matching point is a compositor sending
+    /// shape for a contact we never saw and is dropped rather than invented.
+    pub fn handle_touch_shape(&mut self, id: i32, major: f32, minor: f32) {
+        use azul_core::window::TouchPointVec;
+        let ts = self.common.touch_state_mut();
+        let mut pts: Vec<azul_core::window::TouchPoint> =
+            ts.touch_points.clone().into_library_owned_vec();
+        if let Some(p) = pts.iter_mut().find(|p| p.id == id as u64) {
+            p.major = major;
+            p.minor = minor;
+            // A contact with a measurable ellipse is a finger: a stylus
+            // reports through the tablet protocol, not wl_touch, and a
+            // compositor that classifies a palm sends no shape for it.
+            if p.tool_type == azul_core::window::TouchToolType::Unknown {
+                p.tool_type = azul_core::window::TouchToolType::Finger;
+            }
+        }
+        ts.touch_points = TouchPointVec::from_vec(pts);
+    }
+
+    /// `wl_touch.orientation` — record the ellipse's rotation.
+    ///
+    /// Wayland measures degrees clockwise from the Y axis; `TouchPoint` stores
+    /// radians from the X axis, so this is a quarter turn plus a unit change,
+    /// not a straight assignment.
+    pub fn handle_touch_orientation(&mut self, id: i32, degrees_from_y: f32) {
+        use azul_core::window::TouchPointVec;
+        let radians_from_x = (degrees_from_y - 90.0).to_radians();
+        let ts = self.common.touch_state_mut();
+        let mut pts: Vec<azul_core::window::TouchPoint> =
+            ts.touch_points.clone().into_library_owned_vec();
+        if let Some(p) = pts.iter_mut().find(|p| p.id == id as u64) {
+            p.orientation_rad = radians_from_x;
+        }
+        ts.touch_points = TouchPointVec::from_vec(pts);
+    }
+
     pub fn handle_touch_point(&mut self, id: i32, x: f64, y: f64) {
         use azul_core::window::{TouchPoint, TouchPointVec};
         let pos = LogicalPosition::new(x as f32, y as f32);
@@ -3426,6 +3466,11 @@ impl WaylandWindow {
                 id: id as u64,
                 position: pos,
                 force: 1.0,
+                // Contact geometry: 0.0 = not reported by this backend.
+                major: 0.0,
+                minor: 0.0,
+                orientation_rad: 0.0,
+                tool_type: azul_core::window::TouchToolType::Unknown,
             });
         }
         ts.touch_points = TouchPointVec::from_vec(pts);

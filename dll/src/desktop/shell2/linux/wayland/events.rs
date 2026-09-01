@@ -984,20 +984,42 @@ pub(super) extern "C" fn touch_cancel_handler(data: *mut c_void, _touch: *mut wl
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.handle_touch_cancel();
 }
+/// `wl_touch.shape` — the contact ellipse for one touch point.
+///
+/// The compositor has been sending this all along; the handler was registered
+/// with an empty body, so the geometry arrived and was discarded because
+/// `TouchPoint` had nowhere to put it.
+///
+/// Both axes are `wl_fixed` SURFACE-local lengths, so they scale with the
+/// surface exactly as positions do and go through the same conversion.
 extern "C" fn touch_shape_handler(
-    _data: *mut c_void,
+    data: *mut c_void,
     _touch: *mut wl_touch,
-    _id: i32,
-    _major: i32,
-    _minor: i32,
+    id: i32,
+    major: i32,
+    minor: i32,
 ) {
+    let window = unsafe { &mut *(data as *mut super::WaylandWindow) };
+    window.handle_touch_shape(
+        id,
+        wl_fixed_to_f64(major) as f32,
+        wl_fixed_to_f64(minor) as f32,
+    );
 }
+
+/// `wl_touch.orientation` — rotation of that ellipse.
+///
+/// `wl_fixed` DEGREES clockwise from the y-axis, which is not the convention
+/// `TouchPoint.orientation_rad` uses (radians from the x-axis), so it is
+/// converted rather than stored raw.
 extern "C" fn touch_orientation_handler(
-    _data: *mut c_void,
+    data: *mut c_void,
     _touch: *mut wl_touch,
-    _id: i32,
-    _orientation: i32,
+    id: i32,
+    orientation: i32,
 ) {
+    let window = unsafe { &mut *(data as *mut super::WaylandWindow) };
+    window.handle_touch_orientation(id, wl_fixed_to_f64(orientation) as f32);
 }
 
 static WL_TOUCH_LISTENER: wl_touch_listener = wl_touch_listener {

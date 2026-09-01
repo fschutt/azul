@@ -16581,6 +16581,11 @@ pub fn process_debug_event(
                 id: *id,
                 position: LogicalPosition { x: *x, y: *y },
                 force: *force,
+                // Contact geometry: 0.0 = not reported by this backend.
+                major: 0.0,
+                minor: 0.0,
+                orientation_rad: 0.0,
+                tool_type: azul_core::window::TouchToolType::Unknown,
             });
             state.touch_state.touch_points = points.into();
             state.touch_state.num_touches = state.touch_state.touch_points.as_ref().len();
@@ -16603,6 +16608,11 @@ pub fn process_debug_event(
                     id: *id,
                     position: LogicalPosition { x: *x, y: *y },
                     force: *force,
+                    // Contact geometry: 0.0 = not reported by this backend.
+                    major: 0.0,
+                    minor: 0.0,
+                    orientation_rad: 0.0,
+                    tool_type: azul_core::window::TouchToolType::Unknown,
                 });
             }
             state.touch_state.touch_points = points.into();

@@ -1563,6 +1563,11 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
                     id,
                     position: pos,
                     force: 0.5,
+                    // Contact geometry: 0.0 = not reported by this backend.
+                    major: 0.0,
+                    minor: 0.0,
+                    orientation_rad: 0.0,
+                    tool_type: azul_core::window::TouchToolType::Unknown,
                 });
             }
             ts.touch_points = TouchPointVec::from_vec(pts);

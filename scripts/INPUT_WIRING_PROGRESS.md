@@ -184,14 +184,14 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       listeners; keep `axis_discrete` as the v5–v7 fallback.
 - [x] 7e macOS: read `isDirectionInvertedFromDevice` (natural-scroll flag).
 - [x] 7f macOS: add `pressureChangeWithEvent:` (Force Touch `stage` / `stageTransition`).
-- [ ] 7g Wayland: fill the empty `touch_shape_handler` / `touch_orientation_handler` bodies (needs 8b first).
+- [x] 7g Wayland: fill the empty `touch_shape_handler` / `touch_orientation_handler` bodies (needs 8b first).
 - [ ] 7h Win32: keep the `WM_MOUSEWHEEL` fractional remainder instead of truncating.
 
 ## Step 8 — api.json deltas (record intent; run `azul-doc autofix` at fix-up time)
 
 - [ ] 8a `MouseState.other_down: u8` + `Back`/`Forward` `MouseDown`/`MouseUp` on Hover/Focus/Window; extend the
       `button_specific_down` helper. All four layers.
-- [ ] 8b `TouchPoint += { major, minor, orientation_rad, tool_type }` + `TouchToolType { Unknown, Finger, Stylus,
+- [x] 8b `TouchPoint += { major, minor, orientation_rad, tool_type }` + `TouchToolType { Unknown, Finger, Stylus,
       Eraser, Palm, Mouse }`.
 - [ ] 8c `PenState.hover_distance` (proximity Z). The ragged tail is DONE on Wayland/X11 via #450 — what remains
       is macOS + Win32 parity. Do NOT invent `PenToolType`: #450 shipped `TabletToolKind { Unknown, Stylus,

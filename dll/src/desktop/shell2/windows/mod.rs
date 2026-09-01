@@ -3420,10 +3420,35 @@ impl Win32Window {
             let was_present = pts.iter().any(|p| p.id == pointer_id as u64);
             pts.retain(|p| p.id != pointer_id as u64);
             if !is_up {
+                // POINTER_TOUCH_INFO carries the contact RECTANGLE, in
+                // physical px. rcContact defaults to a zero-size rect centred
+                // on the pointer when the digitizer reports no area, so a
+                // degenerate rect means "not reported" rather than "a contact
+                // of zero size" — and must not be turned into a 0.0 x 0.0
+                // ellipse that a caller would read as real.
+                let (major, minor) = {
+                    let w = (ti.rcContact.right - ti.rcContact.left) as f32 / hf;
+                    let h = (ti.rcContact.bottom - ti.rcContact.top) as f32 / hf;
+                    if w > 0.0 && h > 0.0 {
+                        (w.max(h), w.min(h))
+                    } else {
+                        (0.0, 0.0)
+                    }
+                };
+                // `orientation` is DEGREES clockwise from the x-axis, 0..359 —
+                // already the axis TouchPoint uses, unlike Wayland's.
+                let orientation_rad = (ti.orientation as f32).to_radians();
                 pts.push(TouchPoint {
                     id: pointer_id as u64,
                     position: pos,
                     force,
+                    major,
+                    minor,
+                    orientation_rad,
+                    // WM_POINTER splits pen and touch into separate message
+                    // families, and this is the touch one — a stylus arrives
+                    // through the PT_PEN branch and feeds PenState instead.
+                    tool_type: azul_core::window::TouchToolType::Finger,
                 });
             }
             ts.touch_points = TouchPointVec::from_vec(pts);
