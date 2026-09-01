@@ -57,7 +57,9 @@ repo (AzulMaps, azul-paint, azul-meet, …) is packaged this way.
 | `x86_64-linux-android` | Android emulator |
 
 `rustup target add <triple>` installs each. `bash scripts/mobile-check-all.sh`
-runs `cargo check` across all five — the gate kept green as the port lands.
+runs `cargo check` across all five **plus** the two desktop cross targets
+(`x86_64-unknown-linux-gnu`, `x86_64-pc-windows-gnu`) — seven in total, and it
+needs no SDK for any of them (see [Local testing](#local-testing)).
 
 ## How an Azul app maps onto each platform
 
@@ -350,11 +352,167 @@ macOS (only the final iOS *signing* prefers a Mac, and even that has the
 
 `build-android.sh` and `build-ios.sh` run steps 1–4 end to end.
 
-## Testing without a device
+## Local testing
 
-`scripts/mobile-check-all.sh` proves all five targets `cargo check` clean;
-event/runtime paths are covered by the synthetic-event harness (no hardware) —
-see [e2e-testing](../debugging/e2e-testing.md). The iOS simulator runs unsigned `.app`s.
+There are four rungs here, and each proves something the one below it cannot.
+Start at the top — it is free and catches most of what actually breaks.
+
+| Rung | Cost | Proves |
+|---|---|---|
+| 1. `cargo check` per target | seconds, **any OS**, no SDK | the platform code *compiles* |
+| 2. Synthetic-event harness | seconds, no hardware | the event pipeline dispatches |
+| 3. Emulator / simulator | one-time SDK install | the app *boots and draws* |
+| 4. Real device | a cable | timing, sensors, the actual digitizer |
+
+### 1. Cross-compiling is cheaper than it looks
+
+**`cargo check` does not link.** That is the whole trick: it needs the Rust
+`std` for the target and nothing else — no NDK, no iOS SDK, no cross C
+toolchain, no `JAVA_HOME`. One `rustup target add` per triple and every mobile
+backend compiles on whatever machine you happen to have:
+
+```sh
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-linux-android
+bash scripts/mobile-check-all.sh          # or, per target:
+cargo check -p azul-dll --lib --target aarch64-linux-android
+```
+
+This matters more than it sounds. Platform shells are `#[cfg]`-gated, so
+**nothing in `shell2/android/`, `shell2/ios/`, `shell2/windows/` or
+`shell2/linux/` is compiled by a normal `cargo build` on your machine** — an
+editor will happily show you green squiggles over code the compiler has never
+seen. A `use super::foo` that resolves on one platform and not another, a
+struct literal missing a field added last week, a helper that exists only in
+the desktop build: all of it is invisible until you check the target.
+
+Run it before you commit platform code, not after.
+
+### 2. Without any device at all
+
+The synthetic-event harness drives the full input → dispatch → callback path
+with no hardware, including pen, touch, gestures, scroll phases, IME
+composition and gamepad state — see
+[e2e-testing](../debugging/e2e-testing.md). This is the right place to pin
+*behaviour*; the rungs below are for proving the platform glue underneath it
+is real.
+
+### 3a. Android emulator — no Android Studio
+
+Everything comes from Homebrew and the headless `sdkmanager`:
+
+```sh
+brew install --cask android-commandlinetools android-platform-tools
+brew install openjdk@17                       # sdkmanager/avdmanager need a JDK
+
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+
+# The emulator + one system image. Match the ABI to your host: arm64-v8a on
+# Apple silicon, x86_64 on an Intel/AMD box — a mismatched image runs under
+# full emulation and is unusably slow.
+sdkmanager "emulator" "system-images;android-34;google_apis;arm64-v8a"
+avdmanager create avd -n azul -k "system-images;android-34;google_apis;arm64-v8a"
+
+"$ANDROID_HOME/emulator/emulator" -avd azul &
+adb wait-for-device
+adb install -r target/azul-maps.apk
+adb logcat -s azul:V '*:S'
+```
+
+To *build* the APK you additionally need the NDK
+(`sdkmanager "ndk;27.0.12077973"`) — that is the one large download, and it is
+required for linking, not for checking.
+
+> **What an emulator cannot tell you.** Azul's Android input bridges
+> (`NativeTextBridge` for soft-keyboard text/IME/insets, `AzulGamepad` for
+> controllers) are JNI entry points, and JNI is a *callee*. If the Java side
+> that calls them is not in your APK, the emulator boots, draws, and exercises
+> none of those paths — you will see a working window and conclude the input
+> layer works. Check the APK actually ships the Java glue before drawing that
+> conclusion.
+
+### 3b. iOS Simulator
+
+The simulator needs **Xcode** — not an Xcode *project* (you never need one of
+those, see [above](#build--bundle-the-appipa-no-xcode-project)), but the app
+itself, because `simctl` and the iOS SDK ship inside it. Command Line Tools
+alone are not enough: `xcode-select -p` pointing at
+`/Library/Developer/CommandLineTools` gives you `MacOSX.sdk` and no
+`iphonesimulator` sysroot, so iOS can be `cargo check`ed but **not linked**.
+
+```sh
+xcode-select -p                                   # must NOT be CommandLineTools
+xcrun --sdk iphonesimulator --show-sdk-path       # must resolve
+
+open -a Simulator
+xcrun simctl install booted azul-maps.app
+xcrun simctl launch --console booted <bundle-id>
+```
+
+Budget the disk: since Xcode 14 the simulator **runtime is a separate
+download** from Xcode itself, so it is roughly 10 GB + 7–10 GB, not one number.
+
+### 3c. Headless simulator automation with baguette
+
+[`baguette`](https://github.com/tddworks/baguette) drives booted simulators
+from a CLI — no Simulator.app window, no Xcode UI — which makes the iOS
+simulator scriptable in CI the way `adb` already makes Android scriptable.
+
+```sh
+brew install baguette        # needs Xcode 26 (⇒ macOS 15.6+), Apple silicon
+```
+
+It is not a `simctl` wrapper: it links `SimulatorKit` / `CoreSimulator`
+directly, which is what buys real gesture dispatch rather than synthesized
+taps. The commands that matter for testing an azul app:
+
+```sh
+UDID=$(baguette list --json | jq -r '.[0].udid')
+baguette boot --udid $UDID
+
+# Input injection — the real thing, not a synthetic event
+baguette tap    --udid $UDID --x 120 --y 300 --width 393 --height 852
+baguette swipe  --udid $UDID --startX 40 --startY 400 --endX 350 --endY 400 \
+                --width 393 --height 852
+baguette pinch  --udid $UDID --cx 196 --cy 400 --startSpread 40 --endSpread 220 \
+                --width 393 --height 852
+baguette type   --udid $UDID --text "hello"
+baguette key    --udid $UDID --code ArrowLeft --modifiers shift
+
+# Assertions
+baguette describe-ui --udid $UDID --output tree.json    # accessibility tree
+baguette screenshot  --udid $UDID --output shot.png
+baguette clipboard get --udid $UDID
+baguette logs --udid $UDID --style ndjson --bundle-id <id>
+```
+
+Three of those are worth calling out because they map onto things azul
+otherwise has no way to check on a device:
+
+* **`describe-ui`** dumps the accessibility tree as JSON. That is a *structural
+  assertion target*: azul builds that tree itself (see
+  [accessibility](../system/accessibility.md)), so a diff against a golden file
+  catches a11y regressions that a screenshot cannot see.
+* **`clipboard get` / `sync`** reads the simulator's `UIPasteboard`, which is
+  exactly what azul's iOS clipboard transport writes to. A copy in the app and
+  a `clipboard get` outside it is a true end-to-end check of the typed-payload
+  path — flavors and all.
+* **`tap` / `swipe` / `pinch` / `type`** enter through UIKit, so they exercise
+  the real `touchesBegan:`, `UIPencilInteraction`, `UIKeyInput` and gesture
+  recognizers — not azul's own synthetic-event injection. Rung 2 proves the
+  dispatch logic; this proves the *platform glue feeding it*.
+
+For a scripted loop, `baguette serve --port 8421` exposes the same surface over
+HTTP + WebSocket (`POST /simulators/:udid/input`,
+`GET /simulators/:udid/describe-ui.json`, `WS …/stream`, `WS …/logs`), which is
+usually easier to drive from a test harness than shelling out per gesture.
+
+### 4. Real devices
+
+An emulator will not tell you about digitizer sampling rate, pen tilt, Force
+Touch stages, real sensor noise or thermal throttling. For anything timing- or
+hardware-shaped, the device is the only answer — see the install steps
+[above](#installing--debugging-the-built-app).
 
 ## See also
 

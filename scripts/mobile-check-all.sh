@@ -8,13 +8,15 @@
 #   aarch64-linux-android      (ARM64 device)
 #   x86_64-linux-android       (x86_64 emulator)
 #
-# iOS targets that don't have the iOS SDK installed are SKIPPED with an
-# INFO line, not FAIL — link-level breakage is the SDK's concern and
-# this script only validates source-level correctness. cargo check
-# doesn't link, so it surfaces every type / trait / import error before
-# the SDK enters the picture.
+# EVERY target is checked, including iOS on a machine with no iOS SDK.
+# `cargo check` does not link, so it needs only the Rust `std` for the
+# target (`rustup target add <triple>`) — no NDK, no iOS SDK, no cross C
+# toolchain. That is the whole value of this gate: platform shells are
+# #[cfg]-gated, so nothing under shell2/{android,ios,windows,linux} is
+# compiled by a normal build on your machine, and an import or a struct
+# literal that only breaks on one target stays invisible until here.
 #
-# Exit code: 0 iff every non-skipped target checks clean.
+# Exit code: 0 iff every target checks clean.
 
 set -u
 
@@ -36,12 +38,7 @@ red()   { printf '\033[31m%s\033[0m' "$*"; }
 green() { printf '\033[32m%s\033[0m' "$*"; }
 yellow(){ printf '\033[33m%s\033[0m' "$*"; }
 
-has_ios_sdk() {
-    xcrun --sdk iphonesimulator --show-sdk-path >/dev/null 2>&1
-}
-
 ANY_FAIL=0
-ANY_SKIP=0
 # macOS ships bash 3.2 — no associative arrays. Use a single Summary buffer.
 SUMMARY=""
 
@@ -87,9 +84,5 @@ if [ "$ANY_FAIL" = "1" ]; then
     echo
     red "FAIL — see [fail] lines above."; echo
     exit 1
-fi
-if [ "$ANY_SKIP" = "1" ]; then
-    echo
-    yellow "PASS (with skipped iOS targets — install Xcode to lift the gate)"; echo
 fi
 exit 0
