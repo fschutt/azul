@@ -13234,29 +13234,25 @@ pub fn process_debug_event(
             let mut scroll_node: Option<(DomId, NodeId)> = None;
             for (dom_id, layout_result) in &layout_window.layout_results {
                 for (scroll_id, &node_id) in &layout_result.scroll_id_to_node_id {
-                    // Get node bounds from layout tree
-                    if let Some(layout_indices) =
-                        layout_result.layout_tree.dom_to_layout.get(&node_id)
-                    {
-                        if let Some(&layout_idx) = layout_indices.first() {
-                            if let Some(layout_node) = layout_result.layout_tree.get(layout_idx) {
-                                let node_pos = layout_result
-                                    .calculated_positions
-                                    .get(layout_idx.index())
-                                    .copied()
-                                    .unwrap_or_default();
-                                let node_size = layout_node.used_size.unwrap_or_default();
-
-                                // Check if cursor is inside this node
-                                if cursor_pos.x >= node_pos.x
-                                    && cursor_pos.x <= node_pos.x + node_size.width
-                                    && cursor_pos.y >= node_pos.y
-                                    && cursor_pos.y <= node_pos.y + node_size.height
-                                {
-                                    scroll_node = Some((*dom_id, node_id));
-                                    break;
-                                }
-                            }
+                    // The cursor is in WINDOW space, so the node's rect has to
+                    // be too. `calculated_positions` is DOM-LOCAL: for a
+                    // VirtualView's document (or any child DOM) its origin is
+                    // the child's own, so comparing the two spaces matched the
+                    // wrong node — or none — and a wheel over AzWriter's page
+                    // scrolled nothing at all. `get_node_rect` is the same
+                    // window-space rect `get_node_layout` reports.
+                    let rect = callback_info.get_node_rect(azul_core::dom::DomNodeId {
+                        dom: *dom_id,
+                        node: Some(node_id).into(),
+                    });
+                    if let Some(r) = rect {
+                        if cursor_pos.x >= r.origin.x
+                            && cursor_pos.x <= r.origin.x + r.size.width
+                            && cursor_pos.y >= r.origin.y
+                            && cursor_pos.y <= r.origin.y + r.size.height
+                        {
+                            scroll_node = Some((*dom_id, node_id));
+                            break;
                         }
                     }
                 }
