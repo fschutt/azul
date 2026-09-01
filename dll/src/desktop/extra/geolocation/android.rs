@@ -56,9 +56,7 @@ fn subscribe(high_accuracy: bool, min_interval_ms: u32) {
     SUBSCRIPTION_HANDLE.store(handle, Ordering::Relaxed);
     let ok = attach(|env, activity| {
         use jni::objects::JValue;
-        let class = env
-            .find_class("com/azul/geolocation/AzulGeolocation")
-            .ok()?;
+        let class = crate::desktop::extra::find_class_optional(env, "com/azul/geolocation/AzulGeolocation")?;
         env.call_static_method(
             class,
             "subscribe",
@@ -87,9 +85,7 @@ fn release() {
     }
     let _ = attach(|env, _activity| {
         use jni::objects::JValue;
-        let class = env
-            .find_class("com/azul/geolocation/AzulGeolocation")
-            .ok()?;
+        let class = crate::desktop::extra::find_class_optional(env, "com/azul/geolocation/AzulGeolocation")?;
         env.call_static_method(class, "release", "(J)V", &[JValue::Long(handle as i64)])
             .ok()?;
         Some(())

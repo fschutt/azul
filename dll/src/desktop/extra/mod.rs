@@ -76,3 +76,32 @@ pub mod zip;
 /// Cross-subsystem capability probes ([`capability::Capability`]) — "can I use
 /// this feature here, and which backend?". Non-destructive, never panic.
 pub mod capability;
+
+/// Look up a Java class, CLEARING the JVM-side exception when it is absent.
+///
+/// `env.find_class(...)` that fails raises a `ClassNotFoundException` inside
+/// the JVM. `.ok()` discards the Rust `Err` but does NOT touch that pending
+/// exception, and ART aborts the whole process — "No pending exception
+/// expected" — on the next JNI transition, wherever it happens to be.
+///
+/// Every optional Android helper here probes for a class that most APKs do not
+/// ship (`AzulBiometric`, `AzulKeyring`, `AzulGeolocation`, `AzulSensors`), so
+/// each probe armed a landmine for whatever made the next JNI call. It stayed
+/// invisible only while nothing else called into Java on that thread; adding
+/// the soft-keyboard bridge turned it into a SIGABRT a few seconds after
+/// launch. A missing optional class must be a `None`, not a delayed crash.
+#[cfg(all(target_os = "android", feature = "jni"))]
+pub fn find_class_optional<'local>(
+    env: &mut jni::JNIEnv<'local>,
+    name: &str,
+) -> Option<jni::objects::JClass<'local>> {
+    match env.find_class(name) {
+        Ok(c) => Some(c),
+        Err(_) => {
+            // Order matters: describe (if we ever want it) then clear. Clearing
+            // is what makes the next JNI call legal again.
+            let _ = env.exception_clear();
+            None
+        }
+    }
+}
