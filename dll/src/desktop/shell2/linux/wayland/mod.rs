@@ -485,6 +485,14 @@ pub struct WaylandWindow {
     /// wheels; it is what lets the flush convert to the shared 20px-per-detent
     /// magnitude instead of the compositor's raw ~10-15px axis value.
     pending_axis_discrete: (f32, f32),
+    /// Whether `axis_value120` claimed the current frame. v8+ compositors send
+    /// it instead of `axis_discrete`, but a client that listens for both must
+    /// not accumulate both.
+    pending_axis_value120_seen: bool,
+    /// Per-axis "natural scrolling" flag from `axis_relative_direction` (v9+).
+    /// Recorded, not applied — the compositor has already applied the user's
+    /// preference to the deltas.
+    axis_inverted: (bool, bool),
     /// Whether the current frame carries any axis input to flush.
     pending_axis: bool,
     /// Bound `wl_seat` version. `wl_pointer.frame` and `.axis_discrete` are v5+;
@@ -1835,6 +1843,8 @@ impl WaylandWindow {
             current_axis_source: 0,
             pending_axis_value: (0.0, 0.0),
             pending_axis_discrete: (0.0, 0.0),
+            pending_axis_value120_seen: false,
+            axis_inverted: (false, false),
             pending_axis: false,
             seat_version: 0,
             data_device_version: 0,
@@ -3967,6 +3977,13 @@ impl WaylandWindow {
 
     /// Accumulate one `wl_pointer.axis_discrete` (detent count) into the frame.
     pub fn handle_pointer_axis_discrete(&mut self, axis: u32, discrete: i32) {
+        // v8+ compositors send `axis_value120` INSTEAD of this for wheels, and
+        // both would otherwise land in the same frame accumulator and double
+        // the scroll. The v120 handler claims the frame; this one defers once
+        // it has.
+        if self.pending_axis_value120_seen {
+            return;
+        }
         match axis {
             WL_POINTER_AXIS_HORIZONTAL_SCROLL => {
                 self.pending_axis_discrete.0 -= discrete as f32;
@@ -3977,6 +3994,50 @@ impl WaylandWindow {
             _ => return,
         }
         self.pending_axis = true;
+    }
+
+    /// `wl_pointer.axis_value120` — high-resolution wheel, v8+.
+    ///
+    /// 120 is one traditional detent and anything smaller is a fraction of
+    /// one, matching Windows' `WHEEL_DELTA`. Dividing by 120 yields the same
+    /// units `axis_discrete` reports, so the rest of the scroll path is
+    /// unchanged — it simply stops being integral, which is the entire point:
+    /// a free-spinning wheel emits several of these per detent and quantising
+    /// them either threw the motion away or multiplied it.
+    pub fn handle_pointer_axis_value120(&mut self, axis: u32, value120: i32) {
+        let detents = value120 as f32 / WL_POINTER_AXIS_VALUE120_PER_DETENT;
+        match axis {
+            WL_POINTER_AXIS_HORIZONTAL_SCROLL => {
+                self.pending_axis_discrete.0 -= detents;
+            }
+            WL_POINTER_AXIS_VERTICAL_SCROLL => {
+                self.pending_axis_discrete.1 -= detents;
+            }
+            _ => return,
+        }
+        self.pending_axis_value120_seen = true;
+        self.pending_axis = true;
+    }
+
+    /// `wl_pointer.axis_relative_direction` — v9+.
+    ///
+    /// Reports whether this device's motion is inverted relative to the
+    /// surface, which is how the compositor tells a client that "natural
+    /// scrolling" is on. Nothing else on Linux exposes it; macOS calls the
+    /// same fact `isDirectionInvertedFromDevice`.
+    ///
+    /// It is recorded rather than applied: the compositor has ALREADY applied
+    /// the user's preference to the deltas it sends, so inverting here would
+    /// undo it. What it is good for is a client that wants to present motion
+    /// in device terms — a scrollbar drag, or a 3D viewport that should orbit
+    /// with the hand rather than with the page.
+    pub fn handle_pointer_axis_relative_direction(&mut self, axis: u32, direction: u32) {
+        let inverted = direction == WL_POINTER_AXIS_RELATIVE_DIRECTION_INVERTED;
+        match axis {
+            WL_POINTER_AXIS_HORIZONTAL_SCROLL => self.axis_inverted.0 = inverted,
+            WL_POINTER_AXIS_VERTICAL_SCROLL => self.axis_inverted.1 = inverted,
+            _ => {}
+        }
     }
 
     /// `wl_pointer.frame` — the frame is complete. Flush its accumulated axis
@@ -3993,6 +4054,9 @@ impl WaylandWindow {
             return;
         }
         self.pending_axis = false;
+        // Per-frame, like the accumulators it guards: the next frame has to be
+        // free to take axis_discrete again if the compositor sends it.
+        self.pending_axis_value120_seen = false;
         let (raw_x, raw_y) = std::mem::replace(&mut self.pending_axis_value, (0.0, 0.0));
         let (disc_x, disc_y) = std::mem::replace(&mut self.pending_axis_discrete, (0.0, 0.0));
 

@@ -194,6 +194,8 @@ static WL_POINTER_LISTENER: wl_pointer_listener = wl_pointer_listener {
     axis_source: pointer_axis_source_handler,
     axis_stop: pointer_axis_stop_handler,
     axis_discrete: pointer_axis_discrete_handler,
+    axis_value120: pointer_axis_value120_handler,
+    axis_relative_direction: pointer_axis_relative_direction_handler,
 };
 
 static WL_KEYBOARD_LISTENER: wl_keyboard_listener = wl_keyboard_listener {
@@ -520,7 +522,14 @@ pub(super) extern "C" fn registry_global_handler(
             window.track_listener(window.xdg_wm_base);
         }
         "wl_seat" => {
-            let seat_version = version.min(7);
+            // Bound at up to v9. The cap was 7, which put `axis_value120`
+            // (v8) and `axis_relative_direction` (v9) permanently out of
+            // reach — a compositor only sends an event if the client bound a
+            // version that has it, so the listener slots alone are not
+            // enough. v7 also predates the wl_seat side of nothing in
+            // particular; the cap was simply never raised after those events
+            // landed.
+            let seat_version = version.min(9);
             let seat = unsafe {
                 (window.wayland.wl_registry_bind)(
                     registry,
@@ -3047,6 +3056,28 @@ extern "C" fn pointer_axis_stop_handler(
 /// `wl_pointer.axis_discrete` — the detent count behind the frame's axis value.
 /// It is the only compositor-independent scroll quantity available here, so the
 /// frame flush uses it to hit the same per-notch distance as X11 / Win32.
+/// `wl_pointer.axis_value120` — v8+ high-resolution wheel.
+extern "C" fn pointer_axis_value120_handler(
+    data: *mut c_void,
+    _pointer: *mut wl_pointer,
+    axis: u32,
+    value120: i32,
+) {
+    let window = unsafe { &mut *(data as *mut super::WaylandWindow) };
+    window.handle_pointer_axis_value120(axis, value120);
+}
+
+/// `wl_pointer.axis_relative_direction` — v9+ natural-scroll flag.
+extern "C" fn pointer_axis_relative_direction_handler(
+    data: *mut c_void,
+    _pointer: *mut wl_pointer,
+    axis: u32,
+    direction: u32,
+) {
+    let window = unsafe { &mut *(data as *mut super::WaylandWindow) };
+    window.handle_pointer_axis_relative_direction(axis, direction);
+}
+
 extern "C" fn pointer_axis_discrete_handler(
     data: *mut c_void,
     _pointer: *mut wl_pointer,

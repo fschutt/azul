@@ -365,7 +365,40 @@ pub struct wl_pointer_listener {
     pub axis_stop: extern "C" fn(data: *mut c_void, pointer: *mut wl_pointer, time: u32, axis: u32),
     pub axis_discrete:
         extern "C" fn(data: *mut c_void, pointer: *mut wl_pointer, axis: u32, discrete: i32),
+    /// `axis_value120` — wl_pointer v8. High-resolution wheel scrolling.
+    ///
+    /// One traditional detent is 120, and anything finer is a fraction of it.
+    /// The number is Windows' `WHEEL_DELTA` on purpose: Wayland adopted the
+    /// same unit so a client can share one code path. A free-spinning wheel
+    /// emits 4-8x more of these than detents, so without this event they are
+    /// either quantised away or scrolled at several times the intended speed.
+    ///
+    /// This is a PARALLEL stream to `axis_discrete`, not a replacement:
+    /// compositors send v120 to clients that bound v8+, and `axis_discrete`
+    /// to those that did not.
+    pub axis_value120:
+        extern "C" fn(data: *mut c_void, pointer: *mut wl_pointer, axis: u32, value120: i32),
+    /// `axis_relative_direction` — wl_pointer v9. Whether the physical motion
+    /// was inverted relative to the surface, i.e. whether the user has
+    /// "natural scrolling" on. macOS exposes the same fact as
+    /// `isDirectionInvertedFromDevice`; nothing else reports it at all.
+    pub axis_relative_direction:
+        extern "C" fn(data: *mut c_void, pointer: *mut wl_pointer, axis: u32, direction: u32),
 }
+
+/// `wl_pointer.axis_relative_direction` — motion is in the same direction as
+/// the physical wheel/finger movement.
+pub const WL_POINTER_AXIS_RELATIVE_DIRECTION_IDENTICAL: u32 = 0;
+/// `wl_pointer.axis_relative_direction` — motion is inverted ("natural"
+/// scrolling is enabled for this device).
+pub const WL_POINTER_AXIS_RELATIVE_DIRECTION_INVERTED: u32 = 1;
+
+/// The `wl_pointer` version at which `axis_value120` appeared.
+pub const WL_POINTER_AXIS_VALUE120_SINCE_VERSION: u32 = 8;
+/// The `wl_pointer` version at which `axis_relative_direction` appeared.
+pub const WL_POINTER_AXIS_RELATIVE_DIRECTION_SINCE_VERSION: u32 = 9;
+/// One traditional wheel detent, in `axis_value120` units.
+pub const WL_POINTER_AXIS_VALUE120_PER_DETENT: f32 = 120.0;
 
 /// Listener for `wl_touch` events. x/y are wl_fixed_t (i32, 24.8); /256.0 in the handler.
 #[repr(C)]
