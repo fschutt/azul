@@ -1304,7 +1304,7 @@ mod jni_bridge {
     /// Java side by `android_main`. We are the only Rust thread mutating
     /// the window in response to UI events, so the brief mutable
     /// reference is sound.
-    unsafe fn with_window<F>(native_ptr: i64, f: F)
+    pub(super) unsafe fn with_window<F>(native_ptr: i64, f: F)
     where
         F: FnOnce(&mut super::AndroidWindow),
     {
@@ -1480,7 +1480,11 @@ mod jni_bridge {
 /// key events for them. An IME typing Japanese produces no `KeyEvent` whatsoever.
 #[cfg(target_os = "android")]
 pub mod text_bridge {
-    use super::{with_window, RelayoutReason};
+    // `with_window` belongs to the sibling `jni_bridge` module, not to the
+    // android module root — the gesture bridge declared it there first and
+    // this bridge reuses it rather than defining a second copy.
+    use super::jni_bridge::with_window;
+    use super::RelayoutReason;
 
     /// Decode a Java string handed over as UTF-8 bytes.
     ///
@@ -1620,7 +1624,7 @@ pub mod text_bridge {
         ime_px: i32,
     ) {
         use azul_css::props::basic::pixel::PixelValue;
-        use azul_css::OptionPixelValue;
+        use azul_css::props::basic::pixel::OptionPixelValue;
 
         with_window(native_ptr, |w| {
             let scale = w
