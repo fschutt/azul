@@ -26,7 +26,8 @@ use azul_css::parser2::new_from_str;
 use azul_css::props::basic::color::{parse_css_color, ColorU, OptionColorU};
 use azul_css::props::basic::pixel::{OptionPixelValue, PixelValue};
 use azul_css::system::{
-    defaults, DesktopEnvironment, Platform, SystemStyle, Theme, TitlebarButtonSide, ToolbarStyle,
+    defaults, DesktopEnvironment, Platform, ScrollbarVisibility, SubpixelType, SystemStyle, Theme,
+    TitlebarButtonSide, ToolbarStyle,
 };
 
 // ── D-Bus wire-protocol helpers (minimal, read-only) ─────────────────────
@@ -358,7 +359,7 @@ fn hex_encode_uid(uid: u32) -> String {
 // ── GSettings / CLI fallback helpers ─────────────────────────────────────
 
 /// Run `gsettings get <schema> <key>` and return the trimmed, unquoted value.
-fn gsettings_get(schema: &str, key: &str) -> Option<String> {
+fn gsettings_get_raw(schema: &str, key: &str) -> Option<String> {
     use std::process::{Command, Stdio};
     let out = Command::new("gsettings")
         .args(["get", schema, key])
@@ -376,6 +377,55 @@ fn gsettings_get(schema: &str, key: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+/// The GSettings schema families that answer the same questions as GNOME's.
+///
+/// Cinnamon and MATE are GNOME forks: they kept the key NAMES and renamed the
+/// SCHEMAS. A Cinnamon (Linux Mint) session therefore has a fully-configured
+/// desktop that `org.gnome.desktop.interface` knows nothing about — every
+/// query returned `None` and the whole style fell back to built-in defaults,
+/// so Mint's font, theme, icon theme, cursor and titlebar layout were all
+/// invisible to us. Mapping the schema names is the entire fix; the keys
+/// already match.
+fn schema_family(gnome_schema: &str) -> Vec<String> {
+    let mut out = vec![gnome_schema.to_string()];
+    // `org.gnome.desktop.interface` -> `org.cinnamon.desktop.interface`
+    if let Some(rest) = gnome_schema.strip_prefix("org.gnome.") {
+        out.push(alloc::format!("org.cinnamon.{rest}"));
+        // MATE flattened `desktop.` away: `org.mate.interface`, `org.mate.sound`.
+        let mate_rest = rest.strip_prefix("desktop.").unwrap_or(rest);
+        out.push(match mate_rest {
+            // Marco is MATE's window manager; its prefs live under its own name.
+            "wm.preferences" => "org.mate.Marco.general".to_string(),
+            other => alloc::format!("org.mate.{other}"),
+        });
+    }
+    out
+}
+
+/// Which schema family answered last, so a Cinnamon session does not pay a
+/// failed GNOME spawn on every single key.
+static PREFERRED_SCHEMA_IDX: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
+
+/// Read a desktop setting by its GNOME schema name, transparently accepting
+/// the Cinnamon and MATE spellings of the same schema.
+fn gsettings_get(schema: &str, key: &str) -> Option<String> {
+    use core::sync::atomic::Ordering;
+
+    let candidates = schema_family(schema);
+    // Start with whichever family last answered — on Cinnamon that skips a
+    // guaranteed-failing GNOME spawn per key, and there are dozens of keys.
+    let start = PREFERRED_SCHEMA_IDX.load(Ordering::Relaxed);
+    for i in 0..candidates.len() {
+        let idx = (start + i) % candidates.len();
+        if let Some(v) = gsettings_get_raw(&candidates[idx], key) {
+            PREFERRED_SCHEMA_IDX.store(idx, Ordering::Relaxed);
+            return Some(v);
+        }
+    }
+    None
 }
 
 /// Populate additional Linux-specific fields in `style` via `gsettings` CLI
@@ -398,17 +448,22 @@ fn discover_linux_extras(style: &mut SystemStyle) {
     if let Some(gtk) = gsettings_get("org.gnome.desktop.interface", "gtk-theme") {
         style.linux.gtk_theme = OptionString::Some(gtk.into());
     }
-    // Button layout (determines button side for CSD)
+    // Button layout (determines button side for CSD).
+    //
+    // The layout is `left:right`, and the side is decided by where CLOSE is —
+    // not by whether the string starts with ':'. The stock KDE/GNOME layout is
+    // `icon:minimize,maximize,close`: the LEFT half holds the window-menu icon
+    // and the controls are on the RIGHT. `starts_with(':')` reads that as
+    // "left", so every default desktop was reported as buttons-on-left and CSD
+    // drew its controls on the wrong side.
     if let Some(layout) = gsettings_get("org.gnome.desktop.wm.preferences", "button-layout") {
-        // Parse button side from layout: "close,minimize,maximize:" → Left
-        //                                ":close,minimize,maximize" → Right
-        let is_right = layout.starts_with(':');
+        style.metrics.titlebar.button_side = titlebar_side_from_layout(&layout);
+        // Which buttons exist at all: a `:close`-only session must not get
+        // minimize/maximize drawn into its titlebar.
+        style.metrics.titlebar.buttons.has_close = layout.contains("close");
+        style.metrics.titlebar.buttons.has_minimize = layout.contains("minimize");
+        style.metrics.titlebar.buttons.has_maximize = layout.contains("maximize");
         style.linux.titlebar_button_layout = OptionString::Some(layout.into());
-        style.metrics.titlebar.button_side = if is_right {
-            TitlebarButtonSide::Right
-        } else {
-            TitlebarButtonSide::Left
-        };
     }
     // Env-var fallbacks (work on ALL Linux WMs)
     if style.linux.cursor_theme.is_none() {
@@ -520,6 +575,161 @@ fn run_command_with_timeout(program: &str, args: &[&str], timeout_ms: u64) -> Re
 ///
 /// Queries the GTK theme name (dark vs light), font name, font size,
 /// monospace font, and color-scheme preference.
+// ── KDE config files (read directly, no subprocess) ─────────────────────
+
+/// One `[Group] key=value` INI file, parsed once.
+///
+/// `kdeglobals` and a `.colors` colour-scheme file share this exact format,
+/// so one parser serves both. Reading the file beats shelling out to
+/// `kreadconfig`: the palette alone is ~20 keys, and each `kreadconfig` call
+/// is a process spawn with a timeout attached — that was up to 20 spawns on
+/// the startup path, before the first frame. It also works on a session where
+/// `kreadconfig` is not installed at all (a Qt app brings it; a pure GTK
+/// desktop running a KDE colour scheme does not).
+#[derive(Default)]
+struct KdeIni {
+    /// `(group, key) -> value`, in file order (later wins, like KConfig).
+    entries: alloc::collections::BTreeMap<(String, String), String>,
+}
+
+impl KdeIni {
+    fn parse(text: &str) -> Self {
+        let mut out = Self::default();
+        let mut group = String::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some(rest) = line.strip_prefix('[') {
+                // `[Colors:Header][Inactive]` — the trailing sub-group is a
+                // state qualifier; the base group is everything up to the
+                // first `]`, and a qualified entry must NOT overwrite the
+                // plain one (`[Colors:Window][Inactive]` is not the window's
+                // normal colour).
+                if let Some(end) = rest.find(']') {
+                    let base = &rest[..end];
+                    let qualified = rest[end + 1..].contains('[');
+                    group = if qualified {
+                        // Park qualified groups under a name nothing reads.
+                        alloc::format!("{base}::qualified")
+                    } else {
+                        base.to_string()
+                    };
+                }
+                continue;
+            }
+            if let Some((k, v)) = line.split_once('=') {
+                out.entries.insert(
+                    (group.clone(), k.trim().to_string()),
+                    v.trim().to_string(),
+                );
+            }
+        }
+        out
+    }
+
+    fn read(path: &str) -> Option<Self> {
+        std::fs::read_to_string(path).ok().map(|t| Self::parse(&t))
+    }
+
+    fn get(&self, group: &str, key: &str) -> Option<&str> {
+        self.entries
+            .get(&(group.to_string(), key.to_string()))
+            .map(String::as_str)
+            .filter(|v| !v.is_empty())
+    }
+
+    /// A `r,g,b` triple, the only colour spelling KDE config uses.
+    fn color(&self, group: &str, key: &str) -> Option<ColorU> {
+        let v = self.get(group, key)?;
+        let p: Vec<&str> = v.split(',').collect();
+        if p.len() < 3 {
+            return None;
+        }
+        Some(ColorU::new_rgb(
+            p[0].trim().parse().ok()?,
+            p[1].trim().parse().ok()?,
+            p[2].trim().parse().ok()?,
+        ))
+    }
+
+    /// A KDE font spec: `Noto Sans,10,-1,5,50,0,0,0,0,0` -> (family, pt).
+    fn font(&self, group: &str, key: &str) -> Option<(String, Option<f32>)> {
+        let v = self.get(group, key)?;
+        let mut parts = v.split(',');
+        let family = parts.next()?.trim();
+        if family.is_empty() {
+            return None;
+        }
+        Some((
+            family.to_string(),
+            parts.next().and_then(|p| p.trim().parse::<f32>().ok()),
+        ))
+    }
+}
+
+/// The colour source for a KDE session: the user's `kdeglobals` first, then
+/// the `.colors` file of the scheme it names.
+///
+/// A freshly-installed Plasma writes only `ColorScheme=BreezeDark` into
+/// `kdeglobals` and leaves the actual `Colors:*` groups to the scheme file in
+/// `/usr/share/color-schemes`, so reading `kdeglobals` alone finds a NAME and
+/// no colours — and every palette slot silently kept its built-in default.
+fn kde_color_sources() -> Vec<KdeIni> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut out = Vec::new();
+
+    // The cursor theme lives in kcminputrc (`[Mouse] cursorTheme`), not in
+    // kdeglobals — reading only kdeglobals found no cursor theme on any KDE
+    // session. Pushed first so it is consulted like any other source.
+    if let Some(ini) = KdeIni::read(&alloc::format!("{home}/.config/kcminputrc")) {
+        out.push(ini);
+    }
+
+    let globals = KdeIni::read(&alloc::format!("{home}/.config/kdeglobals"));
+    let scheme_name = globals
+        .as_ref()
+        .and_then(|g| g.get("General", "ColorScheme").map(String::from));
+    if let Some(g) = globals {
+        out.push(g);
+    }
+
+    if let Some(name) = scheme_name {
+        // KConfig strips spaces from the scheme name when it looks for the
+        // file ("Breeze Dark" -> BreezeDark.colors).
+        let file = name.replace(' ', "");
+        for dir in [
+            alloc::format!("{home}/.local/share/color-schemes"),
+            "/usr/share/color-schemes".to_string(),
+            "/usr/local/share/color-schemes".to_string(),
+        ] {
+            if let Some(ini) = KdeIni::read(&alloc::format!("{dir}/{file}.colors")) {
+                out.push(ini);
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Which side of the titlebar the window CONTROLS sit on, from a
+/// `left:right` button-layout string.
+///
+/// Decided by where CLOSE is. The stock KDE/GNOME layout is
+/// `icon:minimize,maximize,close` — the left half holds the window-menu icon
+/// and the controls are on the RIGHT — so "is the left half non-empty" and
+/// "does the string start with ':'" both answer LEFT for a desktop whose
+/// buttons are plainly on the right.
+fn titlebar_side_from_layout(layout: &str) -> TitlebarButtonSide {
+    let (left, _right) = layout.split_once(':').unwrap_or((layout, ""));
+    if left.contains("close") {
+        TitlebarButtonSide::Left
+    } else {
+        TitlebarButtonSide::Right
+    }
+}
+
 fn discover_gnome_style() -> Result<SystemStyle, ()> {
     // Check color-scheme first (GNOME 42+)
     let color_scheme =
@@ -565,6 +775,82 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
         }
     }
 
+    // ── Text scaling ────────────────────────────────────────────────
+    // GNOME's accessibility "Large Text" and every fractional-scaling setup
+    // express themselves here, NOT in the font name — a user at 1.25 sees
+    // every GTK app at 125 % and azul at 100 %, which is the complaint that
+    // reads as "the fonts are tiny in this app". Applied to each detected
+    // size, so it composes with whatever the font settings said.
+    let text_scale = gsettings_get("org.gnome.desktop.interface", "text-scaling-factor")
+        .and_then(|v| v.trim().parse::<f32>().ok())
+        .filter(|f| *f > 0.0 && (*f - 1.0).abs() > f32::EPSILON);
+    if let Some(scale) = text_scale {
+        let apply = |sz: &mut OptionF32| {
+            if let OptionF32::Some(v) = sz {
+                *sz = OptionF32::Some(*v * scale);
+            }
+        };
+        apply(&mut style.fonts.ui_font_size);
+        apply(&mut style.fonts.monospace_font_size);
+        apply(&mut style.fonts.title_font_size);
+        apply(&mut style.fonts.menu_font_size);
+        apply(&mut style.fonts.small_font_size);
+    }
+
+    // ── Font rendering hints ────────────────────────────────────────
+    // What the desktop asked for, rather than what the rasteriser guessed.
+    if let Some(aa) = gsettings_get("org.gnome.desktop.interface", "font-antialiasing") {
+        match aa.trim() {
+            "none" => {
+                style.text_rendering.font_smoothing_enabled = false;
+                style.text_rendering.subpixel_type = SubpixelType::None;
+            }
+            "rgba" => {
+                style.text_rendering.font_smoothing_enabled = true;
+                // The ORDER comes from its own key; default to the usual RGB.
+                style.text_rendering.subpixel_type = SubpixelType::Rgb;
+            }
+            // "grayscale" and anything unknown: smoothing on, no subpixel.
+            _ => {
+                style.text_rendering.font_smoothing_enabled = true;
+                style.text_rendering.subpixel_type = SubpixelType::None;
+            }
+        }
+    }
+    if style.text_rendering.subpixel_type != SubpixelType::None {
+        if let Some(order) = gsettings_get("org.gnome.desktop.interface", "font-rgba-order") {
+            style.text_rendering.subpixel_type = match order.trim() {
+                "bgr" => SubpixelType::Bgr,
+                "vrgb" => SubpixelType::VRgb,
+                "vbgr" => SubpixelType::VBgr,
+                _ => SubpixelType::Rgb,
+            };
+        }
+    }
+
+    // ── Titlebar buttons ────────────────────────────────────────────
+    // `button-layout` is `left:right`, e.g. `appmenu:minimize,maximize,close`.
+    // Which SIDE the close button is on decides the side; which buttons appear
+    // at all decides the set — a GNOME session with `:close` alone must not
+    // get minimize/maximize drawn into its CSD.
+    if let Some(layout) = gsettings_get("org.gnome.desktop.wm.preferences", "button-layout") {
+        style.metrics.titlebar.button_side = titlebar_side_from_layout(&layout);
+        style.metrics.titlebar.buttons.has_close = layout.contains("close");
+        style.metrics.titlebar.buttons.has_minimize = layout.contains("minimize");
+        style.metrics.titlebar.buttons.has_maximize = layout.contains("maximize");
+        style.linux.titlebar_button_layout = OptionString::Some(layout.into());
+    }
+
+    // ── Scrollbars ──────────────────────────────────────────────────
+    // GNOME's overlay scrollbars are the thin ones that appear on hover.
+    if let Some(overlay) = gsettings_get("org.gnome.desktop.interface", "overlay-scrolling") {
+        style.scrollbar_preferences.visibility = if overlay.trim() == "false" {
+            ScrollbarVisibility::Always
+        } else {
+            ScrollbarVisibility::WhenScrolling
+        };
+    }
+
     // Accent color (GNOME 47+)
     if let Some(accent) = gsettings_get("org.gnome.desktop.interface", "accent-color") {
         // GNOME accent-color is a named color like "blue", "teal", "green", etc.
@@ -592,88 +878,40 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
 ///
 /// Queries kdeglobals for theme, fonts, and color scheme.
 fn discover_kde_style() -> Result<SystemStyle, ()> {
-    // Try kreadconfig6 first (Plasma 6), fall back to kreadconfig5
+    // Try kreadconfig6 first (Plasma 6), fall back to kreadconfig5. Its
+    // ABSENCE is no longer fatal: the palette, fonts and themes are read out
+    // of the config files directly (see `kde_color_sources`), and a session
+    // can run a KDE colour scheme without the Qt tooling installed. The
+    // binary is only consulted for keys the files did not carry.
     let kread = if run_command_with_timeout("kreadconfig6", &["--help"], 500).is_ok() {
         "kreadconfig6"
     } else if run_command_with_timeout("kreadconfig5", &["--help"], 500).is_ok() {
+        "kreadconfig5"
+    } else if std::env::var("HOME")
+        .map(|h| std::path::Path::new(&alloc::format!("{h}/.config/kdeglobals")).exists())
+        .unwrap_or(false)
+    {
+        // Nothing to spawn — every `run_command_with_timeout` below fails and
+        // falls through to the parsed files, which is the whole point.
         "kreadconfig5"
     } else {
         return Err(());
     };
 
-    // Detect dark/light from color scheme name
-    let color_scheme_name =
-        run_command_with_timeout(kread, &["--group", "General", "--key", "ColorScheme"], 1000)
-            .unwrap_or_default();
+    // The parsed config files, in precedence order: the user's kdeglobals,
+    // then the `.colors` file of the scheme it names. `kreadconfig` is the
+    // last resort for a key none of them carried.
+    let sources = kde_color_sources();
 
-    let is_dark = color_scheme_name.to_lowercase().contains("dark");
-
-    let mut style = if is_dark {
-        // Use GNOME dark as base, then override with KDE specifics
-        let mut s = defaults::gnome_adwaita_dark();
-        s.platform = Platform::Linux(DesktopEnvironment::Kde);
-        s
-    } else {
-        let mut s = defaults::gnome_adwaita_light();
-        s.platform = Platform::Linux(DesktopEnvironment::Kde);
-        s
-    };
-
-    style.theme = if is_dark { Theme::Dark } else { Theme::Light };
-    // KDE Plasma's default UI font is Noto Sans, not GNOME's Cantarell (which
-    // the gnome_adwaita base sets). Overridden below if kdeglobals General/font
-    // is set; otherwise this is the correct KDE default instead of Cantarell.
-    style.fonts.ui_font = OptionString::Some("Noto Sans".into());
-
-    // Font discovery
-    if let Ok(font_str) =
-        run_command_with_timeout(kread, &["--group", "General", "--key", "font"], 1000)
-    {
-        // KDE font format: "Noto Sans,10,-1,5,50,0,0,0,0,0"
-        let parts: Vec<&str> = font_str.split(',').collect();
-        if parts.len() >= 2 {
-            style.fonts.ui_font = OptionString::Some(parts[0].trim().into());
-            if let Ok(size) = parts[1].trim().parse::<f32>() {
-                style.fonts.ui_font_size = OptionF32::Some(size);
-            }
-        }
-    }
-
-    if let Ok(fixed_font) =
-        run_command_with_timeout(kread, &["--group", "General", "--key", "fixed"], 1000)
-    {
-        let parts: Vec<&str> = fixed_font.split(',').collect();
-        if parts.len() >= 2 {
-            style.fonts.monospace_font = OptionString::Some(parts[0].trim().into());
-            if let Ok(size) = parts[1].trim().parse::<f32>() {
-                style.fonts.monospace_font_size = OptionF32::Some(size);
-            }
-        }
-    }
-
-    // Accent / highlight color
-    if let Ok(highlight) = run_command_with_timeout(
-        kread,
-        &["--group", "Colors:Selection", "--key", "BackgroundNormal"],
-        1000,
-    ) {
-        // Format: "r,g,b" e.g. "61,174,233"
-        let parts: Vec<&str> = highlight.split(',').collect();
-        if parts.len() >= 3 {
-            if let (Ok(r), Ok(g), Ok(b)) = (
-                parts[0].trim().parse::<u8>(),
-                parts[1].trim().parse::<u8>(),
-                parts[2].trim().parse::<u8>(),
-            ) {
-                style.colors.accent = OptionColorU::Some(ColorU::new_rgb(r, g, b));
-            }
-        }
-    }
-
-    // Exact KDE palette from kdeglobals. Previously window-bg/text fell back to
-    // the GNOME Adwaita base (a few RGB off from KDE Breeze); read the real
-    // Colors:Window / Colors:View groups so the detected style matches KDE.
+    // One reader for every `r,g,b` value. Declared up here because dark/light
+    // detection uses it too — the window background IS the answer, and reading
+    // it is more reliable than any name.
     let read_kde_color = |group: &str, key: &str| -> Option<ColorU> {
+        for src in &sources {
+            if let Some(c) = src.color(group, key) {
+                return Some(c);
+            }
+        }
         let v = run_command_with_timeout(kread, &["--group", group, "--key", key], 1000).ok()?;
         let p: Vec<&str> = v.split(',').collect();
         if p.len() < 3 {
@@ -685,8 +923,141 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
             p[2].trim().parse::<u8>().ok()?,
         ))
     };
+
+    // Same shape for fonts and plain strings.
+    let read_kde_font = |group: &str, key: &str| -> Option<(String, Option<f32>)> {
+        for src in &sources {
+            if let Some(f) = src.font(group, key) {
+                return Some(f);
+            }
+        }
+        let v = run_command_with_timeout(kread, &["--group", group, "--key", key], 1000).ok()?;
+        let mut parts = v.split(',');
+        let family = parts.next()?.trim().to_string();
+        if family.is_empty() {
+            return None;
+        }
+        Some((
+            family,
+            parts.next().and_then(|p| p.trim().parse::<f32>().ok()),
+        ))
+    };
+    let read_kde_str = |group: &str, key: &str| -> Option<String> {
+        for src in &sources {
+            if let Some(v) = src.get(group, key) {
+                return Some(v.to_string());
+            }
+        }
+        run_command_with_timeout(kread, &["--group", group, "--key", key], 1000)
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+
+    // Dark or light, decided by the WINDOW BACKGROUND's luminance rather than
+    // by whether the scheme's NAME contains "dark". A scheme is only obliged
+    // to be a colour set: "Midnight" / "Nordic" / "Catppuccin Mocha" are dark
+    // and say so nowhere, and "Darkly" is a light scheme whose name says the
+    // opposite. The pixels cannot lie. Name matching stays as the fallback for
+    // the case where the colour cannot be read at all.
+    let color_scheme_name = read_kde_str("General", "ColorScheme").unwrap_or_default();
+    let look_and_feel = read_kde_str("KDE", "LookAndFeelPackage").unwrap_or_default();
+
+    let is_dark = match read_kde_color("Colors:Window", "BackgroundNormal") {
+        // Rec. 601 luma, the same weighting the rest of the engine uses for
+        // "is this surface dark?".
+        Some(bg) => {
+            let luma = 0.299 * f32::from(bg.r) + 0.587 * f32::from(bg.g) + 0.114 * f32::from(bg.b);
+            luma < 128.0
+        }
+        None => {
+            let name = color_scheme_name.to_lowercase();
+            let laf = look_and_feel.to_lowercase();
+            name.contains("dark") || laf.contains("dark")
+        }
+    };
+
+    // Base on BREEZE, not on GNOME Adwaita. Every field read below overwrites
+    // its slot; the base is what survives for the fields kdeglobals does not
+    // carry (or that this session never customised) — and a KDE session's
+    // unread fields should be Breeze's, not Adwaita's.
+    let mut style = if is_dark {
+        defaults::kde_breeze_dark()
+    } else {
+        defaults::kde_breeze_light()
+    };
+    style.theme = if is_dark { Theme::Dark } else { Theme::Light };
+
+    // ── Fonts ───────────────────────────────────────────────────────
+    // KDE font spec: "Noto Sans,10,-1,5,50,0,0,0,0,0" (family, point size, …).
+    if let Some((family, size)) = read_kde_font("General", "font") {
+        style.fonts.ui_font = OptionString::Some(family.into());
+        if let Some(sz) = size {
+            style.fonts.ui_font_size = OptionF32::Some(sz);
+        }
+    }
+    if let Some((family, size)) = read_kde_font("General", "fixed") {
+        style.fonts.monospace_font = OptionString::Some(family.into());
+        if let Some(sz) = size {
+            style.fonts.monospace_font_size = OptionF32::Some(sz);
+        }
+    }
+
+    // The MENU font. Breeze lets the user set it separately from the general
+    // font, and it is what a menu popup must be laid out in — nothing on Linux
+    // populated `SystemFonts::menu_font` at all before, so every menu rendered
+    // at the generic UI font and size.
+    if let Some((family, size)) = read_kde_font("General", "menuFont") {
+        style.fonts.menu_font = OptionString::Some(family.into());
+        if let Some(sz) = size {
+            style.fonts.menu_font_size = OptionF32::Some(sz);
+        }
+    }
+    // An unset menuFont/activeFont means "use the general font" — mirror it
+    // so a consumer never has to know which of them KDE actually filled in.
+    // Leaving them None made every menu and titlebar fall back to a generic
+    // face instead of the desktop's.
+    if style.fonts.menu_font.is_none() {
+        style.fonts.menu_font = style.fonts.ui_font.clone();
+        style.fonts.menu_font_size = style.fonts.ui_font_size;
+    }
+    if style.fonts.title_font.is_none() {
+        style.fonts.title_font = style.fonts.ui_font.clone();
+        style.fonts.title_font_size = style.fonts.ui_font_size;
+    }
+    // A monospace family with no size is a half-answer: the fixed font is set
+    // at the same point size as the UI font unless KDE said otherwise.
+    if style.fonts.monospace_font_size.is_none() {
+        style.fonts.monospace_font_size = style.fonts.ui_font_size;
+    }
+
+    // `smallestReadableFont` is Breeze's secondary/caption face.
+    if let Some((family, size)) = read_kde_font("General", "smallestReadableFont") {
+        style.fonts.small_font = OptionString::Some(family.into());
+        if let Some(sz) = size {
+            style.fonts.small_font_size = OptionF32::Some(sz);
+        }
+    }
+
+    // The window title font (Breeze's `activeFont`), for CSD titlebars.
+    if let Some((family, size)) = read_kde_font("WM", "activeFont") {
+        style.fonts.title_font = OptionString::Some(family.into());
+        if let Some(sz) = size {
+            style.fonts.title_font_size = OptionF32::Some(sz);
+        }
+    }
+
+    // ── The palette ─────────────────────────────────────────────────
+    // Every group Breeze actually defines, not just three of them. The ones
+    // left unread used to fall through to the (GNOME) base, so a KDE window's
+    // buttons, disabled text, links and selection foreground were Adwaita's
+    // even on a fully-detected KDE session.
+    //
+    // Colors:View = content surfaces · Colors:Window = chrome ·
+    // Colors:Button = controls · Colors:Selection = highlights.
     if let Some(c) = read_kde_color("Colors:Window", "BackgroundNormal") {
         style.colors.window_background = OptionColorU::Some(c);
+        style.colors.under_page_background = OptionColorU::Some(c);
     }
     if let Some(c) = read_kde_color("Colors:View", "BackgroundNormal") {
         style.colors.background = OptionColorU::Some(c);
@@ -694,19 +1065,111 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     if let Some(c) = read_kde_color("Colors:View", "ForegroundNormal") {
         style.colors.text = OptionColorU::Some(c);
     }
+    if let Some(c) = read_kde_color("Colors:View", "ForegroundInactive") {
+        style.colors.secondary_text = OptionColorU::Some(c);
+    }
+    if let Some(c) = read_kde_color("Colors:View", "ForegroundLink") {
+        style.colors.link = OptionColorU::Some(c);
+    }
+    if let Some(c) = read_kde_color("Colors:Button", "BackgroundNormal") {
+        style.colors.button_face = OptionColorU::Some(c);
+    }
+    if let Some(c) = read_kde_color("Colors:Button", "ForegroundNormal") {
+        style.colors.button_text = OptionColorU::Some(c);
+    }
+    if let Some(c) = read_kde_color("Colors:Button", "ForegroundInactive") {
+        style.colors.disabled_text = OptionColorU::Some(c);
+    }
+    if let Some(c) = read_kde_color("Colors:Selection", "BackgroundNormal") {
+        style.colors.accent = OptionColorU::Some(c);
+        style.colors.selection_background = OptionColorU::Some(c);
+    }
+    if let Some(c) = read_kde_color("Colors:Selection", "ForegroundNormal") {
+        style.colors.accent_text = OptionColorU::Some(c);
+        style.colors.selection_text = OptionColorU::Some(c);
+    }
+    // An unfocused window's selection: Breeze dims it through ColorEffects,
+    // but the inactive foreground is the closest value it publishes directly.
+    if let Some(c) = read_kde_color("Colors:Window", "ForegroundInactive") {
+        style.colors.selection_background_inactive = OptionColorU::Some(c);
+    }
+    // Breeze draws separators in the window group's alternate background.
+    if let Some(c) = read_kde_color("Colors:Window", "BackgroundAlternate") {
+        style.colors.separator = OptionColorU::Some(c);
+    }
 
-    // Window decoration button layout
-    if let Ok(layout) = run_command_with_timeout(
-        kread,
-        &["--group", "org.kde.kdecoration2", "--key", "ButtonsOnLeft"],
-        1000,
-    ) {
-        if !layout.is_empty() {
-            style.metrics.titlebar.button_side = TitlebarButtonSide::Left;
+    // ── Window decoration button side ───────────────────────────────
+    // Read from kwinrc (where `org.kde.kdecoration2` actually lives — the old
+    // read hit kdeglobals, which never carries that group, so it could only
+    // ever return nothing), and decide by which side holds the CLOSE button.
+    //
+    // "ButtonsOnLeft is non-empty" was wrong even when it did read: KDE's
+    // DEFAULT is `ButtonsOnLeft=M` — the application-menu button — with the
+    // real controls (`IAX` = minimize/maximize/close) on the RIGHT. Every
+    // stock KDE session would have been reported as buttons-on-left.
+    let deco = |key: &str| -> Option<String> {
+        run_command_with_timeout(
+            kread,
+            &["--file", "kwinrc", "--group", "org.kde.kdecoration2", "--key", key],
+            1000,
+        )
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+    };
+    let buttons_left = deco("ButtonsOnLeft").unwrap_or_default();
+    let buttons_right = deco("ButtonsOnRight").unwrap_or_else(|| "IAX".to_string());
+    // 'X' is close in KDE's button-letter alphabet.
+    style.metrics.titlebar.button_side = if buttons_left.contains('X') {
+        TitlebarButtonSide::Left
+    } else {
+        TitlebarButtonSide::Right
+    };
+    let all_buttons = alloc::format!("{buttons_left}{buttons_right}");
+    style.metrics.titlebar.buttons.has_close = all_buttons.contains('X');
+    style.metrics.titlebar.buttons.has_minimize = all_buttons.contains('I');
+    style.metrics.titlebar.buttons.has_maximize = all_buttons.contains('A');
+    style.linux.titlebar_button_layout =
+        OptionString::Some(alloc::format!("{buttons_left}:{buttons_right}").into());
+
+    // ── Behaviour / motion ──────────────────────────────────────────
+    // Plasma scales every animation by this factor; 0 means "instant", which
+    // is the same thing the reduced-motion preference asks for.
+    if let Some(factor) = read_kde_str("KDE", "AnimationDurationFactor") {
+        if let Ok(f) = factor.trim().parse::<f32>() {
+            style.animation.animation_duration_factor = f;
+            if f <= 0.0 {
+                style.animation.animations_enabled = false;
+                style.prefers_reduced_motion = BoolCondition::True;
+                style.accessibility.prefers_reduced_motion = true;
+            }
         }
     }
 
-    // GTK theme used under KDE (for consistency)
+    // ── Icon + cursor themes, from KDE rather than from gsettings ───
+    // A KDE session usually has no gsettings values at all, so these two used
+    // to come back empty (or worse, from a stale GNOME config).
+    if let Some(icon) = read_kde_str("Icons", "Theme") {
+        style.linux.icon_theme = OptionString::Some(icon.into());
+    }
+    // kcminputrc `[Mouse]` first (where KDE actually writes it), kdeglobals
+    // `[General]` second for the older spelling.
+    if let Some(cursor) =
+        read_kde_str("Mouse", "cursorTheme").or_else(|| read_kde_str("General", "cursorTheme"))
+    {
+        style.linux.cursor_theme = OptionString::Some(cursor.into());
+    }
+    if let Some(size) = read_kde_str("Mouse", "cursorSize").and_then(|v| v.parse::<u32>().ok()) {
+        style.linux.cursor_size = size;
+    }
+
+    // The widget style (Breeze, Oxygen, Fusion, a third-party QStyle) — the
+    // closest thing KDE has to GTK's theme name, and what tells a consumer
+    // which look the rest of the session is wearing.
+    if let Some(widget_style) = read_kde_str("KDE", "widgetStyle") {
+        style.linux.gtk_theme = OptionString::Some(widget_style.into());
+    }
+    // A GTK theme name, when the session has one, is the better answer for
+    // GTK-hosted chrome and overwrites the QStyle above.
     if let Some(gtk) = gsettings_get("org.gnome.desktop.interface", "gtk-theme") {
         style.linux.gtk_theme = OptionString::Some(gtk.into());
     }
@@ -1351,4 +1814,267 @@ pub(crate) fn adopt_observed_theme(
     common.snapshot_window_state_baseline("linux.adopt_observed_theme");
     common.update_unsynced_state(|ws| ws.theme = theme);
     true
+}
+
+/// Dump the fully-discovered `SystemStyle` as text.
+///
+/// The verification seam for desktop detection: run it on a real session and
+/// diff the values against what the desktop's own config says
+/// (`~/.config/kdeglobals`, `/usr/share/color-schemes/*.colors`, `gsettings
+/// get …`). Detection is the kind of code that silently returns plausible
+/// defaults when it reads nothing at all, so "it ran and produced a style" is
+/// not evidence — the values have to be compared against the source.
+///
+/// Reached from a normal build with `AZ_DUMP_SYSTEM_STYLE=1`.
+#[must_use]
+pub fn dump_discovered_style() -> String {
+    use core::fmt::Write;
+
+    let s = discover();
+    let mut o = String::new();
+    let c = |v: &OptionColorU| -> String {
+        v.as_option().map_or_else(
+            || "-".to_string(),
+            |x| alloc::format!("#{:02x}{:02x}{:02x}", x.r, x.g, x.b),
+        )
+    };
+    let f = |v: &OptionString| -> String {
+        v.as_option()
+            .map_or_else(|| "-".to_string(), |x| x.as_str().to_string())
+    };
+    let n = |v: OptionF32| -> String {
+        v.into_option()
+            .map_or_else(|| "-".to_string(), |x| alloc::format!("{x}"))
+    };
+    let px = |v: OptionPixelValue| -> String {
+        v.into_option()
+            .map_or_else(|| "-".to_string(), |x| alloc::format!("{x:?}"))
+    };
+
+    // Which desktop-settings family actually answered. A Cinnamon/MATE
+    // session answers on its OWN schemas; probing with a key that exists in
+    // only one of them is what distinguishes "detected" from "fell back".
+    let settings_source = if gsettings_get_raw("org.gnome.desktop.interface", "font-name").is_some()
+    {
+        "gsettings:gnome"
+    } else if gsettings_get_raw("org.cinnamon.desktop.interface", "font-name").is_some() {
+        "gsettings:cinnamon"
+    } else if gsettings_get_raw("org.mate.interface", "font-name").is_some() {
+        "gsettings:mate"
+    } else {
+        "none"
+    };
+    let _ = writeln!(o, "platform            {:?}", s.platform);
+    let _ = writeln!(o, "settings_source     {settings_source}");
+    let _ = writeln!(
+        o,
+        "kde_config_files    {} source(s)",
+        kde_color_sources().len()
+    );
+    let _ = writeln!(o, "theme               {:?}", s.theme);
+    let _ = writeln!(o, "language            {}", s.language.as_str());
+    let _ = writeln!(o, "-- fonts --");
+    let _ = writeln!(
+        o,
+        "ui                  {} {}",
+        f(&s.fonts.ui_font),
+        n(s.fonts.ui_font_size)
+    );
+    let _ = writeln!(
+        o,
+        "menu                {} {}",
+        f(&s.fonts.menu_font),
+        n(s.fonts.menu_font_size)
+    );
+    let _ = writeln!(
+        o,
+        "title               {} {}",
+        f(&s.fonts.title_font),
+        n(s.fonts.title_font_size)
+    );
+    let _ = writeln!(
+        o,
+        "monospace           {} {}",
+        f(&s.fonts.monospace_font),
+        n(s.fonts.monospace_font_size)
+    );
+    let _ = writeln!(
+        o,
+        "small               {} {}",
+        f(&s.fonts.small_font),
+        n(s.fonts.small_font_size)
+    );
+    let _ = writeln!(o, "-- colors --");
+    for (name, v) in [
+        ("text", &s.colors.text),
+        ("secondary_text", &s.colors.secondary_text),
+        ("disabled_text", &s.colors.disabled_text),
+        ("background", &s.colors.background),
+        ("window_background", &s.colors.window_background),
+        ("accent", &s.colors.accent),
+        ("accent_text", &s.colors.accent_text),
+        ("selection_background", &s.colors.selection_background),
+        ("selection_text", &s.colors.selection_text),
+        ("button_face", &s.colors.button_face),
+        ("button_text", &s.colors.button_text),
+        ("link", &s.colors.link),
+        ("separator", &s.colors.separator),
+    ] {
+        let _ = writeln!(o, "{name:<20}{}", c(v));
+    }
+    let _ = writeln!(o, "-- metrics --");
+    let _ = writeln!(o, "corner_radius       {}", px(s.metrics.corner_radius));
+    let _ = writeln!(o, "border_width        {}", px(s.metrics.border_width));
+    let _ = writeln!(
+        o,
+        "button_padding      {} / {}",
+        px(s.metrics.button_padding_horizontal),
+        px(s.metrics.button_padding_vertical)
+    );
+    let _ = writeln!(
+        o,
+        "titlebar_side       {:?}",
+        s.metrics.titlebar.button_side
+    );
+    let _ = writeln!(
+        o,
+        "titlebar_buttons    close={} min={} max={}",
+        s.metrics.titlebar.buttons.has_close,
+        s.metrics.titlebar.buttons.has_minimize,
+        s.metrics.titlebar.buttons.has_maximize
+    );
+    let _ = writeln!(o, "-- linux --");
+    let _ = writeln!(o, "gtk/widget theme    {}", f(&s.linux.gtk_theme));
+    let _ = writeln!(o, "icon_theme          {}", f(&s.linux.icon_theme));
+    let _ = writeln!(
+        o,
+        "cursor              {} @{}",
+        f(&s.linux.cursor_theme),
+        s.linux.cursor_size
+    );
+    let _ = writeln!(
+        o,
+        "titlebar_layout     {}",
+        f(&s.linux.titlebar_button_layout)
+    );
+    let _ = writeln!(o, "-- behaviour --");
+    let _ = writeln!(
+        o,
+        "animations          enabled={} factor={}",
+        s.animation.animations_enabled, s.animation.animation_duration_factor
+    );
+    let _ = writeln!(
+        o,
+        "reduced_motion      {:?}   high_contrast {:?}",
+        s.prefers_reduced_motion, s.prefers_high_contrast
+    );
+    let _ = writeln!(
+        o,
+        "text_rendering      smoothing={} subpixel={:?}",
+        s.text_rendering.font_smoothing_enabled, s.text_rendering.subpixel_type
+    );
+    let _ = writeln!(
+        o,
+        "scrollbars          {:?}",
+        s.scrollbar_preferences.visibility
+    );
+    let _ = writeln!(o, "caret_blink_ms      {}", s.input.caret_blink_rate_ms);
+    o
+}
+
+#[cfg(test)]
+mod kde_ini_tests {
+    use super::*;
+
+    /// `kdeglobals` and a `.colors` scheme file are the same INI shape, and
+    /// both are read directly — one parse instead of ~20 `kreadconfig`
+    /// spawns on the startup path.
+    #[test]
+    fn it_parses_groups_keys_and_colors() {
+        let ini = KdeIni::parse(
+            "[General]\nColorScheme=BreezeDark\n\n[Colors:Window]\nBackgroundNormal=42,46,50\n",
+        );
+        assert_eq!(ini.get("General", "ColorScheme"), Some("BreezeDark"));
+        assert_eq!(
+            ini.color("Colors:Window", "BackgroundNormal"),
+            Some(ColorU::new_rgb(42, 46, 50))
+        );
+        assert_eq!(ini.color("Colors:Window", "Missing"), None);
+    }
+
+    /// A STATE-QUALIFIED group (`[Colors:Window][Inactive]`) describes an
+    /// unfocused window, not the normal colour. Letting it land in the plain
+    /// group would silently repaint every window with its inactive palette —
+    /// and kdeglobals ships several of these.
+    ///
+    /// NEGATIVE CONTROL: parse the qualified header as its base group.
+    #[test]
+    fn a_state_qualified_group_does_not_overwrite_the_plain_one() {
+        let ini = KdeIni::parse(
+            "[Colors:Window]\nBackgroundNormal=42,46,50\n\n[Colors:Window][Inactive]\nBackgroundNormal=1,2,3\n",
+        );
+        assert_eq!(
+            ini.color("Colors:Window", "BackgroundNormal"),
+            Some(ColorU::new_rgb(42, 46, 50)),
+            "the [Inactive] variant must not become the window's normal colour"
+        );
+    }
+
+    /// KDE font specs are `family,pointsize,…`. An empty family means "unset"
+    /// and must not be reported as a font called "".
+    #[test]
+    fn it_parses_kde_font_specs() {
+        let ini = KdeIni::parse("[General]\nfont=Noto Sans,10,-1,5,50,0,0,0,0,0\nmenuFont=\n");
+        assert_eq!(
+            ini.font("General", "font"),
+            Some(("Noto Sans".to_string(), Some(10.0)))
+        );
+        assert_eq!(ini.font("General", "menuFont"), None);
+    }
+
+    /// The titlebar side is decided by where CLOSE is, not by whether the
+    /// left half is empty. `icon:minimize,maximize,close` — the stock
+    /// KDE/GNOME layout — has its controls on the RIGHT, and the old
+    /// `starts_with(':')` test called that LEFT on every default desktop.
+    ///
+    /// NEGATIVE CONTROL: restore `layout.starts_with(':')` and the first case
+    /// fails.
+    #[test]
+    fn the_titlebar_side_follows_the_close_button() {
+        // The stock layout: menu icon left, controls right.
+        assert_eq!(
+            titlebar_side_from_layout("icon:minimize,maximize,close"),
+            TitlebarButtonSide::Right
+        );
+        // GNOME's own default, left half empty.
+        assert_eq!(
+            titlebar_side_from_layout(":minimize,maximize,close"),
+            TitlebarButtonSide::Right
+        );
+        // macOS-style: controls on the left.
+        assert_eq!(
+            titlebar_side_from_layout("close,minimize,maximize:"),
+            TitlebarButtonSide::Left
+        );
+        assert_eq!(
+            titlebar_side_from_layout("close:appmenu"),
+            TitlebarButtonSide::Left
+        );
+    }
+
+    /// Cinnamon and MATE are GNOME forks that kept the key names and renamed
+    /// the schemas, so every GNOME query on a Mint session used to read
+    /// nothing at all.
+    #[test]
+    fn the_schema_family_covers_the_gnome_forks() {
+        let fam = schema_family("org.gnome.desktop.interface");
+        assert!(fam.contains(&"org.gnome.desktop.interface".to_string()));
+        assert!(fam.contains(&"org.cinnamon.desktop.interface".to_string()));
+        assert!(fam.contains(&"org.mate.interface".to_string()));
+
+        // MATE's window manager is Marco, under its own schema name.
+        let wm = schema_family("org.gnome.desktop.wm.preferences");
+        assert!(wm.contains(&"org.cinnamon.desktop.wm.preferences".to_string()));
+        assert!(wm.contains(&"org.mate.Marco.general".to_string()));
+    }
 }

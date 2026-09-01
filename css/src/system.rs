@@ -2575,29 +2575,132 @@ pub mod defaults {
         }
     }
 
-    /// KDE Breeze light theme defaults (Noto Sans, Oxygen scrollbars).
+    /// KDE Breeze LIGHT defaults — the stock `BreezeLight` colour scheme, so a
+    /// KDE session that reads back nothing still looks like KDE rather than
+    /// like GNOME.
+    ///
+    /// The values are Breeze's own `kdeglobals` groups: `Colors:Window` for the
+    /// window chrome, `Colors:View` for content surfaces, `Colors:Button` for
+    /// controls and `Colors:Selection` for highlights. `discover_kde_style`
+    /// overwrites each one it can actually read; these are what survives when
+    /// `kreadconfig` is absent or the user never customised the scheme.
     #[must_use]
     pub fn kde_breeze_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Kde),
             theme: Theme::Light,
             colors: SystemColors {
-                text: OptionColorU::Some(ColorU::new_rgb(31, 36, 39)),
-                background: OptionColorU::Some(ColorU::new_rgb(239, 240, 241)),
+                // Colors:View — content surfaces (the text edit, the list).
+                text: OptionColorU::Some(ColorU::new_rgb(35, 38, 41)),
+                background: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
+                // Colors:Window — dialogs and panels behind the content.
+                window_background: OptionColorU::Some(ColorU::new_rgb(239, 240, 241)),
+                under_page_background: OptionColorU::Some(ColorU::new_rgb(239, 240, 241)),
+                // Colors:Selection — Breeze's signature blue.
                 accent: OptionColorU::Some(ColorU::new_rgb(61, 174, 233)),
+                accent_text: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
+                selection_background: OptionColorU::Some(ColorU::new_rgb(61, 174, 233)),
+                selection_text: OptionColorU::Some(ColorU::new_rgb(255, 255, 255)),
+                // Colors:Button.
+                button_face: OptionColorU::Some(ColorU::new_rgb(252, 252, 252)),
+                button_text: OptionColorU::Some(ColorU::new_rgb(35, 38, 41)),
+                // ForegroundInactive is what Breeze greys disabled text with.
+                disabled_text: OptionColorU::Some(ColorU::new_rgb(112, 125, 138)),
+                secondary_text: OptionColorU::Some(ColorU::new_rgb(112, 125, 138)),
+                link: OptionColorU::Some(ColorU::new_rgb(41, 128, 185)),
+                separator: OptionColorU::Some(ColorU::new_rgb(227, 229, 231)),
                 ..Default::default()
             },
             fonts: SystemFonts {
                 ui_font: OptionString::Some("Noto Sans".into()),
                 ui_font_size: OptionF32::Some(10.0),
                 monospace_font: OptionString::Some("Hack".into()),
+                // Breeze uses the general font for menus and a 8pt face for
+                // secondary text (`smallestReadableFont`).
+                menu_font: OptionString::Some("Noto Sans".into()),
+                menu_font_size: OptionF32::Some(10.0),
+                small_font: OptionString::Some("Noto Sans".into()),
+                small_font_size: OptionF32::Some(8.0),
                 ..Default::default()
             },
             metrics: SystemMetrics {
-                corner_radius: OptionPixelValue::Some(PixelValue::px(4.0)),
+                corner_radius: OptionPixelValue::Some(PixelValue::px(3.0)),
                 border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
-                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(12.0)),
-                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
+                // Breeze `Metrics`: buttons are tighter than Adwaita's.
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(8.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(4.0)),
+                titlebar: TitlebarMetrics::linux_gnome(),
+            },
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_KDE_OXYGEN))),
+            app_specific_stylesheet: None,
+            run_destructor: true,
+            icon_style: IconStyleOptions::default(),
+            language: AzString::from_const_str("en-US"),
+            os_version: OsVersion::LINUX_6_0,
+            prefers_reduced_motion: BoolCondition::False,
+            prefers_high_contrast: BoolCondition::False,
+            scroll_physics: ScrollPhysics::default(),
+            linux: LinuxCustomization::default(),
+            focus_visuals: FocusVisuals::default(),
+            handedness: Handedness::default(),
+            accessibility: AccessibilitySettings::default(),
+            input: InputMetrics::default(),
+            text_rendering: TextRenderingHints::default(),
+            scrollbar_preferences: ScrollbarPreferences::default(),
+            visual_hints: VisualHints::default(),
+            animation: AnimationMetrics::default(),
+            audio: AudioMetrics::default(),
+        }
+    }
+
+    /// KDE Breeze DARK defaults — the stock `BreezeDark` colour scheme.
+    ///
+    /// The counterpart to [`kde_breeze_light`], and the reason it exists: a
+    /// KDE dark session used to fall back to GNOME Adwaita Dark, which is a
+    /// different grey (`#242424` vs Breeze's `#2a2e32`) with a different
+    /// accent — so a dark KDE desktop rendered visibly not-KDE. Values are
+    /// Breeze's own `kdeglobals` groups, same mapping as the light preset.
+    #[must_use]
+    pub fn kde_breeze_dark() -> SystemStyle {
+        SystemStyle {
+            platform: Platform::Linux(DesktopEnvironment::Kde),
+            theme: Theme::Dark,
+            colors: SystemColors {
+                // Colors:View.
+                text: OptionColorU::Some(ColorU::new_rgb(252, 252, 252)),
+                background: OptionColorU::Some(ColorU::new_rgb(27, 30, 32)),
+                // Colors:Window.
+                window_background: OptionColorU::Some(ColorU::new_rgb(42, 46, 50)),
+                under_page_background: OptionColorU::Some(ColorU::new_rgb(42, 46, 50)),
+                // Colors:Selection — the same Breeze blue in both themes.
+                accent: OptionColorU::Some(ColorU::new_rgb(61, 174, 233)),
+                accent_text: OptionColorU::Some(ColorU::new_rgb(252, 252, 252)),
+                selection_background: OptionColorU::Some(ColorU::new_rgb(61, 174, 233)),
+                selection_text: OptionColorU::Some(ColorU::new_rgb(252, 252, 252)),
+                // Colors:Button.
+                button_face: OptionColorU::Some(ColorU::new_rgb(49, 54, 59)),
+                button_text: OptionColorU::Some(ColorU::new_rgb(252, 252, 252)),
+                disabled_text: OptionColorU::Some(ColorU::new_rgb(161, 169, 177)),
+                secondary_text: OptionColorU::Some(ColorU::new_rgb(161, 169, 177)),
+                link: OptionColorU::Some(ColorU::new_rgb(29, 153, 243)),
+                separator: OptionColorU::Some(ColorU::new_rgb(49, 54, 59)),
+                ..Default::default()
+            },
+            fonts: SystemFonts {
+                ui_font: OptionString::Some("Noto Sans".into()),
+                ui_font_size: OptionF32::Some(10.0),
+                monospace_font: OptionString::Some("Hack".into()),
+                menu_font: OptionString::Some("Noto Sans".into()),
+                menu_font_size: OptionF32::Some(10.0),
+                small_font: OptionString::Some("Noto Sans".into()),
+                small_font_size: OptionF32::Some(8.0),
+                ..Default::default()
+            },
+            metrics: SystemMetrics {
+                corner_radius: OptionPixelValue::Some(PixelValue::px(3.0)),
+                border_width: OptionPixelValue::Some(PixelValue::px(1.0)),
+                button_padding_horizontal: OptionPixelValue::Some(PixelValue::px(8.0)),
+                button_padding_vertical: OptionPixelValue::Some(PixelValue::px(4.0)),
                 titlebar: TitlebarMetrics::linux_gnome(),
             },
             scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_KDE_OXYGEN))),

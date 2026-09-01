@@ -693,6 +693,17 @@ pub(crate) fn discover_system_style() -> azul_css::system::SystemStyle {
     }
     #[cfg(all(not(miri), target_os = "linux"))]
     {
+        // `AZ_DUMP_SYSTEM_STYLE=1` prints what desktop detection actually
+        // read, so the values can be diffed against the desktop's own config
+        // (kdeglobals / *.colors / `gsettings get`). Detection fails SILENTLY
+        // by returning plausible defaults, so a dump is the only way to tell
+        // "detected" from "fell back".
+        if std::env::var("AZ_DUMP_SYSTEM_STYLE").as_deref() == Ok("1") {
+            eprint!(
+                "{}",
+                crate::desktop::shell2::linux::system_style::dump_discovered_style()
+            );
+        }
         crate::desktop::shell2::linux::system_style::discover()
     }
     #[cfg(all(

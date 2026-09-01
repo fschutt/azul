@@ -666,12 +666,23 @@ impl SystemStyleMenuExt for SystemStyle {
             .copied()
             .unwrap_or(ColorU::new_rgb(200, 200, 200)); // Fallback for separator
 
-        // Get font settings
-        let font_size = self.fonts.ui_font_size.as_option().copied().unwrap_or(14.0);
+        // Get font settings. The MENU font, not the generic UI font: KDE and
+        // GNOME both let the user set it separately, and a menu laid out in
+        // the wrong face is the most visible way to not look like the desktop.
+        // Falls back to the UI font, which is what those desktops mean by
+        // "unset" anyway.
+        let font_size = self
+            .fonts
+            .menu_font_size
+            .as_option()
+            .or(self.fonts.ui_font_size.as_option())
+            .copied()
+            .unwrap_or(14.0);
         let font_family = self
             .fonts
-            .ui_font
+            .menu_font
             .as_option()
+            .or(self.fonts.ui_font.as_option())
             .map(|f| f.as_str().to_string())
             .unwrap_or_else(|| "sans-serif".to_string());
 
@@ -681,7 +692,26 @@ impl SystemStyleMenuExt for SystemStyle {
             .corner_radius
             .map(|px| px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
             .unwrap_or(4.0);
-        let padding = 8.0; // Fixed padding value
+        // Item padding follows the platform's control padding instead of one
+        // hardcoded number, so a Breeze menu is as tight as Breeze and an
+        // Adwaita one as roomy as Adwaita. Menus are tighter than buttons in
+        // every toolkit, hence the vertical halving.
+        let pad_h = self
+            .metrics
+            .button_padding_horizontal
+            .map(|px| px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .unwrap_or(8.0);
+        let pad_v = self
+            .metrics
+            .button_padding_vertical
+            .map(|px| px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+            .unwrap_or(8.0)
+            * 0.5;
+        // The icon column tracks the text, the way a real menu's checkmark
+        // gutter does — a fixed 20px box beside 8px text is a huge gutter and
+        // beside 16px text is a cramped one.
+        let icon_size = (font_size * 1.4).round().clamp(14.0, 24.0);
+        let padding = pad_h;
 
         // Menu container
         css.push_str(&format!(
@@ -696,8 +726,8 @@ impl SystemStyleMenuExt for SystemStyle {
             ".menu-item {{\ndisplay: flex;\nflex-direction: row;\nalign-items: center;\npadding: \
              {}px {}px;\ncolor: rgb({}, {}, {});\nfont-family: {};\nfont-size: {}px;\ncursor: \
              pointer;\nuser-select: none;\n}}\n",
-            padding / 2.0,
-            padding,
+            pad_v,
+            pad_h,
             text_color.r,
             text_color.g,
             text_color.b,
@@ -731,10 +761,26 @@ impl SystemStyleMenuExt for SystemStyle {
 
         // Menu item icon
         css.push_str(&format!(
-            ".menu-item-icon {{\nwidth: 20px;\nheight: 20px;\nmargin-right: {}px;\ntext-align: \
+            ".menu-item-icon {{\nwidth: {}px;\nheight: {}px;\nmargin-right: {}px;\ntext-align: \
              center;\nflex-shrink: 0;\n}}\n",
-            padding / 2.0
+            icon_size,
+            icon_size,
+            pad_h / 2.0
         ));
+
+        // THE LABELS ARE `<p>`s, AND `<p>` CARRIES `margin: 1em 0` FROM THE UA
+        // STYLESHEET (core/src/ua_css.rs). Every menu item therefore stood a
+        // full font-size taller at BOTH ends than its padding said — roughly
+        // doubling item height, which is the "menus have extreme spacing"
+        // report. The widget label P-wrap is the house convention (a bare text
+        // node in a flex row gets no used_size), so the fix belongs here: the
+        // menu resets the margins the wrapper brings with it.
+        //
+        // NEGATIVE CONTROL: drop this rule and a 2-item menu grows by ~2em.
+        css.push_str(
+            ".menu-item p, .menu-item-label p, .menu-item-shortcut p, .menu-item-arrow p, \
+             .menu-item-icon p {\nmargin-top: 0px;\nmargin-bottom: 0px;\n}\n",
+        );
 
         // Checkbox styling
         css.push_str(".menu-item-checkbox-checked {\nfont-weight: bold;\n}\n");
@@ -746,21 +792,21 @@ impl SystemStyleMenuExt for SystemStyle {
         css.push_str(&format!(
             ".menu-item-shortcut {{\nmargin-left: {}px;\nopacity: 0.6;\nfont-size: \
              {}px;\nwhite-space: nowrap;\n}}\n",
-            padding * 2.0,
+            pad_h * 2.0,
             font_size * 0.9
         ));
 
         // Submenu arrow
         css.push_str(&format!(
             ".menu-item-arrow {{\nmargin-left: {}px;\nopacity: 0.6;\n}}\n",
-            padding / 2.0
+            pad_h / 2.0
         ));
 
         // Separator
         css.push_str(&format!(
-            ".menu-separator {{\nheight: 1px;\nbackground: rgb({}, {}, {});\nmargin: 4px \
-             8px;\n}}\n",
-            separator_color.r, separator_color.g, separator_color.b
+            ".menu-separator {{\nheight: 1px;\nbackground: rgb({}, {}, {});\nmargin: {}px \
+             {}px;\n}}\n",
+            separator_color.r, separator_color.g, separator_color.b, pad_v, pad_h
         ));
 
         // Parse CSS and extract first stylesheet
@@ -806,5 +852,99 @@ mod menu_icon_tests {
     fn checkbox_icon_is_not_an_image_node() {
         let dom = create_icon_dom(&OptionMenuItemIcon::Some(MenuItemIcon::Checkbox(true)));
         assert!(!matches!(dom.root.node_type, NodeType::Image(_)));
+    }
+}
+
+/// The menu stylesheet must reflect the DETECTED desktop, and must undo the
+/// UA margins its own label wrapper brings in.
+#[cfg(test)]
+mod menu_stylesheet_tests {
+    use azul_css::corety::{OptionF32, OptionString};
+    use azul_css::props::basic::pixel::{OptionPixelValue, PixelValue};
+    use azul_css::system::defaults;
+
+    use super::*;
+
+    fn css_text(style: &SystemStyle) -> String {
+        // The rules are parsed back out of the generated text, so assert on
+        // the text: it is what `create_menu_stylesheet` actually emits.
+        let mut out = String::new();
+        for rule in style.create_menu_stylesheet().rules.as_ref() {
+            out.push_str(&format!("{:?}", rule));
+        }
+        out
+    }
+
+    /// Menu labels are `<p>`s (the house P-wrap convention: a bare text node
+    /// in a flex row gets no used_size), and `<p>` carries `margin: 1em 0`
+    /// from the UA stylesheet — so without a reset every item stands a full
+    /// font-size taller at each end than its padding says. That is the
+    /// "menus have extreme spacing" report.
+    ///
+    /// NEGATIVE CONTROL: delete the `.menu-item p` rule and this fails.
+    #[test]
+    fn the_menu_resets_the_ua_margins_on_its_label_wrappers() {
+        let css = css_text(&defaults::kde_breeze_dark());
+        assert!(
+            css.contains("MarginTop") && css.contains("MarginBottom"),
+            "the menu stylesheet must zero the <p> margins its labels inherit \
+             from the UA stylesheet, or every item is ~2em too tall"
+        );
+    }
+
+    /// The menu is laid out in the desktop's MENU font, not in whatever the
+    /// generic UI font happens to be — both KDE and GNOME let the user set
+    /// them apart.
+    #[test]
+    fn the_menu_font_wins_over_the_ui_font() {
+        let mut style = defaults::kde_breeze_dark();
+        style.fonts.ui_font = OptionString::Some("UiFace".into());
+        style.fonts.ui_font_size = OptionF32::Some(11.0);
+        style.fonts.menu_font = OptionString::Some("MenuFace".into());
+        style.fonts.menu_font_size = OptionF32::Some(9.0);
+
+        let css = css_text(&style);
+        assert!(
+            css.contains("MenuFace"),
+            "the detected menu font must reach the menu stylesheet"
+        );
+        assert!(
+            !css.contains("UiFace"),
+            "the UI font must not override the menu font when both are set"
+        );
+    }
+
+    /// With no menu font detected, the UI font is what those desktops mean by
+    /// "unset" — the menu must not fall back past it to `sans-serif`.
+    #[test]
+    fn an_undetected_menu_font_falls_back_to_the_ui_font() {
+        let mut style = defaults::kde_breeze_dark();
+        style.fonts.ui_font = OptionString::Some("UiFace".into());
+        style.fonts.menu_font = OptionString::None;
+        style.fonts.menu_font_size = OptionF32::None;
+
+        let css = css_text(&style);
+        assert!(
+            css.contains("UiFace"),
+            "an unset menu font must fall back to the UI font, not to sans-serif"
+        );
+    }
+
+    /// Item padding follows the platform's control padding, so a Breeze menu
+    /// is as tight as Breeze. A hardcoded number cannot be both.
+    #[test]
+    fn item_padding_follows_the_detected_control_padding() {
+        let mut tight = defaults::kde_breeze_dark();
+        tight.metrics.button_padding_horizontal =
+            OptionPixelValue::Some(PixelValue::px(4.0));
+        let mut roomy = defaults::kde_breeze_dark();
+        roomy.metrics.button_padding_horizontal =
+            OptionPixelValue::Some(PixelValue::px(20.0));
+
+        assert_ne!(
+            css_text(&tight),
+            css_text(&roomy),
+            "the detected control padding must change the menu's padding"
+        );
     }
 }
