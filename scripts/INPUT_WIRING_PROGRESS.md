@@ -398,13 +398,20 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `TextInputOnFocusLost`. Add the filter variants first (all four layers), then update the
       `events_test.rs` unmapped pin.
 - [~] 11b PARTIAL — the filters, planning arms and matcher arms exist so they are subscribable, but nothing PRODUCES them: both need a validation/form-reset concept that does not exist. See 11b-i. Original: `Reset` / `Invalid` — needs a validation concept; design then wire.
-- [ ] 11c Media: `Play`/`Pause`/`Ended`/`TimeUpdate`/`VolumeChange`/`MediaError`. BLOCKED on a real playback state
+- [!] 11c BLOCKED — REVISIT AT THE END. Media: `Play`/`Pause`/`Ended`/`TimeUpdate`/`VolumeChange`/
+      `MediaError`. Verified, not assumed: `dll/src/unified/` has a decoder (`decode_mp4_h264`), an
+      encoder (`VideoEncoder`), a sink (`AudioSink::play(frame)`) and a screen recorder — but NO PLAYER.
+      There is no transport, no `is_playing`, no position, no duration, no volume. Every one of these six
+      events describes a state change in a player that does not exist, so there is nothing to emit them
+      from and no honest way to fake it. They correctly remain in the `events_test.rs` unmapped pin.
+      **Prerequisite: a playback state machine** — `{ playing, position, duration, volume }` plus a
+      transport API — which is a feature, not wiring, and outside this arc. BLOCKED on a real playback state
       machine — `dll/src/unified/audio.rs:62` is `pub fn play(&self, _frame: AudioFrame) {}`. Build the state
       machine first, then emit.
 
 ## Step 12 — headless/test surface
 
-- [ ] 12a `HeadlessEvent`: add scroll-phase, pen, gesture, gamepad, sensor and composition injection variants so
+- [x] 12a `HeadlessEvent`: add scroll-phase, pen, gesture, gamepad, sensor and composition injection variants so
       everything above is reachable from the e2e runner.
 
 ## Step 13 — FIX-UP (only after everything above)

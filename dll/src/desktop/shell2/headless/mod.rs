@@ -118,6 +118,77 @@ pub enum HeadlessEvent {
     /// Simulate the OS file drag leaving the window without dropping
     /// (MWA-A4). Mirrors XdndLeave / draggingExited / DragLeave.
     FileHoverCancel,
+
+    // ── Added by the input-wiring arc ────────────────────────────────────
+    //
+    // Everything that arc wired needed a way in here, or it could not be
+    // regression-tested at all. The existing set could inject a scroll but
+    // not its PHASE, a touch but not a pen, and nothing device-shaped —
+    // which is exactly why several of these paths had gone stale unnoticed.
+    /// Scroll with an explicit phase source, so `ScrollStart` / `ScrollEnd`
+    /// can be pinned.
+    ///
+    /// The plain `Scroll` variant is always `WheelDiscrete`, which is why the
+    /// scroll-phase work could not be tested through it: a wheel has no
+    /// gesture boundaries to observe.
+    ScrollPhased {
+        delta_x: f32,
+        delta_y: f32,
+        source: azul_layout::managers::scroll_state::ScrollInputSource,
+    },
+    /// Move / press / release a pen, with the full sample the shells feed.
+    ///
+    /// `in_contact` is separate from `pressure` on purpose: a pen hovering at
+    /// zero pressure and a pen touching with zero pressure are different
+    /// states, and the pen event diff keys on the former.
+    Pen {
+        x: f32,
+        y: f32,
+        pressure: f32,
+        tilt_x: f32,
+        tilt_y: f32,
+        in_contact: bool,
+        is_eraser: bool,
+    },
+    /// A pen barrel gesture (Apple Pencil squeeze / double-tap).
+    PenBarrel { squeeze: bool },
+    /// A native gesture, as the platform recognizers deliver it — pinch,
+    /// rotation, swipe, long-press. Bypasses the in-process detector, which
+    /// is the point: it is how macOS, iOS, Android and now Wayland/X11 feed
+    /// gestures, and the detector cannot produce a touchpad pinch at all.
+    Gesture {
+        gesture: azul_layout::managers::gesture::NativeGestureEvent,
+    },
+    /// A gamepad state snapshot.
+    Gamepad {
+        state: azul_core::gamepad::GamepadState,
+    },
+    /// A sensor reading.
+    Sensor {
+        reading: azul_core::sensors::SensorReading,
+    },
+    /// IME composition: set the preedit, or commit it.
+    ///
+    /// `commit: true` ends the composition with `text` as the committed
+    /// string; `false` sets it as the in-progress preedit.
+    Composition { text: String, commit: bool },
+    /// A device or monitor was attached or detached.
+    Hotplug { is_monitor: bool, connected: bool },
+    /// Raw, pre-acceleration pointer motion. Only observable while the
+    /// pointer is locked, which the harness must set first — the same gate
+    /// the real backends apply.
+    RawMotion { dx: f64, dy: f64 },
+    /// A rotary control turned.
+    Dial { delta_rad: f32 },
+    /// A modifier or lock key changed.
+    Modifiers {
+        shift: bool,
+        ctrl: bool,
+        alt: bool,
+        meta: bool,
+        caps_lock: bool,
+        num_lock: bool,
+    },
 }
 
 /// MWA-A4: feed the gesture manager's input sessions exactly like the
@@ -2229,6 +2300,173 @@ impl HeadlessWindow {
                         if let Some(lw) = self.common.layout_window.as_mut() {
                             lw.file_drop_manager.clear_hover_cancelled();
                         }
+                    }
+                    HeadlessEvent::ScrollPhased {
+                        delta_x,
+                        delta_y,
+                        source,
+                    } => {
+                        self.snapshot_window_state_baseline("headless.run.scroll_phased");
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            lw.scroll_manager.note_scroll_phase(source);
+                            lw.scroll_manager.pending_wheel_event =
+                                Some(LogicalPosition { x: delta_x, y: delta_y });
+                        }
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                        events_need_redraw = true;
+                    }
+                    HeadlessEvent::Pen {
+                        x,
+                        y,
+                        pressure,
+                        tilt_x,
+                        tilt_y,
+                        in_contact,
+                        is_eraser,
+                    } => {
+                        self.snapshot_window_state_baseline("headless.run.pen");
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            lw.gesture_drag_manager.update_pen_state_full(
+                                LogicalPosition { x, y },
+                                pressure,
+                                (tilt_x, tilt_y),
+                                in_contact,
+                                is_eraser,
+                                false,
+                                1,
+                                0.0,
+                                0.0,
+                                0,
+                            );
+                        }
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                        events_need_redraw = true;
+                    }
+                    HeadlessEvent::PenBarrel { squeeze } => {
+                        self.snapshot_window_state_baseline("headless.run.pen_barrel");
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            lw.gesture_drag_manager.note_pen_barrel_gesture(squeeze);
+                        }
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                    }
+                    HeadlessEvent::Gesture { gesture } => {
+                        self.snapshot_window_state_baseline("headless.run.gesture");
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            lw.gesture_drag_manager.inject_native_gesture(gesture);
+                        }
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                        events_need_redraw = true;
+                    }
+                    HeadlessEvent::Gamepad { state } => {
+                        self.snapshot_window_state_baseline("headless.run.gamepad");
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            lw.gamepad_manager.set_state(state);
+                        }
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                    }
+                    HeadlessEvent::Sensor { reading } => {
+                        self.snapshot_window_state_baseline("headless.run.sensor");
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            lw.sensor_manager.set_reading(reading);
+                        }
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                    }
+                    HeadlessEvent::Composition { text, commit } => {
+                        self.snapshot_window_state_baseline("headless.run.composition");
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            if commit {
+                                lw.text_edit_manager.commit_composition(text.clone());
+                            } else {
+                                let caret = text.len() as i32;
+                                lw.text_edit_manager.set_preedit(text.clone(), caret, caret);
+                            }
+                        }
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                        events_need_redraw = true;
+                    }
+                    HeadlessEvent::Hotplug {
+                        is_monitor,
+                        connected,
+                    } => {
+                        self.snapshot_window_state_baseline("headless.run.hotplug");
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            if is_monitor {
+                                lw.device_event_manager.note_monitor(connected);
+                            } else {
+                                lw.device_event_manager.note_device(connected);
+                            }
+                        }
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                    }
+                    HeadlessEvent::RawMotion { dx, dy } => {
+                        self.snapshot_window_state_baseline("headless.run.raw_motion");
+                        // The real backends drop raw motion unless the pointer
+                        // is locked, so the harness applies the same gate —
+                        // a test that forgets to lock should see nothing,
+                        // exactly as the app would.
+                        let locked = self
+                            .common
+                            .current_window_state()
+                            .mouse_state
+                            .is_cursor_locked;
+                        if locked {
+                            if let Some(lw) = self.common.layout_window.as_mut() {
+                                lw.device_event_manager.note_raw_motion(dx, dy, 1);
+                            }
+                        }
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                    }
+                    HeadlessEvent::Dial { delta_rad } => {
+                        self.snapshot_window_state_baseline("headless.run.dial");
+                        if let Some(lw) = self.common.layout_window.as_mut() {
+                            lw.gesture_drag_manager.update_dial_state(
+                                azul_layout::managers::gesture::DialState {
+                                    device_id: 1,
+                                    delta_rad,
+                                    detent_count: 0.0,
+                                    pressed: false,
+                                    contact_position:
+                                        azul_core::window::OptionLogicalPosition::None,
+                                },
+                            );
+                        }
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
+                    }
+                    HeadlessEvent::Modifiers {
+                        shift,
+                        ctrl,
+                        alt,
+                        meta,
+                        caps_lock,
+                        num_lock,
+                    } => {
+                        self.snapshot_window_state_baseline("headless.run.modifiers");
+                        {
+                            let ks = self.common.keyboard_state_mut();
+                            ks.modifiers = azul_core::events::KeyModifiers {
+                                shift,
+                                ctrl,
+                                alt,
+                                meta,
+                            };
+                            ks.locks = azul_core::window::KeyLocks {
+                                caps_lock,
+                                num_lock,
+                                scroll_lock: false,
+                            };
+                        }
+                        let r = self.process_window_events(0);
+                        events_result = events_result.max(r);
                     }
                     HeadlessEvent::MouseMove { x, y } => {
                         use azul_core::window::CursorPosition;
