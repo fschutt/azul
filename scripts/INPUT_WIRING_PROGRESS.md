@@ -428,11 +428,32 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       - ⚠ The iOS SIMULATOR cannot be run on this machine: `xcode-select -p` is
         `/Library/Developer/CommandLineTools`, there is no `Xcode.app`, `simctl` is absent and there are
         no CoreSimulator runtimes. Compiling for the simulator ABI is as far as verification goes here.
-- [ ] 13d-android `aarch64-linux-android` — needs `rustup target add aarch64-linux-android` (std not
-      installed); the 9 errors seen were all "can't find crate for core/std", i.e. the toolchain, not the code.
-- [ ] 13d-linux `x86_64-unknown-linux-gnu` — needs the homebrew cross toolchain wired via CC/CXX/AR/LINKER,
-      see the crosscompile-vkmem note.
-- [ ] 13d-windows `x86_64-pc-windows-msvc` — needs the MSVC libs; `-gnu` may be the reachable variant.
+- [x] 13d-android `aarch64-linux-android` — 0 errors. Two real bugs found that the host could never see:
+      `with_window` imported from `super::` when it lives in the sibling `jni_bridge` module, and the
+      `azul_css::OptionPixelValue` path again.
+- [x] 13d-linux `x86_64-unknown-linux-gnu` — 0 errors, and the biggest catch of the sweep: 46 errors
+      including a `..Default::default()` appended inside a struct DEFINITION, field initializers inserted
+      into a tuple DESTRUCTURING PATTERN, and an invented `SendPtr`/`OnceLock` pair where the module uses
+      `SyncInterface`. `cargo check` does not link, so no cross C toolchain was needed after all.
+- [ ] 13d-windows `x86_64-pc-windows-msvc` — the one target still unchecked. Needs the MSVC libs, which
+      are not obtainable on macOS; `x86_64-pc-windows-gnu` may check without them. **The Win32 code in
+      this arc (WM_GESTURE, WM_APPCOMMAND, WM_DEVICECHANGE, the pointer/pen paths) is therefore still
+      uncompiled.**
+
+### iOS simulator — investigated, NOT reachable on this machine
+
+- `xcode-select -p` = `/Library/Developer/CommandLineTools`; no `Xcode.app`, no `simctl`, no
+  CoreSimulator runtimes, and `/Library/Developer/CommandLineTools/SDKs` holds only MacOSX SDKs — so
+  there is no `iphoneos`/`iphonesimulator` sysroot and iOS cannot even be LINKED here, only `check`ed.
+- `scripts/build-ios.sh` + `doc/guide/en/deploying/mobile.md` describe bundling a `.app` without an Xcode
+  PROJECT, which is true — but it still needs the iOS SDK for the linker sysroot.
+- **vphone-cli** (suggested 2026-09-01) does not close the gap: it boots a full iOS VM via
+  Virtualization.framework, and its prerequisites are a SUPERSET of what is missing — it still requires
+  Xcode + the iOS SDK to cross-compile its guest daemon, AND requires relaxing SIP/AMFI. This machine is
+  Apple silicon on macOS 15.5 (both fine) but SIP is ENABLED, and disabling it needs a recoveryOS boot.
+  It also boots a jailbroken iOS VM rather than a simulator, which is a heavier and different thing.
+- **Shortest real path: install Xcode.** That yields `simctl` (run the simulator) AND the iOS SDK (link a
+  real binary and assemble the `.app`), which is strictly more than vphone-cli would give.
 - [ ] 13d `cargo test --release --lib` per crate.
 - [ ] 13e Full e2e (`--test all`) ONCE.
 - [ ] 13f Drive the step-0 ratchet allow-list to empty; anything left is a real remaining gap.
