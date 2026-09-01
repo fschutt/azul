@@ -90,6 +90,10 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       downcast `ScrollPhysicsState` and does not obviously reach the `ScrollManager` — find the seam rather
       than guessing. Trackpad gestures are unaffected: `TrackpadEnd` closes those.
 
+- [ ] 4f-i X11 RandR monitor hotplug: `XRRSelectInput(RRScreenChangeNotifyMask)` plus a count diff, the
+      same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
+      first — unlike XI2, which was already loaded.
+
 ### Follow-ups opened by 4b/4c
 
 - [x] 4c-i Register `DeviceEventManager` on `LayoutWindow` (field + `new()` + the destructure at
@@ -128,7 +132,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `wl_seat.capabilities` + `zwp_tablet_seat_v2` add/remove → device events. All handlers already exist.
 - [x] 4d Producer: Win32 `WM_DISPLAYCHANGE` monitor-list diff; add `WM_DEVICECHANGE` handling.
 - [x] 4e Producer: macOS `windowDidChangeScreen:` diff + observe `NSApplicationDidChangeScreenParameters`.
-- [ ] 4f Producer: X11 RandR `XRRSelectInput` + `XI_HierarchyChanged`.
+- [x] 4f Producer: X11 (XI_HierarchyChanged done; RandR monitor hotplug still owed — see 4f-i) RandR `XRRSelectInput` + `XI_HierarchyChanged`.
 
 ## Step 5 — C5: new EventTypes and missing match arms
 

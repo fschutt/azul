@@ -881,6 +881,22 @@ fn init_xinput2(
         };
         (xi.XISelectEvents)(display, window, &mut evmask, 1);
 
+        // Hotplug, selected separately and on XIAllDevices.
+        //
+        // A hierarchy change is not the property of any one device, and the
+        // mask above targets XIAllMasterDevices — selecting it there would
+        // miss slave hotplug entirely, which is exactly the case that matters
+        // (plugging in a mouse creates a slave, not a master).
+        let mut hmask = [0u8; 3];
+        hmask[(defines::XI_HierarchyChanged >> 3) as usize] |=
+            1 << (defines::XI_HierarchyChanged & 7);
+        let mut hevmask = defines::XIEventMask {
+            deviceid: defines::XIAllDevices,
+            mask_len: hmask.len() as c_int,
+            mask: hmask.as_mut_ptr(),
+        };
+        (xi.XISelectEvents)(display, window, &mut hevmask, 1);
+
         // Map deviceid -> (pressure#, tiltX#, tiltY#, pressure_max) via valuator labels.
         let p_atom = (xlib.XInternAtom)(display, b"Abs Pressure\0".as_ptr() as *const _, 0);
         let tx_atom = (xlib.XInternAtom)(display, b"Abs Tilt X\0".as_ptr() as *const _, 0);
@@ -1396,6 +1412,37 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
             // Nothing was fetched, so there is nothing to free.
             return;
         }
+        // Hotplug is not a device event and has no target window: the payload
+        // is an XIHierarchyEvent, not an XIDeviceEvent, so it must be split
+        // off BEFORE the cast below or `ev.event` reads whatever those bytes
+        // happen to be and the routing walks off into a wrong window.
+        if cookie.evtype == defines::XI_HierarchyChanged {
+            let hev = &*(cookie.data as *const defines::XIHierarchyEvent);
+            if !hev.info.is_null() && hev.num_info > 0 {
+                let infos =
+                    core::slice::from_raw_parts(hev.info, hev.num_info.max(0) as usize);
+                for info in infos {
+                    // Enabled/Disabled, not Added/Removed. Added and Removed
+                    // also fire for X server bookkeeping — a master pair being
+                    // created, a slave being reattached — whereas
+                    // Enabled/Disabled are the transitions a user actually
+                    // causes by plugging something in or pulling it out.
+                    if info.flags & defines::XIDeviceEnabled != 0 {
+                        if let Some(ref mut lw) = win.common.layout_window {
+                            lw.device_event_manager.note_device(true);
+                        }
+                    }
+                    if info.flags & defines::XIDeviceDisabled != 0 {
+                        if let Some(ref mut lw) = win.common.layout_window {
+                            lw.device_event_manager.note_device(false);
+                        }
+                    }
+                }
+            }
+            (free_event_data)(display, cookie);
+            return;
+        }
+
         let ev = &*(cookie.data as *const defines::XIDeviceEvent);
         // XI2 events name their target in `ev.event` (the event window) —
         // `xev.any.window` overlays the cookie's `extension` field and is NOT

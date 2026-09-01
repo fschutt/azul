@@ -690,6 +690,11 @@ pub type XNextEvent = unsafe extern "C" fn(*mut Display, *mut XEvent) -> c_int;
 
 // ===== XInput2 (XI2) — touch + pen/tablet. ABI per scripts/ideas/platform/WACOM_TOUCH_API_RESEARCH.md =====
 pub const GenericEvent: c_int = 35;
+/// `XI_HierarchyChanged` — a device was added, removed, enabled, disabled,
+/// attached or detached. XI2's own hotplug notification, selected on
+/// `XIAllDevices` (a hierarchy change is not the property of any one device,
+/// so selecting it on `XIAllMasterDevices` would miss slave hotplug entirely).
+pub const XI_HierarchyChanged: c_int = 11;
 pub const XI_ButtonPress: c_int = 4;
 pub const XI_ButtonRelease: c_int = 5;
 pub const XI_Motion: c_int = 6;
@@ -1297,3 +1302,43 @@ pub const AllocNone: c_int = 0;
 
 // Visual class for XMatchVisualInfo
 pub const TrueColor: c_int = 4;
+
+
+/// `XIHierarchyEvent.info[].flags` — a slave or master device was added.
+pub const XISlaveAdded: c_int = 1 << 2;
+/// `XIHierarchyEvent.info[].flags` — a slave or master device was removed.
+pub const XISlaveRemoved: c_int = 1 << 3;
+/// `XIHierarchyEvent.info[].flags` — a device was enabled (plugged in and
+/// usable). Paired with `XIDeviceDisabled`; these are the transitions a user
+/// actually causes, whereas Added/Removed also fire for X server bookkeeping.
+pub const XIDeviceEnabled: c_int = 1 << 6;
+/// `XIHierarchyEvent.info[].flags` — a device was disabled (unplugged).
+pub const XIDeviceDisabled: c_int = 1 << 7;
+
+/// One device's entry in an `XIHierarchyEvent`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct XIHierarchyInfo {
+    pub deviceid: c_int,
+    pub attachment: c_int,
+    pub use_: c_int,
+    pub enabled: c_int,
+    pub flags: c_int,
+}
+
+/// XI2 hotplug event. Read out of the `XGenericEventCookie` data pointer when
+/// `evtype == XI_HierarchyChanged`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct XIHierarchyEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: c_int,
+    pub display: *mut Display,
+    pub extension: c_int,
+    pub evtype: c_int,
+    pub time: c_ulong,
+    pub flags: c_int,
+    pub num_info: c_int,
+    pub info: *mut XIHierarchyInfo,
+}
