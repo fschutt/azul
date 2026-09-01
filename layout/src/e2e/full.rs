@@ -2279,6 +2279,20 @@ pub enum DebugEvent {
         ms: u64,
     },
 
+    /// `{ "op": "print", "text": "..." }` - write a line to the run's output.
+    ///
+    /// Scenario-level `printf`. Without it the only way to see what an op
+    /// actually returned was to assert something false and read the value out
+    /// of the failure message, which is a poor way to explore a live app.
+    Print {
+        text: String,
+    },
+    /// `{ "op": "print_response" }` - dump the PREVIOUS step's response.
+    ///
+    /// Pairs with the query ops (`get_focus_state`, `get_cursor_state`,
+    /// `get_dom`, ...): run the query, then print what it said.
+    PrintResponse,
+
     // Screenshots
     TakeScreenshot,
     TakeNativeScreenshot,
@@ -3862,11 +3876,24 @@ pub fn take_logs() -> Vec<LogMessage> {
 
 /// Send a successful response to a debug request
 #[cfg(feature = "std")]
+/// The most recent op response, so `print_response` can show it.
+///
+/// A `Mutex<Option<String>>` rather than a channel: it is written once per op
+/// on the app thread and read by the very next op on the same thread.
+pub(crate) static LAST_RESPONSE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
 pub fn send_ok(
     request: &DebugRequest,
     window_state: Option<WindowStateSnapshot>,
     data: Option<ResponseData>,
 ) {
+    if let Some(d) = data.as_ref() {
+        if let Ok(json) = serde_json::to_string(d) {
+            if let Ok(mut g) = LAST_RESPONSE.lock() {
+                *g = Some(json);
+            }
+        }
+    }
     // Clear logs to prevent memory buildup
     let _ = take_logs();
     let response = DebugResponseData::Ok { window_state, data };
@@ -13698,6 +13725,26 @@ pub fn process_debug_event(
                     send_err(request, e.as_str().to_string());
                 }
             }
+        }
+
+        DebugEvent::Print { ref text } => {
+            // Straight to stderr as well as the log: a scenario's own
+            // narration should be visible whatever the log level is.
+            std::eprintln!("[e2e] {text}");
+            log(LogLevel::Info, LogCategory::General, text, None);
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::PrintResponse => {
+            // The runner records each step's response; the executor prints the
+            // most recent one (see `LAST_RESPONSE`).
+            let last = LAST_RESPONSE
+                .lock()
+                .ok()
+                .and_then(|g| g.clone())
+                .unwrap_or_else(|| "<no previous response>".to_string());
+            std::eprintln!("[e2e] response: {last}");
+            send_ok(request, None, None);
         }
 
         DebugEvent::TakeNativeScreenshot => {
