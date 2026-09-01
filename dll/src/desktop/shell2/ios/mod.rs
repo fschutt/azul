@@ -50,6 +50,7 @@ use crate::desktop::shell2::common::{
 use crate::desktop::shell2::headless::CpuBackend;
 
 pub mod accessibility;
+pub mod clipboard;
 
 use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
 use crate::{log_debug, log_error, log_info};
@@ -1778,7 +1779,7 @@ extern "C" fn ui_insert_text(_this: &Object, _cmd: Sel, text: *mut Object) {
         let _ = lw.record_text_input(&s);
     }
     let result = window.process_window_events(0);
-    window.handle_process_event_result(result);
+    settle(window, result);
 }
 
 /// `UIKeyInput.deleteBackward` — backspace.
@@ -1796,7 +1797,7 @@ extern "C" fn ui_delete_backward(_this: &Object, _cmd: Sel) {
         }
     }
     let result = window.process_window_events(0);
-    window.handle_process_event_result(result);
+    settle(window, result);
 }
 
 /// `canBecomeFirstResponder` — required, or UIKit never asks for text.
@@ -1815,12 +1816,12 @@ extern "C" fn ui_presses_began(this: &Object, _cmd: Sel, presses: *mut Object, e
     handle_presses(this, presses, true);
     // Still call super: UIKit routes unhandled presses up the responder chain
     // to the system, and swallowing them breaks the remote's Menu button.
-    unsafe { forward_presses_to_super(this, sel!(pressesBegan:withEvent:), presses, event) };
+    unsafe { forward_presses_to_super(this, true, presses, event) };
 }
 
 extern "C" fn ui_presses_ended(this: &Object, _cmd: Sel, presses: *mut Object, event: *mut Object) {
     handle_presses(this, presses, false);
-    unsafe { forward_presses_to_super(this, sel!(pressesEnded:withEvent:), presses, event) };
+    unsafe { forward_presses_to_super(this, false, presses, event) };
 }
 
 /// Copy an `NSString` into a Rust `String`.
@@ -1917,22 +1918,37 @@ fn handle_presses(_this: &Object, presses: *mut Object, is_down: bool) {
         }
     }
     let result = window.process_window_events(0);
-    window.handle_process_event_result(result);
+    settle(window, result);
+}
+
+/// Ask for a relayout when a pass produced anything.
+///
+/// The iOS shell has no `handle_process_event_result`; this is the idiom the
+/// touch path already uses, factored out rather than repeated at each new
+/// call site.
+fn settle(window: &mut IOSWindow, result: azul_core::events::ProcessEventResult) {
+    if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
+        window
+            .common
+            .request_regeneration(RelayoutReason::RefreshDom);
+    }
 }
 
 /// Pass a press set on to `super`, so unhandled keys still reach the system.
-unsafe fn forward_presses_to_super(
-    this: &Object,
-    sel: Sel,
-    presses: *mut Object,
-    event: *mut Object,
-) {
-    let superclass: *const Object = msg_send![this, superclass];
-    let sup = objc::runtime::Super {
-        receiver: this,
-        superclass: &*(superclass as *const objc::runtime::Class),
-    };
-    let _: () = objc::__send_super_message(&sup, sel, (presses, event)).unwrap_or(());
+///
+/// Without this the responder chain stops here and the Apple TV remote's Menu
+/// button — which UIKit expects to bubble up to the system — does nothing.
+unsafe fn forward_presses_to_super(this: &Object, is_began: bool, presses: *mut Object, event: *mut Object) {
+    let superclass: *const objc::runtime::Class = msg_send![this, superclass];
+    if superclass.is_null() {
+        return;
+    }
+    let this_mut = this as *const Object as *mut Object;
+    if is_began {
+        let _: () = msg_send![super(this_mut, &*superclass), pressesBegan: presses withEvent: event];
+    } else {
+        let _: () = msg_send![super(this_mut, &*superclass), pressesEnded: presses withEvent: event];
+    }
 }
 
 // ===== Apple Pencil interactions =====
@@ -1984,5 +2000,5 @@ fn inject_pen_gesture(is_squeeze: bool) {
         lw.gesture_drag_manager.note_pen_barrel_gesture(is_squeeze);
     }
     let result = window.process_window_events(0);
-    window.handle_process_event_result(result);
+    settle(window, result);
 }

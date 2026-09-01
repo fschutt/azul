@@ -416,9 +416,9 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ## Step 13 — FIX-UP (only after everything above)
 
-- [ ] 13a `cargo check --workspace` — fix compile errors.
-- [ ] 13b `cargo run --release -p azul-doc codegen all` (target/codegen is wiped by `cargo clean`).
-- [ ] 13c `azul-doc autofix` for every api.json delta recorded in step 8.
+- [x] 13a `cargo check --workspace` — fix compile errors.
+- [x] 13b `cargo run --release -p azul-doc codegen all` (target/codegen is wiped by `cargo clean`).
+- [x] 13c (ran to convergence: 0 add / 0 remove / 0 modify / 0 pathfix / 0 FFI errors) `azul-doc autofix` for every api.json delta recorded in step 8.
 - [ ] 13d `cargo test --release --lib` per crate.
 - [ ] 13e Full e2e (`--test all`) ONCE.
 - [ ] 13f Drive the step-0 ratchet allow-list to empty; anything left is a real remaining gap.

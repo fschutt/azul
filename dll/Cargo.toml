@@ -171,19 +171,21 @@ aegis = { version = "0.9", features = ["pure-rust"], optional = true }
 # without it PDFs contained rectangles only (the textless azul-writer bug).
 printpdf = { version = "0.12.7", default-features = false, features = ["html", "images", "png", "jpeg"], optional = true }
 
-[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-tfd = { version = "0.1.0", default-features = false, optional = true }
-# Gamepad input (P6 feature 6) — desktop backend (Win/Linux/macOS). Mobile
-# uses GCController / InputDevice instead, so gilrs is desktop-only.
-gilrs = { package = "gilrs-azul", version = "0.11", optional = true }
-
 # Typed multi-flavor clipboard payloads: codecs (RTF/CF_HTML/uri-list/DIB/…)
-# and read/write policy. Deliberately OS-free — the transports live in
-# `shell2/<platform>/clipboard.rs` and exchange `ClipboardPayload` with it
-# through `shell2/common/clipboard.rs`. Feature set per the crate's
-# INTEGRATION.md §3: styled text both ways, file lists (incl. the GNOME/KDE
-# cut conventions), DIB images, and link/shortcut files. No `image` feature:
-# azul has its own PNG encoder for the pixels→PNG delegation if ever needed.
+# and read/write policy. Deliberately OS-FREE — pure Rust, no system library —
+# so it belongs in the shared table, not behind a per-OS cfg. The TRANSPORTS
+# are what vary: `shell2/<platform>/clipboard.rs` exchanges `ClipboardPayload`
+# with it through `shell2/common/clipboard.rs`.
+#
+# This was previously excluded from iOS/Android, which is what made
+# `common/clipboard.rs` fail to build there — the module is unconditional and
+# the crate it imports was not. iOS now has a real `UIPasteboard` transport;
+# Android still has none, but the codecs cost it nothing.
+#
+# Feature set per the crate's INTEGRATION.md §3: styled text both ways, file
+# lists (incl. the GNOME/KDE cut conventions), DIB images, and link/shortcut
+# files. No `image` feature: azul has its own PNG encoder for the pixels→PNG
+# delegation if ever needed.
 rich-clipboard = { version = "0.1", features = ["rich-text", "file-list", "dib", "shortcut"], optional = true }
 # The vocabulary crate underneath it. Already in the graph via rich-clipboard
 # (so it costs nothing extra to compile); named directly because the transports
@@ -191,6 +193,13 @@ rich-clipboard = { version = "0.1", features = ["rich-text", "file-list", "dib",
 # predefined CF_* number to the name `Flavor::from_windows_name` reads back,
 # and `Budget`, to bound a Wayland pipe read that declares no length.
 rclip-core = { version = "0.1", optional = true }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tfd = { version = "0.1.0", default-features = false, optional = true }
+# Gamepad input (P6 feature 6) — desktop backend (Win/Linux/macOS). Mobile
+# uses GCController / InputDevice instead, so gilrs is desktop-only.
+gilrs = { package = "gilrs-azul", version = "0.11", optional = true }
+
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { version = "0.2", optional = true }

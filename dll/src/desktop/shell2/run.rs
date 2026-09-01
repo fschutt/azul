@@ -1252,6 +1252,13 @@ pub fn run(
             fc_cache,
             font_registry,
             root_window,
+            // These three were omitted on the mobile paths, so neither
+            // matched the signature. They are in scope here exactly as on the
+            // desktop paths — a headless run gets the same tray, font manager
+            // and app icon wherever it runs.
+            tray,
+            font_manager,
+            app_icon,
             _debug_request_rx,
             _component_map,
         );
@@ -1318,6 +1325,13 @@ pub fn run(
             fc_cache,
             font_registry,
             root_window,
+            // These three were omitted on the mobile paths, so neither
+            // matched the signature. They are in scope here exactly as on the
+            // desktop paths — a headless run gets the same tray, font manager
+            // and app icon wherever it runs.
+            tray,
+            font_manager,
+            app_icon,
             _debug_request_rx,
             _component_map,
         );

@@ -75,7 +75,16 @@ pub fn get_system_clipboard() -> Option<ClipboardPayload> {
             crate::desktop::shell2::linux::x11::clipboard::read_payload()
         }
     }
-    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "ios")]
+    {
+        crate::desktop::shell2::ios::clipboard::read_payload()
+    }
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "ios"
+    )))]
     {
         None
     }
@@ -115,7 +124,16 @@ pub fn set_system_clipboard(payload: &ClipboardPayload) -> bool {
             crate::desktop::shell2::linux::x11::clipboard::write_to_clipboard(&text).is_ok()
         }
     }
-    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "ios")]
+    {
+        crate::desktop::shell2::ios::clipboard::write_payload(payload)
+    }
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "ios"
+    )))]
     {
         let _ = payload;
         false
