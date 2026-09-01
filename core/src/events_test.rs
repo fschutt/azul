@@ -2259,10 +2259,12 @@ mod autotest_generated {
         );
 
         // Unmapped event types produce an empty filter list (never a panic).
+        //
+        // Submit / Change / Reset / Invalid left this list when they gained
+        // filters. The media six are still here: they have no playback state
+        // machine to fire from, so giving them filters would advertise events
+        // that cannot happen.
         for ty in [
-            EventType::Submit,
-            EventType::Reset,
-            EventType::Invalid,
             EventType::Play,
             EventType::Pause,
             EventType::Ended,
@@ -2289,6 +2291,10 @@ mod autotest_generated {
             EventType::PinchIn,
             EventType::RotateClockwise,
             EventType::SwipeLeft,
+            EventType::Submit,
+            EventType::Change,
+            EventType::Reset,
+            EventType::Invalid,
             EventType::PenDown,
             EventType::PenMove,
             EventType::PenUp,

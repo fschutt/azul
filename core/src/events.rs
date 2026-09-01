@@ -1696,6 +1696,10 @@ fn matches_hover_filter(
         (HoverEventFilter::ForwardMouseUp, EventType::MouseUp) => {
             check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_FORWARD))
         }
+        (HoverEventFilter::Submit, EventType::Submit) => true,
+        (HoverEventFilter::Change, EventType::Change) => true,
+        (HoverEventFilter::Reset, EventType::Reset) => true,
+        (HoverEventFilter::Invalid, EventType::Invalid) => true,
         _ => false,
     }
 }
@@ -1786,6 +1790,10 @@ fn matches_focus_filter(
         (FocusEventFilter::ForwardMouseUp, EventType::MouseUp) => {
             check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_FORWARD))
         }
+        (FocusEventFilter::Submit, EventType::Submit) => true,
+        (FocusEventFilter::Change, EventType::Change) => true,
+        (FocusEventFilter::Reset, EventType::Reset) => true,
+        (FocusEventFilter::Invalid, EventType::Invalid) => true,
         _ => false,
     }
 }
@@ -2443,6 +2451,21 @@ pub enum HoverEventFilter {
     ForwardMouseDown,
     /// The thumb "forward" button was released.
     ForwardMouseUp,
+    /// A form was submitted — Enter on a focused control, or a submit
+    /// button activated. APPENDED at the end for ABI stability.
+    Submit,
+    /// A control's value was COMMITTED, which is not the same as edited.
+    /// APPENDED at the end.
+    ///
+    /// `TextInput` fires on every keystroke; this fires once, when the value
+    /// settles — on blur, or on Enter. A field that validates on `TextInput`
+    /// scolds the user halfway through typing an email address; one that
+    /// validates on `Change` waits until they have finished.
+    Change,
+    /// A form was reset to its initial values. APPENDED at the end.
+    Reset,
+    /// A control failed validation. APPENDED at the end.
+    Invalid,
 }
 
 impl HoverEventFilter {
@@ -2677,6 +2700,21 @@ pub enum FocusEventFilter {
     ForwardMouseDown,
     /// The thumb "forward" button was released.
     ForwardMouseUp,
+    /// A form was submitted — Enter on a focused control, or a submit
+    /// button activated. APPENDED at the end for ABI stability.
+    Submit,
+    /// A control's value was COMMITTED, which is not the same as edited.
+    /// APPENDED at the end.
+    ///
+    /// `TextInput` fires on every keystroke; this fires once, when the value
+    /// settles — on blur, or on Enter. A field that validates on `TextInput`
+    /// scolds the user halfway through typing an email address; one that
+    /// validates on `Change` waits until they have finished.
+    Change,
+    /// A form was reset to its initial values. APPENDED at the end.
+    Reset,
+    /// A control failed validation. APPENDED at the end.
+    Invalid,
 }
 
 /// Event filter that fires when any action fires on the entire window
@@ -3625,7 +3663,18 @@ fn event_type_to_filters_legacy_hint(
         E::FocusOut => vec![EF::Hover(H::FocusOut), EF::Focus(F::FocusOut)],
 
         // Input events
-        E::Input | E::Change => vec![EF::Focus(F::TextInput)],
+        E::Input => vec![EF::Focus(F::TextInput)],
+        // Change now has a filter of its own. It still ALSO names TextInput,
+        // because a widget mirroring every edit registered there long before
+        // Change existed and should not stop hearing the commit.
+        E::Change => vec![
+            EF::Hover(H::Change),
+            EF::Focus(F::Change),
+            EF::Focus(F::TextInput),
+        ],
+        E::Submit => vec![EF::Hover(H::Submit), EF::Focus(F::Submit)],
+        E::Reset => vec![EF::Hover(H::Reset), EF::Focus(F::Reset)],
+        E::Invalid => vec![EF::Hover(H::Invalid), EF::Focus(F::Invalid)],
 
         // Scroll events.
         //

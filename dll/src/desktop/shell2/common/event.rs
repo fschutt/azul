@@ -10111,8 +10111,41 @@ pub trait PlatformWindow {
 
                             DefaultAction::None => {}
 
-                            DefaultAction::SubmitForm { .. }
-                            | DefaultAction::CloseModal { .. }
+                            DefaultAction::SubmitForm { form_node } => {
+                                // Was a documented placeholder. Enter on a
+                                // focused control produced this action and
+                                // nothing consumed it, so a form could not be
+                                // submitted from the keyboard at all.
+                                //
+                                // Targets the FORM node the action names, not
+                                // the focused field: a submit handler belongs
+                                // on the form, and the field that happened to
+                                // have focus is an implementation detail of
+                                // how the user got there.
+                                let now = {
+                                    #[cfg(feature = "std")]
+                                    {
+                                        azul_core::task::Instant::from(std::time::Instant::now())
+                                    }
+                                    #[cfg(not(feature = "std"))]
+                                    {
+                                        azul_core::task::Instant::Tick(
+                                            azul_core::task::SystemTick::new(0),
+                                        )
+                                    }
+                                };
+                                let ev = azul_core::events::SyntheticEvent::new(
+                                    azul_core::events::EventType::Submit,
+                                    azul_core::events::EventSource::User,
+                                    *form_node,
+                                    now,
+                                    azul_core::events::EventData::None,
+                                );
+                                let (r, _u, _p) = self.dispatch_events_propagated(&[ev]);
+                                result = result.max(r);
+                            }
+
+                            DefaultAction::CloseModal { .. }
                             | DefaultAction::SelectAllText => {
                                 // Placeholder for future implementation
                             }
@@ -10240,6 +10273,26 @@ pub trait PlatformWindow {
                         now.clone(),
                         azul_core::events::EventData::None,
                     ));
+                    // Change: the value COMMITTED, which is not the same as
+                    // edited. TextInput fires per keystroke; this fires once,
+                    // when the value settles. A field validating on TextInput
+                    // scolds the user halfway through an email address.
+                    //
+                    // Gated on the node having been the edit target, so
+                    // blurring a read-only node is not a change.
+                    let was_editing = self
+                        .get_layout_window()
+                        .and_then(|lw| lw.text_edit_manager.get_editing_node_id())
+                        .is_some();
+                    if was_editing {
+                        focus_events.push(azul_core::events::SyntheticEvent::new(
+                            azul_core::events::EventType::Change,
+                            azul_core::events::EventSource::User,
+                            old_node,
+                            now.clone(),
+                            azul_core::events::EventData::None,
+                        ));
+                    }
                     // FocusOut is the bubbling twin of Blur: W3C fires it on
                     // the node losing focus AND its ancestors, which is what
                     // lets a container react to focus leaving its subtree.

@@ -94,6 +94,17 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 11a/11b — REVISIT AT THE END
+
+- [ ] 11a-i `Change` currently fires on blur of any node that was the edit target, NOT only when the value
+      actually differs from what it was at focus time. Needs a `value_at_focus` snapshot on
+      `TextEditManager` to compare against. As it stands, focusing a field and tabbing away without typing
+      emits a spurious `Change`.
+- [ ] 11b-i `Reset` and `Invalid` are subscribable but unproducible. `Reset` needs a form-reset concept
+      (a `form_node` + the initial values to restore); `Invalid` needs validation state on the node —
+      a `required` / `pattern` attribute or a validator callback. Both are DESIGN questions, not plumbing,
+      which is why they are logged rather than guessed at.
+
 ### Follow-ups opened by 10f
 
 - [ ] 10f-i `com.azul.gamepad.AzulGamepad` does not exist. It owns the `InputManager.InputDeviceListener`
@@ -383,10 +394,10 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ## Step 11 — C6: full-stack stragglers
 
-- [ ] 11a `Submit` off the existing `DefaultAction::SubmitForm`; `Change` as commit-on-blur off
+- [x] 11a `Submit` off the existing `DefaultAction::SubmitForm`; `Change` as commit-on-blur off
       `TextInputOnFocusLost`. Add the filter variants first (all four layers), then update the
       `events_test.rs` unmapped pin.
-- [ ] 11b `Reset` / `Invalid` — needs a validation concept; design then wire.
+- [~] 11b PARTIAL — the filters, planning arms and matcher arms exist so they are subscribable, but nothing PRODUCES them: both need a validation/form-reset concept that does not exist. See 11b-i. Original: `Reset` / `Invalid` — needs a validation concept; design then wire.
 - [ ] 11c Media: `Play`/`Pause`/`Ended`/`TimeUpdate`/`VolumeChange`/`MediaError`. BLOCKED on a real playback state
       machine — `dll/src/unified/audio.rs:62` is `pub fn play(&self, _frame: AudioFrame) {}`. Build the state
       machine first, then emit.
