@@ -5762,7 +5762,13 @@ pub fn get_scrollbar_style(
     //
     // Applied BEFORE the author-CSS steps below, so an explicit
     // `::-webkit-scrollbar-thumb { background: … }` still wins.
-    if matches!(ua.color, StyleScrollbarColor::Auto) {
+    // The UA sheet carries GENERIC constants (`@theme dark { scrollbar-color:
+    // #646464 #2d2d2d }`), which it emits as a `Custom` value — so gating this
+    // on `Auto` meant the UA fallback silently beat the real desktop palette
+    // on every themed platform, and a detected KDE/GNOME scrollbar never
+    // reached the screen. A detected palette outranks a hardcoded UA constant;
+    // AUTHOR css still wins, because it is applied in the steps below.
+    {
         if let Some(sys) = system_style.and_then(|s| s.scrollbar.as_deref()) {
             if let Some(thumb) = sys.thumb_color {
                 result.thumb_color = thumb;

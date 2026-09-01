@@ -884,6 +884,7 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
     }
 
     // ── Scrollbars ──────────────────────────────────────────────────
+
     // GNOME's overlay scrollbars are the thin ones that appear on hover.
     // GNOME/Cinnamon/MATE publish this directly: overlay scrollbars are the
     // thin ones that appear on hover and fade; turning them off means the
@@ -1155,6 +1156,36 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     // IS the answer. Left unset, the engine's `Auto` visibility falls back to
     // overlay behaviour and the bar vanishes a moment after each scroll.
     style.scrollbar_preferences.visibility = ScrollbarVisibility::Always;
+
+    // Built from the DETECTED palette, not from a built-in light/dark preset.
+    // Breeze paints the groove in the window background and the handle in a
+    // muted foreground, and BOTH follow whichever colour scheme the user
+    // picked — a hardcoded preset is right for exactly two schemes and wrong
+    // for the hundreds of others (and was wrong here: the classic dark bar's
+    // #2d2d2d groove is not Breeze's #2a2e32).
+    {
+        use azul_css::props::style::scrollbar::ComputedScrollbarStyle;
+        // Breeze's groove is the window surface, and its handle the palette's
+        // muted tone — both follow whatever colour scheme the user picked.
+        let groove = read_kde_color("Colors:Window", "BackgroundNormal")
+            .or_else(|| style.colors.window_background.into_option());
+        // `ForegroundInactive` is the palette's own "muted" tone — exactly
+        // what a scrollbar handle is — and it is defined by every KDE scheme.
+        let handle = read_kde_color("Colors:Window", "ForegroundInactive")
+            .or_else(|| read_kde_color("Colors:Button", "ForegroundInactive"))
+            .or_else(|| style.colors.secondary_text.into_option());
+        if groove.is_some() || handle.is_some() {
+            let width = style
+                .scrollbar
+                .as_deref()
+                .and_then(|s| s.width.clone());
+            style.scrollbar = Some(Box::new(ComputedScrollbarStyle {
+                width,
+                thumb_color: handle,
+                track_color: groove,
+            }));
+        }
+    }
 
     // What a click on the TRACK does. Plasma's key is opt-IN to paging
     // (`ScrollbarLeftClickNavigatesByPage`), so its default — and Breeze's
