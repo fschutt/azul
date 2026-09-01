@@ -98,6 +98,19 @@ pub struct AndroidWindow {
     /// which is why its state is behind a lock and why nothing in it touches
     /// the `LayoutWindow`.
     pub accessibility_adapter: accessibility::AndroidAccessibilityAdapter,
+
+    /// A frame must be re-rastered and posted, but the layout is UNCHANGED.
+    ///
+    /// Android's `request_redraw()` equivalent, which it did not have: the only
+    /// route to a presented frame was `regeneration_pending()`, so every input
+    /// that changed a pixel had to claim it had changed the DOM.
+    needs_rerender: bool,
+
+    /// Last touch position of an in-progress one-finger pan, in logical px.
+    ///
+    /// Android delivers absolute positions; the scroll funnel wants deltas, so
+    /// the previous sample has to be kept somewhere. `None` between gestures.
+    touch_pan_last: Option<azul_core::geom::LogicalPosition>,
 }
 
 impl AndroidWindow {
@@ -155,6 +168,8 @@ impl AndroidWindow {
             icon_provider,
             font_registry,
             accessibility_adapter: accessibility::AndroidAccessibilityAdapter::new(),
+            needs_rerender: false,
+            touch_pan_last: None,
         })
     }
 
@@ -219,6 +234,42 @@ impl AndroidWindow {
     /// display list. Mirrors `HeadlessWindow::regenerate_layout()`; the
     /// lifecycle-event dispatch step is skipped for now (Android backend
     /// has no callback driver yet — pending sprint H).
+    /// Re-raster the frame from the CURRENT layout — no layout callback, no
+    /// solve, no DOM work.
+    ///
+    /// This is what a scroll needs. It reads the live scroll offsets out of the
+    /// `LayoutWindow` and repaints, which is the whole of the work desktop does
+    /// for `ShouldReRenderCurrentWindow` / `ShouldUpdateDisplayListCurrentWindow`.
+    /// Android had no such entry point, so those results were escalated to
+    /// `RefreshDom` and re-ran the app's `layout()` — measured at 121-443 ms per
+    /// frame during a drag on AzWriter, against 6 ms for the same frame when the
+    /// callback is skipped.
+    pub fn rerender_cpu(&mut self) {
+        #[cfg(feature = "cpurender")]
+        {
+            let ws = self.common.current_window_state();
+            let width = ws.size.dimensions.width;
+            let height = ws.size.dimensions.height;
+            let dpi = ws.size.dpi as f32 / 96.0;
+            // Shared per-frame content preparation (journal clock, image
+            // callbacks through the content chokepoint, scrollbar cache).
+            // Before this, image callbacks were NEVER invoked on this host —
+            // every callback image rendered as the announced grey placeholder.
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.prepare_frame_cpu();
+            }
+            if let Some(lw) = self.common.layout_window.as_ref() {
+                self.cpu_backend.render_frame(
+                    lw,
+                    &self.common.renderer_resources,
+                    width,
+                    height,
+                    dpi,
+                );
+            }
+        }
+    }
+
     pub fn regenerate_layout_inner(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
@@ -301,29 +352,7 @@ impl AndroidWindow {
         //
         // CPU-render the frame — populates `self.cpu_backend.last_frame`
         // so the next `render_frame()` call can blit pixels.
-        #[cfg(feature = "cpurender")]
-        {
-            let ws = self.common.current_window_state();
-            let width = ws.size.dimensions.width;
-            let height = ws.size.dimensions.height;
-            let dpi = ws.size.dpi as f32 / 96.0;
-            // Shared per-frame content preparation (journal clock, image
-            // callbacks through the content chokepoint, scrollbar cache).
-            // Before this, image callbacks were NEVER invoked on this host —
-            // every callback image rendered as the announced grey placeholder.
-            if let Some(lw) = self.common.layout_window.as_mut() {
-                lw.prepare_frame_cpu();
-            }
-            if let Some(lw) = self.common.layout_window.as_ref() {
-                self.cpu_backend.render_frame(
-                    lw,
-                    &self.common.renderer_resources,
-                    width,
-                    height,
-                    dpi,
-                );
-            }
-        }
+        self.rerender_cpu();
 
         // Republish the virtual-view tree. Bounds, labels and the focused node
         // all just changed and TalkBack reads a cached tree, so without this it
@@ -557,10 +586,18 @@ pub fn android_main(app: AndroidApp) {
         // fired, no background Thread result was ever collected, and no
         // animation advanced. The 16 ms poll above was already the right place
         // to drive it; it simply was never wired.
+        // The bool means "needs REDRAW", not "needs regeneration" — and
+        // `process_timers_and_threads` has already called `request_regeneration`
+        // ITSELF for the cases that genuinely need a DOM rebuild, guarded by a
+        // comment saying exactly why the others must not get one: "we just need
+        // a repaint, NOT a full layout() call which would rebuild the DOM from
+        // stale application data."
+        //
+        // Forcing RefreshDom here overrode that decision on every tick. During a
+        // scroll the physics timer fires at 16 ms, so this alone re-ran the
+        // app's layout() ~60x/second for the whole gesture.
         if window.process_timers_and_threads() {
-            window
-                .common
-                .request_regeneration(RelayoutReason::RefreshDom);
+            window.needs_rerender = true;
         }
 
         // Accessibility actions arrive off-loop: TalkBack calls
@@ -579,6 +616,9 @@ pub fn android_main(app: AndroidApp) {
 
         let mut frame_dirty = false;
         if window.common.regeneration_pending() {
+            // A regeneration re-rasters on its way through, so a redraw request
+            // raised earlier in the same iteration is already satisfied.
+            window.needs_rerender = false;
             match window.regenerate_layout() {
                 Ok(_) => frame_dirty = true,
                 Err(e) => {
@@ -589,6 +629,12 @@ pub fn android_main(app: AndroidApp) {
                     );
                 }
             }
+        } else if window.needs_rerender {
+            // Repaint only: the pixels changed (a scroll offset, a hover
+            // restyle), the layout did not. No app callback, no solve.
+            window.needs_rerender = false;
+            window.rerender_cpu();
+            frame_dirty = true;
         }
 
         // Present ONLY when this iteration produced a frame. The loop wakes
@@ -1006,6 +1052,80 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
 
         // Update CPU hit-tester at the new cursor; dispatch callbacks.
         window.update_hit_test_at(update.mouse_pos);
+
+        // ONE-FINGER PAN -> SCROLL.
+        //
+        // Neither mobile backend translated touch drags into scrolling at all:
+        // a drag only moved `cursor_position` and set `left_down`, which the
+        // engine reads as a mouse drag. Nothing produced
+        // `ScrollInputDevice::Touchscreen`, even though the variant has existed
+        // (documented "Direct touchscreen panning") the whole time — so the
+        // single most basic mobile gesture did nothing.
+        //
+        // Funnelled through `record_scroll_from_hit_test` like every desktop
+        // backend, so the gesture latch, nested-container handoff and
+        // rubber-band physics are the same code. It must run AFTER
+        // `update_hit_test_at` (it reads the hover manager) and BEFORE
+        // `process_window_events`, which is where the shared site arms the
+        // physics timer.
+        //
+        // `TrackpadContinuous` is the processing model — a finger sets the
+        // position directly, exactly like a precise trackpad, rather than the
+        // velocity impulse a ratcheting wheel gets. `TrackpadEnd` on lift is
+        // what hands an overshoot to the spring.
+        {
+            use azul_core::task::Instant;
+            use azul_layout::managers::hover::InputPointId;
+            use azul_layout::managers::scroll_state::{ScrollInputDevice, ScrollInputSource};
+
+            let (delta, source) = match update.action {
+                MotionAction::Down | MotionAction::PointerDown => {
+                    window.touch_pan_last = Some(update.mouse_pos);
+                    (None, ScrollInputSource::TrackpadContinuous)
+                }
+                MotionAction::Move => {
+                    let d = window.touch_pan_last.map(|last| {
+                        // Finger delta, NOT the inverse. Dragging UP must move
+                        // the content up (revealing what is below), i.e. the
+                        // scroll offset INCREASES — and `record_scroll_input`
+                        // already applies the natural-scroll sign centrally, so
+                        // inverting here too cancels out: measured on device,
+                        // `last - current` drove the offset negative and
+                        // rubber-banded against the top edge instead of
+                        // scrolling.
+                        (update.mouse_pos.x - last.x, update.mouse_pos.y - last.y)
+                    });
+                    window.touch_pan_last = Some(update.mouse_pos);
+                    (d, ScrollInputSource::TrackpadContinuous)
+                }
+                MotionAction::Up | MotionAction::Cancel => {
+                    window.touch_pan_last = None;
+                    // Zero delta, but the END phase still matters: it is what
+                    // releases a rubber-banded axis back to its bounds.
+                    (Some((0.0, 0.0)), ScrollInputSource::TrackpadEnd)
+                }
+                _ => (None, ScrollInputSource::TrackpadContinuous),
+            };
+
+            if let Some((dx, dy)) = delta {
+                let ended = source == ScrollInputSource::TrackpadEnd;
+                if ended || dx.abs() > 0.01 || dy.abs() > 0.01 {
+                    let now = Instant::from(std::time::Instant::now());
+                    if let Some(lw) = window.common.layout_window.as_mut() {
+                        let _ = lw.scroll_manager.record_scroll_from_hit_test(
+                            dx,
+                            dy,
+                            source,
+                            ScrollInputDevice::Touchscreen,
+                            &lw.hover_manager,
+                            &InputPointId::Mouse,
+                            now,
+                        );
+                    }
+                }
+            }
+        }
+
         let r = window.process_window_events(0);
         log_debug!(
             LogCategory::Input,
@@ -1014,10 +1134,30 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             update.mouse_pos,
             r,
         );
-        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-            window
-                .common
-                .request_regeneration(RelayoutReason::RefreshDom);
+        // HONOUR THE ESCALATION LADDER. Collapsing every non-DoNothing result
+        // into `RefreshDom` re-ran the APP's `layout()` callback for a scroll —
+        // the heaviest level (5) for an event the engine classified as level
+        // 1-2. `common/event.rs` documents the same trap on the autoscroll
+        // timer: "Returning RefreshDom re-invoked the APP's layout() callback
+        // every 16ms for the entire duration of a drag-autoscroll." Measured on
+        // AzWriter: 121-443 ms per scroll frame escalated, ~6 ms honoured.
+        //
+        // Same split the four desktop backends use — heavy reasons regenerate,
+        // light ones only repaint.
+        use azul_core::events::ProcessEventResult as PER;
+        match r {
+            PER::ShouldRegenerateDomCurrentWindow
+            | PER::ShouldRegenerateDomAllWindows
+            | PER::ShouldIncrementalRelayout
+            | PER::UpdateHitTesterAndProcessAgain => {
+                window
+                    .common
+                    .request_regeneration(RelayoutReason::RefreshDom);
+            }
+            PER::ShouldUpdateDisplayListCurrentWindow | PER::ShouldReRenderCurrentWindow => {
+                window.needs_rerender = true;
+            }
+            PER::DoNothing => {}
         }
     }
 
@@ -1074,10 +1214,30 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             }
         }
         let r = window.process_window_events(0);
-        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-            window
-                .common
-                .request_regeneration(RelayoutReason::RefreshDom);
+        // HONOUR THE ESCALATION LADDER. Collapsing every non-DoNothing result
+        // into `RefreshDom` re-ran the APP's `layout()` callback for a scroll —
+        // the heaviest level (5) for an event the engine classified as level
+        // 1-2. `common/event.rs` documents the same trap on the autoscroll
+        // timer: "Returning RefreshDom re-invoked the APP's layout() callback
+        // every 16ms for the entire duration of a drag-autoscroll." Measured on
+        // AzWriter: 121-443 ms per scroll frame escalated, ~6 ms honoured.
+        //
+        // Same split the four desktop backends use — heavy reasons regenerate,
+        // light ones only repaint.
+        use azul_core::events::ProcessEventResult as PER;
+        match r {
+            PER::ShouldRegenerateDomCurrentWindow
+            | PER::ShouldRegenerateDomAllWindows
+            | PER::ShouldIncrementalRelayout
+            | PER::UpdateHitTesterAndProcessAgain => {
+                window
+                    .common
+                    .request_regeneration(RelayoutReason::RefreshDom);
+            }
+            PER::ShouldUpdateDisplayListCurrentWindow | PER::ShouldReRenderCurrentWindow => {
+                window.needs_rerender = true;
+            }
+            PER::DoNothing => {}
         }
     }
 
@@ -1334,6 +1494,59 @@ fn publish_jni_context(app: &AndroidApp) {
     ANDROID_ACTIVITY.store(app.activity_as_ptr(), core::sync::atomic::Ordering::SeqCst);
 }
 
+/// Ask Android to show or hide the on-screen keyboard.
+///
+/// Rust -> Java, the opposite direction from every other bridge in this file.
+/// `InputMethodManager` is a Java-only API: there is no NDK entry point for it,
+/// so raising the keyboard REQUIRES a JNI call out. Until this existed there
+/// was no way to bring up a keyboard on Android at all — not a missing caller,
+/// a missing capability.
+///
+/// Best-effort by design: a failure here means the user gets no keyboard, which
+/// is bad, but it is not a reason to take the app down mid-layout.
+#[cfg(all(target_os = "android", feature = "jni"))]
+pub fn set_soft_keyboard_visible(visible: bool) {
+    use jni::JavaVM;
+
+    let vm_ptr = java_vm_ptr();
+    let activity_ptr = activity_ptr();
+    if vm_ptr.is_null() || activity_ptr.is_null() {
+        log_debug!(
+            LogCategory::Input,
+            "[Android] soft keyboard: JNI context not published yet"
+        );
+        return;
+    }
+    let result = (|| -> Result<(), String> {
+        let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }
+            .map_err(|e| format!("JavaVM::from_raw: {e:?}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        let activity =
+            unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
+        // Static helper on the Java side rather than open-coding the
+        // InputMethodManager dance (getSystemService -> showSoftInput with the
+        // right view and flags) through reflection from here.
+        env.call_static_method(
+            "com/azul/text/NativeTextBridge",
+            if visible { "showKeyboard" } else { "hideKeyboard" },
+            "(Landroid/app/Activity;)V",
+            &[jni::objects::JValue::Object(&activity)],
+        )
+        .map(|_| ())
+        .map_err(|e| format!("call {}: {e:?}", if visible { "show" } else { "hide" }))
+    })();
+    if let Err(e) = result {
+        log_debug!(LogCategory::Input, "[Android] soft keyboard: {e}");
+    }
+}
+
+/// No-op when the `jni` feature is out: the keyboard simply never appears,
+/// which is what happened before this function existed at all.
+#[cfg(all(target_os = "android", not(feature = "jni")))]
+pub fn set_soft_keyboard_visible(_visible: bool) {}
+
 // ---------------------------------------------------------------------------
 // JNI bridge — surfaces NativeGestureBridge.java callbacks to Rust.
 //
@@ -1548,31 +1761,133 @@ pub mod text_bridge {
     use super::jni_bridge::with_window;
     use super::RelayoutReason;
 
-    /// Decode a Java string handed over as UTF-8 bytes.
+    /// Read a Java `String` argument.
     ///
-    /// Bytes rather than a `jstring` because the alternative is calling
-    /// `GetStringUTFChars` through a raw `JNIEnv` vtable, and the Java side has
-    /// to touch the string either way — doing the conversion there keeps the
-    /// unsafe surface here down to a slice.
-    unsafe fn utf8(ptr: *const u8, len: i32) -> String {
-        if ptr.is_null() || len <= 0 {
+    /// This used to take `(*const u8, i32)` on the theory that letting Java do
+    /// the encoding kept the unsafe surface here to a slice. It also made the
+    /// method UNCALLABLE from Java: a `byte[]` arrives as a `jbyteArray` handle,
+    /// not as a pointer to its elements, and Java cannot produce a raw address
+    /// at all. `accessibility.rs` already talks to a real `JNIEnv` next door, so
+    /// this does the same.
+    unsafe fn jstring_to_string(env: *mut jni::sys::JNIEnv, s: jni::sys::jstring) -> String {
+        if s.is_null() {
             return String::new();
         }
-        let slice = core::slice::from_raw_parts(ptr, len as usize);
-        String::from_utf8_lossy(slice).into_owned()
+        let Ok(mut env) = jni::JNIEnv::from_raw(env) else {
+            return String::new();
+        };
+        match env.get_string(&jni::objects::JString::from_raw(s)) {
+            Ok(js) => js.into(),
+            Err(_) => String::new(),
+        }
+    }
+
+    /// Build a Java string, or null.
+    unsafe fn new_jstring(env: *mut jni::sys::JNIEnv, s: &str) -> jni::sys::jstring {
+        let null = core::ptr::null_mut();
+        let Ok(mut env) = jni::JNIEnv::from_raw(env) else {
+            return null;
+        };
+        match env.new_string(s) {
+            Ok(v) => v.into_raw(),
+            Err(_) => null,
+        }
+    }
+
+    /// `InputConnection.getTextBeforeCursor` — the `n` bytes before the caret.
+    ///
+    /// This and its two siblings are what make an IME useful rather than merely
+    /// functional: autocorrect, the suggestion strip, swipe typing and
+    /// double-space-inserts-a-period all interrogate the text around the
+    /// cursor. `BaseInputConnection`'s default answers come from its own local
+    /// Editable, which for us is an empty scratch buffer — so the IME saw a
+    /// permanently blank document and offered nothing.
+    ///
+    /// Byte-clamped to a char boundary: slicing a UTF-8 string at an arbitrary
+    /// byte panics, and `n` is a count the IME chose with no idea of our
+    /// encoding.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeGetTextBeforeCursor(
+        env: *mut jni::sys::JNIEnv,
+        _class: jni::sys::jclass,
+        native_ptr: i64,
+        n: i32,
+    ) -> jni::sys::jstring {
+        let mut out = String::new();
+        with_window(native_ptr, |w| {
+            if let Some(lw) = w.common.layout_window.as_mut() {
+                if let Some((text, caret)) = lw.ime_surrounding_text() {
+                    let want = n.max(0) as usize;
+                    let mut start = caret.saturating_sub(want);
+                    while start < caret && !text.is_char_boundary(start) {
+                        start += 1;
+                    }
+                    out = text[start..caret].to_string();
+                }
+            }
+        });
+        new_jstring(env, &out)
+    }
+
+    /// `InputConnection.getTextAfterCursor` — the `n` bytes after the caret.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeGetTextAfterCursor(
+        env: *mut jni::sys::JNIEnv,
+        _class: jni::sys::jclass,
+        native_ptr: i64,
+        n: i32,
+    ) -> jni::sys::jstring {
+        let mut out = String::new();
+        with_window(native_ptr, |w| {
+            if let Some(lw) = w.common.layout_window.as_mut() {
+                if let Some((text, caret)) = lw.ime_surrounding_text() {
+                    let want = n.max(0) as usize;
+                    let mut end = (caret + want).min(text.len());
+                    while end > caret && !text.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    out = text[caret..end].to_string();
+                }
+            }
+        });
+        new_jstring(env, &out)
+    }
+
+    /// `InputConnection.getSelectedText` — null when there is no selection,
+    /// which is what the IME expects (an empty string means "a selection that
+    /// happens to be empty" and changes its behaviour).
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeGetSelectedText(
+        env: *mut jni::sys::JNIEnv,
+        _class: jni::sys::jclass,
+        native_ptr: i64,
+    ) -> jni::sys::jstring {
+        let mut out: Option<String> = None;
+        with_window(native_ptr, |w| {
+            if let Some(lw) = w.common.layout_window.as_ref() {
+                if let Some(sel) = lw.text_edit_manager.selected_text_for_ime() {
+                    if !sel.is_empty() {
+                        out = Some(sel);
+                    }
+                }
+            }
+        });
+        match out {
+            Some(s) => new_jstring(env, &s),
+            None => core::ptr::null_mut(),
+        }
     }
 
     /// `InputConnection.commitText` — the IME finished composing and this is
     /// the result.
     #[no_mangle]
     pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeCommitText(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
+        env: *mut jni::sys::JNIEnv,
+        _class: jni::sys::jclass,
         native_ptr: i64,
-        bytes: *const u8,
-        len: i32,
+        text: jni::sys::jstring,
     ) {
-        let text = utf8(bytes, len);
+        let text = jstring_to_string(env, text);
         with_window(native_ptr, |w| {
             if let Some(lw) = w.common.layout_window.as_mut() {
                 // Commit, not clear: this carries the committed string so
@@ -1592,14 +1907,13 @@ pub mod text_bridge {
     /// the engine sees the same shape Wayland and Win32 produce.
     #[no_mangle]
     pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeSetComposingText(
-        _env: *mut core::ffi::c_void,
-        _class: *mut core::ffi::c_void,
+        env: *mut jni::sys::JNIEnv,
+        _class: jni::sys::jclass,
         native_ptr: i64,
-        bytes: *const u8,
-        len: i32,
+        text: jni::sys::jstring,
         cursor_pos: i32,
     ) {
-        let text = utf8(bytes, len);
+        let text = jstring_to_string(env, text);
         let byte_len = text.len() as i32;
         let caret = if cursor_pos > 0 {
             byte_len

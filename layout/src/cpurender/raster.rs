@@ -2838,8 +2838,24 @@ pub enum TextAa {
     None,
 }
 
-/// Default text antialiasing: LCD subpixel.
+/// Default text antialiasing.
+///
+/// Desktop gets LCD subpixel. MOBILE GETS GRAYSCALE, which is what iOS and
+/// Android themselves do, and for their reasons rather than ours:
+///
+/// * The device rotates. Subpixel rendering bakes in one physical RGB stripe
+///   order; turn the phone 90 degrees and every fringe is wrong.
+/// * Phone panels are frequently not RGB stripe at all — PenTile and other
+///   OLED arrangements have no consistent horizontal triad to address.
+/// * The frame is composited and often scaled (the emulator does this too),
+///   and any resampling smears the per-channel offsets into visible colour
+///   fringing — which reads as "blurry text" rather than as sharpening.
+///
+/// `AZ_TEXT_AA=lcd` still forces it back on for anyone who wants to look.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub const TEXT_AA_DEFAULT: TextAa = TextAa::Lcd;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub const TEXT_AA_DEFAULT: TextAa = TextAa::Grayscale;
 
 /// Text antialiasing mode from `AZ_TEXT_AA` (`lcd` | `legacy` | `grayscale` |
 /// `none`). Unset or unrecognised gives [`TEXT_AA_DEFAULT`]. Read once.
