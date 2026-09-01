@@ -383,6 +383,19 @@ pub fn determine_all_events(
             previous_state.mouse_state.middle_down,
             MouseButton::Middle,
         ),
+        // The thumb pair. `MouseButton::Other(n)` and the shell routing for it
+        // have both existed; what was missing was any state to diff, so a
+        // press could never become an event.
+        (
+            current_state.mouse_state.back_down(),
+            previous_state.mouse_state.back_down(),
+            MouseButton::Other(azul_core::events::MOUSE_BUTTON_BACK),
+        ),
+        (
+            current_state.mouse_state.forward_down(),
+            previous_state.mouse_state.forward_down(),
+            MouseButton::Other(azul_core::events::MOUSE_BUTTON_FORWARD),
+        ),
     ] {
         if curr_down && !prev_down {
             events.push(SyntheticEvent::new(

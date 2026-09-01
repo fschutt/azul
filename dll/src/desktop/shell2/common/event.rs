@@ -1628,12 +1628,36 @@ pub fn apply_pointer_button_state(
 ) {
     use azul_core::{events::MouseButton, window::CursorPosition};
 
+    use azul_core::events::{
+        MOUSE_BUTTON_BACK, MOUSE_BUTTON_FORWARD, MOUSE_OTHER_MASK_BACK, MOUSE_OTHER_MASK_FORWARD,
+    };
+
     mouse_state.cursor_position = CursorPosition::InWindow(position);
     match button {
         MouseButton::Left => mouse_state.left_down = is_down,
         MouseButton::Right => mouse_state.right_down = is_down,
         MouseButton::Middle => mouse_state.middle_down = is_down,
-        _ => {}
+        // The thumb pair. Every backend already decodes these into
+        // `Other(3)` / `Other(4)` — Win32 from XBUTTON1/2, macOS from
+        // `otherMouse*`, X11 from buttons 8/9 — and this match then dropped
+        // them on the floor, so a press reached callbacks as pointer motion
+        // and never as MouseDown/MouseUp. Recording the bits here fixes all
+        // three backends at once, because all three funnel through this
+        // helper.
+        MouseButton::Other(n) => {
+            let mask = match n {
+                MOUSE_BUTTON_BACK => MOUSE_OTHER_MASK_BACK,
+                MOUSE_BUTTON_FORWARD => MOUSE_OTHER_MASK_FORWARD,
+                // Buttons past forward are still delivered as pointer motion:
+                // there is no filter naming them, so there is no bit to set.
+                _ => return,
+            };
+            if is_down {
+                mouse_state.other_down |= mask;
+            } else {
+                mouse_state.other_down &= !mask;
+            }
+        }
     }
 }
 

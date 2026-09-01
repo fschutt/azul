@@ -185,11 +185,11 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [x] 7e macOS: read `isDirectionInvertedFromDevice` (natural-scroll flag).
 - [x] 7f macOS: add `pressureChangeWithEvent:` (Force Touch `stage` / `stageTransition`).
 - [x] 7g Wayland: fill the empty `touch_shape_handler` / `touch_orientation_handler` bodies (needs 8b first).
-- [ ] 7h Win32: keep the `WM_MOUSEWHEEL` fractional remainder instead of truncating.
+- [x] 7h NO WORK NEEDED — the audit was wrong. `WM_MOUSEWHEEL` already divides as `delta as f32 / WHEEL_DELTA as f32`, so the fractional remainder is preserved; there was no truncation to fix.
 
 ## Step 8 — api.json deltas (record intent; run `azul-doc autofix` at fix-up time)
 
-- [ ] 8a `MouseState.other_down: u8` + `Back`/`Forward` `MouseDown`/`MouseUp` on Hover/Focus/Window; extend the
+- [x] 8a `MouseState.other_down: u8` + `Back`/`Forward` `MouseDown`/`MouseUp` on Hover/Focus/Window; extend the
       `button_specific_down` helper. All four layers.
 - [x] 8b `TouchPoint += { major, minor, orientation_rad, tool_type }` + `TouchToolType { Unknown, Finger, Stylus,
       Eraser, Palm, Mouse }`.

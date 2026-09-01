@@ -1417,6 +1417,18 @@ const fn matches_component_filter(
 }
 
 /// Check if the event data contains a mouse event with the expected button.
+/// `MouseButton::Other(BACK)` — the thumb "back" button, button 4 on a mouse
+/// and index 3 zero-based, which is the numbering the web and every shell
+/// already use (Win32 `XBUTTON1`, X11 button 8, macOS `otherMouseDown:` 3).
+pub const MOUSE_BUTTON_BACK: u8 = 3;
+/// `MouseButton::Other(FORWARD)` — the thumb "forward" button.
+pub const MOUSE_BUTTON_FORWARD: u8 = 4;
+
+/// Bit for the back button in [`MouseState::other_down`].
+pub const MOUSE_OTHER_MASK_BACK: u8 = 1 << 0;
+/// Bit for the forward button in [`MouseState::other_down`].
+pub const MOUSE_OTHER_MASK_FORWARD: u8 = 1 << 1;
+
 fn check_mouse_button(data: &EventData, expected: MouseButton) -> bool {
     if let EventData::Mouse(mouse_data) = data {
         mouse_data.button == expected
@@ -1546,6 +1558,20 @@ fn matches_hover_filter(
         (PenSqueeze, EventType::PenSqueeze) => true,
         (PenDoubleTap, EventType::PenDoubleTap) => true,
         (PenHover, EventType::PenHover) => true,
+        // Thumb buttons. Gated on the payload like every other
+        // button-specific arm — a payloadless event must not claim a button.
+        (HoverEventFilter::BackMouseDown, EventType::MouseDown) => {
+            check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_BACK))
+        }
+        (HoverEventFilter::BackMouseUp, EventType::MouseUp) => {
+            check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_BACK))
+        }
+        (HoverEventFilter::ForwardMouseDown, EventType::MouseDown) => {
+            check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_FORWARD))
+        }
+        (HoverEventFilter::ForwardMouseUp, EventType::MouseUp) => {
+            check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_FORWARD))
+        }
         _ => false,
     }
 }
@@ -1622,6 +1648,20 @@ fn matches_focus_filter(
         (FocusEventFilter::PenDown, EventType::PenDown) => true,
         (FocusEventFilter::PenMove, EventType::PenMove) => true,
         (FocusEventFilter::PenUp, EventType::PenUp) => true,
+        // Thumb buttons. Gated on the payload like every other
+        // button-specific arm — a payloadless event must not claim a button.
+        (FocusEventFilter::BackMouseDown, EventType::MouseDown) => {
+            check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_BACK))
+        }
+        (FocusEventFilter::BackMouseUp, EventType::MouseUp) => {
+            check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_BACK))
+        }
+        (FocusEventFilter::ForwardMouseDown, EventType::MouseDown) => {
+            check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_FORWARD))
+        }
+        (FocusEventFilter::ForwardMouseUp, EventType::MouseUp) => {
+            check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_FORWARD))
+        }
         _ => false,
     }
 }
@@ -1765,6 +1805,20 @@ fn matches_window_filter(
         (PenSqueeze, EventType::PenSqueeze) => true,
         (PenDoubleTap, EventType::PenDoubleTap) => true,
         (PenHover, EventType::PenHover) => true,
+        // Thumb buttons. Gated on the payload like every other
+        // button-specific arm — a payloadless event must not claim a button.
+        (WindowEventFilter::BackMouseDown, EventType::MouseDown) => {
+            check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_BACK))
+        }
+        (WindowEventFilter::BackMouseUp, EventType::MouseUp) => {
+            check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_BACK))
+        }
+        (WindowEventFilter::ForwardMouseDown, EventType::MouseDown) => {
+            check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_FORWARD))
+        }
+        (WindowEventFilter::ForwardMouseUp, EventType::MouseUp) => {
+            check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_FORWARD))
+        }
         _ => false,
     }
 }
@@ -2247,6 +2301,21 @@ pub enum HoverEventFilter {
     ScreenColorPicked,
     /// A keyring store / get / delete operation completed.
     KeyringResult,
+    /// The thumb "back" button was pressed. APPENDED at the end for ABI
+    /// stability.
+    ///
+    /// Every shell already routes this button — Win32 `WM_XBUTTONDOWN`, macOS
+    /// `otherMouseDown:`, X11 button 8 — into `MouseButton::Other(3)`, and it
+    /// died there because no filter named it. Nearly every mouse sold in a
+    /// decade has the pair, and browsers, IDEs and file managers all bind them
+    /// to navigate back/forward.
+    BackMouseDown,
+    /// The thumb "back" button was released.
+    BackMouseUp,
+    /// The thumb "forward" button was pressed.
+    ForwardMouseDown,
+    /// The thumb "forward" button was released.
+    ForwardMouseUp,
 }
 
 impl HoverEventFilter {
@@ -2460,6 +2529,21 @@ pub enum FocusEventFilter {
     /// which fires before the pending insertion is applied. APPENDED at the
     /// end for ABI stability.
     TextChanged,
+    /// The thumb "back" button was pressed. APPENDED at the end for ABI
+    /// stability.
+    ///
+    /// Every shell already routes this button — Win32 `WM_XBUTTONDOWN`, macOS
+    /// `otherMouseDown:`, X11 button 8 — into `MouseButton::Other(3)`, and it
+    /// died there because no filter named it. Nearly every mouse sold in a
+    /// decade has the pair, and browsers, IDEs and file managers all bind them
+    /// to navigate back/forward.
+    BackMouseDown,
+    /// The thumb "back" button was released.
+    BackMouseUp,
+    /// The thumb "forward" button was pressed.
+    ForwardMouseDown,
+    /// The thumb "forward" button was released.
+    ForwardMouseUp,
 }
 
 /// Event filter that fires when any action fires on the entire window
@@ -2620,6 +2704,21 @@ pub enum WindowEventFilter {
     ScreenColorPicked,
     /// A keyring store / get / delete operation completed.
     KeyringResult,
+    /// The thumb "back" button was pressed. APPENDED at the end for ABI
+    /// stability.
+    ///
+    /// Every shell already routes this button — Win32 `WM_XBUTTONDOWN`, macOS
+    /// `otherMouseDown:`, X11 button 8 — into `MouseButton::Other(3)`, and it
+    /// died there because no filter named it. Nearly every mouse sold in a
+    /// decade has the pair, and browsers, IDEs and file managers all bind them
+    /// to navigate back/forward.
+    BackMouseDown,
+    /// The thumb "back" button was released.
+    BackMouseUp,
+    /// The thumb "forward" button was pressed.
+    ForwardMouseDown,
+    /// The thumb "forward" button was released.
+    ForwardMouseUp,
 }
 
 impl WindowEventFilter {
@@ -3209,6 +3308,40 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
     for f in ALL_COMPONENT {
         if matches_filter_phase(EventFilter::Component(*f), &probe, EventPhase::Bubble) {
             out.push(EventFilter::Component(*f));
+    out
+}
+
+fn event_type_to_filters_legacy_hint(
+    event_type: EventType,
+    event_data: &EventData,
+) -> Vec<EventFilter> {
+    use EventFilter as EF;
+    use EventType as E;
+    use FocusEventFilter as F;
+    use HoverEventFilter as H;
+    use WindowEventFilter as W;
+
+    // Helper: get the button-specific MouseDown filter from EventData
+    let button_specific_down = || -> Option<EventFilter> {
+        match event_data {
+            EventData::Mouse(m) => match m.button {
+                MouseButton::Left => Some(EF::Hover(H::LeftMouseDown)),
+                MouseButton::Right => Some(EF::Hover(H::RightMouseDown)),
+                MouseButton::Middle => Some(EF::Hover(H::MiddleMouseDown)),
+                MouseButton::Other(MOUSE_BUTTON_BACK) => Some(EF::Hover(H::BackMouseDown)),
+                MouseButton::Other(MOUSE_BUTTON_FORWARD) => Some(EF::Hover(H::ForwardMouseDown)),
+                // Buttons past forward have no filter: nothing standard names
+                // them, and inventing one per index would mean a filter for
+                // every thumb-pad button on a gaming mouse.
+                MouseButton::Other(_) => None,
+            },
+            // NO BUTTON DATA -> no button-SPECIFIC filter. Phase matching
+            // refuses to let a payloadless event claim a button
+            // (`check_mouse_button`, pinned by
+            // `check_mouse_button_is_false_for_every_non_mouse_payload`), so
+            // planning one here only collected a callback that matching then
+            // silently dropped. The generic `MouseDown` filter still applies.
+            _ => None,
         }
     };
 
@@ -3218,7 +3351,9 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
                 MouseButton::Left => Some(EF::Hover(H::LeftMouseUp)),
                 MouseButton::Right => Some(EF::Hover(H::RightMouseUp)),
                 MouseButton::Middle => Some(EF::Hover(H::MiddleMouseUp)),
-                MouseButton::Other(_) => None, // no specific filter for other buttons
+                MouseButton::Other(MOUSE_BUTTON_BACK) => Some(EF::Hover(H::BackMouseUp)),
+                MouseButton::Other(MOUSE_BUTTON_FORWARD) => Some(EF::Hover(H::ForwardMouseUp)),
+                MouseButton::Other(_) => None,
             },
             // See the MouseDown arm: a payloadless event plans no
             // button-specific filter, because matching would drop it.

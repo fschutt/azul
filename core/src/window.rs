@@ -479,9 +479,30 @@ pub struct MouseState {
     pub right_down: bool,
     /// Is the middle mouse button down? (READONLY)
     pub middle_down: bool,
+    /// Bitmask of the thumb buttons currently held. (READONLY)
+    ///
+    /// A bitmask rather than two bools because the set is open-ended: a mouse
+    /// can report buttons past forward, and the shells already carry them as
+    /// `MouseButton::Other(n)`. Bit 0 is back, bit 1 is forward — see
+    /// `MOUSE_OTHER_MASK_BACK` / `MOUSE_OTHER_MASK_FORWARD`; use
+    /// [`MouseState::back_down`] and [`MouseState::forward_down`] rather than
+    /// testing bits by hand.
+    pub other_down: u8,
 }
 
 impl MouseState {
+    /// Whether the thumb "back" button is held.
+    #[must_use]
+    pub const fn back_down(&self) -> bool {
+        self.other_down & crate::events::MOUSE_OTHER_MASK_BACK != 0
+    }
+
+    /// Whether the thumb "forward" button is held.
+    #[must_use]
+    pub const fn forward_down(&self) -> bool {
+        self.other_down & crate::events::MOUSE_OTHER_MASK_FORWARD != 0
+    }
+
     #[must_use]
     pub const fn matches(&self, context: &ContextMenuMouseButton) -> bool {
         use self::ContextMenuMouseButton::{Left, Middle, Right};
@@ -514,6 +535,7 @@ impl Default for MouseState {
             left_down: false,
             right_down: false,
             middle_down: false,
+            other_down: 0,
         }
     }
 }

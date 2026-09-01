@@ -36,3 +36,13 @@ api.json and unchanged — this arc gave them producers, it did not add them.
 - `azul_core::window::TouchPoint` — four new fields appended:
   `major: f32`, `minor: f32`, `orientation_rad: f32`, `tool_type: TouchToolType`.
   Already in api.json as `window.TouchPoint`, so this is a field-level update, not a new class.
+
+## From step 8a (thumb buttons)
+
+- `azul_core::window::MouseState` — new field `other_down: u8` (bitmask), plus `back_down()` /
+  `forward_down()` accessors. Already in api.json as `dom.MouseState`; field-level update.
+- `HoverEventFilter`, `FocusEventFilter`, `WindowEventFilter` — four variants appended to EACH:
+  `BackMouseDown`, `BackMouseUp`, `ForwardMouseDown`, `ForwardMouseUp`. All three enums are in api.json
+  (`css.*` and `window.WindowEventFilter`), so these are variant additions at the end.
+- `azul_core::events::{MOUSE_BUTTON_BACK, MOUSE_BUTTON_FORWARD, MOUSE_OTHER_MASK_BACK,
+  MOUSE_OTHER_MASK_FORWARD}` — consts; expose only if the C API needs to construct the mask itself.

@@ -530,6 +530,7 @@ mod tests {
             left_down: false,
             right_down: false,
             middle_down: false,
+            other_down: 0,
         };
         assert!(!none.any_down());
     }

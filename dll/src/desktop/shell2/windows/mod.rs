@@ -4989,10 +4989,10 @@ unsafe extern "system" fn window_proc(
                 "windows.wm_xbuttonup"
             });
 
-            // `MouseState` has no field for buttons 4/5, so this records the
-            // position only — the same thing macOS's `otherMouse*` path does.
-            // A press/release of them therefore reaches callbacks as pointer
-            // motion, not as MouseDown/MouseUp, on every backend alike.
+            // `MouseState.other_down` now carries buttons 4/5, and
+            // `apply_pointer_button_state` records them, so a press reaches
+            // callbacks as a real MouseDown/MouseUp with a Back/Forward
+            // filter rather than as bare pointer motion.
             crate::desktop::shell2::common::event::apply_pointer_button_state(
                 window.common.mouse_state_mut(),
                 logical_pos,
