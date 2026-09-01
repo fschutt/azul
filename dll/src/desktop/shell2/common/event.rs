@@ -4695,16 +4695,12 @@ pub trait PlatformWindow {
                     lw.layout_results
                         .get(&azul_core::dom::DomId::ROOT_ID)
                         .and_then(|r| {
-                            r.styled_dom
-                                .node_data
-                                .as_container()
-                                .get(node_id)
-                                .map(|n| {
-                                    matches!(
-                                        n.get_node_type(),
-                                        azul_core::dom::NodeType::TransientWindow(_)
-                                    )
-                                })
+                            r.styled_dom.node_data.as_container().get(node_id).map(|n| {
+                                matches!(
+                                    n.get_node_type(),
+                                    azul_core::dom::NodeType::TransientWindow(_)
+                                )
+                            })
                         })
                         .unwrap_or(false)
                 });
@@ -4761,19 +4757,15 @@ pub trait PlatformWindow {
                 );
                 if let Some((target, was_visible)) = restore_to.filter(|_| changed) {
                     let old_focus = focus_now;
-                    let r = self.apply_system_change(&SystemChange::SetFocus {
-                        new_focus: Some(target),
-                        old_focus,
-                    });
                     // Hand the RING back too, not just the focus: a picker
                     // opened with Enter/Space and dismissed with Esc must land
                     // on a visibly-focused swatch, or the keyboard user loses
                     // their place (device report, 2026-09-01).
-                    if was_visible {
-                        if let Some(lw) = self.get_layout_window_mut() {
-                            lw.focus_manager.focus_is_visible = true;
-                        }
-                    }
+                    let r = self.apply_system_change(&SystemChange::SetFocus {
+                        new_focus: Some(target),
+                        old_focus,
+                        visible: was_visible,
+                    });
                     log_debug!(
                         super::debug_server::LogCategory::Window,
                         "[transient] popup closed - focus returned to {:?}",
@@ -6563,6 +6555,7 @@ pub trait PlatformWindow {
             SystemChange::SetFocus {
                 new_focus,
                 old_focus,
+                visible,
             } => {
                 let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
                 let new_focus_node_id = new_focus.and_then(|f| f.node.into_crate_internal());
@@ -6570,18 +6563,30 @@ pub trait PlatformWindow {
                 let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
 
                 let timer_action = if let Some(layout_window) = self.get_layout_window_mut() {
-                    // `:focus-visible` DEFAULTS OFF for every focus change.
-                    // Only the KEYBOARD route opts back in (it sets the flag
-                    // right after applying its change). Doing it here rather
-                    // than per-route means a focus arriving by ANY other means
-                    // - a pointer click, `autofocus`, a programmatic
-                    // `set_focus` from a callback, a popup handing focus back
-                    // - is silently non-indicated, instead of inheriting
-                    // whatever the last keyboard move left behind. Clicking a
-                    // control after tabbing showed a ring for exactly that
-                    // reason (device report, 2026-09-01).
-                    layout_window.focus_manager.focus_is_visible = false;
-                    layout_window.focus_manager.set_focused_node(*new_focus);
+                    // A change of MODALITY alone still changes the pixels: the
+                    // focus ring is emitted from `focus_is_visible` when the
+                    // display list is built, so returning the "same node, now
+                    // indicated" case as a plain re-render would re-present a
+                    // list with no ring in it. This is the case a popup's
+                    // Escape hits - focus never left the invoker, only its
+                    // indication came back.
+                    let visibility_changed =
+                        layout_window.focus_manager.focus_is_visible != *visible;
+                    // `:focus-visible` ARRIVES WITH THE CHANGE, and is applied
+                    // BEFORE the restyle below - because the restyle is what
+                    // regenerates the display list, and the focus ring is
+                    // emitted by that regeneration (`apply_text_tweens`).
+                    // Setting the flag afterwards, which the keyboard route
+                    // used to do, built the frame with the ring still off: Tab
+                    // moved focus and nothing was ringed until the NEXT repaint
+                    // happened to come along (a click, a resize). Every route
+                    // that is not a keyboard walk passes `false`, so focus
+                    // arriving by a pointer, `autofocus` or a programmatic
+                    // `set_focus` is silently non-indicated instead of
+                    // inheriting whatever the last keyboard move left behind.
+                    layout_window
+                        .focus_manager
+                        .set_focused_node_with_visibility(*new_focus, *visible);
 
                     // Scroll newly focused node into view
                     if let Some(focus_node) = new_focus {
@@ -6608,6 +6613,9 @@ pub trait PlatformWindow {
                             new_focus_node_id,
                         );
                         result = result.max(restyle_result);
+                    } else if visibility_changed {
+                        result =
+                            result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
                     }
 
                     Some(timer_action)
@@ -8132,6 +8140,13 @@ pub trait PlatformWindow {
             r.relayout_iterations = r.relayout_iterations.max(depth_u32 + 1);
         }
 
+        // Focus the two blocks below move is applied THROUGH `apply_system_change`,
+        // which reports how much of the frame it invalidated. Dropping that
+        // report (which both blocks used to do) meant the popup autofocused and
+        // then sat there un-rendered until some other input forced a pass - the
+        // ring "only appeared once you clicked" (device report, 2026-09-01).
+        let mut restored = ProcessEventResult::DoNothing;
+
         // FOCUS OWED BACK BY A DISMISSAL. Escape, an outside press, or a
         // popup closing itself never reach the explicit
         // `SetTransientWindowOpen{open:false}` seam - the widget only hears
@@ -8146,23 +8161,35 @@ pub trait PlatformWindow {
             let old_focus = self
                 .get_layout_window()
                 .and_then(|lw| lw.focus_manager.get_focused_node().copied());
-            let r = self.apply_system_change(&SystemChange::SetFocus {
-                new_focus: Some(target),
-                old_focus,
-            });
-            let _ = r;
-            if was_visible {
-                if let Some(lw) = self.get_layout_window_mut() {
-                    lw.focus_manager.focus_is_visible = true;
-                }
+            // ONLY IF FOCUS WOULD OTHERWISE BE LOST. A popup returns focus to
+            // its invoker when the user dismissed it with Escape - focus never
+            // left the invoker, so this is really about handing the RING back.
+            // It must NOT fight a dismissal the user made by CLICKING SOMEWHERE
+            // ELSE: that press has already put focus where the user pointed,
+            // and yanking it back to the swatch a frame later is both wrong and
+            // baffling (it also re-arms Space on a control the user has left).
+            // Same rule as HTML popover's "focus behavior on close".
+            let focus_moved_away = old_focus.is_some_and(|f| f != target);
+            if focus_moved_away {
+                focus_trace!(
+                    "dismissal did NOT return focus to {target:?}: the user moved it to \
+                     {old_focus:?}"
+                );
+            } else {
+                let r = self.apply_system_change(&SystemChange::SetFocus {
+                    new_focus: Some(target),
+                    old_focus,
+                    visible: was_visible,
+                });
+                restored = restored.max(r);
+                focus_trace!("dismissal returned focus to {target:?} (ring={was_visible})");
+                log_debug!(
+                    super::debug_server::LogCategory::Window,
+                    "[transient] dismissal returned focus to {:?} (ring={})",
+                    target,
+                    was_visible
+                );
             }
-            focus_trace!("dismissal returned focus to {target:?} (ring={was_visible})");
-            log_debug!(
-                super::debug_server::LogCategory::Window,
-                "[transient] dismissal returned focus to {:?} (ring={})",
-                target,
-                was_visible
-            );
         }
 
         // AUTOFOCUS A POPUP. A transient window is a separate OS window, so
@@ -8188,12 +8215,16 @@ pub trait PlatformWindow {
                         let nd = lr.styled_dom.node_data.as_container();
                         (0..nd.len())
                             .map(azul_core::dom::NodeId::new)
-                            .find(|n| nd.get(*n).is_some_and(azul_core::dom::NodeData::has_autofocus))
+                            .find(|n| {
+                                nd.get(*n)
+                                    .is_some_and(azul_core::dom::NodeData::has_autofocus)
+                            })
                             .map(|n| azul_core::dom::DomNodeId {
                                 dom: *dom_id,
-                                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(
-                                    Some(n),
-                                ),
+                                node:
+                                    azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(
+                                        Some(n),
+                                    ),
                             })
                     });
                     explicit.or_else(|| {
@@ -8203,41 +8234,36 @@ pub trait PlatformWindow {
                             None,
                             &lw.focus_out_of_scope_doms(),
                         ) {
-                            Ok(azul_layout::managers::focus_cursor::FocusResolution::Resolved(n)) => {
-                                Some(n)
-                            }
+                            Ok(azul_layout::managers::focus_cursor::FocusResolution::Resolved(
+                                n,
+                            )) => Some(n),
                             _ => None,
                         }
                     })
                 });
                 focus_trace!("popup autofocus: target={target:?}");
                 if let Some(target) = target {
-                    let r = self.apply_system_change(&SystemChange::SetFocus {
-                        new_focus: Some(target),
-                        old_focus: None,
-                    });
-                    let _ = r;
-                    // MODALITY INHERITANCE. `SetFocus` clears `:focus-visible`
-                    // for every route (see its comment), which is right for a
-                    // popup the user CLICKED open - and wrong for one opened
-                    // with Enter/Space, where the keyboard is driving and the
-                    // autofocused control must be ringed or the popup looks
-                    // dead. The opener's modality rides across the window
-                    // boundary in the mailbox.
+                    // MODALITY INHERITANCE. A popup the user CLICKED open must
+                    // not ring what it autofocuses; one opened with Enter/Space
+                    // must, or the popup looks dead to the keyboard. The
+                    // opener's modality rides across the window boundary in the
+                    // mailbox, and goes in WITH the focus change so the frame
+                    // that change builds already carries the ring.
                     let inherit = super::transient::opened_with_visible_focus(
                         self.get_current_window_state(),
                     );
                     focus_trace!("popup autofocus: ring inherited={inherit}");
-                    if inherit {
-                        if let Some(lw) = self.get_layout_window_mut() {
-                            lw.focus_manager.focus_is_visible = true;
-                        }
-                    }
+                    let r = self.apply_system_change(&SystemChange::SetFocus {
+                        new_focus: Some(target),
+                        old_focus: None,
+                        visible: inherit,
+                    });
+                    restored = restored.max(r);
                 }
             }
         }
 
-        let mut result = self.process_window_events_inner(depth);
+        let mut result = self.process_window_events_inner(depth).max(restored);
 
         // A callback that ran INSIDE a transient popup and asked for a
         // refresh must refresh the PARENT: the popup only mirrors the
@@ -9378,6 +9404,9 @@ pub trait PlatformWindow {
                         let r = self.apply_system_change(&SystemChange::SetFocus {
                             new_focus: Some(new_focus_target),
                             old_focus,
+                            // A POINTER focus is not indicated - the pointer is
+                            // already the user's "where am I".
+                            visible: false,
                         });
                         result = result.max(r);
                         mouse_click_focus_changed = true;
@@ -9398,6 +9427,7 @@ pub trait PlatformWindow {
                         let r = self.apply_system_change(&SystemChange::SetFocus {
                             new_focus: None,
                             old_focus,
+                            visible: false,
                         });
                         result = result.max(r);
                         mouse_click_focus_changed = true;
@@ -9468,13 +9498,11 @@ pub trait PlatformWindow {
                                         let r = self.apply_system_change(&SystemChange::SetFocus {
                                             new_focus: Some(new_focus_node),
                                             old_focus: focused_node,
+                                            // KEYBOARD focus IS indicated -
+                                            // this is the route the focus ring
+                                            // exists for.
+                                            visible: true,
                                         });
-                                        // `:focus-visible`: KEYBOARD focus IS
-                                        // indicated - this is the route the
-                                        // focus ring exists for.
-                                        if let Some(lw) = self.get_layout_window_mut() {
-                                            lw.focus_manager.focus_is_visible = true;
-                                        }
                                         result = result.max(r);
                                         default_action_focus_changed = true;
                                     }
@@ -9485,6 +9513,7 @@ pub trait PlatformWindow {
                                 let r = self.apply_system_change(&SystemChange::SetFocus {
                                     new_focus: None,
                                     old_focus,
+                                    visible: false,
                                 });
                                 result = result.max(r);
                                 default_action_focus_changed = true;

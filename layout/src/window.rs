@@ -7211,6 +7211,72 @@ impl LayoutWindow {
     /// the one clock on which the truncating and the exact spellings of the
     /// progress ratio agree — so on the wall clock the unit bug below is
     /// untestable by construction.
+    /// The scroll frame the focus ring must live INSIDE: the innermost
+    /// scrollable ancestor of `node`, as a display-list `scroll_id`.
+    ///
+    /// `None` means no ancestor scrolls, so the ring can be appended at the end
+    /// of the list, where no offset is applied and content space is viewport
+    /// space.
+    fn enclosing_scroll_id(
+        dom_id: DomId,
+        node_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem],
+        node: NodeId,
+        scroll_manager: &crate::managers::scroll_state::ScrollManager,
+        layout_result: &DomLayoutResult,
+    ) -> Option<u64> {
+        let mut cur = node_hierarchy.get(node.index()).and_then(|i| i.parent_id());
+        let mut guard = 0usize;
+        while let Some(parent) = cur {
+            guard += 1;
+            if guard > 65_536 {
+                return None;
+            }
+            if scroll_manager.get_current_offset(dom_id, parent).is_some() {
+                // The first ancestor that scrolls is the frame the ring rides
+                // in; its id is whatever the display list called it.
+                if let Some((id, _)) = layout_result
+                    .scroll_id_to_node_id
+                    .iter()
+                    .find(|(_, n)| **n == parent)
+                {
+                    return Some(*id);
+                }
+            }
+            cur = node_hierarchy
+                .get(parent.index())
+                .and_then(|i| i.parent_id());
+        }
+        None
+    }
+
+    /// Index of the `PopScrollFrame` that closes `scroll_id`'s frame — where
+    /// an item inserted paints on top of that frame's content and scrolls with
+    /// it. `None` if the list has no such frame (a stale id, a list built
+    /// before the frame existed).
+    fn end_of_scroll_frame(
+        items: &[crate::solver3::display_list::DisplayListItem],
+        scroll_id: u64,
+    ) -> Option<usize> {
+        use crate::solver3::display_list::DisplayListItem as I;
+        let start = items.iter().position(|i| {
+            matches!(i, I::PushScrollFrame { scroll_id: id, .. } if *id == scroll_id)
+        })?;
+        let mut depth = 0usize;
+        for (idx, item) in items.iter().enumerate().skip(start) {
+            match item {
+                I::PushScrollFrame { .. } => depth += 1,
+                I::PopScrollFrame => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(idx);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
     pub(crate) fn apply_text_tweens(
         &mut self,
         dom_id: DomId,
@@ -7242,6 +7308,8 @@ impl LayoutWindow {
         // node's border-box (inflated 2px), only when NO text-editing
         // session owns focus (there the caret is the indicator) and the
         // node lives in THIS dom. Computed before the tween borrow below.
+        // (rect, enclosing scroll frame) - see `focus_ring_scroll_id`.
+        let mut focus_ring_scroll_id: Option<u64> = None;
         let focus_ring_target: Option<LogicalRect> = if ring_ms == 0 {
             None
         } else {
@@ -7260,27 +7328,40 @@ impl LayoutWindow {
                     .filter(|fnode| fnode.dom == dom_id)
                     .and_then(|fnode| {
                         let r = self.get_node_layout_rect(fnode)?;
-                        // PROJECT INTO VIEWPORT SPACE. `get_node_layout_rect`
-                        // answers in CONTENT space, so on a scrolled page the
-                        // ring was drawn where the node would be if nothing
-                        // were scrolled - off-screen for anything below the
-                        // fold, which is why controls further down the demo
-                        // (CheckBox, RadioGroup, Segmented) appeared to have
-                        // no ring at all (device report, 2026-09-01). Same
-                        // projection the a11y tree uses for its bounds.
                         let node_id = fnode.node.into_crate_internal()?;
                         let lr = self.layout_results.get(&fnode.dom)?;
                         let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-                        let off = crate::managers::a11y::A11yManager::ancestor_scroll_offset(
+
+                        // THE RING IS EMITTED INSIDE THE SCROLL FRAME IT
+                        // BELONGS TO, in CONTENT space, exactly like the node
+                        // it rings. It used to be appended at the end of the
+                        // list with the ancestor scroll offset subtracted by
+                        // hand, i.e. pinned to the VIEWPORT - and a scroll does
+                        // not rebuild the display list (that is the whole point
+                        // of the GPU/blit fast path), so the ring stayed where
+                        // it was until something else forced a rebuild, then
+                        // TWEENED to the new place. On a device that reads as
+                        // "the ring slides back when the scroll stops instead of
+                        // travelling with the page" (device report,
+                        // 2026-09-01). Inside the frame, the renderer applies
+                        // the same offset it applies to the content, so the ring
+                        // moves with it for free - and is clipped by the frame,
+                        // which is what should happen to a control scrolled out
+                        // of sight.
+                        focus_ring_scroll_id = Self::enclosing_scroll_id(
                             fnode.dom,
                             hierarchy.internal,
-                            node_id.index(),
+                            node_id,
                             &self.scroll_manager,
+                            lr,
                         );
+                        // No enclosing frame: the list has no offset to apply
+                        // at the append point, so content space IS viewport
+                        // space and the rect goes in as it is.
                         Some(LogicalRect {
                             origin: LogicalPosition {
-                                x: r.origin.x - off.x - 2.0,
-                                y: r.origin.y - off.y - 2.0,
+                                x: r.origin.x - 2.0,
+                                y: r.origin.y - 2.0,
                             },
                             size: LogicalSize {
                                 width: r.size.width + 4.0,
@@ -7569,9 +7650,9 @@ impl LayoutWindow {
                 }
             }
             if let Some(r) = ring_item {
-                // The ring is a plain Border item APPENDED to the list —
-                // no new item kind, every renderer already draws it. Word
-                // accent blue, 2px solid, subtly rounded.
+                // The ring is a plain Border item, no new item kind — every
+                // renderer already draws it. Word accent blue, 2px solid,
+                // subtly rounded.
                 use crate::solver3::display_list::{
                     DisplayListItem, StyleBorderColors, StyleBorderStyles, StyleBorderWidths,
                 };
@@ -7584,7 +7665,7 @@ impl LayoutWindow {
                     a: 255,
                 };
                 let solid = azul_css::props::style::BorderStyle::Solid;
-                dl_mut.items.push(DisplayListItem::Border {
+                let ring = DisplayListItem::Border {
                     bounds: r.into(),
                     widths: StyleBorderWidths {
                         top: Some(CssPropertyValue::Exact(
@@ -7642,8 +7723,18 @@ impl LayoutWindow {
                         bottom_left: PixelValue::px(2.0),
                         bottom_right: PixelValue::px(2.0),
                     },
-                });
-                dl_mut.node_mapping.push(None);
+                };
+                // INSIDE the focused node's scroll frame, at the end of that
+                // frame's content (so it paints over it), rather than at the
+                // end of the whole list. That is what makes the ring travel
+                // with the page on the scroll fast path - see
+                // `enclosing_scroll_id`. No frame: the end of the list, where
+                // no offset applies.
+                let at = focus_ring_scroll_id
+                    .and_then(|id| Self::end_of_scroll_frame(&dl_mut.items, id))
+                    .unwrap_or(dl_mut.items.len());
+                dl_mut.items.insert(at, ring);
+                dl_mut.node_mapping.insert(at, None);
             }
         }
     }
