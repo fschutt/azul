@@ -94,6 +94,14 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 9h
+
+- [ ] 9h-i macOS and Linux equivalents. macOS routes media keys as
+      `NSEventTypeSystemDefined` subtype 8 (`NX_SYSDEFINED`), which needs an event-tap or the
+      `MediaPlayer` framework's remote-command centre; Linux delivers them as ordinary X11/Wayland keysyms
+      (`XF86AudioPlay` and friends) IF the desktop has not grabbed them, and as MPRIS over D-Bus if it has.
+      Only the Win32 half is done.
+
 ### Follow-ups opened by 9f/9g
 
 - [ ] 9f-i No backend enumerates HID devices or pushes reports. Win32 `WM_INPUT` with a HID usage page
@@ -302,7 +310,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [x] 9f (types + manager + accessors; no backend enumerates yet — 9f-i) `HidDevice { vendor_id, product_id, usage_page, usage, name }` + `HidReport { bytes }`.
 - [x] 9g (types + manager + `CallbackInfo::play_haptic`; no backend plays yet — 9g-i) `Haptic::play(pattern)` — macOS `NSHapticFeedbackManager`, Win32 `SimpleHapticsController`,
       Android `performHapticFeedback`.
-- [ ] 9h Win32 `WM_APPCOMMAND` → media/browser app-command channel.
+- [x] 9h Win32 `WM_APPCOMMAND` → media/browser app-command channel.
 
 ## Step 10 — mobile parity
 

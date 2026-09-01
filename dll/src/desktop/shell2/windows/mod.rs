@@ -3730,6 +3730,7 @@ unsafe extern "system" fn window_proc(
     const WM_MBUTTONUP: u32 = 0x0208;
     const WM_DEVICECHANGE: u32 = 0x0219;
     const WM_GESTURE: u32 = 0x0119;
+    const WM_APPCOMMAND: u32 = 0x0319;
     const WM_XBUTTONDOWN: u32 = 0x020B;
     const WM_XBUTTONUP: u32 = 0x020C;
     const WM_ENTERSIZEMOVE: u32 = 0x0231;
@@ -6123,6 +6124,54 @@ unsafe extern "system" fn window_proc(
             // Still hand it to DefWindowProc: it owns the inertia and the
             // panning fallback, and swallowing the message loses both.
             def_window_proc_w(hwnd, msg, wparam, lparam)
+        }
+
+        WM_APPCOMMAND => {
+            // Media and browser keys. Windows does NOT deliver these as
+            // WM_KEYDOWN — a keyboard's media row and a mouse's thumb buttons
+            // both arrive here, on a separate message — so with no handler
+            // they reached DefWindowProc and vanished.
+            //
+            // The command id lives in the HIGH word of lParam with the device
+            // and key-state bits masked off; the low word is the window
+            // handle, not a coordinate.
+            const FAPPCOMMAND_MASK: u16 = 0xF000;
+            let cmd = (((lparam >> 16) & 0xFFFF) as u16) & !FAPPCOMMAND_MASK;
+
+            let Some(vk) =
+                crate::desktop::shell2::common::event::win32_appcommand_to_virtual_key(cmd)
+            else {
+                return def_window_proc_w(hwnd, msg, wparam, lparam);
+            };
+
+            window.snapshot_window_state_baseline("windows.wm_appcommand");
+
+            // Delivered as a KEY, because that is what VirtualKeyCode::
+            // PlayPause already is — an app binding it works unchanged on the
+            // platforms that do route these as ordinary keys. WM_APPCOMMAND
+            // has no release message, so the press is immediately followed by
+            // the release: leaving the key latched would make it look held
+            // forever.
+            {
+                use azul_core::window::OptionVirtualKeyCode;
+                let kb = window.common.keyboard_state_mut();
+                kb.current_virtual_keycode = OptionVirtualKeyCode::Some(vk);
+            }
+            let result = window.process_window_events(0);
+            window.route_main_window_result(hwnd, result);
+
+            {
+                use azul_core::window::OptionVirtualKeyCode;
+                let kb = window.common.keyboard_state_mut();
+                kb.current_virtual_keycode = OptionVirtualKeyCode::None;
+            }
+            let result = window.process_window_events(0);
+            window.route_main_window_result(hwnd, result);
+
+            // Returning non-zero says "handled"; DefWindowProc would
+            // otherwise forward it to the shell and the OS would act on it
+            // too, so a play/pause would toggle twice.
+            1
         }
 
         WM_DEVICECHANGE => {

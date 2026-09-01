@@ -1434,6 +1434,48 @@ pub mod win32_vk {
 // the sided ones), which is the distinction MWA-A2 was about.
 #[allow(clippy::match_same_arms)]
 #[allow(clippy::wildcard_imports)] // the VK_* constant block, same as the X11 table's defines::*
+/// Map a Win32 `WM_APPCOMMAND` id onto the `VirtualKeyCode` that already
+/// names it.
+///
+/// The media and browser keys are ALREADY in `VirtualKeyCode` — `PlayPause`,
+/// `NextTrack`, `VolumeUp`, `WebBack` and the rest — so this needs no new
+/// vocabulary. What was missing is that Windows does not deliver those keys
+/// as `WM_KEYDOWN`: a keyboard's media row and a mouse's thumb buttons both
+/// arrive as `WM_APPCOMMAND`, an entirely separate message, and with no
+/// handler they reached `DefWindowProc` and vanished.
+///
+/// Returning an existing keycode rather than inventing an `AppCommand` event
+/// means an app binding `VirtualKeyCode::PlayPause` works on every platform,
+/// including the ones that DO route these as ordinary keys.
+#[must_use]
+pub fn win32_appcommand_to_virtual_key(cmd: u16) -> Option<VirtualKeyCode> {
+    // APPCOMMAND_* from winuser.h.
+    Some(match cmd {
+        1 => VirtualKeyCode::WebBack,
+        2 => VirtualKeyCode::WebForward,
+        3 => VirtualKeyCode::WebRefresh,
+        4 => VirtualKeyCode::WebStop,
+        5 => VirtualKeyCode::WebSearch,
+        6 => VirtualKeyCode::WebFavorites,
+        7 => VirtualKeyCode::WebHome,
+        8 => VirtualKeyCode::Mute,
+        9 => VirtualKeyCode::VolumeDown,
+        10 => VirtualKeyCode::VolumeUp,
+        11 => VirtualKeyCode::NextTrack,
+        12 => VirtualKeyCode::PrevTrack,
+        13 => VirtualKeyCode::MediaStop,
+        14 => VirtualKeyCode::PlayPause,
+        15 => VirtualKeyCode::Mail,
+        16 => VirtualKeyCode::MediaSelect,
+        // LAUNCH_APP1 / LAUNCH_APP2 are user-assignable and conventionally
+        // My Computer and Calculator, which is what the keycodes are named
+        // after.
+        17 => VirtualKeyCode::MyComputer,
+        18 => VirtualKeyCode::Calculator,
+        _ => return None,
+    })
+}
+
 pub fn win32_vkey_to_virtual_key(vkey: i32, oem_char: Option<char>) -> Option<VirtualKeyCode> {
     use win32_vk::*;
 
