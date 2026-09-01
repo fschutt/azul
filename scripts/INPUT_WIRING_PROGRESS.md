@@ -94,6 +94,15 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 9f/9g
+
+- [ ] 9f-i No backend enumerates HID devices or pushes reports. Win32 `WM_INPUT` with a HID usage page
+      registration (the same `RegisterRawInputDevices` call 9d-i needs — do them together), Linux
+      `/dev/hidraw*` or libudev, macOS `IOHIDManager`.
+- [ ] 9g-i No backend plays haptics. macOS `NSHapticFeedbackManager.defaultPerformer` (trackpad only),
+      Android `performHapticFeedback`, Win32 `SimpleHapticsController` via WinRT, gamepad rumble via SDL
+      or raw HID output reports. The shell also has to DRAIN `haptic_manager.take_pending()` each pass.
+
 ### Follow-ups opened by 9e
 
 - [ ] 9e-i No shell fills `KeyboardState.modifiers`, `.locks`, `.is_repeat` or `.current_physical_key`, so
@@ -290,8 +299,8 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       Wayland `zwp_relative_pointer_v1` + `zwp_pointer_constraints_v1`, X11 `XI_RawMotion`.
 - [x] 9e (types + ModifiersChanged + accessors done; the shells do not fill the new state yet — see 9e-i) `PhysicalKey` positional enum + `ModifiersChanged` filter + `KeyboardState += { modifiers, locks,
       is_repeat }`.
-- [ ] 9f `HidDevice { vendor_id, product_id, usage_page, usage, name }` + `HidReport { bytes }`.
-- [ ] 9g `Haptic::play(pattern)` — macOS `NSHapticFeedbackManager`, Win32 `SimpleHapticsController`,
+- [x] 9f (types + manager + accessors; no backend enumerates yet — 9f-i) `HidDevice { vendor_id, product_id, usage_page, usage, name }` + `HidReport { bytes }`.
+- [x] 9g (types + manager + `CallbackInfo::play_haptic`; no backend plays yet — 9g-i) `Haptic::play(pattern)` — macOS `NSHapticFeedbackManager`, Win32 `SimpleHapticsController`,
       Android `performHapticFeedback`.
 - [ ] 9h Win32 `WM_APPCOMMAND` → media/browser app-command channel.
 

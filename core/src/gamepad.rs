@@ -180,7 +180,7 @@ impl GamepadButton {
 impl Default for GamepadState {
     fn default() -> Self {
         Self {
-            id: GamepadId { inner: 0 },
+            id: GamepadId { id: 0 },
             connected: false,
             buttons: 0,
             left_stick_x: 0.0,

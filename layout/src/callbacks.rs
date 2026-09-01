@@ -4952,6 +4952,42 @@ impl CallbackInfo {
         self.get_current_keyboard_state().is_repeat
     }
 
+    /// Input reports from HID devices azul does not model — flight sticks,
+    /// wheels, 6-DOF mice, pedals, Stream Decks.
+    ///
+    /// The bytes are exactly as the device sent them, because decoding needs
+    /// that device's report descriptor and a framework guessing at it would
+    /// be wrong more often than useful. This is the same trade WebHID makes.
+    #[must_use]
+    pub fn get_hid_reports(&self) -> &[azul_core::hid::HidReport] {
+        self.get_layout_window().hid_manager.reports()
+    }
+
+    /// The HID devices the platform enumerated.
+    #[must_use]
+    pub fn get_hid_devices(&self) -> &[azul_core::hid::HidDevice] {
+        self.get_layout_window().hid_manager.devices()
+    }
+
+    /// Play a haptic pattern.
+    ///
+    /// Queued rather than played synchronously: callbacks run on the layout
+    /// thread and the platform actuator APIs want the event loop, the same
+    /// reason clipboard writes and menu opens are deferred.
+    ///
+    /// Repeated identical requests coalesce — a callback firing per frame
+    /// during a drag would otherwise make the device buzz continuously
+    /// instead of ticking once.
+    pub fn play_haptic(
+        &mut self,
+        pattern: azul_core::haptics::HapticPattern,
+        target: azul_core::haptics::HapticTarget,
+    ) {
+        self.get_layout_window_mut()
+            .haptic_manager
+            .play(pattern, target);
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     #[must_use]

@@ -310,6 +310,8 @@ pub mod events;
 ///
 /// Stateful manager lives in `azul_layout::managers::gamepad`.
 pub mod gamepad;
+pub mod haptics;
+pub mod hid;
 /// Geolocation POD types — `LocationFix` + `GeolocationProbeConfig`.
 ///
 /// Stateful manager lives in `azul_layout::managers::geolocation`.

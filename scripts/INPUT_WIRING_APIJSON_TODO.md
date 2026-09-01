@@ -104,3 +104,11 @@ api.json and unchanged — this arc gave them producers, it did not add them.
 - `CallbackInfo::{get_key_modifiers, get_key_locks, get_physical_key, is_key_repeat}`.
 - ⚠ `KeyModifiers` is currently Rust-internal (`azul_core::events`); exposing `get_key_modifiers` means
   it needs an api.json entry too.
+
+## From step 9f/9g (HID + haptics)
+
+- `azul_core::hid::{HidDevice, HidReport}` — new `#[repr(C)]` structs. `HidReport.bytes` is a `U8Vec`.
+- `azul_core::haptics::{HapticPattern, HapticTarget, HapticRequest}` — new `#[repr(C)]` enums/struct.
+- `EventType::HidReport` + `WindowEventFilter::HidReport` — appended at the END.
+- `CallbackInfo::{get_hid_reports, get_hid_devices, play_haptic}`. The two slice returns need Vec
+  wrappers for the C ABI (`HidReportVec`, `HidDeviceVec`).

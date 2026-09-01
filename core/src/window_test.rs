@@ -80,7 +80,6 @@ mod autotest_generated {
             pressed_virtual_keycodes: keys.to_vec().into(),
             ..KeyboardState::default()
         }
-        ..Default::default()
     }
 
     fn pair(key: &str, value: &str) -> AzStringPair {

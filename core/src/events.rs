@@ -393,8 +393,6 @@ impl KeyModifiers {
     }
 }
 
-/// Type-specific event data for mouse events.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// What kind of device produced a pointer event.
 ///
 /// The same discriminator the web calls `PointerEvent.pointerType`, GTK calls
@@ -431,6 +429,9 @@ pub enum PointerSource {
     Eraser,
 }
 
+/// Type-specific event data for mouse events.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct MouseEventData {
     /// Position of the mouse cursor
     pub position: LogicalPosition,
@@ -1938,6 +1939,7 @@ fn matches_window_filter(
         }
         (RawMouseMotion, EventType::RawMouseMotion) => true,
         (ModifiersChanged, EventType::ModifiersChanged) => true,
+        (HidReport, EventType::HidReport) => true,
         _ => false,
     }
 }

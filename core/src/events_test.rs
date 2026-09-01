@@ -49,7 +49,6 @@ mod tests {
             pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(vec![vk]),
             ..KeyboardState::default()
         }
-        ..Default::default()
     }
 
     fn make_keydown_event(target: DomNodeId) -> SyntheticEvent {
@@ -536,9 +535,6 @@ mod tests {
             left_down: false,
             right_down: false,
             middle_down: false,
-            other_down: 0,
-            pointer_source: crate::events::PointerSource::Unknown,
-            pointer_device_id: 0,
         };
         assert!(!none.any_down());
     }
@@ -884,7 +880,6 @@ mod autotest_generated {
             pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(vec![key]),
             ..KeyboardState::default()
         }
-        ..Default::default()
     }
 
     // ============================================================ numeric edge
