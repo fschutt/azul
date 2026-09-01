@@ -452,8 +452,24 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
   Xcode + the iOS SDK to cross-compile its guest daemon, AND requires relaxing SIP/AMFI. This machine is
   Apple silicon on macOS 15.5 (both fine) but SIP is ENABLED, and disabling it needs a recoveryOS boot.
   It also boots a jailbroken iOS VM rather than a simulator, which is a heavier and different thing.
-- **Shortest real path: install Xcode.** That yields `simctl` (run the simulator) AND the iOS SDK (link a
-  real binary and assemble the `.app`), which is strictly more than vphone-cli would give.
+- **baguette** (suggested 2026-09-01) is iOS-simulator-only and requires **Xcode 26** — it links against
+  the private `SimulatorKit` / `CoreSimulator` frameworks that ship WITH Xcode, so it cannot bootstrap
+  one. Worth revisiting the moment Xcode exists though: it does headless boot, 60fps frame streaming,
+  **touch/gesture INPUT INJECTION** and accessibility-tree inspection from a CLI — which is precisely
+  what would exercise this arc's work end to end.
+- **Shortest real path: install Xcode.** Both suggested tools gate on it, and it also yields the iOS SDK,
+  so iOS could be LINKED rather than only checked and a `.app` assembled per the deploy guide.
+
+### Android emulator — reachable, but it cannot exercise this arc yet
+
+- Present on this machine already: `sdkmanager`, `avdmanager`, `adb` (Homebrew) and `cargo-ndk`.
+- Missing: a **JDK** (sdkmanager/avdmanager will not run without one), the `emulator` package, a system
+  image, and an SDK root — none of which need Android Studio, per the standard command-line-tools route.
+- ⚠ **But the emulator could not test the input work.** The Android bridges written in this arc
+  (`NativeTextBridge` for text/IME/insets, `AzulGamepad` for pads) are JNI entry points whose **Java
+  counterparts do not exist** — items 10a-i and 10f-ii. Nothing would call them, so a booted APK would
+  show a window and drive none of the new input paths. Build the Java glue FIRST; the emulator only
+  becomes useful after that.
 - [ ] 13d `cargo test --release --lib` per crate.
 - [ ] 13e Full e2e (`--test all`) ONCE.
 - [ ] 13f Drive the step-0 ratchet allow-list to empty; anything left is a real remaining gap.
