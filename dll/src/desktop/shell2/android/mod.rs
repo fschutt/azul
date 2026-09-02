@@ -99,6 +99,14 @@ pub struct AndroidWindow {
     /// the `LayoutWindow`.
     pub accessibility_adapter: accessibility::AndroidAccessibilityAdapter,
 
+    /// IME text committed on the Java UI thread, waiting for the loop thread.
+    ///
+    /// `record_text_input` only STAGES a changeset; the shared event pass is
+    /// what applies it (`ApplyPendingTextInput` -> `ApplyTextChangeset`), and a
+    /// pass must not run from the IME's thread while the loop may be mid-layout.
+    /// Same shape as the a11y action queue and the theme queue above.
+    pending_ime_commits: std::sync::Mutex<Vec<String>>,
+
     /// A frame must be re-rastered and posted, but the layout is UNCHANGED.
     ///
     /// Android's `request_redraw()` equivalent, which it did not have: the only
@@ -168,6 +176,7 @@ impl AndroidWindow {
             icon_provider,
             font_registry,
             accessibility_adapter: accessibility::AndroidAccessibilityAdapter::new(),
+            pending_ime_commits: std::sync::Mutex::new(Vec::new()),
             needs_rerender: false,
             touch_pan_last: None,
         })
@@ -613,6 +622,62 @@ pub fn android_main(app: AndroidApp) {
         // Drain the Java-thread theme queue on the loop thread: snapshot →
         // mutate → pass, like every other OS-state change.
         drain_pending_theme(&mut window);
+
+        // Apply IME text on the LOOP thread. `record_text_input` stages a
+        // changeset; the event pass right after is what turns it into
+        // `ApplyPendingTextInput` -> `ApplyTextChangeset` and, for an editable
+        // subtree, the `DocumentEdit` the app subscribes to. Staging without a
+        // pass — which is what this did — left the text recorded and never
+        // applied, so the IME composed, committed, and nothing appeared.
+        {
+            let commits: Vec<String> = window
+                .pending_ime_commits
+                .lock()
+                .map(|mut q| core::mem::take(&mut *q))
+                .unwrap_or_default();
+            for text in commits {
+                window.snapshot_window_state_baseline("android.ime_commit");
+                if let Some(lw) = window.common.layout_window.as_mut() {
+                    // Commit, not clear: this carries the committed string so
+                    // CompositionEnd can report it, exactly as the desktop
+                    // shells do.
+                    lw.text_edit_manager.commit_composition(text.clone());
+                    let _ = lw.record_text_input(&text);
+                }
+                let r = window.process_window_events(0);
+                log_info!(
+                    LogCategory::Input,
+                    "[Android] IME applied {:?} -> {:?} (relayout_only={}, regen={})",
+                    text,
+                    r,
+                    window.common.relayout_only_pending(),
+                    window.common.regeneration_pending(),
+                );
+                if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                    window
+                        .common
+                        .request_regeneration(RelayoutReason::RefreshDom);
+                }
+            }
+        }
+
+        // Relayout-only, checked FIRST — the same order macOS and Wayland use.
+        // An incremental relayout (restyle, runtime text edit) already re-ran
+        // layout and rebuilt the display list; running `regenerate_layout` on
+        // top would discard it and re-invoke the app's layout_callback. The
+        // input arm raises BOTH flags, so this must be tested before the plain
+        // regeneration request or the skip never happens.
+        let relayout_only = window.common.take_relayout_only();
+        if relayout_only {
+            log_info!(
+                LogCategory::Layout,
+                "[Android] relayout-only: skipping regenerate_layout, repainting"
+            );
+            window.needs_rerender = true;
+            window
+                .common
+                .clear_regeneration_unless_reraised(window.common.regen_epoch());
+        }
 
         let mut frame_dirty = false;
         if window.common.regeneration_pending() {
@@ -1146,15 +1211,23 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         // light ones only repaint.
         use azul_core::events::ProcessEventResult as PER;
         match r {
-            PER::ShouldRegenerateDomCurrentWindow
-            | PER::ShouldRegenerateDomAllWindows
-            | PER::ShouldIncrementalRelayout
-            | PER::UpdateHitTesterAndProcessAgain => {
+            PER::ShouldRegenerateDomCurrentWindow | PER::ShouldRegenerateDomAllWindows => {
                 window
                     .common
                     .request_regeneration(RelayoutReason::RefreshDom);
             }
-            PER::ShouldUpdateDisplayListCurrentWindow | PER::ShouldReRenderCurrentWindow => {
+            // NOT a DOM rebuild. The pass has ALREADY re-run layout on the
+            // existing StyledDom and refreshed the per-DOM display list — that
+            // is what "incremental" means. Calling `regenerate_layout` here
+            // would throw that work away and re-invoke the app's
+            // `layout_callback`, rebuilding the DOM from application data that
+            // has not caught up yet: an IME commit landed in the engine's
+            // StyledDom and was then overwritten by the app's unchanged model,
+            // so typing composed, committed, and vanished.
+            PER::ShouldIncrementalRelayout
+            | PER::UpdateHitTesterAndProcessAgain
+            | PER::ShouldUpdateDisplayListCurrentWindow
+            | PER::ShouldReRenderCurrentWindow => {
                 window.needs_rerender = true;
             }
             PER::DoNothing => {}
@@ -1226,15 +1299,23 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         // light ones only repaint.
         use azul_core::events::ProcessEventResult as PER;
         match r {
-            PER::ShouldRegenerateDomCurrentWindow
-            | PER::ShouldRegenerateDomAllWindows
-            | PER::ShouldIncrementalRelayout
-            | PER::UpdateHitTesterAndProcessAgain => {
+            PER::ShouldRegenerateDomCurrentWindow | PER::ShouldRegenerateDomAllWindows => {
                 window
                     .common
                     .request_regeneration(RelayoutReason::RefreshDom);
             }
-            PER::ShouldUpdateDisplayListCurrentWindow | PER::ShouldReRenderCurrentWindow => {
+            // NOT a DOM rebuild. The pass has ALREADY re-run layout on the
+            // existing StyledDom and refreshed the per-DOM display list — that
+            // is what "incremental" means. Calling `regenerate_layout` here
+            // would throw that work away and re-invoke the app's
+            // `layout_callback`, rebuilding the DOM from application data that
+            // has not caught up yet: an IME commit landed in the engine's
+            // StyledDom and was then overwritten by the app's unchanged model,
+            // so typing composed, committed, and vanished.
+            PER::ShouldIncrementalRelayout
+            | PER::UpdateHitTesterAndProcessAgain
+            | PER::ShouldUpdateDisplayListCurrentWindow
+            | PER::ShouldReRenderCurrentWindow => {
                 window.needs_rerender = true;
             }
             PER::DoNothing => {}
@@ -1771,7 +1852,8 @@ pub mod text_bridge {
     // android module root — the gesture bridge declared it there first and
     // this bridge reuses it rather than defining a second copy.
     use super::jni_bridge::with_window;
-    use super::RelayoutReason;
+    use super::{LogCategory, RelayoutReason};
+    use crate::log_info;
 
     /// Read a Java `String` argument.
     ///
@@ -1900,13 +1982,18 @@ pub mod text_bridge {
         text: jni::sys::jstring,
     ) {
         let text = jstring_to_string(env, text);
+        log_info!(
+            LogCategory::Input,
+            "[Android] IME commitText({:?}) ptr={:#x}",
+            text,
+            native_ptr
+        );
         with_window(native_ptr, |w| {
-            if let Some(lw) = w.common.layout_window.as_mut() {
-                // Commit, not clear: this carries the committed string so
-                // CompositionEnd can report it, exactly as the desktop shells
-                // do.
-                lw.text_edit_manager.commit_composition(text.clone());
-                let _ = lw.record_text_input(&text);
+            // QUEUED, not applied. This runs on the IME's thread; the changeset
+            // has to be staged and passed on the loop thread or the pass races
+            // a layout in progress.
+            if let Ok(mut q) = w.pending_ime_commits.lock() {
+                q.push(text.clone());
             }
             w.common.request_regeneration(RelayoutReason::RefreshDom);
         });
