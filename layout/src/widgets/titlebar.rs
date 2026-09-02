@@ -98,7 +98,7 @@ const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU {
 ///    that calls `CallbackInfo::modify_window_state()` - exactly the same
 ///    mechanism used for window dragging.  No special event-system hooks.
 ///
-/// Window-control buttons use `Dom::create_icon("system:window-close,close")` — an
+/// Window-control buttons use `Dom::create_icon("system:titlebar-close,…")` — an
 /// icon spec is a fallback chain, so the DESKTOP's own control icons win where
 /// the session registered them and the engine's glyphs cover everywhere else — so that
 /// icons are resolved through the icon provider system (Material Icons
@@ -672,7 +672,7 @@ fn build_button_container(
             Dom::create_div()
                 .with_ids_and_classes(classes)
                 .with_css_props(hover_style(close_hover))
-                .with_child(Dom::create_icon("system:window-close,close"))
+                .with_child(Dom::create_icon("system:titlebar-close,system:window-close,close"))
                 .with_callbacks(
                     vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseDown),
@@ -2517,8 +2517,14 @@ mod autotest_generated {
                 callbacks::csd_maximize as usize,
             ),
             (
+                // The close button asks for the TITLEBAR glyph first: a
+                // theme's `window-close` is the red circled X of the "close
+                // document" ACTION, and a titlebar built from it reads as
+                // permanently alarmed. The action icon stays in the chain
+                // behind it, as the fallback for a session that provides no
+                // titlebar glyph.
                 "csd-button-close",
-                "system:window-close",
+                "system:titlebar-close,system:window-close",
                 "close",
                 callbacks::csd_close as usize,
             ),

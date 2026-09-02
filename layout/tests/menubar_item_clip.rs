@@ -256,6 +256,7 @@ fn test_app_path_menubar_not_clipped() {
             cb: azul_core::task::get_system_time_libstd,
         },
         &[],
+        &std::collections::BTreeMap::new(),
     )
     .expect("layout_document should succeed");
 
@@ -415,6 +416,7 @@ fn test_probe_words_glyph_counts() {
             cb: azul_core::task::get_system_time_libstd,
         },
         &[],
+        &std::collections::BTreeMap::new(),
     )
     .expect("layout");
 

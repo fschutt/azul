@@ -481,3 +481,90 @@ fn a_curved_edge_is_antialiased_not_stepped() {
          that is a staircase, not a curve"
     );
 }
+
+/// Can a PARENT's `:hover` restyle a child?
+///
+/// This decides whether swapping a window control's glyph on hover needs a new
+/// imperative API or is just CSS. The hover state is set on every node under
+/// the pointer, so a child is only hovered when the pointer is over the CHILD
+/// - over the button's padding it is not - and a swap keyed on the icon's own
+/// `:hover` would flicker. A descendant selector keyed on the BUTTON is the
+/// declarative answer, if the cascade supports one.
+#[test]
+#[ignore = "KNOWN GAP, recorded deliberately: a descendant selector with a \
+            pseudo-class (`.btn:hover .ink`) does not reach the child. This \
+            is why swapping a window control's glyph on hover cannot be done \
+            in CSS and goes through a VirtualView re-render instead. Basic \
+            CSS, worth fixing on its own; un-ignore with the fix."]
+fn a_parents_hover_can_restyle_a_child() {
+    use azul_core::{id::NodeId, styled_dom::StyledNodeState};
+
+    let markup = r##"<style>
+            .ink { fill: #00ff00; }
+            .btn:hover .ink { fill: #ff0000; }
+        </style>
+        <div class="btn">
+          <svg viewBox="0 0 8 8" width="8" height="8">
+            <rect class="ink" x="0" y="0" width="8" height="8"/>
+          </svg>
+        </div>"##;
+    let parsed = azul_layout::xml::parse_xml(markup).expect("parses");
+    let dom = azul_layout::xml::dom_from_parsed_xml(parsed);
+    let mut styled_dom = azul_core::styled_dom::StyledDom::create_from_dom(dom);
+
+    let node_of = |ty: azul_core::dom::NodeType, styled: &azul_core::styled_dom::StyledDom| {
+        (0..styled.node_data.len())
+            .map(NodeId::new)
+            .find(|id| *styled.node_data.as_container()[*id].get_node_type() == ty)
+            .unwrap_or_else(|| panic!("no {ty:?} in the document"))
+    };
+    let button = node_of(azul_core::dom::NodeType::Div, &styled_dom);
+    let shape = node_of(azul_core::dom::NodeType::SvgRect, &styled_dom);
+
+    let fill = |styled: &azul_core::styled_dom::StyledDom| {
+        azul_layout::solver3::getters::get_background_contents(
+            styled,
+            shape,
+            &styled.styled_nodes.as_container()[shape].styled_node_state,
+        )
+        .into_iter()
+        .find_map(|bg| match bg {
+            azul_css::props::style::StyleBackgroundContent::Color(c) => Some(c),
+            _ => None,
+        })
+    };
+
+    assert_eq!(
+        fill(&styled_dom),
+        Some(ColorU {
+            r: 0,
+            g: 255,
+            b: 0,
+            a: 255
+        }),
+        "resting"
+    );
+
+    // Hover the BUTTON only - not the shape, which is what happens when the
+    // pointer sits on the button's padding.
+    {
+        let mut nodes = styled_dom.styled_nodes.as_container_mut();
+        nodes[button].styled_node_state = StyledNodeState {
+            hover: true,
+            ..StyledNodeState::default()
+        };
+    }
+    styled_dom.restyle_retained();
+
+    assert_eq!(
+        fill(&styled_dom),
+        Some(ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        }),
+        "a `.btn:hover .ink` rule must reach the child - if this fails, \
+         swapping a glyph on hover needs an imperative API instead"
+    );
+}

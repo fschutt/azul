@@ -4206,7 +4206,8 @@ mod autotest_generated {
                 LayoutContext {
                     reflowed_ifcs: std::collections::BTreeSet::new(),
                     style_cache: Default::default(),
-                    scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                    virtual_view_sizes: None,
+            scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
                     styled_dom: &self.styled_dom,
                     font_manager: &self.font_manager,
                     text_selections: &self.text_selections,

@@ -187,6 +187,21 @@ impl VirtualViewManager {
             })
     }
 
+    /// Every view's last MATERIALIZED size, for the layout solver.
+    ///
+    /// A `VirtualView` is a replaced element, and `width: auto` on one means
+    /// what it means on an `<img>`: as big as the content. The content's size
+    /// is exactly what the callback reported, and this is how that report
+    /// reaches sizing - it used to reach placement and scrollbar geometry
+    /// only, so a view could never be sized by what it returned.
+    #[must_use]
+    pub fn materialized_sizes(&self) -> BTreeMap<(DomId, NodeId), LogicalSize> {
+        self.states
+            .iter()
+            .filter_map(|(key, state)| state.materialized.map(|m| (*key, m.size)))
+            .collect()
+    }
+
     /// Record what the callback just materialized, as RECTS in virtual space.
     ///
     /// `window_origin` is where this window of content begins in the document
@@ -2042,5 +2057,67 @@ mod autotest_generated {
                 ..Default::default()
             }
         );
+    }
+}
+
+#[cfg(test)]
+mod materialized_size_tests {
+    use azul_core::{
+        dom::{DomId, NodeId},
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+    };
+
+    use super::VirtualViewManager;
+
+    /// A `VirtualView` is a replaced element, and `width: auto` on one should
+    /// mean what it means on an `<img>`: as big as the content. The callback
+    /// already reports exactly that (`VirtualViewReturn::materialized`) - the
+    /// report just never reached SIZING, only placement and scrollbar
+    /// geometry, so every caller had to state a size up front.
+    #[test]
+    fn a_view_reports_the_size_it_materialized() {
+        let mut m = VirtualViewManager::new();
+        let (dom, node) = (DomId::ROOT_ID, NodeId::new(3));
+        m.get_or_create_nested_dom_id(dom, node);
+
+        assert!(
+            m.materialized_sizes().is_empty(),
+            "before the callback has run there is nothing to size from - a \
+             view is sized from the OUTSIDE first, which is the only order \
+             that terminates"
+        );
+
+        m.update_virtual_view_info(
+            dom,
+            node,
+            LogicalPosition::zero(),
+            LogicalSize::new(16.0, 16.0),
+            LogicalSize::new(16.0, 16.0),
+        );
+        assert_eq!(
+            m.materialized_sizes().get(&(dom, node)).copied(),
+            Some(LogicalSize::new(16.0, 16.0)),
+            "afterwards the view is as big as what it returned"
+        );
+    }
+
+    /// Only views that ACTUALLY materialized report a size: a registered but
+    /// never-invoked view must not claim 0x0, which would collapse its box.
+    #[test]
+    fn a_registered_but_unrendered_view_reports_nothing() {
+        let mut m = VirtualViewManager::new();
+        m.get_or_create_nested_dom_id(DomId::ROOT_ID, NodeId::new(1));
+        m.get_or_create_nested_dom_id(DomId::ROOT_ID, NodeId::new(2));
+        m.update_virtual_view_info(
+            DomId::ROOT_ID,
+            NodeId::new(2),
+            LogicalPosition::zero(),
+            LogicalSize::new(8.0, 8.0),
+            LogicalSize::new(8.0, 8.0),
+        );
+
+        let sizes = m.materialized_sizes();
+        assert_eq!(sizes.len(), 1, "only the one that rendered: {sizes:?}");
+        assert!(sizes.contains_key(&(DomId::ROOT_ID, NodeId::new(2))));
     }
 }

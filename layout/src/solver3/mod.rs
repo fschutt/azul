@@ -277,6 +277,20 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// without lifting the ctx to `&mut`. Keyed by `NodeId` so
     /// entries span DOMs in iframe-style nested documents if that
     /// ever becomes a thing.
+    /// What each `VirtualView` last MATERIALIZED, keyed by node.
+    ///
+    /// A VirtualView is a replaced element, and until now its intrinsic size
+    /// was the hardcoded 300x150 of a replaced element with no natural size -
+    /// even though the callback reports exactly how big its content is
+    /// (`VirtualViewReturn::materialized`). That report only ever reached
+    /// PLACEMENT and scrollbar geometry, so a view could not be sized by what
+    /// it returned and every caller had to state a size up front.
+    ///
+    /// With this, `width: auto` on a view means what it means for an `<img>`:
+    /// as big as the content. The first pass has nothing materialized yet and
+    /// still falls back to 300x150 - a view is sized from the outside first,
+    /// and by its content afterwards.
+    pub virtual_view_sizes: Option<&'a BTreeMap<(DomId, NodeId), LogicalSize>>,
     pub scrollbar_style_cache:
         core::cell::RefCell<HashMap<NodeId, getters::ComputedScrollbarStyle>>,
 }
@@ -512,6 +526,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // changes (colour/background/...) that must repaint without a single
     // layout pass — the aggressive-caching half of this contract.
     css_dirty: &[(NodeId, azul_css::props::property::RelayoutScope)],
+    // What each `VirtualView` last materialized - see
+    // `LayoutContext::virtual_view_sizes`.
+    virtual_view_sizes: &BTreeMap<(DomId, NodeId), LogicalSize>,
 ) -> Result<std::sync::Arc<DisplayList>> {
     use crate::window::LayoutWindow;
 
@@ -560,7 +577,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     let mut counter_values = HashMap::new();
     let mut ctx_temp = LayoutContext {
         style_cache: Default::default(),
-        scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+        virtual_view_sizes: None,
+            scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
         styled_dom: new_dom,
         font_manager,
         text_selections,
@@ -936,7 +954,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Now create the real context with computed counters
     let mut ctx = LayoutContext {
         style_cache: Default::default(),
-        scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+        virtual_view_sizes: None,
+            scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
         styled_dom: new_dom,
         font_manager,
         text_selections,
@@ -2717,6 +2736,7 @@ mod autotest_generated {
             fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
                 LayoutContext {
                     style_cache: Default::default(),
+                    virtual_view_sizes: None,
                     scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
                     styled_dom: &self.styled_dom,
                     font_manager: &self.font_manager,
@@ -3001,6 +3021,7 @@ mod autotest_generated {
                     cb: azul_core::task::get_system_time_libstd,
                 },
                 &[],
+                &BTreeMap::new(),
             )
         }
 
@@ -3043,6 +3064,7 @@ mod autotest_generated {
                     cb: azul_core::task::get_system_time_libstd,
                 },
                 &[],
+                &BTreeMap::new(),
             )
         }
 
@@ -3087,6 +3109,7 @@ mod autotest_generated {
                     cb: azul_core::task::get_system_time_libstd,
                 },
                 css_dirty,
+                &BTreeMap::new(),
             )
         }
 

@@ -521,12 +521,31 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         if let Some(dom_id) = node.dom_node_id {
             let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
             if node_data.is_virtual_view_node() {
+                // SIZED BY WHAT IT RETURNED, once it has returned something.
+                //
+                // A VirtualView reports exactly how big its content is
+                // (`VirtualViewReturn::materialized`), and that report used to
+                // reach placement and scrollbar geometry only - so the view
+                // itself was stuck at the 300x150 of a replaced element with
+                // no natural size, and every caller had to state a size up
+                // front. `width: auto` on a view now means what it means on an
+                // `<img>`: as big as the content.
+                //
+                // The FIRST pass has nothing materialized yet and still falls
+                // back to 300x150: a view is sized from the outside first and
+                // by its content afterwards, which is the only order that
+                // terminates (the callback is handed the node's bounds).
+                let materialized = self
+                    .ctx
+                    .virtual_view_sizes
+                    .and_then(|sizes| sizes.get(&(self.ctx.styled_dom.dom_id, dom_id)).copied());
+                let (w, h) = materialized.map_or((300.0, 150.0), |s| (s.width, s.height));
                 return Ok(IntrinsicSizes {
-                    min_content_width: 300.0,
-                    max_content_width: 300.0,
+                    min_content_width: w,
+                    max_content_width: w,
                     preferred_width: None, // Will be determined by CSS or flex-grow
-                    min_content_height: 150.0,
-                    max_content_height: 150.0,
+                    min_content_height: h,
+                    max_content_height: h,
                     preferred_height: None, // Will be determined by CSS or flex-grow
                     preferred_aspect_ratio: None,
                 });
@@ -2793,7 +2812,8 @@ mod autotest_generated {
             LayoutContext {
                 reflowed_ifcs: BTreeSet::new(),
                 style_cache: Default::default(),
-                scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                virtual_view_sizes: None,
+            scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
                 styled_dom: &self.styled_dom,
                 font_manager: &self.font_manager,
                 text_selections: &self.text_selections,

@@ -4971,6 +4971,9 @@ pub fn render_component_preview(
         system_style.clone(),
         get_system_time_fn,
         &[],
+        // A preview has no VirtualView history: every view sizes from the
+        // outside on its first (and only) pass.
+        &std::collections::BTreeMap::new(),
     )
     .map_err(|e| format!("Layout failed: {e:?}"))?;
 

@@ -419,7 +419,27 @@ fn theme_window_icon(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
 
 /// APPENDED to the close button: the caption-red hover.
 fn theme_close_button(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![cond_bg_hover(t.close_hover_bg)])
+    // ROUND, because that is what the desktop draws. A close button's red is a
+    // hover FILL behind a neutral glyph, and every current desktop draws that
+    // fill as a circle - a full-height red rectangle in the corner of the
+    // titlebar is the one detail that gives a hand-drawn titlebar away.
+    // Half the bar height makes the fill as round as the button allows.
+    let radius = PixelValue::px(BAR_HEIGHT as f32 / 2.0);
+    CssPropertyWithConditionsVec::from_vec(vec![
+        cond_bg_hover(t.close_hover_bg),
+        Cond::on_hover(P::const_border_top_left_radius(StyleBorderTopLeftRadius {
+            inner: radius,
+        })),
+        Cond::on_hover(P::const_border_top_right_radius(
+            StyleBorderTopRightRadius { inner: radius },
+        )),
+        Cond::on_hover(P::const_border_bottom_left_radius(
+            StyleBorderBottomLeftRadius { inner: radius },
+        )),
+        Cond::on_hover(P::const_border_bottom_right_radius(
+            StyleBorderBottomRightRadius { inner: radius },
+        )),
+    ])
 }
 
 // -- Style --
@@ -763,7 +783,7 @@ impl QuickAccessBar {
         }
         if show_close {
             children.push(window_button(
-                AzString::from_const_str("system:window-close,close"),
+                AzString::from_const_str("system:titlebar-close,system:window-close,close"),
                 merged_style(&style.window_button_style, &style.close_button_style),
                 &style,
                 on_close,
@@ -852,7 +872,7 @@ mod tests {
         for (system, fallback) in [
             ("system:window-minimize", "minimize"),
             ("system:window-maximize", "crop_square"),
-            ("system:window-close", "close"),
+            ("system:titlebar-close", "close"),
         ] {
             let chain = icons
                 .iter()

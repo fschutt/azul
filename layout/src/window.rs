@@ -3879,6 +3879,7 @@ impl LayoutWindow {
             self.system_style.clone(),
             external.get_system_time_fn,
             &[],
+            &self.virtual_view_manager.materialized_sizes(),
         );
         layout_result.ok()?;
         scratch_cache.tree.as_ref()?;
@@ -4903,6 +4904,7 @@ impl LayoutWindow {
         } else {
             crate::transient::TransientDocks::default()
         };
+        let virtual_view_sizes_snapshot = self.virtual_view_manager.materialized_sizes();
         let mut display_list = {
             let _p = crate::probe::Probe::span("solver3_layout_document");
             let layout_cache = &mut self.layout_cache;
@@ -4914,6 +4916,9 @@ impl LayoutWindow {
             let system_style = self.system_style.clone();
             let preedit = self.text_edit_manager.preedit_text.clone();
             let id_namespace = self.id_namespace;
+            // Snapshotted BEFORE the closure: it borrows `self` immutably and
+            // the layout cache above is already borrowed mutably.
+            let virtual_view_sizes = virtual_view_sizes_snapshot;
             solver3::layout_tree::with_transient_docks(docks, || {
                 solver3::layout_document(
                     layout_cache,
@@ -4936,6 +4941,7 @@ impl LayoutWindow {
                     system_style,
                     system_callbacks.get_system_time_fn,
                     &css_dirty_for_this_pass,
+                    &virtual_view_sizes,
                 )
             })?
         };
@@ -11798,6 +11804,7 @@ impl LayoutWindow {
                         self.system_style.clone(),
                         external.get_system_time_fn,
                         &dirty,
+                        &self.virtual_view_manager.materialized_sizes(),
                     );
                     if let Ok(dl) = solved {
                         z.retained.display_list = dl;
@@ -15147,6 +15154,7 @@ impl LayoutWindow {
         let mut ctx = LayoutContext {
             reflowed_ifcs: BTreeSet::new(),
             style_cache: Default::default(),
+            virtual_view_sizes: None,
             scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
             styled_dom,
             font_manager: &self.font_manager,

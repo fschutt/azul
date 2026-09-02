@@ -527,7 +527,10 @@ fn rendered_icons(theme: &str, tint: ColorU) -> (Vec<PreparedIcon>, bool) {
         }
     }
 
-    let mut out: Vec<PreparedIcon> = Vec::new();
+    let mut out: Vec<PreparedIcon> = vec![(
+        "titlebar-close".to_string(),
+        titlebar_close_glyph(tint),
+    )];
     for name in WANTED {
         let Some((svg, _nominal_px)) = read_icon_svg(theme, name) else {
             continue;
@@ -540,6 +543,37 @@ fn rendered_icons(theme: &str, tint: ColorU) -> (Vec<PreparedIcon>, bool) {
     }
     *guard = Some((key, out.clone()));
     (out, false)
+}
+
+/// The TITLEBAR's close glyph: a plain cross, in the titlebar text colour.
+///
+/// Not the theme's `window-close`, and that is the point. A freedesktop theme
+/// draws `window-close` as a red circled X - correct for the ACTION ("close
+/// this document", in a menu or a task manager), wrong for a window control,
+/// which is why a titlebar built from it reads as permanently alarmed. KDE
+/// does not use a second icon for the hover state either: its window buttons
+/// do not come from the icon theme at all (`breezedecoration.so` paints them),
+/// as a plain cross in the titlebar's foreground colour with a RED BACKGROUND
+/// on hover - the colour already detected as
+/// `TitlebarMetrics::close_button_hover_background`.
+///
+/// So the resting glyph is neutral and the red is the button's hover fill,
+/// which is what every desktop actually does. The cross is drawn here rather
+/// than lifted out of the theme's file: the artwork in an icon theme is
+/// licensed work, and a symmetric X of round numbers is not something to
+/// copy.
+///
+/// It carries `.ColorScheme-Text` like every theme icon, so the same tinting
+/// and the same `:hover` restyling apply to it.
+fn titlebar_close_glyph(tint: ColorU) -> String {
+    alloc::format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <defs><style>.ColorScheme-Text {{ color:{}; }}</style></defs>
+  <path class="ColorScheme-Text" style="fill:currentColor"
+        d="M 4.8,4 L 8,7.2 L 11.2,4 L 12,4.8 L 8.8,8 L 12,11.2 L 11.2,12 L 8,8.8 L 4.8,12 L 4,11.2 L 7.2,8 L 4,4.8 Z"/>
+</svg>"##,
+        hex_of(tint)
+    )
 }
 
 /// One theme SVG -> a live DOM subtree.
@@ -719,6 +753,52 @@ mod tests {
         walk(&dom, &mut svgs, &mut paths);
         assert_eq!(svgs, 1, "the <svg> survives as a node");
         assert_eq!(paths, 1, "and so does its shape");
+    }
+
+    /// The titlebar's close glyph is a NEUTRAL cross, not the theme's red
+    /// circled X.
+    ///
+    /// `window-close` in an icon theme is the "close this document" ACTION and
+    /// is red at rest; a titlebar built from it reads as permanently alarmed.
+    /// The desktop's own titlebar draws a plain cross in the foreground colour
+    /// and supplies the red as a HOVER FILL, which is what the button style
+    /// does - so the glyph must carry the tint and nothing else.
+    #[test]
+    fn the_titlebar_close_glyph_is_neutral_and_takes_the_tint() {
+        let glyph = titlebar_close_glyph(TINT);
+        assert!(
+            glyph.contains("#123456"),
+            "the glyph takes the palette tint: {glyph}"
+        );
+        assert!(
+            !glyph.to_ascii_lowercase().contains("da4453"),
+            "and carries NO red of its own - the red is the button's hover \
+             fill: {glyph}"
+        );
+        assert!(
+            glyph.contains("ColorScheme-Text"),
+            "it is classed like every theme icon, so the same tinting and the \
+             same :hover restyling reach it: {glyph}"
+        );
+        // ... and it is a real, parseable icon.
+        let resolved = resolve_svg_references(glyph.as_bytes(), TINT);
+        let markup = String::from_utf8(resolved).expect("utf8");
+        assert!(icon_dom(&markup).is_some(), "the glyph must parse");
+    }
+
+    /// It is REGISTERED, under a name of its own - the theme's action icon
+    /// stays reachable for the decorative uses that want it.
+    #[test]
+    fn the_titlebar_glyph_is_registered_beside_the_theme_icons() {
+        let (icons, _) = rendered_icons("definitely-not-a-real-theme", TINT);
+        assert!(
+            icons.iter().any(|(name, _)| name == "titlebar-close"),
+            "even a session with no icon theme at all gets the window control"
+        );
+        assert!(
+            !icons.iter().any(|(name, _)| name == "window-close"),
+            "while the theme's own icons are absent, as there is no theme"
+        );
     }
 
     /// Non-UTF8 bytes are not an SVG we can rewrite; hand them back untouched
