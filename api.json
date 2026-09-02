@@ -11967,24 +11967,6 @@
                                 },
                                 "fn_body": "object.get_primary_gamepad().into()"
                             },
-                            "get_wacom_pad": {
-                                "doc": [
-                                    "Get the current Wacom tablet-**pad** state (ExpressKeys + touch-ring),",
-                                    "or `None` if no pad backend has delivered one. (The pen's own wacom",
-                                    "features - eraser / barrel button / barrel roll / tilt / pressure -",
-                                    "are in [`CallbackInfo::get_pen_state`].) Kept live by the platform pad",
-                                    "backend (Wintab / libwacom+libinput / macOS tablet `NSEvent`s)."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionWacomPadState"
-                                },
-                                "fn_body": "object.get_wacom_pad().into()"
-                            },
                             "get_safe_area_insets": {
                                 "doc": [
                                     "The safe-area insets (notch / system-UI margins) for this window, in",
@@ -14013,6 +13995,24 @@
                                     }
                                 ],
                                 "fn_body": "object.set_pointer_lock(locked)"
+                            },
+                            "get_tablet_pad": {
+                                "doc": [
+                                    "Get the current Wacom tablet-**pad** state (`ExpressKeys` + touch-ring),",
+                                    "or `None` if no pad backend has delivered one. (The pen's own wacom",
+                                    "features - eraser / barrel button / barrel roll / tilt / pressure -",
+                                    "are in [`CallbackInfo::get_pen_state`].) Kept live by the platform pad",
+                                    "backend (Wintab / libwacom+libinput / macOS tablet `NSEvent`s)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTabletPadState"
+                                },
+                                "fn_body": "object.get_tablet_pad().into()"
                             }
                         },
                         "repr": "C"
@@ -48076,32 +48076,6 @@
                             {
                                 "NoDrag": {},
                                 "Drag": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "TabletDeviceInfoVecSlice": {
-                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "TabletDeviceInfo",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
                             }
                         ],
                         "repr": "C"
@@ -109338,24 +109312,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "OptionWacomPadState": {
-                        "external": "azul_layout::managers::gesture::OptionWacomPadState",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "None": {},
-                                "Some": {
-                                    "type": "WacomPadState"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
                     "OptionTabletDeviceInfo": {
                         "external": "azul_layout::managers::gesture::OptionTabletDeviceInfo",
                         "derive": [
@@ -110859,6 +110815,24 @@
                                 "None": {},
                                 "Some": {
                                     "type": "PhysicalKey"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionTabletPadState": {
+                        "external": "azul_layout::managers::gesture::OptionTabletPadState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "TabletPadState"
                                 }
                             }
                         ],
@@ -117234,50 +117208,6 @@
                         ],
                         "repr": "C"
                     },
-                    "WacomPadState": {
-                        "external": "azul_layout::managers::gesture::WacomPadState",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "device_id": {
-                                    "type": "u64"
-                                },
-                                "express_keys": {
-                                    "type": "u32"
-                                },
-                                "touch_ring": {
-                                    "type": "f32"
-                                },
-                                "strip": {
-                                    "type": "f32"
-                                },
-                                "dial_delta": {
-                                    "type": "f32"
-                                },
-                                "mode": {
-                                    "type": "u32"
-                                },
-                                "mode_count": {
-                                    "type": "u32"
-                                },
-                                "touch_ring_active": {
-                                    "type": "bool"
-                                },
-                                "strip_active": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "TabletToolKind": {
                         "doc": [
                             "What kind of input device a `TabletDeviceInfo` describes."
@@ -117453,6 +117383,73 @@
                                     "doc": [
                                         "Session ID this long press belongs to"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TabletDeviceInfoVecSlice": {
+                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TabletDeviceInfo",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TabletPadState": {
+                        "external": "azul_layout::managers::gesture::TabletPadState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "device_id": {
+                                    "type": "u64"
+                                },
+                                "express_keys": {
+                                    "type": "u32"
+                                },
+                                "touch_ring": {
+                                    "type": "f32"
+                                },
+                                "strip": {
+                                    "type": "f32"
+                                },
+                                "dial_delta": {
+                                    "type": "f32"
+                                },
+                                "mode": {
+                                    "type": "u32"
+                                },
+                                "mode_count": {
+                                    "type": "u32"
+                                },
+                                "touch_ring_active": {
+                                    "type": "bool"
+                                },
+                                "strip_active": {
+                                    "type": "bool"
                                 }
                             }
                         ],

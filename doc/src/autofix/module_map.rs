@@ -234,6 +234,34 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
         ],
     );
 
+    // Gesture module — tablet/pen hardware and the gesture recognisers.
+    //
+    // "tablet" earns its place by OUTRANKING the css keyword "table", which
+    // matches as a raw SUBSTRING inside `TabletPadState` / `TabletDeviceInfo`
+    // ("TABLEt..."). Matches are ranked by keyword length, so the six-letter
+    // "tablet" beats the five-letter "table".
+    //
+    // Getting this wrong is not merely a misfiling: a CONFIDENT keyword match
+    // that agrees with the type's current module short-circuits the
+    // external-path check in `get_correct_module_with_path`, so the type is
+    // then reported as CORRECTLY placed and can never be moved. That is why
+    // `TabletPadState` sat in `css` while `autofix modules` said everything
+    // was fine.
+    //
+    // A boundary-aware (whole-word) matcher was tried instead and REJECTED: it
+    // fixes this case but re-classifies names whose acronyms no camel splitter
+    // can recover (`GLfloat`), and it proposed several actively wrong moves
+    // (`FontMetrics` -> css, `SvgParseOptions` -> xml) that the substring
+    // ranking gets right today. Registering a class is rare; an explicit
+    // keyword is the cheaper and more auditable fix.
+    map.insert(
+        "gesture",
+        vec![
+            "tablet",    // TabletPadState, TabletDeviceInfo, TabletToolKind
+            "longpress", // DetectedLongPress
+        ],
+    );
+
     // Callbacks module
     map.insert(
         "callbacks",

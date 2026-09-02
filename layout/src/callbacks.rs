@@ -4700,7 +4700,7 @@ impl CallbackInfo {
     /// are in [`CallbackInfo::get_pen_state`].) Kept live by the platform pad
     /// backend (Wintab / libwacom+libinput / macOS tablet `NSEvent`s).
     #[must_use]
-    pub const fn get_wacom_pad(&self) -> Option<crate::managers::gesture::WacomPadState> {
+    pub const fn get_tablet_pad(&self) -> Option<crate::managers::gesture::TabletPadState> {
         self.get_gesture_drag_manager().get_pad_state().copied()
     }
 

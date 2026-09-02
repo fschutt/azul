@@ -2067,7 +2067,7 @@ pub struct X11Window {
     /// Slave device ids that are tablet PADs (ExpressKeys + ring/strip).
     pad_devices: std::collections::HashMap<c_int, PadAxes>,
     /// Accumulated pad state, published to the gesture manager on each event.
-    pad_state: azul_layout::managers::gesture::WacomPadState,
+    pad_state: azul_layout::managers::gesture::TabletPadState,
     /// Enumerated tablet devices (identity + capabilities), handed to the
     /// gesture manager when the layout window exists. Static per window —
     /// X11 hotplug (XIHierarchyChanged) is not selected here.
@@ -3294,7 +3294,7 @@ impl X11Window {
             scroll_valuators,
             eraser_devices,
             pad_devices,
-            pad_state: azul_layout::managers::gesture::WacomPadState::default(),
+            pad_state: azul_layout::managers::gesture::TabletPadState::default(),
             tablet_device_infos,
             scroll_last_values: std::collections::HashMap::new(),
             modifier_masks,
@@ -4384,7 +4384,7 @@ impl X11Window {
                     // merely leaving the window does NOT need this: the
                     // implicit grab of the tip press routes the release back
                     // here regardless.)
-                    self.pad_state = azul_layout::managers::gesture::WacomPadState::default();
+                    self.pad_state = azul_layout::managers::gesture::TabletPadState::default();
                     if let Some(lw) = self.common.layout_window.as_mut() {
                         lw.gesture_drag_manager.update_pad_state(self.pad_state);
                         lw.gesture_drag_manager.clear_pen_state();

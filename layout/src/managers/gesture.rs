@@ -409,29 +409,33 @@ impl Default for PenState {
     }
 }
 
-/// State of a Wacom-style tablet **pad** — the tablet body's own hardware
-/// controls, distinct from the pen ([`PenState`] already covers eraser /
-/// barrel button / barrel roll / tilt / pressure).
+/// State of a tablet **pad** — the tablet body's own hardware controls,
+/// distinct from the pen ([`PenState`] already covers eraser / barrel button /
+/// barrel roll / tilt / pressure).
+///
+/// Named for the hardware class, not a vendor: the protocol behind it is
+/// `zwp_tablet_pad_v2` on Wayland and XInput2 valuators on X11, and Huion,
+/// XP-Pen, Gaomon and Apple's own tablets all report through it.
 ///
 /// Populated by the platform
 /// backend (`dll/src/desktop/extra/wacom_pad/`: Wintab on Windows,
 /// libwacom+libinput on Linux, the driver's `NSEvent` tablet events on macOS).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
-pub struct WacomPadState {
+pub struct TabletPadState {
     // Field order is by DECREASING ALIGNMENT. `device_id` is a u64 and has to
     // lead, or `#[repr(C)]` pads to align it after the u32s; the two bools go
     // last for the same reason. ~8 bytes per instance.
     /// Tablet device id (to distinguish pads on multi-tablet setups).
     pub device_id: u64,
     /// `ExpressKey` bitset — bit `n` set ⇔ hardware button `n` is held (up to
-    /// 32). Read via [`WacomPadState::express_key`].
+    /// 32). Read via [`TabletPadState::express_key`].
     pub express_keys: u32,
     /// Touch-ring / touch-strip absolute position, `0.0`–`1.0`. Only
-    /// meaningful while [`WacomPadState::touch_ring_active`] is `true`.
+    /// meaningful while [`TabletPadState::touch_ring_active`] is `true`.
     pub touch_ring: f32,
     /// Touch-STRIP absolute position, `0.0`-`1.0`. Only meaningful while
-    /// [`WacomPadState::strip_active`] is `true`.
+    /// [`TabletPadState::strip_active`] is `true`.
     ///
     /// A strip is not a ring: Intuos Pro bodies have both, and a pad that has
     /// one usually does not have the other. Folding them into a single field
@@ -458,12 +462,12 @@ pub struct WacomPadState {
 
 
 impl_option!(
-    WacomPadState,
-    OptionWacomPadState,
+    TabletPadState,
+    OptionTabletPadState,
     [Debug, Clone, Copy, PartialEq]
 );
 
-impl Default for WacomPadState {
+impl Default for TabletPadState {
     fn default() -> Self {
         Self {
             express_keys: 0,
@@ -479,7 +483,7 @@ impl Default for WacomPadState {
     }
 }
 
-impl WacomPadState {
+impl TabletPadState {
     /// Whether `ExpressKey` `index` (0-based, < 32) is currently held.
     #[must_use]
     pub const fn express_key(&self, index: u32) -> bool {
@@ -556,7 +560,7 @@ pub struct TabletDeviceInfo {
     pub vendor_name: AzString,
     /// Kernel device node (`/dev/input/event..`) where known, else empty.
     pub path: AzString,
-    /// The id [`PenState::device_id`] / [`WacomPadState::device_id`] report
+    /// The id [`PenState::device_id`] / [`TabletPadState::device_id`] report
     /// on the same backend, so live state can be matched to an entry here.
     pub device_id: u64,
     /// USB vendor id (0 = unknown).
@@ -670,7 +674,7 @@ pub struct GestureAndDragManager {
     pub pen_rate_ema_hz: f32,
     /// Latest Wacom tablet-pad state (`ExpressKeys` + touch-ring), or `None`
     /// until a pad backend delivers one.
-    pub pad_state: Option<WacomPadState>,
+    pub pad_state: Option<TabletPadState>,
     /// Enumerated tablet input devices (see [`TabletDeviceInfo`]), set by the
     /// platform backend at window init / device hotplug. Empty = none found.
     pub tablet_devices: Vec<TabletDeviceInfo>,
@@ -1321,13 +1325,13 @@ impl GestureAndDragManager {
     }
 
     /// Set the latest Wacom tablet-pad state (called by the pad backend).
-    pub const fn update_pad_state(&mut self, pad: WacomPadState) {
+    pub const fn update_pad_state(&mut self, pad: TabletPadState) {
         self.pad_state = Some(pad);
     }
 
     /// The latest tablet-pad state, or `None` if no pad backend delivered one.
     #[must_use]
-    pub const fn get_pad_state(&self) -> Option<&WacomPadState> {
+    pub const fn get_pad_state(&self) -> Option<&TabletPadState> {
         self.pad_state.as_ref()
     }
 
@@ -2469,12 +2473,12 @@ mod autotest_generated {
         assert_eq!(duration_to_millis(d), expected);
     }
 
-    // ------------------------------------------------- WacomPadState::express_key
+    // ------------------------------------------------- TabletPadState::express_key
 
     #[test]
     fn express_key_out_of_range_index_is_false_not_a_shift_overflow() {
         // 1u32 << 32 would panic in debug; the `index < 32` guard must short-circuit.
-        let pad = WacomPadState {
+        let pad = TabletPadState {
             express_keys: u32::MAX,
             touch_ring: 0.0,
             touch_ring_active: false,
@@ -2491,7 +2495,7 @@ mod autotest_generated {
 
     #[test]
     fn express_key_default_pad_has_no_keys_held() {
-        let pad = WacomPadState::default();
+        let pad = TabletPadState::default();
         for i in 0..40u32 {
             assert!(
                 !pad.express_key(i),
@@ -2503,7 +2507,7 @@ mod autotest_generated {
     #[test]
     fn express_key_bitset_round_trips_every_bit() {
         for bit in 0..32u32 {
-            let pad = WacomPadState {
+            let pad = TabletPadState {
                 express_keys: 1u32 << bit,
                 touch_ring: 0.0,
                 touch_ring_active: false,
@@ -3677,7 +3681,7 @@ mod autotest_generated {
     fn pad_state_round_trips_and_clears() {
         let mut m = GestureAndDragManager::new();
         assert!(m.get_pad_state().is_none());
-        m.update_pad_state(WacomPadState {
+        m.update_pad_state(TabletPadState {
             express_keys: 0b1010,
             touch_ring: f32::NAN,
             touch_ring_active: true,

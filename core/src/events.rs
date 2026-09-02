@@ -446,7 +446,7 @@ pub struct MouseEventData {
     /// Which physical device produced it, or `0` when the platform does not
     /// say. APPENDED for ABI stability.
     ///
-    /// Only `PenState`, `GamepadState` and `WacomPadState` carried a device id
+    /// Only `PenState`, `GamepadState` and `TabletPadState` carried a device id
     /// before, so a mouse event could not say WHICH of two mice moved — and
     /// `MouseState` is a single global, which is why multi-seat (a kiosk, a
     /// shared display, two people on one compositor) was not expressible at

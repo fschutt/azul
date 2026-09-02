@@ -1123,7 +1123,7 @@ extern "C" fn tablet_seat_pad_added(
 // The pad is a separate device from the pen and moves no cursor, so none of
 // this goes through the pointer path. Button state accumulates into a bitset
 // and the ring/strip into a single normalised position; both are pushed to the
-// gesture manager as one `WacomPadState`.
+// gesture manager as one `TabletPadState`.
 //
 // Note the two different unit conventions sitting next to each other: the ring
 // reports wl_fixed DEGREES (so /256.0 then /360.0) while the strip reports a
@@ -1168,7 +1168,7 @@ extern "C" fn pad_button(
     state: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    // `WacomPadState::express_keys` is a u32 bitset, so buttons past 31 have
+    // `TabletPadState::express_keys` is a u32 bitset, so buttons past 31 have
     // nowhere to go. Real pads top out well below that; drop rather than wrap,
     // which would report the wrong key as held.
     if button < 32 {

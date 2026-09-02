@@ -623,9 +623,40 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       exists (from #450) yet no `zwp_tablet_pad_dial_v2` listener is ever registered, and the pad-group
       listener has no `dial` member. Bind it the way ring/strip are bound. This is also the field a future
       `DialState` (item 9c) should read, so do 8d-i first.
-- [ ] 8d-ii The rename `WacomPadState` -> `TabletPadState` is NOT done — the protocol is not Wacom-specific
-      and the type is in api.json, so the rename needs `azul-doc autofix` and a deprecation alias rather
-      than a sed. Deferred to fix-up.
+- [x] 8d-ii DONE. `WacomPadState` -> `TabletPadState` and `get_wacom_pad` -> `get_tablet_pad`,
+      through `autofix` only. NO deprecation alias — USER RULING: a 0.x API takes the clean
+      break rather than carrying a deprecation notice. (The alias would not have preserved the C
+      symbol anyway: FFI names are generated from api.json, so `AzWacomPadState` becomes
+      `AzTabletPadState` for every binding regardless.)
+      USER RULING on the api.json rule: DELETING an entry is allowed. The old rule ("never
+      delete") was aimed at an agent removing entries to make something compile, not at a
+      deliberate rename.
+      TOOLING, because the sequence is not obvious: `autofix apply` on a plain sync patch could
+      NOT remove the type — it reported "Successfully applied: 1 / Total changes made: 0", which
+      is easy to read as success. `autofix difficult remove <Type>` is the command that removes a
+      whole type. And the order matters: the accessor has to be renamed FIRST (`autofix remove
+      CallbackInfo.get_wacom_pad`, then `add CallbackInfo.get_tablet_pad`), because while
+      `CallbackInfo.get_wacom_pad` still returned `OptionWacomPadState` the type was pinned by a
+      live reference — removing the Option wrapper first left api.json referring to a type that
+      no longer existed.
+      CLASSIFIER BUG FOUND AND FIXED: the new type landed in `css`, not `gesture`, because
+      `determine_module` matches keywords as raw SUBSTRINGS and the css keyword "table" is inside
+      "TABLEt-PadState". Worse than a misfiling: a CONFIDENT keyword match that agrees with the
+      current module short-circuits the external-path check in
+      `get_correct_module_with_path`, so `autofix modules` then reported the type as CORRECTLY
+      PLACED and it could never move. Fixed by giving `gesture` a keyword list containing
+      "tablet" — matches are ranked by keyword LENGTH, so six-letter "tablet" outranks
+      five-letter "table".
+      A boundary-aware whole-word matcher was implemented and then REJECTED, deliberately: it
+      fixes this case but cannot recover acronyms no camel splitter can split (`GLfloat`), and it
+      proposed several actively WRONG moves that substring ranking gets right today
+      (`FontMetrics` -> css, `SvgParseOptions` -> xml). Registering a class is rare and the API
+      moves little, so the explicit keyword is the cheaper and more auditable fix. That reasoning
+      is recorded in the code beside the keyword so the next person does not retry it.
+      EVIDENCE: `autofix modules` goes from "all correct" (wrongly) to naming exactly the 2
+      affected types, and back to "All types are in correct modules!" after the moves are
+      applied; 0 occurrences of the old name survive in the generated bindings; codegen, host
+      check and the 8-target gate are green, azul-layout 7553.
 - [x] 8c-i DONE. `tool_kind` is now fed on all three backends that have pen input.
       Both backends ALREADY KNEW which end of the stylus it was and were already passing it —
       Win32 reads `PEN_FLAG_ERASER` out of `POINTER_PEN_INFO` and X11 tests membership of

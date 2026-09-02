@@ -22,7 +22,7 @@
 //!   flipping the stylus erases (`is_eraser`).
 //! * The Wacom **PAD** — ExpressKeys select the semantic colour without
 //!   leaving the page, and the ring scrolls. That producer landed on this
-//!   branch; before it, `get_wacom_pad()` returned `None` on every platform.
+//!   branch; before it, `get_tablet_pad()` returned `None` on every platform.
 //! * Touch — a finger draws with a default pressure, so the app is usable on a
 //!   tablet with no stylus at all.
 //! * Microphone — audio recorded while drawing is bound to the strokes made in
@@ -453,7 +453,7 @@ const CLICK_POINT_LIMIT: usize = 3;
 /// is the single biggest interruption in a paper review — putting one pen down
 /// to pick another up.
 pub extern "C" fn on_pad(mut data: RefAny, info: CallbackInfo) -> Update {
-    let Some(pad) = info.get_wacom_pad().into_option() else {
+    let Some(pad) = info.get_tablet_pad().into_option() else {
         return Update::DoNothing;
     };
     let Some(mut s) = data.downcast_mut::<AppState>() else {

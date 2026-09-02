@@ -3582,7 +3582,7 @@ impl WaylandWindow {
     /// The pad is not a pointer: it never moves the cursor and has no surface
     /// coordinates, so it does not go through the pointer path at all. It is
     /// published straight into the gesture manager, where
-    /// `CallbackInfo::get_wacom_pad` reads it — that accessor existed and
+    /// `CallbackInfo::get_tablet_pad` reads it — that accessor existed and
     /// returned `None` on every platform until this producer.
     /// (Re)build the published tablet-device list from the accumulated
     /// `zwp_tablet_v2` descriptive state and hand it to the gesture manager
@@ -3654,7 +3654,7 @@ impl WaylandWindow {
         self.snapshot_window_state_baseline("wayland.handle_tablet_pad_frame");
         if let Some(lw) = self.common.layout_window.as_mut() {
             lw.gesture_drag_manager.update_pad_state(
-                azul_layout::managers::gesture::WacomPadState {
+                azul_layout::managers::gesture::TabletPadState {
                     express_keys: pad.express_keys,
                     touch_ring: pad.touch_ring,
                     touch_ring_active: pad.touch_ring_active,
