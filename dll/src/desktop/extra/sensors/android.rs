@@ -2,8 +2,11 @@
 //!
 //! `start` calls a Java helper `com.azul.sensors.AzulSensors` (same
 //! Rust/Java split as `AzulBiometric` / `AzulGeolocation`):
-//! `start(Activity)` registers a `SensorEventListener` for the default
-//! accelerometer, gyroscope, and magnetometer (`SENSOR_DELAY_GAME`). From
+//! `start(Activity)` registers a `SensorEventListener` for every sensor
+//! azul models - the raw accelerometer/gyroscope/magnetometer, the fused
+//! rotation-vector/gravity/linear-acceleration the OS derives from them,
+//! and the single-value light/proximity/pressure/step-count/hinge-angle
+//! sensors (`SENSOR_DELAY_GAME`). From
 //! its `onSensorChanged`, the Java side calls back into the
 //! `nativeOnSensorReading` symbol below with `(kind, x, y, z, timestampMs)`,
 //! which parks a [`SensorReading`] in azul-layout's async channel
@@ -13,10 +16,12 @@
 //! in µT — already azul-core's units (research/03 §2), so the Java side
 //! forwards `SensorEvent.values[0..3]` verbatim.
 //!
-//! Pending (non-Rust): the `AzulSensors.java` helper plus its sensor
-//! permissions (none needed for accel/gyro/mag; `HIGH_SAMPLING_RATE_SENSORS`
-//! only above 200 Hz). Until it ships, `find_class` fails and `start` is a
-//! no-op (no samples flow), exactly like the biometric backend pre-shim.
+//! `AzulSensors.java` SHIPPED (`scripts/android/`); the "pending" note that
+//! stood here was stale. No sensor permission is needed for any of these
+//! (`HIGH_SAMPLING_RATE_SENSORS` applies only above 200 Hz, and this
+//! registers at GAME rate ~50 Hz). A device missing a given sensor returns
+//! null from `getDefaultSensor` and simply never reports it, which is why
+//! nothing here is version-gated.
 
 use azul_core::sensors::{SensorKind, SensorReading};
 use azul_layout::managers::sensors::push_sensor_reading;
@@ -41,15 +46,28 @@ pub fn start() {
 #[cfg(not(target_os = "android"))]
 pub fn start() {}
 
-// Kind contract with the Java side: 0=Accelerometer, 1=Gyroscope,
-// 2=Magnetometer (mirrors the `SensorKind` discriminant order). Unknown
-// codes are dropped rather than mapped to a wrong sensor.
+// Kind contract with the Java side, mirroring the `SensorKind` discriminant
+// order. `AzulSensors.java`'s switch is the other half of this contract and
+// the two must be edited together - a code that means one sensor here and
+// another there would report a barometer's hPa as a step count, silently.
+//
+// Unknown codes are DROPPED rather than mapped to a nearby sensor: a reading
+// attributed to the wrong kind is worse than a missing one, because the
+// units differ and nothing downstream can detect it.
 #[cfg(target_os = "android")]
 fn map_kind(code: i32) -> Option<SensorKind> {
     match code {
         0 => Some(SensorKind::Accelerometer),
         1 => Some(SensorKind::Gyroscope),
         2 => Some(SensorKind::Magnetometer),
+        3 => Some(SensorKind::RotationVector),
+        4 => Some(SensorKind::Gravity),
+        5 => Some(SensorKind::LinearAcceleration),
+        6 => Some(SensorKind::AmbientLight),
+        7 => Some(SensorKind::Proximity),
+        8 => Some(SensorKind::Barometer),
+        9 => Some(SensorKind::StepCounter),
+        10 => Some(SensorKind::HingeAngle),
         _ => None,
     }
 }

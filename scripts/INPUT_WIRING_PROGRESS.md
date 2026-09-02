@@ -978,9 +978,37 @@ TOOLING TRAPS (cost real time, worth knowing):
       Unlike battery these have no gilrs equivalent at all - gilrs does not surface them - so they
       need SDL or raw HID on desktop and `GCMotion` on Apple. Filling only the Apple half would
       make the platforms genuinely diverge, which is why battery landed alone.
-- [ ] 8e-i The eight new `SensorKind` variants have no backend producing them. `dll/src/desktop/extra/
-      sensors/{android,apple,linux,windows}.rs` fill only the original three; `HingeAngle` in particular
-      needs Android `TYPE_HINGE_ANGLE` and is the one with a layout consequence.
+- [x] 8e-i ANDROID DONE (all eleven kinds, `HingeAngle` included); apple/linux/windows are 8e-i-a.
+      The note's premise was STALE in the part that mattered: it said the work was blocked behind
+      a Java helper, but `scripts/android/AzulSensors.java` had already SHIPPED - the module's own
+      doc comment still read "Pending (non-Rust): the `AzulSensors.java` helper ... Until it ships,
+      `find_class` fails and `start` is a no-op". Both halves were simply narrow: the Java switch
+      registered 3 sensors and `map_kind` mapped 3 codes.
+      All eight remaining kinds map onto the EXISTING `(kind, x, y, z)` JNI signature with no
+      protocol change, because `SensorKind`'s own docs already specify each one's slot - the fused
+      triples use x/y/z, and light/proximity/pressure/step-count/hinge-angle put their single
+      value in `x` (which the Java side's `0f` defaults for absent `values[1]/[2]` already
+      produce). So this was two additive lists, not a new transport.
+      `TYPE_HINGE_ANGLE` is API 30 and needs NO version guard: it compiles against the android-34
+      SDK the build already uses, and on an older device `getDefaultSensor` returns null and
+      `register()` no-ops - the same path as a device that simply has no hinge.
+      THE REAL RISK is not the mapping but its DRIFT. The wire codes are `SensorKind`'s
+      discriminants, and that contract lives in two files that cannot see each other. Reordering
+      the enum renumbers both silently: nothing fails to compile, and a barometer's hPa starts
+      arriving as a step count in the wrong unit with nothing downstream able to notice. Pinned by
+      `the_sensor_kind_discriminants_are_the_jni_wire_codes` in azul-core, which runs on the HOST
+      (the Android `map_kind` is cfg-gated and cannot be tested here) and says in its failure
+      message that the fix is to APPEND, not to renumber.
+      EVIDENCE: the Java was COMPILED, not eyeballed - `javac -classpath android-34/android.jar`
+      exits 0, which is what proves `Sensor.TYPE_HINGE_ANGLE` and the rest exist at that SDK
+      level. Android target compiles with `_internal_deps` (the gate does not enable `jni`).
+      Host, 8/8 mobile, azul-core 2760 (+1).
+
+- [ ] 8e-i-a The same eight kinds on apple/linux/windows. iOS has direct equivalents for most
+      (`CMDeviceMotion.gravity`/`userAcceleration`/`attitude.quaternion`, `CMAltimeter` for
+      pressure, `CMPedometer` for steps) but they come from a DIFFERENT CoreMotion object than
+      the raw three, so it is a new registration path rather than more cases in a switch. Linux
+      and Windows have no fused-sensor concept at all outside of tablets.
 
 ### Follow-ups opened by 8c/8d
 

@@ -461,3 +461,40 @@ mod autotest_generated {
         assert_eq!(copy.as_option().map(SensorReading::magnitude), Some(1.0));
     }
 }
+
+/// The JNI kind codes are the `SensorKind` DISCRIMINANTS, and that contract is
+/// spelled out in two places that cannot see each other: the `switch` in
+/// `scripts/android/AzulSensors.java` and `map_kind` in
+/// `dll/src/desktop/extra/sensors/android.rs`.
+///
+/// Reordering or inserting a variant here silently renumbers both. Nothing
+/// would fail to compile: a barometer's hPa would simply start arriving as a
+/// step count, in the wrong unit, with no way for anything downstream to
+/// notice. This test is the only thing standing between that and a release.
+///
+/// If it fails, the fix is NOT to update the numbers here - it is to append
+/// the new variant at the END, which is also what `#[repr(C)]` ABI stability
+/// already requires.
+#[test]
+fn the_sensor_kind_discriminants_are_the_jni_wire_codes() {
+    use crate::sensors::SensorKind;
+    for (kind, code) in [
+        (SensorKind::Accelerometer, 0),
+        (SensorKind::Gyroscope, 1),
+        (SensorKind::Magnetometer, 2),
+        (SensorKind::RotationVector, 3),
+        (SensorKind::Gravity, 4),
+        (SensorKind::LinearAcceleration, 5),
+        (SensorKind::AmbientLight, 6),
+        (SensorKind::Proximity, 7),
+        (SensorKind::Barometer, 8),
+        (SensorKind::StepCounter, 9),
+        (SensorKind::HingeAngle, 10),
+    ] {
+        assert_eq!(
+            kind as i32, code,
+            "{kind:?} moved to {}, but AzulSensors.java still sends {code}",
+            kind as i32
+        );
+    }
+}

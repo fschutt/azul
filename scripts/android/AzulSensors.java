@@ -38,6 +38,18 @@ public final class AzulSensors {
                         case Sensor.TYPE_ACCELEROMETER: kind = 0; break;
                         case Sensor.TYPE_GYROSCOPE:     kind = 1; break;
                         case Sensor.TYPE_MAGNETIC_FIELD: kind = 2; break;
+                        // The FUSED and single-value sensors. Codes continue
+                        // the SensorKind discriminant order; map_kind() in
+                        // sensors/android.rs is the other half of this
+                        // contract and the two must be edited together.
+                        case Sensor.TYPE_ROTATION_VECTOR: kind = 3; break;
+                        case Sensor.TYPE_GRAVITY: kind = 4; break;
+                        case Sensor.TYPE_LINEAR_ACCELERATION: kind = 5; break;
+                        case Sensor.TYPE_LIGHT: kind = 6; break;
+                        case Sensor.TYPE_PROXIMITY: kind = 7; break;
+                        case Sensor.TYPE_PRESSURE: kind = 8; break;
+                        case Sensor.TYPE_STEP_COUNTER: kind = 9; break;
+                        case Sensor.TYPE_HINGE_ANGLE: kind = 10; break;
                         default: return;
                     }
                     float x = event.values.length > 0 ? event.values[0] : 0f;
@@ -57,6 +69,25 @@ public final class AzulSensors {
             register(Sensor.TYPE_ACCELEROMETER);
             register(Sensor.TYPE_GYROSCOPE);
             register(Sensor.TYPE_MAGNETIC_FIELD);
+            // Fused orientation/motion. The OS produces these from the three
+            // above with drift correction an app cannot reproduce, which is
+            // the whole reason to expose them rather than make every app
+            // redo the fusion badly.
+            register(Sensor.TYPE_ROTATION_VECTOR);
+            register(Sensor.TYPE_GRAVITY);
+            register(Sensor.TYPE_LINEAR_ACCELERATION);
+            // Single-value environment sensors: the reading lands in x, and
+            // values[1]/[2] are absent, which the 0f defaults above already
+            // handle.
+            register(Sensor.TYPE_LIGHT);
+            register(Sensor.TYPE_PROXIMITY);
+            register(Sensor.TYPE_PRESSURE);
+            register(Sensor.TYPE_STEP_COUNTER);
+            // TYPE_HINGE_ANGLE is API 30. It compiles against the SDK the
+            // build already uses (android-34), and on an older device
+            // getDefaultSensor() simply returns null and register() no-ops -
+            // so no version guard is needed, only a device that has a hinge.
+            register(Sensor.TYPE_HINGE_ANGLE);
         } catch (Throwable t) {
             // A device with no sensors is a normal device.
             listener = null;
