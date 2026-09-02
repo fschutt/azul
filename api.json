@@ -51886,6 +51886,38 @@
                                         "The titlebar's own background; None = the caller styles it."
                                     ]
                                 }
+                            },
+                            {
+                                "background_inactive": {
+                                    "type": "OptionColorU",
+                                    "doc": [
+                                        "The titlebar's background while the window is unfocused."
+                                    ]
+                                }
+                            },
+                            {
+                                "title_color_inactive": {
+                                    "type": "OptionColorU",
+                                    "doc": [
+                                        "Title text colour while the window is unfocused."
+                                    ]
+                                }
+                            },
+                            {
+                                "button_hover_color": {
+                                    "type": "OptionColorU",
+                                    "doc": [
+                                        "Background a window-control button takes on hover."
+                                    ]
+                                }
+                            },
+                            {
+                                "close_hover_color": {
+                                    "type": "OptionColorU",
+                                    "doc": [
+                                        "Background the CLOSE button takes on hover."
+                                    ]
+                                }
                             }
                         ],
                         "constructors": {

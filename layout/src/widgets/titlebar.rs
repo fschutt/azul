@@ -9,7 +9,9 @@ use azul_core::{
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelector, PseudoStateType,
+    },
     props::{
         basic::{
             color::ColorU,
@@ -135,6 +137,20 @@ pub struct Titlebar {
     /// the DESKTOP's titlebar colour, so a client-side decoration is the right
     /// colour without every app having to know what KDE's `Colors:Header` is.
     pub background_color: OptionColorU,
+    /// The titlebar's background while the window does NOT have focus.
+    ///
+    /// Emitted under `:backdrop`, the pseudo-class that means exactly "this
+    /// window is unfocused". Every desktop dims its titlebar on focus loss,
+    /// and a decoration that does not is the one window on screen that always
+    /// looks active.
+    pub background_inactive: OptionColorU,
+    /// Title text colour while the window is unfocused, same mechanism.
+    pub title_color_inactive: OptionColorU,
+    /// Background a window-control button takes on hover.
+    pub button_hover_color: OptionColorU,
+    /// Background the CLOSE button takes on hover — its own colour, because
+    /// Breeze and Windows both turn it red while the others stay neutral.
+    pub close_hover_color: OptionColorU,
 }
 
 impl Titlebar {
@@ -157,6 +173,10 @@ impl Titlebar {
             padding_right,
             title_color: DEFAULT_TITLE_COLOR_LIGHT,
             background_color: OptionColorU::None,
+            background_inactive: OptionColorU::None,
+            title_color_inactive: OptionColorU::None,
+            button_hover_color: OptionColorU::None,
+            close_hover_color: OptionColorU::None,
         }
     }
 
@@ -264,6 +284,10 @@ impl Titlebar {
             // The DESKTOP's titlebar colour, so a CSD decoration matches the
             // native windows beside it instead of the window background.
             background_color: tm.background_active,
+            background_inactive: tm.background_inactive,
+            title_color_inactive: tm.text_inactive,
+            button_hover_color: tm.button_hover_background,
+            close_hover_color: tm.close_button_hover_background,
         }
     }
 
@@ -298,6 +322,10 @@ impl Titlebar {
             // The DESKTOP's titlebar colour, so a CSD decoration matches the
             // native windows beside it instead of the window background.
             background_color: tm.background_active,
+            background_inactive: tm.background_inactive,
+            title_color_inactive: tm.text_inactive,
+            button_hover_color: tm.button_hover_background,
+            close_hover_color: tm.close_button_hover_background,
         }
     }
 
@@ -335,6 +363,18 @@ impl Titlebar {
                 CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(
                     vec![StyleBackgroundContent::Color(bg)],
                 )),
+            ));
+        }
+        // …and the dimmed one for when focus leaves. `:backdrop` is the
+        // pseudo-class for exactly that (`DynamicSelectorContext::window_focused`
+        // drives it), so this needs no focus plumbing of its own — it is a
+        // conditional declaration like `:hover`.
+        if let OptionColorU::Some(bg) = self.background_inactive {
+            props.push(CssPropertyWithConditions::with_single_condition(
+                CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(
+                    vec![StyleBackgroundContent::Color(bg)],
+                )),
+                &[DynamicSelector::PseudoState(PseudoStateType::Backdrop)],
             ));
         }
         // Titlebar should show grab cursor and prevent text selection
@@ -375,6 +415,15 @@ impl Titlebar {
             CssProperty::const_font_family(font_family),
         ));
         // Use resolved title color from SystemStyle (adapts to dark mode)
+        // The dimmed title for an unfocused window, same `:backdrop` mechanism
+        // as the container's background above. Pushed BEFORE the active colour
+        // so the conditional declaration is the one that wins when it matches.
+        if let OptionColorU::Some(dim) = self.title_color_inactive {
+            props.push(CssPropertyWithConditions::with_single_condition(
+                CssProperty::const_text_color(StyleTextColor { inner: dim }),
+                &[DynamicSelector::PseudoState(PseudoStateType::Backdrop)],
+            ));
+        }
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_text_color(StyleTextColor {
                 inner: self.title_color,
@@ -491,7 +540,11 @@ impl Titlebar {
 
         // ── Button container (CSD mode only) ──
         let button_container = if show_buttons {
-            Some(build_button_container(buttons))
+            Some(build_button_container(
+                buttons,
+                self.button_hover_color,
+                self.close_hover_color,
+            ))
         } else {
             None
         };
@@ -529,10 +582,32 @@ impl Titlebar {
 
 /// Build the `.csd-buttons` container with close/min/max button DOM nodes.
 #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
-fn build_button_container(buttons: &TitlebarButtons) -> Dom {
+fn build_button_container(
+    buttons: &TitlebarButtons,
+    hover: OptionColorU,
+    close_hover: OptionColorU,
+) -> Dom {
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},
         dom::{EventFilter, HoverEventFilter},
+    };
+
+    // The hover background a control takes, as an inline `:hover` declaration.
+    // Emitted per button rather than as one class rule because CLOSE has its
+    // own colour on Breeze and Windows alike (red), and the others do not.
+    let hover_style = |c: OptionColorU| -> CssPropertyWithConditionsVec {
+        match c {
+            OptionColorU::Some(c) => {
+                CssPropertyWithConditionsVec::from_vec(vec![CssPropertyWithConditions::on_hover(
+                    CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(
+                        vec![StyleBackgroundContent::Color(c)],
+                    )),
+                )])
+            }
+            // Nothing stated: declare nothing, so an app's own `.csd-button`
+            // styling keeps full control.
+            OptionColorU::None => CssPropertyWithConditionsVec::from_vec(Vec::new()),
+        }
     };
 
     let mut children = Vec::new();
@@ -546,6 +621,7 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(classes)
+                .with_css_props(hover_style(hover))
                 .with_child(Dom::create_icon("system:window-minimize,minimize"))
                 .with_callbacks(
                     vec![CoreCallbackData {
@@ -570,6 +646,7 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(classes)
+                .with_css_props(hover_style(hover))
                 .with_child(Dom::create_icon("system:window-maximize,maximize"))
                 .with_callbacks(
                     vec![CoreCallbackData {
@@ -594,6 +671,7 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(classes)
+                .with_css_props(hover_style(close_hover))
                 .with_child(Dom::create_icon("system:window-close,close"))
                 .with_callbacks(
                     vec![CoreCallbackData {
@@ -1808,6 +1886,90 @@ mod autotest_generated {
         );
     }
 
+    /// An unfocused window dims its titlebar on every desktop. `:backdrop` is
+    /// the pseudo-class for exactly that state, so the dimmed colours ride the
+    /// normal conditional-declaration path — no focus plumbing of their own.
+    ///
+    /// NEGATIVE CONTROL: drop the `background_inactive` arm and the first
+    /// assertion fails; a decoration then stays "active"-coloured forever.
+    #[test]
+    fn build_container_style_dims_the_titlebar_when_the_window_is_unfocused() {
+        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+        use azul_css::props::basic::color::{ColorU, OptionColorU};
+
+        let mut t = tb("x");
+        t.background_inactive = OptionColorU::Some(ColorU::new_rgb(0x2a, 0x2e, 0x32));
+        let styled = t.build_container_style(true);
+        assert!(
+            styled.as_ref().iter().any(|p| {
+                p.apply_if.as_ref().iter().any(|c| {
+                    matches!(c, DynamicSelector::PseudoState(PseudoStateType::Backdrop))
+                })
+            }),
+            "the unfocused colour must be declared under :backdrop"
+        );
+
+        let mut plain = tb("x");
+        plain.background_inactive = OptionColorU::None;
+        assert!(
+            !plain.build_container_style(true).as_ref().iter().any(|p| {
+                p.apply_if.as_ref().iter().any(|c| {
+                    matches!(c, DynamicSelector::PseudoState(PseudoStateType::Backdrop))
+                })
+            }),
+            "an unstated colour must declare NOTHING"
+        );
+    }
+
+    /// CLOSE hovers in its OWN colour — red on Breeze and Windows alike —
+    /// while the other controls take the neutral hover. One shared rule could
+    /// not express that, which is why the hover style is per button.
+    #[test]
+    fn the_close_button_hovers_in_its_own_colour() {
+        use azul_css::props::basic::color::{ColorU, OptionColorU};
+
+        let neutral = ColorU::new_rgb(0x3d, 0xae, 0xe9);
+        let red = ColorU::new_rgb(0xda, 0x44, 0x53);
+        let dom = build_button_container(
+            &TitlebarButtons::default(),
+            OptionColorU::Some(neutral),
+            OptionColorU::Some(red),
+        );
+        let kids = dom.children.as_ref();
+        assert_eq!(kids.len(), 3, "minimize + maximize + close");
+
+        // Inline declarations live in `NodeData::style`; compare what each
+        // button actually carries.
+        let style_of = |node: &Dom| alloc::format!("{:?}", node.root.style);
+        let (min_style, close_style) = (style_of(&kids[0]), style_of(&kids[2]));
+        let hex = |c: ColorU| alloc::format!("r: {}, g: {}, b: {}", c.r, c.g, c.b);
+
+        assert!(
+            min_style.contains(&hex(neutral)),
+            "minimize takes the neutral hover: {min_style}"
+        );
+        assert!(
+            close_style.contains(&hex(red)),
+            "close takes its OWN hover colour: {close_style}"
+        );
+        assert!(
+            !close_style.contains(&hex(neutral)),
+            "close must not also take the neutral hover"
+        );
+
+        // Nothing stated: nothing declared, so an app's own `.csd-button`
+        // styling keeps full control.
+        let bare = build_button_container(
+            &TitlebarButtons::default(),
+            OptionColorU::None,
+            OptionColorU::None,
+        );
+        assert!(
+            !style_of(&bare.children.as_ref()[2]).contains(&hex(red)),
+            "an unstated hover must declare nothing"
+        );
+    }
+
     #[test]
     fn build_container_style_always_declares_the_grab_cursor_and_disables_selection() {
         // Without these a drag selects the title text instead of moving the window.
@@ -2307,8 +2469,8 @@ mod autotest_generated {
                 ..off
             };
             assert_eq!(
-                fingerprint(&build_button_container(&off)),
-                fingerprint(&build_button_container(&on)),
+                fingerprint(&build_button_container(&off, OptionColorU::None, OptionColorU::None)),
+                fingerprint(&build_button_container(&on, OptionColorU::None, OptionColorU::None)),
                 "has_fullscreen changed the rendered buttons",
             );
         }
@@ -2322,7 +2484,7 @@ mod autotest_generated {
             has_maximize: false,
             has_fullscreen: false,
         };
-        let container = build_button_container(&none);
+        let container = build_button_container(&none, OptionColorU::None, OptionColorU::None);
 
         assert_eq!(classes(&container), vec!["csd-buttons"]);
         assert!(container.children.as_ref().is_empty());
@@ -2362,7 +2524,7 @@ mod autotest_generated {
             ),
         ];
 
-        let container = build_button_container(&TitlebarButtons::default());
+        let container = build_button_container(&TitlebarButtons::default(), OptionColorU::None, OptionColorU::None);
         let kids = container.children.as_ref();
         assert_eq!(kids.len(), 3);
 
@@ -2386,7 +2548,7 @@ mod autotest_generated {
 
     #[test]
     fn every_button_carries_the_shared_and_the_specific_class() {
-        let container = build_button_container(&TitlebarButtons::default());
+        let container = build_button_container(&TitlebarButtons::default(), OptionColorU::None, OptionColorU::None);
         for (node, specific) in
             container
                 .children
