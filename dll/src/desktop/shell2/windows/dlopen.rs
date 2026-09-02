@@ -588,6 +588,10 @@ pub struct User32Functions {
     pub SetCursor: unsafe extern "system" fn(HCURSOR) -> HCURSOR,
     /// Confine the cursor to a screen rectangle; `null` releases it.
     pub ClipCursor: unsafe extern "system" fn(*const RECT) -> BOOL,
+    /// The "extra info" the injector stamped on the CURRENT message. For
+    /// pointer messages Windows uses it to say a pen or a finger produced
+    /// them; an ordinary mouse leaves it clear.
+    pub GetMessageExtraInfo: unsafe extern "system" fn() -> isize,
     pub RegisterRawInputDevices:
         unsafe extern "system" fn(*const RAWINPUTDEVICE, u32, u32) -> BOOL,
     /// Returns the byte count written, or `u32::MAX` on error — NOT a BOOL.
@@ -976,6 +980,7 @@ impl Win32Libraries {
                 LoadCursorW: user32_dll.get_symbol("LoadCursorW")?,
                 SetCursor: user32_dll.get_symbol("SetCursor")?,
                 ClipCursor: user32_dll.get_symbol("ClipCursor")?,
+                GetMessageExtraInfo: user32_dll.get_symbol("GetMessageExtraInfo")?,
                 RegisterRawInputDevices: user32_dll.get_symbol("RegisterRawInputDevices")?,
                 GetRawInputData: user32_dll.get_symbol("GetRawInputData")?,
                 ShowCursor: user32_dll.get_symbol("ShowCursor")?,

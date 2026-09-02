@@ -4459,6 +4459,22 @@ unsafe extern "system" fn window_proc(
             // Save previous state BEFORE making changes
             window.snapshot_window_state_baseline("windows.wm_mousemove");
 
+            // What kind of device produced this. Win32 has no per-event device
+            // field on the classic mouse messages; instead, when a mouse
+            // message was SYNTHESIZED from a pen or a finger, the injector
+            // stamps `GetMessageExtraInfo` with a known signature, and the low
+            // bits carry a per-contact id (so the value must be MASKED before
+            // comparing — an unmasked equality test matches only contact 0).
+            // An ordinary mouse leaves it clear, which is exactly the
+            // three-way answer this field wants.
+            {
+                let extra = unsafe { (window.win32.user32.GetMessageExtraInfo)() } as usize;
+                window.common.mouse_state_mut().pointer_source =
+                    crate::desktop::shell2::common::event::win32_pointer_source_from_extra_info(
+                        extra,
+                    );
+            }
+
             // Update mouse state
             window.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(logical_pos);
 

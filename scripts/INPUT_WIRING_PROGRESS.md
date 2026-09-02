@@ -437,10 +437,34 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 9b
 
-- [ ] 9b-i `pointer_source` is fed only on Wayland (from `axis_source` and the tablet bridge). Win32 can
-      answer it from `GetPointerType` / `WM_POINTERDEVICE`, X11 from the XI2 slave device name or its
-      valuator set, macOS from `NSEvent.subtype` + `hasPreciseScrollingDeltas`. All currently leave it
-      `Unknown`, which is honest but means item G2's "tell a touchpad from a mouse" only works on Wayland.
+- [x] 9b-i DONE for macOS and Win32; X11 is 9b-i-a. G2's "tell a touchpad from a mouse" now
+      works on three backends instead of one.
+      macOS: `hasPreciseScrollingDeltas` on the scroll event, which is the exact analogue of
+      Wayland's `axis_source` — the only place AppKit says whether a finger or a ratcheting wheel
+      produced the scroll, since the motion events are otherwise identical. A Magic Mouse reports
+      precise deltas and is therefore classified `Touchpad`: the question the field answers is
+      "can this device scroll continuously and gesture", not "is it shaped like a mouse".
+      Win32: there is no per-event device field on the classic mouse messages at all. Instead,
+      when a message was SYNTHESIZED from a pen or a finger, the injector stamps
+      `GetMessageExtraInfo` with `MI_WP_SIGNATURE` in the upper bits and a per-contact id in the
+      low byte. That gives Pen / Touchscreen / Mouse from one call.
+      THE TRAP, and why the logic does not live in the window proc: the low byte is a CONTACT ID,
+      so an unmasked equality test against the signature matches only contact 0 — the first
+      finger would classify as touch and every finger after it as a mouse. The classifier is
+      therefore a pure function in `shell2/common/event.rs`
+      (`win32_pointer_source_from_extra_info`), which is compiled on every host and so can be
+      tested without Windows. Three tests sweep all 128 contact ids for both the touch and pen
+      cases and pin that an unsigned message is a real mouse; verified they bite by replacing the
+      masked compare with `==` and watching contact 0x00 fail.
+      Host, Windows-target and 8-target gate green. The macOS half is NOT runtime-verified —
+      it needs a real trackpad scroll on a real window, which the headless backend does not go
+      through.
+- [ ] 9b-i-a X11 `pointer_source`. The XI2 slave device is already known — `handle_xi_raw_motion`
+      reads `sourceid` and the comment there explains it is the PHYSICAL device — but turning
+      that id into a kind needs `XIQueryDevice` plus either a name heuristic ("TouchPad" /
+      "TrackPoint" in the device name, which is what libinput-era X drivers expose) or a valuator
+      inspection. Neither is a call site: it wants a per-device cache invalidated on
+      `XI_DeviceChanged`, or the lookup runs on every motion event. Logged rather than bolted on.
 - [ ] 9b-ii `MouseState` is still a single global, so multi-seat remains inexpressible — `device_id` now
       travels on the EVENT but the state does not fan out per seat. That is a bigger change than this arc.
 

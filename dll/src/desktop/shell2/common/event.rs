@@ -1794,6 +1794,42 @@ pub fn apply_win32_key_state_change(
     keyboard_state.sync_modifiers();
 }
 
+/// Classify a Win32 mouse message by the "extra info" the injector stamped on
+/// it.
+///
+/// Win32 has no per-event device field on the classic mouse messages. When a
+/// mouse message was SYNTHESIZED from a pen or a finger, the injector stamps
+/// `GetMessageExtraInfo` with `MI_WP_SIGNATURE` in the upper bits and a
+/// per-contact id in the low byte; a real mouse leaves it clear.
+///
+/// Lives here, rather than inline in the Win32 window proc, because the
+/// masking is the part that goes wrong and this is the only place it can be
+/// tested on a non-Windows host: the id in the low byte means an UNMASKED
+/// equality test against the signature matches only contact 0, so a second
+/// finger would report as a mouse.
+#[must_use]
+pub const fn win32_pointer_source_from_extra_info(
+    extra: usize,
+) -> azul_core::events::PointerSource {
+    use azul_core::events::PointerSource;
+    /// The upper bits Windows stamps on a synthesized pointer message.
+    const MI_WP_SIGNATURE: usize = 0xFF51_5700;
+    /// Mask off the low byte (the contact id) before comparing.
+    const SIGNATURE_MASK: usize = 0xFFFF_FF00;
+    /// Within a signed message, distinguishes TOUCH from PEN.
+    const MI_WP_TOUCH_FLAG: usize = 0x80;
+
+    if (extra & SIGNATURE_MASK) == MI_WP_SIGNATURE {
+        if (extra & MI_WP_TOUCH_FLAG) != 0 {
+            PointerSource::Touchscreen
+        } else {
+            PointerSource::Pen
+        }
+    } else {
+        PointerSource::Mouse
+    }
+}
+
 /// Everything the OS-side IME state is a function of: whether the window has
 /// the focus, WHICH node is being edited, and where the caret sits inside it.
 ///
@@ -12603,5 +12639,64 @@ mod tests {
             timer_id("THREAD_POLL_TIMER_ID"),
             "the modal pump and the thread poll cannot share a Win32 timer id"
         );
+    }
+}
+
+#[cfg(test)]
+mod pointer_source_tests {
+    use azul_core::events::PointerSource;
+
+    use super::win32_pointer_source_from_extra_info;
+
+    /// The low byte of the extra info is a per-CONTACT id, so it varies per
+    /// finger. An unmasked equality test against the signature would match
+    /// only contact 0 — the first finger would classify as touch and every
+    /// subsequent one as a mouse.
+    #[test]
+    fn every_contact_id_is_still_recognised_as_touch() {
+        for contact in 0u8..=0x7F {
+            let extra = 0xFF51_5700 | 0x80 | usize::from(contact);
+            assert_eq!(
+                win32_pointer_source_from_extra_info(extra),
+                PointerSource::Touchscreen,
+                "contact {contact:#04X} must classify as touch",
+            );
+        }
+    }
+
+    /// The same signature WITHOUT the touch bit is a pen, and the contact id
+    /// must not disturb that either.
+    #[test]
+    fn the_touch_bit_is_what_separates_pen_from_finger() {
+        for contact in 0u8..=0x7F {
+            let extra = 0xFF51_5700 | usize::from(contact);
+            assert_eq!(
+                win32_pointer_source_from_extra_info(extra),
+                PointerSource::Pen,
+                "contact {contact:#04X} without the touch bit must classify as pen",
+            );
+        }
+        // And the bit genuinely flips the answer for one concrete value.
+        assert_eq!(
+            win32_pointer_source_from_extra_info(0xFF51_5700),
+            PointerSource::Pen,
+        );
+        assert_eq!(
+            win32_pointer_source_from_extra_info(0xFF51_5780),
+            PointerSource::Touchscreen,
+        );
+    }
+
+    /// Anything without the signature is a real mouse — including zero, which
+    /// is what an ordinary mouse message carries.
+    #[test]
+    fn an_unsigned_message_is_a_real_mouse() {
+        for extra in [0usize, 1, 0x80, 0xFF51_5600, 0xFF51_5800, 0xDEAD_BE00] {
+            assert_eq!(
+                win32_pointer_source_from_extra_info(extra),
+                PointerSource::Mouse,
+                "{extra:#X} carries no pen/touch signature",
+            );
+        }
     }
 }

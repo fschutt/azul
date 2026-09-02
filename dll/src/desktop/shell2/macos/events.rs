@@ -495,6 +495,22 @@ impl MacOSWindow {
             lw.scroll_manager.scroll_direction_inverted = direction_inverted;
         }
 
+        // `hasPreciseScrollingDeltas` is the only place AppKit says whether the
+        // thing that scrolled was a finger or a ratcheting wheel — the motion
+        // events themselves are identical, exactly as on Wayland, where
+        // `wl_pointer.axis_source` plays the same role. Recording it here is
+        // what lets an app know a pinch is possible at all.
+        //
+        // A Magic Mouse reports precise deltas too, and is reported as
+        // `Touchpad` for that reason: the question this answers is "can this
+        // device do continuous, gesture-capable scrolling", not "is it shaped
+        // like a mouse".
+        self.common.mouse_state_mut().pointer_source = if has_precise {
+            azul_core::events::PointerSource::Touchpad
+        } else {
+            azul_core::events::PointerSource::Mouse
+        };
+
         // Trackpad/precise deltas are already pixels; a ratcheting wheel (and the
         // pre-10.7 fallback) reports LINES and must be scaled to match X11/Win32.
         use crate::desktop::shell2::common::event::discrete_scroll_delta_to_pixels;
