@@ -26,6 +26,7 @@ pub mod accessibility;
 pub mod clipboard;
 pub mod dlopen;
 pub mod dnd;
+pub mod direct_manipulation;
 mod dpi;
 mod gl;
 pub mod menu;
@@ -197,6 +198,12 @@ pub struct Win32Window {
     pub needs_gpu_present: bool,
 
     // Menu and UI state
+    /// DirectManipulation viewport for precision-touchpad pinch/pan.
+    ///
+    /// `None` where DirectManipulation is unavailable (Server SKUs without the
+    /// desktop experience, or no touchpad stack) - a normal outcome, not an
+    /// error, and the Ctrl+wheel synthesis in the wheel arm still works there.
+    pub direct_manipulation: Option<direct_manipulation::DirectManipulationOwner>,
     /// Menu bar (if any)
     pub menu_bar: Option<menu::WindowsMenuBar>,
     /// Context menu callbacks (active when context menu is open)
@@ -768,6 +775,9 @@ impl Win32Window {
 
         let mut result = Win32Window {
             hwnd,
+            // Built AFTER the window exists, below - `CreateViewport` needs a
+            // real HWND and the client size, neither of which is known here.
+            direct_manipulation: None,
             owned_popup: owner_hwnd.is_some(),
             owner_id: owner_hwnd.map_or(0, |h| h as usize as u64),
             hinstance,
@@ -830,6 +840,21 @@ impl Win32Window {
         // This enables Mica/Acrylic effects on Windows 11
         {
             use azul_core::window::WindowBackgroundMaterial;
+            // PRECISION-TOUCHPAD pinch/pan. Built here because
+            // `CreateViewport` needs a live HWND and the client size.
+            // `None` is a normal outcome (no touchpad stack, or a Server SKU
+            // without the desktop experience) and the Ctrl+wheel synthesis in
+            // the wheel arm keeps working in that case - the two paths are
+            // complementary, not alternatives.
+            {
+                let dims = result.common.current_window_state().size.dimensions;
+                result.direct_manipulation = direct_manipulation::DirectManipulationOwner::new(
+                    hwnd as isize,
+                    dims.width as i32,
+                    dims.height as i32,
+                );
+            }
+
             let initial_material = result
                 .common
                 .current_window_state()
@@ -4166,6 +4191,16 @@ unsafe extern "system" fn window_proc(
             let width = (lparam & 0xFFFF) as u32;
             let height = ((lparam >> 16) & 0xFFFF) as u32;
 
+            // The viewport rect is in CLIENT coordinates and does not follow
+            // the window on its own: left stale, DirectManipulation keeps
+            // hit-testing the old client area and a pinch near the new edge
+            // is ignored. Skipped for the 0x0 that SIZE_MINIMIZED delivers.
+            if width > 0 && height > 0 {
+                if let Some(ref dm) = window.direct_manipulation {
+                    dm.resize(width as i32, height as i32);
+                }
+            }
+
             // SIZE_MINIMIZED delivers 0x0 and used to fall through the size
             // gate without recording ANY state change: frame stayed Normal,
             // timers kept invalidating, and WM_PAINT kept doing full CPU
@@ -4621,6 +4656,15 @@ unsafe extern "system" fn window_proc(
             // Touch + pen (Win8+). Promoted WM_MOUSE messages still drive
             // cursor/click; this adds pressure/tilt + multi-touch state.
             let pointer_id = (wparam & 0xFFFF) as u32;
+            // Hand the contact to DirectManipulation BEFORE the engine sees
+            // it. A viewport with no contact stays idle no matter how many
+            // fingers are on the pad, so this call is what starts a gesture -
+            // and it must happen on the DOWN, not the update.
+            if msg == WM_POINTERDOWN {
+                if let Some(ref dm) = window.direct_manipulation {
+                    dm.set_contact(pointer_id);
+                }
+            }
             window.feed_pointer_and_dispatch(hwnd, pointer_id, false);
             def_window_proc_w(hwnd, msg, wparam, lparam)
         }
@@ -5956,6 +6000,13 @@ unsafe extern "system" fn window_proc(
             // Timer fired — process_timers_and_threads() handles both user timers
             // (invoke_expired_timers) and thread polling (invoke_thread_callbacks).
             use crate::desktop::shell2::common::event::PlatformWindow;
+            // Pump DirectManipulation. The viewport is MANUALUPDATE, so
+            // NOTHING moves without this call - no content update, no
+            // `OnContentUpdated`, no pinch. It rides the timer because that is
+            // the shell's per-frame slot; DM itself is cheap when idle.
+            if let Some(ref dm) = window.direct_manipulation {
+                dm.update();
+            }
             let modal_tick = wparam == Win32Window::MODAL_LOOP_TIMER_ID;
             if window.process_timers_and_threads() {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);

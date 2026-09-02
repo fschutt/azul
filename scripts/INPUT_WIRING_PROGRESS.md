@@ -1206,23 +1206,44 @@ TOOLING TRAPS (cost real time, worth knowing):
       the generated transmutes until synced, which is what proves the field really crossed).
       azul-core 2760, azul-layout 7575, azul-dll 1973, 8/8 mobile.
 
-- [ ] 7c-i-a DirectManipulation, the other half of the ruling. RESEARCHED - the minimal sequence
-      is recorded here so the next attempt is mechanical rather than exploratory:
-        `CoCreateInstance(CLSID_DirectManipulationManager)` -> `GetUpdateManager()` ->
-        `CreateViewport(hwnd)` -> `ActivateConfiguration(DIRECTMANIPULATION_CONFIGURATION_SCALING)`
-        -> `SetViewportOptions(..._MANUALUPDATE)` -> `AddEventHandler(hwnd, handler)`; feed
-        contacts with `SetContact(pointerId)` from `WM_POINTERDOWN`; pump `Update(nullptr)` each
-        vsync; read the scale from `GetContentTransform(transform[6])[0]` in `OnContentUpdated`.
-      FEASIBLE HERE: the `windows` 0.62 crate is already a dependency and exposes the
-      `Win32_Graphics_DirectManipulation` feature, and `windows/dnd.rs` already implements a COM
-      callback interface with `#[implement(IDropTarget)]` - which is exactly the machinery the two
-      required handlers (`IDirectManipulationViewportEventHandler`,
-      `IDirectManipulationInteractionEventHandler`) need. So this is a bounded COM job, not a new
-      capability.
-      NOT built in the same commit because it is a separate ~400-line COM surface with its own
-      lifetime rules, and the Ctrl+wheel half already makes pinch work on the hardware that
-      needs it. What DM adds is real two-finger geometry (a continuous scale rather than 10%
-      steps) and pan, on the touchpads that report it.
+- [x] 7c-i-a DONE — DirectManipulation viewport, completing the ruling's "both" half.
+      7c-i made pinch WORK on Windows laptops by synthesizing it from Ctrl+wheel, which is what a
+      touchpad reports to an app that has not opted into anything else. That is quantised: every
+      notch is a fixed 10% step, there is no pan, and a real mouse with Ctrl held is
+      indistinguishable from a touchpad. DirectManipulation is the API that gives the actual
+      two-finger geometry - a continuous scale - from the touchpad ONLY.
+      The research from last firing held up exactly: `CoCreateInstance(DirectManipulationManager)`
+      -> `GetUpdateManager` -> `CreateViewport(None, hwnd)` -> `ActivateConfiguration(INTERACTION
+      | SCALING | TRANSLATION_X | TRANSLATION_Y)` -> `SetViewportOptions(MANUALUPDATE)` ->
+      `AddEventHandler` -> `SetViewportRect` -> `Activate` + `Enable`.
+      FIVE SEAMS, and the item would have been dead code with any one missing - which is the
+      failure this arc keeps finding, so each was proven compiled by a deliberate type error:
+        1. CONSTRUCT after the HWND and client size exist (CreateViewport needs both).
+        2. `SetContact(pointerId)` on `WM_POINTERDOWN` - a viewport with no contact stays idle no
+           matter how many fingers are on the pad, so this is what STARTS a gesture, and it must
+           be the DOWN rather than the update.
+        3. `Update(None)` every timer tick - MANUALUPDATE means nothing moves without it: no
+           content update, no `OnContentUpdated`, no pinch.
+        4. `SetViewportRect` on `WM_SIZE` - the rect is client-relative and does not follow the
+           window, so a stale one keeps hit-testing the old area.
+        5. `OnContentUpdated` -> `GetContentTransform(&mut [f32; 6])[0]` -> a pinch.
+      MANUALUPDATE is deliberate: without it DM drives its own clock and delivers updates on a
+      thread of its choosing, which is wrong for an engine that already has a frame loop.
+      The transform is ABSOLUTE-since-gesture-start while `DetectedPinch` carries a per-event
+      scale like every other backend, so the two are DIFFERENCED, with the baseline reset on any
+      transition out of RUNNING. Sub-per-mille deltas are dropped as DM settling - forwarding them
+      would emit a pinch every frame while a finger merely rests on the pad.
+      `None` FROM `new()` IS A NORMAL OUTCOME, not an error: DM is absent on Server SKUs without
+      the desktop experience and `CoCreateInstance` fails with no touchpad stack. The Ctrl+wheel
+      path keeps working there, which is why the two coexist rather than one replacing the other.
+      FEASIBILITY WAS CHECKED FIRST, not assumed: the `windows` 0.62 crate is already a dependency
+      reachable through `link-static` -> `_internal_deps`, the `Win32_Graphics_DirectManipulation`
+      feature exists, and `dnd.rs` already implements a COM callback with `#[implement]`. A probe
+      confirmed the DM types and the handler trait resolve on `x86_64-pc-windows-gnu` BEFORE any
+      of this was written.
+      EVIDENCE: all five seams proven COMPILED under `--target x86_64-pc-windows-gnu`; host and
+      8/8 mobile green; azul-dll 1973; autofix converged 0/0. ⚠ COMPILE-ONLY - no Windows machine
+      or touchpad here, so this has not been observed to pinch.
 - [x] 7c-ii ALREADY FIXED - verified, not implemented. The item was written as a suspicion ("may
       not exist under that name") and both halves turned out stale:
       `screen_to_logical_client` exists NOWHERE in `dll/src` (0 hits), so nothing references it -

@@ -380,6 +380,8 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_System_Com",
     # File drag-and-drop via OLE IDropTarget (windows/dnd.rs).
     "Win32_System_Ole",
+    # Precision-touchpad pinch/pan (windows/direct_manipulation.rs, 7c-i-a).
+    "Win32_Graphics_DirectManipulation",
     "Win32_System_SystemServices",
     "Win32_System_Com_StructuredStorage",
     "Win32_Graphics_Gdi",
