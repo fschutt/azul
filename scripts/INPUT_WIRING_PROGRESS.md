@@ -155,9 +155,26 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 10c
 
-- [ ] 10c-i iOS does not fill `keyboard`: it needs `UIKeyboardWillChangeFrameNotification` observed and
-      `UIKeyboardFrameEndUserInfoKey` intersected with the view's frame (the raw frame is in screen
-      coordinates and can be wider than the window on iPad split view).
+- [x] 10c-i DONE. `SafeAreaInsets::keyboard` had no producer on iOS: the field existed,
+      `CallbackInfo::get_keyboard_inset()` read it, and Android filled it from
+      `WindowInsets.Type.ime()`, but on iOS it was permanently `None`. That became urgent with
+      10b-ii in the same session - a keyboard that can now actually be RAISED, over the field it
+      was raised for, with the app unable to learn that it did, is worse than no keyboard.
+      `UIKeyboardWillChangeFrameNotification` observed on the VIEW (the handler must convert into
+      the view's coordinate space, so it needs the view as `self`). Chosen over `WillShow`/
+      `WillHide` because it is the one notification covering all three transitions plus the ones
+      neither of the others reports: a hardware keyboard attaching and shrinking the software one
+      to the shortcut bar, the floating iPad keyboard being dragged, and a height change on
+      language switch.
+      The frame is converted and INTERSECTED with the view rather than used raw, exactly as the
+      item said: an iPad split-view app owns a fraction of the screen while the keyboard belongs
+      to all of it, so the raw height over-insets by however much lies outside the view. The
+      overlap is clamped to the view height, and a keyboard that covers nothing writes `None`
+      rather than `Some(0)` - the field's own docs distinguish those, and an app laying out around
+      a zero inset would reserve a row for a keyboard that is not there.
+      EVIDENCE: both the handler body and the observer registration proven COMPILED by deliberate
+      type errors reported under `--target aarch64-apple-ios`. Compile-only by user direction.
+      8/8 mobile.
 - [x] 10c-ii DONE — `installInsetsListener` registers `setOnApplyWindowInsetsListener` and calls
       `nativeOnWindowInsets`, using `systemBars() | displayCutout()` (a notch is not part of
       systemBars) and keeping the IME inset separate from the bottom inset.

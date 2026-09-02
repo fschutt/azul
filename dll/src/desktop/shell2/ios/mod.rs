@@ -1192,6 +1192,14 @@ fn get_or_create_view_class() -> &'static Class {
             sel!(canBecomeFirstResponder),
             ui_can_become_first_responder as extern "C" fn(&Object, Sel) -> bool,
         );
+        // The keyboard's own geometry. Registered on the VIEW because the
+        // handler has to convert the keyboard frame into this view's
+        // coordinate space, which needs the view as `self`.
+        #[cfg(target_os = "ios")]
+        decl.add_method(
+            sel!(azulKeyboardFrameChanged:),
+            ui_keyboard_frame_changed as extern "C" fn(&Object, Sel, *mut Object),
+        );
         decl.add_method(
             sel!(hasText),
             ui_has_text as extern "C" fn(&Object, Sel) -> bool,
@@ -1525,6 +1533,27 @@ impl IOSWindow {
             //  .layout_window.gesture_drag_manager.inject_native_gesture
             // so CallbackInfo::get_swipe_direction etc. observe a result.
             install_gesture_recognizers(view);
+
+            // Subscribe to the keyboard's frame changes. Nothing on iOS wrote
+            // `SafeAreaInsets::keyboard` before this: the field existed and
+            // `get_keyboard_inset()` read it, but on iOS it was permanently
+            // `None`, so an app could not tell that the keyboard it just
+            // raised was covering the field.
+            {
+                let center: *mut Object =
+                    msg_send![class!(NSNotificationCenter), defaultCenter];
+                let name_cstr =
+                    b"UIKeyboardWillChangeFrameNotification\0".as_ptr() as *const i8;
+                let name: *mut Object =
+                    msg_send![class!(NSString), stringWithUTF8String: name_cstr];
+                let _: () = msg_send![
+                    center,
+                    addObserver: view
+                       selector: sel!(azulKeyboardFrameChanged:)
+                           name: name
+                         object: ptr::null_mut::<Object>()
+                ];
+            }
 
             // Install a CADisplayLink so the view redraws at the screen
             // refresh rate (60 / 120 Hz). Without this, frames only tick
@@ -1923,6 +1952,86 @@ extern "C" fn ui_delete_backward(_this: &Object, _cmd: Sel) {
     }
     let result = window.process_window_events(0);
     settle(window, result);
+}
+
+/// `UIKeyboardWillChangeFrameNotification` — the keyboard moved, appeared or
+/// went away.
+///
+/// Writes `SafeAreaInsets::keyboard`, which had NO producer on iOS: the field
+/// existed, `CallbackInfo::get_keyboard_inset()` read it, and Android filled it
+/// from `WindowInsets.Type.ime()`, but on iOS it was permanently `None`. That
+/// matters now that the keyboard can actually be RAISED (10b-ii): a keyboard
+/// that appears over the field it was raised for, with the app unable to learn
+/// that it did, is worse than no keyboard.
+///
+/// `WillChangeFrame` rather than `WillShow`/`WillHide` because it is the one
+/// notification that covers all three transitions plus the ones neither of the
+/// others report: a hardware keyboard attaching (shrinking the software one to
+/// the shortcut bar), the floating iPad keyboard being dragged, and a height
+/// change on language switch.
+#[cfg(target_os = "ios")]
+extern "C" fn ui_keyboard_frame_changed(this: &Object, _cmd: Sel, notification: *mut Object) {
+    let Some(window) = (unsafe { azul_ios_window() }) else {
+        return;
+    };
+    let view = this as *const Object as *mut Object;
+
+    let covered = unsafe {
+        let info: *mut Object = msg_send![notification, userInfo];
+        if info.is_null() {
+            return;
+        }
+        let key_cstr = b"UIKeyboardFrameEndUserInfoKey\0".as_ptr() as *const i8;
+        let key: *mut Object = msg_send![class!(NSString), stringWithUTF8String: key_cstr];
+        let value: *mut Object = msg_send![info, objectForKey: key];
+        if value.is_null() {
+            return;
+        }
+        let frame_screen: CGRect = msg_send![value, CGRectValue];
+
+        // The raw frame is in SCREEN coordinates and can be wider or taller
+        // than this view - an iPad split view gives the app a fraction of the
+        // screen, and the keyboard belongs to the whole of it. Converting and
+        // intersecting is the only way to learn how much of THIS view is
+        // actually covered; using the raw height over-insets a split-view app
+        // by however much of the keyboard lies outside it.
+        let frame_local: CGRect = msg_send![view, convertRect: frame_screen fromView: ptr::null_mut::<Object>()];
+        let bounds: CGRect = msg_send![view, bounds];
+
+        let view_bottom = bounds.origin.y + bounds.size.height;
+        let kb_top = frame_local.origin.y;
+        let overlap = view_bottom - kb_top;
+        // Negative when the keyboard is fully off-screen (the dismissed case:
+        // UIKit reports it as a frame BELOW the view rather than as a
+        // zero-height one), and clamped so a keyboard taller than the view
+        // cannot report more coverage than there is view to cover.
+        overlap.clamp(0.0, bounds.size.height as f64)
+    };
+
+    if let Some(lw) = window.common.layout_window.as_mut() {
+        let previous = lw.safe_area_insets.keyboard;
+        lw.safe_area_insets.keyboard = if covered > 0.5 {
+            Some(azul_css::props::basic::pixel::PixelValue::px(covered as f32)).into()
+        } else {
+            // `None`, not `Some(0)`: the field's own docs distinguish "no
+            // keyboard" from "a keyboard covering nothing", and an app that
+            // lays out around a zero inset would reserve a row for a keyboard
+            // that is not there.
+            None.into()
+        };
+        if previous == lw.safe_area_insets.keyboard {
+            return;
+        }
+        log_debug!(
+            LogCategory::Input,
+            "[iOS] keyboard inset -> {:?}",
+            lw.safe_area_insets.keyboard
+        );
+    }
+    // The inset is layout input, so a change has to reach layout.
+    window
+        .common
+        .request_regeneration(RelayoutReason::ThemeChange);
 }
 
 /// `canBecomeFirstResponder` — required, or UIKit never asks for text.
