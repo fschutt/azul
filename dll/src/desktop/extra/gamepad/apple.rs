@@ -165,6 +165,35 @@ pub fn poll() {
             // across pads, which is what the id needs to be.
             let id = (controller as usize as u64 >> 4) as u32;
 
+            // Battery, via `GCDeviceBattery` (macOS 11 / iOS 14+). Probed with
+            // `respondsToSelector:` like every other optional control above,
+            // rather than by a version check: the selector is the thing that
+            // has to exist, and an older SDK simply answers false.
+            //
+            // `batteryLevel` is already 0..1, which is the field's own range,
+            // so no conversion. `batteryState` is consulted only to
+            // distinguish a pad that HAS no battery: state 1 (charging) and 2
+            // (full) both carry a real level, while a wired pad with no cell
+            // reports `unknown` (-1), and reporting that as 0.0 would draw an
+            // empty battery icon for a controller that has none.
+            const BATTERY_STATE_UNKNOWN: i64 = -1;
+            let battery = if msg_send![controller, respondsToSelector: sel!(battery)] {
+                let battery_obj: *mut Object = msg_send![controller, battery];
+                if battery_obj.is_null() {
+                    -1.0
+                } else {
+                    let state: i64 = msg_send![battery_obj, batteryState];
+                    if state == BATTERY_STATE_UNKNOWN {
+                        -1.0
+                    } else {
+                        let level: f32 = msg_send![battery_obj, batteryLevel];
+                        level.clamp(0.0, 1.0)
+                    }
+                }
+            } else {
+                -1.0
+            };
+
             push_gamepad_state(GamepadState {
                 id: GamepadId { id },
                 connected: true,
@@ -175,10 +204,11 @@ pub fn poll() {
                 right_stick_y: ry,
                 left_z: apply_axial_deadzone(analog(msg_send![pad, leftTrigger])),
                 right_z: apply_axial_deadzone(analog(msg_send![pad, rightTrigger])),
-                // Battery and the pad's own IMU are readable through
-                // GCDeviceBattery and GCMotion, but no backend fills those
-                // fields yet on any platform (item 8f-i) — filling them only
-                // here would make iOS the odd one out.
+                battery,
+                // The pad's own IMU (GCMotion) and its touch surface are still
+                // unfilled here — 8f-i-a. Unlike battery, those have no
+                // equivalent on the gilrs desktop backend, so filling them
+                // only on Apple WOULD make the platforms diverge.
                 ..Default::default()
             });
         }

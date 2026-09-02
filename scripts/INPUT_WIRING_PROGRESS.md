@@ -951,10 +951,33 @@ TOOLING TRAPS (cost real time, worth knowing):
       scroll even when a focusable is present, or containing navigation within a panel). Both are
       real CSS properties: parser, cascade, api.json and the resolver honouring them, which is
       why they are separate from the ordering.
-- [ ] 8f-i The new `GamepadState` fields (battery, touchpad, gyro/accel) are modelled but no backend fills
-      them. gilrs exposes battery via `Gamepad::power_info`; the pad touchpad and IMU need either SDL or
-      raw HID, since gilrs does not surface them. Until then they read as their "not reported" defaults,
-      which is honest but inert.
+- [x] 8f-i BATTERY DONE on every platform that has a gamepad backend; the IMU/touchpad half is
+      8f-i-a. `GamepadState::battery` was modelled, documented, and filled by NOBODY - it read as
+      its `-1.0` "not reported" default everywhere, which the note called "honest but inert".
+      DESKTOP (gilrs, so Windows + Linux + macOS at once): `Gamepad::power_info()` mapped through
+      a `power_info_to_battery` helper.
+      APPLE (iOS/tvOS/macOS GameController): `GCDeviceBattery` via `respondsToSelector:`, the same
+      probe every other optional control on that pad already uses - the selector is the thing that
+      must exist, and an older SDK just answers false, which is more robust than a version check.
+      That also RETIRES apple.rs's own reason for abstaining: its comment said filling battery
+      there alone "would make iOS the odd one out". With desktop filled in the same change, it no
+      longer would.
+      Two mapping decisions, both about the SENTINEL rather than about numbers:
+        - `Wired` -> `-1.0`, NOT `1.0`. A wired pad has no cell, so reporting it as full makes
+          "plugged in" and "fully charged" indistinguishable and draws a battery icon for a
+          controller that has none. The field's own docs say wired pads report `-1.0`.
+        - `Charging(pct)` -> the LEVEL, not the sentinel. The level is real and known while
+          charging, and an app dimming a low-battery warning during a charge needs the number.
+      EVIDENCE: 6 tests over the mapping, which is the part that can be silently wrong - unknown
+      and wired both hit the sentinel exactly (a `0.0` would be indistinguishable from a flat
+      battery), charging does NOT collapse to the sentinel, and a bad driver percentage cannot
+      escape the sentinel-or-`[0,1]` contract every consumer trusts. Host, iOS, 8/8 mobile,
+      azul-dll 1969 (+6).
+
+- [ ] 8f-i-a The pad TOUCHPAD and its gyro/accelerometer are still unfilled on every backend.
+      Unlike battery these have no gilrs equivalent at all - gilrs does not surface them - so they
+      need SDL or raw HID on desktop and `GCMotion` on Apple. Filling only the Apple half would
+      make the platforms genuinely diverge, which is why battery landed alone.
 - [ ] 8e-i The eight new `SensorKind` variants have no backend producing them. `dll/src/desktop/extra/
       sensors/{android,apple,linux,windows}.rs` fill only the original three; `HingeAngle` in particular
       needs Android `TYPE_HINGE_ANGLE` and is the one with a layout consequence.

@@ -19,7 +19,7 @@
 use super::{apply_axial_deadzone, apply_radial_deadzone};
 use std::cell::RefCell;
 
-use gilrs::{Axis, Button, EventType, Gilrs};
+use gilrs::{Axis, Button, EventType, Gilrs, PowerInfo};
 
 use azul_core::gamepad::{GamepadButton, GamepadId, GamepadState};
 use azul_layout::managers::gamepad::push_gamepad_state;
@@ -52,6 +52,33 @@ const BUTTON_MAP: [(GamepadButton, Button); 17] = [
     (GamepadButton::DPadLeft, Button::DPadLeft),
     (GamepadButton::DPadRight, Button::DPadRight),
 ];
+
+/// gilrs `PowerInfo` -> the `battery` field's documented contract.
+///
+/// `GamepadState::battery` is a `f32` in `[0, 1]` with `-1.0` meaning "not
+/// reported" - a sentinel rather than an `Option` because the struct is
+/// `#[repr(C)]` and a niche-optimised `Option<f32>` has no stable ABI.
+///
+/// `Wired` maps to the sentinel and NOT to `1.0`: a wired pad has no battery
+/// at all, so reporting it as full would make "plugged in" and "fully charged"
+/// indistinguishable, and a UI drawing a battery icon would draw one for a pad
+/// that has none. The field's own docs say wired pads report `-1.0`.
+///
+/// `Charging` reports the level rather than the sentinel: the level is real
+/// and known while charging, and an app that dims a low-battery warning during
+/// a charge still needs the number to decide.
+fn power_info_to_battery(info: PowerInfo) -> f32 {
+    match info {
+        PowerInfo::Unknown | PowerInfo::Wired => -1.0,
+        PowerInfo::Discharging(pct) | PowerInfo::Charging(pct) => {
+            // gilrs reports whole percent; clamped because the value comes
+            // from a driver and a bad one must not escape the documented
+            // range that every consumer trusts.
+            f32::from(pct.min(100)) / 100.0
+        }
+        PowerInfo::Charged => 1.0,
+    }
+}
 
 pub fn poll() {
     GILRS.with(|cell| {
@@ -127,8 +154,11 @@ pub fn poll() {
                 right_stick_y: ry,
                 left_z: apply_axial_deadzone(pad.value(Axis::LeftZ)),
                 right_z: apply_axial_deadzone(pad.value(Axis::RightZ)),
-                // Fields this site does not set. Growing GamepadState must not
-                // break every construction of it.
+                battery: power_info_to_battery(pad.power_info()),
+                // Fields this site does not set: the pad touchpad and its
+                // gyro/accelerometer, which gilrs does not surface at all -
+                // they need SDL or raw HID, and that is 8f-i-a, not something
+                // this backend can reach.
                 ..Default::default()
             });
         }
@@ -137,3 +167,67 @@ pub fn poll() {
 
 // Deadzone helpers live in `mod.rs`: every backend needs the same
 // treatment and three copies would drift.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `battery` field is a SENTINEL-carrying f32, not an `Option`, so
+    /// every "unknown" case has to land on exactly `-1.0`. A backend that
+    /// returned `0.0` instead would be indistinguishable from a flat battery.
+    #[test]
+    fn unknown_power_reports_the_not_reported_sentinel() {
+        assert_eq!(power_info_to_battery(PowerInfo::Unknown), -1.0);
+    }
+
+    /// A WIRED pad has no cell at all. Reporting it as `1.0` would make
+    /// "plugged in" and "fully charged" indistinguishable, and a UI drawing a
+    /// battery icon would draw one for a controller that has none. The
+    /// field's own docs say wired pads report `-1.0`.
+    #[test]
+    fn a_wired_pad_reports_no_battery_rather_than_a_full_one() {
+        assert_eq!(power_info_to_battery(PowerInfo::Wired), -1.0);
+        assert_ne!(power_info_to_battery(PowerInfo::Wired), 1.0);
+    }
+
+    #[test]
+    fn a_discharging_level_becomes_a_zero_to_one_fraction() {
+        assert_eq!(power_info_to_battery(PowerInfo::Discharging(0)), 0.0);
+        assert_eq!(power_info_to_battery(PowerInfo::Discharging(50)), 0.5);
+        assert_eq!(power_info_to_battery(PowerInfo::Discharging(100)), 1.0);
+    }
+
+    /// Charging carries a REAL level, so it must not collapse to the sentinel:
+    /// an app dimming a low-battery warning during a charge still needs the
+    /// number to decide.
+    #[test]
+    fn charging_reports_the_level_not_the_sentinel() {
+        assert_eq!(power_info_to_battery(PowerInfo::Charging(25)), 0.25);
+        assert_ne!(power_info_to_battery(PowerInfo::Charging(25)), -1.0);
+    }
+
+    #[test]
+    fn charged_is_full() {
+        assert_eq!(power_info_to_battery(PowerInfo::Charged), 1.0);
+    }
+
+    /// The value comes from a driver, so an out-of-range percent must not
+    /// escape the documented `[0, 1]` range that every consumer trusts.
+    #[test]
+    fn a_bad_driver_percentage_cannot_escape_the_documented_range() {
+        assert_eq!(power_info_to_battery(PowerInfo::Discharging(255)), 1.0);
+        for info in [
+            PowerInfo::Unknown,
+            PowerInfo::Wired,
+            PowerInfo::Charged,
+            PowerInfo::Discharging(200),
+            PowerInfo::Charging(200),
+        ] {
+            let v = power_info_to_battery(info);
+            assert!(
+                v == -1.0 || (0.0..=1.0).contains(&v),
+                "{info:?} produced {v}, outside the sentinel-or-[0,1] contract"
+            );
+        }
+    }
+}
