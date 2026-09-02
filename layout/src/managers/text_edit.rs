@@ -2477,3 +2477,57 @@ impl azul_core::events::EventProvider for TextEditManager {
         )]
     }
 }
+
+#[cfg(test)]
+mod composition_end_tests {
+    use super::{CompositionPhase, TextEditManager};
+
+    /// A COMMIT and a CANCEL both end the composition, and the difference an
+    /// app reads is the TEXT.
+    ///
+    /// X11 was the only backend that never called `commit_composition` — it
+    /// has no separate commit event, since `Xutf8LookupString` returns the
+    /// committed string directly and the preedit merely goes empty. So every
+    /// X11 commit arrived as `CompositionEnd` with an empty payload, which is
+    /// what a cancel means, and an app had to recover the text from the
+    /// ordinary text input that followed.
+    #[test]
+    fn a_commit_carries_its_text_and_a_cancel_does_not() {
+        // COMMIT.
+        let mut m = TextEditManager::default();
+        m.set_preedit("にほん".to_string(), 0, 0);
+        assert_eq!(
+            m.take_pending_composition(),
+            Some((CompositionPhase::Start, "にほん".to_string())),
+        );
+        m.commit_composition("日本".to_string());
+        assert_eq!(
+            m.take_pending_composition(),
+            Some((CompositionPhase::End, "日本".to_string())),
+            "a commit must report WHAT was committed",
+        );
+
+        // CANCEL: the composition ends with nothing.
+        let mut m = TextEditManager::default();
+        m.set_preedit("にほん".to_string(), 0, 0);
+        let _ = m.take_pending_composition();
+        m.clear_preedit();
+        assert_eq!(
+            m.take_pending_composition(),
+            Some((CompositionPhase::End, String::new())),
+            "a cancel ends the composition with no text",
+        );
+    }
+
+    /// Clearing an already-clear preedit is not an end.
+    ///
+    /// Otherwise every focus change would report a `CompositionEnd` for a
+    /// composition that never started.
+    #[test]
+    fn clearing_nothing_reports_nothing() {
+        let mut m = TextEditManager::default();
+        m.clear_preedit();
+        assert_eq!(m.take_pending_composition(), None);
+    }
+}
+

@@ -719,10 +719,31 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 - [x] 3d-i Register `TextEditManager` in the `&[&dyn EventProvider]` slice, and clear
       `pending_composition` after the drain (same shape as 2c-ii/iii).
-- [ ] 3d-ii X11 has no separate commit path — `Xutf8LookupString` returns committed text directly and the
-      preedit is only ever set from the XIM callback, so `CompositionEnd` there currently comes from the
-      cancel path with empty text. Confirm whether XIM preedit callbacks are installed at all
-      (`XIMPreeditNothing` means the IM server draws its own window and the client sees no preedit).
+- [x] 3d-ii DONE, and both halves of the question are answered with evidence.
+      THE OPEN QUESTION — are XIM preedit callbacks installed at all? YES. `events.rs` negotiates
+      `XIMPreeditCallbacks | XIMStatusCallbacks` first, falls back to
+      `XIMPreeditCallbacks | XIMStatusNothing`, then OverTheSpot
+      (`XIMPreeditPosition`), and only lastly to Rooted (`XIMPreeditNothing`, where the IM
+      server draws its own window and the client genuinely sees no preedit). So the preedit path
+      is real wherever the IM server supports it.
+      THE SUSPICION — `CompositionEnd` comes from the cancel path with empty text — CONFIRMED.
+      X11 was the ONLY backend that never called `commit_composition`: macOS (`insertText:`),
+      iOS, Wayland (`commit_string`), Android and Win32 (GCS_RESULTSTR) all do. X11 has no
+      separate commit event — `Xutf8LookupString` hands the committed string back directly and
+      the preedit simply goes empty — so commit and cancel looked identical, and
+      `clear_preedit` reports End with an EMPTY payload, which is what a CANCEL means. An app
+      watching composition saw every X11 commit as a cancel and had to recover the text from the
+      ordinary text input that followed.
+      FIX: on an emptied preedit, if a composition WAS running and the lookup returned text,
+      call `commit_composition(text)`. The gate matters on X11 specifically —
+      `Xutf8LookupString` also returns text for ORDINARY keystrokes while an IME is attached, so
+      committing unconditionally would report a CompositionEnd for every letter typed.
+      `preedit_text` still holds the previous preedit at that point, which is exactly the "was
+      composing" signal.
+      EVIDENCE: `a_commit_carries_its_text_and_a_cancel_does_not` pins the distinction that was
+      lost, and `clearing_nothing_reports_nothing` pins that a focus change does not fabricate an
+      End. azul-layout 7559, azul-dll 1944, host check, Linux-target check and 8-target gate
+      green. NOT runtime-verified — needs a real X server with an IM server (fcitx/ibus).
 
 ### Follow-ups opened by 2c
 

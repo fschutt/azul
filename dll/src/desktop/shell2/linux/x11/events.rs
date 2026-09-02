@@ -979,7 +979,52 @@ impl X11Window {
                         Some(t) if !t.is_empty() => {
                             lw.text_edit_manager.set_preedit(t, caret, caret);
                         }
-                        _ => lw.text_edit_manager.clear_preedit(),
+                        _ => {
+                            // COMMIT vs CANCEL. X11 has no separate commit
+                            // event: `Xutf8LookupString` hands back the
+                            // committed string directly (in `result`) and the
+                            // preedit simply goes empty, so both endings look
+                            // identical here. Every other backend distinguishes
+                            // them — macOS `insertText:`, Wayland
+                            // `commit_string`, Win32 `WM_IME_COMPOSITION` with
+                            // GCS_RESULTSTR, Android and iOS — and X11 was the
+                            // ONLY one that never called `commit_composition`.
+                            //
+                            // The consequence was silent: `clear_preedit`
+                            // reports `CompositionEnd` with an EMPTY string
+                            // (that is what a CANCEL means), so an app watching
+                            // composition saw every X11 commit as a cancel and
+                            // had to recover the text from the ordinary text
+                            // input that followed.
+                            let committed = result
+                                .0
+                                .as_deref()
+                                .filter(|t| !t.is_empty())
+                                .map(std::string::ToString::to_string);
+                            match committed {
+                                // Only a composition that was actually running
+                                // can commit; `commit_composition` sets the End
+                                // phase and the text, and `clear_preedit` then
+                                // leaves that alone (it only fills in an End
+                                // when none was recorded).
+                                // `preedit_text` still holds the PREVIOUS
+                                // preedit here — nothing has cleared it yet —
+                                // so it is exactly "a composition was running".
+                                // The gate matters on X11 specifically:
+                                // `Xutf8LookupString` also returns text for
+                                // ORDINARY keystrokes while an IME is attached,
+                                // so committing unconditionally would report a
+                                // CompositionEnd for every letter typed.
+                                Some(text)
+                                    if lw.text_edit_manager.preedit_text.is_some() =>
+                                {
+                                    // `commit_composition` clears the preedit
+                                    // itself, so there is no second call here.
+                                    lw.text_edit_manager.commit_composition(text);
+                                }
+                                _ => lw.text_edit_manager.clear_preedit(),
+                            }
+                        }
                     }
                     // MWA-C-text_input: splice/restore the composition glyphs
                     // in the text cache (macOS-only before) — X11 CJK
