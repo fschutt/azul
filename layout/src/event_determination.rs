@@ -438,14 +438,26 @@ pub fn determine_all_events(
     }
 
     // ========================================================================
-    // Click synthesis: if left mouse released on the same node as down
+    // Click synthesis: a left release on the node the press landed on.
     // ========================================================================
-    // Note: proper click synthesis requires tracking mousedown target across frames.
-    // For now, if left mouse was released and the hover node hasn't changed, emit Click.
+    // This used to compare the PREVIOUS hover node against the current one, as
+    // a stand-in for "same node as the press" — the comment said so, and the
+    // tests were already named after the real rule. The proxy only holds when
+    // the hover manager happened to push a hit test for the press as well as
+    // the move, which a backend is under no obligation to do: the headless
+    // backend pushes one only on MouseMove, so `previous_hover` stayed `None`
+    // across the press and the release, the comparison never matched, and
+    // NO Click was ever emitted. Every widget keyed on `HoverEventFilter::Click`
+    // — the ribbon tab headers among them — was therefore dead there.
+    //
+    // `press_target` is the real thing and already existed:
+    // `apply_press_target_capture` records it on MouseDown and removes it on
+    // MouseUp, both AFTER this function runs, so during the release pass the
+    // press is still on file.
     if !current_state.mouse_state.left_down && previous_state.mouse_state.left_down {
-        let prev_hover = hover_manager.previous_hover_node_full();
-        let curr_hover = hover_manager.current_hover_node_full();
-        if prev_hover == curr_hover && curr_hover.is_some() {
+        let pressed_on = hover_manager.press_target(MouseButton::Left);
+        let released_on = hover_manager.current_hover_node_full();
+        if pressed_on.is_some() && pressed_on == released_on {
             events.push(SyntheticEvent::new(
                 EventType::Click,
                 EventSource::User,
@@ -1677,6 +1689,32 @@ mod autotest_generated {
         hm
     }
 
+    /// A hover manager that has also SEEN the left button go down on `press`.
+    ///
+    /// Click synthesis keys off the press target, not off hover history, so a
+    /// test about clicking has to record the press the way the real pass does
+    /// — through `apply_press_target_capture`, which is what the dll calls
+    /// after `determine_all_events` on the MouseDown pass.
+    fn hover_with_press(
+        previous: FullHitTest,
+        current: FullHitTest,
+        press: DomNodeId,
+    ) -> HoverManager {
+        let mut hm = hover_with(previous, current);
+        let mut down = vec![SyntheticEvent::new(
+            EventType::MouseDown,
+            EventSource::User,
+            press,
+            ts(0),
+            EventData::Mouse(azul_core::events::MouseEventData {
+                button: MouseButton::Left,
+                ..Default::default()
+            }),
+        )];
+        hm.apply_press_target_capture(&mut down, &|_, _| false);
+        hm
+    }
+
     fn state() -> FullWindowState {
         FullWindowState::default()
     }
@@ -2482,7 +2520,7 @@ mod autotest_generated {
     fn click_is_synthesized_when_release_lands_on_the_press_node() {
         let mut previous = cursor_at(20.0, 20.0);
         previous.mouse_state.left_down = true;
-        let hm = hover_with(hits(&[(0, 8)]), hits(&[(0, 8)]));
+        let hm = hover_with_press(hits(&[(0, 8)]), hits(&[(0, 8)]), node(0, 8));
 
         let events = run(&cursor_at(20.0, 20.0), &previous, &hm, None, None);
         let click = only(&events, EventType::Click);
@@ -2494,7 +2532,8 @@ mod autotest_generated {
     fn no_click_when_the_hover_node_changed_between_press_and_release() {
         let mut previous = cursor_at(20.0, 20.0);
         previous.mouse_state.left_down = true;
-        let hm = hover_with(hits(&[(0, 3)]), hits(&[(0, 5)]));
+        // Pressed on node 3, released over node 5 -> not a click.
+        let hm = hover_with_press(hits(&[(0, 3)]), hits(&[(0, 5)]), node(0, 3));
 
         let events = run(&cursor_at(20.0, 20.0), &previous, &hm, None, None);
         assert_eq!(count(&events, EventType::Click), 0);

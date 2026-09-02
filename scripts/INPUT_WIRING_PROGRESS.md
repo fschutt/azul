@@ -1055,3 +1055,27 @@ FOUND AND FIXED HERE:
       it. Wiring the old one back in would have REINTRODUCED the classloader bug, so this is a
       superseded helper rather than an unwired one. Caught by `lint_orphans`, which was failing
       in `cargo test -p azul-doc` (206 tests now green).
+- [x] CLICK SYNTHESIS was keyed on a proxy that a backend need not satisfy — three of the eight
+      failing headless tests were this, and so is every `HoverEventFilter::Click` widget on that
+      path.
+      `determine_all_events` emitted `Click` when `previous_hover_node == current_hover_node`,
+      as a stand-in for "released on the node it was pressed on". The comment said so
+      ("proper click synthesis requires tracking mousedown target across frames") and the tests
+      were already NAMED after the real rule
+      (`click_is_synthesized_when_release_lands_on_the_press_node`).
+      The proxy only holds if the hover manager pushed a hit test for the PRESS as well as the
+      move. A backend is under no obligation to: the headless one pushes only on MouseMove, so
+      `previous_hover` stayed `None` across press and release, the comparison never matched, and
+      NO Click was ever emitted. Ribbon tab headers use `HoverEventFilter::Click`, so tab
+      switching was inert — the tests reported it as "the click did not reach the tab header",
+      which reads like a hit-test miss and is not: the hit test resolved the right node
+      (verified by probe: hover = NodeId(7), inside tab 1's rect 62x26 @ (58,16)).
+      FIX: use `HoverManager::press_target(MouseButton::Left)`, which already existed —
+      `apply_press_target_capture` records it on MouseDown and removes it on MouseUp, both AFTER
+      `determine_all_events`, so during the release pass the press is still on file. This is the
+      W3C rule rather than a coincidence, and it holds for any backend that runs a pass per
+      event.
+      EVIDENCE: azul-dll headless failures 8 -> 5, with all three tab/ribbon ones fixed; the two
+      pre-existing Click tests now record a real press through the same
+      `apply_press_target_capture` the dll calls, so they test the rule their names claim.
+      azul-layout 7555, host check and 8-target gate green.
