@@ -1117,9 +1117,16 @@ TOOLING TRAPS (cost real time, worth knowing):
       and the raw finger geometry is only available through Direct Manipulation
       (`IDirectManipulationViewport`). Decide whether to synthesize a pinch from Ctrl+wheel — which is what
       most apps actually do — or take the DirectManipulation dependency.
-- [ ] 7c-ii `screen_to_logical_client` is referenced by the `WM_GESTURE` arm and may not exist under that
-      name; `ptsLocation` is in SCREEN coordinates while every other gesture path reports client-space.
-      Reconcile at fix-up.
+- [x] 7c-ii ALREADY FIXED - verified, not implemented. The item was written as a suspicion ("may
+      not exist under that name") and both halves turned out stale:
+      `screen_to_logical_client` exists NOWHERE in `dll/src` (0 hits), so nothing references it -
+      had the `WM_GESTURE` arm called it, the Windows target would not compile at all, which is
+      the check that settles this kind of "may not exist" note in one grep.
+      The coordinate concern it raised is also handled: the arm converts `ptsLocation` with
+      `ScreenToClient` and then divides by the hidpi factor, exactly as the wheel path does, with
+      a comment saying why. Only a DUPLICATED comment block was left behind by whoever fixed it,
+      removed here so the next reader does not think it is unfinished.
+      No behaviour change: this closes a stale entry rather than landing work.
 
 ### Follow-ups opened by 5b
 

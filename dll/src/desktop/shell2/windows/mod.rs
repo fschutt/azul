@@ -6217,8 +6217,6 @@ unsafe extern "system" fn window_proc(
                 return def_window_proc_w(hwnd, msg, wparam, lparam);
             }
 
-            // ptsLocation is in SCREEN coordinates; every other gesture path
-            // reports a client-space centre.
             // ptsLocation is in SCREEN coordinates, like WM_MOUSEWHEEL's
             // lParam and unlike the client-relative WM_MOUSE* messages — so
             // it needs the same ScreenToClient + hidpi conversion the wheel
