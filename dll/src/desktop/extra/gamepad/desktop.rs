@@ -231,3 +231,116 @@ mod tests {
         }
     }
 }
+
+// ─── Rumble (9g-i-d) ──────────────────────────────────────────────────
+
+thread_local! {
+    /// The effect currently playing on each pad, keyed by the `GamepadId` the
+    /// engine uses (`usize::from(gid) as u32`).
+    ///
+    /// Held because a gilrs `Effect` is a HANDLE: letting it drop removes it
+    /// from the force-feedback server's map WITHOUT stopping the motor (see
+    /// `Message::HandleDropped` in gilrs's `ff/server.rs`, which only calls
+    /// `effects.remove`). So a dropped handle can leave a controller buzzing
+    /// with nothing left to stop it - which is exactly the failure this item
+    /// warned about, and why every teardown path below calls `stop()`
+    /// EXPLICITLY before releasing the handle.
+    static EFFECTS: RefCell<Vec<(u32, gilrs::ff::Effect)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Stop and release whatever is playing on `pad`, if anything.
+fn stop_effect(pad: u32) {
+    EFFECTS.with(|slot| {
+        let mut list = slot.borrow_mut();
+        if let Some(pos) = list.iter().position(|(id, _)| *id == pad) {
+            let (_, effect) = list.remove(pos);
+            // Explicit, BEFORE the drop: see the note on EFFECTS.
+            let _ = effect.stop();
+        }
+    });
+}
+
+/// Play a rumble on one pad.
+///
+/// `intensity` is `0.0..=1.0` and `duration_ms` is `0` for the pattern's
+/// natural length, matching `HapticRequest`.
+pub fn rumble(pad: u32, intensity: f32, duration_ms: u32, strong: bool) {
+    use gilrs::ff::{BaseEffect, BaseEffectType, EffectBuilder, Replay, Ticks};
+
+    // Replacing whatever was playing: two overlapping effects on one motor
+    // sum in the driver, so a repeated tap would climb to full amplitude and
+    // stay there.
+    stop_effect(pad);
+    if intensity <= 0.0 {
+        return;
+    }
+
+    GILRS.with(|slot| {
+        let mut ctx = slot.borrow_mut();
+        let Some(gilrs) = ctx.as_mut() else {
+            return;
+        };
+        // A pad with no actuator must not be handed an effect: gilrs errors,
+        // and on some backends the error is only visible as a failed play.
+        let Some(gid) = gilrs
+            .gamepads()
+            .find(|(id, gp)| usize::from(*id) as u32 == pad && gp.is_ff_supported())
+            .map(|(id, _)| id)
+        else {
+            return;
+        };
+
+        // gilrs magnitude is a u16 across the FULL range, not a percentage.
+        let magnitude = (intensity.clamp(0.0, 1.0) * f32::from(u16::MAX)) as u16;
+        // A haptic TAP with no duration is not a rumble the user can feel;
+        // 150ms is the gilrs example's own figure and about the shortest
+        // pulse an ERM motor can spin up and down within.
+        let ms = if duration_ms == 0 { 150 } else { duration_ms };
+        let play_for = Ticks::from_ms(ms);
+
+        // STRONG is the low-frequency motor (a heavy thud), WEAK the
+        // high-frequency one (a light buzz). Which one a pattern maps to is
+        // the caller's decision, not a magnitude split across both: driving
+        // both at once is a different, muddier sensation.
+        let kind = if strong {
+            BaseEffectType::Strong { magnitude }
+        } else {
+            BaseEffectType::Weak { magnitude }
+        };
+
+        let built = EffectBuilder::new()
+            .add_effect(BaseEffect {
+                kind,
+                scheduling: Replay {
+                    play_for,
+                    // No repeat: `with_delay` is the gap before a REPLAY, and
+                    // leaving it at the default would loop the effect for as
+                    // long as the handle lives.
+                    with_delay: Ticks::from_ms(0),
+                    ..Default::default()
+                },
+                envelope: Default::default(),
+            })
+            .gamepads(&[gid])
+            .finish(gilrs);
+
+        if let Ok(effect) = built {
+            if effect.play().is_ok() {
+                EFFECTS.with(|s| s.borrow_mut().push((pad, effect)));
+            }
+        }
+    });
+}
+
+/// Stop every motor. Called when the app is going away.
+///
+/// Without this a controller keeps buzzing after the window closes: the OS
+/// does not reset an actuator when the process that started it exits on every
+/// backend, and the effect handles alone do not stop it.
+pub fn stop_all_rumble() {
+    EFFECTS.with(|slot| {
+        for (_, effect) in slot.borrow_mut().drain(..) {
+            let _ = effect.stop();
+        }
+    });
+}

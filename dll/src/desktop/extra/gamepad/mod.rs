@@ -79,6 +79,19 @@ fn start() {
     // desktop: gilrs lazily initialises on the first `poll`.
 }
 
+/// Silence every controller motor.
+///
+/// Called when the app is going away. A rumble is the one input effect that
+/// OUTLIVES the process on some backends - the OS does not necessarily reset an
+/// actuator when the process that started it exits - so a pad can keep buzzing
+/// after the window is gone with nothing left to stop it. Dropping the effect
+/// handle is NOT enough: gilrs's `HandleDropped` only removes the effect from
+/// its server's map (`ff/server.rs`), it does not stop the motor.
+pub fn stop_all_rumble() {
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    desktop::stop_all_rumble();
+}
+
 /// Pull the current state of every connected pad into the async channel.
 /// Called once per layout pass (after [`ensure_started`]).
 pub fn poll() {

@@ -670,47 +670,40 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       Host, 8/8 mobile, 9 haptics tests green. Compile-only by user direction.
 - [ ] IN SCOPE (implement blindly). 9g-i-c Win32 `SimpleHapticsController` via WinRT - reaches Surface Pen and some gamepads,
       NOT the trackpad. Needs the WinRT activation plumbing, which the shell does not have yet.
-- [ ] IN SCOPE (implement blindly). 9g-i-d Gamepad rumble (`HapticTarget::Gamepad`). Every backend currently skips it: it is a
-      continuous dual-motor amplitude, not a tap, which is exactly what `intensity`/`duration_ms`
-      were added for. Needs a per-controller actuator handle and a STOP path (a motor left running
-      when the window closes keeps buzzing), neither of which exists.
+- [x] 9g-i-d DONE for the gilrs backend (Windows + Linux + macOS at once); mobile is 9g-i-d-a.
+      `HapticTarget::Gamepad` was skipped by EVERY backend - macOS, Android and iOS each return
+      early on anything but `System`, correctly, because a phone body is not a controller's motors.
+      Nothing anywhere handled the gamepad case, so `play_haptic` to a pad did nothing.
+      Handled in the SHARED `play_haptic_native` rather than per-platform, because the actuator
+      belongs to the CONTROLLER, not the machine: gilrs owns it identically on all three desktop
+      platforms, so a per-platform copy would be the same code three times.
+      ⚠ THE STOP PATH IS THE WHOLE ITEM, and the naive version is wrong. A gilrs `Effect` is a
+      HANDLE, and letting it drop sends `HandleDropped`, which - read in `gilrs/src/ff/server.rs`
+      - only calls `effects.remove(id)`. It does NOT stop the motor. So relying on Drop leaves a
+      controller buzzing with nothing left to stop it, which is exactly what the item warned
+      about. Every teardown here calls `stop()` EXPLICITLY before releasing the handle, and
+      `stop_all_rumble()` runs at termination - before `std::process::exit(0)`, which runs no
+      destructors that could have caught it.
+      A new effect STOPS the previous one on that pad first: two overlapping effects sum in the
+      driver, so a repeated tap would climb to full amplitude and stay there.
+      STRONG vs WEAK is which MOTOR, not how hard: a controller has a low-frequency motor that
+      thuds and a high-frequency one that buzzes, and the pattern's weight picks between them.
+      Driving both at once is a muddier sensation, not a louder one.
+      `is_ff_supported()` is checked before building: a pad with no actuator errors, and on some
+      backends that error is only visible as a failed play.
+      `duration_ms == 0` means "natural", which for a motor is not zero - 150ms is gilrs's own
+      example figure and about the shortest pulse an ERM motor can spin up and down within.
+      EVIDENCE: all three seams (dispatch, build, stop) proven COMPILED by deliberate type errors.
+      The call site is cfg-gated off mobile, where `gamepad::desktop` does not exist - caught by
+      the 8-target gate rather than by inspection. All four desktop targets green, 8/8 mobile,
+      azul-dll 1973, 9 haptics tests, autofix converged. ⚠ No controller here - compile-only.
 
-### API REACHABILITY - the whole arc's surface was missing from api.json (2026-09-02)
-
-User: "add all apis then (for all the features we added in the plan + todo list) - otherwise
-they're unreachable of course". They were right: `CallbackInfo` had 281 functions in api.json and
-300 in Rust. Every input-wiring accessor this arc built - `get_dial_state`, `get_physical_key`,
-`get_pointer_source`, `get_key_modifiers`, `get_pen_tool_kind`, `play_haptic`, ... - existed only
-in Rust and was absent from all 27 language bindings. A wired event nobody can read is not wired.
-
-LANDED: 23 methods + 7 types (`HapticPattern`/`HapticTarget`/`HapticRequest`/`DialState` ->
-`gesture`, `ScrollNodeInfo`/`OptionScrollNodeInfo`, `OptionDialState`, `OptionTabletToolKind`,
-`OverflowScrolling`). CallbackInfo: 281 -> 304 functions. All via `autofix add`/`apply` only.
-
-Rust changes this forced, each a real FFI defect:
-  - `HapticTarget` was `#[repr(C)]` with a data variant (`Gamepad(u32)`); a data-carrying enum
-    needs `#[repr(C, u8)]` or its layout is undefined across the boundary.
-  - `ScrollNodeInfo` had NO repr at all and was returned through the C API.
-  - `OptionDialState` / `OptionTabletToolKind` / `OptionScrollNodeInfo` were referenced by api.json
-    but never defined in Rust - codegen emitted calls to types that did not exist.
-
-TOOLING TRAPS (cost real time, worth knowing):
-  - `autofix add` PRINTS only `fn name(&self) -> T`, never the arguments. The generated patch has
-    them and is correct. I nearly "fixed" a non-bug: verify against the patch JSON, not the console.
-  - Every `autofix add` WIPES `target/autofix/patches` first (main.rs:1104), so a loop that adds N
-    then applies once applies only the LAST. Add and apply one at a time.
-  - `zsh` does not word-split unquoted variables: `for m in $METHODS` iterates ONCE over the whole
-    string. Use an array. (Also `$PIPESTATUS[0]` is bash; zsh is `$pipestatus[1]` - it silently
-    yielded an EMPTY exit code, which reads as success.)
-  - The FFI checker validates TYPES but not the Option wrappers codegen derives from them, so
-    `autofix` reported ZERO errors on api.json that then generated `AzOption(usize, usize)` and
-    calls to a nonexistent `AzOptionDialState`. api.json being clean does NOT mean the bindings
-    build - always run `codegen all` + a dll check.
-  - Removing a method does NOT remove the types it dragged in; they linger and keep failing the
-    checker. `autofix difficult remove <Type>` is the only way out.
-  - api.json docs must be ASCII: an em-dash in a Rust doc comment is a HARD checker error, so 15
-    doc lines across 12 methods had to be de-dashed and the methods re-added.
-
+- [ ] 9g-i-d-a Mobile gamepad rumble. Android exposes it through
+      `InputDevice.getVibrator()`/`VibratorManager` (per-device, and subject to the same VIBRATE
+      permission question as 9g-i-a); iOS/tvOS through `GCController.haptics`, which is a
+      CoreHaptics engine per controller rather than a fire-and-forget call and so does not fit the
+      current drain shape without a per-pad engine cache. Neither shares gilrs, so neither is a
+      few lines on top of this.
 - [x] 9g-ii-a DONE, per the ruling ("make new structs if needed"). Both accessors returned
       non-empty tuples, which have no C representation, so neither could be exposed and no
       binding could read an IME caret or a raw motion delta.

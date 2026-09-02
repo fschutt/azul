@@ -600,6 +600,38 @@ fn play_haptic_native(request: &azul_core::haptics::HapticRequest) {
     crate::desktop::shell2::android::play_haptic(request);
     #[cfg(target_os = "ios")]
     crate::desktop::shell2::ios::play_haptic(request);
+
+    // GAMEPAD RUMBLE (9g-i-d). Handled HERE rather than in each platform arm
+    // because the actuator is the CONTROLLER's, not the machine's: gilrs owns
+    // it identically on Windows, Linux and macOS, so a per-platform copy would
+    // be the same code three times. Every platform arm above skips
+    // `HapticTarget::Gamepad` for exactly this reason.
+    // `gamepad::desktop` is the gilrs backend and exists only off-mobile;
+    // Android and iOS use `InputDevice` / GameController, neither of which
+    // exposes rumble through this path (9g-i-d-a).
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    if let azul_core::haptics::HapticTarget::Gamepad(pad) = request.target {
+        use azul_core::haptics::HapticPattern;
+        // Which MOTOR, not how hard: a controller has a low-frequency motor
+        // that thuds and a high-frequency one that buzzes, and the pattern's
+        // weight picks between them. Driving both together is a different,
+        // muddier sensation rather than a louder one.
+        let strong = matches!(
+            request.pattern,
+            HapticPattern::ImpactHeavy
+                | HapticPattern::ImpactMedium
+                | HapticPattern::ImpactRigid
+                | HapticPattern::Error
+                | HapticPattern::Warning
+                | HapticPattern::LongPress
+        );
+        crate::desktop::extra::gamepad::desktop::rumble(
+            pad,
+            request.intensity_clamped(),
+            request.duration_ms,
+            strong,
+        );
+    }
 }
 
 fn apply_focus_restyle(

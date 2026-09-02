@@ -1868,6 +1868,13 @@ pub fn run(
     // in the same breath.
     registry::drain_closed_windows();
 
+    // Silence controller motors before anything else. A rumble is the one
+    // input effect that can OUTLIVE the process - the OS does not always reset
+    // an actuator when its owner exits - so a pad would keep buzzing after the
+    // last window closed, and `std::process::exit` below runs no destructors
+    // that could catch it.
+    crate::desktop::extra::gamepad::stop_all_rumble();
+
     // Handle termination behavior
     match config.termination_behavior {
         AppTerminationBehavior::EndProcess => {
