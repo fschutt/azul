@@ -45444,6 +45444,54 @@
                                         "Title text font weight (400 = normal, 600 = semibold, 700 = bold)"
                                     ]
                                 }
+                            },
+                            {
+                                "background_active": {
+                                    "type": "OptionColorU",
+                                    "doc": [
+                                        "The titlebar's own background while the window HAS focus."
+                                    ]
+                                }
+                            },
+                            {
+                                "background_inactive": {
+                                    "type": "OptionColorU",
+                                    "doc": [
+                                        "The titlebar's background while the window does NOT have focus."
+                                    ]
+                                }
+                            },
+                            {
+                                "text_active": {
+                                    "type": "OptionColorU",
+                                    "doc": [
+                                        "Title text colour while focused."
+                                    ]
+                                }
+                            },
+                            {
+                                "text_inactive": {
+                                    "type": "OptionColorU",
+                                    "doc": [
+                                        "Title text colour while unfocused."
+                                    ]
+                                }
+                            },
+                            {
+                                "button_hover_background": {
+                                    "type": "OptionColorU",
+                                    "doc": [
+                                        "Background a window-control button takes on hover."
+                                    ]
+                                }
+                            },
+                            {
+                                "close_button_hover_background": {
+                                    "type": "OptionColorU",
+                                    "doc": [
+                                        "Background the CLOSE button takes on hover - its own colour on every platform."
+                                    ]
+                                }
                             }
                         ],
                         "constructors": {

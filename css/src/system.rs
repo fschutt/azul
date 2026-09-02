@@ -657,6 +657,27 @@ pub struct TitlebarMetrics {
     pub title_font_size: OptionF32,
     /// Title text font weight (400 = normal, 600 = semibold, 700 = bold)
     pub title_font_weight: OptionU16,
+    /// The titlebar's own background while the window HAS focus.
+    ///
+    /// A titlebar is not painted in the window background: every desktop gives
+    /// it its own pair of colours and dims them when focus leaves (KDE keeps
+    /// them in `Colors:Header` and `[Colors:Header][Inactive]`). Without these
+    /// a client-side decoration can match the platform's geometry and still
+    /// read as foreign, because the one surface the user compares against the
+    /// neighbouring native windows is the wrong colour.
+    pub background_active: OptionColorU,
+    /// The titlebar's background while the window does NOT have focus.
+    pub background_inactive: OptionColorU,
+    /// Title text colour while focused.
+    pub text_active: OptionColorU,
+    /// Title text colour while unfocused.
+    pub text_inactive: OptionColorU,
+    /// Background a window-control button takes on hover.
+    pub button_hover_background: OptionColorU,
+    /// Background the CLOSE button takes on hover — its own colour on every
+    /// platform (Breeze and Windows both go red), which is why it is not
+    /// folded into `button_hover_background`.
+    pub close_button_hover_background: OptionColorU,
 }
 
 impl Default for TitlebarMetrics {
@@ -675,6 +696,12 @@ impl Default for TitlebarMetrics {
             title_font: OptionString::None,
             title_font_size: OptionF32::Some(13.0),
             title_font_weight: OptionU16::Some(600), // Semibold
+            background_active: OptionColorU::None,
+            background_inactive: OptionColorU::None,
+            text_active: OptionColorU::None,
+            text_inactive: OptionColorU::None,
+            button_hover_background: OptionColorU::None,
+            close_button_hover_background: OptionColorU::None,
         }
     }
 }
@@ -698,6 +725,12 @@ impl TitlebarMetrics {
             title_font: OptionString::Some("Segoe UI Variable Text".into()),
             title_font_size: OptionF32::Some(12.0),
             title_font_weight: OptionU16::Some(400), // Normal
+            background_active: OptionColorU::None,
+            background_inactive: OptionColorU::None,
+            text_active: OptionColorU::None,
+            text_inactive: OptionColorU::None,
+            button_hover_background: OptionColorU::None,
+            close_button_hover_background: OptionColorU::None,
         }
     }
 
@@ -719,6 +752,12 @@ impl TitlebarMetrics {
             title_font: OptionString::Some(".SF NS".into()),
             title_font_size: OptionF32::Some(13.0),
             title_font_weight: OptionU16::Some(600), // Semibold
+            background_active: OptionColorU::None,
+            background_inactive: OptionColorU::None,
+            text_active: OptionColorU::None,
+            text_inactive: OptionColorU::None,
+            button_hover_background: OptionColorU::None,
+            close_button_hover_background: OptionColorU::None,
         }
     }
 
@@ -740,6 +779,12 @@ impl TitlebarMetrics {
             title_font: OptionString::Some("Cantarell".into()),
             title_font_size: OptionF32::Some(11.0),
             title_font_weight: OptionU16::Some(700), // Bold
+            background_active: OptionColorU::None,
+            background_inactive: OptionColorU::None,
+            text_active: OptionColorU::None,
+            text_inactive: OptionColorU::None,
+            button_hover_background: OptionColorU::None,
+            close_button_hover_background: OptionColorU::None,
         }
     }
 
@@ -767,6 +812,12 @@ impl TitlebarMetrics {
             title_font: OptionString::Some(".SFUI-Semibold".into()),
             title_font_size: OptionF32::Some(17.0),
             title_font_weight: OptionU16::Some(600),
+            background_active: OptionColorU::None,
+            background_inactive: OptionColorU::None,
+            text_active: OptionColorU::None,
+            text_inactive: OptionColorU::None,
+            button_hover_background: OptionColorU::None,
+            close_button_hover_background: OptionColorU::None,
         }
     }
 
@@ -788,6 +839,12 @@ impl TitlebarMetrics {
             title_font: OptionString::Some("Roboto Medium".into()),
             title_font_size: OptionF32::Some(20.0),
             title_font_weight: OptionU16::Some(500),
+            background_active: OptionColorU::None,
+            background_inactive: OptionColorU::None,
+            text_active: OptionColorU::None,
+            text_inactive: OptionColorU::None,
+            button_hover_background: OptionColorU::None,
+            close_button_hover_background: OptionColorU::None,
         }
     }
 }

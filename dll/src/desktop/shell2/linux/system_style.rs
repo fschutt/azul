@@ -632,12 +632,19 @@ impl KdeIni {
                 // normal colour).
                 if let Some(end) = rest.find(']') {
                     let base = &rest[..end];
-                    let qualified = rest[end + 1..].contains('[');
-                    group = if qualified {
-                        // Park qualified groups under a name nothing reads.
-                        alloc::format!("{base}::qualified")
-                    } else {
+                    // `[Colors:Header][Inactive]` — the trailing qualifier is
+                    // a STATE, and it must not overwrite the plain group. Kept
+                    // addressable as `Colors:Header|Inactive` rather than
+                    // discarded: an unfocused titlebar's colours live in
+                    // exactly these groups, and a CSD titlebar needs them.
+                    let qualifier = rest[end + 1..]
+                        .trim()
+                        .trim_start_matches('[')
+                        .trim_end_matches(']');
+                    group = if qualifier.is_empty() {
                         base.to_string()
+                    } else {
+                        alloc::format!("{base}|{qualifier}")
                     };
                 }
                 continue;
@@ -1204,6 +1211,40 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
         Some(v) if v.trim().eq_ignore_ascii_case("true") => ScrollbarTrackClick::PageUpDown,
         _ => ScrollbarTrackClick::JumpToPosition,
     };
+
+    // ── Titlebar colours (client-side decorations) ──────────────────
+    // KDE keeps the titlebar's palette in its own group, with a full
+    // state-qualified copy for the unfocused case — which is exactly what a
+    // CSD titlebar needs and what it could not match before: matching the
+    // platform's geometry while painting the wrong colour is what makes a
+    // client-decorated window read as foreign next to native neighbours.
+    if let Some(c) = read_kde_color("Colors:Header", "BackgroundNormal") {
+        style.metrics.titlebar.background_active = OptionColorU::Some(c);
+    }
+    if let Some(c) = read_kde_color("Colors:Header|Inactive", "BackgroundNormal") {
+        style.metrics.titlebar.background_inactive = OptionColorU::Some(c);
+    }
+    if let Some(c) = read_kde_color("Colors:Header", "ForegroundNormal") {
+        style.metrics.titlebar.text_active = OptionColorU::Some(c);
+    }
+    if let Some(c) = read_kde_color("Colors:Header|Inactive", "ForegroundNormal")
+        .or_else(|| read_kde_color("Colors:Header", "ForegroundInactive"))
+    {
+        style.metrics.titlebar.text_inactive = OptionColorU::Some(c);
+    }
+    // Breeze highlights a hovered control with the decoration-hover colour,
+    // and the CLOSE button with the palette's NEGATIVE colour (its red) —
+    // which is why close carries its own field rather than sharing one.
+    if let Some(c) = read_kde_color("Colors:Header", "DecorationHover")
+        .or_else(|| read_kde_color("Colors:Window", "DecorationHover"))
+    {
+        style.metrics.titlebar.button_hover_background = OptionColorU::Some(c);
+    }
+    if let Some(c) = read_kde_color("Colors:Window", "ForegroundNegative")
+        .or_else(|| read_kde_color("Colors:View", "ForegroundNegative"))
+    {
+        style.metrics.titlebar.close_button_hover_background = OptionColorU::Some(c);
+    }
 
     // ── Behaviour / motion ──────────────────────────────────────────
     // Plasma scales every animation by this factor; 0 means "instant", which
@@ -2012,6 +2053,16 @@ pub fn dump_discovered_style() -> String {
     );
     let _ = writeln!(
         o,
+        "titlebar_colors     bg {} / {}   text {} / {}   hover {}   close-hover {}",
+        c(&s.metrics.titlebar.background_active),
+        c(&s.metrics.titlebar.background_inactive),
+        c(&s.metrics.titlebar.text_active),
+        c(&s.metrics.titlebar.text_inactive),
+        c(&s.metrics.titlebar.button_hover_background),
+        c(&s.metrics.titlebar.close_button_hover_background)
+    );
+    let _ = writeln!(
+        o,
         "titlebar_buttons    close={} min={} max={}",
         s.metrics.titlebar.buttons.has_close,
         s.metrics.titlebar.buttons.has_minimize,
@@ -2101,11 +2152,13 @@ mod kde_ini_tests {
     /// A STATE-QUALIFIED group (`[Colors:Window][Inactive]`) describes an
     /// unfocused window, not the normal colour. Letting it land in the plain
     /// group would silently repaint every window with its inactive palette —
-    /// and kdeglobals ships several of these.
+    /// and kdeglobals ships several of these. It stays REACHABLE under
+    /// `base|qualifier`, because an unfocused titlebar's colours are exactly
+    /// what a CSD decoration needs.
     ///
     /// NEGATIVE CONTROL: parse the qualified header as its base group.
     #[test]
-    fn a_state_qualified_group_does_not_overwrite_the_plain_one() {
+    fn a_state_qualified_group_is_separate_but_reachable() {
         let ini = KdeIni::parse(
             "[Colors:Window]\nBackgroundNormal=42,46,50\n\n[Colors:Window][Inactive]\nBackgroundNormal=1,2,3\n",
         );
@@ -2113,6 +2166,11 @@ mod kde_ini_tests {
             ini.color("Colors:Window", "BackgroundNormal"),
             Some(ColorU::new_rgb(42, 46, 50)),
             "the [Inactive] variant must not become the window's normal colour"
+        );
+        assert_eq!(
+            ini.color("Colors:Window|Inactive", "BackgroundNormal"),
+            Some(ColorU::new_rgb(1, 2, 3)),
+            "the inactive palette must still be addressable"
         );
     }
 
@@ -2155,6 +2213,33 @@ mod kde_ini_tests {
         assert_eq!(
             titlebar_side_from_layout("close:appmenu"),
             TitlebarButtonSide::Left
+        );
+    }
+
+    /// A titlebar has its OWN palette, and a separate one for when the window
+    /// is unfocused — KDE keeps both in `Colors:Header`. A client-side
+    /// decoration that matches the platform's geometry but paints the window
+    /// background reads as foreign next to a native neighbour, so these have
+    /// to survive the parse as distinct groups.
+    #[test]
+    fn a_titlebar_carries_its_own_active_and_inactive_palette() {
+        let ini = KdeIni::parse(
+            "[Colors:Header]\nBackgroundNormal=49,54,59\nForegroundNormal=252,252,252\n\n\
+             [Colors:Header][Inactive]\nBackgroundNormal=42,46,50\n",
+        );
+        assert_eq!(
+            ini.color("Colors:Header", "BackgroundNormal"),
+            Some(ColorU::new_rgb(49, 54, 59)),
+            "the focused titlebar background"
+        );
+        assert_eq!(
+            ini.color("Colors:Header|Inactive", "BackgroundNormal"),
+            Some(ColorU::new_rgb(42, 46, 50)),
+            "the UNfocused titlebar background must be reachable and different"
+        );
+        assert_eq!(
+            ini.color("Colors:Header", "ForegroundNormal"),
+            Some(ColorU::new_rgb(252, 252, 252))
         );
     }
 

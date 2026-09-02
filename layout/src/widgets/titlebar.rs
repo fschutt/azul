@@ -230,16 +230,21 @@ impl Titlebar {
         let (padding_left, padding_right) =
             (half_btn + safe_left + pad_h, half_btn + safe_right + pad_h);
 
-        // Resolve title color from system style, with dark/light fallback
-        let title_color =
-            system_style
-                .colors
-                .text
-                .into_option()
-                .unwrap_or(match system_style.theme {
-                    system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
-                    system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
-                });
+        // The TITLEBAR's own text colour first: a titlebar is not painted in
+        // the window palette, and every desktop gives it its own pair
+        // (KDE's `Colors:Header`). Falling straight through to the window
+        // text made a client-side decoration the right shape in the wrong
+        // colour, which is exactly what makes it read as foreign beside a
+        // native neighbour. Window text, then the theme default, remain the
+        // fallbacks for a platform that states no titlebar colour.
+        let title_color = tm
+            .text_active
+            .into_option()
+            .or_else(|| system_style.colors.text.into_option())
+            .unwrap_or(match system_style.theme {
+                system::Theme::Dark => DEFAULT_TITLE_COLOR_DARK,
+                system::Theme::Light => DEFAULT_TITLE_COLOR_LIGHT,
+            });
 
         Self {
             title,
