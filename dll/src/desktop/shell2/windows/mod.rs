@@ -3492,6 +3492,18 @@ impl Win32Window {
                     (pi.rotation as f32) * core::f32::consts::PI / 180.0,
                     0,
                 );
+                // Which END of the stylus. `update_pen_state_full` takes
+                // `is_eraser` for the SAMPLE, but `tool_kind` is separate
+                // state and nothing set it here, so `get_pen_tool_kind()`
+                // answered `Unknown` on Windows however clearly the flag said
+                // otherwise. Same fact, same call, mirroring Wayland.
+                lw.gesture_drag_manager.set_pen_tool_kind(
+                    if (pi.penFlags & PEN_FLAG_ERASER) != 0 {
+                        azul_layout::managers::gesture::TabletToolKind::Eraser
+                    } else {
+                        azul_layout::managers::gesture::TabletToolKind::Stylus
+                    },
+                );
             }
         } else if ptype == PT_TOUCH {
             let get_touch = match self.win32.user32.GetPointerTouchInfo {

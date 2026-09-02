@@ -1794,6 +1794,20 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
                         0.0,
                         0,
                     );
+                    // Which END of the stylus. On X11 the eraser is a DEVICE
+                    // of its own, which is why membership of `eraser_devices`
+                    // is the whole test — but that fact only reached the
+                    // sample's `is_eraser`, never `tool_kind`, which is
+                    // separate state. So `get_pen_tool_kind()` answered
+                    // `Unknown` on X11 even though the device was already
+                    // classified at init.
+                    lw.gesture_drag_manager.set_pen_tool_kind(
+                        if win.eraser_devices.contains(&ev.sourceid) {
+                            azul_layout::managers::gesture::TabletToolKind::Eraser
+                        } else {
+                            azul_layout::managers::gesture::TabletToolKind::Stylus
+                        },
+                    );
                 }
             }
 

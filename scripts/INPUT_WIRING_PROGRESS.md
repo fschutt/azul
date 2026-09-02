@@ -600,8 +600,19 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [ ] 8d-ii The rename `WacomPadState` -> `TabletPadState` is NOT done — the protocol is not Wacom-specific
       and the type is in api.json, so the rename needs `azul-doc autofix` and a deprecation alias rather
       than a sed. Deferred to fix-up.
-- [ ] 8c-i `PenState.tool_kind` is fed only on Wayland. Win32 can distinguish pen vs eraser from
-      `PEN_FLAG_ERASER` and X11 from the device name; both currently leave it `Unknown`.
+- [x] 8c-i DONE. `tool_kind` is now fed on all three backends that have pen input.
+      Both backends ALREADY KNEW which end of the stylus it was and were already passing it —
+      Win32 reads `PEN_FLAG_ERASER` out of `POINTER_PEN_INFO` and X11 tests membership of
+      `eraser_devices` (on X11 the eraser is a DEVICE of its own, classified at
+      `init_xinput2`). Both handed that boolean to `update_pen_state_full` as the SAMPLE's
+      `is_eraser`, and stopped there.
+      `tool_kind` is separate state, set through `set_pen_tool_kind`, and only Wayland ever
+      called it. So `CallbackInfo::get_pen_tool_kind()` answered `Unknown` on Windows and X11
+      no matter how clearly the hardware had said "eraser" — the fact was in hand at the call
+      site and simply never assigned. One call each, from the same boolean, mirroring the
+      Wayland producer.
+      Host, Linux-target and Windows-target checks green; 8-target gate green; azul-layout 7553.
+      NOT runtime-verified — needs a real tablet on each platform.
 
 ### Follow-ups opened by 7c
 
