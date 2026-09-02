@@ -6796,10 +6796,14 @@ mod tests {
     // the field hid the placeholder and painted no caret, so the focused
     // field was a blank box. The class: the caret builder anchored the caret
     // to a text cluster, and an editable with NO text has none; with the
-    // placeholder hidden on focus there was nothing to see at all. The empty
-    // editable now gets the strut caret (content-box origin, one line tall)
-    // and the placeholder stays until the first character. This clicks the
-    // real widget and looks for the caret item.
+    // placeholder hidden on focus there was nothing to see at all.
+    //
+    // The FIX was the caret, not the prompt: an empty editable now gets the
+    // strut caret (content-box origin, one line tall), which is what marks the
+    // focused field. The prompt stays HIDDEN on focus — the 2026-08-31 ruling
+    // recorded on `focus_writes_no_placeholder_css_at_all`, and the rule
+    // TextArea always had. This clicks the real widget and looks for the caret
+    // item.
 
     extern "C" fn empty_text_input_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         use azul_layout::widgets::text_input::TextInput;
@@ -6874,11 +6878,28 @@ mod tests {
             c.size.height > 12.0,
             "an empty field keeps a line, not just its chrome: {c:?}"
         );
-        let placeholder = rects_by_class(&window, "__azul-native-text-input-placeholder");
+        // The PROMPT IS HIDDEN ON FOCUS, and that is the current rule — see the
+        // 2026-08-31 ruling recorded on `focus_writes_no_placeholder_css_at_all`
+        // in widgets/text_input.rs: "focusing an empty field HIDES its
+        // placeholder - the rule TextArea always had. The empty-editable strut
+        // caret marks the focused field, so the old blank-field concern is
+        // gone." The engine implements exactly that
+        // (`maybe_paint_placeholder_prompt` paints for an "EMPTY, unfocused"
+        // host and returns early on `is_focus_within_or_above`).
+        //
+        // This assertion used to demand the opposite — the 2026-08-21 reading,
+        // from before the strut caret existed — and it looked for a
+        // `__azul-native-text-input-placeholder` NODE, which the
+        // placeholder-as-engine-attribute refactor deleted. That class now
+        // appears nowhere else in the workspace, so the check could only ever
+        // find an empty list, whatever the engine painted.
+        //
+        // What makes the field non-blank is the CARET, asserted below; the
+        // whole point of the report this test came from.
         assert!(
-            placeholder.first().is_some_and(|r| r.size.height > 0.0),
-            "the placeholder stays visible while the focused field is empty (not hidden on focus): \
-             {placeholder:?}"
+            dl_texts(&window).is_empty(),
+            "a focused empty field paints no prompt text (2026-08-31 ruling): {:?}",
+            dl_texts(&window),
         );
         let carets = caret_items(&window);
         assert!(

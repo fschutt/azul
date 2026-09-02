@@ -1134,3 +1134,25 @@ FOUND AND FIXED HERE:
       caret and Ctrl+click multi-cursor demonstrably work on device, so a different path already
       drives them, and emitting these too could double-handle one click. Settle which path is
       authoritative first, then either wire these or delete the dead arms.
+- [x] PLACEHOLDER-ON-FOCUS: the headless test encoded a SUPERSEDED ruling and could never have
+      passed. Two independent problems in one assertion, neither of them an engine bug.
+      1. It looked for a `__azul-native-text-input-placeholder` NODE. The
+         placeholder-as-engine-attribute refactor deleted that node; the class now appears
+         NOWHERE else in the workspace, so `rects_by_class` could only ever return `[]`
+         whatever the engine painted.
+      2. It demanded the prompt stay visible on focus. That is the 2026-08-21 reading, from
+         before the strut caret existed. The CURRENT rule is the dated 2026-08-31 ruling
+         recorded on `focus_writes_no_placeholder_css_at_all`: "focusing an empty field HIDES
+         its placeholder - the rule TextArea always had. The empty-editable strut caret marks
+         the focused field, so the old blank-field concern is gone."
+      The engine agrees with the ruling and says so twice — `maybe_paint_placeholder_prompt`
+      documents itself as painting for an "EMPTY, unfocused" host and early-returns on
+      `is_focus_within_or_above`, whose own doc calls it "the engine placeholder's hide rule" —
+      and two widget tests pin it. Measured to be sure: before focus the field paints 1 Text
+      item with glyphs, after focus 0, and the caret is painted at 1x13.2 @ (31,30). So the
+      product behaves as ruled and the report the test came from (a BLANK focused box) is fixed
+      by the CARET, not by the prompt.
+      Updated the assertion to the current rule and corrected the test's header comment, which
+      still described the superseded one — the file contradicted itself.
+      EVIDENCE: azul-dll headless failures 2 -> 1. azul-core 2749, azul-layout 7555, host check
+      and 8-target gate green.
