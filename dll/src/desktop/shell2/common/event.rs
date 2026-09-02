@@ -9974,7 +9974,11 @@ pub trait PlatformWindow {
                             DefaultAction::FocusNext
                             | DefaultAction::FocusPrevious
                             | DefaultAction::FocusFirst
-                            | DefaultAction::FocusLast => {
+                            | DefaultAction::FocusLast
+                            | DefaultAction::FocusUp
+                            | DefaultAction::FocusDown
+                            | DefaultAction::FocusLeft
+                            | DefaultAction::FocusRight => {
                                 let focus_target =
                                     azul_layout::default_actions::default_action_to_focus_target(
                                         &default_action_result.action,
@@ -10194,6 +10198,58 @@ pub trait PlatformWindow {
                                 // Placeholder for future implementation
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // GAMEPAD DEFAULT ACTIONS (D-pad spatial navigation).
+        //
+        // Separate from the keyboard block because the trigger is separate:
+        // `FocusTarget::Directional` has always resolved, and nothing could
+        // ask for it. Arrow keys cannot be the ask — they scroll, and taking
+        // them would break every scroll container (item 9a-i, which waits on a
+        // CSS opt-out). A D-pad conflicts with nothing, so it can be bound now.
+        //
+        // The mask is drained unconditionally, not only under
+        // `!prevent_default`: it is an EDGE record, and leaving it unread
+        // would make a press vetoed in one pass fire in the next.
+        let gamepad_pressed = self
+            .get_layout_window_mut()
+            .map_or(0, |lw| lw.gamepad_manager.take_pending_pressed());
+        if !prevent_default && gamepad_pressed != 0 {
+            use azul_layout::managers::focus_cursor::{resolve_focus_target, FocusResolution};
+
+            let action =
+                azul_layout::default_actions::determine_gamepad_default_action(gamepad_pressed);
+            if let Some(focus_target) =
+                azul_layout::default_actions::default_action_to_focus_target(&action)
+            {
+                let focused_node = old_focus;
+                let out_of_scope = self
+                    .get_layout_window()
+                    .map(azul_layout::window::LayoutWindow::focus_out_of_scope_doms)
+                    .unwrap_or_default();
+                if let Some(layout_results) = self.get_layout_window().map(|lw| &lw.layout_results)
+                {
+                    let resolve_result = resolve_focus_target(
+                        &focus_target,
+                        layout_results,
+                        focused_node,
+                        &out_of_scope,
+                    );
+                    // As with Tab: nothing in that direction is a MISS, not a
+                    // clear. Walking into a wall must not drop focus.
+                    if let Ok(FocusResolution::Resolved(new_focus_node)) = resolve_result {
+                        let r = self.apply_system_change(&SystemChange::SetFocus {
+                            new_focus: Some(new_focus_node),
+                            old_focus: focused_node,
+                            // A D-pad is a keyboard-class navigation device,
+                            // so the focus ring must show.
+                            visible: true,
+                        });
+                        result = result.max(r);
+                        default_action_focus_changed = true;
                     }
                 }
             }

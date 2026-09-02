@@ -1333,6 +1333,20 @@ pub enum DefaultAction {
     FocusFirst,
     /// Move focus to the last focusable element
     FocusLast,
+    /// Move focus SPATIALLY — to the nearest focusable element in that
+    /// direction, rather than the next one in document order.
+    ///
+    /// Tab order is a single sequence; a D-pad, a TV remote and spatial
+    /// navigation all ask a different question ("what is above this?"), which
+    /// `FocusTarget::Directional` already answered and nothing could request.
+    ///
+    /// NOT bound to the arrow keys: those scroll, and taking them
+    /// unconditionally would break every scroll container. That binding waits
+    /// on the CSS opt-out (item 9a-i); a D-pad has no such conflict.
+    FocusUp,
+    FocusDown,
+    FocusLeft,
+    FocusRight,
     /// Clear focus from the currently focused element (Escape key)
     ClearFocus,
     /// Activate the focused element (Enter/Space on activatable elements)

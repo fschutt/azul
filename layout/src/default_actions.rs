@@ -37,7 +37,7 @@
 use crate::window::DomLayoutResult;
 use alloc::vec::Vec;
 use azul_core::{
-    callbacks::FocusTarget,
+    callbacks::{FocusDirection, FocusTarget},
     dom::{DomId, DomNodeId, NodeId},
     events::{DefaultAction, DefaultActionResult, ScrollAmount, ScrollDirection},
     window::{KeyboardState, VirtualKeyCode},
@@ -312,6 +312,41 @@ fn is_text_input(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, DomLayout
         .any(|cb| matches!(cb.event, EventFilter::Focus(FocusEventFilter::TextInput)))
 }
 
+/// The default action a gamepad button press asks for.
+///
+/// `pressed` is an EDGE mask — buttons that went down since the last pass, as
+/// `GamepadManager::take_pending_pressed` reports them. A level mask would
+/// move focus once per poll for as long as the D-pad is held.
+///
+/// Only the D-pad is bound, and deliberately: it is the one control whose
+/// meaning is unambiguously "move in this direction" and which conflicts with
+/// nothing. Arrow keys scroll, so binding THEM needs the CSS opt-out that item
+/// 9a-i describes; a D-pad has no such conflict, which is why this half could
+/// land first. The face buttons are not bound either — "A activates" is a
+/// platform convention (it is B on Nintendo layouts), not something to
+/// hardcode here.
+///
+/// Diagonals resolve to a single direction rather than none: pressing up and
+/// right together in one pass is a real thing a thumb does, and answering
+/// `None` would make the D-pad feel dead at exactly the moment the user is
+/// moving fastest. Vertical wins, because a spatial-navigation grid is
+/// conventionally row-major.
+#[must_use]
+pub const fn determine_gamepad_default_action(pressed: u32) -> DefaultAction {
+    use azul_core::gamepad::GamepadButton;
+    if (pressed & GamepadButton::DPadUp.bit()) != 0 {
+        DefaultAction::FocusUp
+    } else if (pressed & GamepadButton::DPadDown.bit()) != 0 {
+        DefaultAction::FocusDown
+    } else if (pressed & GamepadButton::DPadLeft.bit()) != 0 {
+        DefaultAction::FocusLeft
+    } else if (pressed & GamepadButton::DPadRight.bit()) != 0 {
+        DefaultAction::FocusRight
+    } else {
+        DefaultAction::None
+    }
+}
+
 /// Convert a `DefaultAction` to a `FocusTarget` for the focus manager.
 ///
 /// This bridges the gap between the abstract `DefaultAction` and the
@@ -323,6 +358,13 @@ pub const fn default_action_to_focus_target(action: &DefaultAction) -> Option<Fo
         DefaultAction::FocusPrevious => Some(FocusTarget::Previous),
         DefaultAction::FocusFirst => Some(FocusTarget::First),
         DefaultAction::FocusLast => Some(FocusTarget::Last),
+        // Spatial navigation. `resolve_focus_target` has handled
+        // `Directional` since it was written — the gap was that no
+        // `DefaultAction` could ask for it.
+        DefaultAction::FocusUp => Some(FocusTarget::Directional(FocusDirection::Up)),
+        DefaultAction::FocusDown => Some(FocusTarget::Directional(FocusDirection::Down)),
+        DefaultAction::FocusLeft => Some(FocusTarget::Directional(FocusDirection::Left)),
+        DefaultAction::FocusRight => Some(FocusTarget::Directional(FocusDirection::Right)),
         DefaultAction::ClearFocus => Some(FocusTarget::NoFocus),
         _ => None,
     }
@@ -1417,6 +1459,10 @@ mod autotest_generated {
             DefaultAction::FocusPrevious,
             DefaultAction::FocusFirst,
             DefaultAction::FocusLast,
+            DefaultAction::FocusUp,
+            DefaultAction::FocusDown,
+            DefaultAction::FocusLeft,
+            DefaultAction::FocusRight,
             DefaultAction::ClearFocus,
             DefaultAction::ActivateFocusedElement { target: node },
             DefaultAction::SubmitForm { form_node: node },
@@ -1448,10 +1494,74 @@ mod autotest_generated {
             (DefaultAction::FocusPrevious, FocusTarget::Previous),
             (DefaultAction::FocusFirst, FocusTarget::First),
             (DefaultAction::FocusLast, FocusTarget::Last),
+            (
+                DefaultAction::FocusUp,
+                FocusTarget::Directional(FocusDirection::Up),
+            ),
+            (
+                DefaultAction::FocusDown,
+                FocusTarget::Directional(FocusDirection::Down),
+            ),
+            (
+                DefaultAction::FocusLeft,
+                FocusTarget::Directional(FocusDirection::Left),
+            ),
+            (
+                DefaultAction::FocusRight,
+                FocusTarget::Directional(FocusDirection::Right),
+            ),
             (DefaultAction::ClearFocus, FocusTarget::NoFocus),
         ] {
             assert_eq!(default_action_to_focus_target(&action), Some(target));
         }
+    }
+
+    /// Each D-pad direction asks for the matching spatial move, and nothing
+    /// else on the pad asks for anything.
+    #[test]
+    fn the_dpad_drives_spatial_focus_and_the_rest_of_the_pad_does_not() {
+        use azul_core::gamepad::GamepadButton;
+        for (button, want) in [
+            (GamepadButton::DPadUp, DefaultAction::FocusUp),
+            (GamepadButton::DPadDown, DefaultAction::FocusDown),
+            (GamepadButton::DPadLeft, DefaultAction::FocusLeft),
+            (GamepadButton::DPadRight, DefaultAction::FocusRight),
+        ] {
+            assert_eq!(determine_gamepad_default_action(button.bit()), want);
+        }
+        // Nothing pressed asks for nothing.
+        assert_eq!(determine_gamepad_default_action(0), DefaultAction::None);
+        // The face buttons are deliberately unbound: "A activates" is a
+        // platform convention (it is B on Nintendo layouts), not a fact.
+        for button in [
+            GamepadButton::South,
+            GamepadButton::East,
+            GamepadButton::North,
+            GamepadButton::West,
+        ] {
+            assert_eq!(
+                determine_gamepad_default_action(button.bit()),
+                DefaultAction::None,
+                "{button:?} must not move focus",
+            );
+        }
+    }
+
+    /// A diagonal must still move, rather than answering "nothing" at the
+    /// moment the user is moving fastest.
+    #[test]
+    fn a_diagonal_dpad_press_resolves_to_one_direction() {
+        use azul_core::gamepad::GamepadButton;
+        let up_right = GamepadButton::DPadUp.bit() | GamepadButton::DPadRight.bit();
+        assert_eq!(
+            determine_gamepad_default_action(up_right),
+            DefaultAction::FocusUp,
+        );
+        let down_left = GamepadButton::DPadDown.bit() | GamepadButton::DPadLeft.bit();
+        assert_eq!(
+            determine_gamepad_default_action(down_left),
+            DefaultAction::FocusDown,
+        );
     }
 
     #[test]
@@ -1463,6 +1573,10 @@ mod autotest_generated {
                     | DefaultAction::FocusPrevious
                     | DefaultAction::FocusFirst
                     | DefaultAction::FocusLast
+                    | DefaultAction::FocusUp
+                    | DefaultAction::FocusDown
+                    | DefaultAction::FocusLeft
+                    | DefaultAction::FocusRight
                     | DefaultAction::ClearFocus
             );
             let mapped = default_action_to_focus_target(&action);
@@ -1485,7 +1599,12 @@ mod autotest_generated {
             .iter()
             .filter_map(default_action_to_focus_target)
             .collect();
-        assert_eq!(mapped.len(), 5, "exactly five actions move focus");
+        assert_eq!(
+            mapped.len(),
+            9,
+            "nine actions move focus: next/previous/first/last, the four \
+             directional ones, and clear",
+        );
         let mut deduped = mapped.clone();
         deduped.sort();
         deduped.dedup();

@@ -352,13 +352,46 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 9a
 
-- [ ] 9a-i Nothing DRIVES `FocusTarget::Directional` yet — it is reachable from the API
-      (`CallbackInfo::set_focus`) but no key is bound to it. Arrow keys currently scroll, and stealing them
-      unconditionally would break every scroll container, so this needs the CSS opt-out the audit describes
-      (a `-azul-spatial-navigation: auto|none` or equivalent) before a default binding is safe. A D-pad or
-      TV remote has no such conflict and could be bound now.
-- [ ] 9a-ii `DefaultAction` has `FocusNext`/`FocusPrevious`/`FocusFirst`/`FocusLast` but no directional
-      variants; add four once 9a-i decides the trigger.
+- [x] 9a-ii DONE. `DefaultAction` gains `FocusUp`/`FocusDown`/`FocusLeft`/`FocusRight`, mapped
+      by `default_action_to_focus_target` onto `FocusTarget::Directional(..)`.
+      NOTE: `DefaultAction` is NOT an api.json type (only `FocusTarget` and `FocusDirection`
+      are), so this needed no autofix pass — checked before touching it.
+- [x] 9a-i DONE for the half that had no conflict: the GAMEPAD D-PAD now drives spatial focus.
+      `resolve_focus_target` has handled `Directional` since it was written (`next_in_direction`
+      in focus_cursor.rs) — the gap was that no `DefaultAction` could ask for it, so a resolver
+      with a real implementation sat unreachable behind a missing 4-variant enum arm.
+      `determine_gamepad_default_action` maps the four D-pad bits; the dll seam resolves and
+      applies it exactly the way Tab does, including "nothing in that direction is a MISS, not a
+      clear" so walking into a wall does not drop focus.
+      THE HARD PART WAS THE EDGE, NOT THE MAPPING: a pad is polled at ~60 Hz and reports a HELD
+      button in every snapshot, so a consumer reading `buttons` cannot tell a fresh press from a
+      held one and focus would run away across the UI while the D-pad is down. Only
+      `GamepadManager::set_state` sees both the old and new bitset, so the edge is computed there
+      into `pending_pressed` and drained by `take_pending_pressed()` — the same shape as the
+      existing `pending_hotplug`, and separate from `pending_event` for the same reason (that
+      one coalesces). The mask is drained UNCONDITIONALLY, not only under `!prevent_default`,
+      or a press vetoed in one pass would fire in the next.
+      Face buttons deliberately NOT bound: "A activates" is a platform convention (it is B on
+      Nintendo layouts), not a fact to hardcode. Diagonals resolve to one direction rather than
+      to nothing, vertical first — answering `None` would make the D-pad feel dead exactly when
+      the thumb is moving fastest.
+      EVIDENCE: `the_dpad_drives_spatial_focus_and_the_rest_of_the_pad_does_not`,
+      `a_diagonal_dpad_press_resolves_to_one_direction`,
+      `pending_pressed_is_an_edge_and_a_held_button_does_not_repeat` (5 polls of a held button
+      produce no further edges), `pending_pressed_accumulates_until_drained`, plus the existing
+      completeness guards updated to cover the 4 new actions (`mapping_is_injective_over_the_
+      focus_actions` now asserts 9). Host check green, 8-target gate green, azul-core 2741,
+      azul-layout 7519 passed with its 20 pre-existing failures unchanged.
+- [ ] 9a-i-a ARROW KEYS for spatial navigation — still blocked, and still on a product decision,
+      not on plumbing. Everything downstream now exists (the actions, the mapping, the
+      resolver), so this is purely "when may an arrow key mean focus instead of scroll". Needs
+      the CSS opt-out the audit describes (`-azul-spatial-navigation: auto|none` or equivalent);
+      binding them unconditionally would break every scroll container.
+      Note that on Android the D-pad ALREADY arrives as arrow keys on the keyboard path
+      (`Keycode::DpadLeft => V::Left` in android/mod.rs), so a TV remote there is
+      indistinguishable from an arrow key at this layer and is covered by this item, not by the
+      gamepad path above — which reaches it as `GamepadButton::DPad*` through
+      `extra/gamepad/android.rs` instead.
 
 ### Follow-ups opened by 8e/8f
 

@@ -48,6 +48,15 @@ pub struct GamepadManager {
     /// [`take_pending_hotplug`](Self::take_pending_hotplug) into
     /// `EventType::DeviceConnected` / `DeviceDisconnected`.
     pending_hotplug: Vec<bool>,
+    /// Buttons that went from released to pressed since the last drain, OR-ed
+    /// across every pad.
+    ///
+    /// An EDGE, not a level: holding the D-pad must move focus once, not once
+    /// per poll at ~60 Hz. The manager is the only place that sees both the
+    /// old and the new bitset, so it is the only place the edge can be
+    /// computed — a consumer reading `buttons` sees a level and cannot tell a
+    /// fresh press from a held one.
+    pending_pressed: u32,
 }
 
 impl GamepadManager {
@@ -88,6 +97,7 @@ impl GamepadManager {
             if slot.connected != state.connected {
                 self.pending_hotplug.push(state.connected);
             }
+            self.pending_pressed |= state.buttons & !slot.buttons;
             *slot = state;
             changed
         } else {
@@ -97,6 +107,9 @@ impl GamepadManager {
             if state.connected {
                 self.pending_hotplug.push(true);
             }
+            // Every button already held on the first sighting is an edge: we
+            // have no earlier bitset to have seen it go down against.
+            self.pending_pressed |= state.buttons;
             self.pads.push(state);
             true
         };
@@ -120,6 +133,18 @@ impl GamepadManager {
     /// has collected the `GamepadInput` event.
     pub const fn clear_pending_event(&mut self) {
         self.pending_event = false;
+    }
+
+    /// Drain the buttons that went down since the last call.
+    ///
+    /// Kept separate from `pending_event`, which coalesces: a pad can press a
+    /// button and move a stick in the same pass, and the press must not be
+    /// lost behind the state change — the same reason `pending_hotplug` is
+    /// separate.
+    pub const fn take_pending_pressed(&mut self) -> u32 {
+        let out = self.pending_pressed;
+        self.pending_pressed = 0;
+        out
     }
 
     /// Relayout walk reports whether any node listens for `GamepadInput`.
@@ -1184,6 +1209,67 @@ mod autotest_generated {
             mgr.get_pending_events(ts(0)).len(),
             1,
             "disarming must not swallow an already-pending event"
+        );
+    }
+
+    /// `take_pending_pressed` reports an EDGE, not a level.
+    ///
+    /// The distinction is the whole reason it lives in the manager: a pad is
+    /// polled at ~60 Hz and reports a HELD button in every snapshot, so a
+    /// consumer reading `buttons` cannot tell a fresh press from a held one
+    /// and spatial focus would run away across the UI while the D-pad is down.
+    #[test]
+    fn pending_pressed_is_an_edge_and_a_held_button_does_not_repeat() {
+        use azul_core::gamepad::GamepadButton;
+        let mut m = GamepadManager::new();
+        let mut st = GamepadState::default();
+        st.connected = true;
+
+        // First sighting with the button already held counts as an edge:
+        // there is no earlier bitset it could have gone down against.
+        st.buttons = GamepadButton::DPadUp.bit();
+        m.set_state(st.clone());
+        assert_eq!(m.take_pending_pressed(), GamepadButton::DPadUp.bit());
+        // Drained.
+        assert_eq!(m.take_pending_pressed(), 0);
+
+        // Still held over several polls -> no further edges.
+        for _ in 0..5 {
+            m.set_state(st.clone());
+            assert_eq!(m.take_pending_pressed(), 0, "a held button must not re-fire");
+        }
+
+        // Release is not a press.
+        st.buttons = 0;
+        m.set_state(st.clone());
+        assert_eq!(m.take_pending_pressed(), 0);
+
+        // Pressed again -> one new edge.
+        st.buttons = GamepadButton::DPadUp.bit();
+        m.set_state(st.clone());
+        assert_eq!(m.take_pending_pressed(), GamepadButton::DPadUp.bit());
+    }
+
+    /// Edges accumulate across pads and across polls until they are drained —
+    /// a press must not be lost because another pad reported in the same pass.
+    #[test]
+    fn pending_pressed_accumulates_until_drained() {
+        use azul_core::gamepad::GamepadButton;
+        let mut m = GamepadManager::new();
+        let mut a = GamepadState::default();
+        a.id = GamepadId { id: 0 };
+        a.connected = true;
+        a.buttons = GamepadButton::DPadLeft.bit();
+        let mut b = GamepadState::default();
+        b.id = GamepadId { id: 1 };
+        b.connected = true;
+        b.buttons = GamepadButton::DPadRight.bit();
+
+        m.set_state(a);
+        m.set_state(b);
+        assert_eq!(
+            m.take_pending_pressed(),
+            GamepadButton::DPadLeft.bit() | GamepadButton::DPadRight.bit(),
         );
     }
 }
