@@ -207,6 +207,30 @@ pub struct Wayland {
         unsafe extern "C" fn(*mut wl_touch, *const wl_touch_listener, *mut c_void) -> i32,
     pub zwp_tablet_manager_v2_get_tablet_seat:
         unsafe extern "C" fn(*mut zwp_tablet_manager_v2, *mut wl_seat) -> *mut zwp_tablet_seat_v2,
+    pub zwp_relative_pointer_manager_v1_get_relative_pointer:
+        unsafe extern "C" fn(
+            *mut zwp_relative_pointer_manager_v1,
+            *mut wl_pointer,
+        ) -> *mut zwp_relative_pointer_v1,
+    pub zwp_relative_pointer_v1_add_listener: unsafe extern "C" fn(
+        *mut zwp_relative_pointer_v1,
+        *const zwp_relative_pointer_v1_listener,
+        *mut c_void,
+    ) -> i32,
+    pub zwp_relative_pointer_v1_destroy: unsafe extern "C" fn(*mut zwp_relative_pointer_v1),
+    pub zwp_pointer_constraints_v1_lock_pointer: unsafe extern "C" fn(
+        *mut zwp_pointer_constraints_v1,
+        *mut wl_surface,
+        *mut wl_pointer,
+        *mut wl_region,
+        u32,
+    ) -> *mut zwp_locked_pointer_v1,
+    pub zwp_locked_pointer_v1_add_listener: unsafe extern "C" fn(
+        *mut zwp_locked_pointer_v1,
+        *const zwp_locked_pointer_v1_listener,
+        *mut c_void,
+    ) -> i32,
+    pub zwp_locked_pointer_v1_destroy: unsafe extern "C" fn(*mut zwp_locked_pointer_v1),
     pub zwp_pointer_gestures_v1_get_swipe_gesture:
         unsafe extern "C" fn(
             *mut zwp_pointer_gestures_v1,
@@ -561,6 +585,17 @@ impl Wayland {
             wl_seat_get_touch: wl_seat_get_touch_impl,
             wl_touch_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             zwp_tablet_manager_v2_get_tablet_seat: zwp_tablet_manager_v2_get_tablet_seat_impl,
+            zwp_relative_pointer_manager_v1_get_relative_pointer:
+                zwp_relative_pointer_manager_v1_get_relative_pointer_impl,
+            zwp_relative_pointer_v1_add_listener: unsafe {
+                std::mem::transmute(wl_proxy_add_listener_ptr)
+            },
+            zwp_relative_pointer_v1_destroy: zwp_relative_pointer_v1_destroy_impl,
+            zwp_pointer_constraints_v1_lock_pointer: zwp_pointer_constraints_v1_lock_pointer_impl,
+            zwp_locked_pointer_v1_add_listener: unsafe {
+                std::mem::transmute(wl_proxy_add_listener_ptr)
+            },
+            zwp_locked_pointer_v1_destroy: zwp_locked_pointer_v1_destroy_impl,
             zwp_pointer_gestures_v1_get_swipe_gesture: zwp_pointer_gestures_v1_get_swipe_impl,
             zwp_pointer_gestures_v1_get_pinch_gesture: zwp_pointer_gestures_v1_get_pinch_impl,
             zwp_pointer_gestures_v1_get_hold_gesture: zwp_pointer_gestures_v1_get_hold_impl,
@@ -1003,6 +1038,80 @@ pointer_gesture_ctor!(
     get_pointer_gesture_hold_v1_interface,
     zwp_pointer_gesture_hold_v1
 );
+
+// ===== pointer lock: relative-pointer + pointer-constraints =====
+
+unsafe extern "C" fn zwp_relative_pointer_manager_v1_get_relative_pointer_impl(
+    mgr: *mut zwp_relative_pointer_manager_v1,
+    pointer: *mut wl_pointer,
+) -> *mut zwp_relative_pointer_v1 {
+    let c = ctx();
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+        *mut wl_pointer,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(
+        mgr as *mut wl_proxy,
+        ZWP_RELATIVE_POINTER_MANAGER_V1_GET_RELATIVE_POINTER,
+        get_relative_pointer_v1_interface(),
+        std::ptr::null_mut(),
+        pointer,
+    ) as *mut zwp_relative_pointer_v1
+}
+
+/// `lock_pointer(id, surface, pointer, region, lifetime)`.
+///
+/// Five arguments rather than the usual one, so the gesture ctor macro does
+/// not fit. `region` is NULLABLE and is passed null here: a null region means
+/// "the whole surface", which is what a pointer lock wants.
+unsafe extern "C" fn zwp_pointer_constraints_v1_lock_pointer_impl(
+    constraints: *mut zwp_pointer_constraints_v1,
+    surface: *mut wl_surface,
+    pointer: *mut wl_pointer,
+    region: *mut wl_region,
+    lifetime: u32,
+) -> *mut zwp_locked_pointer_v1 {
+    let c = ctx();
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+        *mut wl_surface,
+        *mut wl_pointer,
+        *mut wl_region,
+        u32,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(
+        constraints as *mut wl_proxy,
+        ZWP_POINTER_CONSTRAINTS_V1_LOCK_POINTER,
+        get_locked_pointer_v1_interface(),
+        std::ptr::null_mut(),
+        surface,
+        pointer,
+        region,
+        lifetime,
+    ) as *mut zwp_locked_pointer_v1
+}
+
+unsafe extern "C" fn zwp_locked_pointer_v1_destroy_impl(p: *mut zwp_locked_pointer_v1) {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(c.marshal);
+    f(p as *mut wl_proxy, ZWP_LOCKED_POINTER_V1_DESTROY);
+    let d: unsafe extern "C" fn(*mut wl_proxy) = std::mem::transmute(c.proxy_destroy);
+    d(p as *mut wl_proxy);
+}
+
+unsafe extern "C" fn zwp_relative_pointer_v1_destroy_impl(p: *mut zwp_relative_pointer_v1) {
+    let c = ctx();
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(c.marshal);
+    f(p as *mut wl_proxy, ZWP_RELATIVE_POINTER_V1_DESTROY);
+    let d: unsafe extern "C" fn(*mut wl_proxy) = std::mem::transmute(c.proxy_destroy);
+    d(p as *mut wl_proxy);
+}
 
 unsafe extern "C" fn zwp_tablet_manager_v2_get_tablet_seat_impl(
     mgr: *mut zwp_tablet_manager_v2,

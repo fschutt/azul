@@ -2769,6 +2769,242 @@ pub struct zwp_pointer_gesture_hold_v1_listener {
     pub end: extern "C" fn(*mut c_void, *mut zwp_pointer_gesture_hold_v1, u32, u32, i32),
 }
 
+// ===== zwp_relative_pointer_v1 + zwp_pointer_constraints_v1 =====
+//
+// The two halves of pointer lock on Wayland, and they are genuinely a pair:
+// constraints stop the cursor moving, relative-pointer supplies the deltas
+// that replace it. A lock without deltas gives a frozen cursor and no input;
+// deltas without a lock stop at the screen edge like ordinary motion. There is
+// no `XGrabPointer` equivalent to do both.
+
+#[repr(C)]
+pub struct zwp_relative_pointer_manager_v1 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_relative_pointer_v1 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_pointer_constraints_v1 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_locked_pointer_v1 {
+    _private: [u8; 0],
+}
+
+/// One event: `relative_motion`.
+///
+/// The timestamp is split across two `uint`s because it is microseconds in a
+/// 64-bit value and the wire has no 64-bit integer type.
+///
+/// Both an ACCELERATED and an UNACCELERATED delta arrive. The unaccelerated
+/// pair is the one a first-person camera wants — pointer acceleration is a
+/// desktop-cursor affordance and applying it to a camera makes the same
+/// physical movement turn different amounts depending on speed.
+#[repr(C)]
+pub struct zwp_relative_pointer_v1_listener {
+    pub relative_motion: extern "C" fn(
+        *mut c_void,
+        *mut zwp_relative_pointer_v1,
+        u32, // utime_hi
+        u32, // utime_lo
+        i32, // dx (wl_fixed)
+        i32, // dy (wl_fixed)
+        i32, // dx_unaccel (wl_fixed)
+        i32, // dy_unaccel (wl_fixed)
+    ),
+}
+
+/// `locked` / `unlocked`. The compositor decides WHEN a lock takes effect (it
+/// may wait for the pointer to enter the surface), so the request succeeding
+/// is not the same as the lock being active - only `locked` says that.
+#[repr(C)]
+pub struct zwp_locked_pointer_v1_listener {
+    pub locked: extern "C" fn(*mut c_void, *mut zwp_locked_pointer_v1),
+    pub unlocked: extern "C" fn(*mut c_void, *mut zwp_locked_pointer_v1),
+}
+
+/// `zwp_pointer_constraints_v1.lifetime`: the lock dies when it is
+/// deactivated once, rather than reactivating whenever the pointer re-enters.
+pub const ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_ONESHOT: u32 = 1;
+/// Reactivates every time the conditions are met again - what a game wants,
+/// since alt-tabbing away and back should not silently drop the lock.
+pub const ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT: u32 = 2;
+
+pub const ZWP_RELATIVE_POINTER_MANAGER_V1_DESTROY: u32 = 0;
+pub const ZWP_RELATIVE_POINTER_MANAGER_V1_GET_RELATIVE_POINTER: u32 = 1;
+pub const ZWP_RELATIVE_POINTER_V1_DESTROY: u32 = 0;
+pub const ZWP_POINTER_CONSTRAINTS_V1_DESTROY: u32 = 0;
+pub const ZWP_POINTER_CONSTRAINTS_V1_LOCK_POINTER: u32 = 1;
+pub const ZWP_LOCKED_POINTER_V1_DESTROY: u32 = 0;
+
+/// `wl_fixed_t` -> f64. 24.8 fixed point, so the fraction is the low 8 bits.
+#[must_use]
+pub const fn wl_fixed_to_f64(v: i32) -> f64 {
+    v as f64 / 256.0
+}
+
+// `wl_proxy_add_listener` dispatches BY EVENT INDEX into the listener struct,
+// so an interface descriptor that claims more events than the struct has
+// function pointers reads past its end and calls whatever follows it in
+// memory. The descriptors below hard-code `event_count`, so pin the structs
+// they are paired with: 1 event for relative-pointer, 2 for locked-pointer.
+const _: () = {
+    use core::mem::size_of;
+    assert!(size_of::<zwp_relative_pointer_v1_listener>() == size_of::<*const ()>());
+    assert!(size_of::<zwp_locked_pointer_v1_listener>() == 2 * size_of::<*const ()>());
+};
+
+pub fn get_relative_pointer_manager_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"get_relative_pointer\0".as_ptr() as _,
+                    signature: b"no\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_relative_pointer_manager_v1\0".as_ptr() as _,
+                version: 1,
+                method_count: 2,
+                methods: requests.as_ptr(),
+                event_count: 0,
+                events: std::ptr::null(),
+            }))
+        })
+    })
+    .0
+}
+
+pub fn get_relative_pointer_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([wl_message {
+                name: b"destroy\0".as_ptr() as _,
+                signature: b"\0".as_ptr() as _,
+                types: n,
+            }]));
+            // `event_count` MUST match the listener struct: wl_proxy_add_listener
+            // dispatches by event index, so claiming more events than the struct
+            // has reads a function pointer past its end.
+            let events: &'static [wl_message] = Box::leak(Box::new([wl_message {
+                name: b"relative_motion\0".as_ptr() as _,
+                signature: b"uuffff\0".as_ptr() as _,
+                types: n,
+            }]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_relative_pointer_v1\0".as_ptr() as _,
+                version: 1,
+                method_count: 1,
+                methods: requests.as_ptr(),
+                event_count: 1,
+                events: events.as_ptr(),
+            }))
+        })
+    })
+    .0
+}
+
+pub fn get_pointer_constraints_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                // id, surface, pointer, region (NULLABLE -> `?o`), lifetime.
+                wl_message {
+                    name: b"lock_pointer\0".as_ptr() as _,
+                    signature: b"noo?ou\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"confine_pointer\0".as_ptr() as _,
+                    signature: b"noo?ou\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_pointer_constraints_v1\0".as_ptr() as _,
+                version: 1,
+                method_count: 3,
+                methods: requests.as_ptr(),
+                event_count: 0,
+                events: std::ptr::null(),
+            }))
+        })
+    })
+    .0
+}
+
+pub fn get_locked_pointer_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"destroy\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"set_cursor_position_hint\0".as_ptr() as _,
+                    signature: b"ff\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"set_region\0".as_ptr() as _,
+                    signature: b"?o\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            let events: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"locked\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"unlocked\0".as_ptr() as _,
+                    signature: b"\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_locked_pointer_v1\0".as_ptr() as _,
+                version: 1,
+                method_count: 3,
+                methods: requests.as_ptr(),
+                event_count: 2,
+                events: events.as_ptr(),
+            }))
+        })
+    })
+    .0
+}
+
 /// `zwp_pointer_gestures_v1` interface descriptor.
 pub fn get_pointer_gestures_v1_interface() -> &'static wl_interface {
     use std::sync::OnceLock;

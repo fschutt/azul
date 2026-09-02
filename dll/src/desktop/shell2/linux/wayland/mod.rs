@@ -420,6 +420,17 @@ pub struct WaylandWindow {
     tablet_manager: *mut defines::zwp_tablet_manager_v2,
     tablet_seat: *mut defines::zwp_tablet_seat_v2,
     tablet_initialized: bool,
+    /// `zwp_relative_pointer_manager_v1` global, or null when the compositor
+    /// has none. Supplies the deltas a pointer lock leaves behind.
+    relative_pointer_manager: *mut defines::zwp_relative_pointer_manager_v1,
+    /// The per-pointer relative object, alive only while the lock is held.
+    relative_pointer: *mut defines::zwp_relative_pointer_v1,
+    /// `zwp_pointer_constraints_v1` global, or null when unsupported.
+    pointer_constraints: *mut defines::zwp_pointer_constraints_v1,
+    /// The live lock. Destroying this object IS the release - unlike X11 and
+    /// Win32 there is no "ungrab" call, the constraint exists as long as the
+    /// object does.
+    locked_pointer: *mut defines::zwp_locked_pointer_v1,
     /// `zwp_pointer_gestures_v1` global, or null when the compositor has none.
     pointer_gestures: *mut defines::zwp_pointer_gestures_v1,
     /// Bound version of that global. Hold gestures are v3+, and requesting one
@@ -1460,6 +1471,22 @@ impl PlatformWindow for WaylandWindow {
         self.hide_tooltip();
     }
 
+    /// Pointer lock via `zwp_pointer_constraints_v1` + `zwp_relative_pointer_v1`.
+    ///
+    /// Unlike X11's `XGrabPointer` and Win32's `ClipCursor`, this is TWO
+    /// protocols and both are required: constraints stop the cursor moving,
+    /// relative-pointer supplies the deltas that replace it. A compositor may
+    /// advertise one without the other, and either alone is useless.
+    ///
+    /// There is also no "ungrab" request — the constraint exists exactly as
+    /// long as its object, so destroying it IS the release.
+    fn handle_set_pointer_lock(&mut self, locked: bool) -> bool {
+        // The listener data pointer is the window itself, the same convention
+        // every other listener here uses.
+        let data = (self as *mut Self).cast::<core::ffi::c_void>();
+        unsafe { events::set_pointer_lock(self, data, locked) }
+    }
+
     fn handle_begin_interactive_move(&mut self) {
         // Wayland: use xdg_toplevel_move to let the compositor manage the window move.
         // This requires the toplevel handle, seat, and the serial from the last pointer event.
@@ -1836,6 +1863,10 @@ impl WaylandWindow {
             tablet_manager: std::ptr::null_mut(),
             tablet_seat: std::ptr::null_mut(),
             tablet_initialized: false,
+            relative_pointer_manager: std::ptr::null_mut(),
+            relative_pointer: std::ptr::null_mut(),
+            pointer_constraints: std::ptr::null_mut(),
+            locked_pointer: std::ptr::null_mut(),
             pointer_gestures: std::ptr::null_mut(),
             pointer_gestures_version: 0,
             pointer_gestures_initialized: false,

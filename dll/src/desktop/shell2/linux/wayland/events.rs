@@ -555,6 +555,26 @@ pub(super) extern "C" fn registry_global_handler(
             unsafe { try_init_data_device(window, data) };
             unsafe { try_init_primary_selection(window, data) };
         }
+        "zwp_relative_pointer_manager_v1" => {
+            window.relative_pointer_manager = unsafe {
+                (window.wayland.wl_registry_bind)(
+                    registry,
+                    name,
+                    get_relative_pointer_manager_v1_interface(),
+                    1,
+                ) as *mut _
+            };
+        }
+        "zwp_pointer_constraints_v1" => {
+            window.pointer_constraints = unsafe {
+                (window.wayland.wl_registry_bind)(
+                    registry,
+                    name,
+                    get_pointer_constraints_v1_interface(),
+                    1,
+                ) as *mut _
+            };
+        }
         "zwp_pointer_gestures_v1" => {
             // Touchpad pinch / swipe / hold. Bound at up to v3 — v1 has swipe
             // and pinch, v2 adds `release`, v3 adds hold.
@@ -4172,6 +4192,134 @@ mod tests {
         assert_eq!(got.len(), expected);
         assert!(got.iter().all(|b| *b == b'z'));
     }
+}
+
+// ===== pointer lock: relative-pointer + pointer-constraints =====
+
+extern "C" fn relative_pointer_motion(
+    data: *mut c_void,
+    _p: *mut zwp_relative_pointer_v1,
+    _utime_hi: u32,
+    _utime_lo: u32,
+    _dx: i32,
+    _dy: i32,
+    dx_unaccel: i32,
+    dy_unaccel: i32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // The UNACCELERATED pair, deliberately. Pointer acceleration is a
+    // desktop-cursor affordance: it makes the same physical movement travel
+    // further when done quickly, which is right for hitting a button and wrong
+    // for aiming a camera. The accelerated pair is what `wl_pointer.motion`
+    // already reflects anyway.
+    let dx = defines::wl_fixed_to_f64(dx_unaccel);
+    let dy = defines::wl_fixed_to_f64(dy_unaccel);
+    if dx == 0.0 && dy == 0.0 {
+        return;
+    }
+    // No gate on `is_cursor_locked` here, unlike X11 and Win32: this object
+    // only EXISTS while the lock is held, so the compositor has already made
+    // the guarantee those backends have to assert for themselves.
+    if let Some(ref mut lw) = window.common.layout_window {
+        // Wayland gives no per-device id on this event - the relative pointer
+        // is per-seat, not per-device.
+        lw.device_event_manager.note_raw_motion(dx, dy, 0);
+    }
+}
+
+static ZWP_RELATIVE_POINTER_LISTENER: defines::zwp_relative_pointer_v1_listener =
+    defines::zwp_relative_pointer_v1_listener {
+        relative_motion: relative_pointer_motion,
+    };
+
+extern "C" fn locked_pointer_locked(_data: *mut c_void, _p: *mut zwp_locked_pointer_v1) {}
+
+extern "C" fn locked_pointer_unlocked(data: *mut c_void, _p: *mut zwp_locked_pointer_v1) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // The COMPOSITOR can end the lock (focus loss, a session switch), and it
+    // is the only party that knows. Reporting a lock that no longer exists
+    // would leave `RawMouseMotion` looking armed while no deltas arrive, so
+    // the flag follows the compositor rather than the app's last request.
+    window
+        .common
+        .update_window_state(
+            crate::desktop::shell2::common::event::WindowStateSource::Os,
+            |s| {
+                s.mouse_state.is_cursor_locked = false;
+            },
+        );
+}
+
+static ZWP_LOCKED_POINTER_LISTENER: defines::zwp_locked_pointer_v1_listener =
+    defines::zwp_locked_pointer_v1_listener {
+        locked: locked_pointer_locked,
+        unlocked: locked_pointer_unlocked,
+    };
+
+/// Take or release the Wayland pointer lock. Returns whether it is held.
+pub(super) unsafe fn set_pointer_lock(
+    window: &mut WaylandWindow,
+    data: *mut c_void,
+    locked: bool,
+) -> bool {
+    if !locked {
+        // Destroying the objects IS the release: a Wayland constraint lives
+        // exactly as long as its object, and there is no ungrab request.
+        if !window.locked_pointer.is_null() {
+            (window.wayland.zwp_locked_pointer_v1_destroy)(window.locked_pointer);
+            window.locked_pointer = std::ptr::null_mut();
+        }
+        if !window.relative_pointer.is_null() {
+            (window.wayland.zwp_relative_pointer_v1_destroy)(window.relative_pointer);
+            window.relative_pointer = std::ptr::null_mut();
+        }
+        return false;
+    }
+    if !window.locked_pointer.is_null() {
+        return true; // already held
+    }
+    // Both halves are required. A compositor can advertise one and not the
+    // other, and either alone is useless: constraints without relative motion
+    // freezes the cursor and reports nothing, relative motion without
+    // constraints still stops at the screen edge.
+    if window.pointer_constraints.is_null()
+        || window.relative_pointer_manager.is_null()
+        || window.pointer_state.pointer.is_null()
+        || window.surface.is_null()
+    {
+        return false;
+    }
+
+    let rel = (window.wayland.zwp_relative_pointer_manager_v1_get_relative_pointer)(
+        window.relative_pointer_manager,
+        window.pointer_state.pointer,
+    );
+    if rel.is_null() {
+        return false;
+    }
+    (window.wayland.zwp_relative_pointer_v1_add_listener)(
+        rel,
+        &ZWP_RELATIVE_POINTER_LISTENER,
+        data,
+    );
+    window.relative_pointer = rel;
+
+    let lock = (window.wayland.zwp_pointer_constraints_v1_lock_pointer)(
+        window.pointer_constraints,
+        window.surface,
+        window.pointer_state.pointer,
+        std::ptr::null_mut(), // null region = the whole surface
+        defines::ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT,
+    );
+    if lock.is_null() {
+        (window.wayland.zwp_relative_pointer_v1_destroy)(rel);
+        window.relative_pointer = std::ptr::null_mut();
+        return false;
+    }
+    (window.wayland.zwp_locked_pointer_v1_add_listener)(lock, &ZWP_LOCKED_POINTER_LISTENER, data);
+    window.locked_pointer = lock;
+    (window.wayland.wl_display_flush)(window.display);
+    true
 }
 
 // ===== zwp_pointer_gestures_v1 — touchpad pinch / swipe / hold =====

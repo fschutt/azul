@@ -353,11 +353,9 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       widening `ulRawButtons` to u64 and confirming the build fails on
       `size_of::<RAWMOUSE>() == 24`. Host check, Windows target check and the 8-target gate all
       green. NOT runtime-verified — needs a real Windows box with a mouse.
-- [ ] 9d-i-a Wayland raw motion (`zwp_relative_pointer_v1`) and web (`movementX`/`movementY`).
-      Wayland is the same missing protocol binding as 9d-ii-a and should land with it: the
-      relative-pointer and pointer-constraints protocols are a pair, and a lock without deltas or
-      deltas without a lock is half a feature either way. Web needs the wasm shell's pointer-lock
-      path, which is a different shell entirely.
+- [ ] 9d-i-a WEB raw motion only (`movementX`/`movementY` + `requestPointerLock`). The Wayland
+      half of this item is DONE — see 9d-ii-a, they landed together. Web remains because it is a
+      different shell entirely (the wasm one), not a protocol binding.
 - [x] 9d-ii DONE for X11, Windows and macOS. `CallbackInfo::set_pointer_lock(bool)` exists
       (api.json via `autofix add` + `apply`, bindings regenerated) and three backends take a real
       grab. 9d is now usable end-to-end on X11, where the raw-motion producer already existed.
@@ -388,13 +386,41 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       carry the `bool`, and `set_pointer_lock` queues the right change in both directions. NOT
       runtime-verified — a real grab needs a real display server, and none of the three can be
       exercised headlessly.
-- [ ] 9d-ii-a Wayland pointer lock. `zwp_pointer_constraints_v1` is NOT BOUND AT ALL — there is
-      no interface struct, no listener and no registry bind for it anywhere in
-      `shell2/linux/wayland/`, unlike X11 where `XGrabPointer` was already in the dlopen table.
-      This is a protocol binding (plus `zwp_relative_pointer_v1` for the deltas themselves, which
-      9d-i also needs — do them together), not a call site, which is why it is separated rather
-      than half-done. Until then Wayland correctly reports `false` from the default hook.
-- [ ] 9d-ii-b Release the lock on focus loss. Every platform revokes a grab when the window
+- [x] 9d-ii-a + 9d-i-a (Wayland) DONE together, as the notes said they had to be. Both
+      protocols are bound from scratch: `zwp_relative_pointer_manager_v1`,
+      `zwp_relative_pointer_v1`, `zwp_pointer_constraints_v1`, `zwp_locked_pointer_v1` — types,
+      interface descriptors, request wrappers, listeners and registry binds. 9d is now complete
+      on every desktop backend.
+      WHY THEY ARE A PAIR, concretely: constraints stop the cursor moving, relative-pointer
+      supplies the deltas that replace it. Constraints alone freeze the cursor and report
+      nothing; relative-pointer alone still stops at the screen edge. A compositor can advertise
+      one and not the other, so `set_pointer_lock` requires BOTH globals and refuses otherwise.
+      THREE THINGS WAYLAND DOES DIFFERENTLY from X11/Win32, each of which would be a bug if
+      copied across:
+      1. There is NO ungrab request. A constraint lives exactly as long as its object, so
+         DESTROYING the object is the release.
+      2. The compositor can end the lock on its own (focus loss, session switch) and is the only
+         party that knows. The `unlocked` event therefore writes `is_cursor_locked = false`
+         directly — the flag follows the compositor, not the app's last request, or
+         `RawMouseMotion` would look armed while no deltas arrive. That also makes 9d-ii-b
+         (release-on-focus-loss) already correct here for free.
+      3. The relative-motion event carries BOTH an accelerated and an unaccelerated delta. The
+         UNACCELERATED pair is used: pointer acceleration makes the same physical movement travel
+         further when done quickly, which is right for hitting a button and wrong for aiming a
+         camera — and the accelerated pair is what `wl_pointer.motion` already reflects.
+      No `is_cursor_locked` gate on the motion handler, unlike X11 and Win32: the relative-pointer
+      object only EXISTS while the lock is held, so the compositor has already made the guarantee
+      those two have to assert for themselves.
+      EVIDENCE: `const _: () = assert!(..)` pins each listener struct's arity against the
+      `event_count` its descriptor hard-codes (1 for relative-pointer, 2 for locked-pointer) —
+      `wl_proxy_add_listener` dispatches BY EVENT INDEX, so a descriptor claiming one event more
+      than the struct has would call whatever follows it in memory, which is the exact hazard the
+      existing gesture bindings warn about in a comment. `LIFETIME_PERSISTENT` is used so
+      alt-tabbing away and back does not silently drop the lock. Host check, Linux target check
+      and the 8-target gate green; suites unchanged. NOT runtime-verified — needs a real
+      compositor.
+- [ ] 9d-ii-b Release the lock on focus loss (X11 and Win32 only — Wayland already does this
+      correctly via the `unlocked` event, see 9d-ii-a). Every platform revokes a grab when the window
       loses focus, so the flag can outlive the lock it describes and report one that is not held.
       The backends already clear keyboard/mouse state at focus-out (x11 `clear_keyboard_state`,
       windows WM_KILLFOCUS); this wants the same treatment, but it is a behaviour decision about
