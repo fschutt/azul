@@ -1547,6 +1547,7 @@ mod system_style_dependency_tests {
                 system_style: alloc::sync::Arc::clone(&self.style),
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
+                safe_area: azul_css::system::SafeAreaInsets::default(),
             }
         }
     }
