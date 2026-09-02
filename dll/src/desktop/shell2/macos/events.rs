@@ -728,6 +728,12 @@ impl MacOSWindow {
         }
         self.set_previous_window_state(prev_snapshot);
 
+        // Whether THIS key event is an auto-repeat. Already read above to fix
+        // the state diff; a callback could not see it because nothing carried
+        // it into the keyboard state. A text field wants repeats, a jump
+        // button does not, and without this the two are indistinguishable.
+        self.common.keyboard_state_mut().is_repeat = is_repeat;
+
         // RECORD (do not apply) the text this key produces, BEFORE the pass —
         // the same order X11 and Wayland use. `record_text_input` only stages a
         // pending changeset in the TextInputManager; the pass dispatches
@@ -794,6 +800,10 @@ impl MacOSWindow {
 
         // Update keyboard state
         self.update_keyboard_state(key_code, modifiers, false);
+
+        // A release is never a repeat. Without clearing it, the flag set by the
+        // last keyDown would stay true for every later reader.
+        self.common.keyboard_state_mut().is_repeat = false;
 
         // V2 system will detect VirtualKeyUp from state diff
         let result = self.process_window_events(0);
@@ -1212,6 +1222,19 @@ impl MacOSWindow {
                 azul_core::window::VirtualKeyCodeVec::from_vec(pressed_vec);
             keyboard_state.current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::None;
         }
+
+        // `modifiers` is a pure function of the pressed set, so it is
+        // recomputed wherever that set moves.
+        keyboard_state.sync_modifiers();
+
+        // `locks` is NOT derivable from the pressed set: a lock is a toggle
+        // that stays engaged after its key is released, and no key event
+        // describes it. It has to be read from the OS, which is what the flags
+        // on the event carry. macOS reports only caps lock this way — its
+        // `NSEventModifierFlags` has no num-lock or scroll-lock bit (the
+        // `NumericPad` flag means "this key is on the keypad", not "num lock is
+        // on") — so the other two stay false rather than being guessed from it.
+        keyboard_state.locks.caps_lock = modifiers.contains(NSEventModifierFlags::CapsLock);
     }
 
     /// Handle compositor resize notification.

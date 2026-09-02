@@ -481,6 +481,35 @@ impl KeyboardState {
         self.pressed_virtual_keycodes.iter().any(|k| *k == key)
     }
 
+    /// The modifier set implied by the keys currently held.
+    ///
+    /// `modifiers` is a stored field because callbacks read it directly and
+    /// `ModifiersChanged` diffs against it, but its VALUE is a pure function
+    /// of the pressed set — so it must never be assigned independently, only
+    /// recomputed from here.
+    #[must_use]
+    pub fn derived_modifiers(&self) -> crate::events::KeyModifiers {
+        crate::events::KeyModifiers {
+            shift: self.shift_down(),
+            ctrl: self.ctrl_down(),
+            alt: self.alt_down(),
+            meta: self.super_down(),
+        }
+    }
+
+    /// Bring `modifiers` back in step with the pressed set.
+    ///
+    /// Call this after ANY change to `pressed_virtual_keycodes`. Nothing did,
+    /// on any backend, so `modifiers` sat at its default: every callback that
+    /// read it saw "no modifiers held" no matter what was down, and
+    /// `ModifiersChanged` could never fire because the diff compared two
+    /// identical defaults. The derived accessors (`shift_down()` and friends)
+    /// were right the whole time, which is why shortcuts still worked and the
+    /// gap stayed invisible.
+    pub fn sync_modifiers(&mut self) {
+        self.modifiers = self.derived_modifiers();
+    }
+
     /// Returns `true` iff every entry of `chord` is currently active in this
     /// keyboard state. Used by accelerator/keymap registrations to evaluate
     /// shortcuts like `[Ctrl, Shift, Key(VirtualKeyCode::S)]`.

@@ -252,12 +252,42 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 9e
 
-- [ ] 9e-i No shell fills `KeyboardState.modifiers`, `.locks`, `.is_repeat` or `.current_physical_key`, so
-      `ModifiersChanged` cannot fire yet and the accessors read defaults. Each backend has the data:
-      Win32 `GetKeyboardState` (already called on focus gain) plus `VK_CAPITAL`/`VK_NUMLOCK` toggle bits and
-      the `lParam` bit 30 repeat flag; macOS `NSEvent.modifierFlags` including `NSEventModifierFlagCapsLock`,
-      and `isARepeat`; Wayland `wl_keyboard.modifiers` carries `mods_locked` and `repeat_info` gives the
-      rate; X11 `XkbStateNotify` plus the `XKeyEvent.state` lock bits.
+- [x] 9e-i DONE for `modifiers` (every backend) and for `locks`/`is_repeat` where the OS
+      answers unambiguously. `current_physical_key` is 9e-ii and untouched.
+      `modifiers` is a pure function of `pressed_virtual_keycodes` — and `determine_all_events`
+      ALREADY derived it correctly into a local for other events' `EventData`, then compared the
+      never-written STRUCT FIELD for the `ModifiersChanged` diff. So the producer was right all
+      along and the diff compared two identical defaults forever. The derived accessors
+      (`shift_down()` and friends) were also right, which is why shortcuts worked and the gap
+      stayed invisible.
+      FIX: `KeyboardState::derived_modifiers()` + `sync_modifiers()`, called at every one of the
+      9 sites that move the pressed set (shared win32 applier, wayland, x11 ×3, windows ×2,
+      android, macOS). TRAP: the coverage grep for those sites used `pressed_virtual_keycodes = `
+      WITH A TRAILING SPACE and so missed macOS entirely, whose assignment wraps to the next
+      line — found only by reading the macOS applier for another reason.
+      `locks` is NOT derivable (a lock is a toggle no key event describes) and is now read from
+      the OS: macOS `NSEventModifierFlags::CapsLock`; X11 `LockMask` + `Mod2`; Windows
+      `GetKeyState` low bit for `VK_CAPITAL`/`VK_NUMLOCK`/`VK_SCROLL`.
+      `is_repeat` was ALREADY computed on macOS (`isARepeat`) and Windows (`lParam` bit 30) to
+      fix the state diff, and thrown away instead of stored; both now store it and clear it on
+      key-up.
+      EVIDENCE: `modifiers_changed_fires_when_the_held_modifier_set_moves` (press → 1 event,
+      hold → 0, release → 1) and `an_unsynced_modifier_set_emits_nothing`, which pins the exact
+      shape of the bug. 8-target gate green; azul-core 2736 green; azul-layout unchanged at the
+      20 pre-existing scroll_timer/gamepad failures.
+- [ ] 9e-i-a Wayland `locks`. `keyboard_modifiers_handler` receives `mods_locked` and feeds it
+      straight to `xkb_state_update_mask`, but that mask is a set of KEYMAP-SPECIFIC modifier
+      INDICES, not fixed bit positions — reading caps/num out of it needs
+      `xkb_keymap_mod_get_index(XKB_MOD_NAME_CAPS)` or `xkb_state_mod_name_is_active`, and
+      NEITHER symbol is in the dlopen table (`x11/dlopen.rs` binds only new/unref/update_mask/
+      key_get_one_sym/key_get_utf8). Guessing bit positions would be right on one keymap and
+      wrong on the next, so this is left open deliberately: add the symbol first.
+- [ ] 9e-i-b `is_repeat` on X11, Wayland and Android. X11 auto-repeat arrives as ordinary
+      KeyPress/KeyRelease pairs and needs `XkbSetDetectableAutoRepeat` (or press/release
+      timestamp matching) to be distinguishable at all; Wayland synthesises repeats CLIENT-side
+      from `repeat_info`, so the flag has to be set by whatever timer does that; Android has
+      `KeyEvent.getRepeatCount()` but it is not currently passed across JNI. Three different
+      mechanisms, none of them a one-liner — separated from 9e-i rather than half-done.
 - [ ] 9e-ii `PhysicalKey` needs a per-platform scancode -> position map. The `ScanCode` is already captured
       on every backend, so this is a table per platform, not new plumbing.
 

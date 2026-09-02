@@ -2792,6 +2792,93 @@ mod autotest_generated {
         assert_eq!(drop.target, node(1, 4));
     }
 
+    /// `ModifiersChanged` fires when the held modifier set moves.
+    ///
+    /// The producer for it has been correct all along; what was missing is
+    /// that NO backend ever wrote `keyboard_state.modifiers`. It is derived
+    /// from `pressed_virtual_keycodes`, and the derived accessors
+    /// (`shift_down()` and friends) were right — so shortcuts worked and the
+    /// stored field stayed at its default, which made this diff compare two
+    /// identical defaults and never fire.
+    #[test]
+    fn modifiers_changed_fires_when_the_held_modifier_set_moves() {
+        let hover = HoverManager::new();
+        let focus = FocusManager::new();
+        let fd = FileDropManager::new();
+        let providers: Vec<&dyn EventProvider> = Vec::new();
+
+        let before = state();
+        let mut after = state();
+        after
+            .keyboard_state
+            .pressed_virtual_keycodes
+            .insert_hm_item(VirtualKeyCode::LShift);
+        after.keyboard_state.sync_modifiers();
+
+        assert!(
+            after.keyboard_state.modifiers.shift,
+            "sync_modifiers must carry the pressed set into the stored field",
+        );
+
+        let events = determine_all_events(
+            &after, &before, &hover, &focus, &fd, None, &providers, None, ts(0),
+        );
+        assert_eq!(
+            count(&events, EventType::ModifiersChanged),
+            1,
+            "pressing shift must emit exactly one ModifiersChanged",
+        );
+
+        // Holding it is not a change.
+        let events = determine_all_events(
+            &after, &after, &hover, &focus, &fd, None, &providers, None, ts(1),
+        );
+        assert_eq!(
+            count(&events, EventType::ModifiersChanged),
+            0,
+            "an unchanged modifier set must stay silent",
+        );
+
+        // And releasing it moves back.
+        let events = determine_all_events(
+            &before, &after, &hover, &focus, &fd, None, &providers, None, ts(2),
+        );
+        assert_eq!(
+            count(&events, EventType::ModifiersChanged),
+            1,
+            "releasing shift must emit ModifiersChanged too",
+        );
+    }
+
+    /// Without the sync, the field stays default and the event cannot fire —
+    /// this is the exact shape of the bug, kept as a test so a regression in
+    /// the sync call sites shows up here rather than as silently dead events.
+    #[test]
+    fn an_unsynced_modifier_set_emits_nothing() {
+        let hover = HoverManager::new();
+        let focus = FocusManager::new();
+        let fd = FileDropManager::new();
+        let providers: Vec<&dyn EventProvider> = Vec::new();
+
+        let before = state();
+        let mut after = state();
+        after
+            .keyboard_state
+            .pressed_virtual_keycodes
+            .insert_hm_item(VirtualKeyCode::LShift);
+        // deliberately NOT synced
+
+        assert!(
+            after.keyboard_state.shift_down(),
+            "the derived accessor sees the key — this is why the gap was invisible",
+        );
+        assert!(!after.keyboard_state.modifiers.shift);
+        let events = determine_all_events(
+            &after, &before, &hover, &focus, &fd, None, &providers, None, ts(0),
+        );
+        assert_eq!(count(&events, EventType::ModifiersChanged), 0);
+    }
+
     // ==================================================================
     // determine_all_events - gestures (native injection)
     // ==================================================================

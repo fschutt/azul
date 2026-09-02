@@ -868,6 +868,7 @@ fn apply_key_state_change(
         }
         keyboard_state.pressed_scancodes.remove_hm_item(&key);
     }
+    keyboard_state.sync_modifiers();
 }
 
 /// Does this `wl_pointer.axis_source` describe a finger on a surface rather

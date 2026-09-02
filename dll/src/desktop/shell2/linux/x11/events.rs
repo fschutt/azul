@@ -1161,6 +1161,7 @@ impl X11Window {
         keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(Vec::new());
         keyboard_state.pressed_scancodes = ScanCodeVec::from_vec(Vec::new());
         keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::None;
+        keyboard_state.sync_modifiers();
         // The press→code record mirrors the lists above and has to die with
         // them: an entry that outlived its list would make a much later release
         // of the same physical key remove a code nobody pressed.
@@ -1570,6 +1571,19 @@ fn apply_modifier_mask_state(
             .pressed_virtual_keycodes
             .remove_hm_item(&VirtualKeyCode::RAlt);
     }
+    // This function exists to rebuild the pressed set from the X11 modifier
+    // mask, so it is exactly a place `modifiers` must be refreshed.
+    keyboard_state.sync_modifiers();
+
+    // Locks are toggles: they stay engaged after the key is released, so no
+    // key event describes them and they cannot be derived from the pressed
+    // set. `state` carries them on every X event. Caps is fixed by the
+    // protocol at `LockMask`; num lock is `Mod2` by near-universal convention.
+    // Scroll lock has NO conventional mask (it lands on Mod3 or Mod5 depending
+    // on the keymap), so it stays false rather than being guessed from a bit
+    // that means something else on the next machine.
+    keyboard_state.locks.caps_lock = (state & LOCK_MASK) != 0;
+    keyboard_state.locks.num_lock = (state & MOD2_MASK) != 0;
 }
 
 /// Does this hit test name any node at all?
@@ -1626,6 +1640,7 @@ pub(super) fn apply_key_state_change(
         // Remove scancode
         keyboard_state.pressed_scancodes.remove_hm_item(&keycode);
     }
+    keyboard_state.sync_modifiers();
 }
 
 // Keycode Conversion

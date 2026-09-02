@@ -1789,6 +1789,9 @@ pub fn apply_win32_key_state_change(
         }
         keyboard_state.pressed_scancodes.remove_hm_item(&scan_code);
     }
+    // `modifiers` is a function of the pressed set, so it has to be
+    // recomputed wherever that set moves.
+    keyboard_state.sync_modifiers();
 }
 
 /// Everything the OS-side IME state is a function of: whether the window has

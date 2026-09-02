@@ -3558,6 +3558,7 @@ impl Win32Window {
         let ks = self.common.keyboard_state_mut();
         ks.current_virtual_keycode = OptionVirtualKeyCode::None;
         ks.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(pressed);
+        ks.sync_modifiers();
         // Scancodes are physical-key ids and cannot be recovered from a
         // virtual-key snapshot; dropping the set is the honest reading (the
         // next WM_KEYDOWN refills it) — keeping it would keep exactly the
@@ -5217,6 +5218,25 @@ unsafe extern "system" fn window_proc(
                 true,
             );
 
+            // The lock TOGGLES, which no key event describes: a lock stays
+            // engaged after its key is released, so it is not derivable from
+            // the pressed set and has to be read from the OS. `GetKeyState`
+            // reports it in the LOW bit (the high bit is "currently held",
+            // which is a different question).
+            let toggled = |vk: i32| ((window.win32.user32.GetKeyState)(vk) & 1) != 0;
+            const VK_CAPITAL: i32 = 0x14;
+            const VK_NUMLOCK: i32 = 0x90;
+            const VK_SCROLL: i32 = 0x91;
+            {
+                let ks = window.common.keyboard_state_mut();
+                // `is_repeat` was already computed above for the state-diff
+                // fix-up, but nothing carried it to a callback.
+                ks.is_repeat = is_repeat;
+                ks.locks.caps_lock = toggled(VK_CAPITAL);
+                ks.locks.num_lock = toggled(VK_NUMLOCK);
+                ks.locks.scroll_lock = toggled(VK_SCROLL);
+            }
+
             // V2 system will detect VirtualKeyDown event
             let result = window.process_window_events(0);
 
@@ -5258,6 +5278,10 @@ unsafe extern "system" fn window_proc(
                 scan_code,
                 false,
             );
+
+            // A release is never a repeat; leaving the last keydown's flag set
+            // would make every later reader see one.
+            window.common.keyboard_state_mut().is_repeat = false;
 
             // V2 system will detect VirtualKeyUp event
             let result = window.process_window_events(0);
@@ -5654,6 +5678,7 @@ unsafe extern "system" fn window_proc(
                 ks.current_virtual_keycode = OptionVirtualKeyCode::None;
                 ks.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(Vec::new());
                 ks.pressed_scancodes = ScanCodeVec::from_vec(Vec::new());
+                ks.sync_modifiers();
             }
 
             // The same argument, for the mouse — and it was missing on every

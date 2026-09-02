@@ -1510,6 +1510,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 }
                 _ => {}
             }
+            ks.sync_modifiers();
         }
         let r = window.process_window_events(0);
         // HONOUR THE ESCALATION LADDER. Collapsing every non-DoNothing result
