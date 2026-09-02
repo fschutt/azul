@@ -10204,7 +10204,10 @@ fn rasterize_svg_stroke_to_r8(
     let mut geometry = crate::cpurender::pixmap::svg_path_to_agg(path, &mx, &my);
 
     let scale = f64::from((sx + sy) / 2.0);
-    let mut stroke = ConvStroke::new(&mut geometry);
+    // Flattened before stroking, for the same reason the fill is: the stroker
+    // walks VERTICES, and a raw curve command has none to offset.
+    let mut flattened = agg_rust::conv_curve::ConvCurve::new(&mut geometry);
+    let mut stroke = ConvStroke::new(&mut flattened);
     stroke.set_width((f64::from(width) * scale).max(1.0));
     stroke.set_line_cap(agg_rust::math_stroke::LineCap::Round);
     stroke.set_line_join(agg_rust::math_stroke::LineJoin::Round);
@@ -10252,8 +10255,13 @@ fn rasterize_svg_clip_to_r8(
     };
     use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
 
-    let w = paint_rect.size.width.ceil() as u32;
-    let h = paint_rect.size.height.ceil() as u32;
+    // OVERSAMPLED, for the same reason the stroke mask is: the mask is
+    // rasterised here in LOGICAL pixels and applied in DEVICE pixels, so on a
+    // HiDPI display it is scaled UP. A 1x mask has no detail to scale, and a
+    // circle arrives with a staircase edge no matter how it is resampled.
+    const OVERSAMPLE: f32 = 2.0;
+    let w = (paint_rect.size.width * OVERSAMPLE).ceil() as u32;
+    let h = (paint_rect.size.height * OVERSAMPLE).ceil() as u32;
     if w == 0 || h == 0 {
         return None;
     }
@@ -10268,12 +10276,17 @@ fn rasterize_svg_clip_to_r8(
     // subtracted - the behaviour every existing clip mask relies on.
     let (sx, sy, tx, ty) = match view_box {
         Some((min_x, min_y, vb_w, vb_h)) if vb_w > 0.0 && vb_h > 0.0 => (
-            paint_rect.size.width / vb_w,
-            paint_rect.size.height / vb_h,
+            paint_rect.size.width * OVERSAMPLE / vb_w,
+            paint_rect.size.height * OVERSAMPLE / vb_h,
             -min_x,
             -min_y,
         ),
-        _ => (1.0, 1.0, -paint_rect.origin.x, -paint_rect.origin.y),
+        _ => (
+            OVERSAMPLE,
+            OVERSAMPLE,
+            -paint_rect.origin.x,
+            -paint_rect.origin.y,
+        ),
     };
     let mx = |x: f32| f64::from((x + tx) * sx);
     let my = |y: f32| f64::from((y + ty) * sy);
@@ -10343,7 +10356,13 @@ fn rasterize_svg_clip_to_r8(
 
         let mut ras = RasterizerScanlineAa::new();
         ras.filling_rule(FillingRule::NonZero);
-        ras.add_path(&mut path, 0);
+        // FLATTENED first. `PathStorage` stores curve3/curve4 as COMMANDS;
+        // the rasteriser does not subdivide them, so feeding it the raw
+        // storage draws straight lines between the curve endpoints - a circle
+        // built from four cubics came out as a four-sided blob. `ConvCurve` is
+        // the adaptor that turns those commands into line segments.
+        let mut flattened = agg_rust::conv_curve::ConvCurve::new(&mut path);
+        ras.add_path(&mut flattened, 0);
 
         let mut sl = ScanlineU8::new();
         let white = Rgba8 {

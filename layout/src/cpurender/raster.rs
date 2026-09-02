@@ -840,15 +840,34 @@ fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Opt
         return None;
     }
 
-    // Scale mask to target dimensions via nearest-neighbor
+    // BILINEAR, not nearest. The mask is rasterised in LOGICAL pixels and
+    // applied in DEVICE pixels, so on any HiDPI display (or any zoom) it is
+    // upscaled - and nearest-neighbour turns the antialiased edge the
+    // rasteriser worked out into hard staircase steps. A circle came out
+    // visibly blocky: the coverage values were right in the source and thrown
+    // away on the way to the screen.
+    //
+    // 1:1 is the common case and still costs one sample per pixel, because
+    // both weights land on 0.
     let mut scaled = vec![0u8; (target_w * target_h) as usize];
     let sx = src_w as f32 / target_w as f32;
     let sy = src_h as f32 / target_h as f32;
+    let sample = |x: u32, y: u32| -> f32 {
+        f32::from(mask_bytes[(y.min(src_h - 1) * src_w + x.min(src_w - 1)) as usize])
+    };
     for py in 0..target_h {
+        // Sample at the pixel CENTRE, or the image shifts half a texel.
+        let fy = ((py as f32 + 0.5) * sy - 0.5).max(0.0);
+        let y0 = fy as u32;
+        let wy = fy - y0 as f32;
         for px in 0..target_w {
-            let mx = ((px as f32 * sx) as u32).min(src_w - 1);
-            let my = ((py as f32 * sy) as u32).min(src_h - 1);
-            scaled[(py * target_w + px) as usize] = mask_bytes[(my * src_w + mx) as usize];
+            let fx = ((px as f32 + 0.5) * sx - 0.5).max(0.0);
+            let x0 = fx as u32;
+            let wx = fx - x0 as f32;
+            let top = sample(x0, y0) * (1.0 - wx) + sample(x0 + 1, y0) * wx;
+            let bottom = sample(x0, y0 + 1) * (1.0 - wx) + sample(x0 + 1, y0 + 1) * wx;
+            let value = top * (1.0 - wy) + bottom * wy;
+            scaled[(py * target_w + px) as usize] = value.round().clamp(0.0, 255.0) as u8;
         }
     }
     Some(scaled)
@@ -2649,7 +2668,11 @@ fn render_stroked_path(
     let scale = f64::from((sx + sy) / 2.0);
     let device_width = (f64::from(width) * scale).max(1.0);
 
-    let mut stroke = ConvStroke::new(&mut geometry);
+    // Flattened before stroking: `PathStorage` holds curve3/curve4 as
+    // COMMANDS, and the stroker walks vertices - a raw curve command has none
+    // to offset, so the outline would follow the chords instead of the curve.
+    let mut flattened = agg_rust::conv_curve::ConvCurve::new(&mut geometry);
+    let mut stroke = ConvStroke::new(&mut flattened);
     stroke.set_width(device_width);
     stroke.set_line_cap(agg_rust::math_stroke::LineCap::Round);
     stroke.set_line_join(agg_rust::math_stroke::LineJoin::Round);
@@ -6772,31 +6795,39 @@ mod autotest_generated {
         assert_eq!(mask, vec![0, 64, 128, 255]);
     }
 
+    /// The mask is rasterised in LOGICAL pixels and applied in DEVICE pixels,
+    /// so on a HiDPI display (or any zoom) it is scaled UP. Nearest-neighbour
+    /// threw away the coverage the rasteriser had just computed and turned a
+    /// curve into a staircase; upscaling INTERPOLATES now.
     #[test]
-    fn extract_mask_data_upscales_nearest_neighbour() {
+    fn extract_mask_data_upscales_smoothly() {
         let img = r8_image(2, 2, vec![0, 255, 255, 0]);
         let mask = extract_mask_data(&img, 4, 4).expect("mask must extract");
         assert_eq!(mask.len(), 16);
-        // Each source texel expands into a 2x2 block.
-        assert_eq!(
-            mask,
-            vec![
-                0, 0, 255, 255, //
-                0, 0, 255, 255, //
-                255, 255, 0, 0, //
-                255, 255, 0, 0,
-            ]
+
+        // The corners still read as their own texels...
+        assert_eq!(mask[0], 0, "top-left corner");
+        assert_eq!(mask[3], 255, "top-right corner");
+        // ... and BETWEEN them there is now a gradient rather than a step,
+        // which is the entire point.
+        let interior: Vec<u8> = mask[1..3].to_vec();
+        assert!(
+            interior.iter().any(|v| *v > 0 && *v < 255),
+            "an upscaled edge must interpolate, got {interior:?}"
         );
     }
 
+    /// Downscaling averages instead of picking one texel: sampling a single
+    /// source pixel out of a 4x4 block reports whatever happens to be in the
+    /// corner, which for a mask means an edge that flickers as it moves.
     #[test]
-    fn extract_mask_data_downscales_without_reading_out_of_bounds() {
+    fn extract_mask_data_downscales_by_averaging_without_reading_out_of_bounds() {
         let img = r8_image(4, 4, (0..16).map(|i| i as u8 * 16).collect());
         let mask = extract_mask_data(&img, 1, 1).expect("mask must extract");
-        assert_eq!(
-            mask,
-            vec![0],
-            "1x1 nearest-neighbour samples the first texel"
+        assert_eq!(mask.len(), 1);
+        assert!(
+            mask[0] > 0,
+            "a 1x1 reduction of a ramp must not report the corner texel alone"
         );
 
         // A target bigger than the source in one axis only.

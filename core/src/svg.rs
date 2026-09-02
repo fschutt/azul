@@ -1673,3 +1673,4 @@ pub enum Indent {
 #[cfg(test)]
 #[path = "svg_test.rs"]
 mod svg_test;
+

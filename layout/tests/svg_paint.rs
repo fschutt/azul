@@ -445,3 +445,39 @@ fn hover_and_focus_rules_reach_an_svg_shape() {
         ":focus too"
     );
 }
+
+/// A curved edge must arrive ANTIALIASED.
+///
+/// The clip mask is rasterised in LOGICAL pixels and applied in DEVICE pixels,
+/// so on any HiDPI display (or any zoom) it is scaled up. It used to be
+/// resampled with nearest-neighbour from a 1x source, which threw away the
+/// coverage the rasteriser had just computed and turned a circle into a
+/// staircase - visibly blocky at icon sizes.
+///
+/// Measured as the number of PARTIAL pixels on the edge: a hard-edged circle
+/// has none, an antialiased one has a ring of them.
+#[test]
+fn a_curved_edge_is_antialiased_not_stepped() {
+    // A circle of radius 8 in a 16-unit viewBox, drawn at 32 logical px so
+    // the mask is scaled on the way to the frame.
+    let r = render(
+        r##"<svg viewBox="0 0 16 16" width="32" height="32">
+              <path fill="#000000" d="M 8,0 A 8,8 0 0 0 0,8 8,8 0 0 0 8,16 8,8 0 0 0 16,8 8,8 0 0 0 8,0 Z"/>
+            </svg>"##,
+        32.0,
+    );
+    let partial = r
+        .rgba
+        .chunks_exact(4)
+        .filter(|p| p[3] > 8 && p[3] < 247)
+        .count();
+    let opaque = r.rgba.chunks_exact(4).filter(|p| p[3] >= 247).count();
+
+    assert!(opaque > 400, "the disc itself must paint, got {opaque} px");
+    assert!(
+        partial > 40,
+        "a 32px circle has a ~100px circumference; an antialiased edge leaves \
+         partial coverage all along it, got only {partial} partial pixels - \
+         that is a staircase, not a curve"
+    );
+}
