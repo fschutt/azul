@@ -99,6 +99,36 @@ pub struct AndroidWindow {
     /// the `LayoutWindow`.
     pub accessibility_adapter: accessibility::AndroidAccessibilityAdapter,
 
+    /// Monotonic frame counter, bumped once per POSTED frame.
+    ///
+    /// The unit of the staleness bookkeeping below: a buffer is identified by
+    /// its mapped address and tagged with the frame it last received.
+    frame_seq: u64,
+
+    /// Which frame each `ANativeWindow` buffer currently holds, keyed by the
+    /// address `lock()` mapped it at.
+    ///
+    /// This is the whole reason partial present is possible here at all.
+    /// `ANativeWindow_lock` hands back a DEQUEUED buffer with undefined
+    /// contents — Android guarantees nothing about back-buffer preservation —
+    /// so "copy only the damage" is unsound in general. It IS sound for a
+    /// buffer we can prove still holds a frame we produced: the pool is small
+    /// (double/triple buffering) and rotates, so the same addresses come back
+    /// round and each one is a known-good base to patch. An address we have
+    /// never seen, or one whose frame has aged out of `damage_history`, takes
+    /// the full copy.
+    buffer_frames: std::collections::BTreeMap<usize, u64>,
+
+    /// Dirty ROW RANGES per recent frame, oldest first: `(frame_seq, rows)`.
+    ///
+    /// Rows, not rects, because the blit is row-based — a partial row saves no
+    /// memcpy, and row granularity already captures what actually changes
+    /// (a scrolled region, a caret, a repainted ribbon band).
+    damage_history: std::collections::VecDeque<(u64, Vec<(usize, usize)>)>,
+
+    /// Selection-toolbar actions (cut/copy/paste/select-all) from the UI thread.
+    pending_selection_actions: std::sync::Mutex<Vec<i32>>,
+
     /// IME text committed on the Java UI thread, waiting for the loop thread.
     ///
     /// `record_text_input` only STAGES a changeset; the shared event pass is
@@ -176,7 +206,11 @@ impl AndroidWindow {
             icon_provider,
             font_registry,
             accessibility_adapter: accessibility::AndroidAccessibilityAdapter::new(),
+            frame_seq: 0,
+            buffer_frames: std::collections::BTreeMap::new(),
+            damage_history: std::collections::VecDeque::new(),
             pending_ime_commits: std::sync::Mutex::new(Vec::new()),
+            pending_selection_actions: std::sync::Mutex::new(Vec::new()),
             needs_rerender: false,
             touch_pan_last: None,
         })
@@ -243,6 +277,75 @@ impl AndroidWindow {
     /// display list. Mirrors `HeadlessWindow::regenerate_layout()`; the
     /// lifecycle-event dispatch step is skipped for now (Android backend
     /// has no callback driver yet — pending sprint H).
+    /// How many frames of damage to remember.
+    ///
+    /// A buffer comes back round after as many swaps as the pool is deep
+    /// (2-3), so a handful covers every realistic rotation. Anything older
+    /// falls back to a full copy, which is always correct.
+    const DAMAGE_HISTORY: usize = 8;
+
+    /// Dirty row range of a frame's present damage, or `None` for "everything".
+    ///
+    /// Logical rects -> physical rows: the pixmap is in device pixels and
+    /// `FrameDamage` is in logical ones. Rounded OUTWARDS (floor the top, ceil
+    /// the bottom) — a row half-covered by damage is a row that changed, and
+    /// rounding it away leaves a stale line on screen.
+    fn damage_rows(&self, dpi: f32, height: usize) -> Option<Vec<(usize, usize)>> {
+        use azul_layout::window::FrameDamage;
+        match &self.cpu_backend.last_present_damage {
+            FrameDamage::Full => None,
+            FrameDamage::None => Some(Vec::new()),
+            FrameDamage::Rects(rects) => {
+                let mut rows: Vec<(usize, usize)> = rects
+                    .iter()
+                    .filter_map(|r| {
+                        let top = (r.origin.y * dpi).floor().max(0.0) as usize;
+                        let bottom =
+                            (((r.origin.y + r.size.height) * dpi).ceil().max(0.0) as usize)
+                                .min(height);
+                        (bottom > top).then_some((top, bottom))
+                    })
+                    .collect();
+                // Merge overlaps so the copy loop never writes a row twice.
+                rows.sort_unstable();
+                let mut merged: Vec<(usize, usize)> = Vec::with_capacity(rows.len());
+                for (top, bottom) in rows {
+                    match merged.last_mut() {
+                        Some(last) if top <= last.1 => last.1 = last.1.max(bottom),
+                        _ => merged.push((top, bottom)),
+                    }
+                }
+                Some(merged)
+            }
+        }
+    }
+
+    /// Rows that changed since frame `seq`, or `None` if that frame has aged
+    /// out of the history (in which case only a full copy is sound).
+    fn rows_dirty_since(&self, seq: u64) -> Option<Vec<(usize, usize)>> {
+        // The oldest entry we still have must be at or before the frame the
+        // buffer holds, or there is a gap we cannot account for.
+        let oldest = self.damage_history.front().map(|(s, _)| *s)?;
+        if seq + 1 < oldest {
+            return None;
+        }
+        let mut rows: Vec<(usize, usize)> = Vec::new();
+        for (s, r) in &self.damage_history {
+            if *s > seq {
+                rows.extend_from_slice(r);
+            }
+        }
+        rows.sort_unstable();
+        let mut merged: Vec<(usize, usize)> = Vec::with_capacity(rows.len());
+        for (top, bottom) in rows {
+            match merged.last_mut() {
+                Some(last) if top <= last.1 => last.1 = last.1.max(bottom),
+                _ => merged.push((top, bottom)),
+            }
+        }
+        Some(merged)
+    }
+
     /// Re-raster the frame from the CURRENT layout — no layout callback, no
     /// solve, no DOM work.
     ///
@@ -622,6 +725,46 @@ pub fn android_main(app: AndroidApp) {
         // Drain the Java-thread theme queue on the loop thread: snapshot →
         // mutate → pass, like every other OS-state change.
         drain_pending_theme(&mut window);
+
+        // Selection-toolbar actions, on the LOOP thread for the same reason as
+        // the IME queue below: they arrive from Android's ActionMode on the UI
+        // thread, and a system change has to be applied where the loop sees it.
+        {
+            let actions: Vec<i32> = window
+                .pending_selection_actions
+                .lock()
+                .map(|mut q| core::mem::take(&mut *q))
+                .unwrap_or_default();
+            for action in actions {
+                use azul_core::events::SystemChange;
+                // Cut names the node it cuts FROM; the others operate on the
+                // current selection. Without a focused node there is nothing
+                // to cut, so skip rather than invent a target.
+                let focused = window
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+                let change = match (action, focused) {
+                    (0, Some(target)) => SystemChange::CutToClipboard { target },
+                    (1, _) => SystemChange::CopyToClipboard,
+                    (2, _) => SystemChange::PasteFromClipboard,
+                    (3, _) => SystemChange::SelectAllText,
+                    _ => continue,
+                };
+                window.snapshot_window_state_baseline("android.selection_action");
+                let r = window.apply_system_change(&change);
+                log_info!(
+                    LogCategory::Input,
+                    "[Android] selection action {} -> {:?}",
+                    action,
+                    r
+                );
+                if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                    window.needs_rerender = true;
+                }
+            }
+        }
 
         // Apply IME text on the LOOP thread. `record_text_input` stages a
         // changeset; the event pass right after is what turns it into
@@ -1525,28 +1668,107 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
     // geometry we just set.
     let src = pixmap.data();
     let src_stride = (pw as usize) * 4;
-    if let Some(lines) = guard.lines() {
-        for (y, line) in lines.enumerate() {
-            let dst_ptr = line.as_mut_ptr().cast::<u8>();
-            if y >= ph as usize {
-                // SAFETY: in-bounds write of initialised bytes.
-                unsafe { core::ptr::write_bytes(dst_ptr, 0, line.len()) };
-                continue;
+    let dst_stride = guard.stride() * 4;
+    let dst_rows = guard.height().min(ph as usize);
+
+    // WHICH ROWS. Full copy unless we can prove this exact buffer already holds
+    // a frame we produced and we know everything that changed since.
+    let dpi = window
+        .common
+        .current_window_state()
+        .size
+        .dpi as f32
+        / 96.0;
+    let this_frame_rows = window.damage_rows(dpi, ph as usize);
+    let buffer_id = guard
+        .bytes()
+        .map_or(0usize, |b| b.as_ptr() as usize);
+    let rows_to_copy: Option<Vec<(usize, usize)>> = match (
+        this_frame_rows.as_ref(),
+        window.buffer_frames.get(&buffer_id).copied(),
+    ) {
+        // Known buffer AND bounded damage: patch only what changed since the
+        // frame it holds. Its own frame counts as already-present content.
+        (Some(_), Some(seq)) => window.rows_dirty_since(seq),
+        // Unseen buffer, or a full-damage frame: the contents are undefined,
+        // so every row must be written.
+        _ => None,
+    };
+
+    let Some(dst) = guard.bytes() else {
+        return Ok(());
+    };
+    let dst_ptr = dst.as_mut_ptr().cast::<u8>();
+    let dst_len = dst.len();
+
+    // SAFETY (shared by both arms): `dst` is `&mut [MaybeUninit<u8>]` of
+    // `dst_len` bytes; every write below is bounds-checked against it and
+    // writes initialised bytes. Nothing reads `dst` before writing it.
+    let mut copy_row = |y: usize| {
+        let dst_off = y * dst_stride;
+        if dst_off >= dst_len {
+            return;
+        }
+        let dst_room = (dst_len - dst_off).min(dst_stride);
+        let src_off = y * src_stride;
+        let n = if src_off < src.len() {
+            (src.len() - src_off).min(src_stride).min(dst_room)
+        } else {
+            0
+        };
+        unsafe {
+            let row = dst_ptr.add(dst_off);
+            if n > 0 {
+                core::ptr::copy_nonoverlapping(src.as_ptr().add(src_off), row, n);
             }
-            let src_off = y * src_stride;
-            let end = (src_off + src_stride).min(src.len());
-            let src_row = &src[src_off..end];
-            let n = src_row.len().min(line.len());
-            // SAFETY: line is &mut [MaybeUninit<u8>]; writing initialised
-            // bytes is sound. We never read line before writing it.
-            unsafe {
-                core::ptr::copy_nonoverlapping(src_row.as_ptr(), dst_ptr, n);
-                if n < line.len() {
-                    core::ptr::write_bytes(dst_ptr.add(n), 0, line.len() - n);
+            if n < dst_room {
+                // Beyond the pixmap: the buffer may be wider/taller than the
+                // frame and its contents are undefined, so clear rather than
+                // leave whatever was there.
+                core::ptr::write_bytes(row.add(n), 0, dst_room - n);
+            }
+        }
+    };
+
+    match &rows_to_copy {
+        Some(ranges) => {
+            for (top, bottom) in ranges {
+                for y in *top..(*bottom).min(dst_rows) {
+                    copy_row(y);
                 }
             }
         }
+        None => {
+            for y in 0..guard.height() {
+                copy_row(y);
+            }
+        }
     }
+
+    // Bookkeeping AFTER a successful copy: this buffer now holds this frame,
+    // and this frame's damage joins the history for the next rotation.
+    window.frame_seq = window.frame_seq.wrapping_add(1);
+    let seq = window.frame_seq;
+    window.buffer_frames.insert(buffer_id, seq);
+    // A full copy makes every row current, so it contributes NO damage to
+    // subsequent frames — recording it as "everything dirty" would force the
+    // next rotation into a full copy for no reason.
+    let recorded = match (&rows_to_copy, this_frame_rows) {
+        (None, _) => Vec::new(),
+        (Some(_), Some(rows)) => rows,
+        (Some(_), None) => Vec::new(),
+    };
+    window.damage_history.push_back((seq, recorded));
+    while window.damage_history.len() > AndroidWindow::DAMAGE_HISTORY {
+        window.damage_history.pop_front();
+    }
+    // Buffer pools are tiny; a map that only ever grows would be a slow leak
+    // if a surface were recreated repeatedly.
+    if window.buffer_frames.len() > 8 {
+        let cutoff = seq.saturating_sub(AndroidWindow::DAMAGE_HISTORY as u64);
+        window.buffer_frames.retain(|_, v| *v >= cutoff);
+    }
+
     // guard.drop() calls ANativeWindow_unlockAndPost
     Ok(())
 }
@@ -2035,6 +2257,63 @@ pub mod text_bridge {
             Some(s) => new_jstring(env, &s),
             None => core::ptr::null_mut(),
         }
+    }
+
+    /// Selection bounds in PHYSICAL pixels, for Android's floating toolbar.
+    ///
+    /// `ActionMode.Callback2.onGetContentRect` positions the Cut/Copy/Paste
+    /// popup over the selection, so it needs the rect in the same space the
+    /// View uses. Returns 0 when nothing is selected, so the Java side can tell
+    /// "no selection" from "an empty rect at the origin".
+    ///
+    /// Packed into a single `jlong` rather than an out-array: four 16-bit
+    /// fields cover any screen Android runs on, and it avoids an array
+    /// allocation on a path the toolbar polls while it is on screen.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeGetSelectionRect(
+        _env: *mut jni::sys::JNIEnv,
+        _class: jni::sys::jclass,
+        native_ptr: i64,
+    ) -> i64 {
+        let mut packed = 0i64;
+        with_window(native_ptr, |w| {
+            let dpi = w.common.current_window_state().size.dpi as f32 / 96.0;
+            if let Some(lw) = w.common.layout_window.as_ref() {
+                if let Some(r) = lw.calculate_selection_bounding_rect() {
+                    let clamp = |v: f32| v.max(0.0).min(65535.0) as i64;
+                    let x = clamp(r.origin.x * dpi);
+                    let y = clamp(r.origin.y * dpi);
+                    let w_px = clamp(r.size.width * dpi).max(1);
+                    let h_px = clamp(r.size.height * dpi).max(1);
+                    packed = (x << 48) | (y << 32) | (w_px << 16) | h_px;
+                }
+            }
+        });
+        packed
+    }
+
+    /// Run a selection action chosen from the floating toolbar.
+    ///
+    /// 0 = cut, 1 = copy, 2 = paste, 3 = select all. The engine already models
+    /// all four as `SystemChange`s; this only routes Android's menu onto them,
+    /// so the clipboard payload and the undo entry are the same ones a desktop
+    /// Ctrl+C produces.
+    ///
+    /// Queued like `commitText` — the toolbar calls on the UI thread and a
+    /// system change must be applied where the loop can see it.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeSelectionAction(
+        _env: *mut jni::sys::JNIEnv,
+        _class: jni::sys::jclass,
+        native_ptr: i64,
+        action: i32,
+    ) {
+        with_window(native_ptr, |w| {
+            if let Ok(mut q) = w.pending_selection_actions.lock() {
+                q.push(action);
+            }
+            w.common.request_regeneration(RelayoutReason::RefreshDom);
+        });
     }
 
     /// `InputConnection.commitText` — the IME finished composing and this is
