@@ -863,6 +863,13 @@ fn apply_key_state_change(
     use azul_core::window::OptionVirtualKeyCode;
 
     if is_pressed {
+        // AUTO-REPEAT. Wayland compositors do NOT repeat keys; the client
+        // does, and this backend's timerfd replays the held key through this
+        // same path (`handle_key(keycode, 1)`). The key was never released, so
+        // it is still in `pressed_key_vks` — which makes "a press for a key
+        // already recorded as pressed" the repeat test, the same rule X11 uses
+        // under detectable auto-repeat.
+        keyboard_state.is_repeat = pressed_key_vks.contains_key(&key);
         keyboard_state.current_virtual_keycode = virtual_keycode.into();
         if let Some(vk) = virtual_keycode {
             keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
@@ -878,6 +885,8 @@ fn apply_key_state_change(
             keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
         }
         keyboard_state.pressed_scancodes.remove_hm_item(&key);
+        // A release is never a repeat.
+        keyboard_state.is_repeat = false;
     }
     // The PHYSICAL position. `wl_keyboard.key` IS an evdev code (X11's is that
     // plus 8), so no keymap lookup is needed and the answer holds whatever

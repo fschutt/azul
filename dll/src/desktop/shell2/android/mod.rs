@@ -1161,6 +1161,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         KeyAction,
         Option<azul_core::window::VirtualKeyCode>,
         i32,
+        bool,
     )> = Vec::new();
     // Pen / stylus samples — populated when any pointer in a MotionEvent
     // reports `ToolType::Stylus` or `ToolType::Eraser`. tilt is decomposed
@@ -1263,7 +1264,14 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 }
             }
             InputEvent::KeyEvent(k) => {
-                key_updates.push((k.action(), map_keycode(k.key_code()), k.scan_code()));
+                key_updates.push((
+                    k.action(),
+                    map_keycode(k.key_code()),
+                    k.scan_code(),
+                    // Android counts repeats on the event itself, so unlike
+                    // X11/Wayland this needs no inference from held state.
+                    k.repeat_count() > 0,
+                ));
             }
             _ => {}
         }
@@ -1491,7 +1499,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     }
 
     // Apply collected key updates.
-    for (action, vkc, scan_code) in key_updates {
+    for (action, vkc, scan_code, is_repeat) in key_updates {
         window.snapshot_window_state_baseline("android.drain_input.key");
         {
             let ks = window.common.keyboard_state_mut();
@@ -1515,6 +1523,12 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 }
                 _ => {}
             }
+
+            // Whether THIS event is an auto-repeat. `repeat_count` is 0 for
+            // the initial press and counts up while the key is held, so any
+            // nonzero value is a repeat. A release always reports 0, which is
+            // correct — a release is never a repeat.
+            ks.is_repeat = is_repeat && matches!(action, KeyAction::Down);
 
             // The PHYSICAL position, which the Android keycode cannot answer:
             // that is the LOGICAL key, so binding a game's "forward" to it

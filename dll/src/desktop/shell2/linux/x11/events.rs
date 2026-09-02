@@ -1625,6 +1625,16 @@ pub(super) fn apply_key_state_change(
     is_down: bool,
 ) {
     if is_down {
+        // AUTO-REPEAT. `XkbSetDetectableAutoRepeat` is enabled on the
+        // connection (see X11Window::new), so a held key delivers repeated
+        // KeyPress with NO intervening KeyRelease — which makes "a press for a
+        // keycode already recorded as pressed" exactly the repeat test.
+        //
+        // If the server does not support detectable auto-repeat, repeats
+        // arrive as Release+Press pairs instead; the key is then absent from
+        // the map at the Press and this reports `false`. That degrades to
+        // under-reporting a repeat, never to claiming one that did not happen.
+        keyboard_state.is_repeat = pressed_key_vks.contains_key(&keycode);
         if let Some(vk) = vk {
             keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
             keyboard_state.current_virtual_keycode = Some(vk).into();
@@ -1634,6 +1644,8 @@ pub(super) fn apply_key_state_change(
             pressed_key_vks.insert(keycode, vk);
         }
     } else if let Some(vk) = pressed_key_vks.remove(&keycode).or(vk) {
+        // A release is never a repeat.
+        keyboard_state.is_repeat = false;
         keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
         keyboard_state.current_virtual_keycode = None.into();
 

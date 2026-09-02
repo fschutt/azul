@@ -290,12 +290,27 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       NEITHER symbol is in the dlopen table (`x11/dlopen.rs` binds only new/unref/update_mask/
       key_get_one_sym/key_get_utf8). Guessing bit positions would be right on one keymap and
       wrong on the next, so this is left open deliberately: add the symbol first.
-- [ ] 9e-i-b `is_repeat` on X11, Wayland and Android. X11 auto-repeat arrives as ordinary
-      KeyPress/KeyRelease pairs and needs `XkbSetDetectableAutoRepeat` (or press/release
-      timestamp matching) to be distinguishable at all; Wayland synthesises repeats CLIENT-side
-      from `repeat_info`, so the flag has to be set by whatever timer does that; Android has
-      `KeyEvent.getRepeatCount()` but it is not currently passed across JNI. Three different
-      mechanisms, none of them a one-liner — separated from 9e-i rather than half-done.
+- [x] 9e-i-b DONE on all three, and it turned out X11 and Wayland share ONE rule.
+      X11: `XkbSetDetectableAutoRepeat` is ALREADY enabled on the connection (x11/mod.rs, gated
+      on `owns_display`), which the item did not know. With it on, a held key delivers repeated
+      KeyPress with NO intervening KeyRelease — so "a press for a keycode already recorded in
+      `pressed_key_vks`" IS the repeat test. If a server does not support it, repeats arrive as
+      Release+Press pairs and the key is absent at the Press, so this under-reports rather than
+      claiming a repeat that did not happen.
+      Wayland: the same rule, for a different reason. Compositors do not repeat keys; this
+      backend already synthesises them client-side off a timerfd and replays the held key through
+      `handle_key(keycode, 1)`. The key was never released, so it is still in `pressed_key_vks`.
+      Android: `KeyEvent::repeat_count()` exists in android-activity 0.6.1 (the item assumed it
+      needed JNI plumbing, as 9e-ii-a assumed of the scan code) — nonzero means repeat.
+      THE REAL GAP was further downstream and affected ALL FIVE backends: `KeyboardEventData.repeat`
+      was HARDCODED `false` in `determine_all_events`. macOS and Win32 had been filling
+      `KeyboardState.is_repeat` since 9e-i, and the payload an app actually reads still said
+      `false`. Now carried through on KeyDown; KeyUp stays hardcoded `false` deliberately, so a
+      release cannot report a repeat even if a backend left the flag set.
+      EVIDENCE: `a_keydown_carries_the_platforms_repeat_verdict` (both directions) — verified it
+      bites by restoring the hardcoded `false` — and `a_keyup_is_never_a_repeat`, which sets the
+      flag on purpose. Host, Linux-target and Android-target checks green; 8-target gate green;
+      azul-layout 7555.
 - [x] 9e-ii DONE. `core/src/physical_key.rs` holds the three tables every backend needs and
       `current_physical_key` is now filled on macOS, Windows, X11 and Wayland.
       THREE conventions cover every desktop backend, not four: `wl_keyboard.key` IS an evdev

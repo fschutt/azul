@@ -717,7 +717,12 @@ pub fn determine_all_events(
         key_code: current_key.map_or(0, |k| k as u32),
         char_code: None, // Character is available from the keyboard state
         modifiers,
-        repeat: false,
+        // Whether the platform said this press is an AUTO-REPEAT. Hardcoded
+        // `false` until now, so a text field and a jump button could not tell
+        // a held key from a fresh press however carefully the backend had
+        // determined it — the fact reached `KeyboardState` and stopped one
+        // assignment short of the event an app actually reads.
+        repeat: current_state.keyboard_state.is_repeat,
         ..Default::default()
     });
 
@@ -751,6 +756,8 @@ pub fn determine_all_events(
         key_code: previous_key.map_or(0, |k| k as u32),
         char_code: None,
         modifiers,
+        // A RELEASE is never a repeat, whatever the state says — the backends
+        // clear the flag on key-up, and this does not depend on their doing so.
         repeat: false,
         ..Default::default()
     });
@@ -2805,6 +2812,58 @@ mod autotest_generated {
             determine_all_events(&s, &s, &hover, &focus, &fd, None, &providers, None, ts(0));
         let drop = only(&events, EventType::FileDrop);
         assert_eq!(drop.target, node(1, 4));
+    }
+
+    /// A KeyDown carries the platform's auto-repeat verdict.
+    ///
+    /// The payload's `repeat` was hardcoded `false`, so a text field (which
+    /// wants repeats) and a jump button (which does not) could not tell a held
+    /// key from a fresh press — however carefully the backend had worked it
+    /// out. X11 infers it from detectable auto-repeat, Wayland from its own
+    /// client-side replay, Android from `KeyEvent.repeat_count`, macOS from
+    /// `isARepeat` and Win32 from `lParam` bit 30; all five landed in
+    /// `KeyboardState.is_repeat` and stopped there.
+    #[test]
+    fn a_keydown_carries_the_platforms_repeat_verdict() {
+        use azul_core::events::EventData;
+
+        for repeat in [false, true] {
+            let previous = state();
+            let mut current = state();
+            current.keyboard_state.current_virtual_keycode =
+                Some(VirtualKeyCode::A).into();
+            current.keyboard_state.is_repeat = repeat;
+
+            let events = run_plain(&current, &previous);
+            let kd = only(&events, EventType::KeyDown);
+            match kd.data {
+                EventData::Keyboard(k) => assert_eq!(
+                    k.repeat, repeat,
+                    "KeyDown must report the platform's repeat verdict",
+                ),
+                ref other => panic!("KeyDown must carry keyboard data, got {other:?}"),
+            }
+        }
+    }
+
+    /// A RELEASE is never a repeat, even if the flag was left set.
+    #[test]
+    fn a_keyup_is_never_a_repeat() {
+        use azul_core::events::EventData;
+
+        let mut previous = state();
+        previous.keyboard_state.current_virtual_keycode = Some(VirtualKeyCode::A).into();
+        let mut current = state();
+        // Deliberately still set: the KeyUp payload must not depend on the
+        // backend having cleared it.
+        current.keyboard_state.is_repeat = true;
+
+        let events = run_plain(&current, &previous);
+        let ku = only(&events, EventType::KeyUp);
+        match ku.data {
+            EventData::Keyboard(k) => assert!(!k.repeat, "a release is never a repeat"),
+            ref other => panic!("KeyUp must carry keyboard data, got {other:?}"),
+        }
     }
 
     /// `ModifiersChanged` fires when the held modifier set moves.
