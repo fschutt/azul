@@ -127,15 +127,18 @@ pub const WHITE_SPACE_SHIFT: u32 = 45;
 pub const DIRECTION_SHIFT: u32 = 48;
 pub const VERTICAL_ALIGN_SHIFT: u32 = 49;
 pub const BORDER_COLLAPSE_SHIFT: u32 = 52;
-/// `cursor`, 5 bits for 30 variants, in the first free slot above
-/// `BORDER_COLLAPSE` (bit 52). Bits 58..=62 remain free; bit 63 is
-/// `TIER1_POPULATED_BIT`.
-///
-/// Cursor is INHERITABLE per spec, so a `cursor: pointer` on a container
-/// resolves for every descendant, and it is resolved on EVERY MOUSE MOVE to
-/// decide the pointer shape. A tier-1 bitfield read is the right cost for
-/// that; the slow path's bucket scan was not.
-pub const CURSOR_SHIFT: u32 = 53;
+// `cursor` does NOT live in this word. It was given bit 53 for 5 bits, on
+// the belief that everything above `BORDER_COLLAPSE` (52) was free - but
+// `ALIGN_SELF` (53), `JUSTIFY_SELF` (56), `GRID_AUTO_FLOW` (59) and
+// `JUSTIFY_ITEMS` (61) are declared in the SECOND block below and have held
+// 53..=62 since April. Writing a cursor therefore overwrote `align-self`,
+// so `cursor: pointer` on a flex item silently changed its alignment - and
+// because cursor is inheritable, every descendant was mis-aligned too.
+//
+// The word is full: bits 0..=62 are allocated and 63 is
+// `TIER1_POPULATED_BIT`. `cursor` lives in `CompactNodePropsCold::cursor`,
+// which costs nothing because that struct had padding to spare.
+// `tier1_bit_ranges_do_not_overlap` now fails on any future collision.
 
 // Bit masks
 pub const DISPLAY_MASK: u64 = 0x1F; // 5 bits
@@ -157,7 +160,9 @@ pub const WHITE_SPACE_MASK: u64 = 0x07; // 3 bits
 pub const DIRECTION_MASK: u64 = 0x01; // 1 bit
 pub const VERTICAL_ALIGN_MASK: u64 = 0x07; // 3 bits
 pub const BORDER_COLLAPSE_MASK: u64 = 0x01; // 1 bit
-pub const CURSOR_MASK: u64 = 0x1F; // 5 bits (30 variants)
+/// The range of `cursor` CODES (30 variants). This is NOT a tier-1 bit
+/// slot - see the note above the mask block.
+pub const CURSOR_CODE_MAX: u8 = 0x1F;
 
 pub const ALIGN_SELF_SHIFT: u32 = 53;
 pub const JUSTIFY_SELF_SHIFT: u32 = 56;
@@ -887,11 +892,6 @@ pub const fn cursor_from_u8(v: u8) -> StyleCursor {
     }
 }
 
-#[inline]
-#[must_use]
-pub const fn decode_cursor(t1: u64) -> StyleCursor {
-    cursor_from_u8(((t1 >> CURSOR_SHIFT) & CURSOR_MASK) as u8)
-}
 
 #[inline]
 #[must_use]
@@ -1426,6 +1426,14 @@ pub struct CompactNodePropsCold {
     // --- GPU / hot paint props ---
     /// Opacity × 254 (0 = fully transparent, 254 = opaque). 255 = unset/default (= 1.0).
     pub opacity: u8,
+    /// Resolved `cursor`, as a `cursor_to_u8` code (0 = `Default`).
+    ///
+    /// It is INHERITABLE per spec and is resolved on every mouse move, so it
+    /// wants a flat per-node read - but the tier-1 word has no free bits (see
+    /// the note by the bit masks), and taking bit 53 silently overwrote
+    /// `align-self`. This byte fits in padding this struct already had, so the
+    /// read stays one index and the struct does not grow.
+    pub cursor: u8,
     /// Bitflags for properties that are usually unset. Lets the getter
     /// short-circuit without a cascade walk when the value is the default.
     ///
@@ -1569,6 +1577,8 @@ impl Default for CompactNodePropsCold {
             grid_row_start: I16_AUTO,
             grid_row_end: I16_AUTO,
             opacity: OPACITY_SENTINEL,
+            // 0 is `StyleCursor::Default`, so a zeroed node needs no fixup.
+            cursor: 0,
             hot_flags: 0,
             extra_flags: 0,
         }
@@ -1877,11 +1887,11 @@ impl CompactLayoutCache {
         decode_border_collapse(self.tier1_enums[node_idx])
     }
 
-    /// The resolved `cursor` for a node — one shifted mask read.
+    /// The resolved `cursor` for a node — one byte read.
     #[inline]
     #[must_use]
     pub fn get_cursor(&self, node_idx: usize) -> StyleCursor {
-        decode_cursor(self.tier1_enums[node_idx])
+        cursor_from_u8(self.tier2_cold[node_idx].cursor)
     }
 
     // -- Tier 2 getters (numeric dimensions) --
@@ -4917,15 +4927,10 @@ mod autotest_generated {
         assert_eq!(align_of::<CompactTextProps>(), 8);
     }
 
-    /// Every `StyleCursor` variant survives the 5-bit round trip, and the codes
-    /// stay inside `CURSOR_MASK`.
-    ///
-    /// 30 variants need 5 bits; the slot sits at bit 53, above
-    /// `BORDER_COLLAPSE` (52) and below `TIER1_POPULATED_BIT` (63). A 31st
-    /// variant still fits, a 33rd would silently alias onto another property's
-    /// bits — which is what this test is here to prevent.
+    /// Every `StyleCursor` variant survives the round trip through the byte it
+    /// is stored in, and no two variants share a code.
     #[test]
-    fn every_cursor_variant_survives_the_tier1_round_trip() {
+    fn every_cursor_variant_survives_the_round_trip() {
         use crate::props::style::effects::StyleCursor::{
             Alias, AllScroll, Cell, ColResize, ContextMenu, Copy, Crosshair, Default as Def,
             EResize, EwResize, Grab, Grabbing, Help, Move, NResize, NeswResize, NsResize,
@@ -4942,28 +4947,89 @@ mod autotest_generated {
         for c in all {
             let code = cursor_to_u8(c);
             assert!(
-                u64::from(code) <= CURSOR_MASK,
-                "{c:?} encodes to {code}, past CURSOR_MASK — it would alias another property",
+                code <= CURSOR_CODE_MAX,
+                "{c:?} encodes to {code}, past CURSOR_CODE_MAX",
             );
             assert!(seen.insert(code), "{c:?} shares code {code} with another variant");
             assert_eq!(cursor_from_u8(code), c, "{c:?} did not survive the round trip");
 
-            // And through the packed word, where the shift could collide.
-            let t1 = (u64::from(code) & CURSOR_MASK) << CURSOR_SHIFT;
-            assert_eq!(decode_cursor(t1), c);
+            // And through the byte it is actually stored in.
+            let mut cold = CompactNodePropsCold::default();
+            cold.cursor = code;
+            assert_eq!(cursor_from_u8(cold.cursor), c);
         }
         assert_eq!(seen.len(), all.len(), "every variant needs its own code");
     }
 
-    /// The cursor slot must not overlap its neighbours in the tier-1 word.
+    /// No two tier-1 fields may share a bit.
+    ///
+    /// This replaces a test that checked the newest slot against the two
+    /// neighbours its author had in mind. That is not enough: `cursor` was
+    /// given bit 53 "above BORDER_COLLAPSE (52)", was duly checked against
+    /// `BORDER_COLLAPSE` and `TIER1_POPULATED_BIT`, passed — and landed
+    /// squarely on `ALIGN_SELF`, which is declared in a separate block 24
+    /// lines further down. Writing a `cursor` overwrote the node's
+    /// `align-self`, and since cursor is inheritable it did so for every
+    /// descendant as well.
+    ///
+    /// A pairwise check over EVERY field cannot be fooled that way, so the
+    /// list below must gain a row whenever a slot is added.
     #[test]
-    fn the_cursor_slot_does_not_collide() {
-        let cursor_bits = CURSOR_MASK << CURSOR_SHIFT;
-        let border_collapse_bits = BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT;
-        assert_eq!(cursor_bits & border_collapse_bits, 0, "cursor overlaps border-collapse");
-        assert_eq!(cursor_bits & TIER1_POPULATED_BIT, 0, "cursor overlaps the populated bit");
-        // Writing the maximum code must not disturb anything else.
-        let full = u64::MAX & !cursor_bits;
-        assert_eq!(decode_cursor(full | cursor_bits), cursor_from_u8(CURSOR_MASK as u8));
+    fn tier1_bit_ranges_do_not_overlap() {
+        let fields: &[(&str, u32, u64)] = &[
+            ("display", DISPLAY_SHIFT, DISPLAY_MASK),
+            ("position", POSITION_SHIFT, POSITION_MASK),
+            ("float", FLOAT_SHIFT, FLOAT_MASK),
+            ("overflow_x", OVERFLOW_X_SHIFT, OVERFLOW_MASK),
+            ("overflow_y", OVERFLOW_Y_SHIFT, OVERFLOW_MASK),
+            ("box_sizing", BOX_SIZING_SHIFT, BOX_SIZING_MASK),
+            ("flex_direction", FLEX_DIRECTION_SHIFT, FLEX_DIR_MASK),
+            ("flex_wrap", FLEX_WRAP_SHIFT, FLEX_WRAP_MASK),
+            ("justify_content", JUSTIFY_CONTENT_SHIFT, JUSTIFY_MASK),
+            ("align_items", ALIGN_ITEMS_SHIFT, ALIGN_MASK),
+            ("align_content", ALIGN_CONTENT_SHIFT, ALIGN_MASK),
+            ("writing_mode", WRITING_MODE_SHIFT, WRITING_MODE_MASK),
+            ("clear", CLEAR_SHIFT, CLEAR_MASK),
+            ("font_weight", FONT_WEIGHT_SHIFT, FONT_WEIGHT_MASK),
+            ("font_style", FONT_STYLE_SHIFT, FONT_STYLE_MASK),
+            ("text_align", TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK),
+            ("visibility", VISIBILITY_SHIFT, VISIBILITY_MASK),
+            ("white_space", WHITE_SPACE_SHIFT, WHITE_SPACE_MASK),
+            ("direction", DIRECTION_SHIFT, DIRECTION_MASK),
+            ("vertical_align", VERTICAL_ALIGN_SHIFT, VERTICAL_ALIGN_MASK),
+            ("border_collapse", BORDER_COLLAPSE_SHIFT, BORDER_COLLAPSE_MASK),
+            ("align_self", ALIGN_SELF_SHIFT, ALIGN_SELF_MASK),
+            ("justify_self", JUSTIFY_SELF_SHIFT, JUSTIFY_SELF_MASK),
+            ("grid_auto_flow", GRID_AUTO_FLOW_SHIFT, GRID_AUTO_FLOW_MASK),
+            ("justify_items", JUSTIFY_ITEMS_SHIFT, JUSTIFY_ITEMS_MASK),
+        ];
+
+        for (name, shift, mask) in fields {
+            let bits = mask << shift;
+            assert_eq!(
+                bits >> shift,
+                *mask,
+                "{name} at bit {shift} runs off the top of the word",
+            );
+            assert_eq!(
+                bits & TIER1_POPULATED_BIT,
+                0,
+                "{name} overlaps TIER1_POPULATED_BIT",
+            );
+        }
+
+        for (i, (an, ash, am)) in fields.iter().enumerate() {
+            for (bn, bsh, bm) in &fields[i + 1..] {
+                let a = am << ash;
+                let b = bm << bsh;
+                assert_eq!(
+                    a & b,
+                    0,
+                    "{an} (bit {ash}, mask {am:#x}) and {bn} (bit {bsh}, mask {bm:#x}) \
+                     share bits {:#x} — writing one silently corrupts the other",
+                    a & b,
+                );
+            }
+        }
     }
 }

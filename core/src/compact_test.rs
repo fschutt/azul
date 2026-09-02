@@ -1431,7 +1431,21 @@ mod inheritance_mask_tests {
         (CssPropertyType::Direction, DIRECTION_SHIFT, DIRECTION_MASK),
         (CssPropertyType::VerticalAlign, VERTICAL_ALIGN_SHIFT, VERTICAL_ALIGN_MASK),
         (CssPropertyType::BorderCollapse, BORDER_COLLAPSE_SHIFT, BORDER_COLLAPSE_MASK),
-        (CssPropertyType::Cursor, CURSOR_SHIFT, CURSOR_MASK),
+        // `cursor` is inheritable, but it is NOT a tier-1 slot: the word is
+        // full, and the bits it was given belonged to `align-self`. It lives
+        // in `CompactNodePropsCold::cursor`, and
+        // `an_inherited_cursor_does_not_disturb_align_self` covers it.
+        //
+        // These four are declared in a second constant block further down in
+        // compact_cache.rs, and this table used to stop above them. That is
+        // why `the_tier1_slots_do_not_overlap` stayed green while `cursor`
+        // sat on top of `align_self`: the table never named the field being
+        // corrupted. A slot missing from here is not checked by ANY test in
+        // this module.
+        (CssPropertyType::AlignSelf, ALIGN_SELF_SHIFT, ALIGN_SELF_MASK),
+        (CssPropertyType::JustifySelf, JUSTIFY_SELF_SHIFT, JUSTIFY_SELF_MASK),
+        (CssPropertyType::GridAutoFlow, GRID_AUTO_FLOW_SHIFT, GRID_AUTO_FLOW_MASK),
+        (CssPropertyType::JustifyItems, JUSTIFY_ITEMS_SHIFT, JUSTIFY_ITEMS_MASK),
     ];
 
     /// A property that CSS inherits must be in the mask, and one it does not

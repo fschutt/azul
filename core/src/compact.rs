@@ -745,6 +745,9 @@ impl CssPropertyCache {
                     result.tier2_cold[i].border_spacing_h = result.tier2_cold[pi].border_spacing_h;
                     result.tier2_cold[i].border_spacing_v = result.tier2_cold[pi].border_spacing_v;
                     result.tier2_cold[i].tab_size = result.tier2_cold[pi].tab_size;
+                    // `cursor` is inheritable per spec - a `cursor: pointer`
+                    // on a button has to reach the text inside it.
+                    result.tier2_cold[i].cursor = result.tier2_cold[pi].cursor;
 
                     // Inheritable tier2b: all text properties
                     result.tier2b_text[i] = result.tier2b_text[pi];
@@ -1054,7 +1057,6 @@ pub const INHERITABLE_TIER1_MASK: u64 = (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
     | (WHITE_SPACE_MASK << WHITE_SPACE_SHIFT)
     | (DIRECTION_MASK << DIRECTION_SHIFT)
     | (BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT)
-    | (CURSOR_MASK << CURSOR_SHIFT)
     // `writing-mode` is inheritable per CSS and has had a tier-1 slot all
     // along, but was never copied from the parent: `writing-mode: vertical-rl`
     // on a container laid its children out horizontally in the compact path,
@@ -1449,8 +1451,14 @@ fn apply_css_property_to_compact(
             style_vertical_align_to_u8
         ),
         // `cursor` is INHERITABLE and is resolved on every mouse move to pick
-        // the pointer shape; a tier-1 read is the right cost for that.
-        CssProperty::Cursor(v) => set_tier1!(v, CURSOR_SHIFT, CURSOR_MASK, cursor_to_u8),
+        // the pointer shape, so it wants a flat per-node read. It is NOT in
+        // the tier-1 word: that word is full, and the bit range it was given
+        // belonged to `align-self`, so writing a cursor re-aligned the node.
+        CssProperty::Cursor(v) => {
+            if let Some(exact) = v.get_property() {
+                cold.cursor = cursor_to_u8(*exact);
+            }
+        }
         CssProperty::BorderCollapse(v) => set_tier1!(
             v,
             BORDER_COLLAPSE_SHIFT,
