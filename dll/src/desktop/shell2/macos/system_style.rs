@@ -835,6 +835,42 @@ pub(crate) fn adopt_observed_theme(
     // ThemeChanged event fired; without this snapshot the event is never
     // determined and no callback runs.
     common.snapshot_window_state_baseline("macos.adopt_observed_theme");
+
+    // RE-DISCOVER the style, the way the Windows backend does on
+    // WM_THEMECHANGED. Flipping `ws.theme` alone told the app the theme had
+    // changed while leaving it every colour and metric from the OLD
+    // appearance — an Aqua light/dark switch kept the light palette and only
+    // the `@theme` CSS conditions moved.
+    common.system_style = rediscovered_style_for(theme);
+
     common.update_unsynced_state(|ws| ws.theme = theme);
     true
+}
+
+/// The re-discovered style for an appearance, discovered ONCE per switch.
+///
+/// `adopt_observed_theme` runs per WINDOW, and discovery is a pile of AppKit
+/// round trips; doing it once per window per switch would multiply the cost by
+/// the window count for an identical answer. Cached against the theme it was
+/// discovered for, so a switch BACK re-discovers rather than serving a stale
+/// entry.
+fn rediscovered_style_for(
+    theme: azul_core::window::WindowTheme,
+) -> alloc::sync::Arc<SystemStyle> {
+    use std::sync::Mutex;
+
+    static CACHE: Mutex<Option<(azul_core::window::WindowTheme, alloc::sync::Arc<SystemStyle>)>> =
+        Mutex::new(None);
+
+    let mut guard = CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((cached_theme, style)) = guard.as_ref() {
+        if *cached_theme == theme {
+            return alloc::sync::Arc::clone(style);
+        }
+    }
+    let style = alloc::sync::Arc::new(discover());
+    *guard = Some((theme, alloc::sync::Arc::clone(&style)));
+    style
 }

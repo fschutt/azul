@@ -1927,8 +1927,48 @@ pub(crate) fn adopt_observed_theme(
     // ThemeChanged event fired; without this snapshot the event is never
     // determined and no callback runs.
     common.snapshot_window_state_baseline("linux.adopt_observed_theme");
+
+    // RE-DISCOVER the style, the way the Windows backend does on
+    // WM_THEMECHANGED. Flipping `ws.theme` alone told the app the theme had
+    // changed while leaving it every colour, font and metric from the OLD
+    // scheme: a light->dark switch kept the light palette, the light
+    // scrollbar and the light titlebar, and only the `@theme` CSS conditions
+    // moved. The whole palette belongs to the scheme, so the whole palette is
+    // re-read.
+    common.system_style = rediscovered_style_for(theme);
+
     common.update_unsynced_state(|ws| ws.theme = theme);
     true
+}
+
+/// The re-discovered style for a theme, discovered ONCE per switch.
+///
+/// `adopt_observed_theme` runs per WINDOW, and discovery reads a dozen config
+/// files (and, where they are the only source, spawns a few processes) — doing
+/// that once per window per switch would multiply the cost by the window
+/// count for an answer that is identical every time. Cached against the theme
+/// it was discovered for, so the second window through re-uses the first
+/// window's work and a switch BACK re-discovers rather than serving a stale
+/// entry.
+fn rediscovered_style_for(
+    theme: azul_core::window::WindowTheme,
+) -> alloc::sync::Arc<SystemStyle> {
+    use std::sync::Mutex;
+
+    static CACHE: Mutex<Option<(azul_core::window::WindowTheme, alloc::sync::Arc<SystemStyle>)>> =
+        Mutex::new(None);
+
+    let mut guard = CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((cached_theme, style)) = guard.as_ref() {
+        if *cached_theme == theme {
+            return alloc::sync::Arc::clone(style);
+        }
+    }
+    let style = alloc::sync::Arc::new(discover());
+    *guard = Some((theme, alloc::sync::Arc::clone(&style)));
+    style
 }
 
 /// Dump the fully-discovered `SystemStyle` as text.
