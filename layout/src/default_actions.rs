@@ -42,7 +42,7 @@ use azul_core::{
     events::{DefaultAction, DefaultActionResult, ScrollAmount, ScrollDirection},
     window::{KeyboardState, VirtualKeyCode},
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Editing state of the focused node, as the caret sees it — built by the
 /// caller (`LayoutWindow::build_editing_query_state`) because the decision
@@ -210,25 +210,75 @@ pub fn determine_keyboard_default_action_with_editing(
                 VirtualKeyCode::Left => ScrollDirection::Left,
                 _ => ScrollDirection::Right,
             };
+            let scroll = DefaultAction::ScrollFocusedContainer {
+                direction,
+                amount: ScrollAmount::Line,
+            };
             // MWA-C-scroll: arrows scroll with NO focused node too (the
             // consumer anchors on the hovered container then) — only a
             // focused text input claims the arrows for caret movement.
-            focused_node.as_ref().map_or(
-                DefaultAction::ScrollFocusedContainer {
-                    direction,
-                    amount: ScrollAmount::Line,
-                },
-                |focus| {
-                    if is_text_input(focus, layout_results) {
-                        DefaultAction::None
-                    } else {
-                        DefaultAction::ScrollFocusedContainer {
-                            direction,
-                            amount: ScrollAmount::Line,
-                        }
+            focused_node.as_ref().map_or(scroll, |focus| {
+                if is_text_input(focus, layout_results) {
+                    return DefaultAction::None;
+                }
+                // SPATIAL NAVIGATION, per CSS Spatial Navigation Level 1: an
+                // arrow does not choose between focus and scroll, it tries them
+                // IN ORDER. Look for a focusable in that direction first; only
+                // if there is none does the arrow scroll.
+                //
+                // That ordering is the whole reason this was blocked: taking
+                // the arrows outright would break every scroll container, and
+                // leaving them on scroll means a keyboard user deep in one part
+                // of a UI cannot reach a visually adjacent control without
+                // tabbing through everything between.
+                //
+                // Resolution is asked HERE rather than left to the dll seam so
+                // the fallback is one decision in one place, testable without a
+                // window — the seam would have to undo an already-dispatched
+                // focus action to scroll instead.
+                let dir = match direction {
+                    ScrollDirection::Up => FocusDirection::Up,
+                    ScrollDirection::Down => FocusDirection::Down,
+                    ScrollDirection::Left => FocusDirection::Left,
+                    ScrollDirection::Right => FocusDirection::Right,
+                };
+                // Spatial navigation needs a real ORIGIN: "what is above THIS"
+                // is unanswerable from a focus that names no live node, and
+                // the resolver is lenient there — handed an unresolvable
+                // current focus it falls back to a first-focusable, which
+                // would turn every arrow into a focus jump. Require the anchor
+                // to exist before asking.
+                let anchor_is_live = focus
+                    .node
+                    .into_crate_internal()
+                    .is_some_and(|n| {
+                        layout_results.get(&focus.dom).is_some_and(|lr| {
+                            n.index() < lr.styled_dom.node_data.as_container().len()
+                        })
+                    });
+                if !anchor_is_live {
+                    return scroll;
+                }
+                let spatial = crate::managers::focus_cursor::resolve_focus_target(
+                    &FocusTarget::Directional(dir),
+                    layout_results,
+                    Some(*focus),
+                    &BTreeSet::new(),
+                );
+                if matches!(
+                    spatial,
+                    Ok(crate::managers::focus_cursor::FocusResolution::Resolved(_))
+                ) {
+                    match dir {
+                        FocusDirection::Up => DefaultAction::FocusUp,
+                        FocusDirection::Down => DefaultAction::FocusDown,
+                        FocusDirection::Left => DefaultAction::FocusLeft,
+                        FocusDirection::Right => DefaultAction::FocusRight,
                     }
-                },
-            )
+                } else {
+                    scroll
+                }
+            })
         }
 
         // Page Up/Down
@@ -1136,6 +1186,55 @@ mod autotest_generated {
     // Arrows / PageUp / PageDown / Home / End
     // ==================================================================
 
+    /// An arrow MOVES FOCUS when there is a focusable in that direction.
+    ///
+    /// This is the half that was blocked. Arrows used to scroll
+    /// unconditionally, so a keyboard user deep in one part of a UI could not
+    /// reach a visually adjacent control without tabbing through everything
+    /// between it — the complaint that opened the item. Per CSS Spatial
+    /// Navigation Level 1 the arrow tries focus FIRST and falls back to
+    /// scrolling, which is what makes taking the arrows safe at all.
+    #[test]
+    fn an_arrow_moves_focus_when_something_is_there_to_focus() {
+        let layouts = fixture();
+        // A live, non-text anchor: the resolver has an origin to search from.
+        let focus = button(&layouts);
+        let mut moved = 0;
+        for (key, focus_action) in [
+            (VirtualKeyCode::Up, DefaultAction::FocusUp),
+            (VirtualKeyCode::Down, DefaultAction::FocusDown),
+            (VirtualKeyCode::Left, DefaultAction::FocusLeft),
+            (VirtualKeyCode::Right, DefaultAction::FocusRight),
+        ] {
+            let action =
+                determine_keyboard_default_action(&kbd(key, &[]), Some(focus), &layouts, false)
+                    .action;
+            // Whichever way this fixture actually has a neighbour, the answer
+            // must be EITHER that direction's focus move OR the scroll
+            // fallback — never a different direction, and never nothing.
+            assert!(
+                action == focus_action
+                    || matches!(action, DefaultAction::ScrollFocusedContainer { .. }),
+                "{key:?} must either move focus {focus_action:?} or fall back to a scroll, \
+                 got {action:?}",
+            );
+            if action == focus_action {
+                moved += 1;
+            }
+        }
+        assert!(
+            moved > 0,
+            "at least one direction in this fixture has a neighbour to focus; if none does, \
+             the ordering is untested and the fixture needs a second focusable",
+        );
+    }
+
+    /// An arrow SCROLLS only when spatial navigation finds nothing.
+    ///
+    /// CSS Spatial Navigation Level 1 makes this an ORDER, not a choice: look
+    /// for a focusable in that direction, and only if there is none does the
+    /// arrow scroll. This asserts the fallback half — the cases where no
+    /// candidate can resolve, so the scroll is what must happen.
     #[test]
     fn arrow_keys_map_to_their_own_direction_and_scroll_by_line() {
         let layouts = fixture();
@@ -1145,20 +1244,17 @@ mod autotest_generated {
             (VirtualKeyCode::Left, ScrollDirection::Left),
             (VirtualKeyCode::Right, ScrollDirection::Right),
         ] {
-            // No focus, non-text focus and unresolvable focus all scroll.
-            for focus in [
-                None,
-                Some(button(&layouts)),
-                Some(div(&layouts)),
-                Some(missing_dom()),
-                Some(null_node()),
-            ] {
+            // No focus at all, and focus anchored in a dom/node that cannot be
+            // resolved: spatial navigation has nowhere to search FROM, so the
+            // fallback applies.
+            for focus in [None, Some(missing_dom()), Some(null_node())] {
                 let result =
                     determine_keyboard_default_action(&kbd(key, &[]), focus, &layouts, false);
                 assert_eq!(
                     result.action,
                     scroll(direction, ScrollAmount::Line),
-                    "{key:?} must scroll one line towards {direction:?}"
+                    "{key:?} must scroll one line towards {direction:?} when spatial \
+                     navigation finds no candidate"
                 );
             }
 

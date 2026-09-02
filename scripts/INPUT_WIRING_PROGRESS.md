@@ -601,57 +601,34 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       completeness guards updated to cover the 4 new actions (`mapping_is_injective_over_the_
       focus_actions` now asserts 9). Host check green, 8-target gate green, azul-core 2741,
       azul-layout 7519 passed with its 20 pre-existing failures unchanged.
-- [ ] 9a-i-a ARROW KEYS for spatial navigation — still blocked, and still on a product decision,
-      not on plumbing. Everything downstream now exists (the actions, the mapping, the
-      resolver), so this is purely "when may an arrow key mean focus instead of scroll". Needs
-      the CSS opt-out the audit describes (`-azul-spatial-navigation: auto|none` or equivalent);
-      binding them unconditionally would break every scroll container.
-      Note that on Android the D-pad ALREADY arrives as arrow keys on the keyboard path
-      (`Keycode::DpadLeft => V::Left` in android/mod.rs), so a TV remote there is
-      indistinguishable from an arrow key at this layer and is covered by this item, not by the
-      gamepad path above — which reaches it as `GamepadButton::DPad*` through
-      `extra/gamepad/android.rs` instead.
-
-      CONVENTIONS (researched 2026-09-02, in answer to "are there existing conventions?"):
-      * W3C **CSS Spatial Navigation Level 1** is the direct precedent, and it does NOT frame
-        this as "arrows XOR scroll". It defines an ORDERED FALLBACK: look for a focus candidate
-        in that direction inside the current *spatial navigation container*; if there is none,
-        SCROLL that container; if it cannot scroll, ascend to the parent container and repeat.
-        Properties: `spatial-navigation-contain`, `-action`, `-function`.
-        This dissolves the conflict that blocked this item. The choice is not a global opt-out
-        but an ORDER, and "focus first, scroll when there is nothing to focus" is the
-        standardised answer. `spatial-navigation-action: focus | scroll | auto` is exactly the
-        per-container override, and is a better shape than the `-azul-spatial-navigation`
-        opt-out this item originally proposed.
-      * CSS3 UI had explicit per-element targeting (`nav-up`/`nav-right`/`nav-down`/`nav-left`),
-        shipped in Opera Presto and TV browsers, dropped in UI L4. Worth having as an escape
-        hatch for the cases the geometry heuristic gets wrong.
-      * **WinUI/XAML** does the same thing under a different name: "XY focus navigation", with
-        `XYFocusUp/Down/Left/Right` for explicit overrides and `XYFocusKeyboardNavigation`
-        (Auto/Enabled/Disabled) as the per-subtree switch. **WPF** has
-        `KeyboardNavigation.DirectionalNavigation`.
-      * **GTK** binds arrows to directional movement WITHIN a container and Tab BETWEEN
-        containers — the two-level model the user is asking for, and the reason a GTK tree does
-        not swallow your whole tab order.
-      * macOS has no system-wide spatial navigation; Full Keyboard Access is Tab plus
-        arrow-within-group.
-      **USER RULING (2026-09-02): follow the W3C model, NOT the GTK one.** So the design is
-      fixed: PLAIN ARROWS with CSS Spatial Navigation's ordered fallback — look for a focus
-      candidate in that direction within the current spatial-navigation container, else SCROLL
-      that container, else ascend to the parent and repeat. Implement
-      `spatial-navigation-contain` and `spatial-navigation-action: focus | scroll | auto` as the
-      per-container overrides rather than inventing an `-azul-` opt-out, and treat the CSS3-UI
-      `nav-up`/`-right`/`-down`/`-left` explicit targets as the escape hatch for cases the
-      geometry heuristic gets wrong. Do NOT copy GTK's "arrows within a container, Tab between
-      containers" split.
-      DO NOT use Ctrl+Arrow as the default trigger. It is heavily taken: word-wise caret
-      movement in every text control, jump-to-edge-of-data-region in every spreadsheet, and
-      workspace switching in several desktop environments. Plain arrows with the spec's
-      focus-then-scroll ordering is both the standard and the less contested binding; a modifier
-      chord should at most be an ADDITIONAL explicit trigger, not the primary one.
-
-### Follow-ups opened by 8e/8f
-
+- [x] 9a-i-a DONE — arrows do spatial navigation, with the W3C ORDERED FALLBACK the user ruled
+      for. This closes the item that blocked 9a-i from the start.
+      The block was never plumbing: taking the arrows outright breaks every scroll container,
+      and leaving them on scroll means a keyboard user deep in one part of a UI cannot reach a
+      visually adjacent control without tabbing through everything between — the original
+      complaint. CSS Spatial Navigation Level 1 dissolves it by making the arrow try things IN
+      ORDER: look for a focusable in that direction, and only if there is none does it scroll.
+      IMPLEMENTED IN THE DECISION FUNCTION, not the dll seam: the fallback is then one decision
+      in one place and testable without a window. The seam would have had to UNDO an
+      already-dispatched focus action in order to scroll instead.
+      Uniform for the D-pad too — `FocusUp`/`Down`/`Left`/`Right` now mean "spatially navigate",
+      whoever asked.
+      TWO GUARDS kept: a focused TEXT INPUT still claims the arrows for caret movement (as
+      browsers do), and spatial navigation is only attempted from a LIVE anchor. That second one
+      is load-bearing: `resolve_focus_target` is lenient — handed a focus naming no live node it
+      falls back to a first-focusable, which would have turned every arrow into a focus jump.
+      The existing arrow test caught exactly that.
+      EVIDENCE: `an_arrow_moves_focus_when_something_is_there_to_focus` pins the focus half, and
+      the pre-existing `arrow_keys_map_to_their_own_direction_and_scroll_by_line` was rewritten
+      to pin the FALLBACK half (it encoded "arrows always scroll", the pre-ruling behaviour).
+      azul-layout 7557, azul-dll 1944, azul-core 2750, host check and 8-target gate green.
+- [ ] 9a-i-b `spatial-navigation-contain` and `spatial-navigation-action: focus | scroll | auto`
+      as the per-container overrides, per the user's ruling. NOT needed for the ordering above to
+      be coherent — the fallback already means a scroll container with no focusable children
+      still scrolls, which is browser behaviour — but they are how a container opts OUT (forcing
+      scroll even when a focusable is present, or containing navigation within a panel). Both are
+      real CSS properties: parser, cascade, api.json and the resolver honouring them, which is
+      why they are separate from the ordering.
 - [ ] 8f-i The new `GamepadState` fields (battery, touchpad, gyro/accel) are modelled but no backend fills
       them. gilrs exposes battery via `Gamepad::power_info`; the pad touchpad and IMU need either SDL or
       raw HID, since gilrs does not surface them. Until then they read as their "not reported" defaults,
