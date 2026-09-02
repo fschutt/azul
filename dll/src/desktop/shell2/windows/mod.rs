@@ -723,6 +723,31 @@ impl Win32Window {
                     "[Win32] RegisterRawInputDevices failed; RawMouseMotion will not fire"
                 );
             }
+
+            // GENERIC HID (9f-i-b): joysticks, wheels, multi-axis controllers
+            // and anything else azul does not model. Registered as a SECOND
+            // call rather than extended into the array above, so a driver that
+            // rejects one usage cannot cost us the other - the whole array
+            // fails together.
+            //
+            // Registered per-usage because there is no "everything" wildcard:
+            // usage page 1 usages 4 (joystick), 5 (gamepad) and 8 (multi-axis)
+            // are the top-level collections a non-mouse, non-keyboard HID
+            // reports under.
+            for usage in [0x04u16, 0x05, 0x08] {
+                let rid = dlopen::RAWINPUTDEVICE {
+                    usUsagePage: dlopen::HID_USAGE_PAGE_GENERIC,
+                    usUsage: usage,
+                    dwFlags: 0,
+                    hwndTarget: hwnd,
+                };
+                let _ = (win32.user32.RegisterRawInputDevices)(
+                    &rid,
+                    1,
+                    core::mem::size_of::<dlopen::RAWINPUTDEVICE>() as u32,
+                );
+            }
+            crate::desktop::extra::hid::windows::enumerate(&win32.user32);
         }
 
         // File drag-and-drop is enabled via OLE `RegisterDragDrop` (modern
@@ -5173,6 +5198,14 @@ unsafe extern "system" fn window_proc(
             // device rather than this window's cursor, so delivering it while
             // the user is not locked into the window reports their mouse
             // movements across the whole desktop.
+            // GENERIC HID first, and NOT gated on the pointer lock: the lock
+            // gate exists because raw MOUSE motion describes the user's
+            // movements across the whole desktop, which is a privacy leak
+            // while unfocused. A joystick axis is not that - it carries no
+            // desktop position - and gating it would make `get_hid_reports()`
+            // silent unless a game happened to hold a pointer lock.
+            crate::desktop::extra::hid::windows::handle_wm_input(&window.win32.user32, lparam);
+
             let locked = window
                 .common
                 .current_window_state()

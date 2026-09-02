@@ -134,6 +134,90 @@ pub const RIM_TYPEMOUSE: u32 = 0;
 /// `RAWMOUSE.usFlags`: motion is absolute, not the usual relative.
 pub const MOUSE_MOVE_ABSOLUTE: u16 = 0x01;
 
+// -- Generic HID over raw input (9f-i-b) --
+//
+// The same `WM_INPUT` stream the mouse arm above uses, with `dwType ==
+// RIM_TYPEHID`. What differs is that the payload is VARIABLE length:
+// `dwSizeHid * dwCount` bytes follow the struct, so it cannot be read into a
+// fixed-size type the way `RAWINPUTMOUSE` can.
+
+/// `RAWHID`. `bRawData` is a flexible array - the `[u8; 1]` matches the SDK's
+/// own declaration and is a HANDLE for the trailing bytes, never the extent.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct RAWHID {
+    pub dwSizeHid: u32,
+    pub dwCount: u32,
+    pub bRawData: [u8; 1],
+}
+
+/// `RAWINPUT` restricted to its HID arm, mirroring `RAWINPUTMOUSE`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct RAWINPUTHID {
+    pub header: RAWINPUTHEADER,
+    pub hid: RAWHID,
+}
+
+/// One entry from `GetRawInputDeviceList`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RAWINPUTDEVICELIST {
+    pub hDevice: isize,
+    pub dwType: u32,
+}
+
+/// `RID_DEVICE_INFO_HID` - vendor, product, usage page and usage.
+///
+/// This is why **hid.dll is not needed**: the 9f-i note said the vid/pid would
+/// require `HidD_GetAttributes`, but `GetRawInputDeviceInfoW(RIDI_DEVICEINFO)`
+/// already returns all four fields, so no extra library is loaded at all.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RID_DEVICE_INFO_HID {
+    pub dwVendorId: u32,
+    pub dwProductId: u32,
+    pub dwVersionNumber: u32,
+    pub usUsagePage: u16,
+    pub usUsage: u16,
+}
+
+/// `RID_DEVICE_INFO`, with the union represented by its LARGEST arm.
+///
+/// The real type unions mouse (16 bytes), keyboard (24) and hid (16). The
+/// keyboard arm is the largest, so the union is 24 bytes and the struct is 32;
+/// `_union_pad` reserves exactly that and the HID arm is read from its head.
+/// The OS validates `cbSize`, so a wrong total makes every call fail with no
+/// diagnostic - which is what the compile-time assertion below exists to stop.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RID_DEVICE_INFO {
+    pub cbSize: u32,
+    pub dwType: u32,
+    pub hid: RID_DEVICE_INFO_HID,
+    /// The keyboard arm is 8 bytes longer than the HID arm.
+    pub _union_pad: [u32; 2],
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    use core::mem::{align_of, size_of};
+    assert!(size_of::<RAWHID>() == 12);
+    assert!(size_of::<RAWINPUTDEVICELIST>() == 16);
+    assert!(size_of::<RID_DEVICE_INFO_HID>() == 16);
+    // 4 + 4 + 16 + 8 = 32, which is what `cbSize` must be told.
+    assert!(size_of::<RID_DEVICE_INFO>() == 32);
+    assert!(align_of::<RID_DEVICE_INFO>() == 4);
+};
+
+/// `RAWINPUTHEADER.dwType` for a generic HID device.
+pub const RIM_TYPEHID: u32 = 2;
+/// `GetRawInputDeviceInfoW`: fill a `RID_DEVICE_INFO`.
+pub const RIDI_DEVICEINFO: u32 = 0x2000_000b;
+/// `GetRawInputDeviceInfoW`: the device interface path. NOTE its size is a
+/// CHARACTER count, not a byte count - the one command where that is true.
+pub const RIDI_DEVICENAME: u32 = 0x2000_0007;
+
 impl RECT {
     pub fn width(&self) -> u32 {
         (self.right - self.left).max(0) as u32
@@ -597,6 +681,13 @@ pub struct User32Functions {
     /// Returns the byte count written, or `u32::MAX` on error — NOT a BOOL.
     pub GetRawInputData:
         unsafe extern "system" fn(isize, u32, *mut core::ffi::c_void, *mut u32, u32) -> u32,
+    /// Enumerate every raw-input device. `None` buffer = "how many?".
+    pub GetRawInputDeviceList:
+        unsafe extern "system" fn(*mut RAWINPUTDEVICELIST, *mut u32, u32) -> u32,
+    /// Per-device info: `RIDI_DEVICEINFO` gives vid/pid/usage,
+    /// `RIDI_DEVICENAME` the interface path.
+    pub GetRawInputDeviceInfoW:
+        unsafe extern "system" fn(isize, u32, *mut core::ffi::c_void, *mut u32) -> u32,
     /// Show/hide the cursor. This is a COUNTER, not a flag — every hide must
     /// be matched by exactly one show or the cursor stays gone process-wide.
     pub ShowCursor: unsafe extern "system" fn(BOOL) -> i32,
@@ -983,6 +1074,8 @@ impl Win32Libraries {
                 GetMessageExtraInfo: user32_dll.get_symbol("GetMessageExtraInfo")?,
                 RegisterRawInputDevices: user32_dll.get_symbol("RegisterRawInputDevices")?,
                 GetRawInputData: user32_dll.get_symbol("GetRawInputData")?,
+                GetRawInputDeviceList: user32_dll.get_symbol("GetRawInputDeviceList")?,
+                GetRawInputDeviceInfoW: user32_dll.get_symbol("GetRawInputDeviceInfoW")?,
                 ShowCursor: user32_dll.get_symbol("ShowCursor")?,
                 TrackMouseEvent: user32_dll.get_symbol("TrackMouseEvent")?,
 

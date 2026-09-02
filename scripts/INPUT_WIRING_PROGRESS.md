@@ -571,12 +571,36 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       permission files, which is a public-API decision rather than part of the HID producer, so it
       is logged rather than folded in. Until then the backend reports no devices when denied,
       which is honest but gives an app no way to ASK.
-- [ ] 9f-i-b Windows `RIM_TYPEHID`. 9d-i already built `RegisterRawInputDevices`, the `WM_INPUT`
-      arm and `GetRawInputData`, so adding a HID usage registration is a few lines - but the
-      report is VARIABLE length (`dwSizeHid` * `dwCount` trailing bytes), needing a heap buffer
-      sized from a zero-length probe rather than the fixed struct the mouse arm uses, and the
-      vid/pid needs `HidD_GetAttributes` from **hid.dll**, which this codebase does not load at
-      all, plus `GetRawInputDeviceList`/`GetRawInputDeviceInfoW` to enumerate.
+- [x] 9f-i-b DONE — Windows completes HID on all three desktop platforms.
+      ⚠ THE ITEM'S PREMISE WAS WRONG ON THE HARD PART. It said the vid/pid "needs
+      `HidD_GetAttributes` from **hid.dll**, a library this codebase does not load at all". It does
+      not: `GetRawInputDeviceInfoW(RIDI_DEVICEINFO)` fills a `RID_DEVICE_INFO_HID` carrying vendor
+      id, product id, usage page AND usage - every field `HidDevice` has except the name. Checked
+      against the SDK docs before writing anything, so NO new library is loaded and the item was
+      substantially smaller than logged.
+      What the item got RIGHT is the variable-length report, and it is the real difference from
+      the mouse arm: `RIM_TYPEHID` carries `dwSizeHid * dwCount` trailing bytes, so the buffer is
+      sized from a zero-length `GetRawInputData` probe. A fixed-size read would truncate every
+      report from any device with more than a few bytes of state. The payload is also `dwCount`
+      reports back to back, not one - treating it as a single report would merge a coalesced batch
+      into nonsense.
+      REGISTRATION is a SECOND `RegisterRawInputDevices` call rather than a longer array: the
+      array fails as a unit, so a driver rejecting one usage would otherwise cost the mouse
+      registration too. Usages 4/5/8 on the Generic Desktop page (joystick, gamepad, multi-axis)
+      are the top-level collections a non-mouse, non-keyboard HID reports under; there is no
+      wildcard.
+      NOT gated on the pointer lock, unlike the mouse arm beside it. That gate exists because raw
+      MOUSE motion describes the user's movements across the whole desktop and is a privacy leak
+      while unfocused; a joystick axis carries no desktop position, and gating it would make
+      `get_hid_reports()` silent unless a game happened to hold a lock.
+      Windows enumerates at WINDOW CREATION (it needs the loaded `User32Functions` table) and has
+      no `poll()`: reports arrive through `WM_INPUT`, as macOS's arrive through the run loop. Only
+      Linux sweeps, because hidraw has no callback.
+      EVIDENCE: `RID_DEVICE_INFO` is 32 bytes and the OS VALIDATES `cbSize` - a wrong value fails
+      every call with no diagnostic - so the layout is pinned by a compile-time assertion beside
+      the existing mouse ones, and it passed. All three seams proven COMPILED by deliberate type
+      errors under `--target x86_64-pc-windows-gnu`. All four desktop targets green, 8/8 mobile,
+      azul-dll 1973, azul-layout 7579. ⚠ Compile-only - no Windows machine here.
 - [x] 9g-i DONE for the drain + macOS + Android. The drain was the real defect: `CallbackInfo::
       play_haptic()` -> `CallbackChange::PlayHaptic` -> `HapticManager::play()` was a complete chain
       with NO drain on ANY platform, so every request ever made accumulated in a Vec nothing read.

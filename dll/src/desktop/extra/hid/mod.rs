@@ -13,13 +13,16 @@
 //! Per-platform:
 //! - **Linux**: `/dev/hidraw*`, implemented here. No library to load.
 //! - **macOS**: `IOHIDManager`, implemented here. dlopen'd; needs Input Monitoring.
-//! - **Windows**: `RIM_TYPEHID` through the `WM_INPUT` arm 9d-i already built,
-//!   plus `hid.dll` for the vid/pid - 9f-i-b.
+//! - **Windows**: `RIM_TYPEHID` through the `WM_INPUT` arm 9d-i already built.
+//!   Needs NO hid.dll: `GetRawInputDeviceInfoW(RIDI_DEVICEINFO)` carries the
+//!   vid/pid/usage directly.
 
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 /// Enumerate HID devices and publish the list. Idempotent.
 pub fn enumerate() {
@@ -27,6 +30,9 @@ pub fn enumerate() {
     linux::enumerate();
     #[cfg(target_os = "macos")]
     macos::enumerate();
+    // Windows enumerates at WINDOW CREATION instead: it needs the loaded
+    // `User32Functions` table, which this signature has no path to, and the
+    // raw-input registration happens there anyway. Nothing to do here.
 }
 
 /// Poll every open device for queued reports. Called once per pump pass.
@@ -35,4 +41,6 @@ pub fn poll() {
     linux::poll();
     #[cfg(target_os = "macos")]
     macos::poll();
+    // Windows delivers through `WM_INPUT`, like macOS delivers through the
+    // run loop. Only Linux sweeps, because hidraw has no callback.
 }
