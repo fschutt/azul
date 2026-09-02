@@ -13988,6 +13988,31 @@
                                     "type": "TabletDeviceInfoVec"
                                 },
                                 "fn_body": "object.get_tablet_devices()"
+                            },
+                            "set_pointer_lock": {
+                                "doc": [
+                                    "Lock the pointer to this window: confine it and hide it, so motion is",
+                                    "reported as unbounded RELATIVE deltas instead of an absolute position",
+                                    "that stops at the screen edge.",
+                                    "",
+                                    "This is what `MouseState.is_cursor_locked` means, and what",
+                                    "`RawMouseMotion` delivery is gated on. Pass `false` to release.",
+                                    "",
+                                    "The request can be REFUSED: on X11 another client may already hold the",
+                                    "pointer, and a platform with no pointer-lock concept cannot take one at",
+                                    "all. Read `MouseState.is_cursor_locked` back to learn whether the lock",
+                                    "is actually held; it stores what the platform granted, not what was",
+                                    "asked for."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "locked": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_pointer_lock(locked)"
                             }
                         },
                         "repr": "C"

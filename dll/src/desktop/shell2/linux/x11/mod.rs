@@ -6333,6 +6333,48 @@ impl X11Window {
         }
     }
 
+    /// Pointer lock via `XGrabPointer` with `confine_to` set to our own
+    /// window — the confinement IS the lock, and it is what makes
+    /// `XI_RawMotion` deliver a usable unbounded delta stream instead of
+    /// motion that dies at the screen edge.
+    ///
+    /// `owner_events = True` so ordinary pointer events keep routing normally
+    /// while the grab is held; the app still gets its clicks.
+    fn handle_set_pointer_lock(&mut self, locked: bool) -> bool {
+        let display = self.display;
+        let window = self.window;
+        if display.is_null() || window == 0 {
+            return false;
+        }
+        unsafe {
+            if !locked {
+                (self.xlib.XUngrabPointer)(display, defines::CurrentTime);
+                (self.xlib.XFlush)(display);
+                return false;
+            }
+            let status = (self.xlib.XGrabPointer)(
+                display,
+                window,
+                1, // owner_events: ordinary events keep flowing to us
+                (defines::PointerMotionMask
+                    | defines::ButtonPressMask
+                    | defines::ButtonReleaseMask) as c_uint,
+                defines::GrabModeAsync,
+                defines::GrabModeAsync,
+                window, // confine_to — THE lock
+                0,      // no cursor override
+                defines::CurrentTime,
+            );
+            (self.xlib.XFlush)(display);
+            // A grab is genuinely refusable: another client may already hold
+            // the pointer (a menu, a drag, a screen locker), or the window may
+            // not be viewable yet. Report what actually happened — the caller
+            // stores THIS, not what was asked for, because RawMouseMotion is
+            // gated on it.
+            status == defines::GrabSuccess
+        }
+    }
+
     fn handle_begin_interactive_move(&mut self) {
         let (x, y) = {
             let ws = self.common.current_window_state();

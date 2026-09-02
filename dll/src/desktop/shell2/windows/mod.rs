@@ -2239,6 +2239,72 @@ impl Win32Window {
     /// Wayland and macOS already took their native paths; Windows and X11 fell
     /// through to the no-op default in `common::event`, which is why dragging
     /// felt worse on exactly those two.
+    /// Pointer lock via `ClipCursor` on the client rect, plus hiding the
+    /// cursor.
+    ///
+    /// Win32 has no single "lock" call: confinement (`ClipCursor`) and
+    /// visibility (`ShowCursor`) are separate, and `ShowCursor` is a COUNTER
+    /// rather than a flag — every hide must be matched by exactly one show or
+    /// the cursor stays invisible for the whole process. So the toggle is
+    /// driven off the CURRENT flag and runs only on a real transition; asking
+    /// to lock twice must not hide twice.
+    fn handle_set_pointer_lock(&mut self, locked: bool) -> bool {
+        use self::dlopen::{POINT, RECT};
+        let was = self
+            .common
+            .current_window_state()
+            .mouse_state
+            .is_cursor_locked;
+        unsafe {
+            if !locked {
+                (self.win32.user32.ClipCursor)(core::ptr::null());
+                if was {
+                    (self.win32.user32.ShowCursor)(1);
+                }
+                return false;
+            }
+            // Clip to the CLIENT area in SCREEN coordinates: `GetClientRect`
+            // answers in client space (origin always 0,0), so both corners
+            // have to be mapped or the clip lands at the top-left of the
+            // display instead of over the window.
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            };
+            if (self.win32.user32.GetClientRect)(self.hwnd, &mut rect) == 0 {
+                return false;
+            }
+            let mut tl = POINT {
+                x: rect.left,
+                y: rect.top,
+            };
+            let mut br = POINT {
+                x: rect.right,
+                y: rect.bottom,
+            };
+            if (self.win32.user32.ClientToScreen)(self.hwnd, &mut tl) == 0
+                || (self.win32.user32.ClientToScreen)(self.hwnd, &mut br) == 0
+            {
+                return false;
+            }
+            let screen = RECT {
+                left: tl.x,
+                top: tl.y,
+                right: br.x,
+                bottom: br.y,
+            };
+            if (self.win32.user32.ClipCursor)(&screen) == 0 {
+                return false;
+            }
+            if !was {
+                (self.win32.user32.ShowCursor)(0);
+            }
+            true
+        }
+    }
+
     fn handle_begin_interactive_move(&mut self) {
         const WM_NCLBUTTONDOWN: u32 = 0x00A1;
         const HTCAPTION: usize = 2;

@@ -3954,6 +3954,25 @@ pub trait PlatformWindow {
         // No-op on non-Wayland platforms
     }
 
+    /// Confine + hide the pointer (or release it), returning whether the lock
+    /// is ACTUALLY held afterwards.
+    ///
+    /// The return value is not decoration: `XGrabPointer` can fail because
+    /// another client already holds the pointer, and a platform with no
+    /// pointer-lock concept at all (Android, iOS) can only answer "no". The
+    /// caller stores what this returns rather than what was asked for, because
+    /// `RawMouseMotion` is gated on the flag — claiming a lock that was
+    /// refused would deliver relative motion while the cursor still roams.
+    ///
+    /// Default: refuse. A backend that has not implemented the grab must
+    /// report `false` for `locked == true`, never a silent success.
+    fn handle_set_pointer_lock(&mut self, _locked: bool) -> bool {
+        // False either way, and correct either way: this reports whether a
+        // lock IS HELD afterwards, so a backend with no grab answers "no" to a
+        // lock request, and a release leaves no lock held on any backend.
+        false
+    }
+
     /// Synchronize the platform window properties (title, size, position, etc.)
     /// with `current_window_state`. Called after callbacks have potentially
     /// modified window state via `ModifyWindowState`.
@@ -5735,6 +5754,24 @@ pub trait PlatformWindow {
             // === Window Move ===
             CallbackChange::BeginInteractiveMove => {
                 self.handle_begin_interactive_move();
+                ProcessEventResult::DoNothing
+            }
+
+            CallbackChange::SetPointerLock { locked } => {
+                // Ask the platform FIRST: a grab can be refused (another
+                // client already holds one, the window is not viewable), and
+                // reporting a lock that does not exist is worse than reporting
+                // none — `RawMouseMotion` is gated on this flag, so a false
+                // positive means delivering relative motion while the cursor
+                // is still free to wander out of the window.
+                let granted = self.handle_set_pointer_lock(*locked);
+                let ks = self.get_current_window_state().mouse_state.is_cursor_locked;
+                if ks != granted {
+                    self.get_common_mut()
+                        .update_window_state(WindowStateSource::Os, |s| {
+                            s.mouse_state.is_cursor_locked = granted;
+                        });
+                }
                 ProcessEventResult::DoNothing
             }
 

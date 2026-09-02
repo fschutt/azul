@@ -810,6 +810,14 @@ pub enum CallbackChange {
     /// On other platforms: this is a no-op (use `set_window_position` instead).
     BeginInteractiveMove,
 
+    // Pointer Lock
+    /// Confine the pointer to this window and hide it, so the app receives
+    /// RELATIVE motion that never stops at a screen edge — what a first-person
+    /// camera needs, and what `RawMouseMotion` is gated on.
+    SetPointerLock {
+        locked: bool,
+    },
+
     // Drag-and-Drop Data Transfer
     /// Set drag data for a MIME type (W3C: dataTransfer.setData)
     /// Should be called in a `DragStart` callback to populate the drag data.
@@ -1677,6 +1685,22 @@ impl CallbackInfo {
     /// On other platforms: this is a no-op; use `modify_window_state()` to set position.
     pub fn begin_interactive_move(&mut self) {
         self.push_change(CallbackChange::BeginInteractiveMove);
+    }
+
+    /// Lock the pointer to this window: confine it and hide it, so motion is
+    /// reported as unbounded RELATIVE deltas instead of an absolute position
+    /// that stops at the screen edge.
+    ///
+    /// This is what `MouseState.is_cursor_locked` means, and what
+    /// `RawMouseMotion` delivery is gated on. Pass `false` to release.
+    ///
+    /// The request can be REFUSED: on X11 another client may already hold the
+    /// pointer, and a platform with no pointer-lock concept cannot take one at
+    /// all. Read `MouseState.is_cursor_locked` back to learn whether the lock
+    /// is actually held; it stores what the platform granted, not what was
+    /// asked for.
+    pub fn set_pointer_lock(&mut self, locked: bool) {
+        self.push_change(CallbackChange::SetPointerLock { locked });
     }
 
     /// Queue multiple window state changes to be applied in sequence.
@@ -7513,6 +7537,17 @@ mod autotest_generated {
         assert_queues!(
             |i: &mut CallbackInfo| i.prevent_default(),
             CallbackChange::PreventDefault
+        );
+        // Pointer lock, both directions. `RawMouseMotion` is gated on the flag
+        // this ends up setting, and before this existed nothing could turn it
+        // on, so raw motion was unreachable however correct its producers were.
+        assert_queues!(
+            |i: &mut CallbackInfo| i.set_pointer_lock(true),
+            CallbackChange::SetPointerLock { locked: true }
+        );
+        assert_queues!(
+            |i: &mut CallbackInfo| i.set_pointer_lock(false),
+            CallbackChange::SetPointerLock { locked: false }
         );
         assert_queues!(
             |i: &mut CallbackInfo| i.close_window(),

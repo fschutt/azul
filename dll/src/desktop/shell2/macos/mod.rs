@@ -3741,6 +3741,19 @@ pub struct MacOSWindow {
 
 // Implement PlatformWindow trait for cross-platform event processing
 
+
+// CoreGraphics pointer-lock primitives. AppKit has no equivalent: hiding and
+// freezing the cursor are CG-level operations, and `NSCursor.hide` alone
+// leaves the pointer moving (and still hitting screen edges).
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    /// `false` disconnects the physical mouse from the cursor position, so the
+    /// cursor freezes while deltas keep flowing. Returns a `CGError` (0 = ok).
+    fn CGAssociateMouseAndMouseCursorPosition(connected: u8) -> i32;
+    fn CGDisplayHideCursor(display: u32) -> i32;
+    fn CGDisplayShowCursor(display: u32) -> i32;
+}
+
 impl event::PlatformWindow for MacOSWindow {
     fn start_native_eyedropper(&mut self, request_id: u64) -> bool {
         crate::desktop::eyedropper::macos::start(request_id)
@@ -3780,6 +3793,37 @@ impl event::PlatformWindow for MacOSWindow {
     }
 
     // Timer Management (macOS/NSTimer Implementation)
+
+    /// Pointer lock via CoreGraphics.
+    ///
+    /// macOS splits this into two calls and neither is AppKit:
+    /// `CGAssociateMouseAndMouseCursorPosition(false)` DISCONNECTS the
+    /// physical mouse from the on-screen cursor — the cursor stops moving
+    /// entirely while deltas keep arriving, which is the behaviour a
+    /// first-person camera wants and is stronger than the confinement X11 and
+    /// Win32 give. `CGDisplayHideCursor` then hides the (now frozen) cursor.
+    ///
+    /// There is nothing to fail here — unlike an X11 grab, no other client can
+    /// be holding this — so the association result is the only thing that can
+    /// report trouble.
+    fn handle_set_pointer_lock(&mut self, locked: bool) -> bool {
+        // kCGNullDirectDisplay: the hide/show calls are process-global, so the
+        // display argument is not meaningful for them.
+        const NULL_DISPLAY: u32 = 0;
+        unsafe {
+            if !locked {
+                let _ = CGAssociateMouseAndMouseCursorPosition(1);
+                let _ = CGDisplayShowCursor(NULL_DISPLAY);
+                return false;
+            }
+            // 0 = success (CGError kCGErrorSuccess).
+            if CGAssociateMouseAndMouseCursorPosition(0) != 0 {
+                return false;
+            }
+            let _ = CGDisplayHideCursor(NULL_DISPLAY);
+            true
+        }
+    }
 
     fn handle_begin_interactive_move(&mut self) {
         // MWA-B9 (D2): hand the titlebar drag to AppKit. performWindowDrag

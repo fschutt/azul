@@ -326,11 +326,47 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [ ] 9d-i Raw-motion producers for the other backends: Win32 `WM_INPUT` + `RegisterRawInputDevices`
       (`RIDEV_INPUTSINK` decides whether it arrives unfocused), Wayland `zwp_relative_pointer_v1` (a new
       protocol binding, same shape as the pointer-gestures work in 7a), web `movementX`/`movementY`.
-- [ ] 9d-ii Nothing SETS `is_cursor_locked` — there is no request path. The flag gates raw delivery
-      correctly, but an app cannot turn it on, so raw motion cannot actually be reached yet. Needs
-      `CallbackInfo::set_pointer_lock(bool)` plus the per-platform grab: Win32 `ClipCursor` + hide,
-      Wayland `zwp_pointer_constraints_v1.lock_pointer`, X11 `XGrabPointer`, web `requestPointerLock`.
-      **9d-ii is the item that makes 9d usable — do it before the other producers.**
+- [x] 9d-ii DONE for X11, Windows and macOS. `CallbackInfo::set_pointer_lock(bool)` exists
+      (api.json via `autofix add` + `apply`, bindings regenerated) and three backends take a real
+      grab. 9d is now usable end-to-end on X11, where the raw-motion producer already existed.
+      CORRECTION to this item's premise: `is_cursor_locked` COULD already be set, through
+      `modify_window_state` (that arm copies `mouse_state` wholesale). It was useless because
+      nothing ACTED on it — the flag flipped, `XI_RawMotion` started being delivered, and the
+      cursor still wandered out of the window, which is the opposite of a pointer lock. The gap
+      was the platform grab, not the flag.
+      KEY DESIGN POINT: `handle_set_pointer_lock` RETURNS whether the lock is actually held, and
+      the caller stores THAT rather than what was asked for. A grab is genuinely refusable —
+      `XGrabPointer` fails when another client holds the pointer (a menu, a drag, a screen
+      locker) or the window is not viewable — and since `RawMouseMotion` is gated on the flag, a
+      false positive would deliver relative motion while the cursor still roams. The default
+      trait impl returns `false`, so a backend that has not implemented the grab reports honestly
+      instead of silently claiming success.
+      Per platform: X11 `XGrabPointer` with `confine_to` = our own window (the confinement IS the
+      lock) and `owner_events = True` so ordinary events keep routing. Win32 `ClipCursor` over the
+      client rect mapped to SCREEN coordinates via `ClientToScreen` (GetClientRect answers in
+      client space, origin always 0,0 — clipping to it raw would confine to the top-left of the
+      display), plus `ShowCursor`, which is a COUNTER not a flag, so the toggle runs only on a
+      real transition or a double-lock hides the cursor process-wide forever. macOS
+      `CGAssociateMouseAndMouseCursorPosition(false)` + `CGDisplayHideCursor` — that is stronger
+      than the other two: it disconnects the mouse from the cursor entirely, so the cursor
+      freezes while deltas keep arriving.
+      The headless backend applies the same gate, so a scenario that forgets to lock sees nothing
+      exactly as the app would.
+      VERIFIED: host check, `x86_64-pc-windows-gnu` check, 8-target gate, generated bindings
+      carry the `bool`, and `set_pointer_lock` queues the right change in both directions. NOT
+      runtime-verified — a real grab needs a real display server, and none of the three can be
+      exercised headlessly.
+- [ ] 9d-ii-a Wayland pointer lock. `zwp_pointer_constraints_v1` is NOT BOUND AT ALL — there is
+      no interface struct, no listener and no registry bind for it anywhere in
+      `shell2/linux/wayland/`, unlike X11 where `XGrabPointer` was already in the dlopen table.
+      This is a protocol binding (plus `zwp_relative_pointer_v1` for the deltas themselves, which
+      9d-i also needs — do them together), not a call site, which is why it is separated rather
+      than half-done. Until then Wayland correctly reports `false` from the default hook.
+- [ ] 9d-ii-b Release the lock on focus loss. Every platform revokes a grab when the window
+      loses focus, so the flag can outlive the lock it describes and report one that is not held.
+      The backends already clear keyboard/mouse state at focus-out (x11 `clear_keyboard_state`,
+      windows WM_KILLFOCUS); this wants the same treatment, but it is a behaviour decision about
+      whether focus return should RE-take the grab silently, so it is logged rather than guessed.
 
 ### Follow-ups opened by 9c
 
@@ -392,6 +428,44 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       indistinguishable from an arrow key at this layer and is covered by this item, not by the
       gamepad path above — which reaches it as `GamepadButton::DPad*` through
       `extra/gamepad/android.rs` instead.
+
+      CONVENTIONS (researched 2026-09-02, in answer to "are there existing conventions?"):
+      * W3C **CSS Spatial Navigation Level 1** is the direct precedent, and it does NOT frame
+        this as "arrows XOR scroll". It defines an ORDERED FALLBACK: look for a focus candidate
+        in that direction inside the current *spatial navigation container*; if there is none,
+        SCROLL that container; if it cannot scroll, ascend to the parent container and repeat.
+        Properties: `spatial-navigation-contain`, `-action`, `-function`.
+        This dissolves the conflict that blocked this item. The choice is not a global opt-out
+        but an ORDER, and "focus first, scroll when there is nothing to focus" is the
+        standardised answer. `spatial-navigation-action: focus | scroll | auto` is exactly the
+        per-container override, and is a better shape than the `-azul-spatial-navigation`
+        opt-out this item originally proposed.
+      * CSS3 UI had explicit per-element targeting (`nav-up`/`nav-right`/`nav-down`/`nav-left`),
+        shipped in Opera Presto and TV browsers, dropped in UI L4. Worth having as an escape
+        hatch for the cases the geometry heuristic gets wrong.
+      * **WinUI/XAML** does the same thing under a different name: "XY focus navigation", with
+        `XYFocusUp/Down/Left/Right` for explicit overrides and `XYFocusKeyboardNavigation`
+        (Auto/Enabled/Disabled) as the per-subtree switch. **WPF** has
+        `KeyboardNavigation.DirectionalNavigation`.
+      * **GTK** binds arrows to directional movement WITHIN a container and Tab BETWEEN
+        containers — the two-level model the user is asking for, and the reason a GTK tree does
+        not swallow your whole tab order.
+      * macOS has no system-wide spatial navigation; Full Keyboard Access is Tab plus
+        arrow-within-group.
+      **USER RULING (2026-09-02): follow the W3C model, NOT the GTK one.** So the design is
+      fixed: PLAIN ARROWS with CSS Spatial Navigation's ordered fallback — look for a focus
+      candidate in that direction within the current spatial-navigation container, else SCROLL
+      that container, else ascend to the parent and repeat. Implement
+      `spatial-navigation-contain` and `spatial-navigation-action: focus | scroll | auto` as the
+      per-container overrides rather than inventing an `-azul-` opt-out, and treat the CSS3-UI
+      `nav-up`/`-right`/`-down`/`-left` explicit targets as the escape hatch for cases the
+      geometry heuristic gets wrong. Do NOT copy GTK's "arrows within a container, Tab between
+      containers" split.
+      DO NOT use Ctrl+Arrow as the default trigger. It is heavily taken: word-wise caret
+      movement in every text control, jump-to-edge-of-data-region in every spreadsheet, and
+      workspace switching in several desktop environments. Plain arrows with the spec's
+      focus-then-scroll ordering is both the standard and the less contested binding; a modifier
+      chord should at most be an ADDITIONAL explicit trigger, not the primary one.
 
 ### Follow-ups opened by 8e/8f
 

@@ -2855,6 +2855,16 @@ impl Runner {
             CallbackChange::CreateNewWindow { .. } => {
                 self.unsupported("CreateNewWindow", "single-window host")
             }
+            CallbackChange::SetPointerLock { locked } => {
+                // No pointer to grab headlessly, but the FLAG is the thing
+                // `RawMouseMotion` is gated on, so honouring it here is what
+                // lets a scenario exercise raw motion at all.
+                self.layout_window
+                    .current_window_state
+                    .mouse_state
+                    .is_cursor_locked = *locked;
+                ProcessEventResult::DoNothing
+            }
             CallbackChange::BeginInteractiveMove => {
                 self.unsupported("BeginInteractiveMove", "no window manager")
             }

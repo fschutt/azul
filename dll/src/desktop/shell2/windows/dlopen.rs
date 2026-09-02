@@ -497,6 +497,11 @@ pub struct User32Functions {
     pub GetCapture: unsafe extern "system" fn() -> HWND,
     pub LoadCursorW: unsafe extern "system" fn(HINSTANCE, *const u16) -> HCURSOR,
     pub SetCursor: unsafe extern "system" fn(HCURSOR) -> HCURSOR,
+    /// Confine the cursor to a screen rectangle; `null` releases it.
+    pub ClipCursor: unsafe extern "system" fn(*const RECT) -> BOOL,
+    /// Show/hide the cursor. This is a COUNTER, not a flag — every hide must
+    /// be matched by exactly one show or the cursor stays gone process-wide.
+    pub ShowCursor: unsafe extern "system" fn(BOOL) -> i32,
     pub TrackMouseEvent: unsafe extern "system" fn(*mut TRACKMOUSEEVENT) -> BOOL,
 
     // Keyboard
@@ -876,6 +881,8 @@ impl Win32Libraries {
                 GetCapture: user32_dll.get_symbol("GetCapture")?,
                 LoadCursorW: user32_dll.get_symbol("LoadCursorW")?,
                 SetCursor: user32_dll.get_symbol("SetCursor")?,
+                ClipCursor: user32_dll.get_symbol("ClipCursor")?,
+                ShowCursor: user32_dll.get_symbol("ShowCursor")?,
                 TrackMouseEvent: user32_dll.get_symbol("TrackMouseEvent")?,
 
                 // Keyboard
