@@ -555,6 +555,78 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
     if let Some(p) = pos {
         window.update_hit_test_at(p);
     }
+
+    // TOUCH SCROLLING. iOS produced NO scroll input of any kind: a finger drag
+    // set the emulated mouse position and nothing else, so no scroll container
+    // on iOS could ever move. Android has had this producer; iOS never did,
+    // which is why a grep for `scroll_manager` under `ios/` returned zero.
+    //
+    // Runs AFTER `update_hit_test_at` on purpose: `record_scroll_from_hit_test`
+    // resolves which container to scroll through the hover manager, so it needs
+    // this touch's hit test, not the previous one's.
+    {
+        use azul_core::task::Instant;
+        use azul_layout::managers::{
+            hover::InputPointId,
+            scroll_state::{ScrollInputDevice, ScrollInputSource},
+        };
+
+        // `remaining` above is scoped to the touch-state block; read the
+        // count fresh rather than widening that binding's scope.
+        let fingers_left = window.common.touch_state_mut().num_touches;
+
+        let (delta, source) = match phase {
+            // Began: anchor only. There is no delta on the first sample.
+            0 => {
+                window.touch_pan_last = pos;
+                (None, ScrollInputSource::TrackpadContinuous)
+            }
+            1 => {
+                let d = match (window.touch_pan_last, pos) {
+                    // Finger delta, NOT its inverse: `record_scroll_input`
+                    // already applies the natural-scroll sign centrally, so
+                    // inverting here as well cancels out. Android measured
+                    // that on device - `last - current` drove the offset
+                    // negative and rubber-banded against the top edge.
+                    (Some(last), Some(cur)) => Some((cur.x - last.x, cur.y - last.y)),
+                    _ => None,
+                };
+                if pos.is_some() {
+                    window.touch_pan_last = pos;
+                }
+                (d, ScrollInputSource::TrackpadContinuous)
+            }
+            // Ended or cancelled. The delta is zero, but the END phase still
+            // matters: it is what releases a rubber-banded axis back to its
+            // bounds. Only the LAST finger ends the pan, matching the
+            // `left_down` rule above - otherwise lifting one finger of a
+            // two-finger gesture snaps the content back mid-scroll.
+            2 | 3 if fingers_left == 0 => {
+                window.touch_pan_last = None;
+                (Some((0.0, 0.0)), ScrollInputSource::TrackpadEnd)
+            }
+            _ => (None, ScrollInputSource::TrackpadContinuous),
+        };
+
+        if let Some((dx, dy)) = delta {
+            let ended = source == ScrollInputSource::TrackpadEnd;
+            if ended || dx.abs() > 0.01 || dy.abs() > 0.01 {
+                let now = Instant::from(std::time::Instant::now());
+                if let Some(lw) = window.common.layout_window.as_mut() {
+                    let _ = lw.scroll_manager.record_scroll_from_hit_test(
+                        dx,
+                        dy,
+                        source,
+                        ScrollInputDevice::Touchscreen,
+                        &lw.hover_manager,
+                        &InputPointId::Mouse,
+                        now,
+                    );
+                }
+            }
+        }
+    }
+
     let r = window.process_window_events(0);
     if !matches!(r, ProcessEventResult::DoNothing) {
         window
@@ -1383,6 +1455,13 @@ pub struct IOSWindow {
     /// difference is that this one is hand-written, because `accesskit` has no
     /// UIKit adapter.
     pub accessibility_adapter: accessibility::IOSAccessibilityAdapter,
+    /// Where the panning finger was last seen, for touch scrolling.
+    ///
+    /// The same anchor Android keeps. A touch stream reports POSITIONS; the
+    /// scroll manager consumes DELTAS, so something has to remember the
+    /// previous point, and it has to be per-window rather than a global
+    /// because two windows can be panned on an iPad at once.
+    pub touch_pan_last: Option<azul_core::geom::LogicalPosition>,
 }
 
 impl IOSWindow {
@@ -1488,6 +1567,7 @@ impl IOSWindow {
             icon_provider,
             font_registry,
             accessibility_adapter: accessibility::IOSAccessibilityAdapter::new(),
+            touch_pan_last: None,
         })
     }
 

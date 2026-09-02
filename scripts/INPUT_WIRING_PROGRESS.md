@@ -241,6 +241,28 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 10b
 
+- [x] 10b-iv NEW, found by scanning iOS against the other backends (user: "scan ios, I think
+      there's a lot of code simply missing" - they were right). iOS produced NO SCROLL INPUT OF
+      ANY KIND. A finger drag set the emulated mouse position and nothing else, so no scroll
+      container on iOS could ever move. `grep scroll_manager` under `ios/` returned ZERO, against
+      1 in android and 7 each in macOS and Windows - and the single Android hit is the entire
+      touch-pan producer, which iOS simply never grew.
+      FIXED by mirroring Android: a per-window `touch_pan_last` anchor (a touch stream reports
+      POSITIONS, the scroll manager consumes DELTAS, so something must remember the previous
+      point - per-window rather than global because an iPad can pan two windows at once), deltas
+      on move, and a `TrackpadEnd` with zero delta on the last finger lifting, which is what
+      releases a rubber-banded axis back to its bounds.
+      Placed AFTER `update_hit_test_at`: `record_scroll_from_hit_test` resolves which container
+      to scroll through the hover manager, so it needs THIS touch's hit test, not the previous
+      one's. Uses the finger delta, not its inverse - `record_scroll_input` applies the
+      natural-scroll sign centrally, and Android measured on device that inverting here as well
+      drove the offset negative and rubber-banded against the top edge.
+      Only the LAST finger ends the pan, matching the `left_down` rule directly above it;
+      otherwise lifting one finger of a two-finger gesture snaps the content back mid-scroll.
+      EVIDENCE: proven COMPILED by a deliberate type error at the `record_scroll_from_hit_test`
+      call being reported under `--target aarch64-apple-ios`. Compile-only by user direction
+      (simulator later). Host + 8/8 mobile.
+
 - [ ] 10b-i Full `UITextInput` conformance — ~25 methods over `UITextPosition` / `UITextRange` object
       graphs — buys marked text (a live preedit rendered by the app rather than only the committed
       result), the edit menu, and dictation. ⚠ Do NOT half-implement it: UIKit probes for the protocol and
