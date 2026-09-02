@@ -14492,6 +14492,31 @@
                                     "type": "OptionLayoutSize"
                                 },
                                 "fn_body": "object.get_max_monitor_size()"
+                            },
+                            "get_safe_area_insets": {
+                                "doc": [
+                                    "Safe-area insets in logical px: system bars, notch / cutout, and the",
+                                    "on-screen keyboard.",
+                                    "",
+                                    "The same values `CallbackInfo::get_safe_area_insets` returns, made",
+                                    "reachable from `layout()`. They were only available from EVENT",
+                                    "callbacks, which is the wrong half: an app could read the notch from a",
+                                    "click handler but not from the function that decides where to draw.",
+                                    "",
+                                    "`keyboard` is kept separate from `bottom` deliberately. The bar is",
+                                    "fixed and the keyboard moves, so a layout that must stay above the IME",
+                                    "adds them, and one that only wants to avoid the home indicator does",
+                                    "not."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SafeAreaInsets"
+                                },
+                                "fn_body": "object.get_safe_area_insets()"
                             }
                         },
                         "repr": "C"

@@ -157,7 +157,16 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       CSS function with a resolution context plumbed through the cascade. Rescoped rather than left as
       a small-looking follow-up on a false premise.
 
-- [ ] 10c-v Nothing APPLIES the top inset, which is the reported "app title band draws under the status
+- [~] 10c-v UNBLOCKED (the app CAN now read them), not yet applied. `LayoutCallbackInfo::
+      get_safe_area_insets()` is new and codegen-exposed: the insets lived on `LayoutWindow` and were
+      reachable only through `CallbackInfo`, i.e. from EVENT callbacks — so an app could read the notch
+      from a click handler but NOT from `layout()`, the one function that decides where to draw. That
+      was the real blocker, not policy.
+      Still open: whether the ENGINE insets the root automatically on mobile or each app does (a
+      fullscreen video or map wants to draw under the bars), and AzWriter applying it to its title band.
+      Original note kept below.
+
+- [ ] 10c-v-a Nothing APPLIES the top inset, which is the reported "app title band draws under the status
       bar clock" bug. `top=24` is delivered and available from `get_safe_area_insets()`; no shell or app
       offsets by it. Whether the ENGINE should inset the root automatically on mobile, or each app should,
       is a policy call (a fullscreen video or map wants to draw under the bars), so it is logged rather

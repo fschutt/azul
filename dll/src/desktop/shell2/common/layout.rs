@@ -439,6 +439,11 @@ pub fn regenerate_layout(
             .lock()
             .map(|g| g.clone())
             .unwrap_or_else(|_| azul_core::window::MonitorVec::from_const_slice(&[])),
+        // The live insets, so `layout()` can avoid the status bar / notch /
+        // keyboard. `layout_window` is the single authority; the shells write
+        // it (Android from `WindowInsets`, iOS from `UIView.safeAreaInsets`,
+        // macOS from `NSView`).
+        safe_area: layout_window.safe_area_insets,
     };
 
     let mut callback_info = LayoutCallbackInfo::new_with_reason(

@@ -847,6 +847,16 @@ pub struct LayoutCallbackInfoRefData<'a> {
     /// (e.g. at most monitor-height lines / monitor-area characters), so
     /// opening a huge file can never build an unbounded DOM.
     pub monitors: crate::window::MonitorVec,
+    /// Safe-area insets: system bars, notch/cutout, and the on-screen
+    /// keyboard's height. Live values, not the platform defaults.
+    ///
+    /// `layout()` needs these and could not reach them: they live on
+    /// `LayoutWindow` and were exposed only through `CallbackInfo`, which is
+    /// the EVENT callback. So an app could read the notch from a click handler
+    /// and not from the function that decides where to draw — which is the one
+    /// place it matters. A mobile app that must not draw under the status bar
+    /// had no way to ask how tall it is.
+    pub safe_area: azul_css::system::SafeAreaInsets,
 }
 
 /// What triggered the current `layout()` invocation.
@@ -1354,6 +1364,25 @@ impl LayoutCallbackInfo {
     #[must_use]
     pub fn viewport_bigger_than(&self, width_px: f32) -> bool {
         self.window_size.dimensions.width > width_px
+    }
+
+    /// Safe-area insets in logical px: system bars, notch / cutout, and the
+    /// on-screen keyboard.
+    ///
+    /// The same values `CallbackInfo::get_safe_area_insets` returns, made
+    /// reachable from `layout()`. They were only available from EVENT
+    /// callbacks, which is the wrong half: an app could read the notch from a
+    /// click handler but not from the function that decides where to draw.
+    ///
+    /// `keyboard` is kept separate from `bottom` deliberately. The bar is
+    /// fixed and the keyboard moves, so a layout that must stay above the IME
+    /// adds them, and one that only wants to avoid the home indicator does
+    /// not.
+    #[must_use]
+    pub fn get_safe_area_insets(&self) -> azul_css::system::SafeAreaInsets {
+        // SAFETY: same contract as `get_monitors` above — `ref_data` is set
+        // for the duration of the layout call.
+        unsafe { (*self.ref_data).safe_area }
     }
 
     /// Set the callable pointer for FFI language bindings

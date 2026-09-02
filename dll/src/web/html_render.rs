@@ -644,6 +644,8 @@ fn call_layout(
         active_route,
         // Web target: no OS monitor enumeration.
         monitors: azul_core::window::MonitorVec::from_const_slice(&[]),
+        // The web target has no system bars to avoid.
+        safe_area: azul_css::system::SafeAreaInsets::default(),
     };
 
     let mut info =
