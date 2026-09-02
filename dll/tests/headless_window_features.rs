@@ -18,7 +18,8 @@ use azul_core::icon::{IconProviderHandle, SharedIconProvider};
 use azul_core::refany::RefAny;
 use azul_core::resources::AppConfig;
 use azul_core::window::{
-    AcceleratorKey, FullScreenMode, OptionVirtualKeyCode, TouchPoint, VirtualKeyCode, WindowFrame,
+    AcceleratorKey, FullScreenMode, OptionVirtualKeyCode, TouchPoint, TouchToolType,
+    VirtualKeyCode, WindowFrame,
 };
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
@@ -179,15 +180,28 @@ fn touch_points_are_recorded_on_window_state() {
     );
 
     // Inject a two-finger pinch.
+    // The contact-ellipse fields (`major`/`minor`/`orientation_rad`) and
+    // `tool_type` were added to `TouchPoint` after this test was written, and
+    // it was never updated - so `cargo check --tests -p azul-dll` has been RED
+    // on every target since. `0.0` is the documented "not reported" value and
+    // a synthetic pinch has no contact geometry to report.
     let p1 = TouchPoint {
         id: 1,
         position: LogicalPosition::new(100.0, 200.0),
         force: 0.5,
+        major: 0.0,
+        minor: 0.0,
+        orientation_rad: 0.0,
+        tool_type: TouchToolType::Unknown,
     };
     let p2 = TouchPoint {
         id: 2,
         position: LogicalPosition::new(150.0, 220.0),
         force: 0.7,
+        major: 0.0,
+        minor: 0.0,
+        orientation_rad: 0.0,
+        tool_type: TouchToolType::Unknown,
     };
     window.inject_touch_points([p1, p2]);
 

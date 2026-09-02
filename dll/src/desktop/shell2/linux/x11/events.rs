@@ -1842,6 +1842,39 @@ pub fn keysym_to_virtual_keycode(keysym: KeySym) -> Option<VirtualKeyCode> {
         XK_KP_Equal => Some(VirtualKeyCode::NumpadEquals),
         XK_KP_Space => Some(VirtualKeyCode::Space),
         XK_KP_Tab => Some(VirtualKeyCode::Tab),
+
+        // Multimedia and browser keys. The engine has modelled these
+        // `VirtualKeyCode`s all along and Win32 already produces them
+        // (`WM_APPCOMMAND`, 9h), but neither Linux backend mapped a single
+        // one: `grep XF86` across the whole x11 directory returned ZERO, so
+        // pressing Play/Pause or Volume Up on Linux produced nothing at all.
+        //
+        // This function is SHARED WITH WAYLAND (see the module header), so
+        // one table fixes both backends.
+        XF86XK_AudioPlay | XF86XK_AudioPause => Some(VirtualKeyCode::PlayPause),
+        XF86XK_AudioStop => Some(VirtualKeyCode::MediaStop),
+        XF86XK_AudioPrev => Some(VirtualKeyCode::PrevTrack),
+        XF86XK_AudioNext => Some(VirtualKeyCode::NextTrack),
+        XF86XK_AudioMute => Some(VirtualKeyCode::Mute),
+        XF86XK_AudioRaiseVolume => Some(VirtualKeyCode::VolumeUp),
+        XF86XK_AudioLowerVolume => Some(VirtualKeyCode::VolumeDown),
+        XF86XK_AudioMedia => Some(VirtualKeyCode::MediaSelect),
+        XF86XK_HomePage => Some(VirtualKeyCode::WebHome),
+        XF86XK_Search => Some(VirtualKeyCode::WebSearch),
+        XF86XK_Favorites => Some(VirtualKeyCode::WebFavorites),
+        XF86XK_Refresh => Some(VirtualKeyCode::WebRefresh),
+        // `XF86XK_Back`/`Forward` are the BROWSER keys, so they map to the
+        // web pair rather than to `NavigateBackward`/`NavigateForward`,
+        // which are the two extra mouse buttons.
+        XF86XK_Back => Some(VirtualKeyCode::WebBack),
+        XF86XK_Forward => Some(VirtualKeyCode::WebForward),
+        XF86XK_Stop => Some(VirtualKeyCode::WebStop),
+        XF86XK_Mail => Some(VirtualKeyCode::Mail),
+        XF86XK_MyComputer | XF86XK_Explorer => Some(VirtualKeyCode::MyComputer),
+        XF86XK_Sleep => Some(VirtualKeyCode::Sleep),
+        XF86XK_WakeUp => Some(VirtualKeyCode::Wake),
+        XF86XK_PowerOff => Some(VirtualKeyCode::Power),
+
         _ => None,
     }
 }
@@ -2158,6 +2191,105 @@ mod tests {
         assert_eq!(vk(XK_bracketright), Some(VirtualKeyCode::RBracket));
         assert_eq!(vk(XK_backslash), Some(VirtualKeyCode::Backslash));
         assert_eq!(vk(XK_slash), Some(VirtualKeyCode::Slash));
+    }
+
+    /// Media and browser keys produced NOTHING on Linux: the engine has
+    /// modelled these `VirtualKeyCode`s all along and Win32 already emits them,
+    /// but `grep XF86` across the whole x11 directory returned ZERO arms.
+    ///
+    /// The literals are asserted against the values in `XF86keysym.h` rather
+    /// than only against the named constants, because a constant that is
+    /// merely self-consistent maps a real key to the wrong action, silently.
+    #[test]
+    fn the_multimedia_keysym_constants_match_xf86keysym_h() {
+        for (constant, literal, name) in [
+            (XF86XK_AudioLowerVolume, 0x1008ff11, "AudioLowerVolume"),
+            (XF86XK_AudioMute, 0x1008ff12, "AudioMute"),
+            (XF86XK_AudioRaiseVolume, 0x1008ff13, "AudioRaiseVolume"),
+            (XF86XK_AudioPlay, 0x1008ff14, "AudioPlay"),
+            (XF86XK_AudioStop, 0x1008ff15, "AudioStop"),
+            (XF86XK_AudioPrev, 0x1008ff16, "AudioPrev"),
+            (XF86XK_AudioNext, 0x1008ff17, "AudioNext"),
+            (XF86XK_HomePage, 0x1008ff18, "HomePage"),
+            (XF86XK_Mail, 0x1008ff19, "Mail"),
+            (XF86XK_Search, 0x1008ff1b, "Search"),
+            (XF86XK_Back, 0x1008ff26, "Back"),
+            (XF86XK_Forward, 0x1008ff27, "Forward"),
+            (XF86XK_Stop, 0x1008ff28, "Stop"),
+            (XF86XK_Refresh, 0x1008ff29, "Refresh"),
+            (XF86XK_PowerOff, 0x1008ff2a, "PowerOff"),
+            (XF86XK_WakeUp, 0x1008ff2b, "WakeUp"),
+            (XF86XK_Sleep, 0x1008ff2f, "Sleep"),
+            (XF86XK_Favorites, 0x1008ff30, "Favorites"),
+            (XF86XK_AudioPause, 0x1008ff31, "AudioPause"),
+            (XF86XK_AudioMedia, 0x1008ff32, "AudioMedia"),
+            (XF86XK_MyComputer, 0x1008ff33, "MyComputer"),
+            (XF86XK_Explorer, 0x1008ff5d, "Explorer"),
+        ] {
+            assert_eq!(constant, literal, "XF86XK_{name} has the wrong value");
+        }
+    }
+
+    /// Every transport-control key an ordinary keyboard has must resolve.
+    #[test]
+    fn the_media_transport_keys_map() {
+        assert_eq!(vk(XF86XK_AudioPlay), Some(VirtualKeyCode::PlayPause));
+        // Play and Pause are separate keysyms and one azul code: a keyboard
+        // with a dedicated Pause key must not fall through to `None`.
+        assert_eq!(vk(XF86XK_AudioPause), Some(VirtualKeyCode::PlayPause));
+        assert_eq!(vk(XF86XK_AudioStop), Some(VirtualKeyCode::MediaStop));
+        assert_eq!(vk(XF86XK_AudioPrev), Some(VirtualKeyCode::PrevTrack));
+        assert_eq!(vk(XF86XK_AudioNext), Some(VirtualKeyCode::NextTrack));
+        assert_eq!(vk(XF86XK_AudioMedia), Some(VirtualKeyCode::MediaSelect));
+    }
+
+    #[test]
+    fn the_volume_keys_map() {
+        assert_eq!(vk(XF86XK_AudioMute), Some(VirtualKeyCode::Mute));
+        assert_eq!(vk(XF86XK_AudioRaiseVolume), Some(VirtualKeyCode::VolumeUp));
+        assert_eq!(
+            vk(XF86XK_AudioLowerVolume),
+            Some(VirtualKeyCode::VolumeDown)
+        );
+    }
+
+    /// `XF86XK_Back`/`Forward` are the BROWSER keys. They must NOT map to
+    /// `NavigateBackward`/`NavigateForward`, which are the two extra MOUSE
+    /// buttons - a distinct input the engine reports separately.
+    #[test]
+    fn the_browser_keys_map_to_the_web_family_not_the_mouse_one() {
+        assert_eq!(vk(XF86XK_Back), Some(VirtualKeyCode::WebBack));
+        assert_eq!(vk(XF86XK_Forward), Some(VirtualKeyCode::WebForward));
+        assert_ne!(vk(XF86XK_Back), Some(VirtualKeyCode::NavigateBackward));
+        assert_ne!(vk(XF86XK_Forward), Some(VirtualKeyCode::NavigateForward));
+        assert_eq!(vk(XF86XK_HomePage), Some(VirtualKeyCode::WebHome));
+        assert_eq!(vk(XF86XK_Search), Some(VirtualKeyCode::WebSearch));
+        assert_eq!(vk(XF86XK_Favorites), Some(VirtualKeyCode::WebFavorites));
+        assert_eq!(vk(XF86XK_Refresh), Some(VirtualKeyCode::WebRefresh));
+        assert_eq!(vk(XF86XK_Stop), Some(VirtualKeyCode::WebStop));
+    }
+
+    /// Launch and power keys. `Explorer` folds onto `MyComputer`: both open
+    /// the file manager, and the engine models one code for that.
+    #[test]
+    fn the_launch_and_power_keys_map() {
+        assert_eq!(vk(XF86XK_Mail), Some(VirtualKeyCode::Mail));
+        assert_eq!(vk(XF86XK_MyComputer), Some(VirtualKeyCode::MyComputer));
+        assert_eq!(vk(XF86XK_Explorer), Some(VirtualKeyCode::MyComputer));
+        assert_eq!(vk(XF86XK_Sleep), Some(VirtualKeyCode::Sleep));
+        assert_eq!(vk(XF86XK_WakeUp), Some(VirtualKeyCode::Wake));
+        assert_eq!(vk(XF86XK_PowerOff), Some(VirtualKeyCode::Power));
+    }
+
+    /// The XF86 block must not swallow neighbouring keysyms it does not
+    /// define. `0x1008ff1a` (Start) and `0x1008ff1d` (Calculator) sit INSIDE
+    /// the mapped range and are deliberately unmapped, so a range-based
+    /// implementation would wrongly claim them.
+    #[test]
+    fn unmapped_xf86_keysyms_still_return_none() {
+        assert_eq!(vk(0x1008ff1a), None, "XF86XK_Start is not mapped");
+        assert_eq!(vk(0x1008ff1d), None, "XF86XK_Calculator is not mapped");
+        assert_eq!(vk(0x1008ff1c), None, "XF86XK_AudioRecord is not mapped");
     }
 
     /// X11 keysyms are shift-DEPENDENT: the press of `-` with Shift held

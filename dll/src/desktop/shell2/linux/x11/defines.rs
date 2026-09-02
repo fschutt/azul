@@ -537,6 +537,39 @@ pub const XK_KP_Separator: u32 = 0xFFAC;
 pub const XK_KP_Subtract: u32 = 0xFFAD;
 pub const XK_KP_Decimal: u32 = 0xFFAE;
 pub const XK_KP_Divide: u32 = 0xFFAF;
+
+// Multimedia keys (XF86keysym.h). Values verified against
+// /opt/homebrew/include/X11/XF86keysym.h rather than recalled: a wrong
+// constant here maps a REAL key to the wrong action, silently, which is
+// worse than not mapping it at all.
+//
+// These are ordinary keysyms - a media key is not a special event stream on
+// X11 or Wayland - so they only need to appear in the translation table.
+// They arrive only if the desktop environment has not grabbed them first;
+// where it has, the keys drive MPRIS over D-Bus instead and never reach the
+// application. That is a separate transport, logged as 9h-i-a.
+pub const XF86XK_AudioLowerVolume: u32 = 0x1008FF11;
+pub const XF86XK_AudioMute: u32 = 0x1008FF12;
+pub const XF86XK_AudioRaiseVolume: u32 = 0x1008FF13;
+pub const XF86XK_AudioPlay: u32 = 0x1008FF14;
+pub const XF86XK_AudioStop: u32 = 0x1008FF15;
+pub const XF86XK_AudioPrev: u32 = 0x1008FF16;
+pub const XF86XK_AudioNext: u32 = 0x1008FF17;
+pub const XF86XK_HomePage: u32 = 0x1008FF18;
+pub const XF86XK_Mail: u32 = 0x1008FF19;
+pub const XF86XK_Search: u32 = 0x1008FF1B;
+pub const XF86XK_Back: u32 = 0x1008FF26;
+pub const XF86XK_Forward: u32 = 0x1008FF27;
+pub const XF86XK_Stop: u32 = 0x1008FF28;
+pub const XF86XK_Refresh: u32 = 0x1008FF29;
+pub const XF86XK_PowerOff: u32 = 0x1008FF2A;
+pub const XF86XK_WakeUp: u32 = 0x1008FF2B;
+pub const XF86XK_Sleep: u32 = 0x1008FF2F;
+pub const XF86XK_Favorites: u32 = 0x1008FF30;
+pub const XF86XK_AudioPause: u32 = 0x1008FF31;
+pub const XF86XK_AudioMedia: u32 = 0x1008FF32;
+pub const XF86XK_MyComputer: u32 = 0x1008FF33;
+pub const XF86XK_Explorer: u32 = 0x1008FF5D;
 pub const XK_KP_0: u32 = 0xFFB0;
 pub const XK_KP_1: u32 = 0xFFB1;
 pub const XK_KP_2: u32 = 0xFFB2;

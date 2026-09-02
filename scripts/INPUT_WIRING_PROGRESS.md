@@ -387,11 +387,38 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 9h
 
-- [ ] 9h-i macOS and Linux equivalents. macOS routes media keys as
-      `NSEventTypeSystemDefined` subtype 8 (`NX_SYSDEFINED`), which needs an event-tap or the
-      `MediaPlayer` framework's remote-command centre; Linux delivers them as ordinary X11/Wayland keysyms
-      (`XF86AudioPlay` and friends) IF the desktop has not grabbed them, and as MPRIS over D-Bus if it has.
-      Only the Win32 half is done.
+- [x] 9h-i LINUX HALF DONE (both backends). macOS remains open as 9h-i-b.
+      Neither Linux backend mapped a SINGLE multimedia keysym: `grep XF86` across the whole x11
+      directory returned ZERO, so Play/Pause, Volume, Prev/Next and the browser keys produced
+      nothing at all on X11 or Wayland - while the engine had modelled every one of those
+      `VirtualKeyCode`s all along and Win32 already emitted them via `WM_APPCOMMAND`.
+      22 keysyms added to `defines.rs` and mapped in `keysym_to_virtual_keycode`, which Wayland
+      SHARES (it calls the x11 function at two sites), so one table fixed both backends.
+      The constant VALUES were extracted from the real `/opt/homebrew/include/X11/XF86keysym.h`
+      on this machine rather than recalled, and a test asserts each against its literal: a
+      constant that is merely self-consistent maps a real key to the WRONG action, silently,
+      which is the worst possible failure for this kind of table.
+      Two mapping decisions worth naming: `AudioPlay` and `AudioPause` are separate keysyms and
+      fold onto one `PlayPause` code, so a keyboard with a dedicated Pause key is not dropped;
+      and `XF86XK_Back`/`Forward` map to `WebBack`/`WebForward`, NOT to `NavigateBackward`/
+      `NavigateForward`, which are the two extra MOUSE buttons - a test pins that they do not.
+      EVIDENCE: 6 tests (constants-vs-header, transport, volume, browser-vs-mouse, launch/power,
+      and a negative control that unmapped keysyms INSIDE the range still return `None`, which a
+      range-based implementation would get wrong). They run on Linux only - the x11 module is
+      cfg'd out on the host and linux test binaries cannot link on macOS - so they are verified
+      by `cargo check --tests --target x86_64-unknown-linux-gnu` here and execute in CI.
+      ALSO FIXED, pre-existing and unrelated: `dll/tests/headless_window_features.rs` had not
+      been updated when `TouchPoint` gained `major`/`minor`/`orientation_rad`/`tool_type`, so
+      `cargo check --tests -p azul-dll` was RED on every target and had been for some time. That
+      is what stopped the new tests being verifiable at all; confirmed pre-existing by stashing.
+
+- [ ] 9h-i-b macOS media keys: `NSEventTypeSystemDefined` subtype 8 (`NX_SYSDEFINED`), which
+      needs a CGEventTap (and therefore the accessibility permission) or the `MediaPlayer`
+      framework's remote-command centre. Neither is a keysym table; both are a separate transport
+      with a permission prompt attached, which is why the Linux half landed alone.
+- [ ] 9h-i-a Linux MPRIS: where the desktop environment HAS grabbed the media keys, they never
+      reach the application as keysyms at all and the transport is MPRIS over D-Bus. The keysym
+      table above is correct and complete for the ungrabbed case; this is the other case.
 
 ### Follow-ups opened by 9f/9g
 
