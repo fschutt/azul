@@ -9388,6 +9388,41 @@ pub trait PlatformWindow {
             }
         };
 
+        // TEXT-SELECTION DRAG. `SystemChange::TextSelectionDrag` has had a
+        // handler — with its node-drag gate and its logging — and NOTHING
+        // constructed it, so the arm was dead and the only path that ever
+        // reached `process_mouse_drag_for_selection` was the auto-scroll timer
+        // above. Dragging a selection therefore did nothing until the pointer
+        // hit the window edge and auto-scroll took over. (The comment on that
+        // block still says "TextSelectionDrag was the only StartAutoScrollTimer
+        // trigger", from when this was wired.)
+        //
+        // Both positions are the CURRENT pointer: the anchor lives on the
+        // multi-cursor state, so the handler ignores the start argument — the
+        // auto-scroll path passes the pointer twice for the same reason. A
+        // pointer with no editing session behind it makes the handler a no-op,
+        // which is what a node or file drag wants.
+        let text_drag_result: Option<ProcessEventResult> = {
+            let dragging = synthetic_events
+                .iter()
+                .any(|ev| matches!(ev.event_type, azul_core::events::EventType::Drag));
+            let held = self.get_current_window_state().mouse_state.left_down;
+            let pointer = self
+                .get_current_window_state()
+                .mouse_state
+                .cursor_position
+                .get_position();
+            match (dragging && held, pointer) {
+                (true, Some(p)) => Some(self.apply_system_change(
+                    &SystemChange::TextSelectionDrag {
+                        start_position: p,
+                        current_position: p,
+                    },
+                )),
+                _ => None,
+            }
+        };
+
         // MWA-C-gesture: cancel an active drag on Escape or window blur.
         // cancel_drag / DeactivateDrag existed but nothing invoked them from
         // input — a drag survived focus loss (Alt-Tab mid-drag left the node
@@ -10641,6 +10676,13 @@ pub trait PlatformWindow {
 
         // MWA-B8: fold the drag-auto-scroll timer start (if any).
         if let Some(r) = autoscroll_start_result {
+            result = result.max(r);
+        }
+
+        // ...and the text-selection drag, which returns
+        // ShouldUpdateDisplayListCurrentWindow when the selection actually
+        // moved. Dropping it would extend the selection without repainting it.
+        if let Some(r) = text_drag_result {
             result = result.max(r);
         }
 

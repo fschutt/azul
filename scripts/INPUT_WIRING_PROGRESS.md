@@ -1103,3 +1103,34 @@ FOUND AND FIXED HERE:
       (`node_resized_fires_after_a_relayout` and
       `a_capture_tile_reports_its_device_size_to_its_worker`, the latter an `AfterMount` test).
       azul-core 2749, azul-layout 7555, host check and 8-target gate green.
+- [x] TEXT-SELECTION DRAG had a handler and NO PRODUCER — dragging a selection did nothing until
+      the pointer reached the window edge.
+      `SystemChange::TextSelectionDrag` has a full arm in `apply_system_change` (node-drag
+      suppression gate, logging, the `process_mouse_drag_for_selection` call, the
+      ShouldUpdateDisplayListCurrentWindow result) and NOTHING in the dll ever constructed it.
+      Grepped: the only constructions anywhere are in `layout/src/e2e/runner.rs`, which
+      deliberately PORTS the dll arm for headless scenarios. So the sole path that reached
+      `process_mouse_drag_for_selection` in a real app was the drag-auto-scroll timer, which only
+      fires once the pointer is dragged past the window edge.
+      The give-away is a comment on the block right above the fix, which still reads
+      "TextSelectionDrag was the only StartAutoScrollTimer trigger" — written when this WAS
+      wired.
+      FIX: emit it from the event pass when a `Drag` event is present and the left button is
+      held. Both positions are the current pointer, because the anchor lives on the multi-cursor
+      state and the handler ignores the start argument — the auto-scroll path passes the pointer
+      twice for exactly that reason. A pointer with no editing session behind it makes the
+      handler a no-op, which is what a node or file drag wants, and the existing gate already
+      suppresses text selection during a node drag. The result is folded into the pass result,
+      or the selection would extend without repainting.
+      EVIDENCE: `a_text_selection_survives_a_relayout` passes; azul-dll headless failures 3 -> 2.
+      azul-layout 7555, host check and 8-target gate green.
+      NOTE for later: `SystemChange::TextSelectionClick` and `SystemChange::AddCursorAtClick`
+      are in the SAME state — arms present, never constructed outside the e2e runner. They are
+      not covered here because click-to-place-caret demonstrably works on device, so something
+      else drives it and wiring these blind could double-handle the click. Logged as G3-a.
+- [ ] G3-a `SystemChange::TextSelectionClick` and `SystemChange::AddCursorAtClick` have handler
+      arms that nothing constructs (only `layout/src/e2e/runner.rs` builds them, as a deliberate
+      port). Found while fixing the TextSelectionDrag producer. NOT wired blind: click-to-place-
+      caret and Ctrl+click multi-cursor demonstrably work on device, so a different path already
+      drives them, and emitting these too could double-handle one click. Settle which path is
+      authoritative first, then either wire these or delete the dead arms.
