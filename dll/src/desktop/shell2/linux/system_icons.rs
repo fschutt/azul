@@ -473,12 +473,11 @@ fn rendered_icons(theme: &str, tint: ColorU) -> (Vec<RenderedIcon>, bool) {
 /// One theme SVG -> pixels, through the DOM.
 ///
 /// ONE code path: the SVG becomes a real `Dom` (the XML parser maps `<path>`,
-/// `<use>`, `<linearGradient>` and `<stop>` onto `SvgNodeData` nodes, and an
-/// `<svg>` now carries its viewBox and its intrinsic size) and is drawn by the
+/// `<use>`, `<linearGradient>` and `<stop>` onto `SvgNodeData` nodes, an
+/// `<svg>` carries its viewBox and its intrinsic size, and a shape's `fill` is
+/// an ordinary CSS background clipped to its own geometry) and is drawn by the
 /// ORDINARY renderer. No second rasteriser: `render_svg_to_png` is a parallel
-/// implementation with its own gaps - no paint servers, so a `fill="url(#g)"`
-/// silently paints nothing and a gradient-drawn icon (most of Papirus and
-/// Yaru) comes out blank.
+/// implementation with its own gaps.
 ///
 /// Rasterised at 2x the nominal size so it stays crisp on a HiDPI display;
 /// registered at the NOMINAL size, which is the size the desktop draws it at
@@ -524,9 +523,14 @@ fn render_icon_pixels(
         b: 0,
         a: 0,
     };
+    // An icon is a DRAWING, not a document: the UA `<body>` margin would inset
+    // it by 8px and push most of a 16px glyph out of its own frame.
+    let no_page_chrome = azul_css::css::Css::from_string(
+        "html, body { margin: 0; padding: 0; border: none; }".into(),
+    );
     azul_layout::cpurender::render_dom_to_rgba(
         dom,
-        azul_css::css::Css::empty(),
+        no_page_chrome,
         nominal,
         nominal,
         2.0,
@@ -652,10 +656,6 @@ mod tests {
     /// of frame, a missing fill paints nothing - and the only way to tell is
     /// to count the pixels that actually got painted.
     #[test]
-    #[ignore = "RED: the display list has no case for painting SVG geometry - \
-                SvgNodeData::Path is consumed as a CLIP MASK and nothing else \
-                reads it, so an injected icon DOM lays out correctly and \
-                renders 0 of 1024 pixels. Un-ignore with the fix."]
     fn a_theme_svg_renders_to_visible_pixels() {
         let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
           <defs><style>.ColorScheme-Text { color:#232629; }</style></defs>

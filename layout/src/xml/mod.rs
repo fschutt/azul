@@ -2515,22 +2515,35 @@ mod autotest_generated {
     // ------------------------------------------------------------------
 
     #[test]
-    fn dom_from_parsed_xml_reports_errors_instead_of_panicking() {
-        // No <html>/<body>: the documented behaviour is an error Dom, not a
-        // panic and not an empty tree.
+    fn a_fragment_becomes_a_document_and_a_broken_one_still_reports() {
+        // BROWSER-LIKE: a fragment gets a synthesised `<html><body>` root,
+        // so it renders as ITSELF rather than as the text "No <html> node
+        // found as the root of the file" - which used to lay out and paint
+        // like any other text, so a caller measuring pixels saw an error
+        // message it never asked for.
         for root in [
             Vec::new(),
             vec![XmlNodeChild::Text("bare text".into())],
             vec![XmlNodeChild::Element(XmlNode::create("div"))],
-            vec![XmlNodeChild::Element(XmlNode::create("html"))],
+            vec![XmlNodeChild::Element(XmlNode::create("svg"))],
         ] {
             let dom = dom_from_parsed_xml(Xml { root: root.into() });
             assert!(
-                matches!(dom.root.get_node_type(), NodeType::Body),
-                "the error Dom is rendered as a <body> with a label"
+                matches!(dom.root.get_node_type(), NodeType::Html),
+                "a real document is rooted at <html>, got {:?} - a <body> root \
+                 here would mean the ERROR Dom came back instead",
+                dom.root.get_node_type()
             );
-            assert_eq!(dom.children.as_ref().len(), 1);
         }
+
+        // An EXPLICIT `<html>` with no `<body>` is still an error Dom: the
+        // author stated the structure, so a missing body is their mistake and
+        // reporting it is more useful than guessing.
+        let broken = dom_from_parsed_xml(Xml {
+            root: vec![XmlNodeChild::Element(XmlNode::create("html"))].into(),
+        });
+        assert!(matches!(broken.root.get_node_type(), NodeType::Body));
+        assert_eq!(broken.children.as_ref().len(), 1, "one label child");
     }
 
     #[test]

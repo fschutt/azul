@@ -797,7 +797,33 @@ pub fn get_ua_property(
         (NT::Video, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Audio, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Canvas, PT::Display) => Some(&DISPLAY_INLINE),
-        (NT::Svg, PT::Display) => Some(&DISPLAY_INLINE),
+        // An SVG SHAPE is a painted box, not inline content. The default
+        // display is `inline`, and `paint_node_background_and_border` skips
+        // inline boxes on purpose - their backgrounds belong to text layout,
+        // which knows nothing about these - so a shape's fill was dropped and
+        // an SVG in a DOM painted nothing at all. Block is what an absolutely
+        // positioned box is anyway (CSS blockifies `position: absolute`).
+        (
+            NT::SvgPath
+            | NT::SvgCircle
+            | NT::SvgRect
+            | NT::SvgEllipse
+            | NT::SvgLine
+            | NT::SvgPolygon
+            | NT::SvgPolyline
+            | NT::SvgG
+            | NT::SvgUse,
+            PT::Display,
+        ) => Some(&DISPLAY_BLOCK),
+        // `<defs>` and friends define, they do not draw.
+        (NT::SvgDefs | NT::SvgSymbol | NT::SvgClipPathElement, PT::Display) => Some(&DISPLAY_NONE),
+        // An `<svg>` is a REPLACED element, like `<img>` above - inline-level,
+        // but with a box of its own. `inline` is what it used to be, and an
+        // inline box has no width or height, so the intrinsic size the parser
+        // now takes off `viewBox`/`width`/`height` was inert and the element
+        // took no space at all: an SVG in a DOM laid out as nothing and
+        // painted nothing.
+        (NT::Svg, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         // VirtualView is a block-level replaced element (like div) — must be block
         // so it participates in flex layout (flex-grow, etc.)
         (NT::VirtualView, PT::Display) => Some(&DISPLAY_BLOCK),

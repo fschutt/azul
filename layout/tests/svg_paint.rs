@@ -17,9 +17,8 @@
 //! pack uses, and COUNT PIXELS: "it laid out" is exactly the evidence that
 //! was misleading before.
 
-use azul_core::dom::Dom;
 use azul_css::{css::Css, props::basic::color::ColorU};
-use azul_layout::{cpurender::render_dom_to_rgba, xml::DomXmlExt};
+use azul_layout::cpurender::render_dom_to_rgba;
 
 const TRANSPARENT: ColorU = ColorU {
     r: 0,
@@ -29,8 +28,15 @@ const TRANSPARENT: ColorU = ColorU {
 };
 
 /// Render markup at `size`x`size` logical px on a transparent backdrop.
+///
+/// A BARE FRAGMENT is passed through deliberately - no `<html>` wrapper - so
+/// these also pin that an `<svg>` root parses on its own, the way a browser
+/// takes one.
 fn render(markup: &str, size: f32) -> azul_layout::cpurender::ComponentPreviewResult {
-    let parsed = azul_layout::xml::parse_xml(markup).expect("the fixture parses");
+    let markup = format!(
+        "<style>body {{ margin: 0; padding: 0; }}</style>{markup}"
+    );
+    let parsed = azul_layout::xml::parse_xml(&markup).expect("the fixture parses");
     let dom = azul_layout::xml::dom_from_parsed_xml(parsed);
     render_dom_to_rgba(dom, Css::empty(), size, size, 1.0, TRANSPARENT).expect("renders")
 }
@@ -106,15 +112,8 @@ fn fill_comes_through_css_in_every_spelling() {
 
     // A stylesheet rule, which is what `class="ColorScheme-Text"` resolves
     // through.
-    let sheet = Dom::from_xml_string(
-        r##"<html><head><style>.ink { fill: #00ff00; }</style></head>
-           <body><svg viewBox="0 0 8 8" width="8" height="8">
-             <rect class="ink" x="0" y="0" width="8" height="8"/>
-           </svg></body></html>"##,
-    );
-    let _ = sheet;
     let styled = render(
-        r##"<html><head><style>.ink { fill: #00ff00; }</style></head>
+        r##"<html><head><style>body { margin: 0; padding: 0; } .ink { fill: #00ff00; }</style></head>
            <body><svg viewBox="0 0 8 8" width="8" height="8">
              <rect class="ink" x="0" y="0" width="8" height="8"/>
            </svg></body></html>"##,
@@ -148,6 +147,58 @@ fn geometry_scales_from_the_view_box_into_the_painted_box() {
     assert_eq!(centre(&r), [0, 0, 255, 255]);
 }
 
+/// An SVG's OWN `<style>` is a stylesheet, not content, and it is scoped to
+/// the SVG.
+///
+/// This is how every freedesktop icon carries its colours
+/// (`.ColorScheme-Text { color: … }` inside `<defs>`), and in azul a
+/// stylesheet is an ATTRIBUTE of a node rather than a node of its own - so it
+/// has to be recognised at the input and hung on the element that contains
+/// it. Left as a node, the CSS source rendered as visible text; hung on the
+/// `<defs>` that holds it, it scoped to a subtree that draws nothing.
+///
+/// Counted rather than sampled: the shape's position depends on the baseline
+/// an inline-block sits on, and a fixed pixel offset is a test that breaks for
+/// reasons that have nothing to do with what it checks.
+#[test]
+fn an_svgs_own_style_element_styles_it_and_nothing_else() {
+    const GREEN: [u8; 4] = [0, 255, 0, 255];
+    let green = |r: &azul_layout::cpurender::ComponentPreviewResult| {
+        r.rgba.chunks_exact(4).filter(|p| *p == GREEN).count()
+    };
+
+    let alone = render(
+        r##"<svg viewBox="0 0 8 8" width="8" height="8">
+              <defs><style>.ink { fill: #00ff00; }</style></defs>
+              <rect class="ink" x="0" y="0" width="8" height="8"/>
+            </svg>"##,
+        48.0,
+    );
+    assert_eq!(
+        green(&alone),
+        64,
+        "the SVG's own stylesheet must reach its shapes: an 8x8 rect is 64 px"
+    );
+
+    // The SAME sheet, with a div outside the SVG carrying the same class. If
+    // the sheet were document-scoped the div would fill too and the count
+    // would grow.
+    let with_outsider = render(
+        r##"<div class="ink" style="width: 8px; height: 8px;"></div>
+            <svg viewBox="0 0 8 8" width="8" height="8">
+              <defs><style>.ink { fill: #00ff00; }</style></defs>
+              <rect class="ink" x="0" y="0" width="8" height="8"/>
+            </svg>"##,
+        48.0,
+    );
+    assert_eq!(
+        green(&with_outsider),
+        64,
+        "an SVG's stylesheet is scoped to the SVG - the div outside it must \
+         stay unpainted"
+    );
+}
+
 /// A shape with no fill paints NOTHING - `fill="none"` is a real value, and
 /// defaulting it to black would put a black box behind every stroked outline.
 #[test]
@@ -161,3 +212,4 @@ fn fill_none_paints_nothing() {
     let (painted, _) = coverage(&r);
     assert_eq!(painted, 0, "fill=\"none\" must not paint");
 }
+

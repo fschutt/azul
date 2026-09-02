@@ -333,14 +333,44 @@ mod autotest_generated {
     #[test]
     fn unknown_elements_default_to_inline_display() {
         // Per CSS spec, unknown/custom elements are inline.
-        for nt in [
-            NodeType::Address,
-            NodeType::Legend,
-            NodeType::Meter,
-            NodeType::SvgPath,
-        ] {
+        for nt in [NodeType::Address, NodeType::Legend, NodeType::Meter] {
             assert_eq!(display_of(&nt), LayoutDisplay::Inline, "{nt:?}");
         }
+    }
+
+    /// SVG shapes are NOT unknown elements: they are painted boxes.
+    ///
+    /// `SvgPath` used to be listed above as an example of the inline default,
+    /// and that default is exactly what stopped an SVG in a DOM from painting
+    /// - `paint_node_background_and_border` skips inline boxes, because their
+    /// backgrounds belong to text layout, which knows nothing about SVG
+    /// geometry. The definition containers stay `display: none`: they define,
+    /// they do not draw.
+    #[test]
+    fn svg_shapes_are_boxes_and_svg_definitions_do_not_draw() {
+        for nt in [
+            NodeType::SvgPath,
+            NodeType::SvgCircle,
+            NodeType::SvgRect,
+            NodeType::SvgEllipse,
+            NodeType::SvgLine,
+            NodeType::SvgPolygon,
+            NodeType::SvgPolyline,
+            NodeType::SvgG,
+            NodeType::SvgUse,
+        ] {
+            assert_eq!(display_of(&nt), LayoutDisplay::Block, "{nt:?} must paint");
+        }
+        for nt in [
+            NodeType::SvgDefs,
+            NodeType::SvgSymbol,
+            NodeType::SvgClipPathElement,
+        ] {
+            assert_eq!(display_of(&nt), LayoutDisplay::None, "{nt:?} must not draw");
+        }
+        // The `<svg>` element itself is a REPLACED element, like `<img>`:
+        // inline-level, but with a box, so its intrinsic size applies.
+        assert_eq!(display_of(&NodeType::Svg), LayoutDisplay::InlineBlock);
     }
 
     /// `cursor` is deliberately defined for exactly three node types; anything

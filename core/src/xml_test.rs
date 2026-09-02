@@ -1646,16 +1646,91 @@ mod autotest_generated {
     // ================================================================
 
     #[test]
-    fn get_html_node_empty_input_is_no_html_node() {
-        assert_eq!(get_html_node(&[]), Err(DomXmlParseError::NoHtmlNode));
+    fn a_fragment_gets_a_synthesised_html_root() {
+        // BROWSER-LIKE (user ruling): a document with no `<html>` root gets
+        // one, instead of parsing into the TEXT "No <html> node found as the
+        // root of the file" - which then laid out and painted like any other
+        // text, so a caller measuring pixels saw an error message it never
+        // asked for and no hint of what went wrong.
+        let body_of = |roots: &[XmlNodeChild]| {
+            let html = get_html_node(roots).expect("a root is synthesised");
+            assert_eq!(html.node_type.as_str(), "html");
+            html.children
+                .as_ref()
+                .iter()
+                .find_map(|c| match c {
+                    XmlNodeChild::Element(e) if e.node_type.as_str() == "body" => Some(e.clone()),
+                    _ => None,
+                })
+                .expect("with a body")
+        };
+
+        assert_eq!(body_of(&[]).children.as_ref().len(), 0, "an empty document");
+        assert_eq!(body_of(&[txt("just text")]).children.as_ref().len(), 1);
         assert_eq!(
-            get_html_node(&[txt("just text")]),
-            Err(DomXmlParseError::NoHtmlNode)
+            body_of(&[elem(XmlNode::create("div"))]).children.as_ref().len(),
+            1,
+            "a bare fragment becomes the body's content"
         );
+        // An `<svg>` root is a fragment like any other.
         assert_eq!(
-            get_html_node(&[elem(XmlNode::create("div"))]),
-            Err(DomXmlParseError::NoHtmlNode)
+            body_of(&[elem(XmlNode::create("svg"))]).children.as_ref().len(),
+            1
         );
+    }
+
+    /// Metadata is hoisted into a `<head>`, content into the `<body>` - the
+    /// same split a browser makes. A `<style>` left in the body is not read by
+    /// `str_to_dom_unstyled` (it looks for `<head><style>`), so a fragment that
+    /// brought its own stylesheet would render unstyled with no hint why.
+    #[test]
+    fn a_synthesised_root_hoists_metadata_into_the_head() {
+        let roots = vec![
+            elem(XmlNode::create("style")),
+            elem(XmlNode::create("div")),
+            elem(XmlNode::create("title")),
+        ];
+        let html = get_html_node(&roots).expect("a root is synthesised");
+        let child_tags: Vec<String> = html
+            .children
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                XmlNodeChild::Element(e) => Some(e.node_type.as_str().to_string()),
+                XmlNodeChild::Text(_) => None,
+            })
+            .collect();
+        assert_eq!(child_tags, vec!["head".to_string(), "body".to_string()]);
+
+        let count = |tag: &str| {
+            html.children
+                .as_ref()
+                .iter()
+                .find_map(|c| match c {
+                    XmlNodeChild::Element(e) if e.node_type.as_str() == tag => {
+                        Some(e.children.as_ref().len())
+                    }
+                    _ => None,
+                })
+                .unwrap_or(0)
+        };
+        assert_eq!(count("head"), 2, "<style> and <title>");
+        assert_eq!(count("body"), 1, "the <div>");
+    }
+
+    /// A root-level `<body>` is ADOPTED, not nested: wrapping it in a fresh
+    /// `<body>` would give the document two, which is its own error.
+    #[test]
+    fn a_root_level_body_is_adopted_rather_than_nested() {
+        let roots = vec![elem(XmlNode::create("body"))];
+        let html = get_html_node(&roots).expect("a root is synthesised");
+        let bodies = html
+            .children
+            .as_ref()
+            .iter()
+            .filter(|c| matches!(c, XmlNodeChild::Element(e) if e.node_type.as_str() == "body"))
+            .count();
+        assert_eq!(bodies, 1);
     }
 
     #[test]
@@ -3471,18 +3546,21 @@ mod autotest_generated {
     // ================================================================
 
     #[test]
-    fn str_to_dom_rejects_documents_without_html_or_body() {
+    fn a_document_without_a_root_gets_one_but_a_broken_html_is_still_an_error() {
         let map = ComponentMap::with_builtin();
-        assert_eq!(
-            str_to_dom(&[], &map, None).unwrap_err(),
-            DomXmlParseError::NoHtmlNode
-        );
+        // A fragment (or nothing at all) is wrapped, not rejected.
+        assert!(str_to_dom(&[], &map, None).is_ok());
+        assert!(str_to_dom_unstyled(&[], &map).is_ok());
+        assert!(str_to_dom_unstyled(&[elem(XmlNode::create("svg"))], &map).is_ok());
+
+        // An EXPLICIT `<html>` still has to be well-formed: the author said
+        // what the structure is, so a missing `<body>` is their mistake, not
+        // something to paper over.
         let html_only = vec![elem(XmlNode::create("html"))];
         assert_eq!(
             str_to_dom(&html_only, &map, None).unwrap_err(),
             DomXmlParseError::NoBodyInHtml
         );
-        assert!(str_to_dom_unstyled(&[], &map).is_err());
     }
 
     #[test]
@@ -3539,7 +3617,7 @@ mod autotest_generated {
             "the <style> block is parsed"
         );
 
-        let m = body_matcher(body);
+        let m = body_matcher(&body);
         assert!(m.path.is_empty(), "the matcher starts with an empty path");
         assert_eq!(m.indices_in_parent, vec![0]);
         assert_eq!(m.children_length, vec![body.children.as_ref().len()]);
@@ -3560,24 +3638,32 @@ mod autotest_generated {
     // ================================================================
 
     #[test]
-    fn str_to_rust_code_empty_input_is_an_error_not_a_panic() {
+    fn str_to_rust_code_empty_input_compiles_to_an_empty_document() {
+        // Empty input is a document with nothing in it, not a malformed one:
+        // the root is synthesised the same way it is for a fragment. What
+        // matters is that it does not PANIC and every backend agrees.
         let map = ComponentMap::with_builtin();
-        assert!(matches!(
-            str_to_rust_code(&[], "", &map),
-            Err(CompileError::Xml(DomXmlParseError::NoHtmlNode))
-        ));
-        assert!(str_to_c_code(&[], &map).is_err());
-        assert!(str_to_cpp_code(&[], &map).is_err());
-        assert!(str_to_python_code(&[], &map).is_err());
+        assert!(str_to_rust_code(&[], "", &map).is_ok());
+        assert!(str_to_c_code(&[], &map).is_ok());
+        assert!(str_to_cpp_code(&[], &map).is_ok());
+        assert!(str_to_python_code(&[], &map).is_ok());
     }
 
     #[test]
-    fn str_to_rust_code_whitespace_and_text_only_roots_are_errors() {
+    fn str_to_rust_code_text_only_roots_compile_to_a_body_with_that_text() {
+        // Text with no element around it is a fragment, and a fragment now
+        // gets a synthesised root - so this compiles rather than failing. The
+        // text has to actually SURVIVE the wrapping, which is the part worth
+        // pinning: dropping it would be a silent data loss that still
+        // "succeeded".
         let map = ComponentMap::with_builtin();
-        for roots in [vec![txt("   ")], vec![txt("\t\n")], vec![txt("garbage")]] {
+        let src = str_to_rust_code(&[txt("garbage")], "", &map).expect("a fragment compiles");
+        assert!(src.contains("garbage"), "the text must survive:\n{src}");
+
+        for roots in [vec![txt("   ")], vec![txt("\t\n")]] {
             assert!(
-                str_to_rust_code(&roots, "", &map).is_err(),
-                "a document with no <html> element must be rejected"
+                str_to_rust_code(&roots, "", &map).is_ok(),
+                "whitespace-only input is an empty document, not a malformed one"
             );
         }
     }

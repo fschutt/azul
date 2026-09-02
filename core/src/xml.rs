@@ -5061,7 +5061,11 @@ impl fmt::Display for RenderDomError {
 /// # Errors
 ///
 /// Returns an error if the document has no `<html>` root node.
-pub fn get_html_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlParseError> {
+pub fn get_html_node(
+    root_nodes: &[XmlNodeChild],
+) -> Result<alloc::borrow::Cow<'_, XmlNode>, DomXmlParseError> {
+    use alloc::borrow::Cow;
+
     let mut html_node_iterator = root_nodes.iter().filter_map(|child| {
         if let XmlNodeChild::Element(node) = child {
             // HTML element names are case-insensitive (ASCII). NOT normalize_casing:
@@ -5077,14 +5081,66 @@ pub fn get_html_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlPars
         }
     });
 
-    let html_node = html_node_iterator
-        .next()
-        .ok_or(DomXmlParseError::NoHtmlNode)?;
-    if html_node_iterator.next().is_some() {
-        Err(DomXmlParseError::MultipleHtmlRootNodes)
-    } else {
-        Ok(html_node)
+    if let Some(html_node) = html_node_iterator.next() {
+        return if html_node_iterator.next().is_some() {
+            Err(DomXmlParseError::MultipleHtmlRootNodes)
+        } else {
+            Ok(Cow::Borrowed(html_node))
+        };
     }
+
+    // NO <html> ROOT: synthesise one, the way a browser does.
+    //
+    // Requiring the wrapper made a perfectly good fragment - `<svg>…</svg>`,
+    // `<div>hi</div>`, an icon file straight off the disk - parse into the
+    // TEXT "No <html> node found as the root of the file", which then lays
+    // out and paints like any other text. The failure was silent and looked
+    // exactly like a rendering bug: a caller measuring pixels saw an error
+    // message it never asked for and no sign of what happened.
+    //
+    // A root `<body>`/`<head>` is ADOPTED rather than nested (again like a
+    // browser): wrapping `<body>` inside a fresh `<body>` would give the
+    // document two, which is its own error.
+    let has_structural_root = root_nodes.iter().any(|child| match child {
+        XmlNodeChild::Element(node) => {
+            let tag = node.node_type.as_str();
+            tag.eq_ignore_ascii_case("body") || tag.eq_ignore_ascii_case("head")
+        }
+        XmlNodeChild::Text(_) => false,
+    });
+    if has_structural_root {
+        return Ok(Cow::Owned(
+            XmlNode::create("html").with_children(root_nodes.to_vec()),
+        ));
+    }
+
+    // METADATA GOES TO THE HEAD, content to the body - the same split a
+    // browser makes. A `<style>` left in the body is not looked at by
+    // `str_to_dom_unstyled` (it reads `<head><style>`), so a fragment that
+    // brought its own stylesheet would render unstyled and give no hint why.
+    let (head_children, body_children): (Vec<_>, Vec<_>) =
+        root_nodes.iter().cloned().partition(|child| match child {
+            XmlNodeChild::Element(node) => {
+                let tag = node.node_type.as_str();
+                tag.eq_ignore_ascii_case("style")
+                    || tag.eq_ignore_ascii_case("link")
+                    || tag.eq_ignore_ascii_case("meta")
+                    || tag.eq_ignore_ascii_case("title")
+                    || tag.eq_ignore_ascii_case("base")
+            }
+            XmlNodeChild::Text(_) => false,
+        });
+
+    let mut html_children = Vec::new();
+    if !head_children.is_empty() {
+        html_children.push(XmlNodeChild::Element(
+            XmlNode::create("head").with_children(head_children),
+        ));
+    }
+    html_children.push(XmlNodeChild::Element(
+        XmlNode::create("body").with_children(body_children),
+    ));
+    Ok(Cow::Owned(XmlNode::create("html").with_children(html_children)))
 }
 
 /// Find the one and only `<body>` node, return error if
@@ -6058,6 +6114,29 @@ fn apply_cell_span_attributes(node: &mut crate::dom::NodeData, xml_node: &XmlNod
 // components, so it only forwards the map into recursive calls. Removing it here would
 // cascade unused-param removals up the entire pipeline.
 #[allow(clippy::only_used_in_recursion)]
+/// Every `<style>` element's text in this subtree, in document order.
+///
+/// Depth-bounded for the same reason the DOM conversion is: this reads files
+/// nothing in this build produced.
+fn collect_style_text(node: &XmlNode, out: &mut Vec<String>, depth: usize) {
+    if depth >= MAX_XML_NESTING_DEPTH {
+        return;
+    }
+    for child in node.children.as_ref() {
+        let XmlNodeChild::Element(element) = child else {
+            continue;
+        };
+        if normalize_casing(&element.node_type) == "style" {
+            let text = element.get_text_content();
+            if !text.is_empty() {
+                out.push(text);
+            }
+        } else {
+            collect_style_text(element, out, depth + 1);
+        }
+    }
+}
+
 fn xml_node_to_dom_fast<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,
@@ -6086,8 +6165,43 @@ fn xml_node_to_dom_fast<'a>(
 
     // Recursively convert children
     let mut children = Vec::new();
+    // A `<style>` found INSIDE the tree - an SVG's own `<defs><style>`, above
+    // all - is a stylesheet, not content. In azul a stylesheet is an ATTRIBUTE
+    // of a node (`Dom.css`, scoped to that subtree by `scope_inline_css`)
+    // rather than a node of its own, so it has to be recognised HERE, at the
+    // input, and hung on the element that contains it. Leaving it as a node
+    // rendered the CSS source as visible text.
+    //
+    // Scoping to the subtree is exactly right for the case that motivates it:
+    // an icon's `.ColorScheme-Text { color:… }` is meant for that icon, and
+    // must not reach the rest of the document.
+    let mut scoped_css: Vec<Css> = Vec::new();
+    // An `<svg>`'s stylesheet is SVG-GLOBAL: it is nearly always written in
+    // `<defs><style>`, and `<defs>` is a definition container that draws
+    // nothing - attaching the sheet there would scope it to a subtree with no
+    // shapes in it. Collected from the whole subtree and hung on the `<svg>`,
+    // which is as global as it should ever get.
+    if component_name == "svg" {
+        let mut texts = Vec::new();
+        collect_style_text(xml_node, &mut texts, 0);
+        for text in texts {
+            scoped_css.push(Css::from_string(text.into()));
+        }
+    }
     for child in xml_node.children.as_ref() {
         match child {
+            XmlNodeChild::Element(child_node)
+                if normalize_casing(&child_node.node_type) == "style" =>
+            {
+                // Never a rendered node. Inside an `<svg>` it was already
+                // hoisted above; elsewhere it scopes to THIS element.
+                if component_name != "svg" {
+                    let text = child_node.get_text_content();
+                    if !text.is_empty() {
+                        scoped_css.push(Css::from_string(text.into()));
+                    }
+                }
+            }
             XmlNodeChild::Element(child_node) => {
                 let child_dom =
                     xml_node_to_dom_fast(child_node, component_map, child_inside_svg, depth + 1)?;
@@ -6104,6 +6218,10 @@ fn xml_node_to_dom_fast<'a>(
 
     if !children.is_empty() {
         dom = dom.with_children(children.into());
+    }
+
+    for css in scoped_css {
+        dom.add_component_css(css);
     }
 
     Ok(dom)
@@ -8220,9 +8338,13 @@ fn compile_body_fluent<'a>(
 /// Parse the page's `<style>` and seed a matcher rooted at `<body>`. Shared by
 /// the C++/Python/C entry points (mirrors the head of `str_to_rust_code`).
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-fn parse_page_style_and_body(root_nodes: &[XmlNodeChild]) -> Result<(Css, &XmlNode), CompileError> {
+/// Returns the body by VALUE: `get_html_node` may have synthesised the `<html>`
+/// wrapper (a fragment with no root of its own), and a reference into a node
+/// this function owns cannot outlive it. Codegen, not a hot path - one clone
+/// of the body subtree per compile.
+fn parse_page_style_and_body(root_nodes: &[XmlNodeChild]) -> Result<(Css, XmlNode), CompileError> {
     let html_node = get_html_node(root_nodes)?;
-    let body_node = get_body_node(html_node.children.as_ref())?;
+    let body_node = get_body_node(html_node.children.as_ref())?.clone();
     let mut global_style = Css::empty();
     if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
         if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
@@ -8254,6 +8376,7 @@ pub fn str_to_cpp_code<'a>(
     component_map: &'a ComponentMap,
 ) -> Result<String, CompileError> {
     let (global_style, body_node) = parse_page_style_and_body(root_nodes)?;
+    let body_node = &body_node;
     let render = compile_body_fluent(
         body_node,
         &CPP_SYNTAX,
@@ -8288,6 +8411,7 @@ pub fn str_to_python_code<'a>(
     component_map: &'a ComponentMap,
 ) -> Result<String, CompileError> {
     let (global_style, body_node) = parse_page_style_and_body(root_nodes)?;
+    let body_node = &body_node;
     let render = compile_body_fluent(
         body_node,
         &PYTHON_SYNTAX,
@@ -8458,6 +8582,7 @@ pub fn str_to_c_code<'a>(
     component_map: &'a ComponentMap,
 ) -> Result<String, CompileError> {
     let (global_style, body_node) = parse_page_style_and_body(root_nodes)?;
+    let body_node = &body_node;
     let mut body = String::new();
     let mut counter = 0usize;
 
