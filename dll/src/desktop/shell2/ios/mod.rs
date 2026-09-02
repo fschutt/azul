@@ -1973,6 +1973,11 @@ fn ios_hid_keycode_to_virtual(code: i64) -> Option<azul_core::window::VirtualKey
 }
 
 /// Fold a `UIPress` set into the keyboard state.
+/// `UIKeyModifierAlphaShift` - caps lock. UIKit's modifier bits start at 1<<16
+/// (`UIKeyModifierAlphaShift`), then Shift, Control, Alternate, Command,
+/// NumericPad.
+const UI_KEY_MODIFIER_ALPHA_SHIFT: u64 = 1 << 16;
+
 fn handle_presses(_this: &Object, presses: *mut Object, is_down: bool) {
     use azul_core::window::OptionVirtualKeyCode;
 
@@ -1993,6 +1998,14 @@ fn handle_presses(_this: &Object, presses: *mut Object, is_down: bool) {
             if key.is_null() {
                 continue;
             }
+            // `modifierFlags` is read from the KEY, not accumulated from
+            // presses. UIKit does deliver modifier-only presses, but it also
+            // reports the live modifier state on every key press, and taking
+            // it from there is the only way to be right after a press that
+            // arrived while the app was backgrounded - the same reason macOS
+            // reads `NSEventModifierFlags` rather than tracking Cmd itself.
+            let flags: u64 = msg_send![key, modifierFlags];
+
             let code: i64 = msg_send![key, keyCode];
             let Some(vk) = ios_hid_keycode_to_virtual(code) else {
                 continue;
@@ -2000,9 +2013,29 @@ fn handle_presses(_this: &Object, presses: *mut Object, is_down: bool) {
             let ks = window.common.keyboard_state_mut();
             if is_down {
                 ks.current_virtual_keycode = OptionVirtualKeyCode::Some(vk);
+                // The PRESSED SET, which iOS never maintained at all: it set
+                // only `current_virtual_keycode`. `modifiers` is derived from
+                // this set by `sync_modifiers()`, so with the set permanently
+                // empty every modifier read as up and no Cmd- or Shift-
+                // shortcut could ever match, however the key was pressed.
+                let mut v = ks.pressed_virtual_keycodes.clone().into_library_owned_vec();
+                if !v.iter().any(|c| *c == vk) {
+                    v.push(vk);
+                }
+                ks.pressed_virtual_keycodes = v.into();
             } else {
                 ks.current_virtual_keycode = OptionVirtualKeyCode::None;
+                let mut v = ks.pressed_virtual_keycodes.clone().into_library_owned_vec();
+                v.retain(|c| *c != vk);
+                ks.pressed_virtual_keycodes = v.into();
             }
+
+            // Caps lock is NOT derivable from the pressed set - a lock is a
+            // toggle that no key event describes - so it comes from the OS,
+            // exactly as it does on macOS, X11 and Windows.
+            ks.locks.caps_lock = flags & UI_KEY_MODIFIER_ALPHA_SHIFT != 0;
+
+            ks.sync_modifiers();
         }
     }
     let result = window.process_window_events(0);

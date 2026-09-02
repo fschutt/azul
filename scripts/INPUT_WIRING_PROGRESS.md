@@ -273,11 +273,22 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       [[mobile_tooling_2026_09_01]]), so this is a compile-and-inspection result, not a
       keyboard-appeared-on-screen result. Host check, 8/8 mobile, azul-core 2759,
       azul-layout 7567, azul-dll 1963.
-- [ ] 10b-iii `UIPress` modifier flags (`key.modifierFlags`) are not read, so Cmd-key shortcuts from a
-      Magic Keyboard do not reach the accelerator path.
-
-### Follow-ups opened by 10a
-
+- [x] 10b-iii DONE, and the premise UNDERSTATED it. `key.modifierFlags` was indeed never read -
+      but the deeper cause is that iOS never maintained `pressed_virtual_keycodes` AT ALL:
+      `handle_presses` set only `current_virtual_keycode`. `modifiers` is DERIVED from the pressed
+      set by `sync_modifiers()` (9e-i), so with that set permanently empty every modifier read as
+      up and no Cmd- or Shift-shortcut could match however the key was pressed. iOS was the one
+      backend absent from 9e-i's nine sync sites - a grep for `sync_modifiers|pressed_virtual_
+      keycodes` across the shells returns ZERO hits in `ios/`, against 28 in x11 and 17 in wayland.
+      FIXED all three layers: the pressed set is now maintained on press and release, `locks.
+      caps_lock` is read from `UIKeyModifierAlphaShift` (a lock is a toggle no key event
+      describes, so it must come from the OS - same as macOS/X11/Windows), and `sync_modifiers()`
+      runs after each mutation.
+      `modifierFlags` is read from the KEY rather than accumulated from presses, for the same
+      reason macOS reads `NSEventModifierFlags`: it is the live state, so it stays right across a
+      press that arrived while the app was backgrounded.
+      Compile-verified for iOS only (user: "just cross compile to see that it compiles, we'll test
+      in the simulator later"). Host + 8/8 mobile.
 - [x] 10a-i DONE — `scripts/android/NativeTextBridge.java` exists and ships in the APK: an
       `AzulInputView` (focusable, `onCheckIsTextEditor`) supplying a `BaseInputConnection` that
       forwards commit/compose/finish/delete into the existing JNI entry points, plus showKeyboard/
