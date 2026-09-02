@@ -1033,3 +1033,25 @@ FOUND AND FIXED HERE:
       not on entry, so adding the mirror in the chain diff would double-fire whenever the pointer
       moves INTO a node. Settling it means deciding whether that movement-based emitter is
       correct at all — a behaviour change with app-visible blast radius, not a test fix.
+- [x] TOOLING (azul-doc): the module classifier now matches DIFFICULT names manually FIRST and
+      everything else automatically, per user direction — so a collision is fixed by naming the
+      one bad case rather than by tuning a keyword (which reranks every other type) or by
+      hard-coding a module per class.
+      `DIFFICULT_TYPE_MODULES` is a PREFIX table checked at priority 4, after the structural
+      Option/Vec/Error rules (so an entry can never steal `OptionTabletPadState` from `option`)
+      and before keyword matching. One entry today: `("Tablet", "gesture")`, because the css
+      keyword "table" matches as a substring inside "TABLEt-PadState".
+      This REPLACES the `"tablet"` keyword added in 8d-ii, which worked only by out-ranking
+      "table" on length — a fix that depends on nobody adding a longer css keyword later.
+      EVIDENCE: 4 tests — the override resolves the whole `Tablet*` family confidently; it does
+      NOT capture `TableLayout`/`StyleTableLayout` (prefix, not substring); structural types
+      still win over it; and ordinary names (`StyledDom`, `FontMetrics`) are untouched so they
+      keep being classified automatically. Verified the override is load-bearing by deleting its
+      one entry: `TabletPadState` resolves to "css" again.
+- [x] CLEANUP: `find_class_optional` (dll/src/desktop/extra/mod.rs) removed — it had NO callers
+      and is strictly weaker than the `find_app_class` that superseded it. Both clear the pending
+      JVM exception, but only `find_app_class` also goes through the Activity's class loader,
+      which is the bug that made every Rust->Java call fail; all six optional Android helpers use
+      it. Wiring the old one back in would have REINTRODUCED the classloader bug, so this is a
+      superseded helper rather than an unwired one. Caught by `lint_orphans`, which was failing
+      in `cargo test -p azul-doc` (206 tests now green).

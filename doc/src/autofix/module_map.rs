@@ -234,34 +234,6 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
         ],
     );
 
-    // Gesture module — tablet/pen hardware and the gesture recognisers.
-    //
-    // "tablet" earns its place by OUTRANKING the css keyword "table", which
-    // matches as a raw SUBSTRING inside `TabletPadState` / `TabletDeviceInfo`
-    // ("TABLEt..."). Matches are ranked by keyword length, so the six-letter
-    // "tablet" beats the five-letter "table".
-    //
-    // Getting this wrong is not merely a misfiling: a CONFIDENT keyword match
-    // that agrees with the type's current module short-circuits the
-    // external-path check in `get_correct_module_with_path`, so the type is
-    // then reported as CORRECTLY placed and can never be moved. That is why
-    // `TabletPadState` sat in `css` while `autofix modules` said everything
-    // was fine.
-    //
-    // A boundary-aware (whole-word) matcher was tried instead and REJECTED: it
-    // fixes this case but re-classifies names whose acronyms no camel splitter
-    // can recover (`GLfloat`), and it proposed several actively wrong moves
-    // (`FontMetrics` -> css, `SvgParseOptions` -> xml) that the substring
-    // ranking gets right today. Registering a class is rare; an explicit
-    // keyword is the cheaper and more auditable fix.
-    map.insert(
-        "gesture",
-        vec![
-            "tablet",    // TabletPadState, TabletDeviceInfo, TabletToolKind
-            "longpress", // DetectedLongPress
-        ],
-    );
-
     // Callbacks module
     map.insert(
         "callbacks",
@@ -535,9 +507,53 @@ pub fn should_exclude_path(path: &std::path::Path) -> bool {
 /// 1. OptionFoo -> "option" (MUST come first to handle OptionFooVec correctly)
 /// 2. FooVec, FooVecDestructor, FooVecDestructorType -> "vec"
 /// 3. FooError, ResultFoo -> "error"
-/// 4. Find all matching keywords across all modules, pick the longest match On tie, pick the first
+/// 4. Known-difficult names (`DIFFICULT_TYPE_MODULES`) — manual overrides for
+///    collisions the keyword heuristic gets wrong
+/// 5. Find all matching keywords across all modules, pick the longest match On tie, pick the first
 ///    module in MODULES order
-/// 5. "misc" (with warning)
+/// 6. "misc" (with warning)
+/// Known-difficult type names, matched BEFORE any keyword heuristic.
+///
+/// The keyword matcher is a substring search ranked by match length. That
+/// works for the overwhelming majority of names and is deliberately kept, but
+/// it has no notion of word boundaries, so a short keyword can win inside a
+/// longer unrelated word. `TabletPadState` went to `css` because the css
+/// keyword "table" is inside "TABLEt-PadState".
+///
+/// That failure is not self-correcting. A CONFIDENT keyword match that agrees
+/// with the type's current module short-circuits the external-path check in
+/// [`get_correct_module_with_path`], so the type is then reported as CORRECTLY
+/// PLACED and can never move — `autofix modules` said everything was fine while
+/// the type sat in the wrong module.
+///
+/// This table exists so a collision like that is fixed by naming the ONE
+/// difficult case, rather than by tuning a keyword (which changes ranking for
+/// every other type) or by hard-coding a module for every class. Entries are
+/// PREFIX matches, so one line covers a family.
+///
+/// A whole-word matcher was tried as the general fix and rejected: it cannot
+/// recover acronyms no camel splitter can split (`GLfloat` -> "g", "lfloat")
+/// and it proposed several actively wrong moves that substring ranking gets
+/// right (`FontMetrics` -> css, `SvgParseOptions` -> xml). Registering a class
+/// is rare and the API moves little, so naming the exceptions is cheaper and
+/// far easier to audit than a cleverer matcher.
+///
+/// Structural types (`OptionFoo`, `FooVec`, `FooError`) are resolved BEFORE
+/// this table, so an entry here never steals `OptionTabletPadState` from
+/// `option`.
+const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
+    // "Tablet*" collides with the css keyword "table".
+    ("Tablet", "gesture"),
+];
+
+/// Module for a known-difficult type name, if it is one.
+fn difficult_type_module(type_name: &str) -> Option<&'static str> {
+    DIFFICULT_TYPE_MODULES
+        .iter()
+        .find(|(prefix, _)| type_name.starts_with(prefix))
+        .map(|(_, module)| *module)
+}
+
 pub fn determine_module(type_name: &str) -> (String, bool) {
     let lower_name = type_name.to_lowercase();
 
@@ -562,7 +578,14 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
         return ("error".to_string(), false);
     }
 
-    // Priority 4: Find longest matching keyword across all modules
+    // Priority 4: known-difficult names, matched manually BEFORE the
+    // heuristic. Only collisions the keyword matcher gets wrong live here —
+    // everything else is still classified automatically below.
+    if let Some(module) = difficult_type_module(type_name) {
+        return (module.to_string(), false);
+    }
+
+    // Priority 5: Find longest matching keyword across all modules
     // Collect all matches: (module_name, matched_keyword, keyword_length, module_order)
     let mut matches: Vec<(&str, &str, usize, usize)> = Vec::new();
 
@@ -592,7 +615,7 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
     }
 
     if matches.is_empty() {
-        // Priority 5: Misc (with warning)
+        // Priority 6: Misc (with warning)
         return ("misc".to_string(), true);
     }
 
@@ -1009,5 +1032,53 @@ mod tests {
         assert!(should_exclude_path(Path::new("/foo/examples/demo.rs")));
         assert!(should_exclude_path(Path::new("/foo/build.rs")));
         assert!(!should_exclude_path(Path::new("/foo/src/lib.rs")));
+    }
+
+    /// The manual override runs BEFORE the keyword heuristic, and is what
+    /// keeps `Tablet*` out of `css`.
+    ///
+    /// Without it the css keyword "table" matches as a substring inside
+    /// "TABLEt-PadState" and wins, CONFIDENTLY — which then short-circuits the
+    /// external-path check in `get_correct_module_with_path`, so the type is
+    /// reported as correctly placed and can never move.
+    #[test]
+    fn difficult_names_are_matched_before_the_keyword_heuristic() {
+        for name in [
+            "TabletPadState",
+            "TabletDeviceInfo",
+            "TabletToolKind",
+            "TabletDeviceInfoVecSlice",
+        ] {
+            let (module, is_warning) = determine_module(name);
+            assert_eq!(module, "gesture", "{name} must resolve to gesture");
+            assert!(!is_warning, "{name} must resolve confidently");
+        }
+    }
+
+    /// The override is a PREFIX match, so it must not capture the css `table`
+    /// family it exists to be distinguished from.
+    #[test]
+    fn the_tablet_override_does_not_capture_table_types() {
+        assert_eq!(difficult_type_module("TabletPadState"), Some("gesture"));
+        assert_eq!(difficult_type_module("TableLayout"), None);
+        assert_eq!(difficult_type_module("StyleTableLayout"), None);
+    }
+
+    /// Structural types are resolved BEFORE the override table, so an entry
+    /// there cannot steal `OptionFoo` / `FooVec` from their own modules.
+    #[test]
+    fn structural_types_still_win_over_the_override() {
+        assert_eq!(determine_module("OptionTabletPadState").0, "option");
+        assert_eq!(determine_module("TabletDeviceInfoVec").0, "vec");
+    }
+
+    /// The override is for EXCEPTIONS: ordinary names must still be
+    /// classified automatically by the keyword matcher.
+    #[test]
+    fn ordinary_names_are_still_classified_automatically() {
+        assert_eq!(difficult_type_module("StyledDom"), None);
+        assert_eq!(difficult_type_module("FontMetrics"), None);
+        // ...and still reach a module through the heuristic.
+        assert!(!determine_module("FontMetrics").0.is_empty());
     }
 }
