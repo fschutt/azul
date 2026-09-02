@@ -868,6 +868,16 @@ fn apply_key_state_change(
         }
         keyboard_state.pressed_scancodes.remove_hm_item(&key);
     }
+    // The PHYSICAL position. `wl_keyboard.key` IS an evdev code (X11's is that
+    // plus 8), so no keymap lookup is needed and the answer holds whatever
+    // layout xkb has loaded.
+    keyboard_state.current_physical_key = if is_pressed {
+        azul_core::window::OptionPhysicalKey::Some(
+            azul_core::window::PhysicalKey::from_evdev(key),
+        )
+    } else {
+        azul_core::window::OptionPhysicalKey::None
+    };
     keyboard_state.sync_modifiers();
 }
 
@@ -3630,14 +3640,14 @@ impl WaylandWindow {
         }
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
-    
+
         // Publish the dial alongside the pad. It rides the pad frame because
         // that is the frame the protocol delivers it in — a dial belongs to a
         // pad group, not to a device of its own.
         if let Some(lw) = self.common.layout_window.as_mut() {
             if self.tablet_pad.dial_delta != 0.0 {
-                lw.gesture_drag_manager
-                    .update_dial_state(azul_layout::managers::gesture::DialState {
+                lw.gesture_drag_manager.update_dial_state(
+                    azul_layout::managers::gesture::DialState {
                         device_id,
                         delta_rad: self.tablet_pad.dial_delta,
                         // A tablet-pad dial is smooth: the protocol reports
@@ -3646,10 +3656,11 @@ impl WaylandWindow {
                         pressed: false,
                         // Never on-screen — that is a Surface Studio property.
                         contact_position: azul_core::geom::OptionLogicalPosition::None,
-                    });
+                    },
+                );
             }
         }
-}
+    }
 
     /// Feed the accumulated tablet pen state on the tool's `frame` event —
     /// and drive the POINTER pipeline from it.

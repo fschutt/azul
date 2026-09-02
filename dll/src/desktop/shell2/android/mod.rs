@@ -300,9 +300,9 @@ impl AndroidWindow {
                     .iter()
                     .filter_map(|r| {
                         let top = (r.origin.y * dpi).floor().max(0.0) as usize;
-                        let bottom =
-                            (((r.origin.y + r.size.height) * dpi).ceil().max(0.0) as usize)
-                                .min(height);
+                        let bottom = (((r.origin.y + r.size.height) * dpi).ceil().max(0.0)
+                            as usize)
+                            .min(height);
                         (bottom > top).then_some((top, bottom))
                     })
                     .collect();
@@ -675,11 +675,7 @@ pub fn android_main(app: AndroidApp) {
     #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
     unsafe {
         if let Some((rx, cm)) = crate::desktop::shell2::run::ANDROID_DEBUG_CHANNEL.take() {
-            crate::desktop::shell2::common::debug_server::register_debug_timer(
-                &mut window,
-                rx,
-                cm,
-            );
+            crate::desktop::shell2::common::debug_server::register_debug_timer(&mut window, rx, cm);
         }
     }
 
@@ -1712,16 +1708,9 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
 
     // WHICH ROWS. Full copy unless we can prove this exact buffer already holds
     // a frame we produced and we know everything that changed since.
-    let dpi = window
-        .common
-        .current_window_state()
-        .size
-        .dpi as f32
-        / 96.0;
+    let dpi = window.common.current_window_state().size.dpi as f32 / 96.0;
     let this_frame_rows = window.damage_rows(dpi, ph as usize);
-    let buffer_id = guard
-        .bytes()
-        .map_or(0usize, |b| b.as_ptr() as usize);
+    let buffer_id = guard.bytes().map_or(0usize, |b| b.as_ptr() as usize);
     let rows_to_copy: Option<Vec<(usize, usize)>> = match (
         this_frame_rows.as_ref(),
         window.buffer_frames.get(&buffer_id).copied(),
@@ -2029,7 +2018,11 @@ pub fn set_soft_keyboard_visible(visible: bool) {
         .ok_or_else(|| "NativeTextBridge not in this APK".to_string())?;
         env.call_static_method(
             &class,
-            if visible { "showKeyboard" } else { "hideKeyboard" },
+            if visible {
+                "showKeyboard"
+            } else {
+                "hideKeyboard"
+            },
             "(Landroid/app/Activity;)V",
             &[jni::objects::JValue::Object(&activity)],
         )
@@ -2480,11 +2473,7 @@ pub mod text_bridge {
     ) {
         let text = jstring_to_string(env, text);
         let byte_len = text.len() as i32;
-        let caret = if cursor_pos > 0 {
-            byte_len
-        } else {
-            0
-        };
+        let caret = if cursor_pos > 0 { byte_len } else { 0 };
         with_window(native_ptr, |w| {
             if let Some(lw) = w.common.layout_window.as_mut() {
                 lw.text_edit_manager.set_preedit(text.clone(), caret, caret);
@@ -2564,8 +2553,8 @@ pub mod text_bridge {
         right_px: i32,
         ime_px: i32,
     ) {
-        use azul_css::props::basic::pixel::PixelValue;
         use azul_css::props::basic::pixel::OptionPixelValue;
+        use azul_css::props::basic::pixel::PixelValue;
 
         with_window(native_ptr, |w| {
             let scale = w

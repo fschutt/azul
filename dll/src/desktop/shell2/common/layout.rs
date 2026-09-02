@@ -28,8 +28,7 @@ use webrender::{RenderApi as WrRenderApi, Transaction as WrTransaction};
 use super::debug_server::{self, LogCategory};
 use crate::{
     desktop::{csd, wr_translate2},
-    log_debug,
-    log_info,
+    log_debug, log_info,
 };
 use azul_css::LayoutDebugMessage;
 

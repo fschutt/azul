@@ -55,8 +55,7 @@ use crate::desktop::shell2::linux::dbus::{
     DBusConnection, DBusError, DBusLib, DBusMessage, DBusMessageIter, DBusObjectPathVTable,
     DBUS_BUS_SESSION, DBUS_HANDLER_RESULT_HANDLED, DBUS_HANDLER_RESULT_NOT_YET_HANDLED,
     DBUS_TYPE_ARRAY, DBUS_TYPE_BOOLEAN, DBUS_TYPE_BYTE, DBUS_TYPE_DICT_ENTRY, DBUS_TYPE_INT32,
-    DBUS_TYPE_OBJECT_PATH, DBUS_TYPE_STRING, DBUS_TYPE_STRUCT, DBUS_TYPE_UINT32,
-    DBUS_TYPE_VARIANT,
+    DBUS_TYPE_OBJECT_PATH, DBUS_TYPE_STRING, DBUS_TYPE_STRUCT, DBUS_TYPE_UINT32, DBUS_TYPE_VARIANT,
 };
 use crate::desktop::shell2::linux::gnome_menu::get_shared_dbus_lib;
 
@@ -232,15 +231,24 @@ unsafe fn watcher_host_registered(dbus: &DBusLib, conn: *mut DBusConnection) -> 
     let path = CString::new(WATCHER_PATH).ok()?;
     let iface = CString::new(PROPS_IFACE).ok()?;
     let member = CString::new("Get").ok()?;
-    let msg =
-        (dbus.dbus_message_new_method_call)(dest.as_ptr(), path.as_ptr(), iface.as_ptr(), member.as_ptr());
+    let msg = (dbus.dbus_message_new_method_call)(
+        dest.as_ptr(),
+        path.as_ptr(),
+        iface.as_ptr(),
+        member.as_ptr(),
+    );
     if msg.is_null() {
         return None;
     }
     let mut it: DBusMessageIter = std::mem::zeroed();
     (dbus.dbus_message_iter_init_append)(msg, &mut it);
     append_str(dbus, &mut it, DBUS_TYPE_STRING, WATCHER_NAME);
-    append_str(dbus, &mut it, DBUS_TYPE_STRING, "IsStatusNotifierHostRegistered");
+    append_str(
+        dbus,
+        &mut it,
+        DBUS_TYPE_STRING,
+        "IsStatusNotifierHostRegistered",
+    );
     let mut err = fresh_error();
     (dbus.dbus_error_init)(&mut err);
     let reply = (dbus.dbus_connection_send_with_reply_and_block)(conn, msg, 1000, &mut err);
@@ -277,19 +285,11 @@ unsafe fn append_str(dbus: &DBusLib, it: *mut DBusMessageIter, ty: c_int, s: &st
 }
 
 unsafe fn append_i32(dbus: &DBusLib, it: *mut DBusMessageIter, v: i32) {
-    (dbus.dbus_message_iter_append_basic)(
-        it,
-        DBUS_TYPE_INT32,
-        &v as *const i32 as *mut c_void,
-    );
+    (dbus.dbus_message_iter_append_basic)(it, DBUS_TYPE_INT32, &v as *const i32 as *mut c_void);
 }
 
 unsafe fn append_u32(dbus: &DBusLib, it: *mut DBusMessageIter, v: u32) {
-    (dbus.dbus_message_iter_append_basic)(
-        it,
-        DBUS_TYPE_UINT32,
-        &v as *const u32 as *const c_void,
-    );
+    (dbus.dbus_message_iter_append_basic)(it, DBUS_TYPE_UINT32, &v as *const u32 as *const c_void);
 }
 
 unsafe fn append_bool(dbus: &DBusLib, it: *mut DBusMessageIter, v: bool) {
@@ -332,12 +332,7 @@ unsafe fn append_pixmaps(dbus: &DBusLib, it: *mut DBusMessageIter, pix: &[(i32, 
         append_i32(dbus, &mut sit, *h);
         let ysig = CString::new("y").unwrap();
         let mut bit: DBusMessageIter = std::mem::zeroed();
-        (dbus.dbus_message_iter_open_container)(
-            &mut sit,
-            DBUS_TYPE_ARRAY,
-            ysig.as_ptr(),
-            &mut bit,
-        );
+        (dbus.dbus_message_iter_open_container)(&mut sit, DBUS_TYPE_ARRAY, ysig.as_ptr(), &mut bit);
         // Byte-at-a-time keeps the dlopen surface small
         // (`dbus_message_iter_append_fixed_array` would be the fast path);
         // a 48x48 icon is 9216 appends, invisible next to the bus round trip.
@@ -451,7 +446,12 @@ unsafe extern "C" fn sni_message(
                 return error_reply(dbus, conn, msg, "org.freedesktop.DBus.Error.InvalidArgs");
             };
             let Some((_, sig)) = SNI_PROPS.iter().find(|(n, _)| *n == prop) else {
-                return error_reply(dbus, conn, msg, "org.freedesktop.DBus.Error.UnknownProperty");
+                return error_reply(
+                    dbus,
+                    conn,
+                    msg,
+                    "org.freedesktop.DBus.Error.UnknownProperty",
+                );
             };
             let reply = (dbus.dbus_message_new_method_return)(msg);
             if !reply.is_null() {
@@ -524,7 +524,9 @@ unsafe extern "C" fn sni_message(
                         &mut sp as *mut *const c_char as *mut c_void,
                     );
                     if !sp.is_null()
-                        && CStr::from_ptr(sp).to_string_lossy().eq_ignore_ascii_case("horizontal")
+                        && CStr::from_ptr(sp)
+                            .to_string_lossy()
+                            .eq_ignore_ascii_case("horizontal")
                     {
                         ev.scroll_axis = TrayScrollAxis::Horizontal;
                     }
@@ -560,7 +562,10 @@ unsafe fn error_reply(
 }
 
 /// The first two STRING arguments of a message.
-unsafe fn read_two_strings(dbus: &DBusLib, msg: *mut DBusMessage) -> (Option<String>, Option<String>) {
+unsafe fn read_two_strings(
+    dbus: &DBusLib,
+    msg: *mut DBusMessage,
+) -> (Option<String>, Option<String>) {
     let mut it: DBusMessageIter = std::mem::zeroed();
     if (dbus.dbus_message_iter_init)(msg, &mut it) == 0 {
         return (None, None);
@@ -972,7 +977,11 @@ unsafe extern "C" fn menu_message(
                 let mut it: DBusMessageIter = std::mem::zeroed();
                 (dbus.dbus_message_iter_init_append)(reply, &mut it);
                 let isig = CString::new("i").unwrap();
-                let n_arrays = if member.as_ref() == "AboutToShowGroup" { 2 } else { 1 };
+                let n_arrays = if member.as_ref() == "AboutToShowGroup" {
+                    2
+                } else {
+                    1
+                };
                 for _ in 0..n_arrays {
                     let mut ait: DBusMessageIter = std::mem::zeroed();
                     (dbus.dbus_message_iter_open_container)(
@@ -1037,8 +1046,7 @@ fn build_pixmaps(
             // Rasterize through the icon registry at the panel's common sizes;
             // never pass the spec as a theme IconName the panel may not have.
             for size in [22u32, 48u32] {
-                if let Some(icon) = render_named_icon(spec.as_str(), size, provider, font_manager)
-                {
+                if let Some(icon) = render_named_icon(spec.as_str(), size, provider, font_manager) {
                     out.push((
                         icon.width as i32,
                         icon.height as i32,
@@ -1118,10 +1126,7 @@ impl PlatformTray {
             }
 
             // org.kde.*, not org.freedesktop.* — see the module docs.
-            let bus_name = format!(
-                "org.kde.StatusNotifierItem-{}-1",
-                std::process::id()
-            );
+            let bus_name = format!("org.kde.StatusNotifierItem-{}-1", std::process::id());
             let bus_name_c = CString::new(bus_name.clone()).unwrap();
             let got = (dbus.dbus_bus_request_name)(
                 conn,
@@ -1183,8 +1188,7 @@ impl PlatformTray {
             let mut it: DBusMessageIter = std::mem::zeroed();
             (dbus.dbus_message_iter_init_append)(msg, &mut it);
             append_str(&dbus, &mut it, DBUS_TYPE_STRING, &bus_name);
-            let reply =
-                (dbus.dbus_connection_send_with_reply_and_block)(conn, msg, 2000, &mut err);
+            let reply = (dbus.dbus_connection_send_with_reply_and_block)(conn, msg, 2000, &mut err);
             (dbus.dbus_message_unref)(msg);
             if reply.is_null() {
                 let m = if !err.message.is_null() {
@@ -1225,11 +1229,8 @@ impl PlatformTray {
             let path = CString::new(MENU_PATH).unwrap();
             let iface = CString::new(MENU_IFACE).unwrap();
             let member = CString::new("LayoutUpdated").unwrap();
-            let msg = (self.dbus.dbus_message_new_signal)(
-                path.as_ptr(),
-                iface.as_ptr(),
-                member.as_ptr(),
-            );
+            let msg =
+                (self.dbus.dbus_message_new_signal)(path.as_ptr(), iface.as_ptr(), member.as_ptr());
             if !msg.is_null() {
                 let mut it: DBusMessageIter = std::mem::zeroed();
                 (self.dbus.dbus_message_iter_init_append)(msg, &mut it);

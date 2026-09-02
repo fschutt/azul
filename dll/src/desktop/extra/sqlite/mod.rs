@@ -345,7 +345,9 @@ mod tests {
         assert!(db.is_open(), "a fresh file-backed database opens");
 
         let n = db.execute(
-            AzString::from("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, score REAL, blob BLOB)"),
+            AzString::from(
+                "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, score REAL, blob BLOB)",
+            ),
             DbValueVec::from_vec(Vec::new()),
         );
         assert_eq!(n, 0, "DDL changes no rows");
@@ -382,8 +384,14 @@ mod tests {
         assert!(matches!(values[2], DbValue::Real(r) if (r - 0.5).abs() < f64::EPSILON));
         assert!(matches!(&values[3], DbValue::Blob(b) if b.as_ref() == [1u8, 2, 3]));
         assert!(matches!(values[4], DbValue::Integer(8)));
-        assert!(matches!(values[6], DbValue::Null), "unset REAL reads back as NULL");
-        assert!(matches!(values[7], DbValue::Null), "unset BLOB reads back as NULL");
+        assert!(
+            matches!(values[6], DbValue::Null),
+            "unset REAL reads back as NULL"
+        );
+        assert!(
+            matches!(values[7], DbValue::Null),
+            "unset BLOB reads back as NULL"
+        );
 
         // The engine reports what it is.
         assert!(sqlite_version().starts_with("turso 0."));
@@ -392,7 +400,9 @@ mod tests {
 
     #[test]
     fn a_closed_handle_is_a_safe_no_op() {
-        let db = Db::open(AzString::from("/nonexistent-dir-azul/definitely/not/here.db"));
+        let db = Db::open(AzString::from(
+            "/nonexistent-dir-azul/definitely/not/here.db",
+        ));
         assert!(!db.is_open());
         assert_eq!(
             db.execute(AzString::from("SELECT 1"), DbValueVec::from_vec(Vec::new())),
@@ -402,4 +412,3 @@ mod tests {
         assert!(rows.values.as_ref().is_empty());
     }
 }
-

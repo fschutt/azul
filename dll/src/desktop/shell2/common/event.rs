@@ -2472,8 +2472,7 @@ impl CommonWindowState {
         // the one place every backend goes through.
         debug_assert!(
             !(system_style.platform == azul_css::system::Platform::Unknown
-                && azul_css::system::Platform::current()
-                    != azul_css::system::Platform::Unknown),
+                && azul_css::system::Platform::current() != azul_css::system::Platform::Unknown),
             "CommonWindowState::new got SystemStyle::default() (Platform::Unknown) on a \
              platform that knows what it is ({:?}). Pass `config.system_style` — the style \
              AppConfig detected at startup — or every @os(...) UA rule silently misses.",
@@ -10191,8 +10190,7 @@ pub trait PlatformWindow {
                                 result = result.max(r);
                             }
 
-                            DefaultAction::CloseModal { .. }
-                            | DefaultAction::SelectAllText => {
+                            DefaultAction::CloseModal { .. } | DefaultAction::SelectAllText => {
                                 // Placeholder for future implementation
                             }
                         }

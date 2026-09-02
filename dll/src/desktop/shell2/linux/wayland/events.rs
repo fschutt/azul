@@ -1127,12 +1127,17 @@ extern "C" fn pad_group(
 extern "C" fn pad_path(_d: *mut c_void, _p: *mut zwp_tablet_pad_v2, _path: *const c_char) {}
 extern "C" fn pad_buttons(data: *mut c_void, _p: *mut zwp_tablet_pad_v2, n: u32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.tablet_pad_static.get_or_insert_with(Default::default).buttons = n;
+    window
+        .tablet_pad_static
+        .get_or_insert_with(Default::default)
+        .buttons = n;
 }
 extern "C" fn pad_done(data: *mut c_void, _p: *mut zwp_tablet_pad_v2) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     // Make the pad exist in the device list even when it has zero buttons.
-    window.tablet_pad_static.get_or_insert_with(Default::default);
+    window
+        .tablet_pad_static
+        .get_or_insert_with(Default::default);
     window.sync_tablet_devices();
 }
 extern "C" fn pad_button(
@@ -1206,7 +1211,10 @@ extern "C" fn pad_group_ring(
     id: *mut zwp_tablet_pad_ring_v2,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.tablet_pad_static.get_or_insert_with(Default::default).has_ring = true;
+    window
+        .tablet_pad_static
+        .get_or_insert_with(Default::default)
+        .has_ring = true;
     unsafe {
         (window.wayland.zwp_tablet_pad_ring_v2_add_listener)(
             id,
@@ -1222,7 +1230,10 @@ extern "C" fn pad_group_strip(
     id: *mut zwp_tablet_pad_strip_v2,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.tablet_pad_static.get_or_insert_with(Default::default).has_strip = true;
+    window
+        .tablet_pad_static
+        .get_or_insert_with(Default::default)
+        .has_strip = true;
     unsafe {
         (window.wayland.zwp_tablet_pad_strip_v2_add_listener)(
             id,
@@ -2603,7 +2614,10 @@ pub(super) extern "C" fn seat_capabilities_handler(
     // unplugging one of them is none — which is the honest reading of what the
     // protocol says, not a limitation to work around.
     for (bit, was_bound) in [
-        (WL_SEAT_CAPABILITY_POINTER, !window.pointer_state.pointer.is_null()),
+        (
+            WL_SEAT_CAPABILITY_POINTER,
+            !window.pointer_state.pointer.is_null(),
+        ),
         (WL_SEAT_CAPABILITY_KEYBOARD, !window.keyboard.is_null()),
         (WL_SEAT_CAPABILITY_TOUCH, !window.touch.is_null()),
     ] {

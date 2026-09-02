@@ -779,8 +779,18 @@ unsafe fn xi_get_property_bytes(
     let mut after: std::os::raw::c_ulong = 0;
     let mut data: *mut u8 = std::ptr::null_mut();
     let status = (xi.XIGetProperty)(
-        display, deviceid, prop, 0, 64, 0, 0, // AnyPropertyType
-        &mut type_ret, &mut fmt, &mut nitems, &mut after, &mut data,
+        display,
+        deviceid,
+        prop,
+        0,
+        64,
+        0,
+        0, // AnyPropertyType
+        &mut type_ret,
+        &mut fmt,
+        &mut nitems,
+        &mut after,
+        &mut data,
     );
     if status != 0 || data.is_null() {
         return None;
@@ -1074,13 +1084,9 @@ fn init_xinput2(
                     };
                     if kind != gest::TabletToolKind::Unknown {
                         let (mut vid, mut pid) = (0u32, 0u32);
-                        if let Some((bytes, fmt)) = xi_get_property_bytes(
-                            xlib,
-                            &xi,
-                            display,
-                            dev.deviceid,
-                            prod_id_atom,
-                        ) {
+                        if let Some((bytes, fmt)) =
+                            xi_get_property_bytes(xlib, &xi, display, dev.deviceid, prod_id_atom)
+                        {
                             // Format-32, two items: vendor, product (packed
                             // u32 wire format — see xi_get_property_bytes).
                             if fmt == 32 && bytes.len() >= 8 {
@@ -1088,21 +1094,16 @@ fn init_xinput2(
                                 pid = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
                             }
                         }
-                        let path = xi_get_property_bytes(
-                            xlib,
-                            &xi,
-                            display,
-                            dev.deviceid,
-                            node_atom,
-                        )
-                        .filter(|(_, fmt)| *fmt == 8)
-                        .map(|(bytes, _)| {
-                            String::from_utf8_lossy(
-                                bytes.split(|b| *b == 0).next().unwrap_or(&[]),
-                            )
-                            .into_owned()
-                        })
-                        .unwrap_or_default();
+                        let path =
+                            xi_get_property_bytes(xlib, &xi, display, dev.deviceid, node_atom)
+                                .filter(|(_, fmt)| *fmt == 8)
+                                .map(|(bytes, _)| {
+                                    String::from_utf8_lossy(
+                                        bytes.split(|b| *b == 0).next().unwrap_or(&[]),
+                                    )
+                                    .into_owned()
+                                })
+                                .unwrap_or_default();
                         let mut caps = 0u32;
                         if p >= 0 {
                             caps |= gest::TABLET_CAP_PRESSURE;
@@ -1463,8 +1464,7 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
         if cookie.evtype == defines::XI_HierarchyChanged {
             let hev = &*(cookie.data as *const defines::XIHierarchyEvent);
             if !hev.info.is_null() && hev.num_info > 0 {
-                let infos =
-                    core::slice::from_raw_parts(hev.info, hev.num_info.max(0) as usize);
+                let infos = core::slice::from_raw_parts(hev.info, hev.num_info.max(0) as usize);
                 for info in infos {
                     // Enabled/Disabled, not Added/Removed. Added and Removed
                     // also fire for X server bookkeeping — a master pair being
@@ -6965,9 +6965,9 @@ impl X11Window {
             menu.clone(),
             self.common.system_style.clone(),
             parent_pos,
-            physical_anchor,       // The node the menu was opened for (drives min-width)
+            physical_anchor, // The node the menu was opened for (drives min-width)
             Some(physical_cursor), // Position for menu (physical px)
-            None,                  // No parent menu
+            None,            // No parent menu
         );
         // Parent the menu to THIS window so it reuses our X display (single
         // shared event pump) and is positioned relative to us.
@@ -8178,7 +8178,12 @@ unsafe fn handle_xi_gesture_event(win: &mut X11Window, cookie: &defines::XGeneri
 /// locked — otherwise a background window would keep receiving motion while
 /// the user worked in another app, which is both wrong and a privacy leak.
 unsafe fn handle_xi_raw_motion(win: &mut X11Window, cookie: &defines::XGenericEventCookie) {
-    if !win.common.current_window_state().mouse_state.is_cursor_locked {
+    if !win
+        .common
+        .current_window_state()
+        .mouse_state
+        .is_cursor_locked
+    {
         return;
     }
     let ev = &*(cookie.data as *const defines::XIRawEvent);
@@ -8191,12 +8196,11 @@ unsafe fn handle_xi_raw_motion(win: &mut X11Window, cookie: &defines::XGenericEv
     // raw_values[0] and [1] blindly gives the Y delta as X the moment a
     // device reports only one axis, which a mouse moving purely vertically
     // does constantly.
-    let mask = core::slice::from_raw_parts(
-        ev.valuators.mask,
-        ev.valuators.mask_len.max(0) as usize,
-    );
+    let mask =
+        core::slice::from_raw_parts(ev.valuators.mask, ev.valuators.mask_len.max(0) as usize);
     let is_set = |axis: usize| -> bool {
-        mask.get(axis >> 3).is_some_and(|b| b & (1 << (axis & 7)) != 0)
+        mask.get(axis >> 3)
+            .is_some_and(|b| b & (1 << (axis & 7)) != 0)
     };
 
     let mut packed = 0usize;

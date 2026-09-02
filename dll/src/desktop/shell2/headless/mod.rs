@@ -2309,8 +2309,10 @@ impl HeadlessWindow {
                         self.snapshot_window_state_baseline("headless.run.scroll_phased");
                         if let Some(lw) = self.common.layout_window.as_mut() {
                             lw.scroll_manager.note_scroll_phase(source);
-                            lw.scroll_manager.pending_wheel_event =
-                                Some(LogicalPosition { x: delta_x, y: delta_y });
+                            lw.scroll_manager.pending_wheel_event = Some(LogicalPosition {
+                                x: delta_x,
+                                y: delta_y,
+                            });
                         }
                         let r = self.process_window_events(0);
                         events_result = events_result.max(r);
@@ -2434,8 +2436,7 @@ impl HeadlessWindow {
                                     delta_rad,
                                     detent_count: 0.0,
                                     pressed: false,
-                                    contact_position:
-                                        azul_core::geom::OptionLogicalPosition::None,
+                                    contact_position: azul_core::geom::OptionLogicalPosition::None,
                                 },
                             );
                         }

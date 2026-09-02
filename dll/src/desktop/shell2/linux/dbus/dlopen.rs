@@ -95,11 +95,8 @@ pub struct DBusLib {
 
     // Signal emission (path, interface, name). Needed by the tray: SNI hosts
     // only re-read a property after the matching `New*` signal.
-    pub dbus_message_new_signal: unsafe extern "C" fn(
-        *const c_char,
-        *const c_char,
-        *const c_char,
-    ) -> *mut DBusMessage,
+    pub dbus_message_new_signal:
+        unsafe extern "C" fn(*const c_char, *const c_char, *const c_char) -> *mut DBusMessage,
 
     // Error handling
     pub dbus_error_init: unsafe extern "C" fn(*mut DBusError),

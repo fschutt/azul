@@ -408,32 +408,36 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
                 // entry, so drawing the coalesced list and then the main point
                 // repeats the newest sample; the last one is dropped here.
                 if !event.is_null() {
-                    let mut gather = |sel_result: *mut Object, out: &mut Vec<TouchPoint>,
-                                      drop_last: bool| {
-                        if sel_result.is_null() {
-                            return;
-                        }
-                        let count: usize = msg_send![sel_result, count];
-                        let keep = if drop_last { count.saturating_sub(1) } else { count };
-                        for idx in 0..keep {
-                            let t: *mut Object = msg_send![sel_result, objectAtIndex: idx];
-                            if t.is_null() {
-                                continue;
+                    let mut gather =
+                        |sel_result: *mut Object, out: &mut Vec<TouchPoint>, drop_last: bool| {
+                            if sel_result.is_null() {
+                                return;
                             }
-                            let p: CGPoint = msg_send![t, locationInView: this_ptr];
-                            let f: f64 = msg_send![t, force];
-                            let maxf: f64 = msg_send![t, maximumPossibleForce];
-                            out.push(TouchPoint {
-                                id: id_u64,
-                                position: LogicalPosition::new(p.x as f32, p.y as f32),
-                                force: if maxf > 0.0 { (f / maxf) as f32 } else { 0.5 },
-                                major: 0.0,
-                                minor: 0.0,
-                                orientation_rad: 0.0,
-                                tool_type: azul_core::window::TouchToolType::Unknown,
-                            });
-                        }
-                    };
+                            let count: usize = msg_send![sel_result, count];
+                            let keep = if drop_last {
+                                count.saturating_sub(1)
+                            } else {
+                                count
+                            };
+                            for idx in 0..keep {
+                                let t: *mut Object = msg_send![sel_result, objectAtIndex: idx];
+                                if t.is_null() {
+                                    continue;
+                                }
+                                let p: CGPoint = msg_send![t, locationInView: this_ptr];
+                                let f: f64 = msg_send![t, force];
+                                let maxf: f64 = msg_send![t, maximumPossibleForce];
+                                out.push(TouchPoint {
+                                    id: id_u64,
+                                    position: LogicalPosition::new(p.x as f32, p.y as f32),
+                                    force: if maxf > 0.0 { (f / maxf) as f32 } else { 0.5 },
+                                    major: 0.0,
+                                    minor: 0.0,
+                                    orientation_rad: 0.0,
+                                    tool_type: azul_core::window::TouchToolType::Unknown,
+                                });
+                            }
+                        };
                     let c: *mut Object = msg_send![event, coalescedTouchesForTouch: touch];
                     gather(c, &mut coalesced, true);
                     let pr: *mut Object = msg_send![event, predictedTouchesForTouch: touch];
@@ -1097,7 +1101,10 @@ fn get_or_create_view_class() -> &'static Class {
             sel!(canBecomeFirstResponder),
             ui_can_become_first_responder as extern "C" fn(&Object, Sel) -> bool,
         );
-        decl.add_method(sel!(hasText), ui_has_text as extern "C" fn(&Object, Sel) -> bool);
+        decl.add_method(
+            sel!(hasText),
+            ui_has_text as extern "C" fn(&Object, Sel) -> bool,
+        );
         decl.add_method(
             sel!(insertText:),
             ui_insert_text as extern "C" fn(&Object, Sel, *mut Object),
@@ -1957,16 +1964,23 @@ fn settle(window: &mut IOSWindow, result: azul_core::events::ProcessEventResult)
 ///
 /// Without this the responder chain stops here and the Apple TV remote's Menu
 /// button — which UIKit expects to bubble up to the system — does nothing.
-unsafe fn forward_presses_to_super(this: &Object, is_began: bool, presses: *mut Object, event: *mut Object) {
+unsafe fn forward_presses_to_super(
+    this: &Object,
+    is_began: bool,
+    presses: *mut Object,
+    event: *mut Object,
+) {
     let superclass: *const objc::runtime::Class = msg_send![this, superclass];
     if superclass.is_null() {
         return;
     }
     let this_mut = this as *const Object as *mut Object;
     if is_began {
-        let _: () = msg_send![super(this_mut, &*superclass), pressesBegan: presses withEvent: event];
+        let _: () =
+            msg_send![super(this_mut, &*superclass), pressesBegan: presses withEvent: event];
     } else {
-        let _: () = msg_send![super(this_mut, &*superclass), pressesEnded: presses withEvent: event];
+        let _: () =
+            msg_send![super(this_mut, &*superclass), pressesEnded: presses withEvent: event];
     }
 }
 

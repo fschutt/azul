@@ -744,13 +744,7 @@ impl SystemStyleMenuExt for SystemStyle {
             ".menu-item {{\ndisplay: flex;\nflex-direction: row;\nalign-items: center;\npadding: \
              {}px {}px;\ncolor: rgb({}, {}, {});\nfont-family: {};\nfont-size: {}px;\ncursor: \
              pointer;\nuser-select: none;\n}}\n",
-            pad_v,
-            pad_h,
-            text_color.r,
-            text_color.g,
-            text_color.b,
-            font_family,
-            font_size
+            pad_v, pad_h, text_color.r, text_color.g, text_color.b, font_family, font_size
         ));
 
         // Menu item hover state
@@ -953,11 +947,9 @@ mod menu_stylesheet_tests {
     #[test]
     fn item_padding_follows_the_detected_control_padding() {
         let mut tight = defaults::kde_breeze_dark();
-        tight.metrics.button_padding_horizontal =
-            OptionPixelValue::Some(PixelValue::px(4.0));
+        tight.metrics.button_padding_horizontal = OptionPixelValue::Some(PixelValue::px(4.0));
         let mut roomy = defaults::kde_breeze_dark();
-        roomy.metrics.button_padding_horizontal =
-            OptionPixelValue::Some(PixelValue::px(20.0));
+        roomy.metrics.button_padding_horizontal = OptionPixelValue::Some(PixelValue::px(20.0));
 
         assert_ne!(
             css_text(&tight),

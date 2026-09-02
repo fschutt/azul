@@ -871,17 +871,17 @@ pub type XIFreeDeviceInfo = unsafe extern "C" fn(*mut XIDeviceInfo);
 /// `Device Node`, ...). The returned `data` is freed with `XFree`.
 pub type XIGetProperty = unsafe extern "C" fn(
     *mut Display,
-    c_int,                    // deviceid
-    Atom,                     // property
-    std::os::raw::c_long,     // offset (in 32-bit longwords)
-    std::os::raw::c_long,     // length (in 32-bit longwords)
-    c_int,                    // delete
-    Atom,                     // type filter (0 = AnyPropertyType)
-    *mut Atom,                // type_return
-    *mut c_int,               // format_return
+    c_int,                      // deviceid
+    Atom,                       // property
+    std::os::raw::c_long,       // offset (in 32-bit longwords)
+    std::os::raw::c_long,       // length (in 32-bit longwords)
+    c_int,                      // delete
+    Atom,                       // type filter (0 = AnyPropertyType)
+    *mut Atom,                  // type_return
+    *mut c_int,                 // format_return
     *mut std::os::raw::c_ulong, // num_items_return
     *mut std::os::raw::c_ulong, // bytes_after_return
-    *mut *mut u8,             // data (XFree)
+    *mut *mut u8,               // data (XFree)
 ) -> c_int;
 pub type XGetEventData = unsafe extern "C" fn(*mut Display, *mut XGenericEventCookie) -> c_int;
 pub type XFreeEventData = unsafe extern "C" fn(*mut Display, *mut XGenericEventCookie);
@@ -1325,7 +1325,6 @@ pub const AllocNone: c_int = 0;
 // Visual class for XMatchVisualInfo
 pub const TrueColor: c_int = 4;
 
-
 /// `XIHierarchyEvent.info[].flags` — a slave or master device was added.
 pub const XISlaveAdded: c_int = 1 << 2;
 /// `XIHierarchyEvent.info[].flags` — a slave or master device was removed.
@@ -1364,7 +1363,6 @@ pub struct XIHierarchyEvent {
     pub num_info: c_int,
     pub info: *mut XIHierarchyInfo,
 }
-
 
 /// XI 2.4 pinch gesture event. `scale` is absolute (1.0 at begin), `delta_angle`
 /// is a per-update delta in DEGREES — the same shape Wayland's pinch uses.
@@ -1431,7 +1429,6 @@ pub struct XIGestureSwipeEvent {
     pub mods: XIModifierState,
     pub group: XIGroupState,
 }
-
 
 /// XI2 raw event. `valuators` is a sparse axis set exactly like a normal
 /// device event's, and `raw_values` carries the UNACCELERATED figures — which

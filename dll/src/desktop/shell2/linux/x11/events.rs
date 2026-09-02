@@ -1640,6 +1640,16 @@ pub(super) fn apply_key_state_change(
         // Remove scancode
         keyboard_state.pressed_scancodes.remove_hm_item(&keycode);
     }
+    // The PHYSICAL position. X11 keycodes are `evdev + 8` by protocol, so this
+    // needs no keymap lookup and is true whatever layout is loaded — which is
+    // the whole point: `vk` above says what the LAYOUT produces.
+    keyboard_state.current_physical_key = if is_down {
+        azul_core::window::OptionPhysicalKey::Some(
+            azul_core::window::PhysicalKey::from_x11_keycode(keycode),
+        )
+    } else {
+        azul_core::window::OptionPhysicalKey::None
+    };
     keyboard_state.sync_modifiers();
 }
 

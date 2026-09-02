@@ -32,23 +32,23 @@ pub fn start() {}
 /// Nintendo-layout pad does not come out mirrored.
 fn keycode_to_button(keycode: i32) -> Option<GamepadButton> {
     Some(match keycode {
-        96 => GamepadButton::South,        // KEYCODE_BUTTON_A
-        97 => GamepadButton::East,         // KEYCODE_BUTTON_B
-        99 => GamepadButton::North,        // KEYCODE_BUTTON_X
-        100 => GamepadButton::West,        // KEYCODE_BUTTON_Y
-        102 => GamepadButton::LeftBumper,  // KEYCODE_BUTTON_L1
-        103 => GamepadButton::RightBumper, // KEYCODE_BUTTON_R1
-        104 => GamepadButton::LeftTrigger, // KEYCODE_BUTTON_L2
+        96 => GamepadButton::South,         // KEYCODE_BUTTON_A
+        97 => GamepadButton::East,          // KEYCODE_BUTTON_B
+        99 => GamepadButton::North,         // KEYCODE_BUTTON_X
+        100 => GamepadButton::West,         // KEYCODE_BUTTON_Y
+        102 => GamepadButton::LeftBumper,   // KEYCODE_BUTTON_L1
+        103 => GamepadButton::RightBumper,  // KEYCODE_BUTTON_R1
+        104 => GamepadButton::LeftTrigger,  // KEYCODE_BUTTON_L2
         105 => GamepadButton::RightTrigger, // KEYCODE_BUTTON_R2
-        106 => GamepadButton::LeftThumb,   // KEYCODE_BUTTON_THUMBL
-        107 => GamepadButton::RightThumb,  // KEYCODE_BUTTON_THUMBR
-        108 => GamepadButton::Start,       // KEYCODE_BUTTON_START
-        109 => GamepadButton::Select,      // KEYCODE_BUTTON_SELECT
-        110 => GamepadButton::Mode,        // KEYCODE_BUTTON_MODE
-        19 => GamepadButton::DPadUp,       // KEYCODE_DPAD_UP
-        20 => GamepadButton::DPadDown,     // KEYCODE_DPAD_DOWN
-        21 => GamepadButton::DPadLeft,     // KEYCODE_DPAD_LEFT
-        22 => GamepadButton::DPadRight,    // KEYCODE_DPAD_RIGHT
+        106 => GamepadButton::LeftThumb,    // KEYCODE_BUTTON_THUMBL
+        107 => GamepadButton::RightThumb,   // KEYCODE_BUTTON_THUMBR
+        108 => GamepadButton::Start,        // KEYCODE_BUTTON_START
+        109 => GamepadButton::Select,       // KEYCODE_BUTTON_SELECT
+        110 => GamepadButton::Mode,         // KEYCODE_BUTTON_MODE
+        19 => GamepadButton::DPadUp,        // KEYCODE_DPAD_UP
+        20 => GamepadButton::DPadDown,      // KEYCODE_DPAD_DOWN
+        21 => GamepadButton::DPadLeft,      // KEYCODE_DPAD_LEFT
+        22 => GamepadButton::DPadRight,     // KEYCODE_DPAD_RIGHT
         _ => return None,
     })
 }

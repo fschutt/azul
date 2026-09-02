@@ -355,6 +355,7 @@ pub mod paged;
 /// SVG `d=""` path data parser.
 pub mod path_parser;
 /// CSS property cache for efficient per-node style resolution.
+pub mod physical_key;
 pub mod prop_cache;
 /// Type-erased, ref-counted smart pointer with runtime borrow checking.
 pub mod refany;

@@ -25,7 +25,8 @@ use azul_layout::managers::sensors::push_sensor_reading;
 pub fn start() {
     let _ = attach(|env, activity| {
         use jni::objects::JValue;
-        let class = crate::desktop::extra::find_app_class(env, &activity, "com/azul/sensors/AzulSensors")?;
+        let class =
+            crate::desktop::extra::find_app_class(env, &activity, "com/azul/sensors/AzulSensors")?;
         env.call_static_method(
             class,
             "start",

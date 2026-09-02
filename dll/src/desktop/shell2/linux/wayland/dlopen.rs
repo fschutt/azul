@@ -207,18 +207,21 @@ pub struct Wayland {
         unsafe extern "C" fn(*mut wl_touch, *const wl_touch_listener, *mut c_void) -> i32,
     pub zwp_tablet_manager_v2_get_tablet_seat:
         unsafe extern "C" fn(*mut zwp_tablet_manager_v2, *mut wl_seat) -> *mut zwp_tablet_seat_v2,
-    pub zwp_pointer_gestures_v1_get_swipe_gesture: unsafe extern "C" fn(
-        *mut zwp_pointer_gestures_v1,
-        *mut wl_pointer,
-    ) -> *mut zwp_pointer_gesture_swipe_v1,
-    pub zwp_pointer_gestures_v1_get_pinch_gesture: unsafe extern "C" fn(
-        *mut zwp_pointer_gestures_v1,
-        *mut wl_pointer,
-    ) -> *mut zwp_pointer_gesture_pinch_v1,
-    pub zwp_pointer_gestures_v1_get_hold_gesture: unsafe extern "C" fn(
-        *mut zwp_pointer_gestures_v1,
-        *mut wl_pointer,
-    ) -> *mut zwp_pointer_gesture_hold_v1,
+    pub zwp_pointer_gestures_v1_get_swipe_gesture:
+        unsafe extern "C" fn(
+            *mut zwp_pointer_gestures_v1,
+            *mut wl_pointer,
+        ) -> *mut zwp_pointer_gesture_swipe_v1,
+    pub zwp_pointer_gestures_v1_get_pinch_gesture:
+        unsafe extern "C" fn(
+            *mut zwp_pointer_gestures_v1,
+            *mut wl_pointer,
+        ) -> *mut zwp_pointer_gesture_pinch_v1,
+    pub zwp_pointer_gestures_v1_get_hold_gesture:
+        unsafe extern "C" fn(
+            *mut zwp_pointer_gestures_v1,
+            *mut wl_pointer,
+        ) -> *mut zwp_pointer_gesture_hold_v1,
     pub zwp_pointer_gesture_swipe_v1_add_listener: unsafe extern "C" fn(
         *mut zwp_pointer_gesture_swipe_v1,
         *const zwp_pointer_gesture_swipe_v1_listener,

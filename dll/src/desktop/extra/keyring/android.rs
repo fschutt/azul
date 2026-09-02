@@ -33,7 +33,8 @@ pub fn request(req: &KeyringRequest) {
     REQUEST_HANDLE.store(handle, Ordering::Relaxed);
     let ok = attach(|env, activity| {
         use jni::objects::JValue;
-        let class = crate::desktop::extra::find_app_class(env, &activity, "com/azul/keyring/AzulKeyring")?;
+        let class =
+            crate::desktop::extra::find_app_class(env, &activity, "com/azul/keyring/AzulKeyring")?;
         match req {
             KeyringRequest::Store {
                 key,

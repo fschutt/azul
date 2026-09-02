@@ -24,8 +24,8 @@ use alloc::vec::Vec;
 use std::sync::{mpsc, Arc, Mutex};
 
 use azul_layout::e2e::{
-    create_debug_timer, debug_server_port, handle_event_request,
-    is_debug_enabled, log, serialize_http_response, set_debug_server, take_logs, DebugHttpResponse,
+    create_debug_timer, debug_server_port, handle_event_request, is_debug_enabled, log,
+    serialize_http_response, set_debug_server, take_logs, DebugHttpResponse,
     DebugHttpResponseError, DebugHttpResponseOk, DebugRequest, DebugServerHandle, HealthResponse,
     LogCategory, LogLevel, LogMessageJson, ResponseData,
 };

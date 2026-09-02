@@ -43,10 +43,7 @@ pub(crate) struct MenuLayoutData {
 /// This callback uses menu_renderer to create a StyledDom from the Menu structure.
 /// It's called by Azul's normal layout system, so rendering happens through the
 /// standard WebRender pipeline.
-extern "C" fn menu_layout_callback(
-    _data: RefAny,
-    info: LayoutCallbackInfo,
-) -> azul_core::dom::Dom {
+extern "C" fn menu_layout_callback(_data: RefAny, info: LayoutCallbackInfo) -> azul_core::dom::Dom {
     // The menu's `MenuLayoutData` is carried in the layout callback's `ctx`
     // (see `create_menu_popup_options`), NOT in `data`: `data` is the SHARED
     // APP data, common to every window, so downcasting it to MenuLayoutData

@@ -1182,46 +1182,66 @@ impl MacOSWindow {
     ) {
         use azul_core::window::VirtualKeyCode;
 
-        // Convert keycode to VirtualKeyCode first (before borrowing)
-        let vk = match self.convert_keycode(keycode) {
-            Some(k) => k,
-            None => return,
-        };
+        // Convert keycode to VirtualKeyCode first (before borrowing).
+        //
+        // `None` — a key the LOGICAL table has no entry for — must NOT skip
+        // the whole handler the way it used to. The physical position, the
+        // lock state and the modifier set are all true regardless of whether
+        // this codebase happens to name the key's layout meaning, and
+        // returning early left them stale for exactly the keys (media, OEM,
+        // non-US extras) a positional binding is most likely to want. Only the
+        // pressed-VIRTUAL-key bookkeeping below actually needs the `vk`.
+        let vk_opt = self.convert_keycode(keycode);
 
         let keyboard_state = self.common.keyboard_state_mut();
 
-        if is_down {
-            // Add to pressed keys if not already present
-            let mut already_pressed = false;
-            for pressed_key in keyboard_state.pressed_virtual_keycodes.as_ref() {
-                if *pressed_key == vk {
-                    already_pressed = true;
-                    break;
+        if let Some(vk) = vk_opt {
+            if is_down {
+                // Add to pressed keys if not already present
+                let mut already_pressed = false;
+                for pressed_key in keyboard_state.pressed_virtual_keycodes.as_ref() {
+                    if *pressed_key == vk {
+                        already_pressed = true;
+                        break;
+                    }
                 }
-            }
-            if !already_pressed {
-                // Convert to Vec, add, convert back
-                let mut pressed_vec: Vec<VirtualKeyCode> =
-                    keyboard_state.pressed_virtual_keycodes.as_ref().to_vec();
-                pressed_vec.push(vk);
+                if !already_pressed {
+                    // Convert to Vec, add, convert back
+                    let mut pressed_vec: Vec<VirtualKeyCode> =
+                        keyboard_state.pressed_virtual_keycodes.as_ref().to_vec();
+                    pressed_vec.push(vk);
+                    keyboard_state.pressed_virtual_keycodes =
+                        azul_core::window::VirtualKeyCodeVec::from_vec(pressed_vec);
+                }
+                keyboard_state.current_virtual_keycode =
+                    azul_core::window::OptionVirtualKeyCode::Some(vk);
+            } else {
+                // Remove from pressed keys
+                let pressed_vec: Vec<VirtualKeyCode> = keyboard_state
+                    .pressed_virtual_keycodes
+                    .as_ref()
+                    .iter()
+                    .copied()
+                    .filter(|k| *k != vk)
+                    .collect();
                 keyboard_state.pressed_virtual_keycodes =
                     azul_core::window::VirtualKeyCodeVec::from_vec(pressed_vec);
+                keyboard_state.current_virtual_keycode =
+                    azul_core::window::OptionVirtualKeyCode::None;
             }
-            keyboard_state.current_virtual_keycode =
-                azul_core::window::OptionVirtualKeyCode::Some(vk);
-        } else {
-            // Remove from pressed keys
-            let pressed_vec: Vec<VirtualKeyCode> = keyboard_state
-                .pressed_virtual_keycodes
-                .as_ref()
-                .iter()
-                .copied()
-                .filter(|k| *k != vk)
-                .collect();
-            keyboard_state.pressed_virtual_keycodes =
-                azul_core::window::VirtualKeyCodeVec::from_vec(pressed_vec);
-            keyboard_state.current_virtual_keycode = azul_core::window::OptionVirtualKeyCode::None;
         }
+
+        // The PHYSICAL position of this key, which `current_virtual_keycode`
+        // cannot answer: it names what the user's LAYOUT produces, so a game
+        // binding "forward" to the W position gets Z on AZERTY. Carbon
+        // keycodes are positional, so this is a table lookup, not a guess.
+        keyboard_state.current_physical_key = if is_down {
+            azul_core::window::OptionPhysicalKey::Some(
+                azul_core::window::PhysicalKey::from_macos_keycode(keycode),
+            )
+        } else {
+            azul_core::window::OptionPhysicalKey::None
+        };
 
         // `modifiers` is a pure function of the pressed set, so it is
         // recomputed wherever that set moves.
@@ -1412,10 +1432,7 @@ impl MacOSWindow {
         // that is what an NSPopUpButton does, and a menu narrower than its
         // swatch/button reads as a stray context menu (2026-09-01 request).
         // `minimumWidth` is a floor, so a long item still widens the menu.
-        if let Some(width) = anchor
-            .map(|a| a.size.width)
-            .filter(|w| *w > 0.0)
-        {
+        if let Some(width) = anchor.map(|a| a.size.width).filter(|w| *w > 0.0) {
             ns_menu.setMinimumWidth(f64::from(width));
         }
 

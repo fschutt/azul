@@ -16,8 +16,8 @@
 //! the analog triggers (L2/R2). [`BUTTON_MAP`] translates to azul-core's
 //! `LeftBumper`/`RightBumper` + `LeftTrigger`/`RightTrigger`.
 
-use std::cell::RefCell;
 use super::{apply_axial_deadzone, apply_radial_deadzone};
+use std::cell::RefCell;
 
 use gilrs::{Axis, Button, EventType, Gilrs};
 

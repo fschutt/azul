@@ -50,7 +50,8 @@ unsafe fn axis(stick: *mut Object, sel_name: objc::runtime::Sel) -> f32 {
     if stick.is_null() {
         return 0.0;
     }
-    let ax: *mut Object = objc::__send_message(&*stick, sel_name, ()).unwrap_or(core::ptr::null_mut());
+    let ax: *mut Object =
+        objc::__send_message(&*stick, sel_name, ()).unwrap_or(core::ptr::null_mut());
     if ax.is_null() {
         return 0.0;
     }
@@ -95,30 +96,52 @@ pub fn poll() {
             set(GamepadButton::East, pressed(msg_send![pad, buttonB]));
             set(GamepadButton::North, pressed(msg_send![pad, buttonX]));
             set(GamepadButton::West, pressed(msg_send![pad, buttonY]));
-            set(GamepadButton::LeftBumper, pressed(msg_send![pad, leftShoulder]));
-            set(GamepadButton::RightBumper, pressed(msg_send![pad, rightShoulder]));
-            set(GamepadButton::LeftTrigger, pressed(msg_send![pad, leftTrigger]));
-            set(GamepadButton::RightTrigger, pressed(msg_send![pad, rightTrigger]));
+            set(
+                GamepadButton::LeftBumper,
+                pressed(msg_send![pad, leftShoulder]),
+            );
+            set(
+                GamepadButton::RightBumper,
+                pressed(msg_send![pad, rightShoulder]),
+            );
+            set(
+                GamepadButton::LeftTrigger,
+                pressed(msg_send![pad, leftTrigger]),
+            );
+            set(
+                GamepadButton::RightTrigger,
+                pressed(msg_send![pad, rightTrigger]),
+            );
 
             // Menu / Options / Home are iOS 13+. respondsToSelector rather
             // than a version check, because the selector's presence is the
             // thing that actually matters and a tvOS build reports a
             // different version number for the same API.
-            let responds = |s: objc::runtime::Sel| -> bool { msg_send![pad, respondsToSelector: s] };
+            let responds =
+                |s: objc::runtime::Sel| -> bool { msg_send![pad, respondsToSelector: s] };
             if responds(sel!(buttonMenu)) {
                 set(GamepadButton::Start, pressed(msg_send![pad, buttonMenu]));
             }
             if responds(sel!(buttonOptions)) {
-                set(GamepadButton::Select, pressed(msg_send![pad, buttonOptions]));
+                set(
+                    GamepadButton::Select,
+                    pressed(msg_send![pad, buttonOptions]),
+                );
             }
             if responds(sel!(buttonHome)) {
                 set(GamepadButton::Mode, pressed(msg_send![pad, buttonHome]));
             }
             if responds(sel!(leftThumbstickButton)) {
-                set(GamepadButton::LeftThumb, pressed(msg_send![pad, leftThumbstickButton]));
+                set(
+                    GamepadButton::LeftThumb,
+                    pressed(msg_send![pad, leftThumbstickButton]),
+                );
             }
             if responds(sel!(rightThumbstickButton)) {
-                set(GamepadButton::RightThumb, pressed(msg_send![pad, rightThumbstickButton]));
+                set(
+                    GamepadButton::RightThumb,
+                    pressed(msg_send![pad, rightThumbstickButton]),
+                );
             }
 
             let dpad: *mut Object = msg_send![pad, dpad];
@@ -131,14 +154,10 @@ pub fn poll() {
 
             let lstick: *mut Object = msg_send![pad, leftThumbstick];
             let rstick: *mut Object = msg_send![pad, rightThumbstick];
-            let (lx, ly) = apply_radial_deadzone(
-                axis(lstick, sel!(xAxis)),
-                axis(lstick, sel!(yAxis)),
-            );
-            let (rx, ry) = apply_radial_deadzone(
-                axis(rstick, sel!(xAxis)),
-                axis(rstick, sel!(yAxis)),
-            );
+            let (lx, ly) =
+                apply_radial_deadzone(axis(lstick, sel!(xAxis)), axis(lstick, sel!(yAxis)));
+            let (rx, ry) =
+                apply_radial_deadzone(axis(rstick, sel!(xAxis)), axis(rstick, sel!(yAxis)));
 
             // playerIndex is -1 until the OS assigns one, which it does not
             // do for a single controller — so it cannot be the id. The

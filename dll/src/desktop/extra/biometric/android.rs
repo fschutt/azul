@@ -39,7 +39,11 @@ pub fn request(prompt: &BiometricPrompt) {
     REQUEST_HANDLE.store(handle, Ordering::Relaxed);
     let ok = attach(|env, activity| {
         use jni::objects::JValue;
-        let class = crate::desktop::extra::find_app_class(env, &activity, "com/azul/biometric/AzulBiometric")?;
+        let class = crate::desktop::extra::find_app_class(
+            env,
+            &activity,
+            "com/azul/biometric/AzulBiometric",
+        )?;
         let reason = env.new_string(prompt.reason.as_str()).ok()?;
         let cancel = env.new_string(prompt.cancel_label.as_str()).ok()?;
         env.call_static_method(
@@ -73,7 +77,11 @@ pub fn request(prompt: &BiometricPrompt) {
 pub fn probe_availability() -> BiometricKind {
     attach(|env, activity| {
         use jni::objects::JValue;
-        let class = crate::desktop::extra::find_app_class(env, &activity, "com/azul/biometric/AzulBiometric")?;
+        let class = crate::desktop::extra::find_app_class(
+            env,
+            &activity,
+            "com/azul/biometric/AzulBiometric",
+        )?;
         let res = env
             .call_static_method(
                 class,

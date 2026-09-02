@@ -162,12 +162,9 @@ pub fn dispatch_open_file(
         // Via the Activity's class loader: this thread has no Java frame, so a
         // bare find_class resolves against the system loader, which knows no
         // APK class. See `extra::find_app_class`.
-        let class = crate::desktop::extra::find_app_class(
-            env,
-            &activity,
-            "com/azul/picker/AzulFilePicker",
-        )
-        .ok_or(jni::errors::Error::JavaException)?;
+        let class =
+            crate::desktop::extra::find_app_class(env, &activity, "com/azul/picker/AzulFilePicker")
+                .ok_or(jni::errors::Error::JavaException)?;
         env.call_static_method(
             class,
             "pickDocument",
@@ -208,12 +205,9 @@ pub fn dispatch_save_file(handle: FilePickerHandle, title: AzString, _default_pa
         // Via the Activity's class loader: this thread has no Java frame, so a
         // bare find_class resolves against the system loader, which knows no
         // APK class. See `extra::find_app_class`.
-        let class = crate::desktop::extra::find_app_class(
-            env,
-            &activity,
-            "com/azul/picker/AzulFilePicker",
-        )
-        .ok_or(jni::errors::Error::JavaException)?;
+        let class =
+            crate::desktop::extra::find_app_class(env, &activity, "com/azul/picker/AzulFilePicker")
+                .ok_or(jni::errors::Error::JavaException)?;
         env.call_static_method(
             class,
             "saveDocument",
@@ -251,12 +245,9 @@ pub fn dispatch_open_directory(
         // Via the Activity's class loader: this thread has no Java frame, so a
         // bare find_class resolves against the system loader, which knows no
         // APK class. See `extra::find_app_class`.
-        let class = crate::desktop::extra::find_app_class(
-            env,
-            &activity,
-            "com/azul/picker/AzulFilePicker",
-        )
-        .ok_or(jni::errors::Error::JavaException)?;
+        let class =
+            crate::desktop::extra::find_app_class(env, &activity, "com/azul/picker/AzulFilePicker")
+                .ok_or(jni::errors::Error::JavaException)?;
         env.call_static_method(
             class,
             "pickDirectory",

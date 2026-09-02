@@ -1058,7 +1058,6 @@ mod tests {
     }
 }
 
-
 /// `GESTUREINFO` (winuser.h). Carries the gesture id, the screen-space anchor
 /// point and a 64-bit argument whose meaning depends on the id — the zoom
 /// distance for `GID_ZOOM`, the rotation angle for `GID_ROTATE`.

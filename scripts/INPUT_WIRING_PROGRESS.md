@@ -288,8 +288,38 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       from `repeat_info`, so the flag has to be set by whatever timer does that; Android has
       `KeyEvent.getRepeatCount()` but it is not currently passed across JNI. Three different
       mechanisms, none of them a one-liner — separated from 9e-i rather than half-done.
-- [ ] 9e-ii `PhysicalKey` needs a per-platform scancode -> position map. The `ScanCode` is already captured
-      on every backend, so this is a table per platform, not new plumbing.
+- [x] 9e-ii DONE. `core/src/physical_key.rs` holds the three tables every backend needs and
+      `current_physical_key` is now filled on macOS, Windows, X11 and Wayland.
+      THREE conventions cover every desktop backend, not four: `wl_keyboard.key` IS an evdev
+      code, X11 keycodes are `evdev + 8` BY PROTOCOL (so `from_x11_keycode` is the same table
+      minus the offset and needs no keymap lookup), Windows is PS/2 set 1, macOS is Carbon.
+      The Windows `E0` bit (`lParam` bit 24) is NOT optional detail: without it Enter and
+      NumpadEnter, ControlLeft and ControlRight, and the entire arrow cluster versus the numpad
+      are the SAME scancode — `the_windows_extended_bit_separates_the_duplicated_scancodes`
+      pins all 12 such pairs.
+      The macOS table was cross-checked entry by entry against `macos_keycode_to_virtual_key`,
+      the table this codebase already trusts for the LOGICAL key; the two agree on every code
+      both name, which is what makes the additions (0x0A ISO_Section, F13-F20, the JIS keys)
+      trustworthy.
+      FIXED ALONG THE WAY: macOS `update_keyboard_state` returned early when the LOGICAL table
+      had no entry for a key, so media / OEM / non-US keys updated nothing at all. The physical
+      position, the locks and the modifier set are true regardless of whether we can name the
+      key's layout meaning — the early return is now an `if let` around only the pressed-
+      virtual-key bookkeeping that actually needs the `vk`. This is the same reasoning the
+      Windows arm already documents for its scancode write.
+      EVIDENCE: 5 tests, including `the_same_position_gets_the_same_name_on_every_platform`
+      which asserts 21 positions agree across all four entry points — a table typo otherwise
+      shows up only as a wrong binding on one OS. Host check green, 8-target gate green,
+      azul-core 2741 green (2736 + 5), azul-layout unchanged at its 20 pre-existing failures.
+      NOT runtime-verified on the macOS NSEvent path: it needs real OS key events and the
+      headless backend does not go through it. Compile- and logic-verified only.
+- [ ] 9e-ii-a Android `current_physical_key`. Android's key path carries ONLY the logical
+      `keyCode` — `dll/src/desktop/shell2/android/mod.rs` has no scancode anywhere, and does not
+      populate `pressed_scancodes` either. The evdev table is already there and would be correct
+      the moment a scancode arrives, so this is plumbing, not a table: `KeyEvent.getScanCode()`
+      over JNI (or `AKeyEvent_getScanCode` on the native side). Deliberately NOT derived from
+      the Android keyCode, which is LOGICAL — mapping it to a position would be wrong on every
+      non-US layout, which is precisely what `PhysicalKey` exists to avoid.
 
 ### Follow-ups opened by 9d
 

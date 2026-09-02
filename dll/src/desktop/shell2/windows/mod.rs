@@ -4395,7 +4395,6 @@ unsafe extern "system" fn window_proc(
             // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
                 {
-
                     layout_window
                         .hover_manager
                         .push_hit_test(InputPointId::Mouse, hit_test.clone());
@@ -4626,7 +4625,6 @@ unsafe extern "system" fn window_proc(
             // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
                 {
-
                     layout_window
                         .hover_manager
                         .push_hit_test(InputPointId::Mouse, hit_test);
@@ -4719,7 +4717,6 @@ unsafe extern "system" fn window_proc(
             // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
                 {
-
                     layout_window
                         .hover_manager
                         .push_hit_test(InputPointId::Mouse, hit_test);
@@ -4777,7 +4774,6 @@ unsafe extern "system" fn window_proc(
             // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
                 {
-
                     layout_window
                         .hover_manager
                         .push_hit_test(InputPointId::Mouse, hit_test);
@@ -4828,7 +4824,6 @@ unsafe extern "system" fn window_proc(
             // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
                 {
-
                     layout_window
                         .hover_manager
                         .push_hit_test(InputPointId::Mouse, hit_test);
@@ -5070,7 +5065,6 @@ unsafe extern "system" fn window_proc(
             let hit_test = window.common.perform_hit_test(logical_pos);
             if let Some(ref mut layout_window) = window.common.layout_window {
                 {
-
                     layout_window
                         .hover_manager
                         .push_hit_test(InputPointId::Mouse, hit_test);
@@ -5235,6 +5229,15 @@ unsafe extern "system" fn window_proc(
                 ks.locks.caps_lock = toggled(VK_CAPITAL);
                 ks.locks.num_lock = toggled(VK_NUMLOCK);
                 ks.locks.scroll_lock = toggled(VK_SCROLL);
+                // The PHYSICAL position, which the virtual key cannot answer
+                // (it names what the LAYOUT produces). `lParam` bit 24 is the
+                // `E0` prefix, and without it Enter/NumpadEnter,
+                // ControlLeft/ControlRight and the arrow cluster vs the numpad
+                // are the same scancode.
+                let extended = ((lparam >> 24) & 1) != 0;
+                ks.current_physical_key = azul_core::window::OptionPhysicalKey::Some(
+                    azul_core::window::PhysicalKey::from_windows_scancode(scan_code, extended),
+                );
             }
 
             // V2 system will detect VirtualKeyDown event
@@ -5280,8 +5283,13 @@ unsafe extern "system" fn window_proc(
             );
 
             // A release is never a repeat; leaving the last keydown's flag set
-            // would make every later reader see one.
-            window.common.keyboard_state_mut().is_repeat = false;
+            // would make every later reader see one. The physical key clears
+            // with it, matching `current_virtual_keycode`.
+            {
+                let ks = window.common.keyboard_state_mut();
+                ks.is_repeat = false;
+                ks.current_physical_key = azul_core::window::OptionPhysicalKey::None;
+            }
 
             // V2 system will detect VirtualKeyUp event
             let result = window.process_window_events(0);
@@ -5372,7 +5380,11 @@ unsafe extern "system" fn window_proc(
                     // when they accepted the candidate, so that is what the
                     // event reports; the actual insertion still happens via
                     // WM_IME_CHAR -> record_text_input as before.
-                    let committed = lw.text_edit_manager.preedit_text.clone().unwrap_or_default();
+                    let committed = lw
+                        .text_edit_manager
+                        .preedit_text
+                        .clone()
+                        .unwrap_or_default();
                     lw.text_edit_manager.commit_composition(committed);
                     // MWA-C-text_input: restore the pre-preedit text cache
                     // (apply with empty preedit = restore + re-shape).
@@ -6052,15 +6064,14 @@ unsafe extern "system" fn window_proc(
                         window.gesture_zoom_baseline = distance.max(1.0);
                     } else if let Some(ref mut lw) = window.common.layout_window {
                         let scale = distance / window.gesture_zoom_baseline;
-                        lw.gesture_drag_manager.inject_native_gesture(
-                            NativeGestureEvent::Pinch(DetectedPinch {
+                        lw.gesture_drag_manager
+                            .inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
                                 scale,
                                 center,
                                 initial_distance: PINCH_NOMINAL_DISTANCE,
                                 current_distance: PINCH_NOMINAL_DISTANCE * scale,
                                 duration_ms: 0,
-                            }),
-                        );
+                            }));
                     }
                 }
                 dlopen::GID_ROTATE => {
@@ -6069,8 +6080,8 @@ unsafe extern "system" fn window_proc(
                     // -pi..=pi. As with zoom, the begin message is the origin.
                     if gi.dwFlags & dlopen::GF_BEGIN == 0 {
                         let raw = (gi.ullArguments & 0xFFFF) as f32;
-                        let angle = (raw / 65535.0) * (core::f32::consts::PI * 2.0)
-                            - core::f32::consts::PI;
+                        let angle =
+                            (raw / 65535.0) * (core::f32::consts::PI * 2.0) - core::f32::consts::PI;
                         if let Some(ref mut lw) = window.common.layout_window {
                             lw.gesture_drag_manager.inject_native_gesture(
                                 NativeGestureEvent::Rotation(DetectedRotation {
