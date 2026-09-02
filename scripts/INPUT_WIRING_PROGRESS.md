@@ -1079,3 +1079,27 @@ FOUND AND FIXED HERE:
       pre-existing Click tests now record a real press through the same
       `apply_press_target_capture` the dll calls, so they test the rule their names claim.
       azul-layout 7555, host check and 8-target gate green.
+- [x] PLANNING NEVER PROBED Component OR Application FILTERS — the biggest instance of this
+      arc's recurring shape, and the root of 2 more of the 8 headless failures.
+      `event_type_to_filters` is the LIVE planning function and it derives its answer by probing
+      `ALL_HOVER`, `ALL_FOCUS` and `ALL_WINDOW`. There was no `ALL_COMPONENT` and no
+      `ALL_APPLICATION`, so it returned an EMPTY filter list for every lifecycle and
+      application event. Measured directly: `event_type_to_filters(Resize) -> []`.
+      Everything else was correct and looked correct: `matches_component_filter` pairs all nine
+      Component filters with their EventTypes, the dispatcher has a proper
+      `EventFilter::Component(_)` arm that targets the node without bubbling, the producer
+      creates the event and queues it, and `dispatch_pending_lifecycle_events` hands it over.
+      The event reached dispatch with the right type and target and was then planned against
+      nothing. There IS a match naming `E::Resize => Component(NodeResized)` — in
+      `event_type_to_filters_legacy_hint`, which planning does not call.
+      CONSEQUENCE: every `EventFilter::Component(..)` callback in every app was dead —
+      `AfterMount`, `BeforeUnmount`, `NodeResized`, `Updated`, `Dismissed`, `TornOff`, `Docked`,
+      `DefaultAction`, `Selected` — and every `EventFilter::Application(..)` one
+      (device/monitor hotplug) with them.
+      FIX: `ALL_COMPONENT` (9) and `ALL_APPLICATION` (4), probed alongside the other three.
+      EVIDENCE: `every_component_and_application_filter_is_reachable_from_planning` asserts the
+      round trip for all 13; verified it bites by deleting the Component probe loop ("Mount must
+      plan AfterMount, got []"). azul-dll headless failures 5 -> 3
+      (`node_resized_fires_after_a_relayout` and
+      `a_capture_tile_reports_its_device_size_to_its_worker`, the latter an `AfterMount` test).
+      azul-core 2749, azul-layout 7555, host check and 8-target gate green.

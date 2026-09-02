@@ -4459,3 +4459,58 @@ fn arrows_are_claimed_for_the_caret_only_while_editing() {
         "outside a text editor the arrow must pass through to the widget",
     );
 }
+
+/// EVERY filter category must be probed by planning.
+///
+/// Planning is DERIVED: `event_type_to_filters` tests each filter in a set of
+/// `ALL_*` lists against a probe event. A category that has no list, or a
+/// filter missing from one, can never be planned however correct its matcher
+/// is — and the failure is silent, because the callback is simply never
+/// collected.
+///
+/// Component and Application had NO list at all, so every lifecycle callback
+/// (`AfterMount`, `NodeResized`, `Updated`, `Dismissed`, `TornOff`, `Docked`)
+/// and every device/monitor callback in every app was dead. This asserts the
+/// round trip for each of them, so a new filter variant cannot be added
+/// without being plannable.
+#[test]
+fn every_component_and_application_filter_is_reachable_from_planning() {
+    use crate::events::{
+        event_type_to_filters, ApplicationEventFilter as A, ComponentEventFilter as C, EventData,
+        EventFilter, EventType,
+    };
+
+    let component: &[(C, EventType)] = &[
+        (C::AfterMount, EventType::Mount),
+        (C::BeforeUnmount, EventType::Unmount),
+        (C::NodeResized, EventType::Resize),
+        (C::DefaultAction, EventType::DefaultAction),
+        (C::Selected, EventType::Selected),
+        (C::Updated, EventType::Update),
+        (C::Dismissed, EventType::Dismiss),
+        (C::TornOff, EventType::TearOff),
+        (C::Docked, EventType::Dock),
+    ];
+    for (filter, event_type) in component {
+        let planned = event_type_to_filters(*event_type, &EventData::None);
+        assert!(
+            planned.contains(&EventFilter::Component(*filter)),
+            "{event_type:?} must plan {filter:?}, got {planned:?}",
+        );
+    }
+
+    let application: &[(A, EventType)] = &[
+        (A::DeviceConnected, EventType::DeviceConnected),
+        (A::DeviceDisconnected, EventType::DeviceDisconnected),
+        (A::MonitorConnected, EventType::MonitorConnected),
+        (A::MonitorDisconnected, EventType::MonitorDisconnected),
+    ];
+    for (filter, event_type) in application {
+        let planned = event_type_to_filters(*event_type, &EventData::None);
+        assert!(
+            planned.contains(&EventFilter::Application(*filter)),
+            "{event_type:?} must plan {filter:?}, got {planned:?}",
+        );
+    }
+}
+

@@ -3502,6 +3502,33 @@ static ALL_COMPONENT: &[ComponentEventFilter] = &[
 /// callback) - a few hundred `match` arms, nanoseconds, and it happens once
 /// where the old table was also built once.
 #[must_use]
+/// Every `ComponentEventFilter`, for planning to probe.
+///
+/// Planning is DERIVED by testing each filter in these lists against a probe
+/// event, so a filter absent from its list can never be planned — whatever its
+/// matcher says. Component filters had NO list at all, which made every
+/// lifecycle event (`AfterMount`, `NodeResized`, `Updated`, `Dismissed`, ...)
+/// dispatch to nothing.
+static ALL_COMPONENT: &[ComponentEventFilter] = &[
+    ComponentEventFilter::AfterMount,
+    ComponentEventFilter::BeforeUnmount,
+    ComponentEventFilter::NodeResized,
+    ComponentEventFilter::DefaultAction,
+    ComponentEventFilter::Selected,
+    ComponentEventFilter::Updated,
+    ComponentEventFilter::Dismissed,
+    ComponentEventFilter::TornOff,
+    ComponentEventFilter::Docked,
+];
+
+/// Every `ApplicationEventFilter`, for planning to probe. See [`ALL_COMPONENT`].
+static ALL_APPLICATION: &[ApplicationEventFilter] = &[
+    ApplicationEventFilter::DeviceConnected,
+    ApplicationEventFilter::DeviceDisconnected,
+    ApplicationEventFilter::MonitorConnected,
+    ApplicationEventFilter::MonitorDisconnected,
+];
+
 pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter> {
     // Built through the public constructor so a new field on `SyntheticEvent`
     // cannot silently change what planning probes with.
@@ -3535,6 +3562,22 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
     for f in ALL_COMPONENT {
         if matches_filter_phase(EventFilter::Component(*f), &probe, EventPhase::Bubble) {
             out.push(EventFilter::Component(*f));
+    // Component and Application were simply not probed here. Their matcher
+    // arms (`matches_component_filter` / `matches_application_filter`) were
+    // correct and their `event_type_to_filters_legacy_hint` entries named the
+    // right filters — but planning does not read that function, so NO
+    // lifecycle or application event could ever be planned, and every
+    // `EventFilter::Component(..)` callback in every app was dead.
+    for f in ALL_COMPONENT {
+        if matches_filter_phase(EventFilter::Component(*f), &probe, EventPhase::Bubble) {
+            out.push(EventFilter::Component(*f));
+        }
+    }
+    for f in ALL_APPLICATION {
+        if matches_filter_phase(EventFilter::Application(*f), &probe, EventPhase::Bubble) {
+            out.push(EventFilter::Application(*f));
+        }
+    }
     out
 }
 
