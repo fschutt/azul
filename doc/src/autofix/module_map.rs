@@ -555,6 +555,15 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // of the dialog module - the same word-boundary trap as Tablet/Table
     // above, caught by `autofix modules` on the very first run.
     ("DialState", "gesture"),
+    // Generic HID landed in "misc". `core/src/hid.rs` frames itself as the
+    // escape hatch FOR the gamepad path - flight sticks and wheels that are
+    // not Xbox-shaped, the same split SDL draws between joystick and gamepad
+    // events - so that is where someone looking for controller input looks.
+    // Spelled in full, NOT as a "Hid" prefix: that also matches
+    // `HidpiAdjustedBounds` (HiDPI), which has nothing to do with input
+    // devices. Same word-boundary trap as Tablet/Table and Dial/Dialog.
+    ("HidDevice", "gamepad"),
+    ("HidReport", "gamepad"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -1091,6 +1100,16 @@ mod tests {
         assert_eq!(difficult_type_module("DialState"), Some("gesture"));
         assert_eq!(difficult_type_module("DialogAriaInfo"), None);
         assert_eq!(determine_module("DialogAriaInfo").0, "dialog");
+    }
+
+    /// A "Hid" prefix would also match `HidpiAdjustedBounds` (HiDPI), so the
+    /// HID entries are spelled in full. Third instance of this trap.
+    #[test]
+    fn the_hid_override_does_not_capture_hidpi() {
+        assert_eq!(difficult_type_module("HidDevice"), Some("gamepad"));
+        assert_eq!(difficult_type_module("HidReport"), Some("gamepad"));
+        assert_eq!(difficult_type_module("HidpiAdjustedBounds"), None);
+        assert_ne!(determine_module("HidpiAdjustedBounds").0, "gamepad");
     }
 
     /// The override is a PREFIX match, so it must not capture the css `table`

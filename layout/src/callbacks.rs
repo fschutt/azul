@@ -5000,21 +5000,27 @@ impl CallbackInfo {
         self.get_current_keyboard_state().is_repeat
     }
 
-    /// Input reports from HID devices azul does not model — flight sticks,
+    /// Input reports from HID devices azul does not model - flight sticks,
     /// wheels, 6-DOF mice, pedals, Stream Decks.
     ///
     /// The bytes are exactly as the device sent them, because decoding needs
     /// that device's report descriptor and a framework guessing at it would
     /// be wrong more often than useful. This is the same trade WebHID makes.
+    ///
+    /// Returns an owned vec rather than a borrowed slice because this crosses
+    /// the C API, where a slice has no representation.
     #[must_use]
-    pub fn get_hid_reports(&self) -> &[azul_core::hid::HidReport] {
-        self.get_layout_window().hid_manager.reports()
+    pub fn get_hid_reports(&self) -> azul_core::hid::HidReportVec {
+        self.get_layout_window().hid_manager.reports().to_vec().into()
     }
 
     /// The HID devices the platform enumerated.
+    ///
+    /// Returns an owned vec rather than a borrowed slice because this crosses
+    /// the C API, where a slice has no representation.
     #[must_use]
-    pub fn get_hid_devices(&self) -> &[azul_core::hid::HidDevice] {
-        self.get_layout_window().hid_manager.devices()
+    pub fn get_hid_devices(&self) -> azul_core::hid::HidDeviceVec {
+        self.get_layout_window().hid_manager.devices().to_vec().into()
     }
 
     /// Play a haptic pattern.
@@ -5083,8 +5089,8 @@ impl CallbackInfo {
     /// Intermediate touch samples the OS captured between this frame and the
     /// last, oldest first.
     ///
-    /// A digitizer samples much faster than the display refreshes — 120 or
-    /// 240 Hz against 60 — and only the newest position is delivered per
+    /// A digitizer samples much faster than the display refreshes - 120 or
+    /// 240 Hz against 60 - and only the newest position is delivered per
     /// frame, which is what a button or a scroll view wants. A drawing app
     /// wants all of them: a fast stroke rendered from one point per frame is
     /// a polyline with visible corners, and the samples that would have
@@ -5092,16 +5098,16 @@ impl CallbackInfo {
     ///
     /// Empty when the platform does not report them or nothing moved.
     #[must_use]
-    pub fn get_coalesced_touches(&self) -> &[azul_core::window::TouchPoint] {
+    pub fn get_coalesced_touches(&self) -> azul_core::window::TouchPointVec {
         self.get_current_window_state()
             .touch_state
             .coalesced_points
-            .as_ref()
+            .clone()
     }
 
     /// Where the OS predicts the touch is about to go, oldest first.
     ///
-    /// EXTRAPOLATIONS, not measurements — wrong whenever the user changes
+    /// EXTRAPOLATIONS, not measurements - wrong whenever the user changes
     /// direction. They exist to hide latency: a stroke drawn through them
     /// appears to keep up with the finger, and the app discards and redraws
     /// them next frame when real samples arrive.
@@ -5109,11 +5115,11 @@ impl CallbackInfo {
     /// Never persist them. Committing a predicted point to a document means
     /// committing a guess.
     #[must_use]
-    pub fn get_predicted_touches(&self) -> &[azul_core::window::TouchPoint] {
+    pub fn get_predicted_touches(&self) -> azul_core::window::TouchPointVec {
         self.get_current_window_state()
             .touch_state
             .predicted_points
-            .as_ref()
+            .clone()
     }
 
     /// Get current pen pressure (0.0 to 1.0)

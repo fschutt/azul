@@ -19,7 +19,10 @@
 
 use alloc::vec::Vec;
 
-use azul_css::AzString;
+use azul_css::{
+    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq,
+    AzString,
+};
 
 /// Identity of one HID device.
 ///
@@ -58,6 +61,46 @@ pub struct HidReport {
     /// The report payload.
     pub bytes: azul_css::U8Vec,
 }
+
+// FFI collection types. `CallbackInfo::get_hid_devices`/`get_hid_reports` hand
+// these to bindings, and a borrowed `&[T]` is not C-compatible - a slice is a
+// fat pointer whose layout C has no name for. Same treatment `TouchPointVec`
+// and `MonitorVec` already get.
+impl_option!(
+    HidDevice,
+    OptionHidDevice,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
+impl_vec!(
+    HidDevice,
+    HidDeviceVec,
+    HidDeviceVecDestructor,
+    HidDeviceVecDestructorType,
+    HidDeviceVecSlice,
+    OptionHidDevice
+);
+impl_vec_debug!(HidDevice, HidDeviceVec);
+impl_vec_clone!(HidDevice, HidDeviceVec, HidDeviceVecDestructor);
+impl_vec_partialeq!(HidDevice, HidDeviceVec);
+
+impl_option!(
+    HidReport,
+    OptionHidReport,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
+impl_vec!(
+    HidReport,
+    HidReportVec,
+    HidReportVecDestructor,
+    HidReportVecDestructorType,
+    HidReportVecSlice,
+    OptionHidReport
+);
+impl_vec_debug!(HidReport, HidReportVec);
+impl_vec_clone!(HidReport, HidReportVec, HidReportVecDestructor);
+impl_vec_partialeq!(HidReport, HidReportVec);
 
 /// Collects HID reports from the platform backends.
 ///

@@ -376,13 +376,33 @@ TOOLING TRAPS (cost real time, worth knowing):
       `NodeHierarchyItemId` is "the FFI wrapper type" and `NodeId`'s field is private, so exposing
       `NodeId` directly would hand bindings a type they cannot construct. Which of the two the
       public API should return is a decision, not a mechanical fix.
-- [ ] 9g-ii-c Four accessors return borrowed slices, which are not C-compatible:
-      `get_hid_reports` -> `&[HidReport]`, `get_hid_devices` -> `&[HidDevice]`,
-      `get_coalesced_touches` / `get_predicted_touches` -> `&[TouchPoint]`.
-      `TouchPointVec` ALREADY EXISTS (core/src/window.rs) so the touch pair is nearly free; HID
-      needs `impl_vec!(HidReport, ...)` + `impl_vec!(HidDevice, ...)`. All four also need the Rust
-      signature changed from `&[T]` to an owned `TVec`, which copies - fine for touches, worth
-      measuring for HID reports.
+- [x] 9g-ii-c DONE. Four accessors returned borrowed slices, which have no C representation (a
+      slice is a fat pointer C has no name for), so all four were unreachable from every binding.
+      Returning an owned `*Vec` is not a new convention - it is the one every other exposed
+      collection accessor already uses (`get_node_classes` -> `StringVec`, `get_monitors` ->
+      `MonitorVec`, `get_dropped_files` -> `StringVec`).
+      TOUCH PAIR was nearly free and for a better reason than expected: `TouchState` ALREADY
+      stores `TouchPointVec`, and the accessors were calling `.as_ref()` to hand out a slice of
+      it. So the fix DELETED a conversion rather than adding one - the FFI type was there all
+      along and the accessor was narrowing it.
+      HID needed the types built: `impl_option!` + `impl_vec!` + debug/clone/partialeq for both
+      `HidDevice` and `HidReport`. Both were already `#[repr(C)]` with FFI-safe fields (`AzString`,
+      `U8Vec`), so nothing about the element types had to change.
+      MODULE: `HidDevice`/`HidReport` landed in `misc`; moved to `gamepad`, because `core/src/
+      hid.rs` frames itself as the escape hatch FOR the gamepad path (flight sticks and wheels
+      that are not Xbox-shaped - the same split SDL draws between joystick and gamepad events), so
+      that is where someone looking for controller input looks.
+      TRAP, third instance: the override table is PREFIX-matched, and `("Hid", "gamepad")` would
+      have captured `HidpiAdjustedBounds` (HiDPI, nothing to do with input) exactly as `("Dial",
+      ...)` captured `DialogAriaInfo` and `("Table", ...)` captured `TabletPadState`. Entries are
+      spelled in full and a test pins that HiDPI stays in `window`.
+      EVIDENCE: `codegen all` + dll build (api.json passing its own checker does NOT prove the
+      bindings compile - that is how the `AzOption(usize, usize)` breakage got through last time);
+      all four now return `HidDeviceVec`/`HidReportVec`/`TouchPointVec` in api.json. Host check,
+      8/8 mobile, azul-core 2759, azul-layout 7561, azul-dll 1963, azul-doc 209.
+      NOTE: `.into()` on a `&[T]` yields a BORROWED vec and fails to compile with "borrowed data
+      escapes outside of method" - the owned form is `.to_vec().into()`, same as
+      `get_dropped_files`.
 - [ ] 9g-ii-d `get_last_input_sample` -> `Option<&InputSample>`: `InputSample` has no `repr` and two
       `(f32, f32)` tuple fields (`tilt`, `touch_radius`). Same named-struct decision as 9g-ii-a.
 - [ ] 9g-ii-e `get_current_hit_test` / `get_hit_test_frame` / `get_hit_test_history` return
