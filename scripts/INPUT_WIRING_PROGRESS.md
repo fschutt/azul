@@ -472,12 +472,31 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       Host, Windows-target and 8-target gate green. The macOS half is NOT runtime-verified —
       it needs a real trackpad scroll on a real window, which the headless backend does not go
       through.
-- [ ] 9b-i-a X11 `pointer_source`. The XI2 slave device is already known — `handle_xi_raw_motion`
-      reads `sourceid` and the comment there explains it is the PHYSICAL device — but turning
-      that id into a kind needs `XIQueryDevice` plus either a name heuristic ("TouchPad" /
-      "TrackPoint" in the device name, which is what libinput-era X drivers expose) or a valuator
-      inspection. Neither is a call site: it wants a per-device cache invalidated on
-      `XI_DeviceChanged`, or the lookup runs on every motion event. Logged rather than bolted on.
+- [x] 9b-i-a DONE. `pointer_source` is now fed on all FOUR desktop backends.
+      Everything needed was already present and unused: `XIQueryDevice`/`XIFreeDeviceInfo` are in
+      the dlopen table, `XIDeviceInfo` is declared, `XI_HierarchyChanged` is already selected on
+      `XIAllDevices` and handled, and every `XIDeviceEvent` (motion, button, touch) carries
+      `sourceid`. So this was a lookup plus a cache, not new plumbing.
+      X11 has NO device-type field — `XIDeviceInfo.use_` only says master/slave and
+      pointer/keyboard — so the kind lives in the NAME, which the libinput/evdev drivers spell
+      consistently: "SynPS/2 Synaptics TouchPad", "TPPS/2 IBM TrackPoint", "Wacom Intuos Pen
+      stylus" / "... Pen eraser".
+      THE CACHE IS THE POINT, and why this was split out: `XIQueryDevice` is a synchronous ROUND
+      TRIP to the X server and `sourceid` arrives on every motion event, so an uncached lookup
+      would put a server round trip in the middle of the pointer path. Cached per device id and
+      invalidated WHOLESALE on `XI_HierarchyChanged` — an id is reused after a hotplug, so a
+      stale entry would describe a different device.
+      TWO DELIBERATE CHOICES: an unrecognised name answers `Unknown`, NOT `Mouse` — defaulting to
+      Mouse makes "is this a touchpad?" confidently wrong on untested hardware, and `Unknown` is
+      a value the enum carries for exactly this. And `stylus`/`eraser` are matched rather than a
+      bare "pen", because "pen" is a substring of ordinary words; the Wacom naming always carries
+      one of the two suffixes, so nothing is lost.
+      EVIDENCE: the heuristic is a pure function in `shell2/common/event.rs` (beside the Win32
+      one, for the same reason — it compiles on every host, so it is testable without Linux). 4
+      tests: the real driver names above, case-insensitivity, `Unknown`-not-`Mouse` for
+      unrecognised names, and that "OpenMoko"/"Pentax" do not become styluses. Host check green,
+      Linux target check green, 8-target gate green. NOT runtime-verified — needs a real X
+      server with a real touchpad.
 - [ ] 9b-ii `MouseState` is still a single global, so multi-seat remains inexpressible — `device_id` now
       travels on the EVENT but the state does not fan out per seat. That is a bigger change than this arc.
 

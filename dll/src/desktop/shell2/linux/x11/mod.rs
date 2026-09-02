@@ -1482,6 +1482,11 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
                         }
                     }
                 }
+                // A device id is not stable across hotplug — the server reuses
+                // ids — so a cached kind can end up describing a DIFFERENT
+                // device. Dropping the whole map is right: it is at most a
+                // handful of entries and refills on the next motion event.
+                win.pointer_source_cache.clear();
             }
             (free_event_data)(display, cookie);
             return;
@@ -1550,10 +1555,51 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
 /// Never fetches and never frees: `handle_xi_event` owns the cookie for the
 /// whole of this call (`ev` is borrowed from the cookie payload) and is also
 /// the only place that decides which window an XI2 event belongs to.
+/// Cached lookup of an XI2 slave device's kind, one round trip per device.
+unsafe fn classify_xi_device(
+    win: &mut X11Window,
+    sourceid: c_int,
+) -> azul_core::events::PointerSource {
+    use azul_core::events::PointerSource;
+    if let Some(k) = win.pointer_source_cache.get(&sourceid) {
+        return *k;
+    }
+    let Some(xi) = win.xi.clone() else {
+        return PointerSource::Unknown;
+    };
+    let mut n: c_int = 0;
+    let info = (xi.XIQueryDevice)(win.display, sourceid, &mut n);
+    let mut kind = PointerSource::Unknown;
+    if !info.is_null() {
+        if n > 0 {
+            let d = &*info;
+            if !d.name.is_null() {
+                if let Ok(name) = std::ffi::CStr::from_ptr(d.name).to_str() {
+                    kind = crate::desktop::shell2::common::event::pointer_source_from_device_name(name);
+                }
+            }
+        }
+        (xi.XIFreeDeviceInfo)(info);
+    }
+    win.pointer_source_cache.insert(sourceid, kind);
+    kind
+}
+
 fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> ProcessEventResult {
     let mut result = ProcessEventResult::DoNothing;
     unsafe {
         let evtype = ev.evtype;
+
+        // WHICH device drove this. `sourceid` is the SLAVE — the physical
+        // mouse/pad/stylus — where `deviceid` is the master pointer and
+        // identifies nothing. Recorded here rather than in one event arm
+        // because every pointer and touch event carries it, and an app asking
+        // "is this a touchpad?" must get an answer from any of them.
+        let source = classify_xi_device(win, ev.sourceid);
+        if source != azul_core::events::PointerSource::Unknown {
+            win.common.mouse_state_mut().pointer_source = source;
+        }
+
         // XI2 event coords are physical; touch/pen state wants logical.
         let pos = win.to_logical_pos(ev.event_x as f32, ev.event_y as f32);
         // Anything that is not a pointer motion ends the motion-compression
@@ -2032,6 +2078,14 @@ pub struct X11Window {
     /// get an entry; an unresolvable keysym adds nothing to either structure and
     /// so needs nothing removed.
     pressed_key_vks: std::collections::BTreeMap<u32, azul_core::window::VirtualKeyCode>,
+    /// XI2 slave device id -> what kind of pointer it is.
+    ///
+    /// Cached because the answer requires a ROUND TRIP to the X server
+    /// (`XIQueryDevice`), and the id arrives on every motion event — looking it
+    /// up each time would put a synchronous request in the middle of the
+    /// pointer path. Invalidated wholesale on `XI_HierarchyChanged`, since a
+    /// device id can be REUSED for a different device after a hotplug.
+    pointer_source_cache: std::collections::BTreeMap<c_int, azul_core::events::PointerSource>,
     /// Newest motion event of the current drain batch, processed once at the
     /// batch boundary — see `flush_pending_motion`.
     pending_motion: Option<defines::XMotionEvent>,
@@ -3231,6 +3285,7 @@ impl X11Window {
             scroll_last_values: std::collections::HashMap::new(),
             modifier_masks,
             pressed_key_vks: std::collections::BTreeMap::new(),
+            pointer_source_cache: std::collections::BTreeMap::new(),
             pending_motion: None,
             ime_sync_key: ImeSyncKey::default(),
             common,

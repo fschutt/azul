@@ -1794,6 +1794,47 @@ pub fn apply_win32_key_state_change(
     keyboard_state.sync_modifiers();
 }
 
+/// What KIND of pointer an XI2 slave device is, from its name.
+///
+/// X11 has no device-type field: `XIDeviceInfo.use_` only says master vs
+/// slave, pointer vs keyboard. The kind lives in the NAME, which the
+/// libinput/evdev drivers spell consistently enough to match on — a synaptics
+/// pad is "SynPS/2 Synaptics TouchPad", a ThinkPad nub is "TPPS/2 IBM
+/// TrackPoint", a Wacom tool is "... Pen stylus" or "... Pen eraser".
+///
+/// Matching is case-insensitive and on the whole name. `stylus` and `eraser`
+/// are checked rather than a bare "pen" because "pen" is a substring of
+/// ordinary words (and of "OpenMoko", "Pentablet-branded" mice); the Wacom
+/// naming always carries one of the two suffixes, so nothing is lost.
+pub fn pointer_source_from_device_name(name: &str) -> azul_core::events::PointerSource {
+    use azul_core::events::PointerSource;
+    let n = name.to_ascii_lowercase();
+    // Eraser before stylus: a Wacom eraser is named "... Pen eraser", which
+    // also contains neither "stylus" nor anything else, but ordering it first
+    // keeps the intent obvious if a driver ever spells both.
+    if n.contains("eraser") {
+        PointerSource::Eraser
+    } else if n.contains("stylus") {
+        PointerSource::Pen
+    } else if n.contains("touchpad") || n.contains("trackpad") {
+        PointerSource::Touchpad
+    } else if n.contains("trackpoint") || n.contains("pointing stick") {
+        PointerSource::Trackpoint
+    } else if n.contains("trackball") {
+        PointerSource::Trackball
+    } else if n.contains("touchscreen") {
+        PointerSource::Touchscreen
+    } else if n.contains("mouse") {
+        PointerSource::Mouse
+    } else {
+        // Not "Mouse" by default: an unrecognised name is genuinely unknown,
+        // and `Unknown` is a value this enum carries precisely so a guess is
+        // not required. Reporting `Mouse` would make "is this a touchpad?"
+        // answer confidently wrong on hardware nobody has tested.
+        PointerSource::Unknown
+    }
+}
+
 /// Classify a Win32 mouse message by the "extra info" the injector stamped on
 /// it.
 ///
@@ -12647,6 +12688,65 @@ mod pointer_source_tests {
     use azul_core::events::PointerSource;
 
     use super::win32_pointer_source_from_extra_info;
+
+    /// Real device names, as the libinput/evdev X drivers spell them.
+    ///
+    /// X11 has no device-type field — `XIDeviceInfo.use_` only distinguishes
+    /// master/slave and pointer/keyboard — so the NAME is the only signal, and
+    /// this is the table of what the drivers actually emit.
+    #[test]
+    fn real_x11_device_names_classify_correctly() {
+        use super::pointer_source_from_device_name as f;
+        for (name, want) in [
+            ("SynPS/2 Synaptics TouchPad", PointerSource::Touchpad),
+            ("ELAN1200:00 04F3:3090 Touchpad", PointerSource::Touchpad),
+            ("Apple Inc. Magic Trackpad 2", PointerSource::Touchpad),
+            ("TPPS/2 IBM TrackPoint", PointerSource::Trackpoint),
+            ("Logitech USB Trackball", PointerSource::Trackball),
+            ("Wacom Intuos Pen stylus", PointerSource::Pen),
+            ("Wacom Intuos Pen eraser", PointerSource::Eraser),
+            ("ELAN Touchscreen", PointerSource::Touchscreen),
+            ("Logitech USB Optical Mouse", PointerSource::Mouse),
+        ] {
+            assert_eq!(f(name), want, "{name:?}");
+        }
+    }
+
+    /// Matching is case-insensitive: driver capitalisation is not stable
+    /// ("TouchPad", "Touchpad", "touchpad" all occur in the wild).
+    #[test]
+    fn device_name_matching_ignores_case() {
+        use super::pointer_source_from_device_name as f;
+        for n in ["TOUCHPAD", "touchpad", "TouchPad", "Synaptics TOUCHPAD"] {
+            assert_eq!(f(n), PointerSource::Touchpad, "{n:?}");
+        }
+    }
+
+    /// An unrecognised name is `Unknown`, NOT `Mouse`.
+    ///
+    /// Defaulting to Mouse would make "is this a touchpad?" answer confidently
+    /// wrong on any hardware nobody has tested, which is worse than admitting
+    /// the name was not recognised — `Unknown` is a value the enum carries for
+    /// exactly this.
+    #[test]
+    fn an_unrecognised_device_name_is_unknown_not_mouse() {
+        use super::pointer_source_from_device_name as f;
+        for n in ["", "Virtual core XTEST pointer", "SomeVendor HID Device"] {
+            assert_eq!(f(n), PointerSource::Unknown, "{n:?}");
+        }
+    }
+
+    /// "pen" is a substring of ordinary words, so the Wacom suffixes are what
+    /// is matched. A device merely containing those letters must not become a
+    /// stylus.
+    #[test]
+    fn a_bare_pen_substring_does_not_make_a_stylus() {
+        use super::pointer_source_from_device_name as f;
+        assert_eq!(f("OpenMoko Input Device"), PointerSource::Unknown);
+        assert_eq!(f("Pentax Remote"), PointerSource::Unknown);
+        // ...but the real tool names still resolve.
+        assert_eq!(f("Wacom Bamboo Pen stylus"), PointerSource::Pen);
+    }
 
     /// The low byte of the extra info is a per-CONTACT id, so it varies per
     /// finger. An unmasked equality test against the signature would match
