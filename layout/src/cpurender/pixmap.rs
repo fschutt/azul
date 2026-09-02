@@ -1215,6 +1215,88 @@ pub fn agg_fill_path(
 /// transforming the clip box through the inverse transform before setting it.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::similar_names)] // clip-box coordinate names (clip_x0/y0/x1/y1)
+/// Build an agg path from SVG geometry, mapping every coordinate on the way.
+///
+/// `mx`/`my` take USER SPACE to device pixels. Mapping the POINTS (rather than
+/// pre-transforming the path) is what lets a stroke scale correctly: a
+/// transform applied to the finished outline would scale the stroke WIDTH with
+/// it, so a 2-unit rule in a 16-unit icon would come out 8px wide in a 64px
+/// slot.
+///
+/// One builder for both consumers - the clip-mask rasteriser and the stroke -
+/// because two copies of a curve-by-curve translation drift apart silently:
+/// the reader only sees the shape being wrong, never which copy did it.
+pub fn svg_path_to_agg(
+    path: &azul_core::svg::SvgMultiPolygon,
+    mx: &dyn Fn(f32) -> f64,
+    my: &dyn Fn(f32) -> f64,
+) -> PathStorage {
+    use azul_core::svg::SvgPathElement;
+
+    let mut out = PathStorage::new();
+    for ring in path.rings.as_ref() {
+        let mut first = true;
+        for item in ring.items.as_ref() {
+            match item {
+                SvgPathElement::Line(l) => {
+                    if first {
+                        out.move_to(mx(l.start.x), my(l.start.y));
+                        first = false;
+                    }
+                    out.line_to(mx(l.end.x), my(l.end.y));
+                }
+                SvgPathElement::QuadraticCurve(q) => {
+                    if first {
+                        out.move_to(mx(q.start.x), my(q.start.y));
+                        first = false;
+                    }
+                    out.curve3(mx(q.ctrl.x), my(q.ctrl.y), mx(q.end.x), my(q.end.y));
+                }
+                SvgPathElement::CubicCurve(c) => {
+                    if first {
+                        out.move_to(mx(c.start.x), my(c.start.y));
+                        first = false;
+                    }
+                    out.curve4(
+                        mx(c.ctrl_1.x),
+                        my(c.ctrl_1.y),
+                        mx(c.ctrl_2.x),
+                        my(c.ctrl_2.y),
+                        mx(c.end.x),
+                        my(c.end.y),
+                    );
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The user-space -> device-pixel mapping for SVG geometry painted into
+/// `bounds`.
+///
+/// With a `view_box` the geometry is in the `<svg>`'s own coordinate system
+/// and is SCALED into the box the element ended up with, then translated to
+/// it. Without one the geometry is already window-logical and only the scale
+/// factor applies. Returns `(scale_x, scale_y, offset_x, offset_y)` in device
+/// px, to be used as `(x + off) * scale`-style closures by the caller.
+#[must_use]
+pub fn svg_user_space_mapping(
+    bounds: &azul_core::geom::LogicalRect,
+    view_box: Option<(f32, f32, f32, f32)>,
+    dpi_factor: f32,
+) -> (f32, f32, f32, f32) {
+    match view_box {
+        Some((min_x, min_y, vb_w, vb_h)) if vb_w > 0.0 && vb_h > 0.0 => (
+            bounds.size.width * dpi_factor / vb_w,
+            bounds.size.height * dpi_factor / vb_h,
+            -min_x,
+            -min_y,
+        ),
+        _ => (dpi_factor, dpi_factor, 0.0, 0.0),
+    }
+}
+
 pub fn agg_fill_path_clipped(
     pixmap: &mut AzulPixmap,
     path: &mut dyn VertexSource,

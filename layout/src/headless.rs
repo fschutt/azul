@@ -93,6 +93,15 @@ struct HitTestEntry {
     clips: Vec<(LogicalRect, u32)>,
     /// Whether this node is pointer-events: none
     pointer_events_none: bool,
+    /// This node's CLIP PATH - its own SVG geometry, plus the `viewBox` of the
+    /// `<svg>` that geometry is drawn in.
+    ///
+    /// A clip path is not decoration: what it clips AWAY is not part of the
+    /// element any more, and that has to include its pointer target. Without
+    /// this, the transparent corners of a circular button stayed clickable and
+    /// - worse - kept SHADOWING whatever was behind them, which is precisely
+    /// the thing a clip-path is asked for.
+    clip_path: Option<(azul_core::svg::SvgMultiPolygon, Option<(f32, f32, f32, f32)>)>,
 }
 
 /// A scroll container (`PushScrollFrame` owner) for wheel-target resolution.
@@ -918,6 +927,7 @@ impl CpuHitTester {
                     // node is hit-testable. Populate this from the styled DOM once such
                     // a property is added to `azul_css`.
                     pointer_events_none: false,
+                    clip_path: node_clip_path(styled_dom, node_id),
                 });
             }
 
@@ -1002,7 +1012,9 @@ impl CpuHitTester {
 
                 // Check node rect in the node's local (static) space.
                 let p_local = local(entry.chain);
-                if point_in_rect(p_local, &entry.rect) {
+                if point_in_rect(p_local, &entry.rect)
+                    && point_in_clip_path(p_local, &entry.rect, entry.clip_path.as_ref())
+                {
                     results.push((*dom_id, entry.node_id, p_local));
                 }
             }
@@ -1010,6 +1022,70 @@ impl CpuHitTester {
 
         results
     }
+}
+
+/// A node's clip path: its own SVG geometry, with the `viewBox` it is drawn
+/// in.
+///
+/// `None` for the overwhelming majority of nodes, which is why this is looked
+/// up once at build time rather than per hit test.
+fn node_clip_path(
+    styled_dom: &azul_core::styled_dom::StyledDom,
+    node_id: NodeId,
+) -> Option<(azul_core::svg::SvgMultiPolygon, Option<(f32, f32, f32, f32)>)> {
+    let node_data = styled_dom.node_data.as_container();
+    let azul_core::dom::SvgNodeData::Path(path) = node_data.get(node_id)?.get_svg_data()? else {
+        return None;
+    };
+    // The coordinate system the geometry was authored in - the same walk the
+    // display list does to place the clip mask, so pixels and pointer targets
+    // cannot disagree.
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut cursor = Some(node_id);
+    let mut view_box = None;
+    while let Some(id) = cursor {
+        if let Some(azul_core::dom::SvgNodeData::ViewBox {
+            min_x,
+            min_y,
+            width,
+            height,
+        }) = node_data.get(id).and_then(azul_core::dom::NodeData::get_svg_data)
+        {
+            view_box = Some((*min_x, *min_y, *width, *height));
+            break;
+        }
+        cursor = hierarchy.get(id).and_then(|h| h.parent_id());
+    }
+    Some((path.clone(), view_box))
+}
+
+/// Is the point inside the node's clip path, if it has one?
+///
+/// `true` when there is no clip path: a node without one is bounded by its box
+/// and the caller has already checked that.
+fn point_in_clip_path(
+    point: LogicalPosition,
+    rect: &LogicalRect,
+    clip_path: Option<&(azul_core::svg::SvgMultiPolygon, Option<(f32, f32, f32, f32)>)>,
+) -> bool {
+    let Some((path, view_box)) = clip_path else {
+        return true;
+    };
+    // Window space -> the path's own user space. With a viewBox the geometry
+    // was scaled into the box; without one it is already in logical px
+    // relative to the box's origin.
+    let (local_x, local_y) = match view_box {
+        Some((min_x, min_y, vb_w, vb_h))
+            if *vb_w > 0.0 && *vb_h > 0.0 && rect.size.width > 0.0 && rect.size.height > 0.0 =>
+        {
+            (
+                (point.x - rect.origin.x) * vb_w / rect.size.width + min_x,
+                (point.y - rect.origin.y) * vb_h / rect.size.height + min_y,
+            )
+        }
+        _ => (point.x, point.y),
+    };
+    path.contains_point(local_x, local_y)
 }
 
 /// Simple point-in-rect test.

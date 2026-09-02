@@ -1214,3 +1214,104 @@ mod autotest_generated {
         );
     }
 }
+
+/// `SvgMultiPolygon::contains_point` — the primitive behind clip-path hit
+/// testing. A shape's box is not its target; its geometry is.
+#[cfg(test)]
+mod contains_point_tests {
+    use azul_css::props::basic::{SvgPoint, SvgVector};
+
+    use crate::svg::{SvgLine, SvgMultiPolygon, SvgPath, SvgPathElement, SvgPathVec};
+
+    fn p(x: f32, y: f32) -> SvgPoint {
+        SvgPoint { x, y }
+    }
+
+    fn polygon(points: &[(f32, f32)]) -> SvgMultiPolygon {
+        let mut items = Vec::new();
+        for i in 0..points.len() {
+            let (ax, ay) = points[i];
+            let (bx, by) = points[(i + 1) % points.len()];
+            items.push(SvgPathElement::Line(SvgLine::new(p(ax, ay), p(bx, by))));
+        }
+        SvgMultiPolygon::create(SvgPathVec::from_vec(vec![SvgPath {
+            items: crate::svg::SvgPathElementVec::from_vec(items),
+        }]))
+    }
+
+    /// The triangle filling the lower-left half of a 16x16 box: the corner the
+    /// clip removes must read as OUTSIDE, or a clipped shape keeps shadowing
+    /// whatever is behind it.
+    #[test]
+    fn a_triangle_contains_its_own_half_and_not_the_other() {
+        let t = polygon(&[(0.0, 0.0), (0.0, 16.0), (16.0, 16.0)]);
+        assert!(t.contains_point(3.0, 13.0), "inside the triangle");
+        assert!(!t.contains_point(13.0, 3.0), "the clipped-away corner");
+        assert!(!t.contains_point(20.0, 20.0), "outside the box entirely");
+    }
+
+    /// A hole is a reversed ring, and the NONZERO rule is what makes it a
+    /// hole: a point inside both rings must read as outside the shape.
+    #[test]
+    fn a_reversed_inner_ring_is_a_hole() {
+        let outer = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
+        let inner = [(3.0, 3.0), (3.0, 7.0), (7.0, 7.0), (7.0, 3.0)]; // reversed
+        let mut rings = polygon(&outer).rings.into_library_owned_vec();
+        rings.extend(polygon(&inner).rings.into_library_owned_vec());
+        let donut = SvgMultiPolygon::create(SvgPathVec::from_vec(rings));
+
+        assert!(donut.contains_point(1.5, 5.0), "the ring itself is solid");
+        assert!(!donut.contains_point(5.0, 5.0), "the hole is not");
+    }
+
+    /// An EMPTY path contains nothing - the degenerate case a clip path hits
+    /// when a shape failed to parse, and the one where "contains everything"
+    /// would silently make the bug invisible.
+    #[test]
+    fn an_empty_path_contains_nothing() {
+        let empty = SvgMultiPolygon::create(SvgPathVec::from_vec(Vec::new()));
+        assert!(!empty.contains_point(0.0, 0.0));
+        assert!(!empty.contains_point(5.0, 5.0));
+
+        // ... and so does a single point, which encloses no area.
+        let degenerate = polygon(&[(1.0, 1.0)]);
+        assert!(!degenerate.contains_point(1.0, 1.0));
+    }
+
+    /// A curve is FLATTENED for the test, and the flattening has to be fine
+    /// enough that a point well inside a circle reads as inside.
+    #[test]
+    fn a_curved_path_is_flattened_finely_enough_to_test() {
+        use crate::svg::SvgCubicCurve;
+
+        // A circle of radius 8 centred at (8, 8), as four cubic arcs.
+        const K: f32 = 4.418_278; // 8 * 0.5522847
+        let arcs = [
+            (p(8.0, 0.0), p(8.0 + K, 0.0), p(16.0, 8.0 - K), p(16.0, 8.0)),
+            (p(16.0, 8.0), p(16.0, 8.0 + K), p(8.0 + K, 16.0), p(8.0, 16.0)),
+            (p(8.0, 16.0), p(8.0 - K, 16.0), p(0.0, 8.0 + K), p(0.0, 8.0)),
+            (p(0.0, 8.0), p(0.0, 8.0 - K), p(8.0 - K, 0.0), p(8.0, 0.0)),
+        ];
+        let items: Vec<SvgPathElement> = arcs
+            .into_iter()
+            .map(|(start, ctrl_1, ctrl_2, end)| {
+                SvgPathElement::CubicCurve(SvgCubicCurve {
+                    start,
+                    ctrl_1,
+                    ctrl_2,
+                    end,
+                })
+            })
+            .collect();
+        let circle = SvgMultiPolygon::create(SvgPathVec::from_vec(vec![SvgPath {
+            items: crate::svg::SvgPathElementVec::from_vec(items),
+        }]));
+
+        assert!(circle.contains_point(8.0, 8.0), "the centre is inside");
+        assert!(
+            !circle.contains_point(0.5, 0.5),
+            "the square's corner is outside the inscribed circle"
+        );
+        let _ = SvgVector { x: 0.0, y: 0.0 };
+    }
+}

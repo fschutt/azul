@@ -1311,6 +1311,15 @@ pub fn collect_image_resource_updates(
                 DisplayListItem::PushImageMaskClip { mask_image, .. } => {
                     images_in_display_list.insert(mask_image.clone());
                 }
+                // The GPU backend paints a stroke as a colour through this
+                // mask (it has no vector rasteriser), so the mask has to be
+                // uploaded like any other image. The CPU backend ignores it
+                // and strokes the outline directly.
+                DisplayListItem::StrokedPath {
+                    mask: Some(mask), ..
+                } => {
+                    images_in_display_list.insert(mask.clone());
+                }
                 _ => {}
             }
         }

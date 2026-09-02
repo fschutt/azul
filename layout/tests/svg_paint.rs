@@ -58,11 +58,6 @@ fn centre(r: &azul_layout::cpurender::ComponentPreviewResult) -> [u8; 4] {
 
 /// THE regression: a filled path must produce pixels.
 #[test]
-#[ignore = "RED, in progress: the shape node now gets a CSS background and \
-            an absolutely-positioned box, and the clip mask now maps viewBox \
-            user space into the paint rect - but nothing paints yet. Next: \
-            find where between layout and the display list the shape's \
-            background is dropped."]
 fn a_filled_path_paints() {
     let r = render(
         r##"<svg viewBox="0 0 16 16" width="16" height="16">
@@ -86,11 +81,6 @@ fn a_filled_path_paints() {
 /// bespoke parser - that is what makes a stylesheet, a hover state or a
 /// gradient work on an SVG shape without any further plumbing.
 #[test]
-#[ignore = "RED, in progress: the shape node now gets a CSS background and \
-            an absolutely-positioned box, and the clip mask now maps viewBox \
-            user space into the paint rect - but nothing paints yet. Next: \
-            find where between layout and the display list the shape's \
-            background is dropped."]
 fn fill_comes_through_css_in_every_spelling() {
     // Presentation attribute.
     let attr = render(
@@ -126,11 +116,6 @@ fn fill_comes_through_css_in_every_spelling() {
 /// whatever box the element ends up with, or an icon designed at 16 units
 /// paints a sixteenth of a 256px slot.
 #[test]
-#[ignore = "RED, in progress: the shape node now gets a CSS background and \
-            an absolutely-positioned box, and the clip mask now maps viewBox \
-            user space into the paint rect - but nothing paints yet. Next: \
-            find where between layout and the display list the shape's \
-            background is dropped."]
 fn geometry_scales_from_the_view_box_into_the_painted_box() {
     let r = render(
         r##"<svg viewBox="0 0 16 16" width="64" height="64">
@@ -199,6 +184,68 @@ fn an_svgs_own_style_element_styles_it_and_nothing_else() {
     );
 }
 
+/// A STROKE is its own paint, and it is not a background.
+///
+/// A stroked outline has no interior to fill: the shape's box clipped to the
+/// path leaves a hairline at best, which is what a line drawn with
+/// `fill="none"` looked like before - a pale smear instead of a 4px rule.
+#[test]
+fn a_stroked_path_paints_its_outline() {
+    let r = render(
+        r##"<svg viewBox="0 0 16 16" width="16" height="16">
+              <path fill="none" stroke="#ff0000" stroke-width="4" d="M 0,8 L 16,8"/>
+            </svg>"##,
+        16.0,
+    );
+    let red = r
+        .rgba
+        .chunks_exact(4)
+        .filter(|p| p[0] > 200 && p[1] < 60 && p[2] < 60 && p[3] > 200)
+        .count();
+    // A 16-long, 4-wide rule is 64 px; allow for the anti-aliased ends.
+    assert!(
+        (48..=96).contains(&red),
+        "a 16x4 stroke should cover about 64 px, got {red}"
+    );
+}
+
+/// Fill and stroke are INDEPENDENT paints of the same geometry - the PDF
+/// model. A shape can have both, and the stroke sits on top.
+#[test]
+fn fill_and_stroke_are_independent_paints() {
+    let r = render(
+        r##"<svg viewBox="0 0 16 16" width="16" height="16">
+              <rect x="4" y="4" width="8" height="8"
+                    fill="#00ff00" stroke="#ff0000" stroke-width="2"/>
+            </svg>"##,
+        16.0,
+    );
+    let count = |pred: fn(&&[u8]) -> bool| r.rgba.chunks_exact(4).filter(pred).count();
+    let green = count(|p| p[1] > 200 && p[0] < 60 && p[3] > 200);
+    let red = count(|p| p[0] > 200 && p[1] < 60 && p[3] > 200);
+    assert!(green > 0, "the fill must paint");
+    assert!(red > 0, "the stroke must paint too");
+}
+
+/// `stroke` and `stroke-width` are CSS, like `fill` - so a stylesheet rule
+/// reaches them, which is how a themed icon restyles its outlines.
+#[test]
+fn stroke_comes_through_css_as_well_as_the_attribute() {
+    let r = render(
+        r##"<style>.rule { stroke: #ff0000; stroke-width: 4px; }</style>
+            <svg viewBox="0 0 16 16" width="16" height="16">
+              <path class="rule" fill="none" d="M 0,8 L 16,8"/>
+            </svg>"##,
+        16.0,
+    );
+    let red = r
+        .rgba
+        .chunks_exact(4)
+        .filter(|p| p[0] > 200 && p[1] < 60 && p[3] > 200)
+        .count();
+    assert!(red > 32, "a stylesheet stroke must paint, got {red}");
+}
+
 /// A shape with no fill paints NOTHING - `fill="none"` is a real value, and
 /// defaulting it to black would put a black box behind every stroked outline.
 #[test]
@@ -213,3 +260,96 @@ fn fill_none_paints_nothing() {
     assert_eq!(painted, 0, "fill=\"none\" must not paint");
 }
 
+
+// ============================================================================
+// Hit testing — a clip path clips POINTER TARGETS too
+// ============================================================================
+
+/// A shape occupies a rectangular BOX in layout, but the thing the user aims
+/// at is the PATH. Hit-testing the box makes the transparent corners of a
+/// shape clickable and, worse, lets them SHADOW whatever is behind them -
+/// which is exactly what a clip path is asked to prevent.
+#[test]
+fn a_clip_path_clips_the_pointer_target_not_just_the_pixels() {
+    use azul_core::{
+        dom::{DomId, NodeId},
+        geom::{LogicalPosition, LogicalSize},
+        resources::RendererResources,
+    };
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    // A triangle filling the LOWER-LEFT half of a 16x16 box. The upper-right
+    // corner is inside the box and outside the shape.
+    let markup = r##"<style>html, body { margin: 0; padding: 0; }</style>
+        <svg viewBox="0 0 16 16" width="16" height="16">
+          <path fill="#ff0000" d="M 0,0 L 0,16 L 16,16 Z"/>
+        </svg>"##;
+    let parsed = azul_layout::xml::parse_xml(markup).expect("parses");
+    let dom = azul_layout::xml::dom_from_parsed_xml(parsed);
+    let styled_dom = azul_core::styled_dom::StyledDom::create_from_dom(dom);
+
+    let mut lw = LayoutWindow::new(FcFontCache::build()).expect("window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(64.0, 64.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled_dom,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut Some(Vec::new()),
+    )
+    .expect("lays out");
+
+    let result = lw.get_layout_result(&DomId::ROOT_ID).expect("result");
+    let shape = (0..result.styled_dom.node_data.len())
+        .map(NodeId::new)
+        .find(|id| {
+            *result.styled_dom.node_data.as_container()[*id].get_node_type()
+                == azul_core::dom::NodeType::SvgPath
+        })
+        .expect("the document has a <path>");
+
+    let mut hit_tester = azul_layout::headless::CpuHitTester::new();
+    hit_tester.rebuild_from_layout(&lw.layout_results);
+    let hits = |x: f32, y: f32| {
+        hit_tester
+            .hit_test(LogicalPosition::new(x, y))
+            .into_iter()
+            .any(|(_, n)| n == shape)
+    };
+
+    let svg = (0..result.styled_dom.node_data.len())
+        .map(NodeId::new)
+        .find(|id| {
+            *result.styled_dom.node_data.as_container()[*id].get_node_type()
+                == azul_core::dom::NodeType::Svg
+        })
+        .expect("the document has an <svg>");
+    let hits_svg = |x: f32, y: f32| {
+        hit_tester
+            .hit_test(LogicalPosition::new(x, y))
+            .into_iter()
+            .any(|(_, n)| n == svg)
+    };
+
+    // Deep inside the triangle.
+    assert!(hits(3.0, 13.0), "a point inside the shape must hit it");
+    // Inside the BOX, outside the triangle - the corner the clip removed.
+    assert!(
+        !hits(13.0, 3.0),
+        "a point in the clipped-away corner must NOT hit the shape - the box \
+         is not the target, the path is"
+    );
+    // THE CONTROL: that same corner is inside the `<svg>`, which has no clip
+    // path, and still hits it. Without this the assertion above would pass
+    // just as well if the hit tester simply never reached that point.
+    assert!(
+        hits_svg(13.0, 3.0),
+        "the clipped-away corner is still inside the <svg> box, so the test \
+         above is about the PATH and not about the point being unreachable"
+    );
+}

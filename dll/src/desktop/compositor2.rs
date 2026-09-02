@@ -2198,6 +2198,54 @@ pub fn translate_displaylist_to_wr(
                 builder.pop_all_shadows();
             }
 
+            // A STROKED PATH. WebRender has no vector rasteriser, so the
+            // stroke arrives pre-rasterised as an R8 coverage mask and is
+            // painted as a colour THROUGH it - the same primitive pair the
+            // clip-mask path already uses, so no new WebRender concept is
+            // needed. (The CPU backend reads the same item and strokes the
+            // real outline instead, which stays sharp at any zoom.)
+            DisplayListItem::StrokedPath {
+                bounds,
+                color,
+                mask,
+                ..
+            } => {
+                let Some(mask) = mask.as_ref() else {
+                    // No rasteriser in this build: draw nothing rather than a
+                    // filled box where an outline belongs.
+                    continue;
+                };
+                let Some(resolved_mask) = renderer_resources.get_image(&mask.get_hash()) else {
+                    continue;
+                };
+                let rect = resolve_rect(bounds, dpi_scale, current_offset!());
+                let wr_image_mask = webrender::api::ImageMask {
+                    image: translate_image_key(resolved_mask.key),
+                    rect,
+                };
+                let current_spatial = current_spatial!();
+                let current_clip = current_clip!();
+                let clip_id = builder.define_clip_image_mask(
+                    current_spatial,
+                    wr_image_mask,
+                    &[],
+                    webrender::api::FillRule::Nonzero,
+                );
+                let parent = if current_clip == WrClipChainId::INVALID {
+                    None
+                } else {
+                    Some(current_clip)
+                };
+                let masked_chain = builder.define_clip_chain(parent, vec![clip_id]);
+                let info = CommonItemProperties {
+                    clip_rect: rect,
+                    clip_chain_id: masked_chain,
+                    spatial_id: current_spatial,
+                    flags: WrPrimitiveFlags::empty(),
+                };
+                builder.push_rect(&info, rect, color_u_to_wr(color));
+            }
+
             DisplayListItem::PushImageMaskClip {
                 bounds,
                 mask_image,

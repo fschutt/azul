@@ -481,6 +481,49 @@ impl_option!(
 );
 
 impl SvgMultiPolygon {
+    /// How finely a curve is subdivided when the path is treated as an area.
+    ///
+    /// Sixteen segments per curve keeps the error under a tenth of a pixel for
+    /// any curve small enough to be clicked on, and the cost is a handful of
+    /// multiplies on a path that is already bounded by the shape it draws.
+    const FLATTEN_STEPS: usize = 16;
+
+    /// Is `(x, y)` inside this path, by the NONZERO winding rule?
+    ///
+    /// What a shape's own geometry means for input: an SVG element occupies a
+    /// rectangular BOX in layout, but the thing the user sees and aims at is
+    /// the path. Hit-testing the box makes the transparent corners of a
+    /// circular button clickable and, worse, makes them SHADOW whatever is
+    /// behind them - which is exactly the complaint a clip-path is supposed to
+    /// answer.
+    ///
+    /// Coordinates are in the path's own space; the caller maps the pointer
+    /// into it. Open subpaths are treated as closed, as SVG does when filling.
+    #[must_use]
+    pub fn contains_point(&self, x: f32, y: f32) -> bool {
+        let mut winding = 0i32;
+        for ring in self.rings.as_ref() {
+            let points = ring.flatten_to_points(Self::FLATTEN_STEPS);
+            if points.len() < 2 {
+                continue;
+            }
+            for i in 0..points.len() {
+                let a = points[i];
+                let b = points[(i + 1) % points.len()];
+                // Standard nonzero crossing test: count upward crossings to
+                // the right of the point positively, downward negatively.
+                if a.y <= y {
+                    if b.y > y && cross_sign(a, b, x, y) > 0.0 {
+                        winding += 1;
+                    }
+                } else if b.y <= y && cross_sign(a, b, x, y) < 0.0 {
+                    winding -= 1;
+                }
+            }
+        }
+        winding != 0
+    }
+
     /// Creates a new `SvgMultiPolygon` from a vector of paths (rings)
     /// NOTE: If a ring represents a hole, simply reverse the order of points
     #[inline]
@@ -767,6 +810,78 @@ pub struct SvgCircle {
     pub center_x: f32,
     pub center_y: f32,
     pub radius: f32,
+}
+
+/// Which side of the segment `a -> b` the point `(x, y)` is on.
+///
+/// Positive = left. Used by the winding test; a separate function because the
+/// sign convention is the whole subtlety and naming it makes the two branches
+/// above readable.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma
+fn cross_sign(a: azul_css::props::basic::SvgPoint, b: azul_css::props::basic::SvgPoint, x: f32, y: f32) -> f32 {
+    (b.x - a.x) * (y - a.y) - (x - a.x) * (b.y - a.y)
+}
+
+impl SvgPath {
+    /// Flatten this ring into a polyline, subdividing every curve into
+    /// `steps` segments.
+    ///
+    /// Deliberately not de-duplicating shared endpoints: the winding test
+    /// walks the list cyclically and a repeated point contributes a
+    /// zero-length segment, which crosses nothing.
+    #[must_use]
+    pub fn flatten_to_points(&self, steps: usize) -> alloc::vec::Vec<azul_css::props::basic::SvgPoint> {
+        use azul_css::props::basic::SvgPoint;
+
+        let steps = steps.max(1);
+        let mut out: alloc::vec::Vec<SvgPoint> = alloc::vec::Vec::new();
+        let mut push = |p: SvgPoint| {
+            if out.last().is_none_or(|last| {
+                (last.x - p.x).abs() > f32::EPSILON || (last.y - p.y).abs() > f32::EPSILON
+            }) {
+                out.push(p);
+            }
+        };
+        for item in self.items.as_ref() {
+            match item {
+                SvgPathElement::Line(l) => {
+                    push(l.start);
+                    push(l.end);
+                }
+                SvgPathElement::QuadraticCurve(q) => {
+                    push(q.start);
+                    for i in 1..=steps {
+                        #[allow(clippy::cast_precision_loss)] // steps is <= 64
+                        let t = i as f32 / steps as f32;
+                        let inv = 1.0 - t;
+                        push(SvgPoint {
+                            x: inv * inv * q.start.x + 2.0 * inv * t * q.ctrl.x + t * t * q.end.x,
+                            y: inv * inv * q.start.y + 2.0 * inv * t * q.ctrl.y + t * t * q.end.y,
+                        });
+                    }
+                }
+                SvgPathElement::CubicCurve(c) => {
+                    push(c.start);
+                    for i in 1..=steps {
+                        #[allow(clippy::cast_precision_loss)] // steps is <= 64
+                        let t = i as f32 / steps as f32;
+                        let inv = 1.0 - t;
+                        let (a, b, cc, d) = (
+                            inv * inv * inv,
+                            3.0 * inv * inv * t,
+                            3.0 * inv * t * t,
+                            t * t * t,
+                        );
+                        push(SvgPoint {
+                            x: a * c.start.x + b * c.ctrl_1.x + cc * c.ctrl_2.x + d * c.end.x,
+                            y: a * c.start.y + b * c.ctrl_1.y + cc * c.ctrl_2.y + d * c.end.y,
+                        });
+                    }
+                }
+            }
+        }
+        out
+    }
 }
 
 impl SvgCircle {

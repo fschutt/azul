@@ -7060,6 +7060,14 @@ impl LayoutWindow {
                     DisplayListItem::PushImageMaskClip { mask_image, .. } => {
                         images.insert(mask_image.get_hash());
                     }
+                    // A stroke's GPU mask is a live image too - leaving it out
+                    // of the scan makes the GC free the mask the compositor is
+                    // still drawing through.
+                    DisplayListItem::StrokedPath {
+                        mask: Some(mask), ..
+                    } => {
+                        images.insert(mask.get_hash());
+                    }
                     _ => {}
                 }
             }

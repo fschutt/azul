@@ -1311,6 +1311,7 @@ const fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
         I::SelectionRect { .. } => "dl:sel_rect",
         I::CursorRect { .. } => "dl:cursor",
         I::Border { .. } => "dl:border",
+        I::StrokedPath { .. } => "dl:stroked_path",
         I::Text { .. } => "dl:text",
         I::TextLayout { .. } => "dl:text_layout",
         I::Image { .. } => "dl:image",
@@ -1731,6 +1732,34 @@ pub fn render_single_item(
     };
 
     match item {
+        // A STROKE, drawn natively: the CPU path already rasterises vector
+        // geometry with agg, so it strokes the real outline rather than
+        // approximating it with a mask. (The GPU path has no vector
+        // rasteriser and paints the same stroke through an R8 mask instead -
+        // same display list item, two backends.)
+        DisplayListItem::StrokedPath {
+            bounds,
+            path,
+            view_box,
+            color,
+            width,
+            // The pre-rasterised mask is the GPU backend's half of this item;
+            // the CPU one strokes the real outline, which has no resolution
+            // ceiling.
+            mask: _,
+        } => {
+            let clip = *clip_stack.last().unwrap();
+            render_stroked_path(
+                pixmap,
+                &scroll_rect(bounds.inner()),
+                path,
+                *view_box,
+                *color,
+                *width,
+                clip,
+                dpi_factor,
+            );
+        }
         DisplayListItem::Rect {
             bounds,
             color,
@@ -2551,6 +2580,72 @@ pub fn render_single_item(
     }
 
     Ok(())
+}
+
+/// Paint a STROKED path - SVG's `stroke`, PDF's second paint operator.
+///
+/// Strokes the real outline with agg rather than approximating it: the CPU
+/// path already has a vector rasteriser, so it uses it. (The GPU path has
+/// none and paints the same item through an R8 mask instead; both read the
+/// SAME display list item, which is the point of carrying the geometry in
+/// user space rather than pre-flattening it.)
+///
+/// The width is scaled by the geometry's own scale factor, not by the
+/// coordinates: a 2-unit rule in a 16-unit viewBox is 8 device px in a 64px
+/// box, and that is a property of the mapping, not of the points.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer: bounded pixel/coord/colour casts
+fn render_stroked_path(
+    pixmap: &mut AzulPixmap,
+    bounds: &LogicalRect,
+    path: &azul_core::svg::SvgMultiPolygon,
+    view_box: Option<(f32, f32, f32, f32)>,
+    color: ColorU,
+    width: f32,
+    clip: Option<AzRect>,
+    dpi_factor: f32,
+) {
+    use agg_rust::conv_stroke::ConvStroke;
+
+    if color.a == 0 || !width.is_finite() || width <= 0.0 {
+        return;
+    }
+    let (sx, sy, tx, ty) = crate::cpurender::pixmap::svg_user_space_mapping(
+        bounds,
+        view_box,
+        dpi_factor,
+    );
+    let (ox, oy) = (
+        bounds.origin.x * dpi_factor,
+        bounds.origin.y * dpi_factor,
+    );
+    let mx = |x: f32| f64::from((x + tx) * sx + ox);
+    let my = |y: f32| f64::from((y + ty) * sy + oy);
+    let mut geometry = crate::cpurender::pixmap::svg_path_to_agg(path, &mx, &my);
+
+    // A non-uniform scale cannot be expressed as one stroke width; the mean
+    // is the honest approximation and matches what every SVG renderer does
+    // for a non-uniform viewBox mapping.
+    let scale = f64::from((sx + sy) / 2.0);
+    let device_width = (f64::from(width) * scale).max(1.0);
+
+    let mut stroke = ConvStroke::new(&mut geometry);
+    stroke.set_width(device_width);
+    stroke.set_line_cap(agg_rust::math_stroke::LineCap::Round);
+    stroke.set_line_join(agg_rust::math_stroke::LineJoin::Round);
+
+    let agg_color = Rgba8::new(
+        u32::from(color.r),
+        u32::from(color.g),
+        u32::from(color.b),
+        u32::from(color.a),
+    );
+    crate::cpurender::pixmap::agg_fill_path_clipped(
+        pixmap,
+        &mut stroke,
+        &agg_color,
+        FillingRule::NonZero,
+        clip,
+    );
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // software rasterizer: bounded pixel/coord/colour casts

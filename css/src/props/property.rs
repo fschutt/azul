@@ -49,7 +49,7 @@ use crate::{
     },
 };
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 29] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 31] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
     (
@@ -94,6 +94,15 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 29] = [
     // the first name for a type, so this stays an accepted input spelling
     // without becoming the printed one.
     (CombinedCssPropertyType::BackgroundColor, "fill"),
+    // ... and SVG's `stroke` is the BORDER of that same box. An SVG shape's
+    // box is clipped to its geometry and can never show a rectangular border,
+    // so the border slots are free, and reusing them means a stroke is styled
+    // by the same cascade as everything else: `stroke="…"`, `style="stroke:…"`
+    // and a stylesheet rule all land in one place. The display list turns them
+    // into a STROKED PATH rather than a rectangle - a stroke follows the
+    // geometry, which is the whole difference between it and a border.
+    (CombinedCssPropertyType::BorderColor, "stroke"),
+    (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
 const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 194] = [

@@ -503,6 +503,9 @@ impl DisplayList {
                 glyphs.capacity() * size_of::<GlyphInstance>()
             }
             I::ScrollBarStyled { .. } => size_of::<ScrollbarDrawInfo>(),
+            // The rings the stroke walks. Bounded by the path, not the
+            // document, and cloned from the DOM's own geometry.
+            I::StrokedPath { .. } => 0,
             I::LinearGradient { gradient, .. } => {
                 gradient.stops.len()
                     * size_of::<azul_css::props::style::NormalizedLinearColorStop>()
@@ -1311,6 +1314,43 @@ pub enum DisplayListItem {
     /// Pops the current image mask clip from the renderer's clip stack.
     PopImageMaskClip,
 
+    /// A STROKED vector path - SVG's `stroke`, and the PDF model's second
+    /// paint operator.
+    ///
+    /// Not a `Border`: a border follows the box, a stroke follows the
+    /// GEOMETRY. Drawing a stroked outline as a rectangle inside the shape's
+    /// own clip leaves a hairline at the corners and nothing anywhere else,
+    /// which is what a line drawn with `fill="none"` looked like.
+    ///
+    /// The geometry is carried in USER SPACE with the `<svg>`'s `view_box`, so
+    /// the renderer maps it into `bounds` itself - a stroke scaled by
+    /// pre-transforming the points would scale the WIDTH with them, and a 2px
+    /// rule in a 16-unit icon would come out 8px wide in a 64px slot.
+    ///
+    /// A CPU renderer strokes this directly; a GPU one rasterises it into a
+    /// mask and paints `color` through it.
+    StrokedPath {
+        /// The box the geometry maps into, in absolute window coordinates.
+        bounds: WindowLogicalRect,
+        /// The path, in the user space `view_box` describes.
+        path: azul_core::svg::SvgMultiPolygon,
+        /// `(min_x, min_y, width, height)` of the enclosing `<svg>`, or `None`
+        /// when the geometry is already in window-logical px.
+        view_box: Option<(f32, f32, f32, f32)>,
+        /// The stroke colour.
+        color: ColorU,
+        /// The stroke width, in the same user space as the geometry.
+        width: f32,
+        /// The stroke, pre-rasterised as an R8 coverage mask over `bounds`.
+        ///
+        /// For the GPU backend, which has no vector rasteriser: it paints
+        /// `color` through this mask. The CPU backend IGNORES it and strokes
+        /// the real outline, which has no resolution ceiling. `None` when the
+        /// build has no rasteriser at all - the CPU path still draws, the GPU
+        /// path draws nothing rather than something wrong.
+        mask: Option<ImageRef>,
+    },
+
     /// Defines a scrollable area. This is a specialized clip that also
     /// establishes a new coordinate system for its children, which can be offset.
     PushScrollFrame {
@@ -2098,6 +2138,7 @@ impl DisplayListItem {
             | Self::Overline { bounds, .. }
             | Self::Image { bounds, .. }
             | Self::ScrollBar { bounds, .. }
+            | Self::StrokedPath { bounds, .. }
             | Self::LinearGradient { bounds, .. }
             | Self::RadialGradient { bounds, .. }
             | Self::ConicGradient { bounds, .. }
@@ -4450,6 +4491,9 @@ where
         if did_push_image_mask {
             builder.pop_image_mask_clip();
         }
+        // The stroke follows the geometry, not the fill region - it must be
+        // outside the mask the fill was painted through.
+        self.paint_svg_stroke(builder, context.node_index);
 
         // Pop filter/opacity effects (in reverse order of push)
         if pushed_backdrop_filter {
@@ -4667,6 +4711,9 @@ where
             if did_push_child_image_mask {
                 builder.pop_image_mask_clip();
             }
+            // The stroke follows the geometry, not the fill region - it must
+            // be outside the mask the fill was painted through.
+            self.paint_svg_stroke(builder, child_index);
 
             // Paint scrollbars AFTER popping clips so they appear on top of content
             self.paint_scrollbars(builder, child_index)?;
@@ -4751,6 +4798,9 @@ where
             if did_push_child_image_mask {
                 builder.pop_image_mask_clip();
             }
+            // The stroke follows the geometry, not the fill region - it must
+            // be outside the mask the fill was painted through.
+            self.paint_svg_stroke(builder, child_index);
 
             // Paint scrollbars AFTER popping clips so they appear on top of content
             self.paint_scrollbars(builder, child_index)?;
@@ -4834,6 +4884,9 @@ where
             if did_push_child_image_mask {
                 builder.pop_image_mask_clip();
             }
+            // The stroke follows the geometry, not the fill region - it must
+            // be outside the mask the fill was painted through.
+            self.paint_svg_stroke(builder, child_index);
 
             // Paint scrollbars AFTER popping clips so they appear on top of content
             self.paint_scrollbars(builder, child_index)?;
@@ -4857,6 +4910,79 @@ where
 
     /// Checks if a node has an image mask clip and pushes `PushImageMaskClip` if so.
     /// Returns true if a clip was pushed (caller must pop it).
+    /// Paint this node's SVG stroke, if it has one.
+    ///
+    /// Called AFTER the node's own image-mask clip is popped, and that is the
+    /// whole point: the mask is the shape's FILL region, and in SVG (and in
+    /// PDF) a stroke is not clipped by the fill. An open path - a line, an
+    /// arc, a chevron - encloses no area at all, so its fill mask is empty and
+    /// a stroke drawn inside it disappears completely. That is exactly how a
+    /// 4px rule rendered as nothing.
+    fn paint_svg_stroke(&self, builder: &mut DisplayListBuilder, node_index: usize) {
+        let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) else {
+            return;
+        };
+        let Some(dom_id) = node.dom_node_id else {
+            return;
+        };
+        let styled_node_state = self.get_styled_node_state(dom_id);
+        let border_info = get_border_info(self.ctx.styled_dom, dom_id, &styled_node_state);
+        let Some((path, color, width)) = self.svg_stroke_for(dom_id, &border_info) else {
+            return;
+        };
+        let Some(paint_rect) = self.get_paint_rect(node_index) else {
+            return;
+        };
+        let view_box = self.enclosing_view_box(dom_id);
+        #[cfg(feature = "cpurender")]
+        let mask = rasterize_svg_stroke_to_r8(&path, &paint_rect, view_box, width);
+        #[cfg(not(feature = "cpurender"))]
+        let mask = None;
+        builder.push_item(DisplayListItem::StrokedPath {
+            bounds: paint_rect.into(),
+            path,
+            view_box,
+            color,
+            width,
+            mask,
+        });
+    }
+
+    /// This node's STROKE, if it has geometry and a border to stroke it with.
+    ///
+    /// `stroke`/`stroke-width` are accepted spellings of
+    /// `border-color`/`border-width`, so they arrive through the ordinary
+    /// cascade and land in `border_info` - one width and one colour are read
+    /// back out here (SVG has a single stroke, not four sides; the top slot is
+    /// the one the shorthand fills).
+    fn svg_stroke_for(
+        &self,
+        dom_id: NodeId,
+        border_info: &BorderInfo,
+    ) -> Option<(azul_core::svg::SvgMultiPolygon, ColorU, f32)> {
+        let node_data = self.ctx.styled_dom.node_data.as_container();
+        let azul_core::dom::SvgNodeData::Path(path) = node_data.get(dom_id)?.get_svg_data()? else {
+            return None;
+        };
+        let width = border_info
+            .widths
+            .top
+            .and_then(azul_css::css::CssPropertyValue::get_property_owned)
+            .map(|w| w.inner.to_pixels_internal(0.0, 16.0, 16.0))?;
+        if !width.is_finite() || width <= 0.0 {
+            return None;
+        }
+        let color = border_info
+            .colors
+            .top
+            .and_then(azul_css::css::CssPropertyValue::get_property_owned)
+            .map(|c| c.inner)?;
+        if color.a == 0 {
+            return None;
+        }
+        Some((path.clone(), color, width))
+    }
+
     /// The `viewBox` of the nearest `<svg>` ancestor of `node` (itself
     /// included), as `(min_x, min_y, width, height)`.
     ///
@@ -5461,6 +5587,27 @@ where
                 });
             }
 
+            // An SVG SHAPE takes its border as a STROKE. A stroke follows the
+            // geometry; a border follows the box - and the box is clipped to
+            // the geometry, so a rectangular border on a shape leaves a
+            // hairline at the corners and nothing anywhere else. The border
+            // slots are how `stroke`/`stroke-width` reach the cascade (see
+            // `COMBINED_CSS_PROPERTIES_KEY_MAP`), so they are consumed here
+            // and NOT handed to the rectangle painter.
+            let stroke = self.svg_stroke_for(dom_id, &border_info);
+            let border_info = if stroke.is_some() {
+                let mut without_border = border_info.clone();
+                without_border.widths = StyleBorderWidths {
+                    top: None,
+                    right: None,
+                    bottom: None,
+                    left: None,
+                };
+                without_border
+            } else {
+                border_info.clone()
+            };
+
             // Use unified background/border painting
             builder.push_backgrounds_and_border(
                 paint_rect,
@@ -5470,6 +5617,10 @@ where
                 style_border_radius,
                 self.ctx.image_cache,
             );
+
+            // The stroke is NOT painted here: it must land OUTSIDE this
+            // node's own clip mask. See `paint_svg_stroke`.
+            let _ = stroke;
         }
 
         Ok(())
@@ -7839,6 +7990,31 @@ fn clip_and_offset_display_item(
     page_bottom: f32,
 ) -> Option<DisplayListItem> {
     match item {
+        // Pagination moves items between pages by translating their bounds.
+        // A stroked path carries its geometry in USER SPACE and is mapped
+        // into `bounds` by the renderer, so translating the box translates
+        // the drawing with it - nothing else has to move.
+        DisplayListItem::StrokedPath {
+            bounds,
+            path,
+            view_box,
+            color,
+            width,
+            mask,
+        } => {
+            let b = bounds.into_inner();
+            if b.origin.y + b.size.height < page_top || b.origin.y > page_bottom {
+                return None;
+            }
+            Some(DisplayListItem::StrokedPath {
+                bounds: offset_rect_y(b, -page_top).into(),
+                path: path.clone(),
+                view_box: *view_box,
+                color: *color,
+                width: *width,
+                mask: mask.clone(),
+            })
+        }
         DisplayListItem::Rect {
             bounds,
             color,
@@ -9251,6 +9427,21 @@ pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> Di
     }
 
     match item {
+        DisplayListItem::StrokedPath {
+            bounds,
+            path,
+            view_box,
+            color,
+            width,
+            mask,
+        } => DisplayListItem::StrokedPath {
+            bounds: offset_rect_y(bounds.into_inner(), y_offset).into(),
+            path: path.clone(),
+            view_box: *view_box,
+            color: *color,
+            width: *width,
+            mask: mask.clone(),
+        },
         DisplayListItem::Rect {
             bounds,
             color,
@@ -9974,6 +10165,80 @@ pub(crate) fn apply_clip_path(
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss
 )] // bounded graphics/coord/font/fixed-point/debug-marker cast
+/// The STROKE of a path, rasterised as an R8 coverage mask over `paint_rect`.
+///
+/// The GPU backend's half of `DisplayListItem::StrokedPath`: WebRender has no
+/// vector rasteriser, so the stroke is painted as a colour through this mask.
+/// The CPU backend does not use it - it strokes the outline directly, which
+/// stays sharp at any zoom.
+///
+/// Rasterised at 2x the logical box for the same reason an icon is: the mask
+/// is scaled to the element on screen, and a 1x mask is visibly soft on a
+/// HiDPI display.
+#[cfg(feature = "cpurender")]
+fn rasterize_svg_stroke_to_r8(
+    path: &azul_core::svg::SvgMultiPolygon,
+    paint_rect: &LogicalRect,
+    view_box: Option<(f32, f32, f32, f32)>,
+    width: f32,
+) -> Option<ImageRef> {
+    use agg_rust::{
+        basics::FillingRule, color::Rgba8, conv_stroke::ConvStroke, pixfmt_rgba::PixfmtRgba32,
+        rasterizer_scanline_aa::RasterizerScanlineAa, renderer_base::RendererBase,
+        renderer_scanline::render_scanlines_aa_solid, rendering_buffer::RowAccessor,
+        scanline_u::ScanlineU8,
+    };
+    use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
+
+    const OVERSAMPLE: f32 = 2.0;
+    let w = (paint_rect.size.width * OVERSAMPLE).ceil() as u32;
+    let h = (paint_rect.size.height * OVERSAMPLE).ceil() as u32;
+    if w == 0 || h == 0 || !width.is_finite() || width <= 0.0 {
+        return None;
+    }
+
+    let (sx, sy, tx, ty) =
+        crate::cpurender::pixmap::svg_user_space_mapping(paint_rect, view_box, OVERSAMPLE);
+    let mx = |x: f32| f64::from((x + tx) * sx);
+    let my = |y: f32| f64::from((y + ty) * sy);
+    let mut geometry = crate::cpurender::pixmap::svg_path_to_agg(path, &mx, &my);
+
+    let scale = f64::from((sx + sy) / 2.0);
+    let mut stroke = ConvStroke::new(&mut geometry);
+    stroke.set_width((f64::from(width) * scale).max(1.0));
+    stroke.set_line_cap(agg_rust::math_stroke::LineCap::Round);
+    stroke.set_line_join(agg_rust::math_stroke::LineJoin::Round);
+
+    let mut rgba_buf = vec![0u8; (w * h * 4) as usize];
+    {
+        let stride = (w * 4) as i32;
+        let mut ra = unsafe { RowAccessor::new_with_buf(rgba_buf.as_mut_ptr(), w, h, stride) };
+        let pf = PixfmtRgba32::new(&mut ra);
+        let mut rb = RendererBase::new(pf);
+        let mut ras = RasterizerScanlineAa::new();
+        ras.filling_rule(FillingRule::NonZero);
+        ras.add_path(&mut stroke, 0);
+        let mut sl = ScanlineU8::new();
+        let white = Rgba8 {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
+        render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &white);
+    }
+
+    let r8_data: Vec<u8> = rgba_buf.chunks_exact(4).map(|px| px[3]).collect();
+    ImageRef::new_rawimage(RawImage {
+        pixels: RawImageData::U8(r8_data.into()),
+        width: w as usize,
+        height: h as usize,
+        premultiplied_alpha: false,
+        data_format: RawImageFormat::R8,
+        tag: Vec::new().into(),
+    })
+}
+
 fn rasterize_svg_clip_to_r8(
     svg_clip: &azul_core::svg::SvgMultiPolygon,
     paint_rect: &LogicalRect,

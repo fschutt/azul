@@ -5061,6 +5061,36 @@ impl fmt::Display for RenderDomError {
 /// # Errors
 ///
 /// Returns an error if the document has no `<html>` root node.
+/// Every `<head><style>` block's text, concatenated in document order.
+///
+/// ALL of them, not the first: a document may state its stylesheet in several
+/// blocks (a reset, then the page's own rules), and browsers apply each in
+/// turn. Reading only the first silently dropped everything after it - and it
+/// is silent in the worst way, because the page still renders, just with some
+/// rules missing and nothing to say which.
+fn head_style_text(html_node: &XmlNode) -> String {
+    let Some(head) = find_node_by_type(html_node.children.as_ref(), "head") else {
+        return String::new();
+    };
+    let mut out = String::new();
+    for child in head.children.as_ref() {
+        let XmlNodeChild::Element(element) = child else {
+            continue;
+        };
+        if !element.node_type.as_str().eq_ignore_ascii_case("style") {
+            continue;
+        }
+        let text = element.get_text_content();
+        if !text.is_empty() {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&text);
+        }
+    }
+    out
+}
+
 pub fn get_html_node(
     root_nodes: &[XmlNodeChild],
 ) -> Result<alloc::borrow::Cow<'_, XmlNode>, DomXmlParseError> {
@@ -5317,17 +5347,12 @@ fn str_to_dom_fast<'a>(
     let html_node = get_html_node(root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
 
-    let mut global_style = None;
-
-    if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
-        if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
-            let text = style_node.get_text_content();
-            if !text.is_empty() {
-                let parsed_css = Css::from_string(text.into());
-                global_style = Some(parsed_css);
-            }
-        }
-    }
+    let style_text = head_style_text(&html_node);
+    let global_style = if style_text.is_empty() {
+        None
+    } else {
+        Some(Css::from_string(style_text.into()))
+    };
 
     render_dom_from_body_node_fast(body_node, global_style, component_map, max_width)
         .map_err(Into::into)
@@ -5352,17 +5377,12 @@ pub fn str_to_dom_unstyled<'a>(
     let html_node = get_html_node(root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
 
-    let mut global_style = None;
-
-    if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
-        if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
-            let text = style_node.get_text_content();
-            if !text.is_empty() {
-                let parsed_css = Css::from_string(text.into());
-                global_style = Some(parsed_css);
-            }
-        }
-    }
+    let style_text = head_style_text(&html_node);
+    let global_style = if style_text.is_empty() {
+        None
+    } else {
+        Some(Css::from_string(style_text.into()))
+    };
 
     // Build the DOM tree from the body node
     let body_dom =
@@ -5401,17 +5421,12 @@ pub fn str_to_rust_code<'a>(
 ) -> Result<String, CompileError> {
     let html_node = get_html_node(root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
-    let mut global_style = Css::empty();
-
-    if let Some(head_node) = find_node_by_type(html_node.children.as_ref(), "head") {
-        if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
-            let text = style_node.get_text_content();
-            if !text.is_empty() {
-                let parsed_css = azul_css::parser2::new_from_str(&text).0;
-                global_style = parsed_css;
-            }
-        }
-    }
+    let style_text = head_style_text(&html_node);
+    let mut global_style = if style_text.is_empty() {
+        Css::empty()
+    } else {
+        azul_css::parser2::new_from_str(&style_text).0
+    };
 
     global_style.sort_by_specificity();
 
@@ -5876,6 +5891,58 @@ fn apply_xml_node_attributes(
                         ]),
                     )));
                 }
+            }
+        }
+
+        // The STROKE, as the box's border - the display list turns it into a
+        // stroked path rather than a rectangle. Both halves are translated
+        // here only for the presentation ATTRIBUTE; `style="stroke:…"` and a
+        // stylesheet rule need nothing, because `stroke`/`stroke-width` are
+        // accepted spellings of `border-color`/`border-width`.
+        if let Some(stroke) = xml_node.attributes.get_key("stroke") {
+            let stroke = stroke.as_str().trim();
+            if stroke != "none" {
+                if let Ok(color) = azul_css::props::basic::color::parse_css_color(stroke) {
+                    use azul_css::props::style::{
+                        StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor,
+                        StyleBorderTopColor,
+                    };
+                    intrinsic_props.push(simple(CssProperty::const_border_top_color(
+                        StyleBorderTopColor { inner: color },
+                    )));
+                    intrinsic_props.push(simple(CssProperty::const_border_right_color(
+                        StyleBorderRightColor { inner: color },
+                    )));
+                    intrinsic_props.push(simple(CssProperty::const_border_bottom_color(
+                        StyleBorderBottomColor { inner: color },
+                    )));
+                    intrinsic_props.push(simple(CssProperty::const_border_left_color(
+                        StyleBorderLeftColor { inner: color },
+                    )));
+                }
+            }
+        }
+        // `stroke-width` is in USER UNITS, like every other geometry
+        // attribute - not a CSS length.
+        if let Some(width) = parse_svg_float(xml_node.attributes.get_key("stroke-width")) {
+            if width.is_finite() && width > 0.0 {
+                use azul_css::props::style::{
+                    LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+                    LayoutBorderTopWidth,
+                };
+                let px = azul_css::props::basic::PixelValue::px(width);
+                intrinsic_props.push(simple(CssProperty::const_border_top_width(
+                    LayoutBorderTopWidth { inner: px },
+                )));
+                intrinsic_props.push(simple(CssProperty::const_border_right_width(
+                    LayoutBorderRightWidth { inner: px },
+                )));
+                intrinsic_props.push(simple(CssProperty::const_border_bottom_width(
+                    LayoutBorderBottomWidth { inner: px },
+                )));
+                intrinsic_props.push(simple(CssProperty::const_border_left_width(
+                    LayoutBorderLeftWidth { inner: px },
+                )));
             }
         }
     }
