@@ -33,7 +33,11 @@ import android.os.Build;
 import android.text.Editable;
 import android.text.SpannableStringBuilder;
 import android.view.View;
+import android.graphics.Rect;
 import android.util.Log;
+import android.view.ActionMode;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.WindowInsets;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
@@ -136,6 +140,109 @@ public final class NativeTextBridge {
             right = insets.getSystemWindowInsetRight();
         }
         nativeOnWindowInsets(nativePtr, top, bottom, left, right, ime);
+    }
+
+    // ---- Native text selection --------------------------------------------
+
+    /**
+     * Show Android's own floating Cut/Copy/Paste toolbar over the selection.
+     *
+     * The floating ActionMode is the part of "native selection" that IS a
+     * system API. The draggable teardrop handles are NOT — no platform API
+     * hands those to a custom view, every app that has them draws them itself
+     * — so this wires the half Android actually owns and leaves handle
+     * rendering to the engine, which already knows the selection geometry.
+     *
+     * `Callback2.onGetContentRect` is what positions the toolbar; it is polled
+     * while the bar is up, so it re-reads the rect from Rust each time and the
+     * bar follows a selection that changes under it.
+     */
+    public static void startSelectionToolbar(Activity activity, long nativePtr) {
+        if (activity == null || nativePtr == 0L || inputView == null) {
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            if (selectionMode != null) {
+                selectionMode.invalidateContentRect();
+                return;
+            }
+            selectionMode = inputView.startActionMode(
+                    new SelectionCallback(nativePtr), ActionMode.TYPE_FLOATING);
+        });
+    }
+
+    /** Dismiss the toolbar (selection collapsed, focus lost). */
+    public static void stopSelectionToolbar(Activity activity) {
+        if (activity == null) {
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            if (selectionMode != null) {
+                selectionMode.finish();
+                selectionMode = null;
+            }
+        });
+    }
+
+    private static ActionMode selectionMode;
+
+    private static final class SelectionCallback extends ActionMode.Callback2 {
+        private final long nativePtr;
+
+        SelectionCallback(long nativePtr) {
+            this.nativePtr = nativePtr;
+        }
+
+        @Override
+        public boolean onCreateActionMode(ActionMode mode, Menu menu) {
+            // android.R.string.* so the items are in the user's language and
+            // match every other text field on the device.
+            menu.add(Menu.NONE, 0, 0, android.R.string.cut);
+            menu.add(Menu.NONE, 1, 1, android.R.string.copy);
+            menu.add(Menu.NONE, 2, 2, android.R.string.paste);
+            menu.add(Menu.NONE, 3, 3, android.R.string.selectAll);
+            return true;
+        }
+
+        @Override
+        public boolean onPrepareActionMode(ActionMode mode, Menu menu) {
+            return false;
+        }
+
+        @Override
+        public boolean onActionItemClicked(ActionMode mode, MenuItem item) {
+            int id = item.getItemId();
+            if (id < 0 || id > 3) {
+                return false;
+            }
+            nativeSelectionAction(nativePtr, id);
+            // Cut and paste destroy the selection they acted on; copy and
+            // select-all leave it, so the bar stays up for a second action.
+            if (id == 0 || id == 2) {
+                mode.finish();
+            }
+            return true;
+        }
+
+        @Override
+        public void onDestroyActionMode(ActionMode mode) {
+            selectionMode = null;
+        }
+
+        @Override
+        public void onGetContentRect(ActionMode mode, View view, Rect outRect) {
+            long packed = nativeGetSelectionRect(nativePtr);
+            if (packed == 0L) {
+                super.onGetContentRect(mode, view, outRect);
+                return;
+            }
+            // Four 16-bit fields: x | y | w | h. See nativeGetSelectionRect.
+            int x = (int) ((packed >> 48) & 0xFFFF);
+            int y = (int) ((packed >> 32) & 0xFFFF);
+            int w = (int) ((packed >> 16) & 0xFFFF);
+            int h = (int) (packed & 0xFFFF);
+            outRect.set(x, y, x + w, y + h);
+        }
     }
 
     // ---- Java -> Rust: the InputConnection ---------------------------------
@@ -306,6 +413,10 @@ public final class NativeTextBridge {
     private static native String nativeGetTextAfterCursor(long nativePtr, int n);
 
     private static native String nativeGetSelectedText(long nativePtr);
+
+    private static native long nativeGetSelectionRect(long nativePtr);
+
+    private static native void nativeSelectionAction(long nativePtr, int action);
 
     private static native void nativeOnWindowInsets(long nativePtr, int top, int bottom,
                                                     int left, int right, int ime);
