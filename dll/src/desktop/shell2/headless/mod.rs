@@ -6832,6 +6832,69 @@ mod tests {
             .collect()
     }
 
+    extern "C" fn filled_text_input_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_layout::widgets::text_input::TextInput;
+        Dom::create_body().with_css("padding: 20px;").with_child(
+            TextInput::create()
+                .with_text("Hello wonderful world".into())
+                .dom(),
+        )
+    }
+
+    /// Clicking into text puts the caret WHERE YOU CLICKED.
+    ///
+    /// `process_mouse_click_for_selection` is what resolves a click position to
+    /// a text cluster (and what does double-click word / triple-click line
+    /// select). It is reached only through `SystemChange::TextSelectionClick`,
+    /// so if nothing constructs that change the caret can only ever land at the
+    /// start of the field — which looks like "clicking does nothing" once the
+    /// field has more than a few characters.
+    #[test]
+    fn clicking_into_text_places_the_caret_at_the_click() {
+        use azul_core::events::MouseButton;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, filled_text_input_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+
+        let containers = rects_by_class(&window, "__azul-native-text-input-container");
+        assert_eq!(containers.len(), 1, "{containers:?}");
+        let c = containers[0];
+
+        // Well inside the text, not at its start: a caret that ignores the
+        // click position lands at the content-box origin instead.
+        let x = c.origin.x + c.size.width * 0.45;
+        let y = c.origin.y + c.size.height * 0.5;
+        step(&mut window, HeadlessEvent::MouseMove { x, y });
+        step(
+            &mut window,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::MouseUp {
+                button: MouseButton::Left,
+            },
+        );
+        window.regenerate_layout().expect("layout after click");
+
+        let carets = caret_items(&window);
+        assert!(!carets.is_empty(), "clicking into text must paint a caret");
+        let caret = carets[carets.len() - 1];
+        assert!(
+            caret.origin.x > c.origin.x + 20.0,
+            "the caret must land AT THE CLICK ({x}), not at the start of the field: \
+             caret {caret:?} in {c:?}"
+        );
+        assert!(
+            caret.origin.x <= x + 20.0,
+            "...and not past it: caret {caret:?} for a click at {x}"
+        );
+    }
+
     #[test]
     fn an_empty_focused_text_input_shows_a_caret() {
         use azul_core::events::MouseButton;

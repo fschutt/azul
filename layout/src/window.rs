@@ -17760,10 +17760,8 @@ impl LayoutWindow {
                         && current_position.x <= screen.origin.x + screen.size.width
                         && current_position.y <= screen.origin.y + screen.size.height
                 });
-        eprintln!("PROBE sel: anchor_contains={} pos={:?}", anchor_rect_contains, current_position);
         if !anchor_rect_contains {
             let global_hit = self.hittest_text_position_global(dom_id, current_position);
-            eprintln!("PROBE sel: global_hit={:?} anchor_node={}", global_hit.map(|(n,_)| n.index()), node_id.index());
             if let Some((hit_node, hit_cursor)) = global_hit {
                 if hit_node != node_id
                     && self.set_cross_block_selection(dom_id, node_id, anchor, hit_node, hit_cursor)

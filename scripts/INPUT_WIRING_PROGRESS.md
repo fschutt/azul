@@ -1128,12 +1128,35 @@ FOUND AND FIXED HERE:
       are in the SAME state — arms present, never constructed outside the e2e runner. They are
       not covered here because click-to-place-caret demonstrably works on device, so something
       else drives it and wiring these blind could double-handle the click. Logged as G3-a.
-- [ ] G3-a `SystemChange::TextSelectionClick` and `SystemChange::AddCursorAtClick` have handler
-      arms that nothing constructs (only `layout/src/e2e/runner.rs` builds them, as a deliberate
-      port). Found while fixing the TextSelectionDrag producer. NOT wired blind: click-to-place-
-      caret and Ctrl+click multi-cursor demonstrably work on device, so a different path already
-      drives them, and emitting these too could double-handle one click. Settle which path is
-      authoritative first, then either wire these or delete the dead arms.
+- [x] G3-a CLOSED, and it corrected a WRONG FIX of mine. The premise was false: these changes
+      are NOT unproduced. `SystemChange` is declared and produced in **azul-core**
+      (`core/src/events.rs`), and I had only grepped `dll/src` and `layout/src` — so
+      `TextSelectionClick` (events.rs:4962) and `TextSelectionDrag` (events.rs:4992) both have
+      real producers. Proved by backtrace: a click reaches
+      `process_mouse_click_for_selection` through `apply_system_change`, and a new test
+      (`clicking_into_text_places_the_caret_at_the_click`) shows the caret landing at the click
+      rather than at the field start.
+      CONSEQUENCE: the emission I added to the dll for `TextSelectionDrag` was a DUPLICATE at
+      the wrong layer, and worse — it bypassed the anchor, so it armed a selection drag for
+      ANY drag with the left button down. That is exactly the bug the anchor logic documents
+      itself as fixing ("dragging the window by its custom titlebar became a selection drag,
+      armed drag-autoscroll and scrolled the UI to the top"). REVERTED.
+      THE REAL BUG was the anchor's arming rule: `text_selection_drag_anchor` was born only if
+      the press landed on a CONTENTEDITABLE. Ordinary document text is selectable in every
+      browser and native text view, and a non-editable `<p>` is precisely what a cross-block
+      selection spans — so `handle_mouse_move` in azul-core returned early on
+      `drag_start_position?` and no drag change was ever built for plain text.
+      FIX: arm on any SELECTABLE TEXT — contenteditable, or a text-bearing node that
+      `is_text_selectable` accepts (so `user-select: none` is honoured, using the engine's own
+      predicate). The guard the narrow rule stood in for is kept and made explicit instead of
+      incidental: a press inside a window DRAG REGION never starts a selection, via the existing
+      `node_is_window_drag_region`.
+      TRAP: the hit test names the BLOCK (`<p>`), not the text run inside it — a text node
+      carries no tag of its own — so the "is this text" test has to look at the node AND its
+      children. Checking only `NodeType::Text` on the hit node matched nothing and the test
+      still failed.
+      EVIDENCE: azul-dll 1944 (the new caret test included), azul-layout 7555, azul-core 2749,
+      host check and 8-target gate green.
 - [x] PLACEHOLDER-ON-FOCUS: the headless test encoded a SUPERSEDED ruling and could never have
       passed. Two independent problems in one assertion, neither of them an engine bug.
       1. It looked for a `__azul-native-text-input-placeholder` NODE. The

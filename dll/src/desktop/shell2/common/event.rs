@@ -9388,41 +9388,6 @@ pub trait PlatformWindow {
             }
         };
 
-        // TEXT-SELECTION DRAG. `SystemChange::TextSelectionDrag` has had a
-        // handler — with its node-drag gate and its logging — and NOTHING
-        // constructed it, so the arm was dead and the only path that ever
-        // reached `process_mouse_drag_for_selection` was the auto-scroll timer
-        // above. Dragging a selection therefore did nothing until the pointer
-        // hit the window edge and auto-scroll took over. (The comment on that
-        // block still says "TextSelectionDrag was the only StartAutoScrollTimer
-        // trigger", from when this was wired.)
-        //
-        // Both positions are the CURRENT pointer: the anchor lives on the
-        // multi-cursor state, so the handler ignores the start argument — the
-        // auto-scroll path passes the pointer twice for the same reason. A
-        // pointer with no editing session behind it makes the handler a no-op,
-        // which is what a node or file drag wants.
-        let text_drag_result: Option<ProcessEventResult> = {
-            let dragging = synthetic_events
-                .iter()
-                .any(|ev| matches!(ev.event_type, azul_core::events::EventType::Drag));
-            let held = self.get_current_window_state().mouse_state.left_down;
-            let pointer = self
-                .get_current_window_state()
-                .mouse_state
-                .cursor_position
-                .get_position();
-            match (dragging && held, pointer) {
-                (true, Some(p)) => Some(self.apply_system_change(
-                    &SystemChange::TextSelectionDrag {
-                        start_position: p,
-                        current_position: p,
-                    },
-                )),
-                _ => None,
-            }
-        };
-
         // MWA-C-gesture: cancel an active drag on Escape or window blur.
         // cancel_drag / DeactivateDrag existed but nothing invoked them from
         // input — a drag survived focus loss (Alt-Tab mid-drag left the node
@@ -9563,17 +9528,97 @@ pub trait PlatformWindow {
                     st.mouse_state.cursor_position.get_position(),
                 )
             };
-            let press_on_editable = hit_test_for_dispatch.as_ref().is_some_and(|ht| {
-                self.get_layout_window().is_some_and(|lw| {
-                    ht.hovered_nodes.iter().any(|(dom_id, hit)| {
-                        lw.layout_results.get(dom_id).is_some_and(|lr| {
-                            hit.regular_hit_test_nodes.keys().any(|nid| {
-                                azul_layout::solver3::getters::is_node_contenteditable_inherited(
-                                    &lr.styled_dom,
-                                    *nid,
-                                )
+            // WHAT ARMS A SELECTION DRAG. This used to be "the press landed on a
+            // contenteditable", which is too narrow: ordinary document text is
+            // selectable in every browser and native text view, and a
+            // non-editable `<p>` is exactly the case a cross-block selection
+            // spans. With the old rule, dragging across two plain paragraphs
+            // produced no anchor, so `handle_mouse_move` in azul-core returned
+            // early on `drag_start_position?` and no `TextSelectionDrag` was
+            // ever built.
+            //
+            // The guard the narrow rule was protecting is kept, and made
+            // explicit rather than incidental: a press inside a window DRAG
+            // REGION does not start a selection. That is the bug the
+            // contenteditable test was standing in for — dragging a custom
+            // titlebar (which has text in it) became a selection drag that
+            // armed drag-autoscroll and scrolled the UI away. `user-select:
+            // none` is honoured too, through the engine's own
+            // `is_text_selectable`.
+            let press_targets: Vec<azul_core::dom::DomNodeId> = hit_test_for_dispatch
+                .as_ref()
+                .map(|ht| {
+                    ht.hovered_nodes
+                        .iter()
+                        .flat_map(|(dom_id, hit)| {
+                            hit.regular_hit_test_nodes.keys().map(move |nid| {
+                                azul_core::dom::DomNodeId {
+                                    dom: *dom_id,
+                                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(
+                                        Some(*nid),
+                                    ),
+                                }
                             })
                         })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let press_on_editable = press_targets.iter().any(|dnid| {
+                if self.node_is_window_drag_region(*dnid) {
+                    return false;
+                }
+                let Some(nid) = dnid.node.into_crate_internal() else {
+                    return false;
+                };
+                self.get_layout_window().is_some_and(|lw| {
+                    lw.layout_results.get(&dnid.dom).is_some_and(|lr| {
+                        if azul_layout::solver3::getters::is_node_contenteditable_inherited(
+                            &lr.styled_dom,
+                            nid,
+                        ) {
+                            return true;
+                        }
+                        // Plain, selectable text: what a document selection
+                        // drags across.
+                        let states = lr.styled_dom.styled_nodes.as_container();
+                        // The hit test names the BLOCK (`<p>`), not the text
+                        // run inside it — a text node carries no tag of its
+                        // own — so "is this text" has to look at the node AND
+                        // its children.
+                        let ndc = lr.styled_dom.node_data.as_container();
+                        let is_text = |n: azul_core::id::NodeId| {
+                            ndc.get(n).is_some_and(|nd| {
+                                matches!(nd.get_node_type(), azul_core::dom::NodeType::Text(_))
+                            })
+                        };
+                        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+                        let has_text = is_text(nid)
+                            || hierarchy
+                                .get(nid)
+                                .and_then(|h| h.first_child_id(nid))
+                                .is_some_and(|c| {
+                                    let mut cur = Some(c);
+                                    let mut seen = 0;
+                                    while let Some(n) = cur {
+                                        if is_text(n) {
+                                            return true;
+                                        }
+                                        seen += 1;
+                                        if seen > 64 {
+                                            break;
+                                        }
+                                        cur = hierarchy.get(n).and_then(|h| h.next_sibling_id());
+                                    }
+                                    false
+                                });
+                        has_text
+                            && states.get(nid).is_some_and(|sn| {
+                                azul_layout::solver3::getters::is_text_selectable(
+                                    &lr.styled_dom,
+                                    nid,
+                                    &sn.styled_node_state,
+                                )
+                            })
                     })
                 })
             });
@@ -10679,12 +10724,6 @@ pub trait PlatformWindow {
             result = result.max(r);
         }
 
-        // ...and the text-selection drag, which returns
-        // ShouldUpdateDisplayListCurrentWindow when the selection actually
-        // moved. Dropping it would extend the selection without repainting it.
-        if let Some(r) = text_drag_result {
-            result = result.max(r);
-        }
 
         // MWA-C-gesture: fold the Escape / focus-loss drag cancellation.
         if let Some(r) = drag_cancel_result {
