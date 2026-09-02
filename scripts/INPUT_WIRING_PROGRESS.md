@@ -1,5 +1,34 @@
 # Input wiring — work queue
 
+## USER RULINGS — 2026-09-03 (unblock the decision-gated items)
+
+Verbatim decisions, recorded because seven items were logged as "needs a decision, do NOT
+guess" and are now answerable. Where a ruling changes an item, the item itself is edited too.
+
+1. **Platform SDKs: "we implement blindly, everything, but research the web again for fixes."**
+   So WinRT, CGEventTap, IOHIDManager, hidraw, D-Bus/MPRIS etc. are all IN SCOPE. They cannot be
+   run here, so the standard is: research the CURRENT API on the web first (not from memory),
+   dlopen/probe rather than link, and cross-compile-verify. "Blindly" means without a device,
+   NOT without checking the API exists.
+2. **D-Bus specifically: "we already have APIs, we implement and dlopen blindly."**
+3. **10a-iv (soft keyboard via two paths): "ideally we can refactor to one, but not
+   game-breaking if not possible."** So: attempt the unification; if the two paths turn out to
+   carry genuinely different intent, leave both and say why.
+4. **11b-i (form reset / validation): "put as an extra attribute on the `form` node type."**
+   So `Reset` and `Invalid` get their state from a form-node attribute rather than a new concept.
+5. **10a-iii (Android IME hints): "same thing, default to whatever is the default input purpose
+   if not set."** An input-purpose attribute, with the platform default when absent.
+6. **7c-i (Windows touchpad pinch): "both. ctrl-wheel synthesize if we have a kbd+mouse setup,
+   otherwise also DirectManipulation. Make a flag in AppConfig whether to disable the synthetic
+   kbd+mouse pinch."**
+7. **9g-ii-a/b (tuple and NodeId returns): "no, we have `impl_option!` and `OptionNodeId`
+   already, make new structs if needed."** So these are NOT design questions - build the named
+   structs and expose them.
+8. **10c-iv (`env()`): "I don't think we need env() for now, low priority, also not tier-1."**
+9. **10b-i (full `UITextInput`): "is important (including IME)."** Highest-priority remaining
+   feature item.
+
+
 Branch `feat/input-event-wiring`, stacked on **PR #450** (`fix/tablet-and-clipboard-linux`, 28 commits)
 rebased onto `origin/master` @ fcef148b2. Spec: `scripts/INPUT_METHODS_AUDIT_2026_09_01.md`.
 
@@ -146,7 +175,8 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       never compared against another node, nor across DomIds; no snapshot is distinguishable from
       no change; and re-focusing REPLACES the baseline rather than accumulating.
       azul-layout 7575 (+7), azul-dll 1963, azul-core 2759, host, 8/8 mobile, autofix converged.
-- [ ] 11b-i `Reset` and `Invalid` are subscribable but unproducible. `Reset` needs a form-reset concept
+- [ ] 11b-i UNBLOCKED (user 2026-09-03: "put as an extra attribute on the `form` node type").
+      `Reset` and `Invalid` are subscribable but unproducible. `Reset` needs a form-reset concept
       (a `form_node` + the initial values to restore); `Invalid` needs validation state on the node —
       a `required` / `pattern` attribute or a validator callback. Both are DESIGN questions, not plumbing,
       which is why they are logged rather than guessed at.
@@ -217,7 +247,8 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
         `insets top=24 bottom=0 left=0 right=0 ime=235` (physical px)
       i.e. the status bar (24) and the live IME height (235) both arrive.
 
-- [ ] 10c-iv `env()` IS NOT PARSED AT ALL. The 10c-iii note claimed "`env(safe-area-inset-*)` already
+- [ ] 10c-iv LOW PRIORITY (user 2026-09-03: "I don't think we need env() for now, low
+      priority, also not tier-1"). `env()` IS NOT PARSED AT ALL. The 10c-iii note claimed "`env(safe-area-inset-*)` already
       resolves", and `scripts/MOBILE_SESSION_LOG.md` says so twice for macOS and iOS. It does not:
       `parser2.rs` has ZERO occurrences of `env`, there is no `"env"` function token anywhere in
       `css/src/`, and the `env(safe-area-inset-bottom)` in `doc/templates/flora.css:2892` is silently
@@ -311,7 +342,8 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       call being reported under `--target aarch64-apple-ios`. Compile-only by user direction
       (simulator later). Host + 8/8 mobile.
 
-- [ ] 10b-i Full `UITextInput` conformance — ~25 methods over `UITextPosition` / `UITextRange` object
+- [ ] 10b-i ⭐ HIGHEST-PRIORITY FEATURE ITEM (user 2026-09-03: "full UITextInput is important
+      (including IME)"). Full `UITextInput` conformance — ~25 methods over `UITextPosition` / `UITextRange` object
       graphs — buys marked text (a live preedit rendered by the app rather than only the committed
       result), the edit menu, and dictation. ⚠ Do NOT half-implement it: UIKit probes for the protocol and
       then calls methods that must return real `UITextPosition` objects, so returning nil CRASHES rather
@@ -365,7 +397,8 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       hideKeyboard via `InputMethodManager`. Verified on a headless android-34 emulator: the keyboard
       opens from a tap and `commitText("hi ")` reaches Rust.
 
-- [ ] 10a-iv CONFLICT, needs a product decision — do NOT guess. The soft keyboard is now raised by TWO
+- [ ] 10a-iv RULED (user 2026-09-03: "ideally we can refactor to one, but not game-breaking if
+      not possible") - attempt the unification, keep both only with a stated reason. The soft keyboard is now raised by TWO
       paths and they disagree by design:
         (a) the focus-driven raise added with the Java bridge, hooked to `CursorBlinkTimerAction`
             (a caret blinks exactly when the focused thing is editable), and
@@ -381,7 +414,8 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       and can the engine distinguish user focus from restored/programmatic focus?), not a wiring one,
       so it is logged rather than decided here.
 
-- [ ] 10a-iii `EditorInfo` hints (`inputType`, `imeOptions`) are how Android decides to show a numeric pad
+- [ ] 10a-iii UNBLOCKED (user 2026-09-03: an input-purpose attribute, "default to whatever is
+      the default input purpose if not set"). `EditorInfo` hints (`inputType`, `imeOptions`) are how Android decides to show a numeric pad
       or a "Go" key instead of Enter. Needs an input-purpose attribute on the DOM node first, which is a
       design question, not plumbing.
 
@@ -412,17 +446,17 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `cargo check --tests -p azul-dll` was RED on every target and had been for some time. That
       is what stopped the new tests being verifiable at all; confirmed pre-existing by stashing.
 
-- [ ] 9h-i-b macOS media keys: `NSEventTypeSystemDefined` subtype 8 (`NX_SYSDEFINED`), which
+- [ ] IN SCOPE (user 2026-09-03: implement blindly, research the API first). 9h-i-b macOS media keys: `NSEventTypeSystemDefined` subtype 8 (`NX_SYSDEFINED`), which
       needs a CGEventTap (and therefore the accessibility permission) or the `MediaPlayer`
       framework's remote-command centre. Neither is a keysym table; both are a separate transport
       with a permission prompt attached, which is why the Linux half landed alone.
-- [ ] 9h-i-a Linux MPRIS: where the desktop environment HAS grabbed the media keys, they never
+- [ ] IN SCOPE, and the user notes D-Bus APIs already exist here: "we implement and dlopen blindly". 9h-i-a Linux MPRIS: where the desktop environment HAS grabbed the media keys, they never
       reach the application as keysyms at all and the transport is MPRIS over D-Bus. The keysym
       table above is correct and complete for the ungrabbed case; this is the other case.
 
 ### Follow-ups opened by 9f/9g
 
-- [ ] 9f-i No backend enumerates HID devices or pushes reports. Linux `/dev/hidraw*` or libudev,
+- [ ] IN SCOPE (implement blindly). 9f-i No backend enumerates HID devices or pushes reports. Linux `/dev/hidraw*` or libudev,
       macOS `IOHIDManager`.
       WIN32 IS NOW PART-WAY: 9d-i built the shared infrastructure the item pointed at — the
       `RegisterRawInputDevices` call, the `WM_INPUT` arm and `GetRawInputData` are all in place,
@@ -471,7 +505,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `--target aarch64-linux-android --features _internal_deps` (the 8-target gate does NOT enable
       `jni`, so the gate alone would have proved nothing). Host + 8/8 mobile + 2759/7561/1953/208.
 
-- [ ] 9g-i-a Android `Vibrator`/`VibrationEffect.Composition` path - the ONLY way to reach the
+- [ ] IN SCOPE (implement blindly). 9g-i-a Android `Vibrator`/`VibrationEffect.Composition` path - the ONLY way to reach the
       composition primitives (`LOW_TICK`, `QUICK_RISE`, `QUICK_FALL`, `SPIN`), amplitude scaling and
       arbitrary waveforms, so it is also the only way `HapticRequest::intensity` and `duration_ms`
       mean anything on Android. NOT wired because it requires `android.permission.VIBRATE` in the
@@ -500,9 +534,9 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       EVIDENCE: all three generator paths (impact, notification, selection) proven COMPILED by
       deliberate type errors under `--target aarch64-apple-ios`; no `static_mut_refs` warnings.
       Host, 8/8 mobile, 9 haptics tests green. Compile-only by user direction.
-- [ ] 9g-i-c Win32 `SimpleHapticsController` via WinRT - reaches Surface Pen and some gamepads,
+- [ ] IN SCOPE (implement blindly). 9g-i-c Win32 `SimpleHapticsController` via WinRT - reaches Surface Pen and some gamepads,
       NOT the trackpad. Needs the WinRT activation plumbing, which the shell does not have yet.
-- [ ] 9g-i-d Gamepad rumble (`HapticTarget::Gamepad`). Every backend currently skips it: it is a
+- [ ] IN SCOPE (implement blindly). 9g-i-d Gamepad rumble (`HapticTarget::Gamepad`). Every backend currently skips it: it is a
       continuous dual-motor amplitude, not a tap, which is exactly what `intensity`/`duration_ms`
       were added for. Needs a per-controller actuator handle and a STOP path (a motor left running
       when the window closes keeps buzzing), neither of which exists.
@@ -543,11 +577,14 @@ TOOLING TRAPS (cost real time, worth knowing):
   - api.json docs must be ASCII: an em-dash in a Rust doc comment is a HARD checker error, so 15
     doc lines across 12 methods had to be de-dashed and the methods re-added.
 
-- [ ] 9g-ii-a `get_composition_cursor` and `get_raw_mouse_motion` return `Option<(usize, usize)>` /
+- [ ] 9g-ii-a UNBLOCKED - NOT a design question (user 2026-09-03: "no, we have impl_option! and
+      OptionNodeId already, make new structs if needed").
+      `get_composition_cursor` and `get_raw_mouse_motion` return `Option<(usize, usize)>` /
       `Option<(f64, f64)>`. Non-empty tuples are not C-compatible. Each needs a NAMED two-field
       struct, and naming it is an API design decision (is raw motion a `LogicalVec2`? a new
       `MouseMotionDelta`?) - LOGGED rather than invented. Removed from api.json meanwhile.
-- [ ] 9g-ii-b `find_scroll_target` returns `Option<NodeId>`. `NodeId`'s own doc says
+- [ ] 9g-ii-b UNBLOCKED - same ruling as 9g-ii-a: build the type rather than debating it.
+      `find_scroll_target` returns `Option<NodeId>`. `NodeId`'s own doc says
       `NodeHierarchyItemId` is "the FFI wrapper type" and `NodeId`'s field is private, so exposing
       `NodeId` directly would hand bindings a type they cannot construct. Which of the two the
       public API should return is a decision, not a mechanical fix.
@@ -850,7 +887,7 @@ TOOLING TRAPS (cost real time, worth knowing):
 - [ ] 9c-i-b The crown PRESS. `DialState::pressed` stays false on Android because a crown click
       arrives as a KeyEvent (`KEYCODE_STEM_PRIMARY` on Wear), not on the motion axis - so it needs
       a key-side producer feeding the same `DialState`, not another motion arm.
-- [ ] 9c-i-c Win32 `RadialController`: still needs WinRT interop the shell does not have, and is
+- [ ] IN SCOPE (implement blindly). 9c-i-c Win32 `RadialController`: still needs WinRT interop the shell does not have, and is
       the only backend that can ever fill `contact_position` (a Surface Dial placed on a Studio
       display).
 - [x] 9c-ii DONE — all four layers plus the registration the layer model does not mention.
@@ -1020,7 +1057,7 @@ TOOLING TRAPS (cost real time, worth knowing):
       escape the sentinel-or-`[0,1]` contract every consumer trusts. Host, iOS, 8/8 mobile,
       azul-dll 1969 (+6).
 
-- [ ] 8f-i-a The pad TOUCHPAD and its gyro/accelerometer are still unfilled on every backend.
+- [ ] IN SCOPE (implement blindly). 8f-i-a The pad TOUCHPAD and its gyro/accelerometer are still unfilled on every backend.
       Unlike battery these have no gilrs equivalent at all - gilrs does not surface them - so they
       need SDL or raw HID on desktop and `GCMotion` on Apple. Filling only the Apple half would
       make the platforms genuinely diverge, which is why battery landed alone.
@@ -1050,7 +1087,7 @@ TOOLING TRAPS (cost real time, worth knowing):
       level. Android target compiles with `_internal_deps` (the gate does not enable `jni`).
       Host, 8/8 mobile, azul-core 2760 (+1).
 
-- [ ] 8e-i-a The same eight kinds on apple/linux/windows. iOS has direct equivalents for most
+- [ ] IN SCOPE (implement blindly). 8e-i-a The same eight kinds on apple/linux/windows. iOS has direct equivalents for most
       (`CMDeviceMotion.gravity`/`userAcceleration`/`attitude.quaternion`, `CMAltimeter` for
       pressure, `CMPedometer` for steps) but they come from a DIFFERENT CoreMotion object than
       the raw three, so it is a new registration path rather than more cases in a switch. Linux
@@ -1112,7 +1149,10 @@ TOOLING TRAPS (cost real time, worth knowing):
 
 ### Follow-ups opened by 7c
 
-- [ ] 7c-i Windows TOUCHPAD pinch is not reachable through `WM_GESTURE`. A precision touchpad reports pan
+- [ ] 7c-i UNBLOCKED, and the answer is BOTH (user 2026-09-03: "ctrl-wheel synthesize if we have
+      a kbd+mouse setup, otherwise also DirectManipulation. Make a flag in AppConfig whether to
+      disable the synthetic kbd+mouse pinch"). Windows TOUCHPAD pinch is not reachable through
+      `WM_GESTURE`. A precision touchpad reports pan
       and zoom as `WM_MOUSEWHEEL` / `WM_MOUSEHWHEEL` (zoom as Ctrl+wheel, the convention browsers zoom on),
       and the raw finger geometry is only available through Direct Manipulation
       (`IDirectManipulationViewport`). Decide whether to synthesize a pinch from Ctrl+wheel — which is what
