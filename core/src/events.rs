@@ -556,7 +556,38 @@ pub struct WindowEventData {
 /// pointer-acceleration curve applied and are clamped to the screen, so
 /// differencing them gives accelerated motion that stops dead at the edge of
 /// the display. These deltas are pre-acceleration and unbounded.
+/// Where the caret sits INSIDE an open IME preedit.
+///
+/// Both offsets are into the preedit string, not into the document: the
+/// preedit is not committed text and has no position in the document until it
+/// is. An IME uses this to place its candidate window under the segment being
+/// edited, and a `begin != end` pair is a SELECTED segment - several IMEs
+/// (Japanese conversion especially) move a highlighted region through the
+/// preedit as the user cycles candidates.
+///
+/// A named struct rather than the `(usize, usize)` this used to be, because a
+/// non-empty tuple has no C representation - so the accessor could not be
+/// exposed at all and no binding could read an IME's caret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub struct CompositionCursor {
+    /// Start offset in the preedit, in bytes.
+    pub begin: usize,
+    /// End offset. Equal to `begin` for a caret with no selected segment.
+    pub end: usize,
+}
+
+azul_css::impl_option!(
+    CompositionCursor,
+    OptionCompositionCursor,
+    [Debug, Copy, Clone, PartialEq, Eq]
+);
+
+/// `#[repr(C)]` because `CallbackInfo::get_raw_mouse_motion` hands this
+/// across the C API. Without it the layout is undefined at the boundary and
+/// the generated bindings read garbage fields.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
 pub struct RawMotionEventData {
     /// Horizontal motion in the device's own units. NOT logical pixels: a
     /// mouse reports counts, whose size depends on its DPI, which is exactly
@@ -567,6 +598,12 @@ pub struct RawMotionEventData {
     /// Which device moved, or `0` when the platform does not say.
     pub device_id: u64,
 }
+
+azul_css::impl_option!(
+    RawMotionEventData,
+    OptionRawMotionEventData,
+    [Debug, Copy, Clone, PartialEq]
+);
 
 /// Data carried by the three IME composition events.
 ///

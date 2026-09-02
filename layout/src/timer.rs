@@ -618,7 +618,14 @@ impl TimerCallbackInfo {
     /// the user drags beyond its edge.
     #[must_use]
     pub fn find_scroll_target(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
-        self.callback_info.find_scroll_target(dom_id, node_id)
+        // Converted back to the internal `NodeId`: the public accessor returns
+        // the FFI wrapper (`NodeHierarchyItemId`) so bindings can use it, while
+        // this caller is the auto-scroll timer inside the engine and wants the
+        // plain index it indexes with.
+        self.callback_info
+            .find_scroll_target(dom_id, node_id)
+            .into_option()
+            .and_then(|n| n.into_crate_internal())
     }
 
     /// Get the scroll input queue for consuming pending scroll inputs.

@@ -577,44 +577,31 @@ TOOLING TRAPS (cost real time, worth knowing):
   - api.json docs must be ASCII: an em-dash in a Rust doc comment is a HARD checker error, so 15
     doc lines across 12 methods had to be de-dashed and the methods re-added.
 
-- [ ] 9g-ii-a UNBLOCKED - NOT a design question (user 2026-09-03: "no, we have impl_option! and
-      OptionNodeId already, make new structs if needed").
-      `get_composition_cursor` and `get_raw_mouse_motion` return `Option<(usize, usize)>` /
-      `Option<(f64, f64)>`. Non-empty tuples are not C-compatible. Each needs a NAMED two-field
-      struct, and naming it is an API design decision (is raw motion a `LogicalVec2`? a new
-      `MouseMotionDelta`?) - LOGGED rather than invented. Removed from api.json meanwhile.
-- [ ] 9g-ii-b UNBLOCKED - same ruling as 9g-ii-a: build the type rather than debating it.
-      `find_scroll_target` returns `Option<NodeId>`. `NodeId`'s own doc says
-      `NodeHierarchyItemId` is "the FFI wrapper type" and `NodeId`'s field is private, so exposing
-      `NodeId` directly would hand bindings a type they cannot construct. Which of the two the
-      public API should return is a decision, not a mechanical fix.
-- [x] 9g-ii-c DONE. Four accessors returned borrowed slices, which have no C representation (a
-      slice is a fat pointer C has no name for), so all four were unreachable from every binding.
-      Returning an owned `*Vec` is not a new convention - it is the one every other exposed
-      collection accessor already uses (`get_node_classes` -> `StringVec`, `get_monitors` ->
-      `MonitorVec`, `get_dropped_files` -> `StringVec`).
-      TOUCH PAIR was nearly free and for a better reason than expected: `TouchState` ALREADY
-      stores `TouchPointVec`, and the accessors were calling `.as_ref()` to hand out a slice of
-      it. So the fix DELETED a conversion rather than adding one - the FFI type was there all
-      along and the accessor was narrowing it.
-      HID needed the types built: `impl_option!` + `impl_vec!` + debug/clone/partialeq for both
-      `HidDevice` and `HidReport`. Both were already `#[repr(C)]` with FFI-safe fields (`AzString`,
-      `U8Vec`), so nothing about the element types had to change.
-      MODULE: `HidDevice`/`HidReport` landed in `misc`; moved to `gamepad`, because `core/src/
-      hid.rs` frames itself as the escape hatch FOR the gamepad path (flight sticks and wheels
-      that are not Xbox-shaped - the same split SDL draws between joystick and gamepad events), so
-      that is where someone looking for controller input looks.
-      TRAP, third instance: the override table is PREFIX-matched, and `("Hid", "gamepad")` would
-      have captured `HidpiAdjustedBounds` (HiDPI, nothing to do with input) exactly as `("Dial",
-      ...)` captured `DialogAriaInfo` and `("Table", ...)` captured `TabletPadState`. Entries are
-      spelled in full and a test pins that HiDPI stays in `window`.
-      EVIDENCE: `codegen all` + dll build (api.json passing its own checker does NOT prove the
-      bindings compile - that is how the `AzOption(usize, usize)` breakage got through last time);
-      all four now return `HidDeviceVec`/`HidReportVec`/`TouchPointVec` in api.json. Host check,
-      8/8 mobile, azul-core 2759, azul-layout 7561, azul-dll 1963, azul-doc 209.
-      NOTE: `.into()` on a `&[T]` yields a BORROWED vec and fails to compile with "borrowed data
-      escapes outside of method" - the owned form is `.to_vec().into()`, same as
-      `get_dropped_files`.
+- [x] 9g-ii-a DONE, per the ruling ("make new structs if needed"). Both accessors returned
+      non-empty tuples, which have no C representation, so neither could be exposed and no
+      binding could read an IME caret or a raw motion delta.
+      `get_raw_mouse_motion` needed NO new struct: `RawMotionEventData { dx, dy, device_id }`
+      already existed in core as the payload of `EventType::RawMotionMotion`, with the exact
+      field set the accessor was flattening into a tuple. It only lacked `#[repr(C)]` - which it
+      needed anyway, being handed across the boundary - plus an `impl_option!`. Checking for an
+      existing type before writing one is what kept this from adding a duplicate.
+      `get_composition_cursor` DID need one: `CompositionCursor { begin, end }`. `SelectionRange`
+      was the obvious candidate to reuse and is wrong for it - two `TextCursor`s, positions in
+      the DOCUMENT, where a preedit is uncommitted text with no document position at all until
+      it commits.
+- [x] 9g-ii-b DONE, and it needed no new type either: `OptionNodeHierarchyItemId` ALREADY EXISTS
+      (`core/src/styled_dom.rs`), and `NodeHierarchyItemId` is precisely what `NodeId`'s own docs
+      call "the FFI wrapper type". (`OptionNodeId` does not exist - the earlier grep hit was
+      `OptionNodeIdNodeMap`, an unrelated node-graph type.)
+      So `find_scroll_target` returns the FFI id, and the two INTERNAL callers - the auto-scroll
+      timer wrapper and the drag-autoscroll site in the dll - convert back to `NodeId`, which is
+      what they index with. The public API is FFI-correct and the engine keeps the ergonomic type.
+      EVIDENCE for both: `codegen all` + dll build put `AzCallbackInfo_getCompositionCursor`,
+      `_getRawMouseMotion` and `_findScrollTarget` in the C ABI, returning
+      `AzOptionCompositionCursor` / `AzOptionRawMotionEventData` / `AzOptionNodeHierarchyItemId`.
+      autofix converged at 0 patches / 0 errors. azul-core 2760, azul-layout 7575, azul-dll 1973,
+      host, 8/8 mobile.
+
 - [ ] 9g-ii-d `get_last_input_sample` -> `Option<&InputSample>`: `InputSample` has no `repr` and two
       `(f32, f32)` tuple fields (`tilt`, `touch_radius`). Same named-struct decision as 9g-ii-a.
 - [ ] 9g-ii-e `get_current_hit_test` / `get_hit_test_frame` / `get_hit_test_history` return

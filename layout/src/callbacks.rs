@@ -4893,15 +4893,17 @@ impl CallbackInfo {
     /// from `GCS_CURSORPOS` and macOS from the `selectedRange` handed to
     /// `setMarkedText:selectedRange:replacementRange:`.
     #[must_use]
-    pub fn get_composition_cursor(&self) -> Option<(usize, usize)> {
+    pub fn get_composition_cursor(&self) -> azul_core::events::OptionCompositionCursor {
         let lw = self.get_layout_window();
         let m = &lw.text_edit_manager;
         if m.preedit_text.is_none() {
-            return None;
+            return azul_core::events::OptionCompositionCursor::None;
         }
         let begin = usize::try_from(m.preedit_cursor_begin).unwrap_or(0);
         let end = usize::try_from(m.preedit_cursor_end).unwrap_or(begin);
-        Some((begin, end))
+        azul_core::events::OptionCompositionCursor::Some(
+            azul_core::events::CompositionCursor { begin, end },
+        )
     }
 
     /// Whether an IME composition is currently open on the focused node.
@@ -4956,11 +4958,16 @@ impl CallbackInfo {
     /// which is exactly why applications expose a sensitivity setting rather
     /// than treating them as pixels.
     #[must_use]
-    pub fn get_raw_mouse_motion(&self) -> Option<(f64, f64)> {
+    pub fn get_raw_mouse_motion(&self) -> azul_core::events::OptionRawMotionEventData {
         self.get_layout_window()
             .device_event_manager
             .peek_raw_motion()
-            .map(|m| (m.dx, m.dy))
+            .map(|m| azul_core::events::RawMotionEventData {
+                dx: m.dx,
+                dy: m.dy,
+                device_id: m.device_id,
+            })
+            .into()
     }
 
     /// Which modifier keys are held right now.
@@ -5686,8 +5693,18 @@ impl CallbackInfo {
     /// IFC root and the horizontal scroll box, so a strict-ancestor search
     /// skipped straight past the field and scrolled the page instead.
     #[must_use]
-    pub fn find_scroll_target(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+    /// Returns the FFI node id, not the internal `NodeId`: `NodeId`'s own docs
+    /// name `NodeHierarchyItemId` as "the FFI wrapper type", and `NodeId`'s
+    /// field is private, so handing one to a binding would give it a value it
+    /// cannot construct or inspect.
+    pub fn find_scroll_target(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) -> azul_core::styled_dom::OptionNodeHierarchyItemId {
         self.find_scroll_container(dom_id, node_id, Inclusivity::SelfAndAncestors)
+            .map(|n| azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)))
+            .into()
     }
 
     fn find_scroll_container(

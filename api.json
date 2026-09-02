@@ -14546,6 +14546,81 @@
                                     "type": "TouchPointVec"
                                 },
                                 "fn_body": "object.get_predicted_touches()"
+                            },
+                            "get_composition_cursor": {
+                                "doc": [
+                                    "Byte offsets of the composition caret/selection within the string from",
+                                    "[`Self::get_composition_text`], as `(begin, end)`. Equal values mean a",
+                                    "collapsed caret. `None` when no composition is active.",
+                                    "",
+                                    "Wayland reports these directly on `preedit_string`; Win32 derives them",
+                                    "from `GCS_CURSORPOS` and macOS from the `selectedRange` handed to",
+                                    "`setMarkedText:selectedRange:replacementRange:`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionCompositionCursor"
+                                },
+                                "fn_body": "object.get_composition_cursor()"
+                            },
+                            "get_raw_mouse_motion": {
+                                "doc": [
+                                    "Raw pointer motion since the last frame, in DEVICE units, or `None`",
+                                    "when the pointer is not locked or nothing moved.",
+                                    "",
+                                    "This is not the difference between two cursor positions: those have",
+                                    "already had the OS acceleration curve applied and are clamped to the",
+                                    "screen, so differencing them gives accelerated motion that stops dead",
+                                    "at the display edge. Raw deltas are pre-acceleration and unbounded,",
+                                    "which is what a 3D orbit, a first-person camera or an infinite-drag",
+                                    "scrubber needs.",
+                                    "",
+                                    "Units are the device's own counts, whose size depends on its DPI -",
+                                    "which is exactly why applications expose a sensitivity setting rather",
+                                    "than treating them as pixels."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionRawMotionEventData"
+                                },
+                                "fn_body": "object.get_raw_mouse_motion()"
+                            },
+                            "find_scroll_target": {
+                                "doc": [
+                                    "The scroll box `node_id` LIVES IN - itself, if it is one.",
+                                    "",
+                                    "Drag-autoscroll wants this, not [`Self::find_scroll_parent`]: the caret",
+                                    "in a `TextInput` sits on the value `<p>`, which is simultaneously the",
+                                    "IFC root and the horizontal scroll box, so a strict-ancestor search",
+                                    "skipped straight past the field and scrolled the page instead.",
+                                    "Returns the FFI node id, not the internal `NodeId`: `NodeId`'s own docs",
+                                    "name `NodeHierarchyItemId` as \"the FFI wrapper type\", and `NodeId`'s",
+                                    "field is private, so handing one to a binding would give it a value it",
+                                    "cannot construct or inspect."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "dom_id": "DomId"
+                                    },
+                                    {
+                                        "node_id": "NodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionNodeHierarchyItemId"
+                                },
+                                "fn_body": "object.find_scroll_target(dom_id, node_id)"
                             }
                         },
                         "repr": "C"
@@ -27633,6 +27708,29 @@
                                 },
                                 "overflow_scrolling": {
                                     "type": "OverflowScrolling"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "RawMotionEventData": {
+                        "external": "azul_core::events::RawMotionEventData",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "dx": {
+                                    "type": "f64"
+                                },
+                                "dy": {
+                                    "type": "f64"
+                                },
+                                "device_id": {
+                                    "type": "u64"
                                 }
                             }
                         ],
@@ -49018,6 +49116,31 @@
                             {
                                 "Auto": {},
                                 "Touch": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CompositionCursor": {
+                        "external": "azul_core::events::CompositionCursor",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "begin": {
+                                    "type": "usize"
+                                },
+                                "end": {
+                                    "type": "usize"
+                                }
                             }
                         ],
                         "repr": "C"
@@ -112055,6 +112178,43 @@
                                     "doc": [
                                         "Some value of type HidReport"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionCompositionCursor": {
+                        "external": "azul_core::events::OptionCompositionCursor",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "CompositionCursor"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionRawMotionEventData": {
+                        "external": "azul_core::events::OptionRawMotionEventData",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "RawMotionEventData"
                                 }
                             }
                         ],
