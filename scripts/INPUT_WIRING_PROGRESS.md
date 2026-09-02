@@ -148,10 +148,23 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 10d
 
-- [ ] 10d-i The `UIPencilInteraction` object is not CREATED or attached to the view. The delegate methods
-      exist and are registered, but something has to `[[UIPencilInteraction alloc] init]`, set its
-      delegate to the view and call `addInteraction:` — and gate it on iOS 12.1+ / 17.5+ respectively,
-      since `didReceiveSqueeze:` does not exist on older SDKs.
+- [x] 10d-i DONE, and the premise was stale in the WORSE direction: the note said the delegate
+      methods "exist and are registered". They existed and were NEVER REFERENCED - `grep
+      pencil_did_tap|pencil_did_squeeze` found only their own definitions, and `sel!(pencil
+      Interaction` returned ZERO. So neither method was registered on the class AND no interaction
+      object existed, leaving `PenSqueeze` and `PenDoubleTap` with no producer on any platform
+      while looking implemented in the source.
+      FIXED all three layers: both selectors registered on the view class,
+      `UIPencilInteractionDelegate` conformance declared (optionally, like `UIKeyInput` above it -
+      the protocol is absent from pre-12.1 SDKs and `Protocol::get` returning None must not abort
+      class registration), and a `UIPencilInteraction` allocated, delegated to the view and
+      added via `addInteraction:`.
+      Gated on the CLASS existing rather than on a version number: `Class::get("UIPencil
+      Interaction")` returning None IS the right answer on anything older than 12.1. The squeeze
+      selector needs no separate gate - registering a method the OS never calls is harmless, which
+      is simpler than the 17.5 check the note proposed.
+      EVIDENCE: the attach proven COMPILED by a deliberate type error reported under
+      `--target aarch64-apple-ios`. 8/8 mobile. Compile-only by user direction.
 
 ### Follow-ups opened by 10c
 

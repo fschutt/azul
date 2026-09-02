@@ -1247,6 +1247,26 @@ fn get_or_create_view_class() -> &'static Class {
             decl.add_protocol(p);
         }
 
+        // Apple Pencil barrel gestures. Both handler functions have existed
+        // since 5b and were NEVER REFERENCED - not registered as methods and
+        // with no interaction object to deliver to them - so `PenSqueeze` and
+        // `PenDoubleTap` had no producer on any platform despite looking
+        // implemented.
+        decl.add_method(
+            sel!(pencilInteractionDidTap:),
+            pencil_did_tap as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(pencilInteraction:didReceiveSqueeze:),
+            pencil_did_squeeze as extern "C" fn(&Object, Sel, *mut Object, *mut Object),
+        );
+        // Optional, like UIKeyInput above: the protocol is absent from SDKs
+        // older than iOS 12.1, and `Protocol::get` returning None there must
+        // not abort class registration.
+        if let Some(p) = Protocol::get("UIPencilInteractionDelegate") {
+            decl.add_protocol(p);
+        }
+
         AZUL_VIEW_CLASS = decl.register();
     });
     unsafe { &*AZUL_VIEW_CLASS }
@@ -1533,6 +1553,30 @@ impl IOSWindow {
             //  .layout_window.gesture_drag_manager.inject_native_gesture
             // so CallbackInfo::get_swipe_direction etc. observe a result.
             install_gesture_recognizers(view);
+
+            // Attach a `UIPencilInteraction`. The delegate methods are on the
+            // view class, but UIKit delivers barrel gestures ONLY through an
+            // interaction object that something has to create and add - and
+            // nothing did, so a Pencil 2 double-tap and a Pencil Pro squeeze
+            // reached nothing at all.
+            //
+            // Gated on the CLASS existing rather than on a version number:
+            // `UIPencilInteraction` is iOS 12.1+, and `Class::get` returning
+            // None is exactly the right answer on anything older. The squeeze
+            // selector needs no separate gate - registering a method the OS
+            // never calls is harmless.
+            if let Some(pencil_cls) = Class::get("UIPencilInteraction") {
+                let interaction: *mut Object = msg_send![pencil_cls, alloc];
+                let interaction: *mut Object = msg_send![interaction, init];
+                if !interaction.is_null() {
+                    let _: () = msg_send![interaction, setDelegate: view];
+                    let _: () = msg_send![view, addInteraction: interaction];
+                    log_info!(
+                        LogCategory::Input,
+                        "[iOS] UIPencilInteraction attached (barrel tap + squeeze)"
+                    );
+                }
+            }
 
             // Subscribe to the keyboard's frame changes. Nothing on iOS wrote
             // `SafeAreaInsets::keyboard` before this: the field existed and
