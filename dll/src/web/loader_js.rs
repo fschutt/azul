@@ -56,6 +56,11 @@ var EVT_SCROLL    = 11;
 var EVT_MOUSEENTER  = 12;
 var EVT_MOUSELEAVE  = 13;
 var EVT_CONTEXTMENU = 14;
+// G2-a-i: azul's MouseOver is the ENTRY event since the MouseOver/MouseMove
+// split, so it needs a kind of its own — decoding it as EVT_MOUSEMOVE made
+// the two filters register the same kind and left MouseOver firing on every
+// move. Must match `event_kind::MOUSEOVER` in dll/src/web/eventloop.rs.
+var EVT_MOUSEOVER = 15;
 
 var EVENT_BUFFER_SIZE = 256;
 var OUT_LEN_SIZE = 4;
@@ -707,12 +712,7 @@ function azEvNameToKind(name) {
         case 'scroll':      return EVT_SCROLL;
         // S1 (2026-06-11): the rest of the html_render.rs vocabulary.
         case 'mousemove':   return EVT_MOUSEMOVE;
-        // NOTE: azul's `MouseOver` is the ENTRY event (W3C `mouseover`) since
-        // the MouseMove split, and there is no EVT_MOUSEOVER constant to
-        // decode it to - adding one means extending the JS/Rust dispatch
-        // protocol on both sides. Logged as G2-a-i. Until then a browser
-        // `mouseover` is delivered as a move, which is what it did before.
-        case 'mouseover':   return EVT_MOUSEMOVE;
+        case 'mouseover':   return EVT_MOUSEOVER;
         case 'mouseenter':  return EVT_MOUSEENTER;
         case 'mouseleave':  return EVT_MOUSELEAVE;
         case 'contextmenu': return EVT_CONTEXTMENU;
@@ -964,6 +964,15 @@ function azWireListeners() {
     // S1: mouseenter/mouseleave don't bubble — capture-phase listeners on
     // body still see descendants' events. Routed by DOM TARGET (leave
     // coordinates are outside the node; never bbox-hit-test these).
+    // G2-a-i: `mouseover` BUBBLES (unlike mouseenter), so a plain body
+    // listener sees every descendant's entry and `azDispatch` can resolve the
+    // node the same way mousemove does. It is deliberately NOT coalesced into
+    // an animation frame the way mousemove is: a move is a stream where only
+    // the latest sample matters, but an entry is a discrete transition and
+    // dropping one loses the entry entirely.
+    document.body.addEventListener('mouseover', function(e) {
+        azDispatch(EVT_MOUSEOVER, e);
+    });
     document.body.addEventListener('mouseenter', function(e) {
         azDispatchTargeted(EVT_MOUSEENTER, e);
     }, true);
@@ -1115,4 +1124,82 @@ if (document.readyState === 'loading') {
 }
 })();
 "#.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::web::eventloop::event_kind;
+
+    /// The `EVT_*` ints in the loader ARE a wire protocol: JS encodes one into
+    /// every dispatched event and `AzStartup_dispatchEvent` compares it against
+    /// the kind a node registered. The two lists live in different LANGUAGES
+    /// and only a comment ("must match `event_kind`") has ever held them
+    /// together.
+    ///
+    /// Drift is silent and total: renumbering one side does not fail to
+    /// compile, it routes every event of that kind to the wrong callback - or
+    /// to none. This is the same hazard the Android sensor codes have, and it
+    /// gets the same guard.
+    #[test]
+    fn the_loader_event_kinds_match_the_rust_wire_codes() {
+        let js = generate_loader_js();
+        for (name, expected) in [
+            ("CLICK", event_kind::CLICK),
+            ("MOUSEDOWN", event_kind::MOUSEDOWN),
+            ("MOUSEUP", event_kind::MOUSEUP),
+            ("MOUSEMOVE", event_kind::MOUSEMOVE),
+            ("DBLCLICK", event_kind::DBLCLICK),
+            ("WHEEL", event_kind::WHEEL),
+            ("KEYDOWN", event_kind::KEYDOWN),
+            ("KEYUP", event_kind::KEYUP),
+            ("FOCUSIN", event_kind::FOCUSIN),
+            ("FOCUSOUT", event_kind::FOCUSOUT),
+            ("RESIZE", event_kind::RESIZE),
+            ("SCROLL", event_kind::SCROLL),
+            ("MOUSEENTER", event_kind::MOUSEENTER),
+            ("MOUSELEAVE", event_kind::MOUSELEAVE),
+            ("CONTEXTMENU", event_kind::CONTEXTMENU),
+            ("MOUSEOVER", event_kind::MOUSEOVER),
+        ] {
+            // Matches `var EVT_NAME = N;` allowing the loader's alignment
+            // padding between the name and the `=`.
+            let needle = format!("var EVT_{name} ");
+            let decl = js
+                .lines()
+                .find(|l| l.trim_start().starts_with(&needle) || l.trim_start().starts_with(&format!("var EVT_{name}=")))
+                .unwrap_or_else(|| panic!("the loader declares no EVT_{name}"));
+            let value: u32 = decl
+                .split('=')
+                .nth(1)
+                .and_then(|rhs| rhs.trim().trim_end_matches(';').split_whitespace().next())
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_else(|| panic!("could not parse a value from {decl:?}"));
+            assert_eq!(
+                value, expected,
+                "EVT_{name} is {value} in the loader but {expected} in event_kind"
+            );
+        }
+    }
+
+    /// `mouseover` must NOT decode as a move. Before G2-a-i it did, which - once
+    /// azul's `MouseOver` became the ENTRY event - left `MouseOver` and
+    /// `MouseMove` registering the SAME kind, so a `MouseOver` subscriber went
+    /// on firing continuously while the pointer travelled.
+    #[test]
+    fn a_browser_mouseover_no_longer_decodes_as_a_move() {
+        let js = generate_loader_js();
+        assert!(
+            js.contains("case 'mouseover':   return EVT_MOUSEOVER;"),
+            "the loader must decode mouseover to its own kind"
+        );
+        assert!(
+            !js.contains("case 'mouseover':   return EVT_MOUSEMOVE;"),
+            "mouseover must not decode as a move"
+        );
+        assert!(
+            js.contains("addEventListener('mouseover'"),
+            "nothing would produce the kind without a listener"
+        );
+    }
 }

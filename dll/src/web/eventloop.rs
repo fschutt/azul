@@ -139,6 +139,16 @@ pub mod event_kind {
     pub const MOUSEENTER: u32 = 12;
     pub const MOUSELEAVE: u32 = 13;
     pub const CONTEXTMENU: u32 = 14;
+    /// W3C `mouseover` — the pointer ENTERED the node, bubbling.
+    ///
+    /// Distinct from `MOUSEMOVE` since the MouseOver/MouseMove split (G2-a):
+    /// before it, azul's `MouseOver` carried movement semantics and the loader
+    /// decoded a browser `mouseover` as `MOUSEMOVE`. Once `MouseOver` became
+    /// the ENTRY event, that left both filters registering the same kind, so
+    /// they were indistinguishable and a `MouseOver` subscriber still fired on
+    /// every move. APPENDED, because the value is a wire code shared with
+    /// `loader_js.rs`.
+    pub const MOUSEOVER: u32 = 15;
 }
 
 /// Common event-bytes layout offsets. JS writes these with

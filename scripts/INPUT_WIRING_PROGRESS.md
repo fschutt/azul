@@ -1525,12 +1525,38 @@ FOUND AND FIXED HERE:
       MOVEMENT were retargeted at `MouseMove` (they encoded the old semantics). Host check, 8/8
       mobile, azul-core 2759, azul-layout 7564, azul-dll 1963, azul-doc 209.
 
-- [ ] G2-a-i WEB: a browser `mouseover` is still decoded as `EVT_MOUSEMOVE` (`loader_js.rs`),
-      because there is no `EVT_MOUSEOVER` constant - adding one extends the JS/Rust dispatch
-      protocol on both sides, which is web-backend work rather than part of this split.
-      `html_render.rs` already emits the right DOM event NAME for each filter, so the mapping is
-      correct in the outbound direction and only the inbound decode is missing.
+- [x] G2-a-i DONE. This was a regression the MouseOver/MouseMove split (G2-a) introduced and I
+      logged rather than fixed: once azul's `MouseOver` became the ENTRY event, `html_render`
+      emitted "mouseover" for it while `loader_js` still decoded that name to `EVT_MOUSEMOVE`. So
+      `MouseOver` and `MouseMove` registered the SAME wire kind, `cb_node_kinds` could not tell
+      them apart, and a web `MouseOver` subscriber went on firing continuously while the pointer
+      travelled - exactly the firehose the split was meant to end.
+      FIXED with a kind of its own on both sides (`EVT_MOUSEOVER` / `event_kind::MOUSEOVER`, 15,
+      appended) plus the listener that produces it - there was none, so the constant alone would
+      have been inert. `mouseover` BUBBLES, unlike `mouseenter`, so a plain body listener sees
+      every descendant's entry and `azDispatch` resolves the node as `mousemove` does. It is
+      deliberately NOT coalesced into an animation frame the way `mousemove` is: a move is a
+      stream where only the newest sample matters, but an ENTRY is a discrete transition and
+      dropping one loses it entirely.
+      GUARDED: `the_loader_event_kinds_match_the_rust_wire_codes` checks all 16 constants against
+      `event_kind`. They are a wire protocol split across two LANGUAGES held together by nothing
+      but a comment, and drift is silent - renumbering one side routes every event of that kind
+      to the wrong callback, or to none. Same hazard as the Android sensor codes, same guard.
+      EVIDENCE: all 16 constants verified in sync; the extracted loader parses cleanly under
+      `deno`; the Rust changes are baseline-compared against a stashed tree.
+      ⚠ The test CANNOT RUN TODAY - see G2-a-ii.
 
+- [ ] G2-a-ii LOW PRIORITY (user: "ignore the web for now, the web feature is not that important
+      right now"). The `web` FEATURE DOES NOT BUILD, and has not for some time: `cargo check -p
+      azul-dll --features web` fails with 4 errors that predate anything in this arc, confirmed by
+      stashing - `rust_fontconfig::AZ_IN_WASM_SOLVE` no longer exists, `WebConfig` is missing a
+      `prelift` field, and two `html_render.rs` call sites use APIs that have since changed
+      arity/shape. It is straightforward drift from the rest of the codebase moving while this
+      backend was not being compiled.
+      NOTHING CATCHES IT: no CI job builds the `web` feature (rust.yml's dll check omits it), which
+      is precisely why it rotted. That also means the G2-a-i guard above compiles nowhere today.
+      Fixing the four errors is a separate piece of work from the event-kind wiring, which is why
+      it was logged rather than folded in.
 - [x] TOOLING (azul-doc): the module classifier now matches DIFFICULT names manually FIRST and
       everything else automatically, per user direction — so a collision is fixed by naming the
       one bad case rather than by tuning a keyword (which reranks every other type) or by
