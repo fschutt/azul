@@ -984,6 +984,16 @@ pub enum EventType {
     /// carrying a delta behind it — so pointer lock was a flag that did
     /// nothing. This is the event it was waiting for.
     RawMouseMotion,
+    /// A dial or rotary encoder turned. APPENDED at the end for ABI stability.
+    ///
+    /// The Surface Dial, a tablet pad's dial, a Wear crown, an Apple Digital
+    /// Crown. `DialState` (rotation, detents, pressed, contact point) has been
+    /// readable through `CallbackInfo::get_dial_state()` since the type
+    /// landed, with no event to subscribe to — so a dial could only be POLLED
+    /// from an unrelated callback that happened to run.
+    DialRotate,
+    /// A dial with a physical click was pressed. APPENDED at the end.
+    DialClick,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1714,6 +1724,11 @@ fn matches_hover_filter(
         (HoverEventFilter::Change, EventType::Change) => true,
         (HoverEventFilter::Reset, EventType::Reset) => true,
         (HoverEventFilter::Invalid, EventType::Invalid) => true,
+        // The dial. A NODE-scoped dial event only makes sense for a device
+        // that reports a contact point (a Surface Dial ON the display); every
+        // other dial reaches the app through the Window filter.
+        (HoverEventFilter::DialRotate, EventType::DialRotate) => true,
+        (HoverEventFilter::DialClick, EventType::DialClick) => true,
         _ => false,
     }
 }
@@ -1968,6 +1983,8 @@ fn matches_window_filter(
         (RawMouseMotion, EventType::RawMouseMotion) => true,
         (ModifiersChanged, EventType::ModifiersChanged) => true,
         (WindowEventFilter::HidReport, EventType::HidReport) => true,
+        (WindowEventFilter::DialRotate, EventType::DialRotate) => true,
+        (WindowEventFilter::DialClick, EventType::DialClick) => true,
         _ => false,
     }
 }
@@ -2480,6 +2497,10 @@ pub enum HoverEventFilter {
     Reset,
     /// A control failed validation. APPENDED at the end.
     Invalid,
+    /// A dial turned over this node. APPENDED at the end.
+    DialRotate,
+    /// A dial was clicked over this node. APPENDED at the end.
+    DialClick,
 }
 
 impl HoverEventFilter {
@@ -2498,6 +2519,9 @@ impl HoverEventFilter {
     #[must_use]
     pub const fn to_focus_event_filter(&self) -> Option<FocusEventFilter> {
         match self {
+            // No focus mirror: a dial is delivered by POSITION (hover) or to
+            // the window, never by focus.
+            Self::DialRotate | Self::DialClick => None,
             Self::MouseOver => Some(FocusEventFilter::MouseOver),
             Self::MouseDown => Some(FocusEventFilter::MouseDown),
             Self::LeftMouseDown => Some(FocusEventFilter::LeftMouseDown),
@@ -2924,6 +2948,14 @@ pub enum WindowEventFilter {
     /// Window-scoped like `RawMouseMotion`: a HID report has no position, so
     /// there is no node it belongs to.
     HidReport,
+    /// A dial turned. APPENDED at the end.
+    ///
+    /// Window-scoped as well as node-scoped: a dial used OFF the screen (every
+    /// device except a Surface Dial on a Surface Studio) reports no contact
+    /// point, so no node is under it and only the window can receive it.
+    DialRotate,
+    /// A dial with a physical click was pressed. APPENDED at the end.
+    DialClick,
 }
 
 impl WindowEventFilter {
@@ -2932,6 +2964,8 @@ impl WindowEventFilter {
     #[must_use]
     pub const fn to_hover_event_filter(&self) -> Option<HoverEventFilter> {
         match self {
+            Self::DialRotate => Some(HoverEventFilter::DialRotate),
+            Self::DialClick => Some(HoverEventFilter::DialClick),
             Self::MouseOver => Some(HoverEventFilter::MouseOver),
             Self::MouseDown => Some(HoverEventFilter::MouseDown),
             Self::LeftMouseDown => Some(HoverEventFilter::LeftMouseDown),
@@ -3317,6 +3351,10 @@ static ALL_HOVER: &[HoverEventFilter] = &[
     HoverEventFilter::Change,
     HoverEventFilter::Reset,
     HoverEventFilter::Invalid,
+    // Planning is DERIVED by probing this list, so a filter missing from it
+    // can never be planned — the failure this arc has hit repeatedly.
+    HoverEventFilter::DialRotate,
+    HoverEventFilter::DialClick,
 ];
 
 /// Every `FocusEventFilter` variant, so planning can be derived from matching.
@@ -3450,6 +3488,8 @@ static ALL_WINDOW: &[WindowEventFilter] = &[
     WindowEventFilter::BiometricResult,
     WindowEventFilter::ScreenColorPicked,
     WindowEventFilter::KeyringResult,
+    WindowEventFilter::DialRotate,
+    WindowEventFilter::DialClick,
 ];
 
 /// Every `ComponentEventFilter` variant, so planning can be derived from
@@ -3864,6 +3904,8 @@ fn event_type_to_filters_legacy_hint(
         // and there is no node it belongs to. A locked pointer is a
         // window-wide mode by definition.
         E::RawMouseMotion => vec![EF::Window(W::RawMouseMotion)],
+        E::DialRotate => vec![EF::Hover(H::DialRotate), EF::Window(W::DialRotate)],
+        E::DialClick => vec![EF::Hover(H::DialClick), EF::Window(W::DialClick)],
         E::PenSqueeze => vec![EF::Hover(H::PenSqueeze), EF::Window(W::PenSqueeze)],
         E::PenDoubleTap => vec![EF::Hover(H::PenDoubleTap), EF::Window(W::PenDoubleTap)],
         E::PenHover => vec![EF::Hover(H::PenHover), EF::Window(W::PenHover)],

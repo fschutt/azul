@@ -485,9 +485,37 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [ ] 9c-i Other dial backends: Win32 `RadialController` (needs WinRT interop, and is the only one that
       reports `contact_position`), Android `SOURCE_ROTARY_ENCODER` for a Wear crown, Apple Digital Crown.
       The type and the accessor are in place; each is a backend, not a design question.
-- [ ] 9c-ii No `DialRotate` / `DialClick` FILTERS yet — the dial is readable via
-      `CallbackInfo::get_dial_state()` but not subscribable. Adding them means the full four layers plus
-      two `EventType` variants appended at the end.
+- [x] 9c-ii DONE — all four layers plus the registration the layer model does not mention.
+      `DialState` has been readable through `CallbackInfo::get_dial_state()` since the type
+      landed, with no `EventType` and no filter behind it, so a dial could only be POLLED from
+      an unrelated callback that happened to run.
+      Added, each appended at the END for ABI: `EventType::DialRotate`/`DialClick`,
+      `HoverEventFilter::DialRotate`/`DialClick`, `WindowEventFilter::DialRotate`/`DialClick`,
+      their matcher arms, their `ALL_HOVER`/`ALL_WINDOW` entries (planning is DERIVED from those
+      lists), the `event_type_to_filters_legacy_hint` rows, and the two exhaustive
+      filter-mapping tables the compiler pointed at (`to_focus_event_filter` answers `None` — a
+      dial is delivered by POSITION or to the window, never by focus).
+      A FIFTH thing the four-layer model does not name: the PROVIDER has to be in the dll's
+      provider slice. `GestureAndDragManager` was not, and the comment on that slice says
+      exactly why that matters — "without being in this slice the provider is simply never
+      polled and the whole chain stays invisible". It now implements `EventProvider` and is
+      registered, with its pending flags drained beside the others.
+      WINDOW-SCOPED, deliberately: only a Surface Dial placed on a Surface Studio's display
+      reports a contact point. Every other dial — tablet pad, Wear crown, Digital Crown — is
+      used off-screen, so no node is under it and the window is the only honest target; the
+      Hover filters still receive it by propagation from the root.
+      THE CLICK IS AN EDGE. A dial reports `pressed` as a LEVEL, so arming on the level would
+      emit `DialClick` once per frame for as long as it is held — the same trap the gamepad
+      press edges avoid. Rotation is armed per update rather than diffed: two identical deltas
+      in a row are two turns, not one.
+      api.json: both filter enums synced through `autofix` (the `TabletPadState` modify patch it
+      also proposed was skipped — that is the known `add_custom_impls` drift), bindings
+      regenerated.
+      EVIDENCE: `the_dial_filters_are_reachable_from_planning` pins the round trip for all four
+      filters — verified it bites by deleting the two `ALL_HOVER` entries ("DialRotate must plan
+      DialRotate, got [Window(DialRotate)]") — and `a_held_dial_click_does_not_re_fire` pins the
+      edge across held, released and re-pressed. azul-core 2750, azul-layout 7556, azul-dll
+      1944, host check and 8-target gate green.
 
 ### Follow-ups opened by 9b
 

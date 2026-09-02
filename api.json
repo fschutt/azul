@@ -4031,7 +4031,9 @@
                                 "ForwardMouseUp": {},
                                 "RawMouseMotion": {},
                                 "ModifiersChanged": {},
-                                "HidReport": {}
+                                "HidReport": {},
+                                "DialRotate": {},
+                                "DialClick": {}
                             }
                         ],
                         "repr": "C"
@@ -39017,7 +39019,9 @@
                                 "Submit": {},
                                 "Change": {},
                                 "Reset": {},
-                                "Invalid": {}
+                                "Invalid": {},
+                                "DialRotate": {},
+                                "DialClick": {}
                             }
                         ],
                         "repr": "C"

@@ -4514,3 +4514,32 @@ fn every_component_and_application_filter_is_reachable_from_planning() {
     }
 }
 
+/// The dial's four layers agree: the filters are PLANNABLE and they match.
+///
+/// `DialState` was readable through `CallbackInfo::get_dial_state()` from the
+/// day the type landed, with no `EventType` and no filter behind it — so a
+/// dial could only be POLLED from an unrelated callback that happened to run.
+/// This pins the round trip, so a filter that exists but is absent from
+/// `ALL_HOVER`/`ALL_WINDOW` (and is therefore unplannable) fails here.
+#[test]
+fn the_dial_filters_are_reachable_from_planning() {
+    use crate::events::{
+        event_type_to_filters, EventData, EventFilter, EventType, HoverEventFilter as H,
+        WindowEventFilter as W,
+    };
+
+    for (event_type, hover, window) in [
+        (EventType::DialRotate, H::DialRotate, W::DialRotate),
+        (EventType::DialClick, H::DialClick, W::DialClick),
+    ] {
+        let planned = event_type_to_filters(event_type, &EventData::None);
+        assert!(
+            planned.contains(&EventFilter::Window(window)),
+            "{event_type:?} must plan {window:?}, got {planned:?}",
+        );
+        assert!(
+            planned.contains(&EventFilter::Hover(hover)),
+            "{event_type:?} must plan {hover:?}, got {planned:?}",
+        );
+    }
+}

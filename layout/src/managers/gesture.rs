@@ -663,6 +663,13 @@ pub struct GestureAndDragManager {
     pub trackpad_pressure_stage: i32,
     /// Most recent rotary-control rotation. `None` until a dial reports.
     pub dial_state: Option<DialState>,
+    /// `true` when the dial reported a rotation this pass, cleared by the dll
+    /// after the event is collected. Without a pending flag the provider would
+    /// have to diff, and two equal deltas in a row are two turns.
+    pending_dial_rotate: bool,
+    /// `true` on the press EDGE of a clickable dial (a level would re-fire
+    /// every frame while held).
+    pending_dial_click: bool,
     /// A pen barrel squeeze awaiting dispatch (Apple Pencil Pro).
     pub pending_pen_squeeze: bool,
     /// A pen barrel double-tap awaiting dispatch (Apple Pencil 2+).
@@ -766,6 +773,8 @@ impl GestureAndDragManager {
             pen_event_pending: false,
             trackpad_pressure_stage: 0,
             dial_state: None,
+            pending_dial_rotate: false,
+            pending_dial_click: false,
             pending_pen_squeeze: false,
             pending_pen_double_tap: false,
             last_pen_sample_nanos: None,
@@ -1256,7 +1265,23 @@ impl GestureAndDragManager {
     /// frame that reported it, and an app that misses a frame wants the next
     /// rotation, not a stale sum.
     pub fn update_dial_state(&mut self, state: DialState) {
+        // A rotation belongs to the frame that reported it, so the EVENT is
+        // armed per update rather than derived from a diff: two identical
+        // deltas in a row are two turns, not one.
+        self.pending_dial_rotate = state.delta_rad != 0.0 || state.detent_count != 0.0;
+        // The CLICK is an edge — a dial reports `pressed` as a level, and
+        // arming on the level would fire once per frame for as long as it is
+        // held. Same rule the gamepad's press edges use.
+        self.pending_dial_click =
+            state.pressed && !self.dial_state.is_some_and(|d| d.pressed);
         self.dial_state = Some(state);
+    }
+
+    /// Clear the dial's pending events. The dll calls this after the pass has
+    /// collected them, exactly as it does for the other providers.
+    pub const fn clear_pending_dial(&mut self) {
+        self.pending_dial_rotate = false;
+        self.pending_dial_click = false;
     }
 
     /// The most recent dial rotation, if any dial has reported.
@@ -4061,4 +4086,101 @@ pub struct DialState {
     /// an app can draw a radial menu around it. `None` everywhere else,
     /// including for the same Dial used off-screen.
     pub contact_position: azul_core::geom::OptionLogicalPosition,
+}
+
+/// Yields `DialRotate` / `DialClick` for the dial.
+///
+/// `DialState` has been readable through `CallbackInfo::get_dial_state()`
+/// since the type landed, and there was no event to subscribe to — so an app
+/// could only POLL it from an unrelated callback that happened to run. This is
+/// the producer that makes the filters reachable.
+///
+/// Both are WINDOW-scoped (`DomNodeId::ROOT`). Only a Surface Dial placed on a
+/// Surface Studio's display reports a contact point; every other dial — a
+/// tablet pad's, a Wear crown, a Digital Crown — is used off-screen, so there
+/// is no node under it and the window is the only honest target. The Hover
+/// filters still receive it by propagation from the root.
+impl azul_core::events::EventProvider for GestureAndDragManager {
+    fn get_pending_events(
+        &self,
+        timestamp: azul_core::task::Instant,
+    ) -> Vec<azul_core::events::SyntheticEvent> {
+        use azul_core::{
+            dom::DomNodeId,
+            events::{EventData, EventSource, EventType, SyntheticEvent},
+        };
+        let mut events = Vec::new();
+        if self.pending_dial_rotate {
+            events.push(SyntheticEvent::new(
+                EventType::DialRotate,
+                EventSource::User,
+                DomNodeId::ROOT,
+                timestamp.clone(),
+                // The payload is read through `CallbackInfo::get_dial_state()`,
+                // the accessor that already existed — the same convention the
+                // gamepad uses rather than duplicating the state into the event.
+                EventData::None,
+            ));
+        }
+        if self.pending_dial_click {
+            events.push(SyntheticEvent::new(
+                EventType::DialClick,
+                EventSource::User,
+                DomNodeId::ROOT,
+                timestamp,
+                EventData::None,
+            ));
+        }
+        events
+    }
+}
+
+#[cfg(test)]
+mod dial_event_tests {
+    /// A rotation arms an event; a repeated PRESS does not.
+    ///
+    /// The click is an EDGE. A dial reports `pressed` as a level, so arming on the
+    /// level would emit `DialClick` once per frame for as long as it is held —
+    /// the same trap the gamepad's press edges avoid.
+    #[test]
+    fn a_held_dial_click_does_not_re_fire() {
+        use azul_core::events::{EventProvider, EventType};
+        use super::{DialState, GestureAndDragManager};
+
+        let ts = || azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0));
+        let dial = |delta: f32, pressed: bool| DialState {
+            device_id: 1,
+            delta_rad: delta,
+            detent_count: 0.0,
+            pressed,
+            contact_position: azul_core::geom::OptionLogicalPosition::None,
+        };
+        let kinds = |m: &GestureAndDragManager| {
+            m.get_pending_events(ts())
+                .iter()
+                .map(|e| e.event_type)
+                .collect::<Vec<_>>()
+        };
+
+        let mut m = GestureAndDragManager::new();
+        m.update_dial_state(dial(0.5, true));
+        assert_eq!(kinds(&m), vec![EventType::DialRotate, EventType::DialClick]);
+
+        // Still held, still turning: the rotation repeats, the click does not.
+        m.clear_pending_dial();
+        m.update_dial_state(dial(0.5, true));
+        assert_eq!(
+            kinds(&m),
+            vec![EventType::DialRotate],
+            "a HELD dial must not re-fire DialClick",
+        );
+
+        // Released and pressed again: a new edge.
+        m.clear_pending_dial();
+        m.update_dial_state(dial(0.0, false));
+        assert!(kinds(&m).is_empty(), "no rotation and no press is no event");
+        m.clear_pending_dial();
+        m.update_dial_state(dial(0.0, true));
+        assert_eq!(kinds(&m), vec![EventType::DialClick]);
+    }
 }

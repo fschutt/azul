@@ -9094,6 +9094,11 @@ pub trait PlatformWindow {
                 &w.scroll_manager,
                 &w.text_edit_manager,
                 &w.device_event_manager,
+                // The dial (DialRotate/DialClick). Its state was readable
+                // through `get_dial_state()` and had no event; being absent
+                // from THIS slice is what would keep the new filters
+                // unreachable, exactly as the note above says.
+                &w.gesture_drag_manager,
             )
         });
 
@@ -9110,7 +9115,7 @@ pub trait PlatformWindow {
         if let Some(p) = document_edit_provider.as_ref() {
             event_providers.push(p as &dyn azul_core::events::EventProvider);
         }
-        if let Some((tm, sm, gm, geo, pm, bm, km, ed, scroll, te, dev)) = providers_ref {
+        if let Some((tm, sm, gm, geo, pm, bm, km, ed, scroll, te, dev, dial)) = providers_ref {
             event_providers.push(tm as &dyn azul_core::events::EventProvider);
             event_providers.push(sm as &dyn azul_core::events::EventProvider);
             event_providers.push(gm as &dyn azul_core::events::EventProvider);
@@ -9122,6 +9127,7 @@ pub trait PlatformWindow {
             event_providers.push(scroll as &dyn azul_core::events::EventProvider);
             event_providers.push(te as &dyn azul_core::events::EventProvider);
             event_providers.push(dev as &dyn azul_core::events::EventProvider);
+            event_providers.push(dial as &dyn azul_core::events::EventProvider);
         }
 
         // Get current timestamp
@@ -9246,6 +9252,10 @@ pub trait PlatformWindow {
             let _ = w.device_event_manager.take_raw_motion();
             let _ = w.gamepad_manager.take_pending_hotplug();
             w.gesture_drag_manager.clear_pen_event_pending();
+            // The dial, for the same reason: `get_pending_events` takes
+            // `&self`, so a rotation left armed would re-emit DialRotate on
+            // every pass for the life of the window.
+            w.gesture_drag_manager.clear_pending_dial();
             // Barrel gestures are one-shot: leaving them latched would
             // re-fire PenSqueeze on every pass for the life of the window.
             let _ = w.gesture_drag_manager.take_pen_barrel_gestures();
