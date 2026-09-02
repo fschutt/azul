@@ -12,21 +12,27 @@
 //!
 //! Per-platform:
 //! - **Linux**: `/dev/hidraw*`, implemented here. No library to load.
-//! - **macOS**: `IOHIDManager` - 9f-i-a.
+//! - **macOS**: `IOHIDManager`, implemented here. dlopen'd; needs Input Monitoring.
 //! - **Windows**: `RIM_TYPEHID` through the `WM_INPUT` arm 9d-i already built,
 //!   plus `hid.dll` for the vid/pid - 9f-i-b.
 
 #[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(target_os = "macos")]
+pub mod macos;
 
 /// Enumerate HID devices and publish the list. Idempotent.
 pub fn enumerate() {
     #[cfg(target_os = "linux")]
     linux::enumerate();
+    #[cfg(target_os = "macos")]
+    macos::enumerate();
 }
 
 /// Poll every open device for queued reports. Called once per pump pass.
 pub fn poll() {
     #[cfg(target_os = "linux")]
     linux::poll();
+    #[cfg(target_os = "macos")]
+    macos::poll();
 }

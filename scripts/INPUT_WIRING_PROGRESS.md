@@ -534,10 +534,43 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `--target x86_64-unknown-linux-gnu`; `cargo check --tests` green for that target. Host, 8/8
       mobile, azul-layout 7579, azul-dll 1973. ⚠ No Linux machine here - compile-only.
 
-- [ ] 9f-i-a macOS `IOHIDManager`: `IOHIDManagerCreate` -> `SetDeviceMatching(NULL)` ->
-      `RegisterInputReportCallback` -> `ScheduleWithRunLoop`, dlopen'd from IOKit like the other
-      Apple backends. Its report callback fires on the run loop, so it parks into the same channel
-      this commit added - the consumer side needs nothing further.
+- [x] 9f-i-a DONE — macOS `IOHIDManager`, dlopen'd like the ScreenCaptureKit and CoreGraphics-TCC
+      paths beside it, so nothing is a link-time dependency and a missing symbol degrades rather
+      than failing to launch.
+      SIGNATURES CAME FROM THE REAL SDK HEADERS on this machine
+      (`MacOSX15.2.sdk/.../IOKit.framework/Headers/hid/`), not from memory or from the docs page -
+      which is what settled the callback shape: `IOHIDManagerRegisterInputReportCallback` takes NO
+      buffer (unlike the per-device variant), and `IOHIDReportCallback` is
+      `(context, result, sender, type, reportID, report, reportLength)`.
+      INPUT MONITORING is the defining constraint and the reason this is not just "the Linux
+      backend again": `IOHIDManagerOpen` returns `kIOReturnNotPermitted` unless the user granted
+      it in System Settings, and that permission gates ALL HID access, not just keyboards, despite
+      what its own description says. `IOHIDCheckAccess` (10.15+) is called BEFORE opening so the
+      common denied case is a quiet log rather than an error path, and an EMPTY device list is
+      published so `get_hid_devices()` answers definitively instead of looking like it never ran.
+      Missing on pre-10.15 means granted, matching the screen-capture preflight beside it.
+      `IOHIDRequestAccess` is deliberately NOT called: it raises a system privacy prompt, and a UI
+      toolkit must not do that on its own initiative merely because an app linked it. See
+      9f-i-a-i.
+      NO `poll()` on this platform - reports arrive through the RUN LOOP, so the callback fires on
+      the main thread and parks into the same channel the Linux sweep uses. The Linux backend
+      sweeps file descriptors only because hidraw has no callback.
+      Device identity is resolved ONCE into a `IOHIDDeviceRef -> HidDevice` map, because the
+      callback would otherwise do a CF property round trip per report at up to 1000 Hz.
+      EVIDENCE: this is the HOST platform, so `cargo check -p azul-dll` is a real build of the
+      real path rather than a cross-compile - it compiled first try with zero warnings from the
+      new module, and all three seams (device publish, callback registration, report push) were
+      proven compiled by deliberate type errors. Linux still green, 8/8 mobile, azul-dll 1973,
+      azul-layout 7579. ⚠ Not RUN: no Input Monitoring grant here and no way to assert on a real
+      device, so this has never seen a report.
+
+- [ ] 9f-i-a-i Should Input Monitoring be a `Capability`? `permission.rs` models Camera,
+      Microphone, ScreenCapture, Geolocation, Biometric and others, and HID access on macOS is
+      exactly that shape - a TCC permission the user grants and an app may want to request
+      explicitly. Adding it means a new api.json enum variant plus a backend arm in all five
+      permission files, which is a public-API decision rather than part of the HID producer, so it
+      is logged rather than folded in. Until then the backend reports no devices when denied,
+      which is honest but gives an app no way to ASK.
 - [ ] 9f-i-b Windows `RIM_TYPEHID`. 9d-i already built `RegisterRawInputDevices`, the `WM_INPUT`
       arm and `GetRawInputData`, so adding a HID usage registration is a few lines - but the
       report is VARIABLE length (`dwSizeHid` * `dwCount` trailing bytes), needing a heap buffer
