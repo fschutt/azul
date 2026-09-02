@@ -592,6 +592,8 @@ fn play_haptic_native(request: &azul_core::haptics::HapticRequest) {
     crate::desktop::shell2::macos::play_haptic(request);
     #[cfg(target_os = "android")]
     crate::desktop::shell2::android::play_haptic(request);
+    #[cfg(target_os = "ios")]
+    crate::desktop::shell2::ios::play_haptic(request);
 }
 
 fn apply_focus_restyle(

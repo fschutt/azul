@@ -478,11 +478,28 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       app's manifest: an app that has not declared it gets a `SecurityException`, not a silent
       no-op, and a UI toolkit cannot declare a permission on the app's behalf. Needs an opt-in
       (a builder flag or a manifest probe via `PackageManager.checkPermission`) before it can ship.
-- [ ] 9g-i-b iOS `UIFeedbackGenerator` - maps 1:1 onto more of the vocabulary than any other
-      platform (`UIImpactFeedbackGenerator` has all five impact weights, `UINotificationFeedback
-      Generator` has success/warning/error, `UISelectionFeedbackGenerator` has selection). Needs
-      `prepare()` called ahead of the event to avoid the actuator spin-up latency, which does not
-      fit the current fire-and-forget drain and is why it is not in this commit.
+- [x] 9g-i-b DONE. My own note here was WRONG about the blocker: it said `prepare()` is needed
+      "to avoid the actuator spin-up latency, which does not fit the current fire-and-forget
+      drain". `prepare()` is a latency OPTIMISATION, not a precondition - `impactOccurred` works
+      without it - so nothing was actually blocked. Re-checked instead of trusted.
+      And `prepare()` is deliberately still NOT called: it helps only when called AHEAD of an
+      anticipated event, while this drain runs at the moment the app has already asked to play.
+      Calling it there would power the Taptic Engine on every request for no latency benefit.
+      What DOES matter is that a `UIFeedbackGenerator` is a long-lived OBJECT, not a message:
+      allocating one per tap is the documented way to get the worst latency, because the engine
+      spins up per instance. Seven are cached - one per impact style plus notification and
+      selection - so a repeated tap reuses a warm object. That is the real fix the note was
+      groping at.
+      iOS maps onto the vocabulary more directly than any other platform, so almost nothing folds:
+      all five impact weights are 1:1, all three notification types are 1:1, and the six light
+      discrete events share the selection generator. Only LongPress/ContextClick/Spin and
+      Rise/Fall degrade, and to exactly what `HapticPattern::fallback` would have reached anyway.
+      It is also the ONLY platform where `HapticRequest::intensity` can be honoured at all:
+      `impactOccurredWithIntensity:` (iOS 13+) is probed with `respondsToSelector:` rather than a
+      version check, the same idiom the pencil and gamepad-battery paths use.
+      EVIDENCE: all three generator paths (impact, notification, selection) proven COMPILED by
+      deliberate type errors under `--target aarch64-apple-ios`; no `static_mut_refs` warnings.
+      Host, 8/8 mobile, 9 haptics tests green. Compile-only by user direction.
 - [ ] 9g-i-c Win32 `SimpleHapticsController` via WinRT - reaches Surface Pen and some gamepads,
       NOT the trackpad. Needs the WinRT activation plumbing, which the shell does not have yet.
 - [ ] 9g-i-d Gamepad rumble (`HapticTarget::Gamepad`). Every backend currently skips it: it is a

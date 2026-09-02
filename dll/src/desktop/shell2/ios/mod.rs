@@ -1998,6 +1998,171 @@ extern "C" fn ui_delete_backward(_this: &Object, _cmd: Sel) {
     settle(window, result);
 }
 
+/// Play one haptic request through `UIFeedbackGenerator`.
+///
+/// iOS maps onto azul's vocabulary more directly than any other platform:
+/// `UIImpactFeedbackGenerator` has all five impact weights, notification has
+/// success/warning/error, and selection is its own generator. So unlike macOS
+/// (three patterns for nineteen) almost nothing has to be folded.
+///
+/// # Why the generators are cached
+///
+/// A `UIFeedbackGenerator` is a long-lived object, not a message. Allocating
+/// one per tap is the documented way to get the WORST latency, because the
+/// Taptic Engine spins up per instance. Seven are cached here - one per impact
+/// style plus notification and selection - so a repeated tap reuses a warm
+/// object.
+///
+/// `prepare()` is deliberately NOT called. It buys a few ms on the first tap
+/// by powering the engine ahead of time, but it only helps if called ahead of
+/// an ANTICIPATED event, and this drain runs at the moment the app has already
+/// asked to play. Calling it here would power the actuator for every request
+/// with no latency benefit at all - the note in 9g-i-b treated it as a
+/// precondition, which it is not.
+///
+/// Main-thread only, which the caller (the drain at the end of a pass) is.
+#[cfg(target_os = "ios")]
+pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
+    use azul_core::haptics::{HapticPattern, HapticTarget};
+
+    // iOS exposes no per-controller actuator through UIKit and the phone body
+    // is not a stand-in for a gamepad's motors, so anything but the system
+    // target is skipped - the documented contract on `HapticTarget`.
+    if request.target != HapticTarget::System {
+        return;
+    }
+
+    // UIImpactFeedbackStyle
+    const STYLE_LIGHT: i64 = 0;
+    const STYLE_MEDIUM: i64 = 1;
+    const STYLE_HEAVY: i64 = 2;
+    const STYLE_SOFT: i64 = 3;
+    const STYLE_RIGID: i64 = 4;
+    // UINotificationFeedbackType
+    const NOTIFY_SUCCESS: i64 = 0;
+    const NOTIFY_WARNING: i64 = 1;
+    const NOTIFY_ERROR: i64 = 2;
+
+    enum Play {
+        Impact(i64),
+        Notify(i64),
+        Selection,
+    }
+
+    let play = match request.pattern {
+        // Selection is its own generator, and the light discrete UI events
+        // are what it is for.
+        HapticPattern::Selection
+        | HapticPattern::KeyPress
+        | HapticPattern::KeyRelease
+        | HapticPattern::TextHandleMove
+        | HapticPattern::GestureStart
+        | HapticPattern::GestureEnd => Play::Selection,
+        // The five impact weights map 1:1 - the only platform where they do.
+        HapticPattern::ImpactLight => Play::Impact(STYLE_LIGHT),
+        HapticPattern::ImpactMedium => Play::Impact(STYLE_MEDIUM),
+        HapticPattern::ImpactHeavy => Play::Impact(STYLE_HEAVY),
+        HapticPattern::ImpactSoft => Play::Impact(STYLE_SOFT),
+        HapticPattern::ImpactRigid => Play::Impact(STYLE_RIGID),
+        // Notifications map 1:1 too.
+        HapticPattern::Success => Play::Notify(NOTIFY_SUCCESS),
+        HapticPattern::Warning => Play::Notify(NOTIFY_WARNING),
+        HapticPattern::Error => Play::Notify(NOTIFY_ERROR),
+        // No native equivalent: these degrade to an impact of matching
+        // weight, which is what `HapticPattern::fallback` would reach anyway.
+        HapticPattern::LongPress | HapticPattern::ContextClick | HapticPattern::Spin => {
+            Play::Impact(STYLE_MEDIUM)
+        }
+        HapticPattern::Rise | HapticPattern::Fall => Play::Impact(STYLE_LIGHT),
+    };
+
+    unsafe {
+        let generator = match play {
+            Play::Impact(style) => impact_generator(style),
+            Play::Notify(kind) => {
+                let g = notification_generator();
+                if !g.is_null() {
+                    let _: () = msg_send![g, notificationOccurred: kind];
+                }
+                return;
+            }
+            Play::Selection => {
+                let g = selection_generator();
+                if !g.is_null() {
+                    let _: () = msg_send![g, selectionChanged];
+                }
+                return;
+            }
+        };
+        if generator.is_null() {
+            return;
+        }
+        // `impactOccurred(intensity:)` is iOS 13+; the no-argument form is
+        // 10+. Probed rather than version-checked, the same way the pencil
+        // and battery paths do it - and this is the ONE platform where
+        // `HapticRequest::intensity` can be honoured at all.
+        if msg_send![generator, respondsToSelector: sel!(impactOccurredWithIntensity:)] {
+            let intensity = f64::from(request.intensity_clamped());
+            let _: () = msg_send![generator, impactOccurredWithIntensity: intensity];
+        } else {
+            let _: () = msg_send![generator, impactOccurred];
+        }
+    }
+}
+
+/// One cached `UIImpactFeedbackGenerator` per style. Indexed by the
+/// `UIImpactFeedbackStyle` value, which is why the array is 5 long.
+#[cfg(target_os = "ios")]
+unsafe fn impact_generator(style: i64) -> *mut Object {
+    static mut IMPACT: [*mut Object; 5] = [ptr::null_mut(); 5];
+    let Ok(idx) = usize::try_from(style) else {
+        return ptr::null_mut();
+    };
+    if idx >= 5 {
+        return ptr::null_mut();
+    }
+    if IMPACT[idx].is_null() {
+        let Some(cls) = Class::get("UIImpactFeedbackGenerator") else {
+            return ptr::null_mut();
+        };
+        let g: *mut Object = msg_send![cls, alloc];
+        let g: *mut Object = msg_send![g, initWithStyle: style];
+        IMPACT[idx] = g;
+    }
+    IMPACT[idx]
+}
+
+#[cfg(target_os = "ios")]
+unsafe fn notification_generator() -> *mut Object {
+    static mut NOTIFY: *mut Object = ptr::null_mut();
+    if NOTIFY.is_null() {
+        let Some(cls) = Class::get("UINotificationFeedbackGenerator") else {
+            return ptr::null_mut();
+        };
+        let g: *mut Object = msg_send![cls, alloc];
+        NOTIFY = msg_send![g, init];
+    }
+    NOTIFY
+}
+
+#[cfg(target_os = "ios")]
+unsafe fn selection_generator() -> *mut Object {
+    static mut SELECTION: *mut Object = ptr::null_mut();
+    if SELECTION.is_null() {
+        let Some(cls) = Class::get("UISelectionFeedbackGenerator") else {
+            return ptr::null_mut();
+        };
+        let g: *mut Object = msg_send![cls, alloc];
+        SELECTION = msg_send![g, init];
+    }
+    SELECTION
+}
+
+/// No-op off-device: the simulator targets build this file, but a host build
+/// has no UIKit to talk to.
+#[cfg(not(target_os = "ios"))]
+pub fn play_haptic(_request: &azul_core::haptics::HapticRequest) {}
+
 /// `UIKeyboardWillChangeFrameNotification` — the keyboard moved, appeared or
 /// went away.
 ///
