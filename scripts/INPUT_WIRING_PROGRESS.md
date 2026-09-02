@@ -124,10 +124,28 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 11a/11b — REVISIT AT THE END
 
-- [ ] 11a-i `Change` currently fires on blur of any node that was the edit target, NOT only when the value
-      actually differs from what it was at focus time. Needs a `value_at_focus` snapshot on
-      `TextEditManager` to compare against. As it stands, focusing a field and tabbing away without typing
-      emits a spurious `Change`.
+- [x] 11a-i DONE. `Change` fired on blur of any node that had been the edit target, with no
+      comparison of any kind - `was_editing` only asked whether SOME node was being edited. So
+      focusing a field and tabbing straight back out emitted `Change` on a field nobody typed
+      into, which is enough to re-run validation, mark a form dirty, or fire a save.
+      `Change` is not "the value was edited" - `TextInput` already reports that, per keystroke.
+      It is "the value COMMITTED and it differs from what the user found", which is what every
+      form on the web means by it, and there was nothing to subtract the starting value from.
+      FIX: `TextEditManager::value_at_focus`, snapshotted at the focus-gained half of the same
+      function that emits the blur events, and compared at the blur half.
+      KEYED BY NODE, not a bare string: focus moving A -> B -> A must measure A against A's own
+      starting value. An unkeyed snapshot would measure A against B's, and since a snapshot is
+      taken for EVERY focused node (editability is not knowable at that site), that case is the
+      common one rather than a corner.
+      `value_changed_since_focus` returns `Option<bool>`, where `None` means UNANSWERABLE - no
+      snapshot, or one belonging to another node, reachable when focus is set programmatically.
+      The caller treats that as "no change", because inventing a `Change` from a missing snapshot
+      is precisely the bug being fixed.
+      EVIDENCE: 7 tests - an untouched field reports no change AND an edited one does (or the fix
+      would just suppress `Change` entirely, a worse bug); clearing a field counts; a snapshot is
+      never compared against another node, nor across DomIds; no snapshot is distinguishable from
+      no change; and re-focusing REPLACES the baseline rather than accumulating.
+      azul-layout 7575 (+7), azul-dll 1963, azul-core 2759, host, 8/8 mobile, autofix converged.
 - [ ] 11b-i `Reset` and `Invalid` are subscribable but unproducible. `Reset` needs a form-reset concept
       (a `form_node` + the initial values to restore); `Invalid` needs validation state on the node —
       a `required` / `pattern` attribute or a validator callback. Both are DESIGN questions, not plumbing,

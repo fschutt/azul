@@ -387,6 +387,20 @@ pub struct TextEditManager {
     pub display_list_dirty: bool,
     /// Caret / selection tween bookkeeping (see [`TextTweenState`]).
     pub tween: TextTweenState,
+    /// The value the currently focused editable node had WHEN IT GAINED FOCUS.
+    ///
+    /// `Change` is not "the value was edited" - `TextInput` already reports
+    /// that, per keystroke. `Change` is "the value COMMITTED and it differs
+    /// from what the user found", which is what every form on the web means by
+    /// it. Without a snapshot to compare against there is nothing to subtract
+    /// the starting value from, so focusing a field and tabbing straight back
+    /// out emitted a spurious `Change` on a field the user never touched -
+    /// enough to re-run validation, mark a form dirty, or fire a save.
+    ///
+    /// Keyed by node so a snapshot cannot outlive its field and be compared
+    /// against a DIFFERENT one: focus moving A -> B -> A must compare A's
+    /// current text against A's own starting value, not against B's.
+    pub value_at_focus: Option<(DomNodeId, String)>,
     /// Editing hosts whose text was mutated OUTSIDE the text-input record
     /// pipeline this pass (deletions, multi-cursor paste, the Enter line
     /// break). The host pass drains this and dispatches an `Input` event per
@@ -437,6 +451,7 @@ impl TextEditManager {
             tween: TextTweenState::default(),
             pending_edit_notifications: Vec::new(),
             pending_text_changed: Vec::new(),
+            value_at_focus: None,
         }
     }
 
@@ -668,6 +683,36 @@ impl TextEditManager {
     /// Drain the on-screen keyboard request, if one was made this pass.
     pub fn take_soft_keyboard_request(&mut self) -> Option<bool> {
         self.pending_soft_keyboard.take()
+    }
+
+    /// Record what `node` contained at the moment it gained focus.
+    ///
+    /// Called for every node that receives focus, editable or not: whether it
+    /// was editable is not knowable here, and a snapshot of a non-editable
+    /// node simply never gets compared.
+    pub fn snapshot_value_at_focus(&mut self, node: DomNodeId, value: String) {
+        self.value_at_focus = Some((node, value));
+    }
+
+    /// Whether `node`'s value differs from what it held when it gained focus.
+    ///
+    /// `None` means the question cannot be answered - no snapshot, or one
+    /// belonging to a DIFFERENT node - and the caller must not emit `Change`
+    /// on a guess. That case is reachable: focus can be set programmatically
+    /// before any snapshot exists.
+    #[must_use]
+    pub fn value_changed_since_focus(&self, node: DomNodeId, current: &str) -> Option<bool> {
+        match &self.value_at_focus {
+            Some((snapshot_node, snapshot)) if *snapshot_node == node => {
+                Some(snapshot.as_str() != current)
+            }
+            _ => None,
+        }
+    }
+
+    /// Drop the snapshot, once the node it belongs to has lost focus.
+    pub fn clear_value_at_focus(&mut self) {
+        self.value_at_focus = None;
     }
 
     /// Take the pending composition phase, if any. Drained once per pass by
@@ -2432,6 +2477,103 @@ mod autotest_generated {
             "the surviving text node is renamed, the unmounted one dropped, other DOMs untouched"
         );
     }
+    // ==================================================================
+    // Change semantics: value_at_focus (11a-i)
+    // ==================================================================
+
+    fn node(dom: DomId, n: usize) -> DomNodeId {
+        DomNodeId {
+            dom,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                NodeId::new(n),
+            )),
+        }
+    }
+
+    /// THE bug: focusing a field and tabbing straight back out emitted a
+    /// `Change` on a field nobody typed into - enough to re-run validation,
+    /// mark a form dirty, or fire a save.
+    #[test]
+    fn an_untouched_field_reports_no_change() {
+        let mut m = TextEditManager::new();
+        let n = node(DOM0, 3);
+        m.snapshot_value_at_focus(n, "hello".to_string());
+        assert_eq!(m.value_changed_since_focus(n, "hello"), Some(false));
+    }
+
+    /// ...and the other direction, or the fix would just suppress `Change`
+    /// entirely, which is a worse bug than the one being fixed.
+    #[test]
+    fn an_edited_field_reports_a_change() {
+        let mut m = TextEditManager::new();
+        let n = node(DOM0, 3);
+        m.snapshot_value_at_focus(n, "hello".to_string());
+        assert_eq!(m.value_changed_since_focus(n, "hello!"), Some(true));
+    }
+
+    /// Emptying a field is a change. Trivial, but it is the case a
+    /// `!current.is_empty()` shortcut would get wrong.
+    #[test]
+    fn clearing_a_field_is_a_change() {
+        let mut m = TextEditManager::new();
+        let n = node(DOM0, 3);
+        m.snapshot_value_at_focus(n, "hello".to_string());
+        assert_eq!(m.value_changed_since_focus(n, ""), Some(true));
+    }
+
+    /// The snapshot is keyed by node so it cannot be compared against a
+    /// DIFFERENT field. Focus moving A -> B -> A must measure A against A's
+    /// own starting value; an unkeyed snapshot would measure A against B's.
+    #[test]
+    fn a_snapshot_is_never_compared_against_another_node() {
+        let mut m = TextEditManager::new();
+        let a = node(DOM0, 3);
+        let b = node(DOM0, 4);
+        m.snapshot_value_at_focus(a, "a-value".to_string());
+        // B's text happens to differ from A's snapshot - an unkeyed
+        // implementation would call that a change to B.
+        assert_eq!(m.value_changed_since_focus(b, "b-value"), None);
+    }
+
+    /// The same node index in a DIFFERENT dom is a different node.
+    #[test]
+    fn the_snapshot_key_includes_the_dom() {
+        let mut m = TextEditManager::new();
+        m.snapshot_value_at_focus(node(DOM0, 3), "v".to_string());
+        assert_eq!(m.value_changed_since_focus(node(DOM1, 3), "other"), None);
+    }
+
+    /// With no snapshot the question is UNANSWERABLE, which is distinct from
+    /// "no change" - the caller has to decide, and it must not be told `false`
+    /// as though a comparison had happened. Reachable whenever focus is set
+    /// programmatically before any snapshot exists.
+    #[test]
+    fn no_snapshot_means_unanswerable_not_unchanged() {
+        let m = TextEditManager::new();
+        assert_eq!(m.value_changed_since_focus(node(DOM0, 3), "anything"), None);
+    }
+
+    /// A re-focus REPLACES the baseline rather than accumulating: the second
+    /// visit is measured against what the field held on the second visit.
+    #[test]
+    fn re_focusing_resets_the_baseline() {
+        let mut m = TextEditManager::new();
+        let n = node(DOM0, 3);
+        m.snapshot_value_at_focus(n, "first".to_string());
+        m.snapshot_value_at_focus(n, "second".to_string());
+        assert_eq!(m.value_changed_since_focus(n, "second"), Some(false));
+        assert_eq!(m.value_changed_since_focus(n, "first"), Some(true));
+    }
+
+    #[test]
+    fn clearing_the_snapshot_makes_it_unanswerable_again() {
+        let mut m = TextEditManager::new();
+        let n = node(DOM0, 3);
+        m.snapshot_value_at_focus(n, "v".to_string());
+        m.clear_value_at_focus();
+        assert_eq!(m.value_changed_since_focus(n, "v"), None);
+    }
+
 }
 
 impl azul_core::events::EventProvider for TextEditManager {
@@ -2529,5 +2671,6 @@ mod composition_end_tests {
         m.clear_preedit();
         assert_eq!(m.take_pending_composition(), None);
     }
+
 }
 

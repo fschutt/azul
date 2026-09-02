@@ -10672,12 +10672,37 @@ pub trait PlatformWindow {
                     // scolds the user halfway through an email address.
                     //
                     // Gated on the node having been the edit target, so
-                    // blurring a read-only node is not a change.
+                    // blurring a read-only node is not a change...
                     let was_editing = self
                         .get_layout_window()
                         .and_then(|lw| lw.text_edit_manager.get_editing_node_id())
                         .is_some();
-                    if was_editing {
+                    // ...AND on the value actually DIFFERING from what the
+                    // node held when it gained focus. `Change` means "the
+                    // value committed and it is not what the user found";
+                    // being the edit target only means the caret was there.
+                    // Without this, focusing a field and tabbing straight back
+                    // out emitted `Change` on a field nobody typed into, which
+                    // is enough to re-run validation, mark a form dirty, or
+                    // fire a save.
+                    //
+                    // `None` from `value_changed_since_focus` means the
+                    // question is unanswerable - no snapshot, or one belonging
+                    // to another node, which is reachable when focus was set
+                    // programmatically. Treated as "no change": inventing a
+                    // Change from a missing snapshot is the very bug being
+                    // fixed.
+                    let value_differs = self
+                        .get_layout_window()
+                        .and_then(|lw| {
+                            let node_id = old_node.node.into_crate_internal()?;
+                            let content = lw.get_text_before_textinput(old_node.dom, node_id);
+                            let current = lw.extract_text_from_inline_content(&content);
+                            lw.text_edit_manager
+                                .value_changed_since_focus(old_node, &current)
+                        })
+                        .unwrap_or(false);
+                    if was_editing && value_differs {
                         focus_events.push(azul_core::events::SyntheticEvent::new(
                             azul_core::events::EventType::Change,
                             azul_core::events::EventSource::User,
@@ -10723,6 +10748,18 @@ pub trait PlatformWindow {
                         now.clone(),
                         azul_core::events::EventData::None,
                     ));
+
+                    // The baseline the eventual blur compares against. Taken
+                    // for every focused node, editable or not: editability is
+                    // not knowable here, and a snapshot of a non-editable node
+                    // is simply never compared.
+                    if let Some(lw) = self.get_layout_window_mut() {
+                        if let Some(node_id) = new_node.node.into_crate_internal() {
+                            let content = lw.get_text_before_textinput(new_node.dom, node_id);
+                            let value = lw.extract_text_from_inline_content(&content);
+                            lw.text_edit_manager.snapshot_value_at_focus(new_node, value);
+                        }
+                    }
                 }
 
                 if !focus_events.is_empty() {
