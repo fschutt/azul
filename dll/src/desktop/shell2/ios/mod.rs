@@ -50,6 +50,7 @@ use crate::desktop::shell2::common::{
 use crate::desktop::shell2::headless::CpuBackend;
 
 pub mod accessibility;
+mod text_input;
 pub mod clipboard;
 
 use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
@@ -1244,6 +1245,16 @@ fn get_or_create_view_class() -> &'static Class {
         // added; declaring conformance is what makes UIKit ASK for them and
         // raise the keyboard.
         if let Some(p) = Protocol::get("UIKeyInput") {
+            decl.add_protocol(p);
+        }
+
+        // UITextInput: marked text (the IME preedit), the edit menu,
+        // dictation and the selection handles. Its 27 members are added
+        // FIRST and the conformance declared only after, so a class that is
+        // missing a method can never be advertised as conforming - UIKit
+        // probes for the protocol and then calls straight into it.
+        text_input::register(&mut decl);
+        if let Some(p) = Protocol::get("UITextInput") {
             decl.add_protocol(p);
         }
 

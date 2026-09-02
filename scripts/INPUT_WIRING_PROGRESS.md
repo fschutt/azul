@@ -342,12 +342,54 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       call being reported under `--target aarch64-apple-ios`. Compile-only by user direction
       (simulator later). Host + 8/8 mobile.
 
-- [ ] 10b-i ⭐ HIGHEST-PRIORITY FEATURE ITEM (user 2026-09-03: "full UITextInput is important
-      (including IME)"). Full `UITextInput` conformance — ~25 methods over `UITextPosition` / `UITextRange` object
-      graphs — buys marked text (a live preedit rendered by the app rather than only the committed
-      result), the edit menu, and dictation. ⚠ Do NOT half-implement it: UIKit probes for the protocol and
-      then calls methods that must return real `UITextPosition` objects, so returning nil CRASHES rather
-      than degrades. That is why 10b shipped `UIKeyInput` instead.
+- [x] 10b-i DONE — full `UITextInput` conformance (27 required members, two `UITextPosition`/
+      `UITextRange` subclasses, Apple's `UITextInputStringTokenizer`), in a new
+      `ios/text_input.rs`.
+      WHY IT MATTERED: `UIKeyInput` has three methods and no concept of a POSITION. Everything
+      the system layers on a text field - an IME's MARKED TEXT, selection handles, the edit menu,
+      dictation, Scan Text from Camera, the caret rect VoiceOver reads - goes through
+      `UITextInput`. So a Japanese or Chinese user on iOS could only type what their IME had
+      already committed: the candidate bar arrived as finished text and no preedit was ever shown.
+      THE RESEARCH CHANGED THE DESIGN. I first built a document model that spliced the preedit at
+      the caret, which needs a bridge from UIKit's flat byte offsets to azul's grapheme-cluster
+      addressing (`TextCursor` is a `(source_run, start_byte_in_run)` pair) - the compiler
+      rejected it, because `TextCursor` has no `char_index` and no `set_selection_byte_range`
+      exists. Checking how macOS - the shell where IME ALREADY WORKS - solves it settled the
+      design: it does not bridge either. Its `markedRange` reports `(0, preedit_len)` and its
+      `selectedRange` is a fixed `(0, 0)`, with a comment recording that `NSNotFound` there stops
+      the IME talking at all. This follows that proven shape instead of inventing an untestable
+      bridge.
+      TOTALITY IS THE SAFETY PROPERTY, and it is what the old note was really warning about:
+      UIKit probes for the protocol and then CALLS it, so a nil where the header says non-null
+      crashes inside UIKit rather than degrading. Every position returned is clamped into
+      `0..=len`, every range is ordered on construction (UIKit hands out reversed pairs while
+      dragging backwards), `selectionRectsForRange:` returns an EMPTY array rather than nil
+      (UIKit enumerates it unconditionally), `caretRectForPosition:` never returns a zero-HEIGHT
+      rect (that puts the magnifier off-screen), and every offset that reaches a slice goes
+      through `clamp_to_char_boundary` first so a multi-byte candidate cannot panic.
+      `unmarkText` COMMITS rather than discards - discarding would delete what the user just
+      chose. An interior `replaceRange:` is deliberately DROPPED rather than applied as an
+      insert: falling through would append the autocorrection instead of replacing it, silently
+      duplicating text on every correction. Losing a correction is a limitation; corrupting the
+      document is a bug.
+      EVIDENCE: `register` proven COMPILED by a deliberate type error under
+      `--target aarch64-apple-ios`; the protocol is declared only AFTER all 27 methods are added,
+      so a class missing one can never be advertised as conforming. Host, 8/8 mobile, azul-dll
+      1973. ⚠ COMPILE-ONLY - not run on a device or simulator.
+
+- [ ] 10b-i-a Geometry is answered from the FOCUSED NODE's rect, not per-glyph:
+      `firstRectForRange:`, `caretRectForPosition:` and `closestPositionToPoint:` return the node
+      box rather than real glyph rects, because the engine's per-character rects are not reachable
+      from the shell without a layout-query seam that does not exist. The IME candidate window and
+      the loupe therefore land in the right REGION rather than on the right character.
+- [ ] 10b-i-b The offset-space limits inherited from the macOS model, all of them precision
+      rather than correctness: the preedit is appended rather than spliced at the caret (so
+      composing mid-text reports it at the wrong offset), `setSelectedTextRange:` is accepted and
+      ignored (no engine seam selects by byte range, so a dragged handle springs back), and an
+      interior `replaceRange:` is dropped. All three need one thing: a bridge between UIKit's flat
+      offsets and `TextCursor`'s grapheme-cluster ids, built on the existing
+      `byte_offset_to_cursor` / `cursor_byte_offset_in_run` helpers plus the node's shaped layout.
+      That bridge would also fix the macOS shell, which has the same limits.
 - [x] 10b-ii DONE. On iOS the keyboard is not something you show - it is a CONSEQUENCE of a view
       becoming first responder while conforming to `UIKeyInput`. The view had conformed and
       answered `canBecomeFirstResponder = true` since 10b, and implemented `insertText:` /
