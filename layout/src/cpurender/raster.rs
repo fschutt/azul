@@ -2582,6 +2582,27 @@ pub fn render_single_item(
     Ok(())
 }
 
+/// One edge of an axis-aligned fill, snapped to the nearest pixel boundary.
+///
+/// Saturating rather than wrapping: a coordinate far outside the surface (a
+/// large CSS transform, an SVG coordinate) must clamp to the edge of the
+/// integer range instead of wrapping around to the opposite side of the
+/// screen.
+#[allow(clippy::cast_possible_truncation)] // saturating by construction
+fn round_edge(v: f32) -> i32 {
+    if v.is_nan() {
+        return 0;
+    }
+    let r = v.round();
+    if r <= f32::from(i16::MIN) {
+        return i32::from(i16::MIN);
+    }
+    if r >= f32::from(i16::MAX) {
+        return i32::from(i16::MAX);
+    }
+    r as i32
+}
+
 /// Paint a STROKED path - SVG's `stroke`, PDF's second paint operator.
 ///
 /// Strokes the real outline with agg rather than approximating it: the CPU
@@ -2686,8 +2707,23 @@ fn render_rect(
         // 1.3 ms each (~0.7 GB/s effective — a third of what the trivial row
         // loop reaches). Clip semantics match blend_bar: intersect with the
         // clip box, then fill [x0, x1) x [y0, y1).
-        let (mut fx0, mut fy0) = (rect.x as i32, rect.y as i32);
-        let (mut fx1, mut fy1) = ((rect.x + rect.width) as i32, (rect.y + rect.height) as i32);
+        //
+        // Both edges are ROUNDED, not truncated. Truncation places a
+        // fractionally-positioned rect on the pixel it barely touches instead
+        // of the one it mostly covers: a 1px caret at x = 62.8 covers a fifth
+        // of column 62 and four fifths of column 63, and `as i32` painted 62.
+        // It can also erase a hairline outright - x = 62.3, width 0.5
+        // truncates to the empty range 62..62 - which is the class of bug
+        // where a 1px separator or caret is simply missing at some scroll
+        // offsets. Rounding both edges keeps the WIDTH (a difference of two
+        // rounded values changes by at most one) and puts it where the
+        // antialiased path would put its centre of mass. Integer-aligned
+        // rects, which is nearly all of them, are unaffected.
+        let (mut fx0, mut fy0) = (round_edge(rect.x), round_edge(rect.y));
+        let (mut fx1, mut fy1) = (
+            round_edge(rect.x + rect.width),
+            round_edge(rect.y + rect.height),
+        );
         if let Some(c) = clip {
             fx0 = fx0.max(c.x as i32);
             fy0 = fy0.max(c.y as i32);
@@ -6037,6 +6073,79 @@ mod autotest_generated {
             .filter(|c| c[0] > 200 && c[1] < 60)
             .count();
         assert_eq!(red, 16, "a 4x4 rect covers exactly 16 pixels");
+    }
+
+    /// THE caret bug: a fractionally-positioned hairline was TRUNCATED onto
+    /// the pixel it barely touches instead of the one it mostly covers.
+    ///
+    /// A 1px caret at x = 62.8 covers a fifth of column 62 and four fifths of
+    /// column 63; `as i32` painted 62, a pixel to the left of where the
+    /// layout put it - visible as a caret that misses its own column, and the
+    /// reason a pixel-level caret assertion failed for months.
+    #[test]
+    fn a_fractional_hairline_lands_on_the_pixel_it_mostly_covers() {
+        let mut p = pixmap(70, 6);
+        render_rect(
+            &mut p,
+            &lrect(62.8, 1.0, 1.0, 4.0),
+            RED,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert!(
+            is_reddish(px_at(&p, 63, 2)),
+            "the hairline belongs to column 63, which it 80% covers"
+        );
+        assert_eq!(
+            px_at(&p, 62, 2),
+            [255, 255, 255, 255],
+            "and NOT to column 62, which it barely touches"
+        );
+    }
+
+    /// The other half of the same bug: truncation can erase a hairline
+    /// completely. `x = 62.3, width = 0.5` truncates to the empty range
+    /// 62..62 - a 1px separator or caret that is simply MISSING at some
+    /// offsets and present at others.
+    #[test]
+    fn a_sub_pixel_rect_still_paints_something() {
+        let mut p = pixmap(70, 6);
+        render_rect(
+            &mut p,
+            &lrect(62.3, 1.0, 0.5, 4.0),
+            RED,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        let red = p
+            .data()
+            .chunks_exact(4)
+            .filter(|c| c[0] > 200 && c[1] < 60)
+            .count();
+        assert!(red > 0, "a sub-pixel rect must not vanish");
+    }
+
+    /// The control: an integer-aligned rect is unaffected - rounding and
+    /// truncation agree there, which is nearly every rect in a document.
+    #[test]
+    fn an_integer_aligned_rect_is_unchanged_by_the_rounding() {
+        let mut p = pixmap(10, 10);
+        render_rect(
+            &mut p,
+            &lrect(2.0, 2.0, 4.0, 4.0),
+            RED,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        let red = p
+            .data()
+            .chunks_exact(4)
+            .filter(|c| c[0] > 200 && c[1] < 60)
+            .count();
+        assert_eq!(red, 16, "still exactly 4x4");
     }
 
     #[test]

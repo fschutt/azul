@@ -56,6 +56,16 @@ fn centre(r: &azul_layout::cpurender::ComponentPreviewResult) -> [u8; 4] {
     [r.rgba[i], r.rgba[i + 1], r.rgba[i + 2], r.rgba[i + 3]]
 }
 
+/// How many pixels are exactly `want`.
+///
+/// COUNTED, not sampled at a fixed offset: an `<svg>` is inline-level and
+/// sits on a text baseline, so its box lands at a fractional y that shifts
+/// with the font. A test that samples one pixel breaks for reasons that have
+/// nothing to do with what it checks.
+fn count_of(r: &azul_layout::cpurender::ComponentPreviewResult, want: [u8; 4]) -> usize {
+    r.rgba.chunks_exact(4).filter(|p| *p == want).count()
+}
+
 /// THE regression: a filled path must produce pixels.
 #[test]
 fn a_filled_path_paints() {
@@ -82,23 +92,25 @@ fn a_filled_path_paints() {
 /// gradient work on an SVG shape without any further plumbing.
 #[test]
 fn fill_comes_through_css_in_every_spelling() {
+    const GREEN: [u8; 4] = [0, 255, 0, 255];
+
     // Presentation attribute.
     let attr = render(
         r##"<svg viewBox="0 0 8 8" width="8" height="8">
              <rect fill="#00ff00" x="0" y="0" width="8" height="8"/>
            </svg>"##,
-        8.0,
+        24.0,
     );
-    assert_eq!(centre(&attr), [0, 255, 0, 255], "fill=\"...\"");
+    assert_eq!(count_of(&attr, GREEN), 64, "fill=\"...\"");
 
     // The `style` attribute, which is how every Breeze icon is authored.
     let inline = render(
         r##"<svg viewBox="0 0 8 8" width="8" height="8">
              <rect style="fill:#00ff00" x="0" y="0" width="8" height="8"/>
            </svg>"##,
-        8.0,
+        24.0,
     );
-    assert_eq!(centre(&inline), [0, 255, 0, 255], "style=\"fill:...\"");
+    assert_eq!(count_of(&inline, GREEN), 64, "style=\"fill:...\"");
 
     // A stylesheet rule, which is what `class="ColorScheme-Text"` resolves
     // through.
@@ -107,9 +119,9 @@ fn fill_comes_through_css_in_every_spelling() {
            <body><svg viewBox="0 0 8 8" width="8" height="8">
              <rect class="ink" x="0" y="0" width="8" height="8"/>
            </svg></body></html>"##,
-        8.0,
+        24.0,
     );
-    assert_eq!(centre(&styled), [0, 255, 0, 255], "a stylesheet rule");
+    assert_eq!(count_of(&styled, GREEN), 64, "a stylesheet rule");
 }
 
 /// The viewBox is a COORDINATE SYSTEM: geometry drawn in it has to scale into
@@ -351,5 +363,85 @@ fn a_clip_path_clips_the_pointer_target_not_just_the_pixels() {
         hits_svg(13.0, 3.0),
         "the clipped-away corner is still inside the <svg> box, so the test \
          above is about the PATH and not about the point being unreachable"
+    );
+}
+
+/// PSEUDO-STATES reach an SVG shape.
+///
+/// This is why the icon loader leaves `.ColorScheme-*` as CASCADE RULES rather
+/// than baking each element's colour: an inline declaration beats a class
+/// rule, so a baked fill would pin the glyph's colour and defeat every
+/// `:hover` a widget puts around it - which is exactly why a desktop's close
+/// button could never turn red on hover.
+#[test]
+fn hover_and_focus_rules_reach_an_svg_shape() {
+    use azul_core::{id::NodeId, styled_dom::StyledNodeState};
+
+    let markup = r##"<style>
+            .ink { fill: #00ff00; }
+            .ink:hover { fill: #ff0000; }
+            .ink:focus { fill: #0000ff; }
+        </style>
+        <svg viewBox="0 0 8 8" width="8" height="8">
+          <rect class="ink" x="0" y="0" width="8" height="8"/>
+        </svg>"##;
+    let parsed = azul_layout::xml::parse_xml(markup).expect("parses");
+    let dom = azul_layout::xml::dom_from_parsed_xml(parsed);
+    let styled_dom = azul_core::styled_dom::StyledDom::create_from_dom(dom);
+
+    let shape = (0..styled_dom.node_data.len())
+        .map(NodeId::new)
+        .find(|id| {
+            *styled_dom.node_data.as_container()[*id].get_node_type()
+                == azul_core::dom::NodeType::SvgRect
+        })
+        .expect("the document has a <rect>");
+
+    // The same call the display list makes when it paints the shape.
+    let fill_in = |state: StyledNodeState| {
+        azul_layout::solver3::getters::get_background_contents(&styled_dom, shape, &state)
+            .into_iter()
+            .find_map(|bg| match bg {
+                azul_css::props::style::StyleBackgroundContent::Color(c) => Some(c),
+                _ => None,
+            })
+    };
+
+    let resting = StyledNodeState::default();
+    let mut hovered = StyledNodeState::default();
+    hovered.hover = true;
+    let mut focused = StyledNodeState::default();
+    focused.focused = true;
+
+    assert_eq!(
+        fill_in(resting),
+        Some(ColorU {
+            r: 0,
+            g: 255,
+            b: 0,
+            a: 255
+        }),
+        "the resting fill comes from the class rule"
+    );
+    assert_eq!(
+        fill_in(hovered),
+        Some(ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        }),
+        "a :hover rule must reach the shape - this is what a baked inline \
+         fill made impossible"
+    );
+    assert_eq!(
+        fill_in(focused),
+        Some(ColorU {
+            r: 0,
+            g: 0,
+            b: 255,
+            a: 255
+        }),
+        ":focus too"
     );
 }

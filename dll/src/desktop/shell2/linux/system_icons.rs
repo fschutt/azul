@@ -179,7 +179,45 @@ fn resolve_svg_references(svg: &[u8], tint: ColorU) -> Vec<u8> {
     let hex = hex_of(tint);
     let classes = color_scheme_classes(text, &hex);
     let inlined = inline_use_elements(text, MAX_REFERENCE_DEPTH);
-    resolve_current_color(&inlined, &classes, &hex).into_bytes()
+    let recoloured = rewrite_color_scheme_rules(&inlined, &classes);
+    resolve_current_color(&recoloured, &classes, &hex).into_bytes()
+}
+
+/// Turn the icon's `.ColorScheme-* { color: … }` rules into `fill` rules, with
+/// `ColorScheme-Text` repointed at the palette tint.
+///
+/// The rules are KEPT as rules rather than folded into each element, and that
+/// is the point: the fill then comes from the CASCADE, so a `:hover` or
+/// `:focus` rule - the icon's own, or one a widget adds around it - simply
+/// works. Baking the colour into every element's inline style made the glyph
+/// a fixed picture that nothing downstream could restyle, which is why a
+/// desktop's close button could never turn red on hover.
+///
+/// `color` becomes `fill` because that is the property an SVG shape paints
+/// with here (`fill` is an accepted spelling of `background-color`); the
+/// authored `color` would set text colour and paint nothing.
+fn rewrite_color_scheme_rules(text: &str, classes: &[(String, String)]) -> String {
+    let mut out = text.to_string();
+    for (name, value) in classes {
+        // Rewrite `.<name> { … color: <old> … }` in place. Only the FIRST
+        // declaration block per class is touched, which is the only one a
+        // freedesktop icon has.
+        let Some(class_at) = out.find(&alloc::format!(".{name}")) else {
+            continue;
+        };
+        let Some(brace) = out[class_at..].find('{') else {
+            continue;
+        };
+        let block_start = class_at + brace;
+        let Some(color_at) = out[block_start..].find("color:") else {
+            continue;
+        };
+        let decl_start = block_start + color_at;
+        let after = &out[decl_start + "color:".len()..];
+        let decl_end = decl_start + "color:".len() + after.find(';').unwrap_or(after.len());
+        out.replace_range(decl_start..decl_end, &alloc::format!("fill:{value}"));
+    }
+    out
 }
 
 fn hex_of(c: ColorU) -> String {
@@ -229,11 +267,37 @@ fn resolve_current_color(text: &str, classes: &[(String, String)], tint_hex: &st
         rest = &rest[open..];
         let end = rest.find('>').map_or(rest.len(), |e| e + 1);
         let (tag, after) = rest.split_at(end);
-        let color = element_color(tag, classes).unwrap_or_else(|| tint_hex.to_string());
-        out.push_str(&tag.replace("currentColor", &color));
+        if element_color(tag, classes).is_some() {
+            // The element names a class, and that class now carries the fill.
+            // Its inline `currentColor` has to GO rather than be substituted:
+            // an inline declaration beats a class rule, so leaving it there
+            // would pin the colour and defeat every `:hover` rule downstream.
+            out.push_str(&strip_current_color_declarations(tag));
+        } else {
+            // No class to inherit from: SVG's `currentColor` has nothing to
+            // resolve against here, so the palette tint stands in.
+            out.push_str(&tag.replace("currentColor", tint_hex));
+        }
         rest = after;
     }
     out.push_str(rest);
+    out
+}
+
+/// Drop `fill:currentColor` / `fill="currentColor"` (and the stroke forms)
+/// from one element's markup, leaving its class rule to supply the paint.
+fn strip_current_color_declarations(tag: &str) -> String {
+    let mut out = tag.to_string();
+    for property in ["fill", "stroke"] {
+        for spelling in [
+            alloc::format!("{property}:currentColor;"),
+            alloc::format!("{property}:currentColor"),
+            alloc::format!("{property}=\"currentColor\""),
+            alloc::format!("{property}='currentColor'"),
+        ] {
+            out = out.replace(&spelling, "");
+        }
+    }
     out
 }
 
@@ -360,11 +424,13 @@ pub fn register_system_icons(provider: &mut IconProviderHandle, style: &SystemSt
         .unwrap_or(ColorU::new_rgb(0, 0, 0));
 
     let (icons, from_cache) = rendered_icons(theme, tint);
-    let registered = icons.len();
-    for (name, image, nominal) in icons {
-        azul_layout::icon::register_image_icon_sized(
-            provider, "system", &name, image, nominal, nominal,
-        );
+    let mut registered = 0usize;
+    for (name, markup) in icons {
+        let Some(dom) = icon_dom(&markup) else {
+            continue;
+        };
+        azul_layout::icon::register_dom_icon(provider, "system", &name, dom);
+        registered += 1;
     }
 
     crate::plog_debug!(
@@ -404,14 +470,17 @@ pub(crate) fn refresh_system_icons(
         // re-registering would only flush the resolution cache for nothing.
         return;
     }
-    let count = icons.len();
-    for (name, image, nominal) in icons {
-        let data = azul_layout::icon::ImageIconData {
-            image,
-            width: nominal,
-            height: nominal,
+    let mut count = 0usize;
+    for (name, markup) in icons {
+        let Some(dom) = icon_dom(&markup) else {
+            continue;
         };
-        provider.register_icon("system", &name, azul_core::refany::RefAny::new(data));
+        provider.register_icon(
+            "system",
+            &name,
+            azul_core::refany::RefAny::new(azul_layout::icon::DomIconData::new(dom)),
+        );
+        count += 1;
     }
     crate::plog_debug!(
         "[system-icons] theme changed to '{}': re-registered {} icons",
@@ -420,9 +489,13 @@ pub(crate) fn refresh_system_icons(
     );
 }
 
-/// One rasterised icon: its name, its pixels, and the size the desktop draws
-/// it at.
-type RenderedIcon = (String, azul_core::resources::ImageRef, f32);
+/// One prepared icon: its name and its self-contained SVG markup.
+///
+/// MARKUP, not pixels. The icon is spliced into the DOM as a live `<svg>`
+/// subtree, so it scales with the display instead of being resampled from a
+/// bitmap, and - the reason this changed - CSS reaches it: a `:hover` on the
+/// button recolours the glyph, which a rasterised icon can never do.
+type PreparedIcon = (String, String);
 
 /// The rendered icon set for a theme, CACHED BY THEME.
 ///
@@ -438,11 +511,11 @@ type RenderedIcon = (String, azul_core::resources::ImageRef, f32);
 /// `WANTED.len()`. A switch BACK to the previous theme re-renders rather than
 /// serving a stale entry - the cache holds one theme, which is the only one
 /// that can be on screen.
-fn rendered_icons(theme: &str, tint: ColorU) -> (Vec<RenderedIcon>, bool) {
+fn rendered_icons(theme: &str, tint: ColorU) -> (Vec<PreparedIcon>, bool) {
     use std::sync::Mutex;
 
     type Key = (String, [u8; 4]);
-    static CACHE: Mutex<Option<(Key, Vec<RenderedIcon>)>> = Mutex::new(None);
+    static CACHE: Mutex<Option<(Key, Vec<PreparedIcon>)>> = Mutex::new(None);
 
     let key: Key = (theme.to_string(), [tint.r, tint.g, tint.b, tint.a]);
     let mut guard = CACHE
@@ -454,89 +527,38 @@ fn rendered_icons(theme: &str, tint: ColorU) -> (Vec<RenderedIcon>, bool) {
         }
     }
 
-    let mut out: Vec<RenderedIcon> = Vec::new();
+    let mut out: Vec<PreparedIcon> = Vec::new();
     for name in WANTED {
-        let Some((svg, nominal_px)) = read_icon_svg(theme, name) else {
+        let Some((svg, _nominal_px)) = read_icon_svg(theme, name) else {
             continue;
         };
-        let Some(image) = render_icon(&svg, nominal_px, tint) else {
+        let resolved = resolve_svg_references(&svg, tint);
+        let Ok(markup) = String::from_utf8(resolved) else {
             continue;
         };
-        #[allow(clippy::cast_precision_loss)] // nominal icon sizes are 16..48
-        let nominal = nominal_px as f32;
-        out.push(((*name).to_string(), image, nominal));
+        out.push(((*name).to_string(), markup));
     }
     *guard = Some((key, out.clone()));
     (out, false)
 }
 
-/// One theme SVG -> pixels, through the DOM.
+/// One theme SVG -> a live DOM subtree.
 ///
-/// ONE code path: the SVG becomes a real `Dom` (the XML parser maps `<path>`,
-/// `<use>`, `<linearGradient>` and `<stop>` onto `SvgNodeData` nodes, an
-/// `<svg>` carries its viewBox and its intrinsic size, and a shape's `fill` is
-/// an ordinary CSS background clipped to its own geometry) and is drawn by the
-/// ORDINARY renderer. No second rasteriser: `render_svg_to_png` is a parallel
-/// implementation with its own gaps.
+/// NOT a bitmap. The XML parser maps `<path>`, `<use>`, `<linearGradient>` and
+/// `<stop>` onto real DOM nodes, an `<svg>` carries its viewBox and intrinsic
+/// size, and a shape's `fill`/`stroke` are ordinary CSS clipped to the
+/// geometry - so an icon can simply BE part of the document. Three things fall
+/// out of that, and all three were wrong with a raster:
 ///
-/// Rasterised at 2x the nominal size so it stays crisp on a HiDPI display;
-/// registered at the NOMINAL size, which is the size the desktop draws it at
-/// (see `azul_layout::icon::register_image_icon_sized`).
-///
-/// The background is fully TRANSPARENT: an icon composites over whatever is
-/// behind it, and rendered on opaque white it arrives as a white tile sitting
-/// in the titlebar instead of a glyph on it.
-fn render_icon(
-    svg: &[u8],
-    nominal_px: u32,
-    tint: ColorU,
-) -> Option<azul_core::resources::ImageRef> {
-    let rendered = render_icon_pixels(svg, nominal_px, tint)?;
-    let raw = azul_core::resources::RawImage {
-        tag: Vec::new().into(),
-        pixels: azul_core::resources::RawImageData::U8(rendered.rgba.into()),
-        width: rendered.pixel_width as usize,
-        height: rendered.pixel_height as usize,
-        premultiplied_alpha: false,
-        data_format: azul_core::resources::RawImageFormat::RGBA8,
-    };
-    azul_core::resources::ImageRef::new_rawimage(raw)
-}
-
-/// [`render_icon`] stopping at the raw pixels, so a test can count what
-/// actually got painted rather than only what size the frame is.
-fn render_icon_pixels(
-    svg: &[u8],
-    nominal_px: u32,
-    tint: ColorU,
-) -> Option<azul_layout::cpurender::ComponentPreviewResult> {
-    let resolved = resolve_svg_references(svg, tint);
-    let markup = core::str::from_utf8(&resolved).ok()?;
+///   * it scales with the display instead of being resampled from a fixed
+///     bitmap, so a 16px glyph is sharp at any DPI and any zoom;
+///   * CSS reaches it. A `:hover` on the button recolours the glyph, which is
+///     how a desktop's close button turns red - a rasterised icon has its
+///     colours baked and can never do it;
+///   * there is nothing to cache, invalidate or garbage-collect on the GPU.
+fn icon_dom(markup: &str) -> Option<azul_core::dom::Dom> {
     let parsed = azul_layout::xml::parse_xml(markup).ok()?;
-    let dom = azul_layout::xml::dom_from_parsed_xml(parsed);
-
-    #[allow(clippy::cast_precision_loss)] // nominal icon sizes are 16..48
-    let nominal = nominal_px as f32;
-    let transparent = ColorU {
-        r: 0,
-        g: 0,
-        b: 0,
-        a: 0,
-    };
-    // An icon is a DRAWING, not a document: the UA `<body>` margin would inset
-    // it by 8px and push most of a 16px glyph out of its own frame.
-    let no_page_chrome = azul_css::css::Css::from_string(
-        "html, body { margin: 0; padding: 0; border: none; }".into(),
-    );
-    azul_layout::cpurender::render_dom_to_rgba(
-        dom,
-        no_page_chrome,
-        nominal,
-        nominal,
-        2.0,
-        transparent,
-    )
-    .ok()
+    Some(azul_layout::xml::dom_from_parsed_xml(parsed))
 }
 
 #[cfg(test)]
@@ -554,32 +576,44 @@ mod tests {
         String::from_utf8(resolve_svg_references(svg.as_bytes(), TINT)).unwrap()
     }
 
-    /// Breeze's icons are authored for recolouring — the paths say
+    /// Breeze's icons are authored for recolouring - the paths say
     /// `fill="currentColor"` and the stylesheet sets `.ColorScheme-Text`.
-    /// Neither resolves without a cascade, so the reference is resolved in the
-    /// SOURCE. Without this an icon renders black on a dark panel.
+    /// Neither resolves by itself here, so the reference is resolved in the
+    /// SOURCE - but into the RULE, not onto the element.
+    ///
+    /// That is the difference between a glyph that can be restyled and a
+    /// fixed picture: an inline declaration beats a class rule, so a baked
+    /// `fill` would pin the colour and defeat every `:hover` a widget adds.
     #[test]
-    fn the_tint_replaces_both_spellings_of_the_theme_colour() {
+    fn the_tint_lands_in_the_class_rule_not_on_the_element() {
         let text = resolved(
             r#"<svg><style>.ColorScheme-Text { color:#eff0f1; }</style>
             <path d="M0 0" class="ColorScheme-Text" fill="currentColor"/></svg>"#,
         );
         assert!(
-            text.contains("fill=\"#123456\""),
-            "currentColor must become the tint: {text}"
+            text.contains("fill:#123456"),
+            "the class rule carries the tint, as a FILL: {text}"
+        );
+        assert!(
+            text.contains(r#"class="ColorScheme-Text""#),
+            "and the element keeps the class that selects it: {text}"
         );
         assert!(
             !text.contains("currentColor"),
             "no unresolved currentColor may survive: {text}"
         );
+        assert!(
+            !text.contains(r##"fill="#123456""##),
+            "the colour must NOT be baked onto the element - that is what \
+             makes it unrestylable: {text}"
+        );
     }
 
     /// THE bug a single global substitution causes: one document mixes
     /// `ColorScheme-Text` with `ColorScheme-NegativeText`, and a close icon is
-    /// red ON PURPOSE. Repainting it in the window's text colour erases the
-    /// only thing marking it destructive.
+    /// red ON PURPOSE. Each class keeps its own colour.
     #[test]
-    fn each_element_takes_the_colour_its_own_class_names() {
+    fn each_class_keeps_its_own_colour() {
         let text = resolved(
             r#"<svg><defs><style>
                 .ColorScheme-Text { color:#eff0f1; }
@@ -589,16 +623,20 @@ mod tests {
             <path id="b" class="ColorScheme-NegativeText" style="fill:currentColor"/>
             </svg>"#,
         );
-        let a = text.split("id=\"a\"").nth(1).unwrap().split('>').next().unwrap();
-        let b = text.split("id=\"b\"").nth(1).unwrap().split('>').next().unwrap();
-        assert!(a.contains("#123456"), "the Text path takes the tint: {a}");
         assert!(
-            b.contains("#da4453"),
-            "the NegativeText path keeps its authored red: {b}"
+            text.contains("fill:#123456"),
+            "the Text class takes the tint: {text}"
         );
+        assert!(
+            text.contains("fill:#da4453"),
+            "the NegativeText class keeps its authored red: {text}"
+        );
+        // Both elements keep the class that selects them.
+        assert!(text.contains(r#"class="ColorScheme-Text""#));
+        assert!(text.contains(r#"class="ColorScheme-NegativeText""#));
     }
 
-    /// An element with no class still has to resolve to SOMETHING - the SVG
+    /// An element with no class still has to resolve to SOMETHING    /// An element with no class still has to resolve to SOMETHING - the SVG
     /// default is opaque black, which is invisible on a dark panel.
     #[test]
     fn an_unclassed_element_falls_back_to_the_tint() {
@@ -649,40 +687,38 @@ mod tests {
         );
     }
 
-    /// The whole point of the DOM path: an icon has to come out as PIXELS.
+    /// The whole point: a theme SVG becomes a live DOM subtree with real
+    /// shape nodes - not a bitmap, and not a stub.
     ///
-    /// A blank icon is the failure mode every step here can produce silently -
-    /// an unsized `<svg>` lays out 0x0, a dropped viewBox scales the art out
-    /// of frame, a missing fill paints nothing - and the only way to tell is
-    /// to count the pixels that actually got painted.
+    /// Asserted on the STRUCTURE rather than on pixels, because the structure
+    /// is what makes the rest possible: shape nodes are what the renderer
+    /// paints, what CSS can restyle on `:hover`, and what scales with the
+    /// display.
     #[test]
-    fn a_theme_svg_renders_to_visible_pixels() {
+    fn a_theme_svg_becomes_a_dom_with_shape_nodes() {
         let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
           <defs><style>.ColorScheme-Text { color:#232629; }</style></defs>
           <path style="fill:currentColor" class="ColorScheme-Text"
                 d="M 2,2 L 14,2 L 14,14 L 2,14 Z"/>
         </svg>"##;
-        let rendered = render_icon_pixels(svg, 16, ColorU::new_rgb(0xff, 0x00, 0x00))
-            .expect("a well-formed icon must render");
-        assert!(
-            rendered.pixel_width >= 32 && rendered.pixel_height >= 32,
-            "oversampled to 2x the nominal size for HiDPI, got {}x{}",
-            rendered.pixel_width,
-            rendered.pixel_height
-        );
-        let total = (rendered.pixel_width * rendered.pixel_height) as usize;
-        let painted = rendered.rgba.chunks_exact(4).filter(|p| p[3] > 0).count();
-        assert!(
-            painted * 4 > total,
-            "the 12x12 square covers over half the frame; only {painted}/{total} \
-             pixels got painted"
-        );
-        // ... and the rest is TRANSPARENT, not white: an icon composites over
-        // whatever is behind it.
-        assert!(
-            painted < total,
-            "the corners outside the square must stay transparent"
-        );
+        let resolved = resolve_svg_references(svg, ColorU::new_rgb(0xff, 0x00, 0x00));
+        let markup = String::from_utf8(resolved).expect("utf8");
+        let dom = icon_dom(&markup).expect("a well-formed icon parses");
+
+        fn walk(node: &azul_core::dom::Dom, svgs: &mut usize, paths: &mut usize) {
+            match node.root.get_node_type() {
+                azul_core::dom::NodeType::Svg => *svgs += 1,
+                azul_core::dom::NodeType::SvgPath => *paths += 1,
+                _ => {}
+            }
+            for child in node.children.as_ref() {
+                walk(child, svgs, paths);
+            }
+        }
+        let (mut svgs, mut paths) = (0, 0);
+        walk(&dom, &mut svgs, &mut paths);
+        assert_eq!(svgs, 1, "the <svg> survives as a node");
+        assert_eq!(paths, 1, "and so does its shape");
     }
 
     /// Non-UTF8 bytes are not an SVG we can rewrite; hand them back untouched
