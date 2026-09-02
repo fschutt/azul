@@ -706,7 +706,7 @@ impl MapWidget {
                 crate::callbacks::Callback::from_ptr(map_on_pointer_down),
             )
             .with_callback(
-                EventFilter::Hover(HoverEventFilter::MouseOver),
+                EventFilter::Hover(HoverEventFilter::MouseMove),
                 dataset.clone(),
                 crate::callbacks::Callback::from_ptr(map_on_pointer_move),
             )
@@ -2457,7 +2457,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                 Callback::from_ptr(map_on_pointer_down),
             )
             .with_callback(
-                EventFilter::Hover(HoverEventFilter::MouseOver),
+                EventFilter::Hover(HoverEventFilter::MouseMove),
                 data.clone(),
                 Callback::from_ptr(map_on_pointer_move),
             )

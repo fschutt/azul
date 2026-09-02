@@ -984,6 +984,7 @@ fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static s
             HoverEventFilter::MouseUp => "click",
             HoverEventFilter::MouseDown => "mousedown",
             HoverEventFilter::MouseOver => "mouseover",
+            HoverEventFilter::MouseMove => "mousemove",
             HoverEventFilter::MouseLeave => "mouseleave",
             HoverEventFilter::MouseEnter => "mouseenter",
             HoverEventFilter::RightMouseUp => "contextmenu",
@@ -1011,7 +1012,10 @@ fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static s
         EventFilter::Window(w) => match w {
             WindowEventFilter::Resized => "resize",
             WindowEventFilter::Scroll => "scroll",
-            WindowEventFilter::MouseOver => "mousemove",
+            // `MouseOver` is the ENTRY event now, so it maps to the DOM
+            // event of the same name; movement is `MouseMove`.
+            WindowEventFilter::MouseOver => "mouseover",
+            WindowEventFilter::MouseMove => "mousemove",
             WindowEventFilter::MouseDown | WindowEventFilter::LeftMouseDown => "mousedown",
             WindowEventFilter::MouseUp | WindowEventFilter::LeftMouseUp => "mouseup",
             WindowEventFilter::RightMouseUp => "contextmenu",

@@ -1039,7 +1039,7 @@ impl NodeGraph {
                     .with_callbacks(
                         vec![
                             CoreCallbackData {
-                                event: EventFilter::Hover(HoverEventFilter::MouseOver),
+                                event: EventFilter::Hover(HoverEventFilter::MouseMove),
                                 refany: node_graph_local_dataset.clone(),
                                 callback: CoreCallback {
                                     cb: nodegraph_drag_graph_or_nodes as usize,

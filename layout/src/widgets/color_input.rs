@@ -708,7 +708,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
         // no `MouseLeave` ends the drag the moment the cursor slips off.
         vec![
             mk(EventFilter::Hover(HoverEventFilter::MouseDown), down),
-            mk(EventFilter::Hover(HoverEventFilter::MouseOver), over),
+            mk(EventFilter::Hover(HoverEventFilter::MouseMove), over),
             mk(EventFilter::Hover(HoverEventFilter::MouseUp), up),
             // Focus-scoped: only the FOCUSED control consumes the arrows, so
             // Tab moves between plane / hue / alpha / fields as usual.

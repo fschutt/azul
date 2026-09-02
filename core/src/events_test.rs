@@ -3149,24 +3149,24 @@ mod autotest_generated {
 
         // Button up -> never a drag, even with a drag origin.
         let up = MouseState::default();
-        assert!(handle_mouse_over(&ev, Some(&ht), &up, Some(start)).is_none());
+        assert!(handle_mouse_move(&ev, Some(&ht), &up, Some(start)).is_none());
 
         // Button down but no drag origin -> not a drag either.
         let down = MouseState {
             left_down: true,
             ..MouseState::default()
         };
-        assert!(handle_mouse_over(&ev, Some(&ht), &down, None).is_none());
+        assert!(handle_mouse_move(&ev, Some(&ht), &down, None).is_none());
 
         // Button down + origin but nothing under the cursor -> STILL a drag:
         // reaching past the text (into padding, past the last line) is how a
         // selection gets extended, and the endpoint resolves against the
         // anchor block, not against whatever is under the pointer.
-        assert!(handle_mouse_over(&ev, None, &down, Some(start)).is_some());
-        assert!(handle_mouse_over(&ev, Some(&empty_hit_test()), &down, Some(start)).is_some());
+        assert!(handle_mouse_move(&ev, None, &down, Some(start)).is_some());
+        assert!(handle_mouse_move(&ev, Some(&empty_hit_test()), &down, Some(start)).is_some());
 
         // All three present -> a drag selection from origin to the current point.
-        match handle_mouse_over(&ev, Some(&ht), &down, Some(start)) {
+        match handle_mouse_move(&ev, Some(&ht), &down, Some(start)) {
             Some(InternalEventAction::AddAndPass(SystemChange::TextSelectionDrag {
                 start_position,
                 current_position,

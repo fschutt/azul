@@ -4033,7 +4033,8 @@
                                 "ModifiersChanged": {},
                                 "HidReport": {},
                                 "DialRotate": {},
-                                "DialClick": {}
+                                "DialClick": {},
+                                "MouseMove": {}
                             }
                         ],
                         "repr": "C"
@@ -39589,7 +39590,8 @@
                                 "Reset": {},
                                 "Invalid": {},
                                 "DialRotate": {},
-                                "DialClick": {}
+                                "DialClick": {},
+                                "MouseMove": {}
                             }
                         ],
                         "repr": "C"
@@ -39932,7 +39934,8 @@
                                 "Submit": {},
                                 "Change": {},
                                 "Reset": {},
-                                "Invalid": {}
+                                "Invalid": {},
+                                "MouseMove": {}
                             }
                         ],
                         "repr": "C"

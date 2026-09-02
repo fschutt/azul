@@ -994,6 +994,14 @@ pub enum EventType {
     DialRotate,
     /// A dial with a physical click was pressed. APPENDED at the end.
     DialClick,
+    /// The pointer MOVED while over this node. APPENDED at the end.
+    ///
+    /// W3C `mousemove`. This is the event `MouseOver` used to be: until
+    /// now azul had no movement event at all, and `MouseOver` was emitted
+    /// on every cursor move - `mousemove` semantics under the `mouseover`
+    /// name. `MouseOver` now means what the spec says (the pointer
+    /// ENTERED the node) and movement lives here.
+    MouseMove,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1599,7 +1607,8 @@ fn matches_hover_filter(
         BiometricResult, DoubleClick, Drag, DragEnd, DragEnter, DragLeave, DragOver, DragStart,
         Drop, DroppedFile, GamepadInput, GeolocationError, GeolocationFix, HoveredFile,
         HoveredFileCancelled, KeyringResult, LeftMouseDown, LeftMouseUp, MiddleMouseDown,
-        MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseOver, MouseUp, PenDoubleTap, PenDown,
+        MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseMove, MouseOver, MouseUp,
+        PenDoubleTap, PenDown,
         PenEnter, PenHover, PenLeave, PenMove, PenSqueeze, PenUp, PermissionChanged, RightMouseDown,
         RightMouseUp,
         ScreenColorPicked, Scroll, ScrollEnd, ScrollStart, SensorChanged, TextInput, TouchCancel,
@@ -1608,6 +1617,7 @@ fn matches_hover_filter(
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
+        (MouseMove, EventType::MouseMove) => true,
         (MouseDown, EventType::MouseDown) => true,
         (LeftMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Left),
         (RightMouseDown, EventType::MouseDown) => {
@@ -1744,12 +1754,13 @@ fn matches_focus_filter(
     use FocusEventFilter::{
         Drag, DragEnd, DragEnter, DragLeave, DragOver, DragStart, Drop, FocusLost, FocusReceived,
         LeftMouseDown, LeftMouseUp, MiddleMouseDown, MiddleMouseUp, MouseDown, MouseEnter,
-        MouseLeave, MouseOver, MouseUp, RightMouseDown, RightMouseUp, Scroll, ScrollEnd,
+        MouseLeave, MouseMove, MouseOver, MouseUp, RightMouseDown, RightMouseUp, Scroll, ScrollEnd,
         ScrollStart, TextInput, VirtualKeyDown, VirtualKeyUp,
     };
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
+        (MouseMove, EventType::MouseMove) => true,
         (MouseDown, EventType::MouseDown) => true,
         (LeftMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Left),
         (RightMouseDown, EventType::MouseDown) => {
@@ -1871,7 +1882,8 @@ fn matches_window_filter(
         BiometricResult, CloseRequested, Drag, DragEnd, DragEnter, DragLeave, DragOver, DragStart,
         Drop, DroppedFile, FocusLost, FocusReceived, FrameChanged, GamepadInput, GeolocationError,
         GeolocationFix, HoveredFile, HoveredFileCancelled, KeyringResult, LeftMouseDown,
-        LeftMouseUp, MiddleMouseDown, MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseOver,
+        LeftMouseUp, MiddleMouseDown, MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseMove,
+        MouseOver,
         MouseUp, Moved, PenDoubleTap, PenDown, PenEnter, PenHover, PenLeave, PenMove, PenSqueeze,
         ModifiersChanged, PenUp, PermissionChanged, RawMouseMotion, Resized,
         RightMouseDown, RightMouseUp, ScreenColorPicked, Scroll, ScrollEnd, ScrollStart,
@@ -1881,6 +1893,7 @@ fn matches_window_filter(
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
+        (MouseMove, EventType::MouseMove) => true,
         (MouseDown, EventType::MouseDown) => true,
         (LeftMouseDown, EventType::MouseDown) => check_mouse_button(&event.data, MouseButton::Left),
         (RightMouseDown, EventType::MouseDown) => {
@@ -2501,6 +2514,8 @@ pub enum HoverEventFilter {
     DialRotate,
     /// A dial was clicked over this node. APPENDED at the end.
     DialClick,
+    /// The pointer moved while over this node. APPENDED at the end.
+    MouseMove,
 }
 
 impl HoverEventFilter {
@@ -2523,6 +2538,7 @@ impl HoverEventFilter {
             // the window, never by focus.
             Self::DialRotate | Self::DialClick => None,
             Self::MouseOver => Some(FocusEventFilter::MouseOver),
+            Self::MouseMove => Some(FocusEventFilter::MouseMove),
             Self::MouseDown => Some(FocusEventFilter::MouseDown),
             Self::LeftMouseDown => Some(FocusEventFilter::LeftMouseDown),
             Self::RightMouseDown => Some(FocusEventFilter::RightMouseDown),
@@ -2759,6 +2775,8 @@ pub enum FocusEventFilter {
     Reset,
     /// A control failed validation. APPENDED at the end.
     Invalid,
+    /// The pointer moved while this node had focus. APPENDED at the end.
+    MouseMove,
 }
 
 /// Event filter that fires when any action fires on the entire window
@@ -2956,6 +2974,8 @@ pub enum WindowEventFilter {
     DialRotate,
     /// A dial with a physical click was pressed. APPENDED at the end.
     DialClick,
+    /// The pointer moved anywhere in the window. APPENDED at the end.
+    MouseMove,
 }
 
 impl WindowEventFilter {
@@ -2967,6 +2987,7 @@ impl WindowEventFilter {
             Self::DialRotate => Some(HoverEventFilter::DialRotate),
             Self::DialClick => Some(HoverEventFilter::DialClick),
             Self::MouseOver => Some(HoverEventFilter::MouseOver),
+            Self::MouseMove => Some(HoverEventFilter::MouseMove),
             Self::MouseDown => Some(HoverEventFilter::MouseDown),
             Self::LeftMouseDown => Some(HoverEventFilter::LeftMouseDown),
             Self::RightMouseDown => Some(HoverEventFilter::RightMouseDown),
@@ -3172,11 +3193,13 @@ impl From<On> for EventFilter {
         use crate::dom::On::{
             Collapse, Decrement, Default, DroppedFile, Expand, FocusLost, FocusReceived,
             HoveredFile, HoveredFileCancelled, Increment, LeftMouseDown, LeftMouseUp,
-            MiddleMouseDown, MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseOver, MouseUp,
-            RightMouseDown, RightMouseUp, Scroll, TextInput, VirtualKeyDown, VirtualKeyUp,
+            MiddleMouseDown, MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseMove,
+            MouseOver, MouseUp, RightMouseDown, RightMouseUp, Scroll, TextInput, VirtualKeyDown,
+            VirtualKeyUp,
         };
         match input {
             MouseOver => Self::Hover(HoverEventFilter::MouseOver),
+            MouseMove => Self::Hover(HoverEventFilter::MouseMove),
             MouseDown => Self::Hover(HoverEventFilter::MouseDown),
             LeftMouseDown => Self::Hover(HoverEventFilter::LeftMouseDown),
             MiddleMouseDown => Self::Hover(HoverEventFilter::MiddleMouseDown),
@@ -3277,6 +3300,7 @@ pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<Synt
 /// Every `HoverEventFilter` variant, so planning can be derived from matching.
 static ALL_HOVER: &[HoverEventFilter] = &[
     HoverEventFilter::MouseOver,
+    HoverEventFilter::MouseMove,
     HoverEventFilter::MouseDown,
     HoverEventFilter::LeftMouseDown,
     HoverEventFilter::RightMouseDown,
@@ -3360,6 +3384,7 @@ static ALL_HOVER: &[HoverEventFilter] = &[
 /// Every `FocusEventFilter` variant, so planning can be derived from matching.
 static ALL_FOCUS: &[FocusEventFilter] = &[
     FocusEventFilter::MouseOver,
+    FocusEventFilter::MouseMove,
     FocusEventFilter::MouseDown,
     FocusEventFilter::LeftMouseDown,
     FocusEventFilter::RightMouseDown,
@@ -3421,6 +3446,7 @@ static ALL_FOCUS: &[FocusEventFilter] = &[
 /// Every `WindowEventFilter` variant, so planning can be derived from matching.
 static ALL_WINDOW: &[WindowEventFilter] = &[
     WindowEventFilter::MouseOver,
+    WindowEventFilter::MouseMove,
     WindowEventFilter::MouseDown,
     WindowEventFilter::LeftMouseDown,
     WindowEventFilter::RightMouseDown,
@@ -3709,6 +3735,7 @@ fn event_type_to_filters_legacy_hint(
 
         // Other mouse events
         E::MouseOver => vec![EF::Hover(H::MouseOver)],
+        E::MouseMove => vec![EF::Hover(H::MouseMove)],
         E::MouseEnter => vec![EF::Hover(H::MouseEnter)],
         E::MouseLeave => vec![EF::Hover(H::MouseLeave)],
         E::MouseOut => vec![EF::Hover(H::MouseOut)],
@@ -4936,7 +4963,11 @@ fn process_event_for_internal(
             ctx.mouse_state,
             ctx.keyboard_state,
         ),
-        EventType::MouseOver => handle_mouse_over(
+        // Drag-selection needs MOVEMENT while the button is down, so it
+        // follows `MouseMove`. Leaving it on `MouseOver` after that event
+        // became entry-only would have silently killed drag-to-select: the
+        // handler would fire once on entry and never again.
+        EventType::MouseMove => handle_mouse_move(
             event,
             ctx.hit_test,
             ctx.mouse_state,
@@ -5055,8 +5086,8 @@ fn handle_mouse_down(
     ))
 }
 
-/// Handle `MouseOver` event - detect drag selection
-fn handle_mouse_over(
+/// Handle `MouseMove` event - detect drag selection
+fn handle_mouse_move(
     event: &SyntheticEvent,
     _hit_test: Option<&FullHitTest>,
     mouse_state: &crate::window::MouseState,

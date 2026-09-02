@@ -9250,7 +9250,10 @@ pub trait PlatformWindow {
             use azul_core::events::EventType;
             let mut released = false;
             for ev in &mut synthetic_events {
-                if matches!(ev.event_type, EventType::MouseOver | EventType::MouseUp) {
+                if matches!(
+                    ev.event_type,
+                    EventType::MouseMove | EventType::MouseOver | EventType::MouseUp
+                ) {
                     ev.target = captured;
                     ev.current_target = captured;
                     released |= ev.event_type == EventType::MouseUp;

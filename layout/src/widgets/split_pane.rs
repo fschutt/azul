@@ -400,7 +400,7 @@ impl SplitPane {
                 on_split_pointer_down as usize,
             ),
             mk(
-                EventFilter::Hover(HoverEventFilter::MouseOver),
+                EventFilter::Hover(HoverEventFilter::MouseMove),
                 on_split_pointer_move as usize,
             ),
             mk(
@@ -1841,7 +1841,7 @@ mod autotest_generated {
                 on_split_pointer_down as usize,
             ),
             (
-                EventFilter::Hover(HoverEventFilter::MouseOver),
+                EventFilter::Hover(HoverEventFilter::MouseMove),
                 on_split_pointer_move as usize,
             ),
             (

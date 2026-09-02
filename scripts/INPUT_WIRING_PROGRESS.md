@@ -1234,17 +1234,48 @@ FOUND AND FIXED HERE:
       commits rendered the backstage PIXEL-IDENTICAL, which looks like an
       exoneration and is not - the defect was in the sixth (a915d15ff), which
       was not in that revert set. Verify a revert covers the whole PR.
-- [ ] G2-a MouseOver/MouseOut are not mirrored on the hover chain. `determine_all_events`
-      emits `MouseLeave` AND the bubbling `MouseOut` for a node that lost hover, but only
-      `MouseEnter` for one that gained it — per W3C `mouseover`/`mouseout` and
-      `mouseenter`/`mouseleave` are two mirror PAIRS, so the gain side is missing its bubbling
-      half. Found by fixing the stale `events.len() == 2` assertion in
-      `hover_chain_diff_emits_leave_for_lost_and_enter_for_gained_nodes`.
-      NOT a one-line addition, which is why it is logged: the existing `MouseOver` producer
-      (event_determination.rs ~479) fires on ANY cursor movement targeted at the hovered node,
-      not on entry, so adding the mirror in the chain diff would double-fire whenever the pointer
-      moves INTO a node. Settling it means deciding whether that movement-based emitter is
-      correct at all — a behaviour change with app-visible blast radius, not a test fix.
+- [x] G2-a DONE. The open question was "is that movement-based `MouseOver` emitter correct at
+      all". Answer: the BEHAVIOUR is right and the NAME is wrong. Azul had no movement event -
+      `MouseMove` did not exist in any enum - so `MouseOver` was carrying `mousemove` semantics
+      under the `mouseover` name, which is why the gain side of the hover chain had no bubbling
+      half to emit: the event that should have been it was already spoken for.
+      Settled per the user's standing W3C ruling ("do whatever w3c recommends here, not what gtk
+      does"). W3C defines TWO mirror pairs: enter/leave do not bubble, over/out do, and all four
+      fire on ENTRY or EXIT. Movement is `mousemove`, a third thing.
+      ADDED `EventType::MouseMove` + `HoverEventFilter`/`FocusEventFilter`/`WindowEventFilter`
+      ::MouseMove + `On::MouseMove`, all APPENDED for C ABI stability, and wired through all four
+      dispatch layers (planning arm, three matcher arms, `to_hover`/`to_focus` converters, and the
+      ALL_HOVER/ALL_FOCUS/ALL_WINDOW arrays - a filter absent from those can never be planned).
+      MOVED the movement emitter to `MouseMove` (unchanged behaviour, renamed) and gave the
+      hover-chain gain branch its `MouseOver`, beside `MouseEnter`, mirroring the loss branch.
+      BLAST RADIUS, which is what made this "not a test fix": eight call sites subscribed to
+      `MouseOver` expecting MOVEMENT and would have frozen on entry-only semantics. All were
+      identified by their handler names and switched to `MouseMove`: eyedropper (`on_loupe_move`),
+      slider (`on_slider_pointer_move`), split-pane (`on_split_pointer_move`), map
+      (`map_on_pointer_move`), node-graph (`nodegraph_drag_graph_or_nodes`), colour plane (the
+      pointer-capture drag), plus the core drag-SELECTION handler (`handle_mouse_over` ->
+      `handle_mouse_move`) and the pointer-capture retarget in `common/event.rs`, which retargeted
+      `MouseOver | MouseUp` and would have dropped every captured move.
+      KEPT on `MouseOver` (entry is what they actually want, and entry-only is strictly better
+      than the old firehose): the submenu-open handler in `menu_renderer.rs`, and text_input's
+      `default_on_mouse_hover`, which is an inert stub.
+      TRAP: the new `On::MouseMove` arm in `impl From<On> for EventFilter` was initially a
+      CATCH-ALL BINDING, not a variant match - `MouseMove` was not in that site's `use On::{...}`
+      list, so it silently matched every value and made all 40+ arms below it unreachable. The
+      library still COMPILED; only the test build surfaced it, via `unreachable pattern` warnings.
+      Adding a variant to a `use`-list-style match is a silent-shadowing hazard, not a syntax one.
+      EVIDENCE: 3 new tests pinning the split - movement within a node fires `MouseMove` and NOT
+      `MouseOver`; `MouseOver`/`MouseEnter` fire together on the same node; and both mirror pairs
+      are complete on one hover change. 4 existing tests that asserted `MouseOver` counts for
+      MOVEMENT were retargeted at `MouseMove` (they encoded the old semantics). Host check, 8/8
+      mobile, azul-core 2759, azul-layout 7564, azul-dll 1963, azul-doc 209.
+
+- [ ] G2-a-i WEB: a browser `mouseover` is still decoded as `EVT_MOUSEMOVE` (`loader_js.rs`),
+      because there is no `EVT_MOUSEOVER` constant - adding one extends the JS/Rust dispatch
+      protocol on both sides, which is web-backend work rather than part of this split.
+      `html_render.rs` already emits the right DOM event NAME for each filter, so the mapping is
+      correct in the outbound direction and only the inbound decode is missing.
+
 - [x] TOOLING (azul-doc): the module classifier now matches DIFFICULT names manually FIRST and
       everything else automatically, per user direction — so a collision is fixed by naming the
       one bad case rather than by tuning a keyword (which reranks every other type) or by

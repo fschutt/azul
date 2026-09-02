@@ -707,7 +707,12 @@ function azEvNameToKind(name) {
         case 'scroll':      return EVT_SCROLL;
         // S1 (2026-06-11): the rest of the html_render.rs vocabulary.
         case 'mousemove':   return EVT_MOUSEMOVE;
-        case 'mouseover':   return EVT_MOUSEMOVE;   // azul Hover(MouseOver) = pointer moving over the node
+        // NOTE: azul's `MouseOver` is the ENTRY event (W3C `mouseover`) since
+        // the MouseMove split, and there is no EVT_MOUSEOVER constant to
+        // decode it to - adding one means extending the JS/Rust dispatch
+        // protocol on both sides. Logged as G2-a-i. Until then a browser
+        // `mouseover` is delivered as a move, which is what it did before.
+        case 'mouseover':   return EVT_MOUSEMOVE;
         case 'mouseenter':  return EVT_MOUSEENTER;
         case 'mouseleave':  return EVT_MOUSELEAVE;
         case 'contextmenu': return EVT_CONTEXTMENU;

@@ -292,7 +292,7 @@ extern "C" fn loupe_layout(_app: RefAny, info: LayoutCallbackInfo) -> Dom {
     ));
     for (event, data, cb) in [
         mk(
-            EventFilter::Hover(HoverEventFilter::MouseOver),
+            EventFilter::Hover(HoverEventFilter::MouseMove),
             on_loupe_move,
         ),
         mk(

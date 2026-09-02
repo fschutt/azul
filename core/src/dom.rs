@@ -1327,6 +1327,12 @@ pub enum On {
     /// text through `get_unsynced_text_edits`. APPENDED at the enum tail for
     /// ABI stability.
     TextChanged,
+    /// Mouse cursor MOVED while over the element. APPENDED at the end.
+    ///
+    /// W3C `mousemove`. [`On::MouseOver`] is the ENTRY event; this is the
+    /// one that fires continuously while the pointer travels across the
+    /// element.
+    MouseMove,
 }
 
 /// Contains the necessary information to render an embedded `VirtualView` node.

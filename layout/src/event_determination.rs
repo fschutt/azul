@@ -485,14 +485,19 @@ pub fn determine_all_events(
         let current_pos = current_state.mouse_state.cursor_position.get_position();
         let previous_pos = previous_state.mouse_state.cursor_position.get_position();
 
-        // MouseOver fires on ANY mouse movement (targeted at hovered node)
+        // MouseMove fires on ANY mouse movement, targeted at the hovered
+        // node. This emitter is UNCHANGED in behaviour and RENAMED: it used to
+        // push `MouseOver`, which is `mousemove` semantics under the
+        // `mouseover` name. W3C `mouseover` fires on ENTRY and is emitted from
+        // the hover-chain diff below, next to its non-bubbling twin
+        // `MouseEnter`.
         if current_pos != previous_pos {
             events.push(SyntheticEvent::new(
-                EventType::MouseOver,
+                EventType::MouseMove,
                 EventSource::User,
                 mouse_target,
                 timestamp.clone(),
-                make_mouse_data(MouseButton::Left), // MouseOver doesn't care about button
+                make_mouse_data(MouseButton::Left), // movement doesn't care about button
             ));
         }
     }
@@ -647,15 +652,31 @@ pub fn determine_all_events(
             ));
         }
 
-        // Nodes that gained hover -> MouseEnter
+        // Nodes that gained hover -> MouseEnter, and its bubbling twin
+        // MouseOver.
+        //
+        // The mirror of the loss branch above. W3C defines these as two
+        // PAIRS - enter/leave do not bubble, over/out do - and the gain side
+        // was missing its bubbling half entirely, because `MouseOver` was
+        // being spent on movement instead. An app that subscribed to
+        // `MouseOver` on an ancestor to catch the pointer entering any of its
+        // children got a firehose of movement events instead of one entry.
         for (dom_id, node_id) in current_hovered.difference(&previous_hovered) {
+            let target = DomNodeId {
+                dom: *dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+            };
             events.push(SyntheticEvent::new(
                 EventType::MouseEnter,
                 EventSource::User,
-                DomNodeId {
-                    dom: *dom_id,
-                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-                },
+                target,
+                timestamp.clone(),
+                EventData::None,
+            ));
+            events.push(SyntheticEvent::new(
+                EventType::MouseOver,
+                EventSource::User,
+                target,
                 timestamp.clone(),
                 EventData::None,
             ));
@@ -1556,14 +1577,14 @@ mod tests {
     }
 
     #[test]
-    fn mouseover_fires_on_cursor_move() {
+    fn mousemove_fires_on_cursor_move() {
         let events = run_determine(
             &state_with_cursor(150.0, 250.0),
             &state_with_cursor(100.0, 200.0),
         );
         let mo = events
             .iter()
-            .filter(|e| e.event_type == EventType::MouseOver)
+            .filter(|e| e.event_type == EventType::MouseMove)
             .count();
         assert_eq!(mo, 1);
     }
@@ -2371,14 +2392,14 @@ mod autotest_generated {
     // ==================================================================
 
     #[test]
-    fn mouseover_ignores_sub_quantum_cursor_jitter() {
+    fn mousemove_ignores_sub_quantum_cursor_jitter() {
         // LogicalPosition::eq quantizes to 1/1000 px: a 0.4 micro-pixel move is
         // no move at all, and must not wake the whole event pipeline.
         let events = run_plain(&cursor_at(100.0004, 0.0), &cursor_at(100.0, 0.0));
-        assert_eq!(count(&events, EventType::MouseOver), 0);
+        assert_eq!(count(&events, EventType::MouseMove), 0);
 
         let events = run_plain(&cursor_at(100.5, 0.0), &cursor_at(100.0, 0.0));
-        assert_eq!(count(&events, EventType::MouseOver), 1);
+        assert_eq!(count(&events, EventType::MouseMove), 1);
     }
 
     #[test]
@@ -2391,29 +2412,29 @@ mod autotest_generated {
     }
 
     #[test]
-    fn mouseover_nan_cursor_positions_do_not_panic_or_thrash() {
+    fn mousemove_nan_cursor_positions_do_not_panic_or_thrash() {
         let events = run_plain(
             &cursor_at(f32::NAN, f32::NAN),
             &cursor_at(f32::NAN, f32::NAN),
         );
         assert_eq!(
-            count(&events, EventType::MouseOver),
+            count(&events, EventType::MouseMove),
             0,
-            "a NaN cursor stuck in place must not fire MouseOver every frame"
+            "a NaN cursor stuck in place must not fire MouseMove every frame"
         );
 
         // NaN -> real coordinate is a genuine move.
         let events = run_plain(&cursor_at(5.0, 5.0), &cursor_at(f32::NAN, f32::NAN));
-        assert_eq!(count(&events, EventType::MouseOver), 1);
+        assert_eq!(count(&events, EventType::MouseMove), 1);
     }
 
     #[test]
-    fn mouseover_never_fires_while_the_cursor_is_outside_the_window() {
+    fn mousemove_never_fires_while_the_cursor_is_outside_the_window() {
         let mut current = state();
         current.mouse_state.cursor_position =
             CursorPosition::OutOfWindow(LogicalPosition::new(9.0, 9.0));
         let events = run_plain(&current, &state());
-        assert_eq!(count(&events, EventType::MouseOver), 0);
+        assert_eq!(count(&events, EventType::MouseMove), 0);
     }
 
     #[test]
@@ -2422,7 +2443,7 @@ mod autotest_generated {
         let enter = only(&events, EventType::MouseEnter);
         assert_eq!(enter.target, root());
         // Uninitialized -> InWindow is also a position change.
-        assert_eq!(count(&events, EventType::MouseOver), 1);
+        assert_eq!(count(&events, EventType::MouseMove), 1);
     }
 
     #[test]
@@ -2457,6 +2478,12 @@ mod autotest_generated {
         // hovered, so NOTHING is addressed to it.
         let out = only(&events, EventType::MouseOut);
         assert_eq!(out.target, node(0, 3));
+        // ...and the GAINED node gets the bubbling half of ITS pair. W3C
+        // defines two mirror pairs (enter/leave do not bubble, over/out do);
+        // the gain side was missing `MouseOver` entirely because that event
+        // was being spent on cursor movement instead.
+        let over = only(&events, EventType::MouseOver);
+        assert_eq!(over.target, node(0, 5));
         assert!(
             !events.iter().any(|e| e.target == node(0, 1)),
             "node 1 stayed hovered and must receive no enter/leave event, got {:?}",
@@ -2466,6 +2493,60 @@ mod autotest_generated {
                 .map(|e| e.event_type)
                 .collect::<Vec<_>>(),
         );
+    }
+
+    /// The whole point of the split: moving WITHIN a node must not re-fire
+    /// the entry event. Before this, `MouseOver` fired on every cursor move,
+    /// so an app using it as "the pointer entered" got a firehose instead.
+    #[test]
+    fn moving_within_a_node_fires_mousemove_but_not_mouseover() {
+        let s0 = cursor_at(10.0, 10.0);
+        let s1 = cursor_at(20.0, 20.0);
+        // Same hover chain both frames: nothing entered, nothing left.
+        let hm = hover_with(hits(&[(0, 1)]), hits(&[(0, 1)]));
+        let events = run(&s1, &s0, &hm, None, None);
+
+        assert_eq!(count(&events, EventType::MouseMove), 1);
+        assert_eq!(
+            count(&events, EventType::MouseOver),
+            0,
+            "the pointer never left node 1, so it never re-entered it"
+        );
+        assert_eq!(count(&events, EventType::MouseEnter), 0);
+    }
+
+    /// `MouseOver` and `MouseEnter` are a PAIR and must agree on the node and
+    /// on when they fire - only their propagation differs. Emitting them from
+    /// the same loop is what keeps them from drifting apart.
+    #[test]
+    fn mouseover_and_mouseenter_fire_together_on_the_same_node() {
+        let s = state();
+        let hm = hover_with(hits(&[]), hits(&[(0, 7)]));
+        let events = run(&s, &s, &hm, None, None);
+
+        let enter = only(&events, EventType::MouseEnter);
+        let over = only(&events, EventType::MouseOver);
+        assert_eq!(enter.target, over.target);
+        assert_eq!(enter.target, node(0, 7));
+    }
+
+    /// Both mirror pairs, in one gesture: node 3 is left, node 5 is entered,
+    /// and each gets exactly its bubbling and non-bubbling half.
+    #[test]
+    fn both_mirror_pairs_are_complete_on_a_hover_change() {
+        let s = state();
+        let hm = hover_with(hits(&[(0, 3)]), hits(&[(0, 5)]));
+        let events = run(&s, &s, &hm, None, None);
+
+        for (ty, expected) in [
+            (EventType::MouseLeave, node(0, 3)),
+            (EventType::MouseOut, node(0, 3)),
+            (EventType::MouseEnter, node(0, 5)),
+            (EventType::MouseOver, node(0, 5)),
+        ] {
+            let ev = only(&events, ty);
+            assert_eq!(ev.target, expected, "{ty:?} went to the wrong node");
+        }
     }
 
     #[test]
