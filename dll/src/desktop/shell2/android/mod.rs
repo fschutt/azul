@@ -1695,6 +1695,7 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
         _ => None,
     };
 
+    let guard_height_for_log = guard.height();
     let Some(dst) = guard.bytes() else {
         return Ok(());
     };
@@ -1739,10 +1740,28 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
             }
         }
         None => {
-            for y in 0..guard.height() {
+            for y in 0..guard_height_for_log {
                 copy_row(y);
             }
         }
+    }
+
+    // AZ_DUMP_PRESENT=1 reports whether the partial path is actually engaging.
+    // Bookkeeping that always falls back to a full copy is worse than no
+    // bookkeeping, and the two are indistinguishable from the rendering.
+    #[cfg(feature = "std")]
+    if android_debug_flag("AZ_DUMP_PRESENT", "debug.az.present") {
+        let (kind, rows) = match &rows_to_copy {
+            Some(r) => ("partial", r.iter().map(|(a, b)| b - a).sum::<usize>()),
+            None => ("full", guard_height_for_log),
+        };
+        log_info!(
+            LogCategory::Rendering,
+            "[Android] present {} — {} of {} rows",
+            kind,
+            rows,
+            guard_height_for_log,
+        );
     }
 
     // Bookkeeping AFTER a successful copy: this buffer now holds this frame,
@@ -1860,6 +1879,31 @@ pub fn activity_ptr() -> *mut core::ffi::c_void {
 fn publish_jni_context(app: &AndroidApp) {
     ANDROID_JAVA_VM.store(app.vm_as_ptr(), core::sync::atomic::Ordering::SeqCst);
     ANDROID_ACTIVITY.store(app.activity_as_ptr(), core::sync::atomic::Ordering::SeqCst);
+}
+
+/// A debug knob, from the env or from a `debug.az.*` system property.
+///
+/// An activity cannot be given an environment variable — `am start` builds an
+/// Intent and the process inherits the zygote's environment, not the shell's —
+/// so every `AZ_*` knob is unreachable on Android unless it has a property
+/// alias. Same mechanism `AZ_E2E` uses (`debug.az.e2e`).
+///
+///     adb shell setprop debug.az.present 1
+#[cfg(target_os = "android")]
+pub(crate) fn android_debug_flag(env_name: &str, prop: &str) -> bool {
+    if std::env::var_os(env_name).is_some() {
+        return true;
+    }
+    std::process::Command::new("getprop")
+        .arg(prop)
+        .output()
+        .ok()
+        .map(|o| {
+            let v = String::from_utf8_lossy(&o.stdout);
+            let v = v.trim();
+            !v.is_empty() && v != "0" && v != "false"
+        })
+        .unwrap_or(false)
 }
 
 /// Ask Android to show or hide the on-screen keyboard.
