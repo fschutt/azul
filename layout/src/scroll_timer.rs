@@ -1180,7 +1180,19 @@ pub extern "C" fn scroll_physics_timer_callback(
             should_terminate: TerminateTimer::Continue,
         }
     } else {
-        // No more velocity, no pending inputs → terminate the timer
+        // No more velocity, no pending inputs → terminate the timer.
+        //
+        // This is also the ONLY end-of-gesture signal a discrete wheel has. A
+        // trackpad reports its own (`TrackpadEnd`), so those gestures close
+        // themselves; a wheel reports nothing — there is no "the user stopped
+        // wheeling" event — so a `WheelDiscrete` gesture stayed open forever
+        // and `ScrollEnd` never fired for it at all.
+        //
+        // Unconditional: `settle_scroll_gesture` is a no-op unless a gesture is
+        // actually open, so a timer that ran for a trackpad flick (already
+        // closed by TrackpadEnd) or for a programmatic `scroll_to` adds
+        // nothing.
+        timer_info.callback_info.settle_scroll_gesture();
         TimerCallbackReturn::terminate_unchanged()
     }
 }

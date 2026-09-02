@@ -4688,6 +4688,16 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
+            CallbackChange::SettleScrollGesture => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.scroll_manager.settle_scroll_gesture();
+                }
+                // The transition is queued on the manager; the EventProvider
+                // drain turns it into ScrollEnd on the next pass, so nothing
+                // needs repainting on account of this alone.
+                ProcessEventResult::DoNothing
+            }
+
             CallbackChange::UpdateVirtualView { dom_id, node_id } => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     let mut updates = BTreeMap::new();

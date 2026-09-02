@@ -84,11 +84,18 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `SystemChange::{CopyToClipboard, CutToClipboard, PasteFromClipboard}`; the existing
       `post_callback_filter_system_changes(prevent_default, …)` gate then makes them interceptable.
 
-- [ ] 2c-iv `settle_scroll_gesture()` still has no caller. A discrete wheel has no end-of-gesture signal, so
-      a `WheelDiscrete` gesture never fires `ScrollEnd`. The right place is the terminate branch of
-      `scroll_physics_timer_callback` (`layout/src/scroll_timer.rs:1187`), but that callback only holds a
-      downcast `ScrollPhysicsState` and does not obviously reach the `ScrollManager` — find the seam rather
-      than guessing. Trackpad gestures are unaffected: `TrackpadEnd` closes those.
+- [x] 2c-iv `settle_scroll_gesture()` now has its caller: the terminate branch of
+      `scroll_physics_timer_callback`. The seam the note asked for is the CHANGE QUEUE, not the manager —
+      a timer callback holds only its own downcast state, but `timer_info.callback_info` reaches
+      `LayoutWindow` the same way `trigger_virtual_view_rerender` already did. New
+      `CallbackChange::SettleScrollGesture` + `CallbackInfo::settle_scroll_gesture()`, applied in
+      `apply_user_change`. `CallbackChange` is `#[derive(Debug, Clone)]` with no `repr(C)` and appears in
+      api.json only inside doc-comment TEXT, so no autofix was needed.
+      Unconditional at terminate: the manager no-ops unless a gesture is open, so a timer that ran for a
+      trackpad flick (already closed by `TrackpadEnd`) or a programmatic `scroll_to` adds nothing.
+      Drain-then-clear is intact — the transition is queued, the EventProvider drain turns it into
+      `ScrollEnd`, and `event.rs:8793` clears it in the same post-determination block as every other
+      provider, so it fires exactly once.
 
 - [ ] 4f-i X11 RandR monitor hotplug: `XRRSelectInput(RRScreenChangeNotifyMask)` plus a count diff, the
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry

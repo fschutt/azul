@@ -1606,6 +1606,14 @@ impl Runner {
             // execute, so this arm is the one that matters: it steps the
             // integrator by an exact `dt` with no wall clock involved, which is
             // what makes a mid-flight assertion reproducible.
+            // The headless runner drives the same physics timer, so a wheel
+            // gesture closes here exactly as it does in a shell — otherwise an
+            // e2e scenario would never see `ScrollEnd` and could not pin it.
+            CallbackChange::SettleScrollGesture => {
+                self.layout_window.scroll_manager.settle_scroll_gesture();
+                ProcessEventResult::DoNothing
+            }
+
             CallbackChange::SetAnimationMomentum {
                 node,
                 velocity_x,

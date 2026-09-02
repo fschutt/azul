@@ -442,6 +442,14 @@ pub enum CallbackChange {
         dom_id: DomId,
         node_id: NodeId,
     },
+    /// Close an in-progress scroll GESTURE (not a scroll position change).
+    ///
+    /// A trackpad reports its own end (`TrackpadEnd`), so those gestures close
+    /// themselves. A discrete wheel reports NOTHING — there is no "the user
+    /// stopped wheeling" event — so a `WheelDiscrete` gesture stayed open
+    /// forever and `ScrollEnd` never fired for it. The physics timer running
+    /// dry IS the end of a wheel gesture, and is the only signal that exists.
+    SettleScrollGesture,
     /// Re-render EVERY `VirtualView` on the existing DOM (no node id needed).
     /// For shared-dataset changes that arrive out-of-band (e.g. a background
     /// tile-fetch writeback): the views re-read their cloned dataset in place.
@@ -1867,6 +1875,14 @@ impl CallbackInfo {
         };
         self.trigger_virtual_view_rerender(node_id.dom, node);
         true
+    /// Declare the current scroll gesture finished, so `ScrollEnd` fires.
+    ///
+    /// Called by the scroll-physics timer when it runs dry. Routed as a
+    /// `CallbackChange` rather than touching the manager directly because a
+    /// timer callback holds only its own downcast state — the change queue is
+    /// the seam that reaches `LayoutWindow` from inside a callback.
+    pub fn settle_scroll_gesture(&mut self) {
+        self.push_change(CallbackChange::SettleScrollGesture);
     }
 
     // Dom Tree Navigation

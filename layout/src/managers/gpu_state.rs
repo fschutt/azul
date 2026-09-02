@@ -1592,6 +1592,11 @@ mod autotest_generated {
         let mut node = hot(Some(NodeId::new(1)), Some(LogicalSize::new(50.0, 50.0)));
         node.box_props = PackedBoxProps {
             border: [1000, 1000, 1000, 1000], // 100.0 px each, i16 x10 encoding
+            // `PackedBoxProps` grew margin/padding/margin_auto after this test
+            // was written, which broke the whole azul-layout TEST build while
+            // the lib kept compiling — so no layout test could run at all.
+            // Zeroed: this test is about a border wider than the box.
+            ..Default::default()
         };
         let t = tree(
             vec![node],

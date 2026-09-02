@@ -2130,6 +2130,74 @@ mod autotest_generated {
         assert_eq!(s.clamp(pos(9999.0, 9999.0)), pos(0.0, 400.0));
     }
 
+    /// A wheel gesture must OPEN and CLOSE, and a second one must open again.
+    ///
+    /// The bug this pins: `settle_scroll_gesture` had no caller, so a
+    /// `WheelDiscrete` gesture never closed. That loses more than `ScrollEnd` —
+    /// `note_scroll_phase` only opens a gesture when one is not already open,
+    /// so every wheel scroll AFTER the first also fired nothing, for the life
+    /// of the window.
+    #[test]
+    fn a_wheel_gesture_opens_closes_and_can_open_again() {
+        let mut s = ScrollManager::default();
+
+        s.note_scroll_phase(ScrollInputSource::WheelDiscrete);
+        assert_eq!(
+            s.pending_scroll_phase,
+            vec![ScrollPhaseTransition::Started],
+            "first wheel delta must open a gesture",
+        );
+
+        // More deltas in the same gesture do not re-open it.
+        s.note_scroll_phase(ScrollInputSource::WheelDiscrete);
+        assert_eq!(
+            s.pending_scroll_phase,
+            vec![ScrollPhaseTransition::Started],
+            "a gesture already open must not emit a second Start",
+        );
+
+        // The physics timer running dry is the only end a wheel has.
+        s.settle_scroll_gesture();
+        assert_eq!(
+            s.pending_scroll_phase,
+            vec![
+                ScrollPhaseTransition::Started,
+                ScrollPhaseTransition::Ended
+            ],
+            "the timer running dry must close the gesture",
+        );
+
+        // The drain clears the queue (event.rs does this each pass).
+        s.pending_scroll_phase.clear();
+
+        // THE REGRESSION: without the settle above, this emitted nothing.
+        s.note_scroll_phase(ScrollInputSource::WheelDiscrete);
+        assert_eq!(
+            s.pending_scroll_phase,
+            vec![ScrollPhaseTransition::Started],
+            "a later wheel gesture must open again after the previous closed",
+        );
+    }
+
+    /// Settling with no gesture open is a no-op, which is what makes the
+    /// unconditional call in the timer's terminate branch safe: that timer also
+    /// runs for trackpad flicks (already closed by TrackpadEnd) and for
+    /// programmatic scrolls, neither of which should emit anything.
+    #[test]
+    fn settling_without_a_gesture_emits_nothing() {
+        let mut s = ScrollManager::default();
+        s.settle_scroll_gesture();
+        assert!(s.pending_scroll_phase.is_empty());
+
+        s.note_scroll_phase(ScrollInputSource::Programmatic);
+        s.note_scroll_phase(ScrollInputSource::AnimateTo);
+        s.settle_scroll_gesture();
+        assert!(
+            s.pending_scroll_phase.is_empty(),
+            "programmatic scrolls are not gestures and must not open one",
+        );
+    }
+
     #[test]
     fn clamp_never_produces_negative_max_when_content_is_smaller_than_container() {
         // Content smaller than the viewport => max travel is 0, not negative.
