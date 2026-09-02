@@ -49,7 +49,7 @@ use crate::{
     },
 };
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 28] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 29] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
     (
@@ -82,6 +82,18 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 28] = [
     // +spec:writing-modes:798cca - inset-block/inset-inline shorthand properties
     (CombinedCssPropertyType::InsetBlock, "inset-block"),
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
+    // SVG's `fill` IS a background: an SVG shape's box is clipped to its own
+    // geometry, so filling the box fills the shape. Aliasing it here rather
+    // than adding a parallel paint model is what lets all three spellings -
+    // the presentation attribute, `style="fill:…"`, and a stylesheet rule
+    // matching `class="ColorScheme-Text"` - resolve through the ONE cascade,
+    // and it brings every background feature along: a gradient fill, an image
+    // fill and a `:hover` fill need no further plumbing.
+    //
+    // Placed LAST on purpose: `Display for CombinedCssPropertyType` returns
+    // the first name for a type, so this stays an accepted input spelling
+    // without becoming the printed one.
+    (CombinedCssPropertyType::BackgroundColor, "fill"),
 ];
 
 const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 194] = [

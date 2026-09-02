@@ -354,6 +354,8 @@ mod textinput_seed_style;
 mod a11y_consumer_contract;
 #[path = "textinput_first_draw_and_focus.rs"]
 mod textinput_first_draw_and_focus;
+#[path = "svg_paint.rs"]
+mod svg_paint;
 #[path = "theme_conditional_stylesheet.rs"]
 mod theme_conditional_stylesheet;
 #[path = "token_vs_slicer_differential.rs"]

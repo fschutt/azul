@@ -5774,6 +5774,67 @@ fn apply_xml_node_attributes(
         }
     }
 
+    // An SVG SHAPE is painted by filling its own box and clipping that box to
+    // its geometry (`SvgNodeData::*`, pushed as a clip mask by the display
+    // list). Two things make that work, and both are ordinary CSS:
+    //
+    //   * the box has to BE the `<svg>`'s viewport - the clip mask is
+    //     rasterised into the node's paint rect, so a shape that laid out as
+    //     an ordinary in-flow block would be clipped against the wrong
+    //     rectangle (and, being empty, would be 0-high anyway);
+    //   * `fill` has to reach the cascade. The presentation ATTRIBUTE is
+    //     translated here; `style="fill:…"` and a stylesheet rule need nothing,
+    //     because `fill` is an accepted spelling of `background-color`
+    //     (`COMBINED_CSS_PROPERTIES_KEY_MAP`).
+    //
+    // `fill="none"` deliberately emits NOTHING rather than a transparent
+    // background: it must not shadow a stylesheet rule that does set a fill.
+    if inside_svg
+        && matches!(
+            component_name,
+            "path" | "circle" | "rect" | "ellipse" | "line" | "polygon" | "polyline"
+        )
+    {
+        use azul_css::props::{
+            layout::{
+                LayoutInsetBottom, LayoutLeft, LayoutPosition, LayoutRight, LayoutTop,
+            },
+            property::CssProperty,
+        };
+        let simple = azul_css::dynamic_selector::CssPropertyWithConditions::simple;
+        intrinsic_props.push(simple(CssProperty::const_position(LayoutPosition::Absolute)));
+        intrinsic_props.push(simple(CssProperty::const_left(LayoutLeft::const_px(0))));
+        intrinsic_props.push(simple(CssProperty::const_top(LayoutTop::const_px(0))));
+        intrinsic_props.push(simple(CssProperty::const_right(LayoutRight::const_px(0))));
+        intrinsic_props.push(simple(CssProperty::const_bottom(LayoutInsetBottom::const_px(
+            0,
+        ))));
+
+        if let Some(fill) = xml_node.attributes.get_key("fill") {
+            let fill = fill.as_str().trim();
+            if fill != "none" {
+                if let Ok(color) = azul_css::props::basic::color::parse_css_color(fill) {
+                    intrinsic_props.push(simple(CssProperty::const_background_content(
+                        azul_css::props::style::StyleBackgroundContentVec::from_vec(vec![
+                            azul_css::props::style::StyleBackgroundContent::Color(color),
+                        ]),
+                    )));
+                }
+            }
+        }
+    }
+
+    // `<svg>` is the positioning context its shapes resolve against.
+    if component_name == "svg" {
+        intrinsic_props.push(
+            azul_css::dynamic_selector::CssPropertyWithConditions::simple(
+                azul_css::props::property::CssProperty::const_position(
+                    azul_css::props::layout::LayoutPosition::Relative,
+                ),
+            ),
+        );
+    }
+
     // Handle inline style attribute (and the mapped `dir` attribute above)
     let style_attr = xml_node.attributes.get_key("style");
     if style_attr.is_some() || dir_prop.is_some() || !intrinsic_props.is_empty() {

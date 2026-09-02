@@ -4857,6 +4857,33 @@ where
 
     /// Checks if a node has an image mask clip and pushes `PushImageMaskClip` if so.
     /// Returns true if a clip was pushed (caller must pop it).
+    /// The `viewBox` of the nearest `<svg>` ancestor of `node` (itself
+    /// included), as `(min_x, min_y, width, height)`.
+    ///
+    /// An SVG shape's geometry is in its `<svg>`'s USER SPACE, and the element
+    /// it paints into is sized in CSS px; this is the only place that knows
+    /// both. Bounded by the tree depth, and `None` for a clip-path on an
+    /// ordinary element - which has no user space and whose geometry is
+    /// already window-logical.
+    fn enclosing_view_box(&self, node: NodeId) -> Option<(f32, f32, f32, f32)> {
+        let node_data = self.ctx.styled_dom.node_data.as_container();
+        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
+        let mut cursor = Some(node);
+        while let Some(id) = cursor {
+            if let Some(azul_core::dom::SvgNodeData::ViewBox {
+                min_x,
+                min_y,
+                width,
+                height,
+            }) = node_data.get(id).and_then(azul_core::dom::NodeData::get_svg_data)
+            {
+                return Some((*min_x, *min_y, *width, *height));
+            }
+            cursor = hierarchy.get(id).and_then(|h| h.parent_id());
+        }
+        None
+    }
+
     fn push_image_mask_clip(&self, builder: &mut DisplayListBuilder, node_index: usize) -> bool {
         let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) else {
             return false;
@@ -4885,10 +4912,16 @@ where
             #[cfg(feature = "cpurender")]
             Some(azul_core::dom::SvgNodeData::Path(svg_clip)) => {
                 let paint_rect = self.get_paint_rect(node_index).unwrap_or_default();
-                rasterize_svg_clip_to_r8(svg_clip, &paint_rect).is_some_and(|mask_image| {
-                    builder.push_image_mask_clip(paint_rect, mask_image, paint_rect);
-                    true
-                })
+                // The coordinate system the geometry was authored in: the
+                // nearest `<svg>` ancestor's viewBox. Without it a shape drawn
+                // at 16 units paints a sixteenth of a 256px slot.
+                let view_box = self.enclosing_view_box(dom_id);
+                rasterize_svg_clip_to_r8(svg_clip, &paint_rect, view_box).is_some_and(
+                    |mask_image| {
+                        builder.push_image_mask_clip(paint_rect, mask_image, paint_rect);
+                        true
+                    },
+                )
             }
             #[cfg(not(feature = "cpurender"))]
             Some(azul_core::dom::SvgNodeData::Path(_)) => {
@@ -9944,6 +9977,7 @@ pub(crate) fn apply_clip_path(
 fn rasterize_svg_clip_to_r8(
     svg_clip: &azul_core::svg::SvgMultiPolygon,
     paint_rect: &LogicalRect,
+    view_box: Option<(f32, f32, f32, f32)>,
 ) -> Option<ImageRef> {
     use agg_rust::{
         basics::FillingRule, color::Rgba8, path_storage::PathStorage, pixfmt_rgba::PixfmtRgba32,
@@ -9959,6 +9993,26 @@ fn rasterize_svg_clip_to_r8(
         return None;
     }
 
+    // USER SPACE -> MASK PIXELS.
+    //
+    // With a viewBox the geometry is in the `<svg>`'s own coordinate system
+    // and has to be SCALED into the box the element ended up with: an icon
+    // drawn at 16 units in a 64px slot must fill the slot, not a sixteenth of
+    // it. Without one (a bare clip-path on an ordinary element) the geometry
+    // is already in window-logical px, and only the paint rect's origin is
+    // subtracted - the behaviour every existing clip mask relies on.
+    let (sx, sy, tx, ty) = match view_box {
+        Some((min_x, min_y, vb_w, vb_h)) if vb_w > 0.0 && vb_h > 0.0 => (
+            paint_rect.size.width / vb_w,
+            paint_rect.size.height / vb_h,
+            -min_x,
+            -min_y,
+        ),
+        _ => (1.0, 1.0, -paint_rect.origin.x, -paint_rect.origin.y),
+    };
+    let mx = |x: f32| f64::from((x + tx) * sx);
+    let my = |y: f32| f64::from((y + ty) * sy);
+
     // Build agg PathStorage from SvgMultiPolygon
     let mut path = PathStorage::new();
     for ring in svg_clip.rings.as_ref() {
@@ -9968,46 +10022,46 @@ fn rasterize_svg_clip_to_r8(
                 azul_core::svg::SvgPathElement::Line(l) => {
                     if first {
                         path.move_to(
-                            f64::from(l.start.x - paint_rect.origin.x),
-                            f64::from(l.start.y - paint_rect.origin.y),
+                            mx(l.start.x),
+                            my(l.start.y),
                         );
                         first = false;
                     }
                     path.line_to(
-                        f64::from(l.end.x - paint_rect.origin.x),
-                        f64::from(l.end.y - paint_rect.origin.y),
+                        mx(l.end.x),
+                        my(l.end.y),
                     );
                 }
                 azul_core::svg::SvgPathElement::QuadraticCurve(q) => {
                     if first {
                         path.move_to(
-                            f64::from(q.start.x - paint_rect.origin.x),
-                            f64::from(q.start.y - paint_rect.origin.y),
+                            mx(q.start.x),
+                            my(q.start.y),
                         );
                         first = false;
                     }
                     path.curve3(
-                        f64::from(q.ctrl.x - paint_rect.origin.x),
-                        f64::from(q.ctrl.y - paint_rect.origin.y),
-                        f64::from(q.end.x - paint_rect.origin.x),
-                        f64::from(q.end.y - paint_rect.origin.y),
+                        mx(q.ctrl.x),
+                        my(q.ctrl.y),
+                        mx(q.end.x),
+                        my(q.end.y),
                     );
                 }
                 azul_core::svg::SvgPathElement::CubicCurve(c) => {
                     if first {
                         path.move_to(
-                            f64::from(c.start.x - paint_rect.origin.x),
-                            f64::from(c.start.y - paint_rect.origin.y),
+                            mx(c.start.x),
+                            my(c.start.y),
                         );
                         first = false;
                     }
                     path.curve4(
-                        f64::from(c.ctrl_1.x - paint_rect.origin.x),
-                        f64::from(c.ctrl_1.y - paint_rect.origin.y),
-                        f64::from(c.ctrl_2.x - paint_rect.origin.x),
-                        f64::from(c.ctrl_2.y - paint_rect.origin.y),
-                        f64::from(c.end.x - paint_rect.origin.x),
-                        f64::from(c.end.y - paint_rect.origin.y),
+                        mx(c.ctrl_1.x),
+                        my(c.ctrl_1.y),
+                        mx(c.ctrl_2.x),
+                        my(c.ctrl_2.y),
+                        mx(c.end.x),
+                        my(c.end.y),
                     );
                 }
             }
