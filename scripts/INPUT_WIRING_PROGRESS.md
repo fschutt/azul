@@ -1156,3 +1156,20 @@ FOUND AND FIXED HERE:
       still described the superseded one — the file contradicted itself.
       EVIDENCE: azul-dll headless failures 2 -> 1. azul-core 2749, azul-layout 7555, host check
       and 8-target gate green.
+- [x] THE HEADLESS SUITE IS GREEN: 8 failures -> 0, and the whole workspace with it.
+      The last one was the third victim of the same deleted class:
+      `the_patched_display_list_equals_the_wholesale_build_for_the_widgets_scene` watched
+      `__azul-native-text-area-placeholder` as a stability witness, and the
+      placeholder-as-engine-attribute refactor deleted that node — the class appears NOWHERE in
+      the workspace, so the lookup could only ever return `[]`.
+      Dropped it from the watched tuple rather than replacing it: the prompt is PAINTED by the
+      engine, and this test's own `assert_builders_agree` compares the WHOLE display list
+      between the patched and wholesale builders, so the prompt's glyphs are already checked
+      directly — stronger than watching the box that used to contain them.
+      FINAL TALLY for the eight, which were NOT one bug: three were `Click` never being
+      synthesized (a coincidence-based rule no backend had to satisfy); two were planning never
+      probing Component/Application filters (every lifecycle callback in every app dead); one
+      was `TextSelectionDrag` having a handler and no producer; two were tests encoding
+      superseded rulings or deleted classes.
+      Workspace: azul-css 2856, azul-core 2749 + 21 integration targets, azul-layout 7555,
+      azul-dll 1943, azul-doc 206 — all green. Host check and 8-target gate green.

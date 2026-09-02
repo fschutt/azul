@@ -7065,15 +7065,23 @@ mod tests {
     ) -> (
         azul_core::geom::LogicalRect,
         azul_core::geom::LogicalRect,
-        azul_core::geom::LogicalRect,
     ) {
+        // The textarea's PROMPT is deliberately not watched here. It used to
+        // be the third rect, found by class — but the
+        // placeholder-as-engine-attribute refactor deleted that node, and
+        // `__azul-native-text-area-placeholder` now appears nowhere in the
+        // workspace, so the lookup could only ever return `[]`.
+        //
+        // Nothing is lost: the prompt is PAINTED by the engine, and
+        // `assert_builders_agree` compares the WHOLE display list between the
+        // patched and wholesale builders — so the prompt's own glyphs are
+        // checked directly, which is stronger than watching a box that used to
+        // contain them.
         let ta = rects_by_class(window, "__azul-native-text-area-container");
-        let ph = rects_by_class(window, "__azul-native-text-area-placeholder");
         let cap = rects_by_class(window, "cap-slider");
         assert_eq!(ta.len(), 1, "{when}: {ta:?}");
-        assert_eq!(ph.len(), 1, "{when}: {ph:?}");
         assert_eq!(cap.len(), 1, "{when}: {cap:?}");
-        (ta[0], ph[0], cap[0])
+        (ta[0], cap[0])
     }
 
     fn assert_builders_agree(window: &mut HeadlessWindow, when: &str) {
@@ -7103,10 +7111,9 @@ mod tests {
         // The second pass is the structure-preserved one: a PATCHED build.
         window.regenerate_layout().expect("settle");
         let second = watched_rects(&window, "settle");
-        assert_eq!(first, second, "pass 1 and pass 2 must place the textarea, its placeholder and the caption identically");
-        assert!(
-            second.1.origin.y >= second.0.origin.y && second.1.origin.y < second.0.origin.y + 30.0,
-            "the placeholder sits at the top of its textarea: {second:?}"
+        assert_eq!(
+            first, second,
+            "pass 1 and pass 2 must place the textarea and the caption identically"
         );
         assert_builders_agree(&mut window, "after the settle pass");
 
@@ -7125,7 +7132,7 @@ mod tests {
         let hovered = watched_rects(&window, "hovering the thumb");
         assert_eq!(
             second, hovered,
-            "a hover on the slider must not move the textarea's placeholder"
+            "a hover on the slider must not move the textarea or the caption"
         );
         window
             .common
