@@ -3340,6 +3340,15 @@ define_class!(
                         ws.keyboard_state.pressed_scancodes =
                         azul_core::window::ScanCodeVec::from_vec(Vec::new());
                     });
+
+                    // And the pointer lock. macOS keeps
+                    // `CGAssociateMouseAndMouseCursorPosition(false)` in force
+                    // across focus changes, so leaving it would strand the
+                    // user with a FROZEN, INVISIBLE cursor inside whatever
+                    // application just took focus — the one failure here that
+                    // is unrecoverable without killing the app.
+                    macos_window.release_pointer_lock_on_focus_loss();
+
                     macos_window.dynamic_selector_context.window_focused = false;
 
                     // Notify accessibility adapter that the view lost focus

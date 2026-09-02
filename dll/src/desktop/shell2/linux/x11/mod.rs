@@ -4361,6 +4361,19 @@ impl X11Window {
                         ws.keyboard_state.pressed_scancodes =
                             azul_core::window::ScanCodeVec::from_vec(Vec::new());
                     });
+
+                    // And the pointer lock. X11 holds an `XGrabPointer` until
+                    // it is explicitly released — the grab survives focus
+                    // changes BY DESIGN — so an unfocused window would keep the
+                    // pointer confined to itself with no way for the user out.
+                    //
+                    // Safe to do here precisely because this branch already
+                    // excludes grab-induced focus changes via
+                    // `is_grab_focus_change`: taking our own pointer grab emits
+                    // a `NotifyGrab` FocusOut, and releasing on that would make
+                    // the lock instantly undo itself.
+                    self.release_pointer_lock_on_focus_loss();
+
                     self.dynamic_selector_context.window_focused = false;
                     // Tablet reset. Wayland gets this from `pad_leave` /
                     // `pad_removed` / `proximity_out`; X11 has no equivalent

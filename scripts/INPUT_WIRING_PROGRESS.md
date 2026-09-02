@@ -432,8 +432,34 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       alt-tabbing away and back does not silently drop the lock. Host check, Linux target check
       and the 8-target gate green; suites unchanged. NOT runtime-verified — needs a real
       compositor.
-- [ ] 9d-ii-b Release the lock on focus loss (X11 and Win32 only — Wayland already does this
-      correctly via the `unlocked` event, see 9d-ii-a). Every platform revokes a grab when the window
+- [x] 9d-ii-b DONE for Win32, X11 AND macOS (the item said X11/Win32; macOS needed it too, and
+      needed it most). Wayland needs no caller — the compositor ends the lock and says so through
+      `zwp_locked_pointer_v1.unlocked`, which already writes the flag.
+      Every backend needs this for a DIFFERENT reason, which is why it routes through one shared
+      `release_pointer_lock_on_focus_loss` rather than each arm clearing the flag:
+      * Win32 drops the `ClipCursor` clip ITSELF on deactivation, so the flag is already a lie —
+        and `ShowCursor` is a COUNTER, so clearing the flag without running the release would
+        strand the cursor hidden for the whole PROCESS with no matching show left.
+      * macOS keeps `CGAssociateMouseAndMouseCursorPosition(false)` in force across focus
+        changes, leaving the user with a FROZEN, INVISIBLE cursor inside whatever application
+        took focus. That is the one failure here that cannot be recovered without killing the app.
+      * X11 holds the grab until explicitly released — it survives focus changes by design — so
+        an unfocused window keeps the pointer confined with no way out.
+      THE TRAP, and the reason the X11 arm is safe: X sends a `NotifyGrab` FocusOut as a SIDE
+      EFFECT of any grab activating, including our own `XGrabPointer`. Releasing on that would
+      make the lock instantly undo itself. The X11 FocusOut arm was already guarded by
+      `is_grab_focus_change` for the menu case, so the release sits inside the branch that has
+      already excluded grab-induced changes.
+      The helper deliberately does NOT re-acquire on focus return: whether a lock silently comes
+      back is a product decision (a game wants it, a drawing app does not) and guessing it would
+      re-grab the pointer behind the user's back. That half stays open as 9d-ii-c.
+      Host, Linux-target and Windows-target checks green; 8-target gate green; azul-dll 1935 with
+      only its 8 pre-existing headless failures.
+- [ ] 9d-ii-c Should focus RETURN re-take a pointer lock that focus loss dropped? A game wants
+      the lock back on alt-tab return; a drawing app would find the cursor silently captured
+      again. Wayland's `LIFETIME_PERSISTENT` already reactivates on its own, so the three
+      grab-based backends currently behave DIFFERENTLY from it — that divergence is the thing to
+      settle, not just the yes/no. Needs a product decision; do not guess. Every platform revokes a grab when the window
       loses focus, so the flag can outlive the lock it describes and report one that is not held.
       The backends already clear keyboard/mouse state at focus-out (x11 `clear_keyboard_state`,
       windows WM_KILLFOCUS); this wants the same treatment, but it is a behaviour decision about

@@ -4031,6 +4031,46 @@ pub trait PlatformWindow {
         // No-op on non-Wayland platforms
     }
 
+    /// Drop the pointer lock because the window lost focus.
+    ///
+    /// Every backend needs this and none of them can skip it, but for
+    /// DIFFERENT reasons, which is why it routes through the same release path
+    /// rather than each arm clearing the flag itself:
+    ///
+    /// * Win32 releases the `ClipCursor` clip itself on deactivation, so the
+    ///   flag becomes a lie the moment focus goes. Worse, `ShowCursor` is a
+    ///   COUNTER: clearing the flag without running the release would leave the
+    ///   cursor hidden for the whole PROCESS, with no matching show left to
+    ///   run.
+    /// * macOS keeps `CGAssociateMouseAndMouseCursorPosition(false)` in force,
+    ///   so the user would be left with a frozen, invisible cursor in another
+    ///   application.
+    /// * X11 holds the grab until it is explicitly released, so an unfocused
+    ///   window would keep the pointer confined.
+    ///
+    /// Wayland is the exception and needs no caller: the compositor ends the
+    /// lock itself and says so through `zwp_locked_pointer_v1.unlocked`, which
+    /// already writes the flag.
+    ///
+    /// This deliberately does NOT re-acquire on focus return. Whether a lock
+    /// should silently come back is a product decision (a game wants it, a
+    /// drawing app does not), and guessing it would re-grab the pointer behind
+    /// the user's back.
+    fn release_pointer_lock_on_focus_loss(&mut self) {
+        if !self
+            .get_current_window_state()
+            .mouse_state
+            .is_cursor_locked
+        {
+            return;
+        }
+        let _ = self.handle_set_pointer_lock(false);
+        self.get_common_mut()
+            .update_window_state(WindowStateSource::Os, |s| {
+                s.mouse_state.is_cursor_locked = false;
+            });
+    }
+
     /// Confine + hide the pointer (or release it), returning whether the lock
     /// is ACTUALLY held afterwards.
     ///

@@ -5890,6 +5890,13 @@ unsafe extern "system" fn window_proc(
                 ms.middle_down = false;
             }
 
+            // And the pointer lock, for the same reason plus a sharper one:
+            // Windows drops the `ClipCursor` clip itself on deactivation, so
+            // the flag is already a lie — and `ShowCursor` is a COUNTER, so
+            // leaving the lock "held" would strand the cursor hidden for the
+            // whole process with no matching show left to run.
+            window.release_pointer_lock_on_focus_loss();
+
             window.set_previous_window_state(prev_snapshot);
 
             // Same as WM_SETFOCUS: process + route so blur callbacks fire and
