@@ -1178,10 +1178,36 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         barrel_button_pressed: bool,
     }
     let mut pen_updates: Vec<PenSample> = Vec::new();
+    /// Wear-crown rotation samples, in `AXIS_SCROLL` units (detents).
+    let mut rotary_deltas: Vec<f32> = Vec::new();
 
     while iter.next(|event| {
         match event {
             InputEvent::MotionEvent(m) => {
+                // A WEAR CROWN is a MotionEvent too, and it is not a pointer:
+                // `SOURCE_ROTARY_ENCODER` reports rotation on `AXIS_SCROLL`
+                // with no coordinates at all. Handled first and returned
+                // early, because everything below treats a MotionEvent as
+                // touch/mouse input and would fabricate a pointer at (0, 0)
+                // from an event that has no position.
+                //
+                // `DialState` names this platform in its own docs as one of
+                // the four that converged on the dial primitive; it simply had
+                // no producer here.
+                if m.source() == android_activity::input::Source::RotaryEncoder {
+                    let scroll = m
+                        .pointers()
+                        .next()
+                        .map_or(0.0, |p| p.axis_value(Axis::Scroll));
+                    if scroll != 0.0 {
+                        rotary_deltas.push(scroll);
+                    }
+                    // Collected, not applied: this closure only gathers, and
+                    // the window is mutated after the loop like every other
+                    // input family here.
+                    return InputStatus::Handled;
+                }
+
                 let mut mouse_pos = LogicalPosition::new(0.0, 0.0);
                 let mut touch_points: Vec<azul_core::window::TouchPoint> = Vec::new();
                 let mut first_pointer = true;
@@ -1469,6 +1495,51 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 window.needs_rerender = true;
             }
             PER::DoNothing => {}
+        }
+    }
+
+    // Apply Wear-crown rotation. A crown is a dial, not a pointer:
+    // `SOURCE_ROTARY_ENCODER` reports on `AXIS_SCROLL` with no coordinates,
+    // which is why the collector above returns before the touch/mouse path
+    // rather than letting it fabricate a pointer at (0, 0).
+    //
+    // `DialState` names Android's rotary encoder in its own docs as one of the
+    // four platforms that converged on the dial primitive - it simply had no
+    // producer here, so a crown turned and nothing in the engine heard it.
+    //
+    // Samples are SUMMED rather than applied one at a time: several arrive per
+    // frame on a fast spin, and `update_dial_state` arms one `DialRotate` per
+    // call, so applying each would fire a burst of events for one gesture.
+    let rotary_total: f32 = rotary_deltas.iter().sum();
+    if rotary_total != 0.0 {
+        if let Some(lw) = window.common.layout_window.as_mut() {
+            lw.gesture_drag_manager.update_dial_state(
+                azul_layout::managers::gesture::DialState {
+                    // Wear has one crown, and Android gives it no id.
+                    device_id: 0,
+                    // Android reports DETENTS, not an angle: `AXIS_SCROLL` on
+                    // a rotary encoder is a scroll-like magnitude the docs
+                    // never relate to a physical rotation, so there is no
+                    // honest radians conversion and `delta_rad` stays 0.0.
+                    // That mirrors the Wayland producer, which fills
+                    // `delta_rad` and leaves `detent_count` at 0.0: each
+                    // backend fills the axis its platform actually measures.
+                    // Deriving one from the other is 9c-i-a.
+                    delta_rad: 0.0,
+                    // Fractional on a high-resolution crown, which is exactly
+                    // what the field documents.
+                    detent_count: rotary_total,
+                    // A crown PRESS arrives as a key event, not on this axis -
+                    // 9c-i-b.
+                    pressed: false,
+                    // Never on-screen; that is a Surface Studio property.
+                    contact_position: azul_core::geom::OptionLogicalPosition::None,
+                },
+            );
+        }
+        let r = window.process_window_events(0);
+        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+            window.needs_rerender = true;
         }
     }
 

@@ -804,9 +804,38 @@ TOOLING TRAPS (cost real time, worth knowing):
 
 ### Follow-ups opened by 9c
 
-- [ ] 9c-i Other dial backends: Win32 `RadialController` (needs WinRT interop, and is the only one that
-      reports `contact_position`), Android `SOURCE_ROTARY_ENCODER` for a Wear crown, Apple Digital Crown.
-      The type and the accessor are in place; each is a backend, not a design question.
+- [x] 9c-i ANDROID DONE (Wear crown). Win32 is 9c-i-c; the Apple Digital Crown is watchOS-only
+      and azul has no watchOS target, so it is not a backend that can be written here at all.
+      A crown turned and nothing in the engine heard it, even though `DialState`'s own docs name
+      `SOURCE_ROTARY_ENCODER` as one of the four platforms that converged on the dial primitive.
+      THE TRAP: a crown arrives as a `MotionEvent`, but it is NOT a pointer - it reports on
+      `AXIS_SCROLL` with no coordinates at all. Letting it fall through the existing motion path
+      would have fabricated a pointer at (0, 0), i.e. a phantom touch in the top-left corner on
+      every turn. So the rotary source is detected and returned FIRST, before any of the
+      touch/mouse handling.
+      Samples are SUMMED before applying: several arrive per frame on a fast spin and
+      `update_dial_state` arms one `DialRotate` per call, so applying each would fire a burst of
+      events for one gesture.
+      `delta_rad` stays 0.0 and `detent_count` carries the value, which is the honest split rather
+      than a shortcut: `AXIS_SCROLL` on a rotary encoder is a scroll-like magnitude that Android's
+      docs never relate to a physical rotation, so there is no radians conversion to make without
+      inventing a constant. It mirrors the Wayland producer exactly, which fills `delta_rad` and
+      leaves `detent_count` at 0.0 - each backend fills the axis its platform actually measures,
+      and `update_dial_state` already arms on EITHER being non-zero, so the event fires.
+      EVIDENCE: both the collector and the drain proven COMPILED by deliberate type errors under
+      `--target aarch64-linux-android` with `_internal_deps` (the 8-target gate does not enable
+      `jni`, so it alone would prove nothing). Host, 8/8 mobile, 45 dial tests still green.
+
+- [ ] 9c-i-a Can `delta_rad` be derived on Android? Only with a radians-per-detent constant that
+      Android does not document, and which differs per device. Logged rather than guessed: a
+      fabricated angle would be worse than the 0.0 that honestly says "this platform does not
+      measure that".
+- [ ] 9c-i-b The crown PRESS. `DialState::pressed` stays false on Android because a crown click
+      arrives as a KeyEvent (`KEYCODE_STEM_PRIMARY` on Wear), not on the motion axis - so it needs
+      a key-side producer feeding the same `DialState`, not another motion arm.
+- [ ] 9c-i-c Win32 `RadialController`: still needs WinRT interop the shell does not have, and is
+      the only backend that can ever fill `contact_position` (a Surface Dial placed on a Studio
+      display).
 - [x] 9c-ii DONE — all four layers plus the registration the layer model does not mention.
       `DialState` has been readable through `CallbackInfo::get_dial_state()` since the type
       landed, with no `EventType` and no filter behind it, so a dial could only be POLLED from
