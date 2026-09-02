@@ -563,13 +563,17 @@ fn record_multi_edit_undo(
 /// two from disagreeing (a keyboard over a non-editable node, or an editable
 /// node with no way to type into it).
 ///
-/// A no-op everywhere except Android today. Desktop platforms have a physical
-/// keyboard and no concept to drive; iOS needs the same call routed to
-/// `becomeFirstResponder`, which does not exist yet.
+/// A no-op on desktop, which has a physical keyboard and no concept to drive.
+/// Android raises the IME through `InputMethodManager`; iOS has no "show the
+/// keyboard" call at all - there the keyboard is a CONSEQUENCE of the view
+/// becoming first responder while conforming to `UIKeyInput`, so the iOS arm
+/// routes to `becomeFirstResponder`/`resignFirstResponder`.
 #[allow(unused_variables)]
 fn set_soft_keyboard_visible(visible: bool) {
     #[cfg(target_os = "android")]
     crate::desktop::shell2::android::set_soft_keyboard_visible(visible);
+    #[cfg(target_os = "ios")]
+    crate::desktop::shell2::ios::set_soft_keyboard_visible(visible);
 }
 
 /// Play ONE haptic request on whatever actuator this platform drives.

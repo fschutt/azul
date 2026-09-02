@@ -246,9 +246,33 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       result), the edit menu, and dictation. ⚠ Do NOT half-implement it: UIKit probes for the protocol and
       then calls methods that must return real `UITextPosition` objects, so returning nil CRASHES rather
       than degrades. That is why 10b shipped `UIKeyInput` instead.
-- [ ] 10b-ii Nothing calls `becomeFirstResponder` on the view, so the keyboard never actually appears
-      even though the view can now accept it. Should be driven by `take_soft_keyboard_request()` (10a-ii)
-      — the same drain, on both mobile shells.
+- [x] 10b-ii DONE. On iOS the keyboard is not something you show - it is a CONSEQUENCE of a view
+      becoming first responder while conforming to `UIKeyInput`. The view had conformed and
+      answered `canBecomeFirstResponder = true` since 10b, and implemented `insertText:` /
+      `deleteBackward` / `hasText`, but NOTHING ever asked it to become first responder. So the
+      whole conformance sat unused and no keyboard could appear on any iOS device: not a missing
+      capability, a missing call.
+      TWO halves, both needed, and the item only named one:
+        1. The FOCUS-DRIVEN raise. `set_soft_keyboard_visible()` in `common/event.rs` is shared by
+           every backend and had an Android arm only, so tapping a text field raised nothing on
+           iOS. It now routes to `becomeFirstResponder`/`resignFirstResponder`. This is the half
+           that makes ordinary typing work and it was NOT in the item's description.
+        2. The APP's explicit request - `CallbackInfo::request_soft_keyboard()` ->
+           `CallbackChange::RequestSoftKeyboard` -> `take_soft_keyboard_request()` - drained on
+           the `CADisplayLink` tick, the same per-frame slot that already drains a11y actions and
+           polls the appearance. This is the half the item named.
+      Both call one `set_soft_keyboard_visible` in `ios/mod.rs`, so the two paths cannot drift.
+      The responder chain can REFUSE (a system alert holding first responder), so the BOOL is
+      bound and logged rather than discarded - the request is advisory, exactly as on Android.
+      EVIDENCE: all three edits proven COMPILED rather than cfg'd out, which a green
+      `--target aarch64-apple-ios` build alone does not show. Deliberate type errors inside the
+      iOS `set_soft_keyboard_visible` body and inside the tick drain were both reported; and
+      RENAMING the iOS function broke `common/event.rs:576`, proving the shared arm really
+      resolves to it on an iOS build rather than being compiled out.
+      NOT verified on a device - there is no Xcode in this environment (see
+      [[mobile_tooling_2026_09_01]]), so this is a compile-and-inspection result, not a
+      keyboard-appeared-on-screen result. Host check, 8/8 mobile, azul-core 2759,
+      azul-layout 7567, azul-dll 1963.
 - [ ] 10b-iii `UIPress` modifier flags (`key.modifierFlags`) are not read, so Cmd-key shortcuts from a
       Magic Keyboard do not reach the accelerator path.
 

@@ -922,6 +922,25 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
         // per-frame slot `run.rs` gives the four desktop backends.
         #[cfg(feature = "a11y")]
         window.process_accessibility_actions();
+        // The APP's explicit soft-keyboard request. `CallbackInfo::
+        // request_soft_keyboard()` -> `CallbackChange::RequestSoftKeyboard` ->
+        // `TextEditManager::pending_soft_keyboard` was drained on Android only,
+        // so on iOS the public API did nothing.
+        //
+        // Distinct from the focus-driven raise in `common/event.rs`: this is
+        // the app saying "show it now" (a compose button, dismissing after
+        // submit), which the engine deliberately does NOT infer from focus.
+        if let Some(lw) = window.common.layout_window.as_mut() {
+            if let Some(visible) = lw.text_edit_manager.take_soft_keyboard_request() {
+                log_debug!(
+                    LogCategory::Input,
+                    "[iOS] app requested soft keyboard visible={}",
+                    visible
+                );
+                set_soft_keyboard_visible(visible);
+            }
+        }
+
         // The device light/dark setting. iOS built its window from
         // SystemStyle::default() and never read the real one, so an app launched
         // on a dark-mode device rendered light and stayed light. Polled here
@@ -1830,6 +1849,49 @@ extern "C" fn ui_delete_backward(_this: &Object, _cmd: Sel) {
 extern "C" fn ui_can_become_first_responder(_this: &Object, _cmd: Sel) -> bool {
     true
 }
+
+/// Raise or dismiss the on-screen keyboard.
+///
+/// On iOS the keyboard is not a thing you show - it is a CONSEQUENCE of a view
+/// becoming first responder while conforming to `UIKeyInput`. The view has
+/// conformed and answered `canBecomeFirstResponder = true` since 10b, but
+/// nothing ever ASKED it to become one, so the conformance sat there unused
+/// and no keyboard could ever appear. That is the whole gap: not a missing
+/// capability, a missing call.
+///
+/// Main-thread only, which is where both callers already are: the shared
+/// focus-driven raise runs during event processing, and the explicit-request
+/// drain runs on the `CADisplayLink` tick.
+#[cfg(target_os = "ios")]
+pub fn set_soft_keyboard_visible(visible: bool) {
+    let Some(window) = (unsafe { azul_ios_window() }) else {
+        return;
+    };
+    let view = (&*window.ui_view as *const Object) as *mut Object;
+    unsafe {
+        // Both return BOOL: the responder chain can REFUSE, e.g. while a
+        // system alert holds first responder. Nothing to do about it here -
+        // the request is advisory, exactly as on Android - but the value is
+        // bound rather than discarded so the msg_send is typed.
+        let accepted: bool = if visible {
+            msg_send![view, becomeFirstResponder]
+        } else {
+            msg_send![view, resignFirstResponder]
+        };
+        if !accepted {
+            log_debug!(
+                LogCategory::Input,
+                "[iOS] soft keyboard visible={} refused by the responder chain",
+                visible
+            );
+        }
+    }
+}
+
+/// No-op off-device: the simulator targets build this file, but a host build
+/// has no UIKit to talk to.
+#[cfg(not(target_os = "ios"))]
+pub fn set_soft_keyboard_visible(_visible: bool) {}
 
 /// `pressesBegan:withEvent:` — hardware keyboard and TV-remote buttons.
 ///
