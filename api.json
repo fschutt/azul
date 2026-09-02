@@ -51878,6 +51878,14 @@
                                 "title_color": {
                                     "type": "ColorU"
                                 }
+                            },
+                            {
+                                "background_color": {
+                                    "type": "OptionColorU",
+                                    "doc": [
+                                        "The titlebar's own background; None = the caller styles it."
+                                    ]
+                                }
                             }
                         ],
                         "constructors": {

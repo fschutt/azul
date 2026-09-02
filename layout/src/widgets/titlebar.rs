@@ -128,6 +128,13 @@ pub struct Titlebar {
     pub padding_right: f32,
     /// Title text color (resolved from SystemStyle.colors.text or platform default).
     pub title_color: ColorU,
+    /// The titlebar's own background.
+    ///
+    /// `None` = the caller styles it (the historical behaviour: apps passed
+    /// `background:` through `.with_css()`). `from_system_style` fills it with
+    /// the DESKTOP's titlebar colour, so a client-side decoration is the right
+    /// colour without every app having to know what KDE's `Colors:Header` is.
+    pub background_color: OptionColorU,
 }
 
 impl Titlebar {
@@ -149,6 +156,7 @@ impl Titlebar {
             padding_left,
             padding_right,
             title_color: DEFAULT_TITLE_COLOR_LIGHT,
+            background_color: OptionColorU::None,
         }
     }
 
@@ -253,6 +261,9 @@ impl Titlebar {
             padding_left,
             padding_right,
             title_color,
+            // The DESKTOP's titlebar colour, so a CSD decoration matches the
+            // native windows beside it instead of the window background.
+            background_color: tm.background_active,
         }
     }
 
@@ -284,6 +295,9 @@ impl Titlebar {
             padding_left: 0.0,
             padding_right: 0.0,
             title_color,
+            // The DESKTOP's titlebar colour, so a CSD decoration matches the
+            // native windows beside it instead of the window background.
+            background_color: tm.background_active,
         }
     }
 
@@ -312,6 +326,17 @@ impl Titlebar {
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_height(LayoutHeight::const_px(self.height as isize)),
         ));
+        // The titlebar's own background, when the platform stated one. Emitted
+        // as a normal declaration so an app's `.with_css("background: …")`
+        // still overrides it — the widget supplies the native default, it does
+        // not take the decision away.
+        if let OptionColorU::Some(bg) = self.background_color {
+            props.push(CssPropertyWithConditions::simple(
+                CssProperty::const_background_content(StyleBackgroundContentVec::from_vec(
+                    vec![StyleBackgroundContent::Color(bg)],
+                )),
+            ));
+        }
         // Titlebar should show grab cursor and prevent text selection
         props.push(CssPropertyWithConditions::simple(
             CssProperty::const_cursor(StyleCursor::Grab),
@@ -1742,6 +1767,45 @@ mod autotest_generated {
         assert_eq!(height_px(&block), height_px(&flex));
         assert_eq!(padding_left_px(&block), padding_left_px(&flex));
         assert_eq!(padding_right_px(&block), padding_right_px(&flex));
+    }
+
+    #[test]
+    /// A CSD titlebar paints the DESKTOP's titlebar colour, not the window
+    /// background — that is the whole point of carrying it in `SystemStyle`.
+    /// Emitted only when the platform stated one, so an app that styles its
+    /// own titlebar is unaffected and the historical `.with_css()` path still
+    /// wins (a later declaration overrides an earlier one).
+    ///
+    /// NEGATIVE CONTROL: drop the `background_color` arm from
+    /// `build_container_style` and the first assertion fails.
+    #[test]
+    fn build_container_style_paints_the_platform_titlebar_background() {
+        use azul_css::props::basic::color::{ColorU, OptionColorU};
+
+        let mut t = tb("x");
+        t.background_color = OptionColorU::Some(ColorU::new_rgb(0x31, 0x36, 0x3b));
+        let styled = t.build_container_style(true);
+        assert!(
+            styled.as_ref().iter().any(|p| matches!(
+                p.property,
+                azul_css::props::property::CssProperty::BackgroundContent(_)
+            )),
+            "a stated titlebar colour must reach the container's declarations"
+        );
+
+        let mut plain = tb("x");
+        plain.background_color = OptionColorU::None;
+        assert!(
+            !plain
+                .build_container_style(true)
+                .as_ref()
+                .iter()
+                .any(|p| matches!(
+                    p.property,
+                    azul_css::props::property::CssProperty::BackgroundContent(_)
+                )),
+            "an unstated colour must declare NOTHING, so the caller keeps control"
+        );
     }
 
     #[test]
