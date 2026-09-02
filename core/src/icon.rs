@@ -541,6 +541,31 @@ impl SharedIconProvider {
         }
     }
 
+    /// Register (or REPLACE) one icon on a live shared provider.
+    ///
+    /// The registration path that exists after startup. `IconProviderHandle`
+    /// is consumed by [`Self::from_handle`], so a pack built once at
+    /// `App::create` could never be refreshed - and it has to be: a pack whose
+    /// artwork depends on the OS theme (the desktop's own icons, tinted with
+    /// the palette) is WRONG the moment the theme flips, and re-reading it is
+    /// the only way to get the dark variant.
+    ///
+    /// Flushes the resolution cache: entries there hold the Dom the OLD
+    /// artwork resolved to, and serving those back would make the
+    /// re-registration invisible.
+    pub fn register_icon(&self, pack_name: &str, icon_name: &str, data: RefAny) {
+        if let Ok(mut inner) = self.inner.lock() {
+            let pack = inner.icons.entry(pack_name.to_string()).or_default();
+            pack.insert(icon_name.to_lowercase(), data);
+        }
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.entries.clear();
+            cache.total = 0;
+            // The next batch re-validates against whatever style it carries.
+            cache.system_style = None;
+        }
+    }
+
     /// Flush the cache if `system_style` differs from the one its entries
     /// were resolved under. Called ONCE per `resolve_icons_in_styled_dom`
     /// batch, not per icon, so the `SystemStyle` comparison is per-frame.

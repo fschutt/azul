@@ -5517,8 +5517,45 @@ pub fn compile_component(
 }
 
 /// Parse an SVG numeric attribute value to f32.
+///
+/// STRICT: a geometry attribute (`cx`, `r`, `x1`, ...) is a USER UNIT, and
+/// `cx="10px"` is not valid SVG. The `<svg>` element's own `width`/`height`
+/// are CSS lengths and a different thing entirely - see [`parse_svg_length`].
 fn parse_svg_float(attr: Option<&AzString>) -> Option<f32> {
     attr?.as_str().trim().parse::<f32>().ok()
+}
+
+/// Parse the `<svg>` element's own `width`/`height`, which - unlike the
+/// geometry attributes - are CSS LENGTHS.
+///
+/// A bare `px` is accepted because `width="16px"` is as common in the wild as
+/// `width="16"`. A relative unit (`%`, `em`) is REJECTED rather than guessed
+/// at: the caller then falls back to the viewBox, which is a real answer,
+/// instead of resolving a percentage against nothing.
+fn parse_svg_length(attr: Option<&AzString>) -> Option<f32> {
+    let raw = attr?.as_str().trim();
+    let number = raw.strip_suffix("px").unwrap_or(raw).trim();
+    number.parse::<f32>().ok()
+}
+
+/// Parse an SVG `viewBox` into `(min_x, min_y, width, height)`.
+///
+/// Space- or comma-separated, per the spec; exactly four numbers, because
+/// three or five is a malformed viewBox and silently taking the first four
+/// would place the art somewhere nobody asked for.
+fn parse_svg_view_box(value: &str) -> Option<(f32, f32, f32, f32)> {
+    let nums: Vec<f32> = value
+        .split(|c: char| c == ',' || c.is_ascii_whitespace())
+        .filter(|s| !s.is_empty())
+        .map(str::parse::<f32>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    match nums[..] {
+        [min_x, min_y, width, height] if width > 0.0 && height > 0.0 => {
+            Some((min_x, min_y, width, height))
+        }
+        _ => None,
+    }
 }
 
 /// Parse an SVG `points` attribute (used by `<polygon>` and `<polyline>`).
@@ -5677,12 +5714,72 @@ fn apply_xml_node_attributes(
         }
     });
 
+    // `<svg>`: its own viewport. Two things have to come off the element, and
+    // both were being dropped.
+    //
+    //   * the `viewBox`, which is the element's USER-SPACE coordinate system.
+    //     `SvgNodeData::ViewBox` existed as a variant but nothing ever produced
+    //     one, so a parsed `<svg>` had no record of what coordinate space its
+    //     children were drawn in.
+    //   * an INTRINSIC SIZE. An `<svg>` is a replaced element: it is as big as
+    //     `width`/`height` say, and failing that as big as its viewBox (SVG's
+    //     own default sizing rule). Without one the element lays out 0x0 and
+    //     takes no space at all - which is what an icon parsed straight from a
+    //     theme file did, and why it came out blank.
+    //
+    // These are INTRINSIC dimensions, not a demand: they are pushed ahead of
+    // the inline `style` below, so a call site that says how big it wants the
+    // thing still wins.
+    let mut intrinsic_props: Vec<azul_css::dynamic_selector::CssPropertyWithConditions> =
+        Vec::new();
+    if component_name == "svg" {
+        let view_box = xml_node
+            .attributes
+            .get_key("viewBox")
+            .or_else(|| xml_node.attributes.get_key("viewbox"))
+            .and_then(|v| parse_svg_view_box(v.as_str()));
+        if let Some((min_x, min_y, width, height)) = view_box {
+            node.set_svg_data(crate::dom::SvgNodeData::ViewBox {
+                min_x,
+                min_y,
+                width,
+                height,
+            });
+        }
+        let stated = |key: &str| parse_svg_length(xml_node.attributes.get_key(key));
+        let usable = |v: f32| v.is_finite() && v > 0.0;
+        if let Some(w) = stated("width")
+            .or(view_box.map(|(_, _, w, _)| w))
+            .filter(|w| usable(*w))
+        {
+            intrinsic_props.push(
+                azul_css::dynamic_selector::CssPropertyWithConditions::simple(
+                    azul_css::props::property::CssProperty::width(
+                        azul_css::props::layout::LayoutWidth::px(w),
+                    ),
+                ),
+            );
+        }
+        if let Some(h) = stated("height")
+            .or(view_box.map(|(_, _, _, h)| h))
+            .filter(|h| usable(*h))
+        {
+            intrinsic_props.push(
+                azul_css::dynamic_selector::CssPropertyWithConditions::simple(
+                    azul_css::props::property::CssProperty::height(
+                        azul_css::props::layout::LayoutHeight::px(h),
+                    ),
+                ),
+            );
+        }
+    }
+
     // Handle inline style attribute (and the mapped `dir` attribute above)
     let style_attr = xml_node.attributes.get_key("style");
-    if style_attr.is_some() || dir_prop.is_some() {
+    if style_attr.is_some() || dir_prop.is_some() || !intrinsic_props.is_empty() {
         use azul_css::dynamic_selector::CssPropertyWithConditions;
         let css_key_map = azul_css::props::property::get_css_key_map();
-        let mut props: Vec<CssPropertyWithConditions> = Vec::new();
+        let mut props: Vec<CssPropertyWithConditions> = intrinsic_props;
         if let Some(dir) = dir_prop {
             props.push(CssPropertyWithConditions::simple(
                 azul_css::props::property::CssProperty::Direction(

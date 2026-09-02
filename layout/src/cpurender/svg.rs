@@ -201,6 +201,42 @@ fn render_svg_group(
     );
 }
 
+/// One presentation property of an element, `style="..."` first.
+///
+/// SVG lets the same property be written two ways - as an XML attribute
+/// (`fill="#fff"`) or as a declaration inside `style` (`style="fill:#fff"`) -
+/// and CSS says the `style` one wins. Reading only the attribute is not a
+/// partial implementation, it is a WRONG one: an element that states its paint
+/// only in `style` reads as unstated and falls through to the SVG default
+/// (opaque black). Every Breeze icon is authored that way
+/// (`style="fill:currentColor;fill-opacity:1;stroke:none"`), so every themed
+/// icon came out black regardless of the palette it was tinted with.
+///
+/// A hand-written scan rather than the CSS parser: this is a semicolon list of
+/// `name:value` with no selectors, nesting or at-rules, and the rasteriser
+/// runs before any cascade exists.
+#[cfg(all(feature = "std", feature = "xml"))]
+fn style_property(node: &azul_core::xml::XmlNode, name: &str) -> Option<String> {
+    let style = node.attributes.get_key("style")?;
+    for decl in style.as_str().split(';') {
+        let (key, value) = decl.split_once(':')?;
+        if key.trim() == name {
+            return Some(value.trim().to_string());
+        }
+    }
+    None
+}
+
+/// [`style_property`], falling back to the plain XML attribute.
+#[cfg(all(feature = "std", feature = "xml"))]
+fn presentation_property(node: &azul_core::xml::XmlNode, name: &str) -> Option<String> {
+    style_property(node, name).or_else(|| {
+        node.attributes
+            .get_key(name)
+            .map(|s| s.as_str().to_string())
+    })
+}
+
 #[cfg(all(feature = "std", feature = "xml"))]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
@@ -224,20 +260,10 @@ fn render_svg_group_with_style(
 
     // Inherit style from this group's attributes
     let group_style = SvgInheritedStyle {
-        fill: node
-            .attributes
-            .get_key("fill")
-            .map(|s| s.as_str().to_string())
-            .or_else(|| parent_style.fill.clone()),
-        stroke: node
-            .attributes
-            .get_key("stroke")
-            .map(|s| s.as_str().to_string())
-            .or_else(|| parent_style.stroke.clone()),
-        stroke_width: node
-            .attributes
-            .get_key("stroke-width")
-            .and_then(|s| s.as_str().parse().ok())
+        fill: presentation_property(node, "fill").or_else(|| parent_style.fill.clone()),
+        stroke: presentation_property(node, "stroke").or_else(|| parent_style.stroke.clone()),
+        stroke_width: presentation_property(node, "stroke-width")
+            .and_then(|s| s.parse().ok())
             .or(parent_style.stroke_width),
     };
 
@@ -272,10 +298,7 @@ fn render_svg_group_with_style(
                         });
 
                 // Fill: element overrides group
-                let fill_attr = child_node
-                    .attributes
-                    .get_key("fill")
-                    .map(|s| s.as_str().to_string())
+                let fill_attr = presentation_property(child_node, "fill")
                     .or_else(|| group_style.fill.clone());
                 let fill_color = match fill_attr.as_deref() {
                     Some("none") => None,
@@ -288,25 +311,18 @@ fn render_svg_group_with_style(
                     }), // SVG default
                 };
 
-                let fill_opacity = child_node
-                    .attributes
-                    .get_key("fill-opacity")
-                    .and_then(|s| s.as_str().parse::<f64>().ok())
+                let fill_opacity = presentation_property(child_node, "fill-opacity")
+                    .and_then(|s| s.parse::<f64>().ok())
                     .unwrap_or(1.0);
 
-                let opacity = child_node
-                    .attributes
-                    .get_key("opacity")
-                    .and_then(|s| s.as_str().parse::<f64>().ok())
+                let opacity = presentation_property(child_node, "opacity")
+                    .and_then(|s| s.parse::<f64>().ok())
                     .unwrap_or(1.0);
 
                 if let Some(mut color) = fill_color {
                     color.a = (f64::from(color.a) * fill_opacity * opacity).min(255.0) as u8;
 
-                    let fill_rule_str = child_node
-                        .attributes
-                        .get_key("fill-rule")
-                        .map(|s| s.as_str().to_string());
+                    let fill_rule_str = presentation_property(child_node, "fill-rule");
                     let rule = match fill_rule_str.as_deref() {
                         Some("evenodd") => FillingRule::EvenOdd,
                         _ => FillingRule::NonZero,
@@ -317,10 +333,7 @@ fn render_svg_group_with_style(
                 }
 
                 // Stroke: element overrides group
-                let stroke_attr = child_node
-                    .attributes
-                    .get_key("stroke")
-                    .map(|s| s.as_str().to_string())
+                let stroke_attr = presentation_property(child_node, "stroke")
                     .or_else(|| group_style.stroke.clone());
                 let stroke_color = match stroke_attr.as_deref() {
                     Some("none") | None => None,
@@ -328,17 +341,13 @@ fn render_svg_group_with_style(
                 };
 
                 if let Some(mut color) = stroke_color {
-                    let stroke_opacity = child_node
-                        .attributes
-                        .get_key("stroke-opacity")
-                        .and_then(|s| s.as_str().parse::<f64>().ok())
+                    let stroke_opacity = presentation_property(child_node, "stroke-opacity")
+                        .and_then(|s| s.parse::<f64>().ok())
                         .unwrap_or(1.0);
                     color.a = (f64::from(color.a) * stroke_opacity * opacity).min(255.0) as u8;
 
-                    let stroke_width = child_node
-                        .attributes
-                        .get_key("stroke-width")
-                        .and_then(|s| s.as_str().parse::<f64>().ok())
+                    let stroke_width = presentation_property(child_node, "stroke-width")
+                        .and_then(|s| s.parse::<f64>().ok())
                         .or(group_style.stroke_width)
                         .unwrap_or(1.0);
 
@@ -2141,7 +2150,12 @@ mod autotest_generated {
         );
         let mut p = pixmap(8, 8);
         p.fill(255, 255, 255, 255);
-        render_svg_group_with_style(&svg, &mut p, &TransAffine::new(), &style);
+        render_svg_group_with_style(
+            &svg,
+            &mut p,
+            &TransAffine::new(),
+            &style,
+        );
         assert_eq!(px(&p, 4, 4), [255, 0, 0, 255], "the passed-in fill wins");
     }
 

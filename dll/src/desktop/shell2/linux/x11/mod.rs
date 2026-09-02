@@ -7244,6 +7244,14 @@ impl X11Window {
         // timeout and that would freeze the event loop.
         if let Some(new_style) = super::system_style::adopt_observed_theme(&mut self.common) {
             let _ = self.process_window_events(0);
+            // The desktop's own icons are theme artwork: KDE ships breeze and
+            // breeze-dark as two directories, and the tint comes from the
+            // palette. Re-read them BEFORE the relayout that repaints with
+            // them, or the new palette is drawn around the old glyphs.
+            super::system_icons::refresh_system_icons(
+                &self.resources.icon_provider,
+                &new_style,
+            );
             // Full rebuild or restyle, decided from what the app's `layout()`
             // declared it reads — see `PlatformWindow::adopt_system_style`.
             self.adopt_system_style(new_style);

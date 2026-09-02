@@ -4905,12 +4905,50 @@ pub fn render_component_preview(
 ///
 /// Returns an error string if rendering fails.
 pub fn render_dom_to_image(
-    mut dom: azul_core::dom::Dom,
+    dom: azul_core::dom::Dom,
     css: azul_css::css::Css,
     width: f32,
     height: f32,
     dpi: f32,
 ) -> Result<Vec<u8>, String> {
+    let opaque_white = ColorU {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+    Ok(render_dom_to_rgba(dom, css, width, height, dpi, opaque_white)?.png_data)
+}
+
+/// Render a `Dom` + `Css` over an EXPLICIT backdrop, returning the raw pixels
+/// as well as the PNG.
+///
+/// The two things [`render_dom_to_image`] cannot express, and both matter to
+/// the same caller:
+///
+/// * a TRANSPARENT background (alpha 0). An icon has to composite over
+///   whatever is behind it; rendered on opaque white it arrives as a white
+///   tile sitting in the titlebar instead of a glyph on it.
+/// * the RGBA buffer, so a caller building an `ImageRef` does not encode a PNG
+///   and immediately decode it again.
+///
+/// This is the path an SVG should take: the XML parser already maps
+/// `<path>`, `<use>`, `<linearGradient>` and `<stop>` onto real DOM nodes
+/// (`azul_core::dom::SvgNodeData`), so the ordinary renderer draws them -
+/// gradients included - instead of the standalone `render_svg_to_png`
+/// rasteriser, which has no paint servers and drops a gradient fill silently.
+#[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
+/// # Errors
+///
+/// Returns an error string if rendering fails.
+pub fn render_dom_to_rgba(
+    mut dom: azul_core::dom::Dom,
+    css: azul_css::css::Css,
+    width: f32,
+    height: f32,
+    dpi: f32,
+    background: ColorU,
+) -> Result<ComponentPreviewResult, String> {
     use crate::font_traits::FontManager;
     use azul_core::styled_dom::StyledDom;
 
@@ -4924,16 +4962,10 @@ pub fn render_dom_to_image(
         width: Some(width),
         height: Some(height),
         dpi_factor: dpi,
-        background_color: ColorU {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255,
-        },
+        background_color: background,
     };
 
-    let result = render_component_preview(&styled_dom, &font_manager, opts, None)?;
-    Ok(result.png_data)
+    render_component_preview(&styled_dom, &font_manager, opts, None)
 }
 
 /// Render a short single-line string into a freshly allocated [`AzulPixmap`].

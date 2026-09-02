@@ -305,3 +305,137 @@ fn test_zero_size_rect_no_clip() {
     );
     assert_eq!(data.len(), 0, "zero-width rect should produce no clip");
 }
+
+// ============================================================================
+// Sizing — an <svg> is a replaced element and must carry its own dimensions
+// ============================================================================
+
+/// Width (or height) in logical px declared on the node's inline style.
+fn declared_px(
+    styled: &azul_core::styled_dom::StyledDom,
+    node: usize,
+    want_width: bool,
+) -> Option<f32> {
+    use azul_css::{
+        props::layout::{LayoutHeight, LayoutWidth},
+        props::property::CssProperty,
+    };
+    let container = styled.node_data.as_container();
+    let nd = container.get(azul_core::id::NodeId::new(node))?;
+    nd.style.rules.as_ref().iter().find_map(|rule| {
+        rule.declarations.as_ref().iter().find_map(|decl| {
+            let azul_css::css::CssDeclaration::Static(prop) = decl else {
+                return None;
+            };
+            match (prop, want_width) {
+                (CssProperty::Width(w), true) => match w.get_property() {
+                    Some(LayoutWidth::Px(v)) => Some(v.to_pixels_internal(0.0, 16.0, 1.0)),
+                    _ => None,
+                },
+                (CssProperty::Height(h), false) => match h.get_property() {
+                    Some(LayoutHeight::Px(v)) => Some(v.to_pixels_internal(0.0, 16.0, 1.0)),
+                    _ => None,
+                },
+                _ => None,
+            }
+        })
+    })
+}
+
+fn svg_node(styled: &azul_core::styled_dom::StyledDom) -> usize {
+    let container = styled.node_data.as_container();
+    (0..container.len())
+        .find(|i| {
+            *container
+                .get(azul_core::id::NodeId::new(*i))
+                .unwrap()
+                .get_node_type()
+                == NodeType::Svg
+        })
+        .expect("the document has an <svg>")
+}
+
+/// THE regression: an `<svg>` with only a `viewBox` laid out 0x0, took no
+/// space, and everything inside it clipped away to nothing. SVG's own default
+/// sizing rule says the viewBox IS the intrinsic size when width/height are
+/// absent.
+#[test]
+fn an_svg_takes_its_intrinsic_size_from_the_view_box() {
+    let styled = Dom::from_xml_string(
+        r#"<html><body><svg viewBox="0 0 24 18"><path d="M 0,0 L 1,1"></path></svg></body></html>"#,
+    );
+    let n = svg_node(&styled);
+    assert_eq!(declared_px(&styled, n, true), Some(24.0));
+    assert_eq!(declared_px(&styled, n, false), Some(18.0));
+}
+
+/// Stated dimensions outrank the viewBox - the viewBox is the coordinate
+/// system, not necessarily the size.
+#[test]
+fn stated_dimensions_outrank_the_view_box() {
+    let styled = Dom::from_xml_string(
+        r#"<html><body><svg viewBox="0 0 24 18" width="48" height="36"></svg></body></html>"#,
+    );
+    let n = svg_node(&styled);
+    assert_eq!(declared_px(&styled, n, true), Some(48.0));
+    assert_eq!(declared_px(&styled, n, false), Some(36.0));
+
+    // ... and a bare CSS unit is as common in the wild as a bare number.
+    let styled = Dom::from_xml_string(
+        r#"<html><body><svg viewBox="0 0 24 18" width="48px" height="36px"></svg></body></html>"#,
+    );
+    let n = svg_node(&styled);
+    assert_eq!(declared_px(&styled, n, true), Some(48.0));
+}
+
+/// An `<svg>` that states nothing declares nothing - inventing a size would be
+/// worse than letting CSS decide.
+#[test]
+fn an_svg_with_no_size_and_no_view_box_declares_neither() {
+    let styled = Dom::from_xml_string(r#"<html><body><svg></svg></body></html>"#);
+    let n = svg_node(&styled);
+    assert_eq!(declared_px(&styled, n, true), None);
+    assert_eq!(declared_px(&styled, n, false), None);
+}
+
+/// The viewBox is the element's user-space coordinate system and has to be
+/// RECORDED, not just measured: `SvgNodeData::ViewBox` existed as a variant
+/// that nothing ever produced.
+#[test]
+fn the_view_box_is_recorded_on_the_node() {
+    let styled = Dom::from_xml_string(
+        r#"<html><body><svg viewBox="-1 -2 24 18"></svg></body></html>"#,
+    );
+    let container = styled.node_data.as_container();
+    let n = svg_node(&styled);
+    let data = container
+        .get(azul_core::id::NodeId::new(n))
+        .unwrap()
+        .get_svg_data()
+        .cloned();
+    assert_eq!(
+        data,
+        Some(azul_core::dom::SvgNodeData::ViewBox {
+            min_x: -1.0,
+            min_y: -2.0,
+            width: 24.0,
+            height: 18.0,
+        })
+    );
+}
+
+/// A malformed viewBox must be REJECTED rather than half-read: taking the
+/// first four of five numbers places the art somewhere nobody asked for.
+#[test]
+fn a_malformed_view_box_is_rejected_rather_than_guessed() {
+    for bad in ["0 0 24", "0 0 24 18 9", "0 0 0 18", "a b c d", ""] {
+        let xml = format!(r#"<html><body><svg viewBox="{bad}"></svg></body></html>"#);
+        let styled = Dom::from_xml_string(&xml);
+        let n = svg_node(&styled);
+        assert_eq!(
+            declared_px(&styled, n, true),
+            None,
+            "viewBox={bad:?} must not produce a size"
+        );
+    }
+}
