@@ -4775,10 +4775,30 @@ impl X11Window {
                             LogCategory::Platform,
                             "[X11] XRandR screen change detected (handle_event), refreshing monitor cache"
                         );
-                        if let Some(ref lw) = self.common.layout_window {
+                        // Refresh the cache AND report the hotplug. Only the
+                        // cache was updated here, so `MonitorConnected` /
+                        // `MonitorDisconnected` never fired on X11 — an app
+                        // could see the new monitor list if it went looking,
+                        // and was never told to look. macOS
+                        // (`didChangeScreenParameters`), Win32
+                        // (`WM_DISPLAYCHANGE`) and Wayland (`wl_output`
+                        // global/global_remove) all report it.
+                        //
+                        // A COUNT DIFF, like the other count-based backends:
+                        // RandR says "the screen configuration changed", not
+                        // "output HDMI-1 left", so arrivals and departures are
+                        // what the before/after counts imply. Equal counts emit
+                        // nothing — a resolution or position change is
+                        // `WindowMonitorChanged`, not a hotplug.
+                        if let Some(ref mut lw) = self.common.layout_window {
+                            let before = lw.monitors.lock().map(|g| g.len()).unwrap_or(0);
+                            let refreshed = crate::desktop::display::refresh_monitors();
+                            let after = refreshed.len();
                             if let Ok(mut guard) = lw.monitors.lock() {
-                                *guard = crate::desktop::display::refresh_monitors();
+                                *guard = refreshed;
                             }
+                            lw.device_event_manager
+                                .note_monitor_count_change(before, after);
                         }
                     }
                 }

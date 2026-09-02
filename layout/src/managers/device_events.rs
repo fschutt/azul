@@ -183,3 +183,62 @@ impl EventProvider for DeviceEventManager {
         events
     }
 }
+
+#[cfg(test)]
+mod monitor_hotplug_tests {
+    use azul_core::events::{EventProvider, EventType};
+
+    use super::DeviceEventManager;
+
+    fn kinds(m: &DeviceEventManager) -> Vec<EventType> {
+        let ts = azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0));
+        m.get_pending_events(ts)
+            .iter()
+            .map(|e| e.event_type)
+            .collect()
+    }
+
+    /// A count diff becomes the arrivals and departures it implies.
+    ///
+    /// The backends mostly learn "the display topology changed, here is the
+    /// new list" rather than "output HDMI-1 left" — RandR, `WM_DISPLAYCHANGE`
+    /// and `didChangeScreenParameters` all report it that way — so the count
+    /// is what there is to work from.
+    #[test]
+    fn a_monitor_count_change_becomes_arrivals_and_departures() {
+        let mut m = DeviceEventManager::default();
+        m.note_monitor_count_change(1, 3);
+        assert_eq!(
+            kinds(&m),
+            vec![EventType::MonitorConnected, EventType::MonitorConnected],
+            "two monitors arrived",
+        );
+
+        let mut m = DeviceEventManager::default();
+        m.note_monitor_count_change(3, 1);
+        assert_eq!(
+            kinds(&m),
+            vec![
+                EventType::MonitorDisconnected,
+                EventType::MonitorDisconnected
+            ],
+            "two monitors left",
+        );
+    }
+
+    /// An UNCHANGED count is not a hotplug.
+    ///
+    /// A screen-configuration event fires for a resolution or position change
+    /// too, and reporting those as a disconnect-plus-connect would make an app
+    /// tear down and rebuild per-monitor state on every mode switch. That is
+    /// `WindowMonitorChanged`, not a hotplug.
+    #[test]
+    fn an_unchanged_monitor_count_emits_nothing() {
+        let mut m = DeviceEventManager::default();
+        m.note_monitor_count_change(2, 2);
+        assert!(kinds(&m).is_empty());
+        m.note_monitor_count_change(0, 0);
+        assert!(kinds(&m).is_empty());
+    }
+}
+

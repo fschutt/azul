@@ -97,9 +97,30 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `ScrollEnd`, and `event.rs:8793` clears it in the same post-determination block as every other
       provider, so it fires exactly once.
 
-- [ ] 4f-i X11 RandR monitor hotplug: `XRRSelectInput(RRScreenChangeNotifyMask)` plus a count diff, the
-      same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
-      first — unlike XI2, which was already loaded.
+- [x] 4f-i DONE, and the item's premise was STALE in the same way several others in this arc
+      have been. libXrandr IS dlopened: `try_subscribe_xrandr` loads
+      `libXrandr.so.2`/`libXrandr.so`, calls `XRRQueryExtension`, subscribes with
+      `XRRSelectInput(RRScreenChangeNotifyMask)`, and the screen-change event is already
+      dispatched by `xrandr_event_base`. No loader entry was needed.
+      THE ACTUAL GAP was the second half of the item — the count diff. The handler only
+      refreshed the monitor CACHE, so `MonitorConnected`/`MonitorDisconnected` never fired on
+      X11: an app could see the new monitor list if it went looking, and was never told to look.
+      macOS (`didChangeScreenParameters`), Win32 (`WM_DISPLAYCHANGE`) and Wayland (`wl_output`
+      global/global_remove) all report it; X11 was the only one that did not.
+      `note_monitor_count_change(before, after)` already existed for exactly this, so the fix
+      mirrors the macOS arm: count, refresh, count, report.
+      NOTE: these consumers only became reachable two firings ago — `MonitorConnected` and
+      `MonitorDisconnected` are `EventFilter::Application`, and planning never probed the
+      Application category at all until that was fixed. Wiring this before then would have
+      produced events nothing could subscribe to.
+      EVIDENCE: the count-diff logic had NO tests; added
+      `a_monitor_count_change_becomes_arrivals_and_departures` and
+      `an_unchanged_monitor_count_emits_nothing` — the second matters because a screen-config
+      event also fires for a resolution or position change, and reporting those as
+      disconnect-plus-connect would make an app tear down per-monitor state on every mode
+      switch (that is `WindowMonitorChanged`). azul-layout 7561, azul-dll 1944, host check,
+      Linux-target check and 8-target gate green. NOT runtime-verified — needs a real X server
+      and a monitor to unplug.
 
 ### Follow-ups opened by 11a/11b — REVISIT AT THE END
 
