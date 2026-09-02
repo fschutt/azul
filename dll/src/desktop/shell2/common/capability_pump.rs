@@ -75,6 +75,33 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
         changed |= lw.sensor_manager.set_reading(reading);
     }
 
+    // Generic HID. Enumerated ONCE (hidraw offers no hotplug signal without
+    // libudev, and re-scanning /dev every pass would stat dozens of nodes at
+    // frame rate), then polled. Unlike sensors this is NOT listener-gated:
+    // `get_hid_devices()` is a poll-style accessor an app can call from any
+    // callback without ever subscribing to `HidReport`, so gating enumeration
+    // on listeners would make that accessor return an empty list forever.
+    // Polling is skipped when nothing is open, which is the cost on a machine
+    // with no accessible hidraw node.
+    {
+        static ENUMERATED: core::sync::atomic::AtomicBool =
+            core::sync::atomic::AtomicBool::new(false);
+        if !ENUMERATED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+            crate::desktop::extra::hid::enumerate();
+        }
+        crate::desktop::extra::hid::poll();
+    }
+    // `None` means UNCHANGED, not empty: treating it as empty would clear the
+    // device list on every pass that did not re-enumerate.
+    if let Some(devices) = azul_layout::managers::hid::take_hid_devices() {
+        lw.hid_manager.set_devices(devices);
+        changed = true;
+    }
+    for report in azul_layout::managers::hid::drain_hid_reports() {
+        lw.hid_manager.push_report(report);
+        changed = true;
+    }
+
     // Geolocation: fixes / errors are pushed by the native subscription's
     // OS-thread callbacks; folding raises the manager's pending flags
     // (GeolocationFix / GeolocationError provider events).

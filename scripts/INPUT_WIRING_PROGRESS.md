@@ -498,17 +498,52 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 9f/9g
 
-- [ ] IN SCOPE (implement blindly). 9f-i No backend enumerates HID devices or pushes reports. Linux `/dev/hidraw*` or libudev,
-      macOS `IOHIDManager`.
-      WIN32 IS NOW PART-WAY: 9d-i built the shared infrastructure the item pointed at — the
-      `RegisterRawInputDevices` call, the `WM_INPUT` arm and `GetRawInputData` are all in place,
-      so adding a HID usage registration is a few lines. What is NOT done and is NOT a few lines:
-      `RIM_TYPEHID` carries a VARIABLE-LENGTH report (`dwSizeHid` * `dwCount` trailing bytes), so
-      it needs a heap buffer sized from a first zero-length `GetRawInputData` probe rather than
-      the fixed struct the mouse arm can use; and `HidDevice { vendor_id, product_id }` needs
-      `HidD_GetAttributes` from **hid.dll**, a library this codebase does not load at all, plus
-      `GetRawInputDeviceList`/`GetRawInputDeviceInfoW` for enumeration. Separated from 9d-i for
-      that reason rather than half-wired.
+- [x] 9f-i LINUX DONE (`/dev/hidraw*`); macOS is 9f-i-a and Windows 9f-i-b.
+      The consumer side had been complete for a while - `HidManager`, `get_hid_devices()`,
+      `get_hid_reports()`, and since 9g-ii-c the `HidDeviceVec`/`HidReportVec` types that let a
+      binding actually read them. NOTHING produced, on any platform, so every one of those
+      returned empty forever.
+      THREE PIECES were needed, not one: there was also no CHANNEL. `HidManager` is pure data in
+      azul-core with no cross-thread path into it, unlike sensors/geolocation which have one. So
+      this adds `layout/src/managers/hid.rs` (mirroring `sensors.rs` verbatim), the Linux backend,
+      and the drain in the capability pump.
+      hidraw over libudev: it needs NO library - `open`/`read`/`ioctl` on a character device - so
+      there is nothing to dlopen and nothing to link. libudev would only add hotplug.
+      THE IOCTL NUMBERS ARE THE RISK. A wrong request does not fail loudly: `ioctl` returns EINVAL
+      and the device silently reports vendor 0. So they are COMPUTED from the kernel's `_IOC`
+      encoding with the struct sizes from `include/uapi/linux/hidraw.h` (fetched, not recalled),
+      and a test pins three of them against the known-good literals.
+      Reports are a QUEUE (each is a state change; dropping one loses a button press) and devices
+      are a SNAPSHOT (only the newest matters). The queue is BOUNDED at 4096 and drops the OLDEST:
+      a 1000 Hz gaming mouse with nothing draining would otherwise grow it for the life of the
+      process, and dropping the newest instead would freeze the device's apparent state at the
+      moment it overflowed. `take_hid_devices()` returning `None` means UNCHANGED, not empty -
+      treating it as empty would clear the list on every pass that did not re-enumerate.
+      NOT listener-gated, unlike sensors: `get_hid_devices()` is a poll-style accessor an app can
+      call without ever subscribing to a `HidReport`, so gating enumeration on listeners would
+      make it return empty forever.
+      `vendor_id`/`product_id` are reinterpreted, not widened: the kernel types them SIGNED 16-bit
+      while a USB id is unsigned, so a vendor above 0x7FFF arrives negative.
+      PERMISSIONS are the real constraint and are handled as normal, not as failure: `/dev/hidraw*`
+      is root-only by default and distributions ship udev rules only for devices they care about,
+      so `EACCES` is the expected outcome for an arbitrary device and those are skipped silently.
+      EVIDENCE: 4 channel tests (order, boundedness dropping the oldest, unchanged-vs-empty) and
+      5 descriptor-parse tests (two-byte usage pages, truncated descriptors, long items, empty)
+      - the parse is a real hazard because a malformed descriptor from an untrusted device must
+      not overrun. All three seams proven COMPILED by deliberate type errors under
+      `--target x86_64-unknown-linux-gnu`; `cargo check --tests` green for that target. Host, 8/8
+      mobile, azul-layout 7579, azul-dll 1973. ⚠ No Linux machine here - compile-only.
+
+- [ ] 9f-i-a macOS `IOHIDManager`: `IOHIDManagerCreate` -> `SetDeviceMatching(NULL)` ->
+      `RegisterInputReportCallback` -> `ScheduleWithRunLoop`, dlopen'd from IOKit like the other
+      Apple backends. Its report callback fires on the run loop, so it parks into the same channel
+      this commit added - the consumer side needs nothing further.
+- [ ] 9f-i-b Windows `RIM_TYPEHID`. 9d-i already built `RegisterRawInputDevices`, the `WM_INPUT`
+      arm and `GetRawInputData`, so adding a HID usage registration is a few lines - but the
+      report is VARIABLE length (`dwSizeHid` * `dwCount` trailing bytes), needing a heap buffer
+      sized from a zero-length probe rather than the fixed struct the mouse arm uses, and the
+      vid/pid needs `HidD_GetAttributes` from **hid.dll**, which this codebase does not load at
+      all, plus `GetRawInputDeviceList`/`GetRawInputDeviceInfoW` to enumerate.
 - [x] 9g-i DONE for the drain + macOS + Android. The drain was the real defect: `CallbackInfo::
       play_haptic()` -> `CallbackChange::PlayHaptic` -> `HapticManager::play()` was a complete chain
       with NO drain on ANY platform, so every request ever made accumulated in a Vec nothing read.

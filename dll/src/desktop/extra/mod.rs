@@ -29,6 +29,7 @@ pub mod file_picker;
 /// `azul_layout::managers::gamepad::push_gamepad_state`, which the layout
 /// pass folds into the per-`App` `GamepadManager`.
 pub mod gamepad;
+pub mod hid;
 pub mod geolocation;
 pub mod keyring;
 /// MVT tile decode + projection math for the `MapWidget` content
