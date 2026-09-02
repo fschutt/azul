@@ -10,7 +10,7 @@
 //! - `to_pixels_internal()` — legacy fallback used by `prop_cache.rs`; does not
 //!   distinguish rem from em. Marked `#[doc(hidden)]`.
 
-use crate::corety::AzString;
+use crate::corety::{AzString, OptionF32};
 use core::fmt;
 use std::num::ParseFloatError;
 
@@ -252,6 +252,65 @@ pub struct PixelValue {
 impl PixelValue {
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         self.number = FloatValue::new(self.number.get() * scale_factor);
+    }
+
+    /// Whether this value resolves to pixels with NO context.
+    ///
+    /// True for `px`, `pt`, `in`, `cm`, `mm`. False for `em`, `rem`, `%` and
+    /// the viewport units, all of which need something the value itself does
+    /// not carry.
+    #[must_use]
+    pub const fn is_absolute(&self) -> bool {
+        matches!(
+            self.metric,
+            SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm
+        )
+    }
+
+    /// Resolve to pixels WITHOUT a context, or `None` if this value needs one.
+    ///
+    /// The honest form for the many values that are absolute by construction -
+    /// a safe-area inset, a scrollbar width, a border reported by the system
+    /// theme. `CallbackInfo::get_safe_area_insets()` hands back
+    /// `OptionPixelValue`, and before this the only way out was
+    /// `p.number.get()`, which silently returns `24` for `24em` as readily as
+    /// for `24px`: correct only because the caller happened to know the value
+    /// was absolute.
+    ///
+    /// Returning `None` rather than a number is the point. A relative unit has
+    /// no pixel value until something supplies the reference, so answering
+    /// with one would be inventing it - which is exactly how
+    /// `to_pixels_internal` reports viewport units as `0.0`.
+    #[must_use]
+    pub fn to_pixels_absolute(&self) -> OptionF32 {
+        if self.is_absolute() {
+            // The resolves are unused for absolute metrics; pass zeroes rather
+            // than inventing a context.
+            OptionF32::Some(self.to_pixels_internal(0.0, 0.0, 0.0))
+        } else {
+            OptionF32::None
+        }
+    }
+
+    /// Resolve to pixels, supplying the reference each relative unit needs.
+    ///
+    /// - `percent_resolve` - the 100% reference for `%`
+    /// - `em_resolve` - the element's own font size, for `em`
+    /// - `rem_resolve` - the root font size, for `rem`
+    ///
+    /// Absolute units ignore all three, so an absolute value can be resolved
+    /// with zeroes - though [`Self::to_pixels_absolute`] says that more
+    /// clearly.
+    ///
+    /// # Viewport units
+    ///
+    /// `vw`/`vh`/`vmin`/`vmax` resolve to `0.0` here, because this signature
+    /// carries no viewport. That is a documented limitation of this entry
+    /// point rather than a correct answer; the engine's own resolution path
+    /// handles them.
+    #[must_use]
+    pub fn to_pixels(&self, percent_resolve: f32, em_resolve: f32, rem_resolve: f32) -> f32 {
+        self.to_pixels_internal(percent_resolve, em_resolve, rem_resolve)
     }
 }
 
@@ -2144,6 +2203,97 @@ mod autotest_generated {
 
         let nan_t = PixelValue::px(0.0).interpolate(&PixelValue::em(1.0), f32::NAN);
         assert_eq!(nan_t.number.get(), 0.0);
+    }
+
+    /// The gap this closes: an app handed an `OptionPixelValue` (which is what
+    /// `get_safe_area_insets()` returns) had NO sanctioned way to reach a
+    /// number. `p.number.get()` worked only because the caller happened to
+    /// know the value was absolute - it reports `24` for `24em` just as
+    /// readily, and no type says otherwise.
+    #[test]
+    fn to_pixels_absolute_resolves_absolute_units_and_refuses_relative_ones() {
+        for (v, expected) in [
+            (PixelValue::px(24.0), 24.0),
+            (PixelValue::pt(12.0), 12.0 * PT_TO_PX),
+            (PixelValue::from_metric(SizeMetric::In, 1.0), 96.0),
+            (PixelValue::from_metric(SizeMetric::Cm, 2.54), 96.0),
+            (PixelValue::from_metric(SizeMetric::Mm, 25.4), 96.0),
+        ] {
+            match v.to_pixels_absolute() {
+                OptionF32::Some(px) => assert!(
+                    (px - expected).abs() < 0.001,
+                    "{v:?} resolved to {px}, expected {expected}"
+                ),
+                OptionF32::None => panic!("{v:?} is absolute and must resolve"),
+            }
+        }
+    }
+
+    /// A relative unit has no pixel value until something supplies the
+    /// reference, so answering with a number would be INVENTING one - which is
+    /// precisely how `to_pixels_internal` reports every viewport unit as 0.0.
+    #[test]
+    fn to_pixels_absolute_returns_none_for_every_context_dependent_unit() {
+        for v in [
+            PixelValue::em(2.0),
+            PixelValue::rem(2.0),
+            PixelValue::percent(50.0),
+            PixelValue::from_metric(SizeMetric::Vw, 50.0),
+            PixelValue::from_metric(SizeMetric::Vh, 50.0),
+            PixelValue::from_metric(SizeMetric::Vmin, 50.0),
+            PixelValue::from_metric(SizeMetric::Vmax, 50.0),
+        ] {
+            assert_eq!(
+                v.to_pixels_absolute(),
+                OptionF32::None,
+                "{v:?} needs a context and must not answer with a number"
+            );
+        }
+    }
+
+    /// `is_absolute` is the predicate `to_pixels_absolute` is built on, so the
+    /// two must never disagree - otherwise a value could claim to need no
+    /// context and then refuse to resolve.
+    #[test]
+    fn is_absolute_agrees_with_to_pixels_absolute() {
+        for v in [
+            PixelValue::px(1.0),
+            PixelValue::pt(1.0),
+            PixelValue::from_metric(SizeMetric::In, 1.0),
+            PixelValue::from_metric(SizeMetric::Cm, 1.0),
+            PixelValue::from_metric(SizeMetric::Mm, 1.0),
+            PixelValue::em(1.0),
+            PixelValue::rem(1.0),
+            PixelValue::percent(1.0),
+            PixelValue::from_metric(SizeMetric::Vw, 1.0),
+            PixelValue::from_metric(SizeMetric::Vh, 1.0),
+            PixelValue::from_metric(SizeMetric::Vmin, 1.0),
+            PixelValue::from_metric(SizeMetric::Vmax, 1.0),
+        ] {
+            assert_eq!(
+                v.is_absolute(),
+                v.to_pixels_absolute() != OptionF32::None,
+                "{v:?}: is_absolute() and to_pixels_absolute() disagree"
+            );
+        }
+    }
+
+    /// The public `to_pixels` must be the same function the engine uses, not a
+    /// second implementation that can drift from it.
+    #[test]
+    fn to_pixels_matches_the_internal_resolver() {
+        for v in [
+            PixelValue::px(3.0),
+            PixelValue::em(3.0),
+            PixelValue::rem(3.0),
+            PixelValue::percent(50.0),
+        ] {
+            assert_eq!(
+                v.to_pixels(200.0, 16.0, 10.0),
+                v.to_pixels_internal(200.0, 16.0, 10.0),
+                "{v:?} diverged from the internal resolver"
+            );
+        }
     }
 
     #[test]

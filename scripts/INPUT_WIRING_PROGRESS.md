@@ -187,15 +187,30 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       fullscreen video or map wants to draw under the bars), and AzWriter applying it to its title band.
       Original note kept below.
 
-- [ ] 10c-v-b `PixelValue` exposes NO functions through the public API — `api.json` lists zero for it —
-      so an app handed an `OptionPixelValue` (which is what `get_safe_area_insets()` returns) has no
-      sanctioned way to turn it into a number. `to_pixels_internal` is crate-internal and
-      `PixelValue.number` is a `FloatValue` whose own `number` field is `pub(crate)`.
-      The only route out is `p.number.get()`, which happens to work because `FloatValue::get` IS
-      exposed — but it forces every app to know that an inset is always absolute px and that no unit
-      resolution is needed. A `PixelValue::to_pixels(parent, em, rem)` on the public surface would be
-      the honest fix. Not done here: it is an api.json addition on a widely-used type and deserves its
-      own change rather than riding along with an app fix.
+- [x] 10c-v-b DONE. `PixelValue` had 7 CONSTRUCTORS and ZERO functions in api.json: a binding
+      could build one and never read it back. So an app handed the `OptionPixelValue` that
+      `get_safe_area_insets()` returns had no sanctioned way to reach a number.
+      The premise needed one correction: `PixelValue.number` IS `pub` and `FloatValue::get` IS
+      exposed, so `p.number.get()` really does work - the note was right that it is the only
+      route, and right about why that is bad. It reports `24` for `24em` exactly as readily as
+      for `24px`, so it is correct only while the caller happens to know the value is absolute
+      and nothing in the type system says so.
+      ADDED three functions (autofix, now in the C ABI as `AzPixelValue_isAbsolute` /
+      `_toPixelsAbsolute` / `_toPixels`):
+        - `is_absolute() -> bool` - true for px/pt/in/cm/mm.
+        - `to_pixels_absolute() -> OptionF32` - the honest answer for values that are absolute by
+          construction (a safe-area inset, a system scrollbar width). Returns `None` rather than a
+          number for a relative unit, because a relative unit HAS no pixel value until something
+          supplies the reference - inventing one is exactly how `to_pixels_internal` reports every
+          viewport unit as `0.0`.
+        - `to_pixels(percent_resolve, em_resolve, rem_resolve) -> f32` - the general form,
+          delegating to the engine's own resolver so the two cannot drift.
+      EVIDENCE: 4 tests - every absolute unit resolves through `to_pixels_absolute` (in/cm/mm
+      included, which the escape hatch got wrong); every context-dependent unit returns `None`;
+      `is_absolute` and `to_pixels_absolute` can never disagree; and `to_pixels` is byte-identical
+      to `to_pixels_internal` rather than a second implementation. `codegen all` + dll build
+      confirms the three reached the generated bindings, not just api.json. azul-css 2860 (+4),
+      azul-core 2759, azul-layout 7564, azul-dll 1963, azul-doc 209, 8/8 mobile.
 
 - [ ] 10c-v-a ATTEMPTED AND MEASURED WRONG — the naive fix cannot work, recorded so the next attempt
       does not repeat it. Padding the title band by `get_safe_area_insets().top` changed NOTHING: a

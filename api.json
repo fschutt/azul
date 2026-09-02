@@ -32247,7 +32247,91 @@
                                 "fn_body": "azul_css::props::basic::pixel::PixelValue::from_metric(metric, value)"
                             }
                         },
-                        "functions": {},
+                        "functions": {
+                            "is_absolute": {
+                                "doc": [
+                                    "Whether this value resolves to pixels with NO context.",
+                                    "",
+                                    "True for `px`, `pt`, `in`, `cm`, `mm`. False for `em`, `rem`, `%` and",
+                                    "the viewport units, all of which need something the value itself does",
+                                    "not carry."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_absolute()"
+                            },
+                            "to_pixels_absolute": {
+                                "doc": [
+                                    "Resolve to pixels WITHOUT a context, or `None` if this value needs one.",
+                                    "",
+                                    "The honest form for the many values that are absolute by construction -",
+                                    "a safe-area inset, a scrollbar width, a border reported by the system",
+                                    "theme. `CallbackInfo::get_safe_area_insets()` hands back",
+                                    "`OptionPixelValue`, and before this the only way out was",
+                                    "`p.number.get()`, which silently returns `24` for `24em` as readily as",
+                                    "for `24px`: correct only because the caller happened to know the value",
+                                    "was absolute.",
+                                    "",
+                                    "Returning `None` rather than a number is the point. A relative unit has",
+                                    "no pixel value until something supplies the reference, so answering",
+                                    "with one would be inventing it - which is exactly how",
+                                    "`to_pixels_internal` reports viewport units as `0.0`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionF32"
+                                },
+                                "fn_body": "object.to_pixels_absolute()"
+                            },
+                            "to_pixels": {
+                                "doc": [
+                                    "Resolve to pixels, supplying the reference each relative unit needs.",
+                                    "",
+                                    "- `percent_resolve` - the 100% reference for `%`",
+                                    "- `em_resolve` - the element's own font size, for `em`",
+                                    "- `rem_resolve` - the root font size, for `rem`",
+                                    "",
+                                    "Absolute units ignore all three, so an absolute value can be resolved",
+                                    "with zeroes - though [`Self::to_pixels_absolute`] says that more",
+                                    "clearly.",
+                                    "",
+                                    "# Viewport units",
+                                    "",
+                                    "`vw`/`vh`/`vmin`/`vmax` resolve to `0.0` here, because this signature",
+                                    "carries no viewport. That is a documented limitation of this entry",
+                                    "point rather than a correct answer; the engine's own resolution path",
+                                    "handles them."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "percent_resolve": "f32"
+                                    },
+                                    {
+                                        "em_resolve": "f32"
+                                    },
+                                    {
+                                        "rem_resolve": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.to_pixels(percent_resolve, em_resolve, rem_resolve)"
+                            }
+                        },
                         "repr": "C"
                     },
                     "PixelValueSize": {
