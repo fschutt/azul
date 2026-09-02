@@ -321,13 +321,26 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       azul-core 2741 green (2736 + 5), azul-layout unchanged at its 20 pre-existing failures.
       NOT runtime-verified on the macOS NSEvent path: it needs real OS key events and the
       headless backend does not go through it. Compile- and logic-verified only.
-- [ ] 9e-ii-a Android `current_physical_key`. Android's key path carries ONLY the logical
-      `keyCode` — `dll/src/desktop/shell2/android/mod.rs` has no scancode anywhere, and does not
-      populate `pressed_scancodes` either. The evdev table is already there and would be correct
-      the moment a scancode arrives, so this is plumbing, not a table: `KeyEvent.getScanCode()`
-      over JNI (or `AKeyEvent_getScanCode` on the native side). Deliberately NOT derived from
-      the Android keyCode, which is LOGICAL — mapping it to a position would be wrong on every
-      non-US layout, which is precisely what `PhysicalKey` exists to avoid.
+- [x] 9e-ii-a DONE, and the item's premise was WRONG in a useful way. It assumed the scan code
+      needed new JNI plumbing (`KeyEvent.getScanCode()` / `AKeyEvent_getScanCode`). It does not:
+      `android_activity::KeyEvent::scan_code()` already exists in the 0.6.1 crate this repo
+      depends on (native_activity/input.rs:529). The backend simply threw the value away — it
+      collected `(action, keycode)` pairs and never read the third field the event carries.
+      So `key_updates` now carries the scan code and `current_physical_key` is filled from
+      `PhysicalKey::from_evdev`, with no new plumbing at all. Android input sits on evdev, so the
+      scan code IS an evdev code and the table added in 9e-ii applies unchanged.
+      SOFT KEYBOARD: an IME event has no physical key behind it and reports scan code 0. evdev 0
+      is `KEY_RESERVED`, so the existing table already answers `Unidentified` for exactly that
+      case — asserted by `an_unnamed_code_is_unidentified`, which pins `from_evdev(0)`.
+      ALSO FIXED, same datum: `pressed_scancodes` was never populated on Android either, for the
+      same reason the physical key was not. It is filled here rather than left as a second gap
+      behind the one being closed (skipping scan code 0, which names no physical key).
+      Deliberately NOT derived from the Android keyCode, which is the LOGICAL key: mapping that
+      to a position would be wrong on every non-US layout, which is the exact failure
+      `PhysicalKey` exists to prevent.
+      Host check green, 8-target gate green (both Android targets). NOT runtime-verified on a
+      device — the emulator has no hardware keyboard attached in this setup, and a soft-keyboard
+      event is precisely the case that reports no scan code.
 
 ### Follow-ups opened by 9d
 

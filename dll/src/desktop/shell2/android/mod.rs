@@ -1152,7 +1152,16 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     }
     let mut motion_updates: Vec<MotionUpdate> = Vec::new();
     // (KeyAction, Option<VirtualKeyCode>) — None for unmapped keycodes.
-    let mut key_updates: Vec<(KeyAction, Option<azul_core::window::VirtualKeyCode>)> = Vec::new();
+    // The third element is Android's SCAN CODE, which is the raw evdev code:
+    // Android input sits on evdev, so `PhysicalKey::from_evdev` reads it
+    // directly. It is 0 for a soft-keyboard/IME event, which has no physical
+    // key behind it — and evdev 0 is `KEY_RESERVED`, so the table already
+    // answers `Unidentified` for exactly that case.
+    let mut key_updates: Vec<(
+        KeyAction,
+        Option<azul_core::window::VirtualKeyCode>,
+        i32,
+    )> = Vec::new();
     // Pen / stylus samples — populated when any pointer in a MotionEvent
     // reports `ToolType::Stylus` or `ToolType::Eraser`. tilt is decomposed
     // into (x_tilt_deg, y_tilt_deg) so it matches the W3C
@@ -1254,7 +1263,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 }
             }
             InputEvent::KeyEvent(k) => {
-                key_updates.push((k.action(), map_keycode(k.key_code())));
+                key_updates.push((k.action(), map_keycode(k.key_code()), k.scan_code()));
             }
             _ => {}
         }
@@ -1482,7 +1491,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     }
 
     // Apply collected key updates.
-    for (action, vkc) in key_updates {
+    for (action, vkc, scan_code) in key_updates {
         window.snapshot_window_state_baseline("android.drain_input.key");
         {
             let ks = window.common.keyboard_state_mut();
@@ -1506,6 +1515,33 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 }
                 _ => {}
             }
+
+            // The PHYSICAL position, which the Android keycode cannot answer:
+            // that is the LOGICAL key, so binding a game's "forward" to it
+            // gives the wrong physical key on every non-US layout — the exact
+            // failure `PhysicalKey` exists to prevent, which is why this reads
+            // the scan code rather than deriving a position from `vkc`.
+            ks.current_physical_key = if matches!(action, KeyAction::Down) {
+                azul_core::window::OptionPhysicalKey::Some(
+                    azul_core::window::PhysicalKey::from_evdev(scan_code.max(0) as u32),
+                )
+            } else {
+                azul_core::window::OptionPhysicalKey::None
+            };
+
+            // `pressed_scancodes` was never filled on Android either, for the
+            // same reason: the scan code was not carried this far. It is the
+            // same datum, so it is filled here rather than left as a second
+            // gap behind the one being closed.
+            if scan_code > 0 {
+                let sc = scan_code as u32;
+                if matches!(action, KeyAction::Down) {
+                    ks.pressed_scancodes.insert_hm_item(sc);
+                } else {
+                    ks.pressed_scancodes.remove_hm_item(&sc);
+                }
+            }
+
             ks.sync_modifiers();
         }
         let r = window.process_window_events(0);
