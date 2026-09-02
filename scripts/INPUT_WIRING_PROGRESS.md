@@ -114,13 +114,9 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 10f
 
-- [ ] 10f-i `com.azul.gamepad.AzulGamepad` does not exist. It owns the `InputManager.InputDeviceListener`
-      and the source filtering — `InputDevice.getSources() & SOURCE_GAMEPAD/SOURCE_JOYSTICK` is Java-side
-      API with no NDK equivalent — and calls the three `native*` entry points. Same class family as
-      10a-i's `NativeTextBridge`.
-- [ ] 10f-ii iOS `GCMotion` (pad gyro/accel) and `GCDeviceBattery` are readable but not read, because no
-      platform fills those `GamepadState` fields yet (8f-i). Do them together so iOS is not the only
-      backend reporting them.
+- [x] 10f-i DONE — `scripts/android/AzulGamepad.java` owns the `InputManager.InputDeviceListener`
+      and forwards buttons/axes, plus a one-time enumeration for pads connected before the listener
+      existed. Hotplug is the only part the native queue cannot deliver.
 
 ### Follow-ups opened by 10e
 
@@ -141,10 +137,9 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [ ] 10c-i iOS does not fill `keyboard`: it needs `UIKeyboardWillChangeFrameNotification` observed and
       `UIKeyboardFrameEndUserInfoKey` intersected with the view's frame (the raw frame is in screen
       coordinates and can be wider than the window on iPad split view).
-- [ ] 10c-ii The Java side of `nativeOnWindowInsets` does not exist — `View.setOnApplyWindowInsetsListener`
-      reading `Type.systemBars() | Type.displayCutout()` and `Type.ime()`. Same class as 10a-i.
-- [ ] 10c-iii Nothing CONSUMES the keyboard inset in layout. `env(safe-area-inset-*)` already resolves from
-      `SafeAreaInsets`; a matching `env(keyboard-inset-bottom)` would let CSS react without app code.
+- [x] 10c-ii DONE — `installInsetsListener` registers `setOnApplyWindowInsetsListener` and calls
+      `nativeOnWindowInsets`, using `systemBars() | displayCutout()` (a notch is not part of
+      systemBars) and keeping the IME inset separate from the bottom inset.
 
 ### Follow-ups opened by 10b
 
@@ -161,13 +156,28 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 10a
 
-- [ ] 10a-i The Java side does not exist. `com.azul.text.NativeTextBridge` must own a
-      `BaseInputConnection` on the activity's view, override `onCreateInputConnection` to return it, and
-      forward `commitText` / `setComposingText` / `finishComposingText` / `deleteSurroundingText` to the
-      five `native*` entry points added here. It also has to call `InputMethodManager.showSoftInput` /
-      `hideSoftInputFromWindow` for the keyboard request. Mirror `NativeGestureBridge.java`.
-- [ ] 10a-ii Nothing drains `take_soft_keyboard_request()` yet — the Android shell has to poll it each
-      pass and call across to `NativeTextBridge`.
+- [x] 10a-i DONE — `scripts/android/NativeTextBridge.java` exists and ships in the APK: an
+      `AzulInputView` (focusable, `onCheckIsTextEditor`) supplying a `BaseInputConnection` that
+      forwards commit/compose/finish/delete into the existing JNI entry points, plus showKeyboard/
+      hideKeyboard via `InputMethodManager`. Verified on a headless android-34 emulator: the keyboard
+      opens from a tap and `commitText("hi ")` reaches Rust.
+
+- [ ] 10a-iv CONFLICT, needs a product decision — do NOT guess. The soft keyboard is now raised by TWO
+      paths and they disagree by design:
+        (a) the focus-driven raise added with the Java bridge, hooked to `CursorBlinkTimerAction`
+            (a caret blinks exactly when the focused thing is editable), and
+        (b) the app-facing `request_soft_keyboard()` drained in 10a-ii.
+      `request_soft_keyboard`'s own doc comment states the intended contract explicitly: "Focusing a
+      text field does NOT do this implicitly, because a field can be focused for reasons that should
+      not raise a keyboard: restoring focus after a dialog closes, or a programmatic focus during
+      startup." Path (a) violates that.
+      It is also why tapping AzWriter's page raises the keyboard at all — no azul app calls
+      `request_soft_keyboard`, so removing (a) makes every existing mobile app's text fields
+      unusable until each one opts in.
+      The resolution is a POLICY call (should a user-initiated focus raise the keyboard on mobile,
+      and can the engine distinguish user focus from restored/programmatic focus?), not a wiring one,
+      so it is logged rather than decided here.
+
 - [ ] 10a-iii `EditorInfo` hints (`inputType`, `imeOptions`) are how Android decides to show a numeric pad
       or a "Go" key instead of Enter. Needs an input-purpose attribute on the DOM node first, which is a
       design question, not plumbing.

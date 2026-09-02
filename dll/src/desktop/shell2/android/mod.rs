@@ -726,6 +726,26 @@ pub fn android_main(app: AndroidApp) {
         // mutate → pass, like every other OS-state change.
         drain_pending_theme(&mut window);
 
+        // The APP's explicit soft-keyboard request. `CallbackInfo::
+        // request_soft_keyboard()` -> `CallbackChange::RequestSoftKeyboard` ->
+        // `TextEditManager::pending_soft_keyboard` was a complete chain with no
+        // drain on ANY platform, so the public API did nothing everywhere.
+        //
+        // Distinct from the focus-driven raise: this is the app saying "show it
+        // now" (a compose button, dismissing after submit), which the engine
+        // deliberately does NOT infer from focus — see the doc comment on
+        // `request_soft_keyboard`.
+        if let Some(lw) = window.common.layout_window.as_mut() {
+            if let Some(visible) = lw.text_edit_manager.take_soft_keyboard_request() {
+                log_debug!(
+                    LogCategory::Input,
+                    "[Android] app requested soft keyboard visible={}",
+                    visible
+                );
+                set_soft_keyboard_visible(visible);
+            }
+        }
+
         // Selection-toolbar actions, on the LOOP thread for the same reason as
         // the IME queue below: they arrive from Android's ActionMode on the UI
         // thread, and a system change has to be applied where the loop sees it.
