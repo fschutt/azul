@@ -68,6 +68,7 @@ mod autotest_generated {
                 system_style: self.style.clone(),
                 active_route: self.route.as_ref(),
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
+                safe_area: azul_css::system::SafeAreaInsets::default(),
             }
         }
     }
@@ -1370,6 +1371,7 @@ mod size_query_tests {
                 system_style: self.style.clone(),
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
+                safe_area: azul_css::system::SafeAreaInsets::default(),
             }
         }
     }

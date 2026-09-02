@@ -872,3 +872,4 @@ fn has_compact_encoding_covers_all_compact_properties() {
         );
     }
 }
+

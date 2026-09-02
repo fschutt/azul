@@ -166,7 +166,27 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       fullscreen video or map wants to draw under the bars), and AzWriter applying it to its title band.
       Original note kept below.
 
-- [ ] 10c-v-a Nothing APPLIES the top inset, which is the reported "app title band draws under the status
+- [ ] 10c-v-b `PixelValue` exposes NO functions through the public API — `api.json` lists zero for it —
+      so an app handed an `OptionPixelValue` (which is what `get_safe_area_insets()` returns) has no
+      sanctioned way to turn it into a number. `to_pixels_internal` is crate-internal and
+      `PixelValue.number` is a `FloatValue` whose own `number` field is `pub(crate)`.
+      The only route out is `p.number.get()`, which happens to work because `FloatValue::get` IS
+      exposed — but it forces every app to know that an inset is always absolute px and that no unit
+      resolution is needed. A `PixelValue::to_pixels(parent, em, rem)` on the public surface would be
+      the honest fix. Not done here: it is an api.json addition on a widely-used type and deserves its
+      own change rather than riding along with an app fix.
+
+- [ ] 10c-v-a ATTEMPTED AND MEASURED WRONG — the naive fix cannot work, recorded so the next attempt
+      does not repeat it. Padding the title band by `get_safe_area_insets().top` changed NOTHING: a
+      pixel diff of the before/after frames put first content at row 9 in BOTH. Cause:
+      `quick_access.rs` sets `BAR_HEIGHT: isize = 28` as a FIXED `height` on the bar root, so
+      `padding-top: 24px` cannot move content down — it squashes 28px of content into 4px.
+      The height belongs to the widget, so the inset does too: `QuickAccessBar` should take a
+      `top_inset` that adds to BAR_HEIGHT *and* pads, rather than the app guessing 28 and the bar's
+      background colour to fake a wrapper. That is an api.json field addition (autofix), not an app fix.
+      Original note below.
+
+- [ ] 10c-v-a-orig Nothing APPLIES the top inset, which is the reported "app title band draws under the status
       bar clock" bug. `top=24` is delivered and available from `get_safe_area_insets()`; no shell or app
       offsets by it. Whether the ENGINE should inset the root automatically on mobile, or each app should,
       is a policy call (a fullscreen video or map wants to draw under the bars), so it is logged rather
@@ -567,3 +587,45 @@ so it wants its own change, not a tail-end commit here.
 
 Until then: treat a device/desktop e2e run's frame and damage assertions as
 untrustworthy, and keep those scenarios on `azul-doc e2e`.
+
+
+## 15 — review of the prop-cache perf work (2026-09-02)
+
+Asked to review it after a report that the AzWriter BACKSTAGE stopped rendering.
+Commits in this branch (rebased SHAs): `59b20b3ce` cascade trace, `94dcd67cd` docs,
+`91cb14e31` share identical property runs, `a915d15ff` `cursor` into the tier-1
+bitfield, `fcef148b2` `writing-mode` inheritance mask + self-check.
+
+FOUND AND FIXED HERE:
+- `azul-core`'s TEST build did not compile, so NONE of the PR's own tests could
+  run — including `every_inheritable_tier1_property_is_actually_inherited`, the
+  self-check `fcef148b2` added specifically to stop the mask rotting. Two causes:
+  my own `safe_area` field (callbacks_test.rs, 2 literals) and this arc's
+  `MouseEventData::{source, device_id}` (core/tests/events.rs, 2 literals).
+  Now: 2736 lib tests pass and the mask self-check RUNS and passes.
+- `ALL_HOVER` / `ALL_FOCUS` were missing `Submit`/`Change`/`Reset`/`Invalid`.
+  Planning is DERIVED by probing those arrays, so a filter absent from them can
+  never be planned — the arc's own dead-filter shape, reintroduced by the arc.
+  Fixed; `event_type_to_filters_omits_button_specific_filter_for_exotic_buttons`
+  passes again.
+- A duplicated, unreachable block of four `Self::Submit/Change/Reset/Invalid`
+  match arms in `events.rs` (rebase artifact).
+
+- [ ] 15a OPEN, SUSPICIOUS, NOT SETTLED. `core/tests/prop_cache.rs` has TWO failing
+      tests, PRE-EXISTING (verified by stashing all of tonight's edits and
+      re-running): `test_computed_values_exist_for_all_nodes` and
+      `test_non_inheritable_property_not_inherited`. Both fail at the same point —
+      `computed_values.values_for_opt(node)` returns `None` where they expect
+      `Some`.
+      Measured what the store actually holds for `div > p > text` with no author
+      CSS: node 0 = 0 values, node 1 = 0 values, node 2 = 1 value (`cursor`, the
+      property `a915d15ff` moved into the tier-1 bitfield).
+      This is EITHER correct by design (the store is the INHERITED store, and a
+      subtree that inherits nothing legitimately holds nothing, so the tests'
+      `is_some()` is a stale proxy for "was cascaded") OR the transpose lost
+      data. I could not settle which without the intended invariant, and
+      `values_for_opt` has NO production consumers — only tests — so the failures
+      alone do not prove a rendering bug.
+      Whoever owns the transpose should state the invariant: is an empty entry
+      set for a cascaded node legal? If yes, fix the tests; if no, this is the
+      backstage regression.

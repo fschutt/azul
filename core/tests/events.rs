@@ -243,6 +243,10 @@ fn test_mouse_event_data_creation() {
         button: MouseButton::Left,
         buttons: 1,
         modifiers: KeyModifiers::new(),
+        // `source` and `device_id` were added by the input-wiring arc (multi-seat
+        // / pointer provenance). `MouseEventData` has a Default, so the spread
+        // keeps this literal honest about what the test actually pins.
+        ..Default::default()
     };
 
     assert_eq!(mouse_data.position.x, 100.0);
@@ -449,6 +453,7 @@ fn test_event_filter_hover_match() {
             button: MouseButton::Left,
             buttons: 1,
             modifiers: KeyModifiers::new(),
+            ..Default::default()
         }),
     );
 

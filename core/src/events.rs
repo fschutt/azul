@@ -2568,12 +2568,6 @@ impl HoverEventFilter {
             Self::Change => Some(FocusEventFilter::Change),
             Self::Reset => Some(FocusEventFilter::Reset),
             Self::Invalid => Some(FocusEventFilter::Invalid),
-            // Form events have a Focus twin: a submit or a commit belongs to
-            // the control that was focused, not to whatever is hovered.
-            Self::Submit => Some(FocusEventFilter::Submit),
-            Self::Change => Some(FocusEventFilter::Change),
-            Self::Reset => Some(FocusEventFilter::Reset),
-            Self::Invalid => Some(FocusEventFilter::Invalid),
         }
     }
 }
@@ -3301,6 +3295,14 @@ static ALL_HOVER: &[HoverEventFilter] = &[
     HoverEventFilter::BiometricResult,
     HoverEventFilter::ScreenColorPicked,
     HoverEventFilter::KeyringResult,
+    // Form events. These have matcher arms and planning arms, but were absent
+    // from THIS list — and planning is DERIVED by probing it, so a filter the
+    // list does not name can never be planned and dispatches to nothing. Same
+    // dead-filter shape the arc exists to close, reintroduced by the arc.
+    HoverEventFilter::Submit,
+    HoverEventFilter::Change,
+    HoverEventFilter::Reset,
+    HoverEventFilter::Invalid,
 ];
 
 /// Every `FocusEventFilter` variant, so planning can be derived from matching.
@@ -3354,6 +3356,14 @@ static ALL_FOCUS: &[FocusEventFilter] = &[
     FocusEventFilter::Paste,
     FocusEventFilter::DocumentEdit,
     FocusEventFilter::TextChanged,
+    // Form events. These have matcher arms and planning arms, but were absent
+    // from THIS list — and planning is DERIVED by probing it, so a filter the
+    // list does not name can never be planned and dispatches to nothing. Same
+    // dead-filter shape the arc exists to close, reintroduced by the arc.
+    FocusEventFilter::Submit,
+    FocusEventFilter::Change,
+    FocusEventFilter::Reset,
+    FocusEventFilter::Invalid,
 ];
 
 /// Every `WindowEventFilter` variant, so planning can be derived from matching.

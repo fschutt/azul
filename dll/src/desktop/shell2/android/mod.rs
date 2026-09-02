@@ -599,6 +599,24 @@ impl PlatformWindow for AndroidWindow {
 pub fn android_main(app: AndroidApp) {
     log_info!(LogCategory::EventLoop, "[Android] android_main entered");
 
+    // Make the AZ_* knobs reachable at all on this platform.
+    //
+    // An activity cannot be handed environment variables: `am start` builds an
+    // Intent and the process inherits the ZYGOTE's environment, not the
+    // shell's. There are ~128 distinct `AZ_*` variables across the engine —
+    // every trace flag, dump path and diagnostic — and ALL of them were dead on
+    // Android, the platform where debugging is hardest. `AZ_E2E` got a bespoke
+    // property alias earlier; adding 127 more would be absurd.
+    //
+    // So one property carries them all, and they are injected into the real
+    // environment so every existing `std::env::var` call site works unchanged:
+    //
+    //     adb shell setprop debug.az.env 'AZ_E2E=/data/local/tmp/x.json;AZWRITER_SCREEN=backstage-info'
+    //
+    // Called FIRST in android_main, before any other thread exists — `set_var`
+    // is not thread-safe, and this is the only point where that is guaranteed.
+    inject_env_from_property();
+
     // Retrieve initial options stashed by `run()`
     let (app_data, undo_manager, config, fc_cache, font_registry, root_window) = unsafe {
         match crate::desktop::shell2::run::ANDROID_INITIAL_OPTIONS.take() {
@@ -1899,6 +1917,45 @@ pub fn activity_ptr() -> *mut core::ffi::c_void {
 fn publish_jni_context(app: &AndroidApp) {
     ANDROID_JAVA_VM.store(app.vm_as_ptr(), core::sync::atomic::Ordering::SeqCst);
     ANDROID_ACTIVITY.store(app.activity_as_ptr(), core::sync::atomic::Ordering::SeqCst);
+}
+
+/// Inject `debug.az.env` into the process environment.
+///
+/// Format: `KEY=VALUE` pairs separated by `;`. A pair with no `=`, or an empty
+/// key, is skipped rather than setting a nonsense variable.
+///
+/// SAFETY / ORDERING: `std::env::set_var` is not thread-safe. This runs as the
+/// first statement of `android_main`, before the window, the JNI publish, any
+/// timer or any worker exists, which is the only place that is sound.
+#[cfg(target_os = "android")]
+fn inject_env_from_property() {
+    let Ok(out) = std::process::Command::new("getprop")
+        .arg("debug.az.env")
+        .output()
+    else {
+        return;
+    };
+    let raw = String::from_utf8_lossy(&out.stdout);
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return;
+    }
+    for pair in raw.split(';') {
+        let Some((k, v)) = pair.split_once('=') else {
+            continue;
+        };
+        let (k, v) = (k.trim(), v.trim());
+        if k.is_empty() {
+            continue;
+        }
+        log_info!(
+            LogCategory::EventLoop,
+            "[Android] env from debug.az.env: {}={}",
+            k,
+            v
+        );
+        std::env::set_var(k, v);
+    }
 }
 
 /// A debug knob, from the env or from a `debug.az.*` system property.
