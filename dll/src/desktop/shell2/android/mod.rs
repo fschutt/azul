@@ -653,10 +653,33 @@ pub fn android_main(app: AndroidApp) {
                     window.common.relayout_only_pending(),
                     window.common.regeneration_pending(),
                 );
-                if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                    window
-                        .common
-                        .request_regeneration(RelayoutReason::RefreshDom);
+                // Same ladder as the input sites: an IME commit reports
+                // ShouldIncrementalRelayout, which must be PERFORMED here, not
+                // escalated into a DOM rebuild that discards it.
+                match r {
+                    azul_core::events::ProcessEventResult::ShouldIncrementalRelayout => {
+                        let mut dbg = None;
+                        if let Err(e) = window.incremental_relayout_dispatching(
+                            crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                            &mut dbg,
+                        ) {
+                            log_error!(
+                                LogCategory::Layout,
+                                "[Android] IME incremental relayout failed: {}",
+                                e
+                            );
+                        }
+                        window.common.request_relayout_only();
+                        window.needs_rerender = true;
+                    }
+                    azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow
+                    | azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                        window
+                            .common
+                            .request_regeneration(RelayoutReason::RefreshDom);
+                    }
+                    azul_core::events::ProcessEventResult::DoNothing => {}
+                    _ => window.needs_rerender = true,
                 }
             }
         }
@@ -1224,8 +1247,29 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             // has not caught up yet: an IME commit landed in the engine's
             // StyledDom and was then overwritten by the app's unchanged model,
             // so typing composed, committed, and vanished.
-            PER::ShouldIncrementalRelayout
-            | PER::UpdateHitTesterAndProcessAgain
+            // The pass CLASSIFIED this as incremental; it did not perform it.
+            // Somebody has to run `incremental_relayout` on the existing
+            // StyledDom and then declare relayout-only so the frame path skips
+            // `regenerate_layout`. macOS does exactly this in
+            // `apply_incremental_relayout_result`; Android did neither, so a
+            // committed IME string was re-laid-out from the app's unchanged
+            // model and vanished.
+            PER::ShouldIncrementalRelayout => {
+                let mut dbg = None;
+                if let Err(e) = window.incremental_relayout_dispatching(
+                    crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                    &mut dbg,
+                ) {
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Android] incremental relayout failed: {}",
+                        e
+                    );
+                }
+                window.common.request_relayout_only();
+                window.needs_rerender = true;
+            }
+            PER::UpdateHitTesterAndProcessAgain
             | PER::ShouldUpdateDisplayListCurrentWindow
             | PER::ShouldReRenderCurrentWindow => {
                 window.needs_rerender = true;
@@ -1312,8 +1356,29 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             // has not caught up yet: an IME commit landed in the engine's
             // StyledDom and was then overwritten by the app's unchanged model,
             // so typing composed, committed, and vanished.
-            PER::ShouldIncrementalRelayout
-            | PER::UpdateHitTesterAndProcessAgain
+            // The pass CLASSIFIED this as incremental; it did not perform it.
+            // Somebody has to run `incremental_relayout` on the existing
+            // StyledDom and then declare relayout-only so the frame path skips
+            // `regenerate_layout`. macOS does exactly this in
+            // `apply_incremental_relayout_result`; Android did neither, so a
+            // committed IME string was re-laid-out from the app's unchanged
+            // model and vanished.
+            PER::ShouldIncrementalRelayout => {
+                let mut dbg = None;
+                if let Err(e) = window.incremental_relayout_dispatching(
+                    crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
+                    &mut dbg,
+                ) {
+                    log_error!(
+                        LogCategory::Layout,
+                        "[Android] incremental relayout failed: {}",
+                        e
+                    );
+                }
+                window.common.request_relayout_only();
+                window.needs_rerender = true;
+            }
+            PER::UpdateHitTesterAndProcessAgain
             | PER::ShouldUpdateDisplayListCurrentWindow
             | PER::ShouldReRenderCurrentWindow => {
                 window.needs_rerender = true;
