@@ -2535,6 +2535,15 @@ pub mod text_bridge {
                     right: to_logical(right_px),
                     keyboard: to_logical(ime_px),
                 };
+                log_info!(
+                    LogCategory::Window,
+                    "[Android] insets top={} bottom={} left={} right={} ime={} (physical px)",
+                    top_px,
+                    bottom_px,
+                    left_px,
+                    right_px,
+                    ime_px,
+                );
             }
             w.common.request_regeneration(RelayoutReason::RefreshDom);
         });

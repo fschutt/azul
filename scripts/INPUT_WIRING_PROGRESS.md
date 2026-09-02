@@ -140,6 +140,28 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [x] 10c-ii DONE — `installInsetsListener` registers `setOnApplyWindowInsetsListener` and calls
       `nativeOnWindowInsets`, using `systemBars() | displayCutout()` (a notch is not part of
       systemBars) and keeping the IME inset separate from the bottom inset.
+- [x] 10c-iii APP-FACING HALF DONE, and the premise of the original note was WRONG — checked, not assumed.
+      The chain now carries real values on device:
+        Java `installInsetsListener` -> `nativeOnWindowInsets` -> `LayoutWindow.safe_area_insets`
+        -> `CallbackInfo::get_safe_area_insets()` / `get_keyboard_inset()`
+      Verified on a headless android-34 emulator with the keyboard up:
+        `insets top=24 bottom=0 left=0 right=0 ime=235` (physical px)
+      i.e. the status bar (24) and the live IME height (235) both arrive.
+
+- [ ] 10c-iv `env()` IS NOT PARSED AT ALL. The 10c-iii note claimed "`env(safe-area-inset-*)` already
+      resolves", and `scripts/MOBILE_SESSION_LOG.md` says so twice for macOS and iOS. It does not:
+      `parser2.rs` has ZERO occurrences of `env`, there is no `"env"` function token anywhere in
+      `css/src/`, and the `env(safe-area-inset-bottom)` in `doc/templates/flora.css:2892` is silently
+      dropped as an invalid value. The insets are readable ONLY from app code.
+      So the CSS-facing half is not "add one more variable name" — it needs `env()` implemented as a
+      CSS function with a resolution context plumbed through the cascade. Rescoped rather than left as
+      a small-looking follow-up on a false premise.
+
+- [ ] 10c-v Nothing APPLIES the top inset, which is the reported "app title band draws under the status
+      bar clock" bug. `top=24` is delivered and available from `get_safe_area_insets()`; no shell or app
+      offsets by it. Whether the ENGINE should inset the root automatically on mobile, or each app should,
+      is a policy call (a fullscreen video or map wants to draw under the bars), so it is logged rather
+      than decided. Blocked on 10c-iv for the CSS route.
 
 ### Follow-ups opened by 10b
 
