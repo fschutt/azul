@@ -889,12 +889,21 @@ impl InheritedValues {
     /// nothing — the shape `Vec<Vec<_>>::get` had, so `if let Some(..)` call
     /// sites keep their structure.
     #[must_use]
+    /// `None` iff `node` is outside the store; a node that exists but resolved
+    /// no inherited properties yields `Some(vec![])`.
+    ///
+    /// This used to key off emptiness (`(!v.is_empty()).then_some(v)`), which
+    /// made "this node has nothing" and "there is no such node"
+    /// indistinguishable. That was harmless while every node held a value, but
+    /// the store now keeps only properties a reader can actually reach, so a
+    /// plain `<div>` with no inherited CSS legitimately has none - and the
+    /// caller could no longer tell that from an out-of-range index.
+    #[must_use]
     pub fn values_for_opt(
         &self,
         node: usize,
     ) -> Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>> {
-        let v = self.values_for(node);
-        (!v.is_empty()).then_some(v)
+        (node < self.node_count).then(|| self.values_for(node))
     }
 
     /// Record `entries` as `node`'s resolved set.

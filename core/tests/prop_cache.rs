@@ -873,3 +873,39 @@ fn has_compact_encoding_covers_all_compact_properties() {
     }
 }
 
+
+/// `values_for_opt` must distinguish "no such node" from "this node resolved
+/// nothing".
+///
+/// It used to answer `None` for both, because it keyed off the returned vec
+/// being empty. That was invisible while every node carried at least one
+/// inherited value; once the store began keeping only properties a reader can
+/// reach, an ordinary `<div>` legitimately has none, and two tests here started
+/// reading "the node is missing" from what was really "the node is plain".
+#[test]
+fn values_for_opt_separates_an_empty_node_from_a_missing_one() {
+    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("Text"),
+    ));
+    let (_styled_dom, cache) = setup_styled_dom!(dom);
+
+    let n = cache.computed_values.len();
+    assert!(n >= 3, "expected at least the div, p and text nodes, got {n}");
+
+    for i in 0..n {
+        assert!(
+            cache.computed_values.values_for_opt(i).is_some(),
+            "node {i} is within the store, so it must answer Some - even with \
+             no inherited properties of its own",
+        );
+    }
+
+    assert!(
+        cache.computed_values.values_for_opt(n).is_none(),
+        "index {n} is past the end of the store and must answer None",
+    );
+    assert!(
+        cache.computed_values.values_for_opt(n + 1_000).is_none(),
+        "a far out-of-range index must answer None",
+    );
+}
