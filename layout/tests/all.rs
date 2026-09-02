@@ -206,6 +206,8 @@ mod h1_margin_em_resolution;
 mod h1_p_margin_collapse;
 #[path = "hover_manager.rs"]
 mod hover_manager;
+#[path = "icon_pipeline.rs"]
+mod icon_pipeline;
 #[path = "ifc_caching.rs"]
 mod ifc_caching;
 #[path = "image_flex_grow.rs"]

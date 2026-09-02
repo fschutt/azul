@@ -736,6 +736,117 @@ pub fn resolve_icons_in_dom(
     resolve_icons_in_dom_inner(dom, provider, system_style);
 }
 
+/// Resolve every `<icon>` in a user `Dom` and cascade it - the two halves of
+/// "a `Dom` the application handed us becomes a `StyledDom`", as one call.
+///
+/// The halves were separate, and that is exactly how a path came to skip one:
+/// three call sites ran `resolve_icons_in_dom` and then
+/// `StyledDom::create_from_dom`, while a fourth - the DOM a VirtualView
+/// callback returns - ran only the cascade. An `<icon>` inside a virtual view
+/// therefore never resolved, and nothing downstream would ever resolve it
+/// later, so it stayed an empty node for the life of the view.
+///
+/// The order is not interchangeable and is not obvious from either name:
+/// resolution MUST precede the cascade, because a replacement is a SUBTREE and
+/// `StyledDom` is a flat arena in DFS order - splicing one in afterwards would
+/// mean inserting mid-arena and shifting every index after it, which is what
+/// used to flatten every icon down to its root node. Giving the pair a single
+/// name is what stops the next caller from re-deriving that.
+#[must_use]
+pub fn styled_dom_resolving_icons(
+    mut dom: Dom,
+    provider: &SharedIconProvider,
+    system_style: &SystemStyle,
+) -> StyledDom {
+    resolve_icons_in_dom(&mut dom, provider, system_style);
+    StyledDom::create_from_dom(dom)
+}
+
+/// The private dataset behind [`Dom::create_icon_view`]: the spec that view
+/// renders right now. Public because the swap API downcasts it - see
+/// `CallbackInfo::set_icon`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IconViewState {
+    /// An icon spec, i.e. a comma-separated fallback chain exactly as
+    /// `Dom::create_icon` takes ("system:titlebar-close,close").
+    pub spec: AzString,
+}
+
+/// The body of [`Dom::create_icon_view`], which is where this is documented.
+///
+/// Not public itself: the constructor is the API, and two spellings of one
+/// thing is how they drift.
+#[must_use]
+pub(crate) fn icon_view(spec: impl Into<AzString>) -> Dom {
+    let dataset = RefAny::new(IconViewState { spec: spec.into() });
+    Dom::create_virtual_view(
+        dataset.clone(),
+        crate::callbacks::VirtualViewCallback::create(render_icon_view),
+    )
+    // The SAME `RefAny` as the view's own payload, on the node: the swap API
+    // reaches it through `CallbackInfo::get_dataset`, and a clone points at
+    // the same data, so rewriting the spec here is what the callback reads
+    // there. (The progress bar's fast path is built the same way.)
+    .with_dataset(OptionRefAny::Some(dataset))
+    // An icon never scrolls. The view reports the icon's MEASURED size, which
+    // is what makes `auto` work, and that report can exceed a box the caller
+    // sized itself (a 40px icon asked to sit in a 24px button) - without this
+    // the view machinery would answer that with a scrollbar. A caller's own
+    // `with_css` still wins on anything it states; this only fills in what the
+    // caller has no reason to think about.
+    .with_css("overflow: hidden;")
+}
+
+/// [`icon_view`]'s callback: render the spec the dataset currently holds.
+extern "C" fn render_icon_view(
+    mut data: RefAny,
+    info: crate::callbacks::VirtualViewCallbackInfo,
+) -> crate::callbacks::VirtualViewReturn {
+    use crate::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+    let spec = match data.downcast_ref::<IconViewState>() {
+        // Foreign payload: render nothing rather than lie about bounds.
+        None => return crate::callbacks::VirtualViewReturn::default(),
+        Some(state) => state.spec.clone(),
+    };
+    let dom = Dom::create_icon(spec);
+
+    // How big the icon actually is. `measure_dom` styles through the window,
+    // which resolves the icon first - so this measures the ARTWORK, not the
+    // empty `<icon>` node.
+    //
+    // Measured against the view's own box, which is what a replaced element's
+    // content is laid out in. An auto-sized view's box is the replaced-element
+    // default (300x150) on the first pass and the icon's own size afterwards;
+    // either is a box an icon fits in, so the measurement is the icon's
+    // natural size in both. A box of ZERO is the degenerate case - a view in a
+    // collapsed parent - where a real constraint would measure the icon to
+    // nothing.
+    let bounds = info.bounds.get_logical_size();
+    let available = if bounds.width > 0.0 && bounds.height > 0.0 {
+        bounds
+    } else {
+        LogicalSize::new(UNCONSTRAINED, UNCONSTRAINED)
+    };
+    let measured = info.measure_dom(dom.clone(), available);
+    // A measurement of zero means there was no measure hook (or nothing to
+    // draw); reporting it would collapse an auto-sized view to nothing.
+    let size = if measured.width > 0.0 && measured.height > 0.0 {
+        measured
+    } else {
+        bounds
+    };
+
+    let rect = LogicalRect::new(LogicalPosition::zero(), size);
+    // An icon does not scroll, so all three rects are the same box.
+    crate::callbacks::VirtualViewReturn::with_dom(dom, rect, rect)
+}
+
+/// The "no constraint" box an auto-sized icon is measured in. Large enough
+/// that no icon is wrapped or clipped by it, finite so a bug cannot turn into
+/// a NaN geometry.
+const UNCONSTRAINED: f32 = 4096.0;
+
 /// The recursive half of [`resolve_icons_in_dom`].
 fn resolve_icons_in_dom_inner(
     dom: &mut Dom,

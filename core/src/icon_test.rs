@@ -1217,3 +1217,86 @@ mod icon_cache_tests {
         );
     }
 }
+
+/// Tests for the SWAPPABLE icon - `Dom::create_icon_view`. The shape of the
+/// node is the whole contract: `CallbackInfo::set_icon` finds the view's spec
+/// through the node's DATASET, so a view that does not carry one (or carries
+/// something else) cannot be swapped, and the failure would only show up as
+/// "the icon never changes" in a running app.
+#[cfg(test)]
+mod icon_view_tests {
+    use super::*;
+    use crate::dom::Dom;
+
+    #[test]
+    fn an_icon_view_is_a_virtual_view_carrying_its_spec_as_a_dataset() {
+        let view = Dom::create_icon_view("system:window-maximize,maximize");
+
+        assert!(
+            matches!(view.root.get_node_type(), NodeType::VirtualView),
+            "the swap works by re-rendering a view, so the node has to BE one"
+        );
+        let mut dataset = view
+            .root
+            .get_dataset()
+            .cloned()
+            .expect("set_icon reaches the spec through the node's dataset");
+        let state = dataset
+            .downcast_mut::<IconViewState>()
+            .expect("and that dataset is what set_icon downcasts");
+        assert_eq!(state.spec.as_str(), "system:window-maximize,maximize");
+    }
+
+    #[test]
+    fn the_node_dataset_and_the_callbacks_payload_are_the_same_data() {
+        // Not merely equal - the SAME `RefAny`. `set_icon` mutates the one on
+        // the node; the callback reads the one the view was constructed with.
+        // Two separate allocations would make every swap silently do nothing,
+        // and nothing else in the system would notice.
+        let mut view = Dom::create_icon_view("home");
+        let mut from_node = view.root.get_dataset().cloned().expect("dataset");
+        {
+            let mut state = from_node.downcast_mut::<IconViewState>().expect("state");
+            state.spec = "settings".into();
+        }
+        let mut payload = view
+            .root
+            .get_virtual_view_node()
+            .map(|n| n.refany.clone())
+            .expect("a virtual view node carries its callback payload");
+        let seen = payload
+            .downcast_ref::<IconViewState>()
+            .expect("the payload is the same IconViewState")
+            .spec
+            .clone();
+        assert_eq!(
+            seen.as_str(),
+            "settings",
+            "writing through the node's dataset must be visible to the callback"
+        );
+    }
+
+    #[test]
+    fn an_icon_view_declares_its_own_overflow() {
+        // The view reports the icon's MEASURED size, which can exceed a box the
+        // caller sized itself (a 40px icon asked to sit in a 24px button).
+        // Without this the view machinery would answer that with a scrollbar,
+        // on an icon.
+        let view = Dom::create_icon_view("home");
+        let overflow_decls = view
+            .css
+            .as_ref()
+            .iter()
+            .flat_map(|c| c.rules.as_ref().iter())
+            .flat_map(|r| r.declarations.as_ref().iter())
+            // `CssPropertyType`'s Debug is the CSS spelling ("overflow-x"), and
+            // the shorthand expands at parse time, so this matches whichever
+            // form the parser produces.
+            .filter(|d| format!("{:?}", d.get_type()).contains("overflow"))
+            .count();
+        assert!(
+            overflow_decls >= 1,
+            "the view has to state its own overflow, got {overflow_decls} declarations"
+        );
+    }
+}

@@ -265,6 +265,16 @@ pub fn regenerate_layout(
         .dom_regenerations
         .saturating_add(1);
 
+    // Hand the window the two app-level things any DOM it styles needs: the
+    // system style (system colour keywords) and the icon storage. Both used to
+    // be set further down, just before layout — which was too late for the one
+    // path that needs them EARLIEST. Icons resolve while the DOM is still a
+    // tree, before the cascade, and a VirtualView callback (which runs during
+    // layout, and only has `&mut LayoutWindow` to reach anything) had no way to
+    // see a provider that the shell only held in this stack frame.
+    layout_window.set_system_style(system_style.clone());
+    layout_window.set_icon_provider(icon_provider.clone());
+
     // If the async font registry is available, request commonly-used fonts
     // and block until they are ready (eliminates FOUC). On cache hits this
     // is effectively free; on first run it blocks until the Scout + Builder
@@ -646,7 +656,6 @@ pub fn regenerate_layout(
         // (solver3 reconcile sees the same StyledDom object → full cache
         // reuse; this is the R1 semantics without having built a throwaway
         // cascade first).
-        layout_window.set_system_style(system_style.clone());
         azul_layout::probe::emit_phase_heap("before_layout_dl");
         phases.mark("before_layout_dl_precascade");
         layout_window
@@ -702,17 +711,11 @@ pub fn regenerate_layout(
     // We collect all CSS objects, flatten the tree, and run a single cascade pass.
     // E2E `mount` override: replace the app's DOM wholesale with the test's
     // inline XML+CSS document (reusing the existing XML→StyledDom parser).
-    // 1a. Resolve icon nodes BEFORE the cascade.
     //
-    // Icons used to be resolved after `create_from_dom`, by splicing
-    // already-cascaded fragments into the flat StyledDom arena. That forced
-    // every icon to collapse to a single node and left the property cache
-    // describing the pre-resolution node (the `.notdef` tofu bug). Resolving on
-    // the `Dom` splices whole subtrees and cascades everything exactly once.
-    let mut user_dom = user_dom;
-    azul_core::icon::resolve_icons_in_dom(&mut user_dom, icon_provider, system_style);
-    azul_layout::probe::emit_phase_heap("after_icons");
-    phases.mark("after_icons");
+    // `style_user_dom` is the cascade AND the icon resolution that has to
+    // precede it — see `LayoutWindow::style_user_dom`. It is a method on the
+    // window rather than two calls here so that the OTHER producer of a user
+    // DOM, a VirtualView callback deep inside layout, resolves icons too.
 
     let e2e_mount_xml = layout_window.e2e_mount.xml().map(str::to_string);
     let e2e_mount_dirty = layout_window.e2e_mount.take_dirty();
@@ -750,12 +753,12 @@ pub fn regenerate_layout(
                             "[regenerate_layout] E2E mount XML failed to parse: {e:?} — falling \
                              back to the app DOM"
                         );
-                        azul_core::styled_dom::StyledDom::create_from_dom(user_dom)
+                        layout_window.style_user_dom(user_dom)
                     }
                 },
             }
         }
-        None => azul_core::styled_dom::StyledDom::create_from_dom(user_dom),
+        None => layout_window.style_user_dom(user_dom),
     };
     azul_layout::probe::emit_phase_heap("after_create_from_dom");
     phases.mark("after_create_from_dom");
@@ -806,7 +809,12 @@ pub fn regenerate_layout(
             LogCategory::Layout,
             "[regenerate_layout] Auto-injecting Titlebar (NoTitleAutoInject)"
         );
-        inject_software_titlebar(user_styled_dom, &current_window_state.title, system_style)
+        inject_software_titlebar(
+            layout_window,
+            user_styled_dom,
+            &current_window_state.title,
+            system_style,
+        )
     } else {
         user_styled_dom
     };
@@ -1272,8 +1280,6 @@ pub fn regenerate_layout(
         "[regenerate_layout] Calling layout_and_generate_display_list"
     );
 
-    // Update system style for resolving system color keywords (selection colors, accent, etc.)
-    layout_window.set_system_style(system_style.clone());
     azul_layout::probe::emit_phase_heap("before_layout_dl");
     phases.mark("before_layout_dl");
 
@@ -1922,6 +1928,7 @@ pub fn drain_virtual_view_updates(
 /// (gesture manager + `modify_window_state`).  No special event-system hooks
 /// are needed.
 fn inject_software_titlebar(
+    layout_window: &LayoutWindow,
     user_dom: azul_core::styled_dom::StyledDom,
     window_title: &str,
     system_style: &SystemStyle,
@@ -1929,11 +1936,13 @@ fn inject_software_titlebar(
     use azul_layout::widgets::titlebar::Titlebar;
 
     let titlebar = Titlebar::from_system_style(window_title.into(), system_style);
-    let mut titlebar_dom = titlebar.dom();
+    let titlebar_dom = titlebar.dom();
 
-    // Style the titlebar DOM (all properties are inline — no external CSS needed)
-    let titlebar_styled =
-        azul_core::styled_dom::StyledDom::create(&mut titlebar_dom, azul_css::css::Css::empty());
+    // Through the window's chokepoint, like every other user DOM: the bar's
+    // three window controls ARE icon nodes (`system:titlebar-close,…`), and
+    // styling this subtree on its own with `StyledDom::create` skipped icon
+    // resolution entirely — so the auto-injected bar drew three empty boxes.
+    let titlebar_styled = layout_window.style_user_dom(titlebar_dom);
 
     // Use an Html root (not Body!) so we don't get double <body> nesting.
     // StyledDom::default() creates a Body root, and the user's DOM also starts

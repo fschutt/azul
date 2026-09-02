@@ -8994,6 +8994,44 @@
                                 ],
                                 "fn_body": "object.trigger_virtual_view_rerender(dom_id, node_id)"
                             },
+                            "set_icon": {
+                                "doc": [
+                                    "Swap the icon a Dom::create_icon_view node renders, without a full layout().",
+                                    "",
+                                    "The counterpart of \"change this node's text\" for icons - and it cannot BE",
+                                    "that, twice over. An icon is not one node (it resolves to a subtree), and by",
+                                    "the time a callback runs the DOM it would edit has already been built, so",
+                                    "rewriting the spec in the tree would change nothing until the next full",
+                                    "rebuild. So the icon lives in a VirtualView: this rewrites the spec the view",
+                                    "owns and queues a re-render of THAT view. One callback, one small nested DOM",
+                                    "re-cascaded in place, damage the size of the icon. No layout(), no DOM diff.",
+                                    "",
+                                    "node_id is the view node itself, typically found with get_node_id_by_marker.",
+                                    "Returns false, changing nothing, when it does not name a live icon view: no",
+                                    "layout result, no dataset, or a dataset belonging to another widget. Setting",
+                                    "the spec the view already has also returns false and queues nothing.",
+                                    "",
+                                    "# Example",
+                                    "```ignore",
+                                    "info.set_icon(icon_node, \"system:window-restore,restore\".into());",
+                                    "```"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    },
+                                    {
+                                        "spec": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.set_icon(node_id, spec)"
+                            },
                             "get_node_id_by_id_attribute": {
                                 "doc": [
                                     "Find a node by ID attribute in the layout tree",
@@ -16372,6 +16410,33 @@
                                     }
                                 ],
                                 "fn_body": "azul_core::dom::Dom::create_icon(icon_name)"
+                            },
+                            "create_icon_view": {
+                                "doc": [
+                                    "An icon that can be SWAPPED at runtime, without a full layout().",
+                                    "",
+                                    "create_icon bakes the spec into the tree the cascade consumes, so changing",
+                                    "it means producing a different tree - a full layout() - and by the time a",
+                                    "callback runs, the DOM it would edit has already been built. This wraps",
+                                    "the icon in a VirtualView instead: the view owns the spec, renders",
+                                    "create_icon(spec) as its child DOM, and CallbackInfo::set_icon rewrites the",
+                                    "spec and asks that ONE view to re-render. Nothing else relayouts.",
+                                    "",
+                                    "A view rather than an in-place text swap because AN ICON IS NOT ONE NODE:",
+                                    "it resolves to a subtree (an SVG icon is a tree of paths), and a nested DOM",
+                                    "of arbitrary shape, re-materialized in place, is what a VirtualView is.",
+                                    "",
+                                    "**Sizing**: the view reports the icon's MEASURED size, so auto width/height",
+                                    "gives the icon's natural size, like an image. A definite size still wins,",
+                                    "also like an image, and is what a toolbar or titlebar button should give it."
+                                ],
+                                "priority": 70.0,
+                                "fn_args": [
+                                    {
+                                        "icon_name": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::Dom::create_icon_view(icon_name)"
                             },
                             "create_virtual_view": {
                                 "fn_args": [

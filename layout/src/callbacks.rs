@@ -1782,6 +1782,53 @@ impl CallbackInfo {
         self.push_change(CallbackChange::UpdateAllVirtualViews);
     }
 
+    /// Swap the icon a `Dom::create_icon_view` node renders, without a full
+    /// `layout()`.
+    ///
+    /// The counterpart of "change this node's text" for icons - and it cannot
+    /// BE that, twice over. An icon is not one node (it resolves to a subtree,
+    /// and an SVG icon is a tree of paths), and by the time a callback runs the
+    /// DOM it would edit has already been built, so rewriting the spec in the
+    /// tree would change nothing until the next full rebuild. So the icon lives
+    /// in a `VirtualView`: this rewrites the spec the view owns and queues a
+    /// re-render of THAT view. The engine re-invokes one callback, re-cascades
+    /// one small nested DOM in place, and damages the icon's box. No `layout()`,
+    /// no DOM diff, no app-data round trip.
+    ///
+    /// `node_id` is the view node itself - typically found with
+    /// [`get_node_id_by_marker`](Self::get_node_id_by_marker). Returns `false`,
+    /// changing nothing, when it does not name a live icon view: no layout
+    /// result, no dataset, or a dataset belonging to some other widget - and
+    /// also when the view already renders `spec`, since re-rendering an
+    /// unchanged glyph would damage its box for nothing.
+    ///
+    /// The new spec is a fallback chain like any other
+    /// (`"system:titlebar-close,close"`); it is resolved at render time, so a
+    /// name that no pack provides simply renders as the resolver's placeholder.
+    pub fn set_icon(&mut self, node_id: DomNodeId, spec: AzString) -> bool {
+        let Some(mut dataset) = self.get_dataset(node_id) else {
+            return false;
+        };
+        {
+            // Scoped: the downcast guard has to drop before the trigger, which
+            // takes the queue drain path.
+            let Some(mut state) = dataset.downcast_mut::<azul_core::icon::IconViewState>() else {
+                return false;
+            };
+            if state.spec == spec {
+                // Nothing to do - and re-rendering anyway would damage the
+                // icon's box on every hover tick of an unchanged glyph.
+                return false;
+            }
+            state.spec = spec;
+        }
+        let Some(node) = node_id.node.into_crate_internal() else {
+            return false;
+        };
+        self.trigger_virtual_view_rerender(node_id.dom, node);
+        true
+    }
+
     // Dom Tree Navigation
 
     /// Find a node by ID attribute in the layout tree

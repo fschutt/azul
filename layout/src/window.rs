@@ -859,6 +859,10 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         pending_lifecycle_events: _,
         pending_unmount_invocations: _,
         system_style: _,
+        // NOT WALKED: an `Arc` handle to storage the APP owns and every window
+        // shares. Its bytes belong to the app's report, once, not to each
+        // window that can reach it.
+        icon_provider: _,
         system_animations_override: _,
         monitors: _,
         input_interpreter: _,
@@ -1424,6 +1428,20 @@ pub struct LayoutWindow {
     /// System style (colors, fonts, metrics) for resolving system color keywords
     /// Set via `set_system_style()` from the shell after window creation
     pub system_style: Option<Arc<azul_css::system::SystemStyle>>,
+    /// The app's icon storage, shared (an `Arc` inside) with every other window
+    /// and with the tray. Set via `set_icon_provider()` from the shell, next to
+    /// `set_system_style()` and for the same reason: resolving an `<icon>`
+    /// needs both, and both belong to the app rather than to any one DOM.
+    ///
+    /// The window holds it so that EVERY path from a user `Dom` to a
+    /// `StyledDom` can resolve icons - see [`Self::style_user_dom`]. Before
+    /// this, only the shell's `regenerate_layout` had a provider in scope, so
+    /// the DOM a VirtualView callback returns was cascaded without one and its
+    /// icons never resolved.
+    ///
+    /// `None` in a window whose app registered no icons at all, and in the
+    /// headless windows the tests build directly; both then cascade unchanged.
+    pub icon_provider: Option<azul_core::icon::SharedIconProvider>,
     /// Per-window override of the app-global system-animation configuration
     /// (`set_global_system_animations`). `None` = use the global. Mostly for
     /// tests, which must not race the process-wide slot.
@@ -1874,6 +1892,7 @@ impl LayoutWindow {
             resize_watch_dpi: 1.0,
             pending_unmount_invocations: Vec::new(),
             system_style: None,
+            icon_provider: None,
             monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
             preedit_shaped_node: None,
@@ -3767,7 +3786,11 @@ impl LayoutWindow {
     /// call — cache results per item template where possible.
     #[cfg(feature = "std")]
     pub fn measure_dom(&self, dom: Dom, available: LogicalSize) -> LogicalSize {
-        let styled_dom = StyledDom::create_from_dom(dom);
+        // `style_user_dom`, not a bare cascade: a measured DOM is a user DOM
+        // like any other, and an `<icon>` left unresolved measures as an empty
+        // node — so the item this sizes would be laid out at the icon's real
+        // size and measured without it.
+        let styled_dom = self.style_user_dom(dom);
         self.measure_styled_dom(&styled_dom, available)
     }
 
@@ -6736,8 +6759,12 @@ impl LayoutWindow {
         // Get the child Dom from the callback's return value, then convert to StyledDom
         let mut child_styled_dom = match callback_return.dom {
             azul_core::dom::OptionDom::Some(dom) => {
-                // Convert Dom → StyledDom (single deferred cascade pass)
-                StyledDom::create_from_dom(dom)
+                // Dom → StyledDom through the window's own chokepoint, which
+                // resolves `<icon>` nodes first. Calling `create_from_dom`
+                // directly here is what made an icon inside a VirtualView
+                // impossible: it cascaded the icon node as-is, and nothing
+                // downstream resolves one after the cascade.
+                self.style_user_dom(dom)
             }
             azul_core::dom::OptionDom::None => {
                 // If the callback returns None, it's an optimization hint.
@@ -12326,6 +12353,49 @@ impl LayoutWindow {
         }
         self.system_style = Some(system_style);
     }
+
+    /// Hand this window the app's icon storage. Called by the shell next to
+    /// [`Self::set_system_style`]; the pair is what [`Self::style_user_dom`]
+    /// needs.
+    pub fn set_icon_provider(&mut self, provider: azul_core::icon::SharedIconProvider) {
+        self.icon_provider = Some(provider);
+    }
+
+    /// THE path from a user `Dom` to a `StyledDom`: resolve `<icon>` nodes,
+    /// then cascade.
+    ///
+    /// Every DOM the application produces goes through here - the one its
+    /// `layout()` callback returns AND the one a VirtualView callback returns.
+    /// That is the whole point of the method existing rather than each caller
+    /// pairing the two steps itself: the VirtualView path did not pair them,
+    /// because the provider simply was not reachable from `LayoutWindow`, so
+    /// an `<icon>` inside a virtual view was cascaded as an icon node and
+    /// stayed one forever. Routing both through one method closes that by
+    /// construction instead of by remembering.
+    ///
+    /// A window with no provider (headless, or an app that registered no
+    /// icons) cascades unchanged - there is nothing to resolve against, and an
+    /// unresolved icon node lays out as an empty inline.
+    #[must_use]
+    pub fn style_user_dom(&self, dom: Dom) -> StyledDom {
+        let Some(provider) = self.icon_provider.as_ref() else {
+            return StyledDom::create_from_dom(dom);
+        };
+        // The shell sets style and provider together, so the fallback only
+        // covers a DOM styled before the first `regenerate_layout`. Resolving
+        // against the default style still beats not resolving: nothing
+        // re-resolves an icon node later, so skipping it here would leave the
+        // icon empty for the life of that DOM.
+        let fallback;
+        let system_style = match self.system_style.as_deref() {
+            Some(s) => s,
+            None => {
+                fallback = azul_css::system::SystemStyle::default();
+                &fallback
+            }
+        };
+        azul_core::icon::styled_dom_resolving_icons(dom, provider, system_style)
+    }
 }
 
 // --- ICU4X Internationalization API ---
@@ -17765,6 +17835,8 @@ impl LayoutWindow {
             id_namespace: _,
             epoch: _,
             system_style: _,
+            // App-level icon storage keyed by NAME, not by node id.
+            icon_provider: _,
             monitors: _,
             font_stacks_hash: _,
             preedit_shaped_node: _,

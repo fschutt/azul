@@ -422,7 +422,8 @@ pub use icon::{
 };
 // Re-export core icon types
 pub use azul_core::icon::{
-    resolve_icons_in_dom, IconProviderHandle, IconResolverCallbackType, OptionIconProviderHandle,
+    resolve_icons_in_dom, styled_dom_resolving_icons, IconProviderHandle,
+    IconResolverCallbackType, IconViewState, OptionIconProviderHandle,
 };
 
 /// Callback handling for layout events (invocation, result processing).

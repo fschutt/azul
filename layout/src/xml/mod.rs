@@ -212,9 +212,12 @@ pub fn parse_xml_to_styled_dom_resolving_icons(
     system_style: &azul_css::system::SystemStyle,
 ) -> Result<StyledDom, XmlError> {
     let parsed = parse_xml(xml)?;
-    let mut dom = dom_from_parsed_xml(parsed);
-    azul_core::icon::resolve_icons_in_dom(&mut dom, provider, system_style);
-    Ok(StyledDom::create_from_dom(dom))
+    let dom = dom_from_parsed_xml(parsed);
+    Ok(azul_core::icon::styled_dom_resolving_icons(
+        dom,
+        provider,
+        system_style,
+    ))
 }
 
 /// Parse XML directly into `FastDom` + extracted CSS, ready for `StyledDom`.

@@ -4711,6 +4711,41 @@ impl Dom {
             .with_child(Self::create_text_do_not_use_without_block_level_wrapper(""))
     }
 
+    /// An icon that can be SWAPPED at runtime, without a full `layout()`.
+    ///
+    /// [`create_icon`](Self::create_icon) bakes the spec into the tree the
+    /// cascade consumes, so changing it means producing a different tree - a
+    /// full `layout()` - and by the time a callback runs, the DOM it would edit
+    /// has already been built. This wraps the icon in a `VirtualView` instead:
+    /// the view owns the spec, renders `create_icon(spec)` as its child DOM,
+    /// and `CallbackInfo::set_icon` rewrites the spec and asks that ONE view to
+    /// re-render. Nothing else in the window relayouts.
+    ///
+    /// A view rather than something narrower (the way `set_text` rewrites a
+    /// text node in place) because AN ICON IS NOT ONE NODE: it resolves to a
+    /// subtree - an SVG icon is a tree of paths - and a nested DOM of arbitrary
+    /// shape, re-materialized in place, is exactly what a `VirtualView` is.
+    ///
+    /// # Sizing
+    ///
+    /// The view reports the icon's MEASURED size, so `width`/`height: auto`
+    /// gives the icon's natural size - a `VirtualView` is a replaced element
+    /// and sizes like an `<img>`. A definite size still wins, again like an
+    /// `<img>`, and is what a toolbar or titlebar button should give it: the
+    /// box is part of that design, and a stated box is right on the FIRST
+    /// layout rather than once the measurement comes back.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// Dom::create_icon_view("system:window-maximize,maximize")
+    ///     .with_class("csd-button-icon")
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn create_icon_view<S: Into<AzString>>(icon_name: S) -> Self {
+        crate::icon::icon_view(icon_name)
+    }
+
     #[inline]
     pub fn create_virtual_view(data: RefAny, callback: impl Into<VirtualViewCallback>) -> Self {
         Self::create_from_data(NodeData::create_virtual_view(data, callback))
