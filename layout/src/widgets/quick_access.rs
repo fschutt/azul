@@ -625,6 +625,25 @@ pub struct QuickAccessBar {
 
     /// Renders the close window button.
     pub show_close: bool,
+
+    /// Safe-area inset above the band, in logical px.
+    ///
+    /// On a phone the status bar (or a notch) occupies the top of the window,
+    /// and a band drawn at y=0 renders UNDER the clock. Padding alone cannot
+    /// fix that: the band root carries a FIXED `height: BAR_HEIGHT`, so
+    /// `padding-top` squashes 28px of content into what is left rather than
+    /// moving it down. That was measured - a padding-only attempt left first
+    /// content on the same pixel row.
+    ///
+    /// So the inset ADDS to the band height and pads by the same amount: the
+    /// content box stays exactly `BAR_HEIGHT` tall and the band grows upward
+    /// into the status bar, which is also what makes the band's own background
+    /// colour fill the notch area instead of leaving a gap.
+    ///
+    /// Feed it from `CallbackInfo::get_safe_area_insets().top`, via
+    /// `PixelValue::to_pixels_absolute()`. `0.0` (the default) is exactly the
+    /// old behaviour, so desktop callers need change nothing.
+    pub top_inset: f32,
 }
 
 // -- CSS classes --
@@ -659,7 +678,15 @@ impl QuickAccessBar {
             on_maximize: None.into(),
             on_close: None.into(),
             style: QuickAccessStyle::office_2013(),
+            top_inset: 0.0,
         }
+    }
+
+    /// Sets the safe-area inset above the band - see [`Self::top_inset`].
+    #[must_use]
+    pub fn with_top_inset(mut self, top_inset: f32) -> Self {
+        self.top_inset = top_inset;
+        self
     }
 
     /// The the Office-2013-era look band: save / undo / redo quick-access actions (inert
@@ -724,6 +751,7 @@ impl QuickAccessBar {
             on_maximize,
             on_close,
             style,
+            top_inset,
         } = self;
 
         let mut children: Vec<Dom> = Vec::with_capacity(actions.len() + 8);
@@ -811,9 +839,30 @@ impl QuickAccessBar {
             ));
         }
 
+        // The safe-area inset is applied HERE, not in `theme_bar`, because it
+        // is a property of the WINDOW (which notch, which orientation) and not
+        // of the theme - two bands with the same look can need different
+        // insets, and `QuickAccessStyle` is shared and cached.
+        //
+        // Appending overrides the height `theme_bar` already pushed: later
+        // declarations win, which is the same mechanism `merged_style` relies
+        // on to let the close button restyle the window button above it.
+        let bar_style = if top_inset > 0.0 {
+            let mut props = style.bar_style.as_ref().to_vec();
+            props.push(Cond::simple(P::const_height(LayoutHeight::px(
+                BAR_HEIGHT as f32 + top_inset,
+            ))));
+            props.push(Cond::simple(P::const_padding_top(LayoutPaddingTop {
+                inner: PixelValue::px(top_inset),
+            })));
+            CssPropertyWithConditionsVec::from_vec(props)
+        } else {
+            style.bar_style
+        };
+
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_QAB))
-            .with_css_props(style.bar_style)
+            .with_css_props(bar_style)
             .with_children(DomVec::from_vec(children))
     }
 }
@@ -1131,6 +1180,94 @@ mod tests {
         q.show_close = false;
         let dom = q.dom();
         assert_eq!(dom.children.as_ref().len(), 1);
+    }
+
+    // ------------------------------------------------------------------
+    // Safe-area inset (10c-v-a)
+    // ------------------------------------------------------------------
+
+    /// Pulls the last `height` and `padding-top` the bar root declares, which
+    /// is what the cascade resolves to: later declarations win, the mechanism
+    /// `merged_style` already relies on.
+    fn bar_height_and_padding_top(dom: &Dom) -> (Option<f32>, Option<f32>) {
+        let mut height = None;
+        let mut padding = None;
+        for (p, _) in dom.root.style.iter_inline_properties() {
+            match p {
+                P::Height(v) => {
+                    if let Some(LayoutHeight::Px(px)) = v.get_property() {
+                        height = Some(px.number.get());
+                    }
+                }
+                P::PaddingTop(v) => {
+                    if let Some(pt) = v.get_property() {
+                        padding = Some(pt.inner.number.get());
+                    }
+                }
+                _ => {}
+            }
+        }
+        (height, padding)
+    }
+
+    /// THE regression this closes. A padding-only fix was tried and measured:
+    /// it moved nothing, because the band root carries a fixed
+    /// `height: BAR_HEIGHT`, so padding squashes the content instead of
+    /// displacing it. The inset must ADD to the height by the same amount it
+    /// pads, leaving the content box exactly `BAR_HEIGHT` tall.
+    #[test]
+    fn the_top_inset_grows_the_band_so_the_content_box_stays_bar_height() {
+        let inset = 24.0_f32;
+        let dom = QuickAccessBar::new(AzString::from("t"))
+            .with_top_inset(inset)
+            .dom();
+        let (height, padding) = bar_height_and_padding_top(&dom);
+
+        let height = height.expect("the band must declare a height");
+        let padding = padding.expect("the band must declare a top padding");
+        assert!(
+            (height - (BAR_HEIGHT as f32 + inset)).abs() < 0.001,
+            "height {height} should be BAR_HEIGHT + inset"
+        );
+        assert!(
+            (padding - inset).abs() < 0.001,
+            "padding-top {padding} should equal the inset"
+        );
+        assert!(
+            ((height - padding) - BAR_HEIGHT as f32).abs() < 0.001,
+            "content box is {} tall, must stay BAR_HEIGHT ({BAR_HEIGHT}) - this is exactly \
+             the padding-only attempt that squashed the band",
+            height - padding
+        );
+    }
+
+    /// Desktop has no notch and must be byte-identical to before the field
+    /// existed - no extra declarations, no changed height.
+    #[test]
+    fn a_zero_inset_changes_nothing() {
+        let plain = QuickAccessBar::new(AzString::from("t")).dom();
+        let zeroed = QuickAccessBar::new(AzString::from("t"))
+            .with_top_inset(0.0)
+            .dom();
+        assert_eq!(
+            plain.root.style.iter_inline_properties().count(),
+            zeroed.root.style.iter_inline_properties().count(),
+            "a zero inset must not append declarations"
+        );
+        let (h, _) = bar_height_and_padding_top(&plain);
+        assert_eq!(h, Some(BAR_HEIGHT as f32));
+    }
+
+    /// The default has to be the desktop behaviour, or every existing caller
+    /// silently gains a band that is taller than it asked for.
+    #[test]
+    fn the_default_inset_is_zero() {
+        assert_eq!(QuickAccessBar::default().top_inset, 0.0);
+        assert_eq!(QuickAccessBar::new(AzString::from("t")).top_inset, 0.0);
+        assert_eq!(
+            QuickAccessBar::office_2013(AzString::from("t")).top_inset,
+            0.0
+        );
     }
 
     #[test]

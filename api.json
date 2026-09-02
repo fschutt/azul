@@ -61507,6 +61507,9 @@
                                 },
                                 "show_close": {
                                     "type": "bool"
+                                },
+                                "top_inset": {
+                                    "type": "f32"
                                 }
                             }
                         ],
@@ -61619,6 +61622,23 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "with_top_inset": {
+                                "doc": [
+                                    "Sets the safe-area inset above the band - see [`Self::top_inset`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "top_inset": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "QuickAccessBar"
+                                },
+                                "fn_body": "object.with_top_inset(top_inset)"
                             }
                         },
                         "repr": "C"

@@ -212,21 +212,32 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       confirms the three reached the generated bindings, not just api.json. azul-css 2860 (+4),
       azul-core 2759, azul-layout 7564, azul-dll 1963, azul-doc 209, 8/8 mobile.
 
-- [ ] 10c-v-a ATTEMPTED AND MEASURED WRONG — the naive fix cannot work, recorded so the next attempt
-      does not repeat it. Padding the title band by `get_safe_area_insets().top` changed NOTHING: a
-      pixel diff of the before/after frames put first content at row 9 in BOTH. Cause:
-      `quick_access.rs` sets `BAR_HEIGHT: isize = 28` as a FIXED `height` on the bar root, so
-      `padding-top: 24px` cannot move content down — it squashes 28px of content into 4px.
-      The height belongs to the widget, so the inset does too: `QuickAccessBar` should take a
-      `top_inset` that adds to BAR_HEIGHT *and* pads, rather than the app guessing 28 and the bar's
-      background colour to fake a wrapper. That is an api.json field addition (autofix), not an app fix.
-      Original note below.
+- [x] 10c-v-a DONE (the widget half; the CSS route is still 10c-iv). The previous attempt was
+      measured wrong for a reason worth keeping: padding the title band by the inset changed
+      NOTHING because `theme_bar` sets a FIXED `height: BAR_HEIGHT` (28) on the band root, so
+      `padding-top: 24px` squashed 28px of content into 4px instead of displacing it.
+      FIX: `QuickAccessBar::top_inset` (f32, logical px, default 0.0) ADDS to the band height and
+      pads by the same amount, so the content box stays exactly `BAR_HEIGHT` tall and the band
+      grows upward into the status bar - which also makes the band's own background fill the
+      notch area instead of leaving a gap above it.
+      Applied at `dom()` rather than in `theme_bar`, because the inset is a property of the WINDOW
+      (which notch, which orientation) and not of the theme: two bands with the same look can need
+      different insets, and `QuickAccessStyle` is shared. Appending overrides the height already
+      pushed, which is the same later-declarations-win mechanism `merged_style` relies on to let
+      the close button restyle the window button.
+      Feeds from `get_safe_area_insets().top` via `PixelValue::to_pixels_absolute()` - which is
+      why 10c-v-b had to land first: before it there was no sanctioned way to turn the returned
+      `OptionPixelValue` into the `f32` this field takes.
+      api.json ALSO gained the 12 struct fields it had been missing: it listed ONE (`style`) of
+      the 14, so `title`, `actions`, `show_close` and the rest were invisible to every binding.
+      That was pre-existing drift the sync surfaced, not something this change caused.
+      EVIDENCE: 3 tests - the content box stays `BAR_HEIGHT` after insetting (asserting
+      `height - padding == BAR_HEIGHT`, the exact relationship the padding-only attempt violated);
+      a zero inset appends NO declarations, so desktop is byte-identical; and the default is 0.0
+      on all three constructors. `codegen all` + dll build put `top_inset` and
+      `AzQuickAccessBar_withTopInset` in the C ABI. autofix converged at 0 patches / 0 FFI errors.
+      azul-css 2860, azul-core 2759, azul-layout 7567 (+3), azul-dll 1963, azul-doc 209, 8/8 mobile.
 
-- [ ] 10c-v-a-orig Nothing APPLIES the top inset, which is the reported "app title band draws under the status
-      bar clock" bug. `top=24` is delivered and available from `get_safe_area_insets()`; no shell or app
-      offsets by it. Whether the ENGINE should inset the root automatically on mobile, or each app should,
-      is a policy call (a fullscreen video or map wants to draw under the bars), so it is logged rather
-      than decided. Blocked on 10c-iv for the CSS route.
 
 ### Follow-ups opened by 10b
 
