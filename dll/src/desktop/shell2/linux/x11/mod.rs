@@ -665,6 +665,44 @@ struct PadAxes {
     ring: Option<(i32, f64, f64)>,
 }
 
+/// The pen axes a tablet slave device reports, by XI2 valuator NUMBER.
+///
+/// `-1` means the device does not report that axis. Named rather than the
+/// `(i32, i32, i32, f64)` tuple this replaces: it was already four unlabelled
+/// fields whose order only the two call sites knew, and adding distance would
+/// have made it six. Its siblings `ScrollAxes` and `PadAxes` were already
+/// structs; the pen was the outlier.
+#[derive(Debug, Clone, Copy)]
+struct PenAxes {
+    /// `Abs Pressure`.
+    pressure: i32,
+    /// `Abs Tilt X` / `Abs Tilt Y`, already in degrees.
+    tilt_x: i32,
+    tilt_y: i32,
+    /// Upper bound of the pressure axis, for normalising to 0..1.
+    pressure_max: f64,
+    /// `Abs Distance` — how far the tip HOVERS above the surface. Reported by
+    /// `xf86-input-wacom` and used for hover previews and brush-size cursors.
+    distance: i32,
+    /// Upper bound of the distance axis, for normalising to 0..1.
+    distance_max: f64,
+}
+
+impl Default for PenAxes {
+    fn default() -> Self {
+        Self {
+            pressure: -1,
+            tilt_x: -1,
+            tilt_y: -1,
+            // Not 0: these divide, and a device that reports an axis with no
+            // usable range must not turn every sample into NaN or infinity.
+            pressure_max: 1.0,
+            distance: -1,
+            distance_max: 1.0,
+        }
+    }
+}
+
 /// The smooth-scroll (XI2.1) axes of ONE physical device.
 ///
 /// A scroll valuator carries an ACCUMULATING absolute value; a scroll delta is
@@ -820,7 +858,7 @@ fn init_xinput2(
 ) -> (
     Option<Rc<dlopen::Xi>>,
     c_int,
-    std::collections::HashMap<c_int, (i32, i32, i32, f64)>,
+    std::collections::HashMap<c_int, PenAxes>,
     std::collections::HashMap<c_int, ScrollAxes>,
     std::collections::HashSet<c_int>,
     std::collections::HashMap<c_int, PadAxes>,
@@ -955,6 +993,10 @@ fn init_xinput2(
         let p_atom = (xlib.XInternAtom)(display, b"Abs Pressure\0".as_ptr() as *const _, 0);
         let tx_atom = (xlib.XInternAtom)(display, b"Abs Tilt X\0".as_ptr() as *const _, 0);
         let ty_atom = (xlib.XInternAtom)(display, b"Abs Tilt Y\0".as_ptr() as *const _, 0);
+        // How far the tip hovers above the surface. `xf86-input-wacom` reports
+        // it; only pressure and tilt were being read, so Wayland had hover
+        // distance and X11 did not.
+        let dist_atom = (xlib.XInternAtom)(display, b"Abs Distance\0".as_ptr() as *const _, 0);
         // Pad ring / strip. `xf86-input-wacom` uses `Abs Wheel` on Intuos touch
         // rings and `Abs Ring`/`Abs Strip *` elsewhere, so all are accepted.
         let ring_atoms = [
@@ -997,7 +1039,7 @@ fn init_xinput2(
                 let dev_name = dev_name_raw.to_lowercase();
                 let is_eraser = dev_name.contains("eraser");
                 let is_pad = dev_name.ends_with(" pad") || dev_name.contains(" pad ");
-                let (mut p, mut tx, mut ty, mut pmax) = (-1i32, -1i32, -1i32, 1.0f64);
+                let mut pen = PenAxes::default();
                 let mut axes = ScrollAxes::default();
                 let mut pad_axes = PadAxes::default();
                 let mut has_touch_class = false;
@@ -1046,12 +1088,15 @@ fn init_xinput2(
                         continue;
                     }
                     if v.label == p_atom {
-                        p = v.number;
-                        pmax = if v.max > 0.0 { v.max } else { 1.0 };
+                        pen.pressure = v.number;
+                        pen.pressure_max = if v.max > 0.0 { v.max } else { 1.0 };
                     } else if v.label == tx_atom {
-                        tx = v.number;
+                        pen.tilt_x = v.number;
                     } else if v.label == ty_atom {
-                        ty = v.number;
+                        pen.tilt_y = v.number;
+                    } else if v.label == dist_atom {
+                        pen.distance = v.number;
+                        pen.distance_max = if v.max > 0.0 { v.max } else { 1.0 };
                     } else if v.label == rot_atom {
                         has_rotation = true;
                     } else if !is_pad && v.label == ring_atoms[0] {
@@ -1075,7 +1120,7 @@ fn init_xinput2(
                         gest::TabletToolKind::Pad
                     } else if is_eraser {
                         gest::TabletToolKind::Eraser
-                    } else if p >= 0 {
+                    } else if pen.pressure >= 0 {
                         gest::TabletToolKind::Stylus
                     } else if has_touch_class {
                         gest::TabletToolKind::Touch
@@ -1105,10 +1150,10 @@ fn init_xinput2(
                                 })
                                 .unwrap_or_default();
                         let mut caps = 0u32;
-                        if p >= 0 {
+                        if pen.pressure >= 0 {
                             caps |= gest::TABLET_CAP_PRESSURE;
                         }
-                        if tx >= 0 || ty >= 0 {
+                        if pen.tilt_x >= 0 || pen.tilt_y >= 0 {
                             caps |= gest::TABLET_CAP_TILT;
                         }
                         if has_rotation {
@@ -1131,7 +1176,7 @@ fn init_xinput2(
                             // by sourceid, which is this).
                             device_id: dev.deviceid as u64,
                             capabilities: caps,
-                            pressure_max: if p >= 0 { pmax as f32 } else { 0.0 },
+                            pressure_max: if pen.pressure >= 0 { pen.pressure_max as f32 } else { 0.0 },
                             physical_width_mm: phys_w_mm,
                             physical_height_mm: phys_h_mm,
                             num_buttons,
@@ -1139,8 +1184,12 @@ fn init_xinput2(
                         });
                     }
                 }
-                if p >= 0 || tx >= 0 || ty >= 0 {
-                    map.insert(dev.deviceid, (p, tx, ty, pmax));
+                if pen.pressure >= 0
+                    || pen.tilt_x >= 0
+                    || pen.tilt_y >= 0
+                    || pen.distance >= 0
+                {
+                    map.insert(dev.deviceid, pen);
                 }
                 if is_eraser {
                     erasers.insert(dev.deviceid);
@@ -1727,7 +1776,7 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
             // the MASTER deviceid, but pressure/tilt valuators live on the slave
             // pen device — and pen_valuators is keyed by the slave's id from
             // XIQueryDevice. (X11 API audit, finding 9.)
-            if let Some(&(p, tx, ty, pmax)) = win.pen_valuators.get(&ev.sourceid) {
+            if let Some(&pen) = win.pen_valuators.get(&ev.sourceid) {
                 // XI2 valuators are SPARSE: an event carries only the axes
                 // that changed since the last one. An absent axis means
                 // "unchanged", not zero — zeroing pressure on an event that
@@ -1739,17 +1788,24 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
                     .layout_window
                     .as_ref()
                     .and_then(|lw| lw.gesture_drag_manager.get_pen_state().copied());
-                let mut pressure = decode_valuator(ev, p)
-                    .map(|v| (v / pmax).clamp(0.0, 1.0) as f32)
+                let mut pressure = decode_valuator(ev, pen.pressure)
+                    .map(|v| (v / pen.pressure_max).clamp(0.0, 1.0) as f32)
                     .or_else(|| prev.map(|s| s.pressure))
                     .unwrap_or(0.0);
-                let tilt_x = decode_valuator(ev, tx)
+                let tilt_x = decode_valuator(ev, pen.tilt_x)
                     .map(|v| v as f32)
                     .or_else(|| prev.map(|s| s.tilt.x_tilt))
                     .unwrap_or(0.0);
-                let tilt_y = decode_valuator(ev, ty)
+                let tilt_y = decode_valuator(ev, pen.tilt_y)
                     .map(|v| v as f32)
                     .or_else(|| prev.map(|s| s.tilt.y_tilt))
+                    .unwrap_or(0.0);
+                // HOVER DISTANCE, normalised to 0..1 like pressure. Sparse in
+                // the same way, so an absent axis reuses the previous value
+                // rather than snapping the pen to the surface.
+                let hover_distance = decode_valuator(ev, pen.distance)
+                    .map(|v| (v / pen.distance_max).clamp(0.0, 1.0) as f32)
+                    .or_else(|| prev.map(|s| s.hover_distance))
                     .unwrap_or(0.0);
                 // Contact tracks the TIP BUTTON on tip-button events: the
                 // release often carries no pressure valuator at all, so the
@@ -1801,6 +1857,14 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
                     // separate state. So `get_pen_tool_kind()` answered
                     // `Unknown` on X11 even though the device was already
                     // classified at init.
+                    // Hover distance rides on its own setter, not on the
+                    // sample — `update_pen_state_full` has no parameter for it
+                    // (Wayland applies it the same way, after the sample,
+                    // because its `tool_distance` arrives on a separate tablet
+                    // event). Without this the X11 value was decoded and
+                    // dropped.
+                    lw.gesture_drag_manager
+                        .set_pen_hover_distance(hover_distance);
                     lw.gesture_drag_manager.set_pen_tool_kind(
                         if win.eraser_devices.contains(&ev.sourceid) {
                             azul_layout::managers::gesture::TabletToolKind::Eraser
@@ -2059,7 +2123,7 @@ pub struct X11Window {
     xi: Option<Rc<dlopen::Xi>>,
     xi_opcode: c_int,
     /// deviceid -> (pressure#, tiltX#, tiltY#, pressure_max); -1 = absent valuator.
-    pen_valuators: std::collections::HashMap<c_int, (i32, i32, i32, f64)>,
+    pen_valuators: std::collections::HashMap<c_int, PenAxes>,
     /// deviceid -> smooth-scroll (XI2.1) axes of that device.
     scroll_valuators: std::collections::HashMap<c_int, ScrollAxes>,
     /// Slave device ids that are the ERASER end of a stylus, by device name.

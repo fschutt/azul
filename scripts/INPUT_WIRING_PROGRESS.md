@@ -733,8 +733,30 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 5b
 
-- [ ] 5b-i `PenState` has no `hover_distance` field yet (that is item 8c), so Wayland's `tool_distance` is
-      captured into `TabletPenPending.distance` and stops there. Wire it through once 8c lands.
+- [x] 5b-i DONE, and the item was half stale. `PenState.hover_distance` DOES exist now (8c
+      landed it) with `set_pen_hover_distance` and `CallbackInfo::get_pen_hover_distance`, and
+      Wayland already wires `tool_distance` through — so the Wayland half was finished.
+      THE REMAINING GAP was X11, which the item did not name: `init_xinput2` interned only
+      `Abs Pressure`, `Abs Tilt X` and `Abs Tilt Y`. `xf86-input-wacom` also reports
+      `Abs Distance`, and it was never asked for — so hover distance was Wayland-only.
+      REFACTOR FIRST, per the user: `pen_valuators` was a bare
+      `HashMap<c_int, (i32, i32, i32, f64)>` — four unlabelled fields whose order only its two
+      call sites knew, and adding distance would have made it six. Its siblings `ScrollAxes` and
+      `PadAxes` were already named structs; the pen was the outlier. Replaced with `PenAxes`
+      (pressure / tilt_x / tilt_y / pressure_max / distance / distance_max), whose `Default`
+      seeds the two maxima to 1.0 rather than 0.0 — they DIVIDE, and a device advertising an
+      axis with no usable range would otherwise turn every sample into NaN.
+      Distance is normalised to 0..1 like pressure and reuses the previous value when the axis
+      is absent, because XI2 valuators are SPARSE — an absent axis means "unchanged", and
+      zeroing it would snap the pen to the surface mid-hover. It is applied through
+      `set_pen_hover_distance` after the sample, because `update_pen_state_full` has no
+      parameter for it — the same shape Wayland uses, whose `tool_distance` arrives on a
+      separate tablet event.
+      TRAP hit during the refactor: inserting the new struct above `struct ScrollAxes` put it
+      BETWEEN ScrollAxes' `#[derive]` and its declaration, silently moving the derive onto the
+      new type. The compiler caught it as a conflicting `Debug` impl.
+      Host check, Linux-target check, 8-target gate green; azul-layout 7561, azul-dll 1944. NOT
+      runtime-verified — needs a real tablet on X11.
 - [x] 5b-ii DONE by 10d — `PenSqueeze` / `PenDoubleTap` now have a producer. Original: they had no producer on any platform — they are `UIPencilInteraction`
       only, which is item 10d. The EventType, planning and matcher arms are in place waiting for it.
 
