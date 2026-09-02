@@ -611,7 +611,7 @@ FOUND AND FIXED HERE:
 - A duplicated, unreachable block of four `Self::Submit/Change/Reset/Invalid`
   match arms in `events.rs` (rebase artifact).
 
-- [ ] 15a OPEN, SUSPICIOUS, NOT SETTLED. `core/tests/prop_cache.rs` has TWO failing
+- [x] 15a DONE. `core/tests/prop_cache.rs` has TWO failing
       tests, PRE-EXISTING (verified by stashing all of tonight's edits and
       re-running): `test_computed_values_exist_for_all_nodes` and
       `test_non_inheritable_property_not_inherited`. Both fail at the same point —
@@ -626,6 +626,35 @@ FOUND AND FIXED HERE:
       data. I could not settle which without the intended invariant, and
       `values_for_opt` has NO production consumers — only tests — so the failures
       alone do not prove a rendering bug.
-      Whoever owns the transpose should state the invariant: is an empty entry
-      set for a cascaded node legal? If yes, fix the tests; if no, this is the
-      backstage regression.
+      SETTLED (3cc22a150). Both answers were partly right: an empty entry set
+      IS legal, and the accessor was still wrong. `values_for_opt` returned
+      `None` for "no properties" and for "no such node" alike, with no bound
+      check to separate them - so the tests read "missing" from "plain". It now
+      keys off `node_count` (which the store already tracked): an existing node
+      with nothing yields `Some(vec![])`, out-of-range yields `None`.
+      `values_for_opt_separates_an_empty_node_from_a_missing_one` pins both
+      directions. azul-core is fully green.
+      This was NOT the backstage regression. That was a separate defect in the
+      same PR - see 15b.
+
+- [x] 15b DONE (9c0fd955d). THE BACKSTAGE REGRESSION, root-caused and fixed.
+      `cursor: pointer` on a flex item silently changed its `align-self`:
+      `CURSOR_SHIFT` was 53 (5 bits), which is where `ALIGN_SELF` (53),
+      `JUSTIFY_SELF` (56), `GRID_AUTO_FLOW` (59) and `JUSTIFY_ITEMS` (61) have
+      lived since April. Those four are declared in a SECOND constant block 24
+      lines below the first, and every audit that called bit 53 "the first free
+      slot" had read only the first block - the commit message, the
+      `the_cursor_slot_does_not_collide` test (which checked the slot against
+      BORDER_COLLAPSE below it but not ALIGN_SELF above it), and `TIER1_SLOTS`
+      in compact_test.rs (whose table stops before the second block, which is
+      why `the_tier1_slots_do_not_overlap` stayed green while cursor sat on top
+      of align_self - it never named the field being corrupted).
+      Because `cursor` is inheritable, the corruption reached every descendant.
+      FIX: `cursor` moves to `CompactNodePropsCold::cursor`, a u8 that lands in
+      padding the struct already had (size_of stays 48). GUARDS:
+      `tier1_bit_ranges_do_not_overlap` checks all 25 fields pairwise and names
+      both sides; `TIER1_SLOTS` gains the four missing rows.
+      TRAP for the next person: a full revert of the OTHER five prop-cache
+      commits rendered the backstage PIXEL-IDENTICAL, which looks like an
+      exoneration and is not - the defect was in the sixth (a915d15ff), which
+      was not in that revert set. Verify a revert covers the whole PR.
