@@ -2404,8 +2404,23 @@ mod autotest_generated {
         assert_eq!(leave.target, node(0, 3));
         let enter = only(&events, EventType::MouseEnter);
         assert_eq!(enter.target, node(0, 5));
-        // Node 1 stayed hovered -> no event for it.
-        assert_eq!(events.len(), 2);
+        // The lost node also gets the BUBBLING half of the pair. This
+        // assertion used to be a bare `events.len() == 2`, which broke the
+        // moment `MouseOut` was wired up beside `MouseLeave` — a total is the
+        // wrong shape for "these nodes got these events", because it fails for
+        // a correct addition. Assert the actual claim instead: node 1 stayed
+        // hovered, so NOTHING is addressed to it.
+        let out = only(&events, EventType::MouseOut);
+        assert_eq!(out.target, node(0, 3));
+        assert!(
+            !events.iter().any(|e| e.target == node(0, 1)),
+            "node 1 stayed hovered and must receive no enter/leave event, got {:?}",
+            events
+                .iter()
+                .filter(|e| e.target == node(0, 1))
+                .map(|e| e.event_type)
+                .collect::<Vec<_>>(),
+        );
     }
 
     #[test]

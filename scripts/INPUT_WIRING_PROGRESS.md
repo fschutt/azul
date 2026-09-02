@@ -907,3 +907,14 @@ FOUND AND FIXED HERE:
       commits rendered the backstage PIXEL-IDENTICAL, which looks like an
       exoneration and is not - the defect was in the sixth (a915d15ff), which
       was not in that revert set. Verify a revert covers the whole PR.
+- [ ] G2-a MouseOver/MouseOut are not mirrored on the hover chain. `determine_all_events`
+      emits `MouseLeave` AND the bubbling `MouseOut` for a node that lost hover, but only
+      `MouseEnter` for one that gained it — per W3C `mouseover`/`mouseout` and
+      `mouseenter`/`mouseleave` are two mirror PAIRS, so the gain side is missing its bubbling
+      half. Found by fixing the stale `events.len() == 2` assertion in
+      `hover_chain_diff_emits_leave_for_lost_and_enter_for_gained_nodes`.
+      NOT a one-line addition, which is why it is logged: the existing `MouseOver` producer
+      (event_determination.rs ~479) fires on ANY cursor movement targeted at the hovered node,
+      not on entry, so adding the mirror in the chain diff would double-fire whenever the pointer
+      moves INTO a node. Settling it means deciding whether that movement-based emitter is
+      correct at all — a behaviour change with app-visible blast radius, not a test fix.

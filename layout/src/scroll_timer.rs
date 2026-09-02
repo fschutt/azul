@@ -1468,6 +1468,8 @@ mod autotest_generated {
         fn take_scroll_tos(&self) -> Vec<(usize, LogicalPosition, bool)> {
             self.take_changes()
                 .iter()
+                // See the companion note on the other drain helper.
+                .filter(|c| !matches!(c, CallbackChange::SettleScrollGesture { .. }))
                 .map(|change| {
                     let CallbackChange::ScrollTo {
                         node_id,
@@ -2269,6 +2271,25 @@ mod autotest_generated {
         );
     }
 
+    /// Assert that a tick produced no scroll MOVEMENT.
+    ///
+    /// Not `is_empty()`: a terminating timer also emits
+    /// `SettleScrollGesture`, which closes the gesture a discrete wheel opened
+    /// — a wheel has no end-of-gesture event of its own, so the timer
+    /// terminating is its only close signal. The timer cannot distinguish "a
+    /// wheel gesture just ended" from "this timer never did anything"; only
+    /// `ScrollManager` knows, and it guards on `scroll_gesture_active`, so the
+    /// change is inert when no gesture is open. What these tests actually mean
+    /// is "nothing scrolled".
+    fn assert_no_scroll(changes: Vec<CallbackChange>) {
+        assert!(
+            !changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::ScrollTo { .. })),
+            "expected no scroll movement, got {changes:?}",
+        );
+    }
+
     #[test]
     fn callback_with_nothing_to_do_terminates_the_timer() {
         let (data, _queue) = state_with(ScrollPhysics::default());
@@ -2281,7 +2302,16 @@ mod autotest_generated {
                     TerminateTimer::Terminate,
                     "an idle physics timer must not keep spinning"
                 );
-                assert!(env.take_changes().is_empty());
+                // Nothing MOVES. A terminating timer also settles the scroll
+                // gesture, because a discrete wheel has no end-of-gesture
+                // event of its own and this is its only close signal. The
+                // timer cannot tell "a wheel gesture just ended" from "this
+                // timer never did anything" — only the ScrollManager knows,
+                // and `settle_scroll_gesture` is guarded on
+                // `scroll_gesture_active` there, so the change is inert when
+                // no gesture is open. Hence: assert about movement, not about
+                // emptiness.
+                assert_no_scroll(env.take_changes());
             },
         );
     }
@@ -2528,7 +2558,9 @@ mod autotest_generated {
             |env| {
                 let ret = env.tick(&data);
                 assert_eq!(ret.should_terminate, TerminateTimer::Terminate);
-                assert!(env.take_changes().is_empty());
+                // The node is dropped, so nothing scrolls. See
+                // `assert_no_scroll` for why emptiness is the wrong assertion.
+                assert_no_scroll(env.take_changes());
             },
         );
 
@@ -2547,7 +2579,10 @@ mod autotest_generated {
             |env| {
                 let ret = env.tick(&data);
                 assert_eq!(ret.should_terminate, TerminateTimer::Terminate);
-                assert!(env.take_changes().is_empty());
+                // No scroll for a node nobody is tracking. See the note on
+                // `callback_with_nothing_to_do_terminates_the_timer` for why
+                // the terminating settle is not movement.
+                assert_no_scroll(env.take_changes());
             },
         );
     }
@@ -3059,6 +3094,17 @@ mod autotest_generated {
             .lock()
             .map(|c| {
                 c.iter()
+                    // A companion of a commit, not a scroll position:
+                    // `SettleScrollGesture` is emitted once when the gesture
+                    // ENDS (it closes the gesture the wheel opened, so the next
+                    // wheel event starts a fresh one). It carries no offset, so
+                    // it does not belong in the position list these helpers
+                    // build. `UpdateVirtualView` is deliberately NOT filtered:
+                    // a physics tick must no longer emit one at all, and
+                    // `a_physics_tick_emits_only_scroll_to_changes` pins that.
+                    .filter(|ch| {
+                        !matches!(ch, CallbackChange::SettleScrollGesture { .. })
+                    })
                     .map(|change| {
                         let CallbackChange::ScrollTo {
                             node_id,

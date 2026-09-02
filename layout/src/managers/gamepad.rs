@@ -916,7 +916,7 @@ mod autotest_generated {
         assert!(mgr.set_state(s));
         assert!(mgr.pending_event);
         assert_eq!(
-            mgr.get_pending_events(ts(0)).len(),
+            input_event_count(&mgr, ts(0)),
             1,
             "changes must coalesce into one event"
         );
@@ -952,9 +952,10 @@ mod autotest_generated {
             mgr.has_listeners(),
             "clearing must not disarm the listener flag"
         );
-        assert!(
-            mgr.get_pending_events(ts(1)).is_empty(),
-            "no event after a clear"
+        assert_eq!(
+            input_event_count(&mgr, ts(1)),
+            0,
+            "no input event after a clear"
         );
 
         // …and a fresh change re-arms it, so the flag is not one-shot.
@@ -1151,6 +1152,19 @@ mod autotest_generated {
     // EventProvider::get_pending_events  (the manager's only output edge)
     // ------------------------------------------------------------------
 
+    /// How many `GamepadInput` events this drain would yield.
+    ///
+    /// Not the total: `get_pending_events` ALSO reports hotplug, and a pad's
+    /// first `set_state` is by definition an arrival, so a bare length check
+    /// counts the `DeviceConnected` that legitimately accompanies it. These
+    /// tests are about the input event, so they select it.
+    fn input_event_count(mgr: &GamepadManager, t: Instant) -> usize {
+        mgr.get_pending_events(t)
+            .iter()
+            .filter(|e| e.event_type == EventType::GamepadInput)
+            .count()
+    }
+
     /// A pending change yields exactly one window-level `GamepadInput` event
     /// aimed at the root, carrying the timestamp it was given — and yields it
     /// *repeatedly* until the dll clears the flag (the event pass may run
@@ -1161,7 +1175,11 @@ mod autotest_generated {
         assert!(mgr.get_pending_events(ts(0)).is_empty());
 
         mgr.set_state(connected(0));
-        let evs = mgr.get_pending_events(ts(42));
+        let evs: Vec<_> = mgr
+            .get_pending_events(ts(42))
+            .into_iter()
+            .filter(|e| e.event_type == EventType::GamepadInput)
+            .collect();
         assert_eq!(evs.len(), 1);
         let ev = &evs[0];
         assert_eq!(ev.event_type, EventType::GamepadInput);
@@ -1182,12 +1200,16 @@ mod autotest_generated {
             "the payload is read via CallbackInfo, not the event"
         );
 
-        // Still pending until it is explicitly cleared.
-        assert_eq!(mgr.get_pending_events(ts(43)).len(), 1);
+        // Still pending until it is explicitly cleared. (The arrival is still
+        // pending too — `clear_pending_event` does not drain hotplug, which
+        // has its own `take_pending_hotplug` — so both assertions select the
+        // input event rather than counting the drain.)
+        assert_eq!(input_event_count(&mgr, ts(43)), 1);
         mgr.clear_pending_event();
-        assert!(
-            mgr.get_pending_events(ts(44)).is_empty(),
-            "cleared → no more events"
+        assert_eq!(
+            input_event_count(&mgr, ts(44)),
+            0,
+            "cleared -> no more input events"
         );
     }
 
@@ -1206,7 +1228,7 @@ mod autotest_generated {
         mgr.set_state(connected(0));
         mgr.set_has_listeners(false);
         assert_eq!(
-            mgr.get_pending_events(ts(0)).len(),
+            input_event_count(&mgr, ts(0)),
             1,
             "disarming must not swallow an already-pending event"
         );
