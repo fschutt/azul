@@ -5254,6 +5254,51 @@ unsafe extern "system" fn window_proc(
                 }
             }
 
+            // PRECISION-TOUCHPAD PINCH. A Windows touchpad does not deliver
+            // pinch through `WM_GESTURE` - that message is the touchSCREEN
+            // path - it reports it as Ctrl+wheel, which is what every browser
+            // zooms on. Synthesizing here is what makes pinch-to-zoom work on
+            // the overwhelming majority of Windows laptops.
+            //
+            // It cannot be told apart from a real mouse with a real Ctrl key
+            // at this layer, which is why `AppConfig::
+            // synthesize_pinch_from_ctrl_wheel` exists: an app where Ctrl+wheel
+            // means something else turns it off and reads the wheel event with
+            // its Ctrl modifier instead.
+            //
+            // The wheel event is STILL DELIVERED either way. Swallowing it
+            // would break Ctrl+wheel for anything that reads it directly, and
+            // an app that wants only the pinch can ignore a scroll whose
+            // modifiers include Ctrl.
+            let ctrl_held = {
+                let ks = &window.common.current_window_state().keyboard_state;
+                ks.ctrl_down()
+            };
+            if ctrl_held
+                && !horizontal
+                && delta != 0
+                && azul_layout::window::synthesize_pinch_from_ctrl_wheel()
+            {
+                use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
+                // One notch is a 10% step, the ratio browsers use for a zoom
+                // level. `scale` is cumulative-from-1.0 per event, which is
+                // what the macOS magnification path also reports.
+                const PINCH_STEP_PER_NOTCH: f32 = 0.1;
+                const PINCH_NOMINAL_DISTANCE: f32 = 100.0;
+                let scale = 1.0 + scroll_amount * PINCH_STEP_PER_NOTCH;
+                if let Some(ref mut lw) = window.common.layout_window {
+                    lw.gesture_drag_manager.inject_native_gesture(
+                        NativeGestureEvent::Pinch(DetectedPinch {
+                            scale,
+                            center: logical_pos,
+                            initial_distance: PINCH_NOMINAL_DISTANCE,
+                            current_distance: PINCH_NOMINAL_DISTANCE * scale,
+                            duration_ms: 0,
+                        }),
+                    );
+                }
+            }
+
             // Queue scroll input for the physics timer instead of directly setting offsets.
             // The timer will consume these via ScrollInputQueue and push CallbackChange::ScrollTo.
             if delta.abs() > 0 && px_per_notch > 0.0 {

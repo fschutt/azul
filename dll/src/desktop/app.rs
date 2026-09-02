@@ -157,6 +157,9 @@ impl App {
             app_config.system_style.scroll_physics = p;
         }
         azul_layout::window::set_global_system_animations(app_config.system_animations.clone());
+        azul_layout::window::set_global_synthesize_pinch_from_ctrl_wheel(
+            app_config.synthesize_pinch_from_ctrl_wheel,
+        );
 
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
         app_config

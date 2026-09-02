@@ -1178,14 +1178,51 @@ TOOLING TRAPS (cost real time, worth knowing):
 
 ### Follow-ups opened by 7c
 
-- [ ] 7c-i UNBLOCKED, and the answer is BOTH (user 2026-09-03: "ctrl-wheel synthesize if we have
-      a kbd+mouse setup, otherwise also DirectManipulation. Make a flag in AppConfig whether to
-      disable the synthetic kbd+mouse pinch"). Windows TOUCHPAD pinch is not reachable through
-      `WM_GESTURE`. A precision touchpad reports pan
-      and zoom as `WM_MOUSEWHEEL` / `WM_MOUSEHWHEEL` (zoom as Ctrl+wheel, the convention browsers zoom on),
-      and the raw finger geometry is only available through Direct Manipulation
-      (`IDirectManipulationViewport`). Decide whether to synthesize a pinch from Ctrl+wheel — which is what
-      most apps actually do — or take the DirectManipulation dependency.
+- [x] 7c-i CTRL+WHEEL HALF DONE, with the flag; DirectManipulation is 7c-i-a (researched, call
+      sequence recorded, not built).
+      A Windows PRECISION TOUCHPAD does not deliver pinch through `WM_GESTURE` - that message is
+      the touchSCREEN path, which 7c already wired. A touchpad reports pinch as Ctrl+
+      `WM_MOUSEWHEEL`, the same thing every browser zooms on, so nothing reached
+      `DetectedPinch` on the laptops that make up most Windows machines.
+      SYNTHESIZED in the wheel arm: one notch = a 10% scale step, centred on the pointer, feeding
+      the same `inject_native_gesture` path macOS magnification uses.
+      The wheel event is STILL DELIVERED alongside it. Swallowing it would break Ctrl+wheel for
+      anything reading it directly, and an app wanting only the pinch can ignore a scroll whose
+      modifiers include Ctrl.
+      FLAG per the ruling: `AppConfig::synthesize_pinch_from_ctrl_wheel`, default `true`. It has
+      to exist because a real MOUSE with a real Ctrl key is indistinguishable from a touchpad at
+      this layer, so an app where Ctrl+wheel means something else (a CAD zoom step, a font-size
+      nudge) needs the synthesis off.
+      PLUMBED through the `set_global_system_animations` pattern rather than a new field on the
+      window: the Win32 wheel handler is deep inside a window procedure with no path back to the
+      `AppConfig` the app was built with, and that global is the established seam for exactly
+      this. `CommonWindowState` has no `config` field - checked, not assumed.
+      TRAP: placing the `bool` between two align-8 fields made autofix reject `AppConfig` for
+      wasting 8 bytes of padding per instance - an error that did NOT exist before the field and
+      was caused by where it sat, not that it existed. Moved beside the other bools; converged at
+      0 patches / 0 errors.
+      EVIDENCE: the synthesis proven COMPILED by a deliberate type error under
+      `--target x86_64-pc-windows-gnu`; `codegen all` + host build (the api.json size change broke
+      the generated transmutes until synced, which is what proves the field really crossed).
+      azul-core 2760, azul-layout 7575, azul-dll 1973, 8/8 mobile.
+
+- [ ] 7c-i-a DirectManipulation, the other half of the ruling. RESEARCHED - the minimal sequence
+      is recorded here so the next attempt is mechanical rather than exploratory:
+        `CoCreateInstance(CLSID_DirectManipulationManager)` -> `GetUpdateManager()` ->
+        `CreateViewport(hwnd)` -> `ActivateConfiguration(DIRECTMANIPULATION_CONFIGURATION_SCALING)`
+        -> `SetViewportOptions(..._MANUALUPDATE)` -> `AddEventHandler(hwnd, handler)`; feed
+        contacts with `SetContact(pointerId)` from `WM_POINTERDOWN`; pump `Update(nullptr)` each
+        vsync; read the scale from `GetContentTransform(transform[6])[0]` in `OnContentUpdated`.
+      FEASIBLE HERE: the `windows` 0.62 crate is already a dependency and exposes the
+      `Win32_Graphics_DirectManipulation` feature, and `windows/dnd.rs` already implements a COM
+      callback interface with `#[implement(IDropTarget)]` - which is exactly the machinery the two
+      required handlers (`IDirectManipulationViewportEventHandler`,
+      `IDirectManipulationInteractionEventHandler`) need. So this is a bounded COM job, not a new
+      capability.
+      NOT built in the same commit because it is a separate ~400-line COM surface with its own
+      lifetime rules, and the Ctrl+wheel half already makes pinch work on the hardware that
+      needs it. What DM adds is real two-finger geometry (a continuous scale rather than 10%
+      steps) and pan, on the touchpads that report it.
 - [x] 7c-ii ALREADY FIXED - verified, not implemented. The item was written as a suspicion ("may
       not exist under that name") and both halves turned out stale:
       `screen_to_logical_client` exists NOWHERE in `dll/src` (0 hits), so nothing references it -

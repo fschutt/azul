@@ -878,6 +878,24 @@ pub struct AppConfig {
     /// If this is set to `true` (the default), a backtrace + error information
     /// gets logged to stdout and the logging file (only if logging is enabled).
     pub enable_logging_on_panic: bool,
+    /// Whether Ctrl+wheel is synthesized into a pinch gesture. Default `true`.
+    ///
+    /// A Windows PRECISION TOUCHPAD does not deliver pinch through
+    /// `WM_GESTURE` - that message is the touchSCREEN path. A touchpad reports
+    /// pinch as Ctrl+`WM_MOUSEWHEEL`, which is the same thing every browser
+    /// zooms on, so synthesizing a pinch from it is what makes pinch-to-zoom
+    /// work on the overwhelming majority of Windows laptops.
+    ///
+    /// The cost of that is a real MOUSE with a real Ctrl key produces the same
+    /// message, and cannot be told apart from a touchpad at this layer - so an
+    /// app where Ctrl+wheel means something else (a CAD zoom step, a font-size
+    /// nudge) receives a pinch it did not want. Setting this to `false` turns
+    /// the synthesis off and leaves Ctrl+wheel as a plain wheel event with the
+    /// Ctrl modifier set, which such an app can read directly.
+    ///
+    /// Ignored on every platform but Windows: macOS and Wayland report real
+    /// pinch gestures, so nothing has to be inferred there.
+    pub synthesize_pinch_from_ctrl_wheel: bool,
     /// Determines what happens when all windows are closed.
     /// Default: `EndProcess` (terminate when last window closes).
     pub termination_behavior: AppTerminationBehavior,
@@ -970,6 +988,9 @@ impl AppConfig {
             component_libraries: ComponentLibraryVec::from_const_slice(&[]),
             routes: RouteVec::from_const_slice(&[]),
             system_animations: SystemAnimations::default(),
+            // ON by default: a precision touchpad is how most Windows laptops
+            // pinch, and without this they cannot pinch at all.
+            synthesize_pinch_from_ctrl_wheel: true,
             custom_e2e_op: crate::events::CustomE2eOpCallback::default(),
             updates: UpdateSettings::default(),
             changelog_md: azul_css::OptionString::None,

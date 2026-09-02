@@ -266,6 +266,28 @@ fn global_system_animations() -> &'static azul_core::resources::SystemAnimations
     SYSTEM_ANIMATIONS.get_or_init(Default::default)
 }
 
+/// App-global `AppConfig::synthesize_pinch_from_ctrl_wheel`, published by
+/// `App::create` for the same reason the animations above are: the Win32
+/// wheel handler needs it deep inside a window procedure, where there is no
+/// path back to the `AppConfig` the app was built with.
+///
+/// `true` when no App exists (unit tests, the e2e harness), matching the
+/// field's own default.
+static SYNTHESIZE_PINCH_FROM_CTRL_WHEEL: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(true);
+
+/// Install the app-global Ctrl+wheel pinch setting.
+pub fn set_global_synthesize_pinch_from_ctrl_wheel(enabled: bool) {
+    SYNTHESIZE_PINCH_FROM_CTRL_WHEEL.store(enabled, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether Ctrl+wheel should be synthesized into a pinch. Read by the Win32
+/// wheel handler; ignored on every other platform, which reports real pinch.
+#[must_use]
+pub fn synthesize_pinch_from_ctrl_wheel() -> bool {
+    SYNTHESIZE_PINCH_FROM_CTRL_WHEEL.load(core::sync::atomic::Ordering::Relaxed)
+}
+
 /// Data for the tween timer: the shared "in flight" flag published by
 /// `TextTweenState::publish_active`, so the timer can self-terminate.
 #[derive(Debug)]

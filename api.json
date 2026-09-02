@@ -114866,6 +114866,9 @@
                                 "enable_logging_on_panic": {
                                     "type": "bool"
                                 },
+                                "synthesize_pinch_from_ctrl_wheel": {
+                                    "type": "bool"
+                                },
                                 "termination_behavior": {
                                     "type": "AppTerminationBehavior"
                                 },
