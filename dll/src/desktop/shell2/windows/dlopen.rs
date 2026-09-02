@@ -45,6 +45,95 @@ pub struct RECT {
     pub bottom: i32,
 }
 
+// -- Raw input (WM_INPUT) --
+//
+// Relative pointer motion that never stops at a screen edge. `WM_MOUSEMOVE`
+// cannot answer this: it reports an ABSOLUTE client position, so once the
+// cursor is confined (or hidden) by a pointer lock it stops changing and the
+// deltas vanish exactly when a first-person camera needs them.
+
+/// One device registration for `RegisterRawInputDevices`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct RAWINPUTDEVICE {
+    pub usUsagePage: u16,
+    pub usUsage: u16,
+    pub dwFlags: u32,
+    pub hwndTarget: HWND,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct RAWINPUTHEADER {
+    pub dwType: u32,
+    pub dwSize: u32,
+    pub hDevice: isize,
+    pub wParam: usize,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct RAWMOUSE {
+    pub usFlags: u16,
+    /// The documented layout is a union of `ulButtons` with a
+    /// `{ usButtonFlags, usButtonData }` pair. Both are 4 bytes at the same
+    /// offset, and only the motion fields are read here, so the union is
+    /// represented by its `ULONG` arm.
+    pub ulButtons: u32,
+    pub ulRawButtons: u32,
+    /// Motion since the last report. RELATIVE unless `usFlags` says otherwise.
+    pub lLastX: i32,
+    pub lLastY: i32,
+    pub ulExtraInformation: u32,
+}
+
+/// `RAWINPUT` restricted to its mouse arm — the real type is a union over
+/// mouse / keyboard / HID, and `dwType` says which arm is live. Only
+/// `RIM_TYPEMOUSE` is read here, and the type is checked before the arm is.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct RAWINPUTMOUSE {
+    pub header: RAWINPUTHEADER,
+    pub mouse: RAWMOUSE,
+}
+
+// These layouts are read straight out of an OS-filled buffer, so a wrong
+// offset does not fail — it silently returns a different field. `GetRawInputData`
+// is also handed `size_of::<RAWINPUTHEADER>()` as its header size, and the OS
+// validates that, so a wrong size there makes every call fail at runtime with
+// no diagnostic. Checked at COMPILE time instead, for the 64-bit ABI these
+// targets use.
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    use core::mem::{align_of, size_of};
+    assert!(size_of::<RAWINPUTDEVICE>() == 16);
+    assert!(align_of::<RAWINPUTDEVICE>() == 8);
+    assert!(size_of::<RAWINPUTHEADER>() == 24);
+    assert!(align_of::<RAWINPUTHEADER>() == 8);
+    assert!(size_of::<RAWMOUSE>() == 24);
+    assert!(align_of::<RAWMOUSE>() == 4);
+    // header (24, align 8) + mouse (24, align 4), no tail padding needed.
+    assert!(size_of::<RAWINPUTMOUSE>() == 48);
+    assert!(align_of::<RAWINPUTMOUSE>() == 8);
+};
+
+/// Generic Desktop usage page.
+pub const HID_USAGE_PAGE_GENERIC: u16 = 0x01;
+/// Mouse, within the Generic Desktop page.
+pub const HID_USAGE_GENERIC_MOUSE: u16 = 0x02;
+/// Stop receiving raw input for this usage.
+pub const RIDEV_REMOVE: u32 = 0x0000_0001;
+/// Deliver even when the window is NOT in the foreground. Deliberately unused:
+/// raw motion while another app has focus is the privacy leak the X11 producer
+/// documents, and pointer lock implies focus anyway.
+pub const RIDEV_INPUTSINK: u32 = 0x0000_0100;
+/// `GetRawInputData` command: give me the payload, not the header alone.
+pub const RID_INPUT: u32 = 0x1000_0003;
+/// `RAWINPUTHEADER.dwType` for a mouse.
+pub const RIM_TYPEMOUSE: u32 = 0;
+/// `RAWMOUSE.usFlags`: motion is absolute, not the usual relative.
+pub const MOUSE_MOVE_ABSOLUTE: u16 = 0x01;
+
 impl RECT {
     pub fn width(&self) -> u32 {
         (self.right - self.left).max(0) as u32
@@ -499,6 +588,11 @@ pub struct User32Functions {
     pub SetCursor: unsafe extern "system" fn(HCURSOR) -> HCURSOR,
     /// Confine the cursor to a screen rectangle; `null` releases it.
     pub ClipCursor: unsafe extern "system" fn(*const RECT) -> BOOL,
+    pub RegisterRawInputDevices:
+        unsafe extern "system" fn(*const RAWINPUTDEVICE, u32, u32) -> BOOL,
+    /// Returns the byte count written, or `u32::MAX` on error — NOT a BOOL.
+    pub GetRawInputData:
+        unsafe extern "system" fn(isize, u32, *mut core::ffi::c_void, *mut u32, u32) -> u32,
     /// Show/hide the cursor. This is a COUNTER, not a flag — every hide must
     /// be matched by exactly one show or the cursor stays gone process-wide.
     pub ShowCursor: unsafe extern "system" fn(BOOL) -> i32,
@@ -882,6 +976,8 @@ impl Win32Libraries {
                 LoadCursorW: user32_dll.get_symbol("LoadCursorW")?,
                 SetCursor: user32_dll.get_symbol("SetCursor")?,
                 ClipCursor: user32_dll.get_symbol("ClipCursor")?,
+                RegisterRawInputDevices: user32_dll.get_symbol("RegisterRawInputDevices")?,
+                GetRawInputData: user32_dll.get_symbol("GetRawInputData")?,
                 ShowCursor: user32_dll.get_symbol("ShowCursor")?,
                 TrackMouseEvent: user32_dll.get_symbol("TrackMouseEvent")?,
 

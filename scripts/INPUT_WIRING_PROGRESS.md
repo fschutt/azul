@@ -243,9 +243,17 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 9f/9g
 
-- [ ] 9f-i No backend enumerates HID devices or pushes reports. Win32 `WM_INPUT` with a HID usage page
-      registration (the same `RegisterRawInputDevices` call 9d-i needs — do them together), Linux
-      `/dev/hidraw*` or libudev, macOS `IOHIDManager`.
+- [ ] 9f-i No backend enumerates HID devices or pushes reports. Linux `/dev/hidraw*` or libudev,
+      macOS `IOHIDManager`.
+      WIN32 IS NOW PART-WAY: 9d-i built the shared infrastructure the item pointed at — the
+      `RegisterRawInputDevices` call, the `WM_INPUT` arm and `GetRawInputData` are all in place,
+      so adding a HID usage registration is a few lines. What is NOT done and is NOT a few lines:
+      `RIM_TYPEHID` carries a VARIABLE-LENGTH report (`dwSizeHid` * `dwCount` trailing bytes), so
+      it needs a heap buffer sized from a first zero-length `GetRawInputData` probe rather than
+      the fixed struct the mouse arm can use; and `HidDevice { vendor_id, product_id }` needs
+      `HidD_GetAttributes` from **hid.dll**, a library this codebase does not load at all, plus
+      `GetRawInputDeviceList`/`GetRawInputDeviceInfoW` for enumeration. Separated from 9d-i for
+      that reason rather than half-wired.
 - [ ] 9g-i No backend plays haptics. macOS `NSHapticFeedbackManager.defaultPerformer` (trackpad only),
       Android `performHapticFeedback`, Win32 `SimpleHapticsController` via WinRT, gamepad rumble via SDL
       or raw HID output reports. The shell also has to DRAIN `haptic_manager.take_pending()` each pass.
@@ -323,9 +331,33 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 9d
 
-- [ ] 9d-i Raw-motion producers for the other backends: Win32 `WM_INPUT` + `RegisterRawInputDevices`
-      (`RIDEV_INPUTSINK` decides whether it arrives unfocused), Wayland `zwp_relative_pointer_v1` (a new
-      protocol binding, same shape as the pointer-gestures work in 7a), web `movementX`/`movementY`.
+- [x] 9d-i DONE for Win32 — the raw-input path did not exist AT ALL there (no `WM_INPUT` arm, no
+      `RegisterRawInputDevices`, none of the structs). With this and 9d-ii, Windows now has the
+      same lock + relative-motion pair X11 already had.
+      WHY IT WAS NEEDED: `WM_MOUSEMOVE` reports an ABSOLUTE client position, so the moment a
+      pointer lock confines the cursor it stops changing and the deltas vanish exactly when a
+      first-person camera needs them. Raw input is the only source of unbounded relative motion.
+      DECISION on `RIDEV_INPUTSINK`, which the item flagged: NOT used. It delivers raw motion
+      while another application holds the foreground, which is precisely the privacy leak the X11
+      producer documents. Pointer lock implies focus, so foreground-only costs nothing.
+      TRAPS handled: `GetRawInputData` returns a BYTE COUNT and signals failure with `u32::MAX`,
+      not a BOOL — treating nonzero as success accepts the error code as a length. Some devices
+      (RDP, KVMs, some tablets) set `MOUSE_MOVE_ABSOLUTE`, whose `lLastX/Y` are POSITIONS not
+      deltas; accumulating those sends the camera to a screen corner on the first event, so they
+      are dropped. `WM_INPUT` is passed to `DefWindowProc` so the system frees the raw-input
+      buffer.
+      EVIDENCE: the four `#[repr(C)]` layouts are pinned by `const _: () = assert!(...)` on size
+      AND alignment, checked at COMPILE time by the `x86_64-pc-windows-gnu` target — a wrong
+      offset here would silently read a different field, and a wrong `RAWINPUTHEADER` size makes
+      every `GetRawInputData` call fail at runtime with no diagnostic. Verified the guard bites by
+      widening `ulRawButtons` to u64 and confirming the build fails on
+      `size_of::<RAWMOUSE>() == 24`. Host check, Windows target check and the 8-target gate all
+      green. NOT runtime-verified — needs a real Windows box with a mouse.
+- [ ] 9d-i-a Wayland raw motion (`zwp_relative_pointer_v1`) and web (`movementX`/`movementY`).
+      Wayland is the same missing protocol binding as 9d-ii-a and should land with it: the
+      relative-pointer and pointer-constraints protocols are a pair, and a lock without deltas or
+      deltas without a lock is half a feature either way. Web needs the wasm shell's pointer-lock
+      path, which is a different shell entirely.
 - [x] 9d-ii DONE for X11, Windows and macOS. `CallbackInfo::set_pointer_lock(bool)` exists
       (api.json via `autofix add` + `apply`, bindings regenerated) and three backends take a real
       grab. 9d is now usable end-to-end on X11, where the raw-motion producer already existed.

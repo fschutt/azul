@@ -685,6 +685,39 @@ impl Win32Window {
         );
         timing_log!("Position window");
 
+        // Raw mouse input, for RELATIVE motion. `WM_MOUSEMOVE` reports an
+        // ABSOLUTE client position, so once a pointer lock confines the cursor
+        // it stops changing and the deltas disappear exactly when a
+        // first-person camera needs them.
+        //
+        // Registered WITHOUT `RIDEV_INPUTSINK`, deliberately: that flag
+        // delivers raw motion while another application has the foreground,
+        // which is the privacy leak the X11 producer documents in
+        // `handle_xi_raw_motion`. Pointer lock implies focus, so nothing is
+        // lost by only receiving it in the foreground.
+        //
+        // Registration failing is not fatal — it costs raw motion, not the
+        // window — so it is logged and the window continues.
+        unsafe {
+            let rid = dlopen::RAWINPUTDEVICE {
+                usUsagePage: dlopen::HID_USAGE_PAGE_GENERIC,
+                usUsage: dlopen::HID_USAGE_GENERIC_MOUSE,
+                dwFlags: 0,
+                hwndTarget: hwnd,
+            };
+            let ok = (win32.user32.RegisterRawInputDevices)(
+                &rid,
+                1,
+                core::mem::size_of::<dlopen::RAWINPUTDEVICE>() as u32,
+            );
+            if ok == 0 {
+                log_error!(
+                    LogCategory::Window,
+                    "[Win32] RegisterRawInputDevices failed; RawMouseMotion will not fire"
+                );
+            }
+        }
+
         // File drag-and-drop is enabled via OLE `RegisterDragDrop` (modern
         // hover + drop) in `register_drag_drop()`, called from the run loop
         // AFTER the window pointer is in the global registry (the legacy
@@ -3808,6 +3841,7 @@ unsafe extern "system" fn window_proc(
     const WM_APP_FRAME_READY_LOCAL: u32 = WM_APP_FRAME_READY;
     const WM_APP_SHOW_PENDING_MENU_LOCAL: u32 = WM_APP_SHOW_PENDING_MENU;
     const WM_MOUSEHWHEEL: u32 = 0x020E;
+    const WM_INPUT: u32 = 0x00FF;
     const WM_GETMINMAXINFO: u32 = 0x0024;
     const WM_SETTINGCHANGE: u32 = 0x001A;
     const WM_THEMECHANGED: u32 = 0x031A;
@@ -5059,6 +5093,61 @@ unsafe extern "system" fn window_proc(
                 Some(r) => r,
                 None => def_window_proc_w(hwnd, msg, wparam, lparam),
             }
+        }
+
+        WM_INPUT => {
+            // RELATIVE pointer motion. Gated on the pointer lock for the same
+            // reason X11 gates `XI_RawMotion`: raw input describes the physical
+            // device rather than this window's cursor, so delivering it while
+            // the user is not locked into the window reports their mouse
+            // movements across the whole desktop.
+            let locked = window
+                .common
+                .current_window_state()
+                .mouse_state
+                .is_cursor_locked;
+            if locked {
+                unsafe {
+                    let mut data = core::mem::zeroed::<dlopen::RAWINPUTMOUSE>();
+                    let mut size = core::mem::size_of::<dlopen::RAWINPUTMOUSE>() as u32;
+                    // Returns the byte count, or u32::MAX on error - NOT a
+                    // BOOL. Treating a nonzero return as success would accept
+                    // the error code as a length.
+                    let written = (window.win32.user32.GetRawInputData)(
+                        lparam,
+                        dlopen::RID_INPUT,
+                        (&raw mut data).cast(),
+                        &mut size,
+                        core::mem::size_of::<dlopen::RAWINPUTHEADER>() as u32,
+                    );
+                    if written != u32::MAX && data.header.dwType == dlopen::RIM_TYPEMOUSE {
+                        // A few devices (RDP, some tablets and KVMs) report
+                        // ABSOLUTE positions here. Those are not deltas, and
+                        // accumulating them as if they were sends the camera
+                        // to the corner of the screen on the first event.
+                        let absolute =
+                            (data.mouse.usFlags & dlopen::MOUSE_MOVE_ABSOLUTE) != 0;
+                        let dx = data.mouse.lLastX;
+                        let dy = data.mouse.lLastY;
+                        if !absolute && (dx != 0 || dy != 0) {
+                            if let Some(lw) = window.common.layout_window.as_mut() {
+                                // `hDevice` distinguishes physical mice, the
+                                // same role X11's `sourceid` plays.
+                                lw.device_event_manager.note_raw_motion(
+                                    f64::from(dx),
+                                    f64::from(dy),
+                                    data.header.hDevice as u64,
+                                );
+                            }
+                        }
+                    }
+                }
+                let result = window.process_window_events(0);
+                window.route_main_window_result(hwnd, result);
+            }
+            // WM_INPUT must reach DefWindowProc so the system can clean up the
+            // raw-input buffer for this message.
+            unsafe { (window.win32.user32.DefWindowProcW)(hwnd, msg, wparam, lparam) }
         }
 
         WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
