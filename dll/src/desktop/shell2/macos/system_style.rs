@@ -795,17 +795,19 @@ std::thread_local! {
         const { core::cell::Cell::new(None) };
 }
 
-/// Re-read the system appearance and adopt it into `common`, returning whether
-/// anything changed.
+/// Re-read the system appearance and adopt it into `common`, returning the
+/// RE-DISCOVERED style when it changed and `None` when it did not.
 ///
-/// Safe to call every frame: it self-throttles, and returns `false` when the
+/// Safe to call every frame: it self-throttles, and returns `None` when the
 /// theme already matches, so a no-op poll never costs a relayout.
 ///
-/// The caller still owes the event pump and
-/// `request_regeneration(RelayoutReason::ThemeChange)` — see the call site.
+/// The new style is RETURNED rather than installed here: choosing between a
+/// full rebuild and a restyle needs both ends of the transition, and it is
+/// `PlatformWindow::adopt_system_style` — which the caller owes, along with the
+/// event pump — that makes that choice.
 pub(crate) fn adopt_observed_theme(
     common: &mut crate::desktop::shell2::common::event::CommonWindowState,
-) -> bool {
+) -> Option<alloc::sync::Arc<SystemStyle>> {
     use azul_core::window::WindowTheme;
 
     let now = std::time::Instant::now();
@@ -817,18 +819,16 @@ pub(crate) fn adopt_observed_theme(
         }
     });
     if !due {
-        return false;
+        return None;
     }
 
-    let Some(theme) = probe_effective_appearance() else {
-        return false;
-    };
+    let theme = probe_effective_appearance()?;
     let theme = match theme {
         Theme::Dark => WindowTheme::DarkMode,
         Theme::Light => WindowTheme::LightMode,
     };
     if common.current_window_state().theme == theme {
-        return false;
+        return None;
     }
 
     // The diff pipeline compares against previous_window_state to decide that a
@@ -836,15 +836,14 @@ pub(crate) fn adopt_observed_theme(
     // determined and no callback runs.
     common.snapshot_window_state_baseline("macos.adopt_observed_theme");
 
+    common.update_unsynced_state(|ws| ws.theme = theme);
+
     // RE-DISCOVER the style, the way the Windows backend does on
     // WM_THEMECHANGED. Flipping `ws.theme` alone told the app the theme had
     // changed while leaving it every colour and metric from the OLD
     // appearance — an Aqua light/dark switch kept the light palette and only
     // the `@theme` CSS conditions moved.
-    common.system_style = rediscovered_style_for(theme);
-
-    common.update_unsynced_state(|ws| ws.theme = theme);
-    true
+    Some(rediscovered_style_for(theme))
 }
 
 /// The re-discovered style for an appearance, discovered ONCE per switch.

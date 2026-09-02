@@ -769,6 +769,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         frame_report_reset_request: _,
         // Bounded by SIZE_QUERY_CAP (256 entries), not by the document.
         recorded_size_queries: _,
+        // A six-bit mask, keyed by nothing.
+        recorded_style_dependencies: _,
         // One small entry per node animating RIGHT NOW, not per node in the
         // document, and `tick` removes an entry as soon as it settles. A
         // document ten times larger does not make this bigger; only ten times
@@ -1061,6 +1063,17 @@ pub struct LayoutWindow {
     /// engine re-flows the existing DOM instead of re-invoking the callback.
     /// See [`Self::size_queries_would_flip`].
     pub recorded_size_queries: (Vec<azul_core::callbacks::SizeQuery>, bool),
+    /// Which facets of the OS style the last `layout()` call declared it
+    /// depends on (`LayoutCallbackInfo::depends_on_system_style` &
+    /// `get_system_style`).
+    ///
+    /// This is to a theme switch what `recorded_size_queries` is to a resize:
+    /// a system-style change that touches no declared facet provably cannot
+    /// change what `layout()` returns, so the engine re-styles the existing
+    /// `StyledDom` instead of rebuilding it. EMPTY means "declared nothing",
+    /// which is read conservatively - see
+    /// `SystemStyleDependencies::dom_depends_on_change`.
+    pub recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies,
     /// Pre-cascade fingerprints of the LAST adopted user DOM (two tiers:
     /// structure vs style — see `azul_core::diff::DomFingerprints`). The
     /// produce side of `regenerate_layout` compares the fresh callback DOM
@@ -1655,6 +1668,40 @@ impl LayoutWindow {
         (old_logical.width > old_logical.height) != (new_logical.width > new_logical.height)
     }
 
+    /// Does a system-style change from `old` to `new` need a full DOM
+    /// rebuild, or only a restyle?
+    ///
+    /// The theme-switch twin of [`Self::resize_needs_full_regeneration`], and
+    /// it answers from the same kind of evidence: what the last `layout()`
+    /// call declared it reads (`LayoutCallbackInfo::depends_on_system_style`
+    /// / `get_system_style`, drained into
+    /// [`Self::recorded_style_dependencies`]).
+    ///
+    /// `true` - re-invoke `layout()`: the app baked something from the OS
+    /// style into the DOM and that something moved.
+    ///
+    /// `false` - re-style the existing `StyledDom` against the new style. The
+    /// cascade re-resolves `system-*` colours, `@theme` conditions and the
+    /// dynamic-selector context from the NEW style, so an app that expresses
+    /// its theming in CSS still repaints correctly; what it skips is
+    /// rebuilding a tree that would have come back identical.
+    ///
+    /// Conservative in both the directions that matter: no previous layout to
+    /// re-style, or a callback that declared nothing (every app written
+    /// before this API existed), both answer `true`.
+    #[must_use]
+    pub fn system_style_change_needs_full_regeneration(
+        &self,
+        old: &azul_css::system::SystemStyle,
+        new: &azul_css::system::SystemStyle,
+    ) -> bool {
+        if self.layout_results.is_empty() {
+            return true;
+        }
+        self.recorded_style_dependencies
+            .dom_depends_on_change(old, new)
+    }
+
     /// Ask this window to zero its frame-report counters + accumulated damage
     /// before the next write (the `reset_frame_counters` E2E op).
     ///
@@ -1714,6 +1761,8 @@ impl LayoutWindow {
             skip_gpu_sync: false,
             frame_report: FrameReport::default(),
             recorded_size_queries: (Vec::new(), false),
+            recorded_style_dependencies:
+                azul_core::callbacks::SystemStyleDependencies::empty(),
             last_dom_fingerprints: None,
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "pdf")]
@@ -17620,6 +17669,8 @@ impl LayoutWindow {
             frame_report_reset_request: _,
             // Thresholds + answers, keyed by nothing.
             recorded_size_queries: _,
+            // A six-bit mask, keyed by nothing.
+            recorded_style_dependencies: _,
             // Pre-order hashes, positionally aligned with the NEXT produce's
             // flatten — never carries NodeIds.
             last_dom_fingerprints: _,

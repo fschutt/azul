@@ -7242,10 +7242,11 @@ impl X11Window {
         // load — the D-Bus round trip that feeds it runs on a watcher thread,
         // never here, because `query_xdg_portal` blocks with a two-second
         // timeout and that would freeze the event loop.
-        if super::system_style::adopt_observed_theme(&mut self.common) {
+        if let Some(new_style) = super::system_style::adopt_observed_theme(&mut self.common) {
             let _ = self.process_window_events(0);
-            self.common
-                .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+            // Full rebuild or restyle, decided from what the app's `layout()`
+            // declared it reads — see `PlatformWindow::adopt_system_style`.
+            self.adopt_system_style(new_style);
             self.request_redraw();
         }
     }

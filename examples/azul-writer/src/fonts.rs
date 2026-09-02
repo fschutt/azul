@@ -38,49 +38,8 @@ pub fn push_ui_font(style: &mut CssPropertyWithConditionsVec) {
     *style = CssPropertyWithConditionsVec::from(v);
 }
 
-// -- the Office-2013-era look palette shared by the app-side compositions --
-
-/// Office 2013 accent blue (#2B579A).
-pub const OFFICE_BLUE: ColorU = ColorU {
-    r: 43,
-    g: 87,
-    b: 154,
-    a: 255,
-};
-/// Regular chrome text (#444444).
-pub const TEXT: ColorU = ColorU {
-    r: 68,
-    g: 68,
-    b: 68,
-    a: 255,
-};
-/// Secondary gray (#808080).
-pub const TEXT_GRAY: ColorU = ColorU {
-    r: 128,
-    g: 128,
-    b: 128,
-    a: 255,
-};
-/// Faint gray (#949494).
-pub const TEXT_FAINT: ColorU = ColorU {
-    r: 148,
-    g: 148,
-    b: 148,
-    a: 255,
-};
-/// Backstage pane titles (#565656).
-pub const TITLE_GRAY: ColorU = ColorU {
-    r: 86,
-    g: 86,
-    b: 86,
-    a: 255,
-};
-pub const WHITE: ColorU = ColorU {
-    r: 255,
-    g: 255,
-    b: 255,
-    a: 255,
-};
+// The app's colours moved to `crate::palette`, which derives them from the
+// OS theme. This module is the FONT override only.
 
 /// A `<p>` label with programmatic font-size + color (+ the pinned family).
 ///

@@ -6086,17 +6086,21 @@ unsafe extern "system" fn window_proc(
                 crate::desktop::shell2::common::event::WindowStateSource::Os,
                 |ws| ws.theme = new_theme,
             );
-            window.common.system_style = new_style;
             let r = window.process_window_events(0);
             window.route_main_window_result(hwnd, r);
-            // Tagged ThemeChange, not RefreshDom: the reason reaches the user's
-            // layout callback via LayoutCallbackInfo::relayout_reason(), and a
-            // theme switch is exactly the case where a callback wants to know it
-            // may re-read system colours rather than assume a generic refresh.
-            // This was the ONLY producer of the variant; it reported RefreshDom.
-            window
-                .common
-                .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+            // Full rebuild or restyle, decided from what the app's `layout()`
+            // declared it reads — see `PlatformWindow::adopt_system_style`.
+            // The rebuild is tagged ThemeChange, not RefreshDom: the reason
+            // reaches the user's layout callback via
+            // LayoutCallbackInfo::relayout_reason(), and a theme switch is
+            // exactly the case where a callback wants to know it may re-read
+            // system colours rather than assume a generic refresh.
+            //
+            // WM_SETTINGCHANGE is also the arm that fires for settings this
+            // window does not care about at all — it is broadcast for
+            // environment and policy changes too — so the equality check
+            // inside `adopt_system_style` is what keeps those free.
+            window.adopt_system_style(new_style);
             unsafe {
                 (window.win32.user32.InvalidateRect)(hwnd, ptr::null(), 0);
             }

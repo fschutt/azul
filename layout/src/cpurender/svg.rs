@@ -10,11 +10,16 @@ use agg_rust::path_storage::PathStorage;
 use agg_rust::trans_affine::TransAffine;
 use azul_core::resources::ImageRef;
 
-/// Render raw SVG bytes to a PNG image.
+/// Render raw SVG bytes to a PNG image ON AN OPAQUE WHITE BACKGROUND.
 ///
 /// Parses the SVG XML, walks the element tree, extracts path geometry +
 /// fill/stroke attributes, and rasterizes via agg-rust directly (no CSS
 /// layout involved).
+///
+/// An SVG has no background of its own, so "white" is this function's
+/// CHOICE - fine for a document preview, wrong for an icon, which has to
+/// composite over whatever is behind it. Use
+/// [`render_svg_to_png_over`] to say what the backdrop is.
 #[cfg(all(feature = "std", feature = "xml"))]
 /// # Errors
 ///
@@ -23,6 +28,25 @@ pub fn render_svg_to_png(
     svg_data: &[u8],
     target_width: u32,
     target_height: u32,
+) -> Result<Vec<u8>, String> {
+    render_svg_to_png_over(svg_data, target_width, target_height, Some((255, 255, 255, 255)))
+}
+
+/// [`render_svg_to_png`] over an explicit backdrop.
+///
+/// `background = None` renders onto TRANSPARENT pixels, which is what an SVG
+/// actually has and what any icon needs: filled white, a themed window-control
+/// icon arrives as a white tile sitting in the titlebar instead of a glyph on
+/// it. `Some((r, g, b, a))` fills first, for the callers that want a page.
+#[cfg(all(feature = "std", feature = "xml"))]
+/// # Errors
+///
+/// Returns an error string if the SVG cannot be parsed or rendered.
+pub fn render_svg_to_png_over(
+    svg_data: &[u8],
+    target_width: u32,
+    target_height: u32,
+    background: Option<(u8, u8, u8, u8)>,
 ) -> Result<Vec<u8>, String> {
     let svg_str =
         core::str::from_utf8(svg_data).map_err(|e| format!("SVG is not valid UTF-8: {e}"))?;
@@ -62,7 +86,10 @@ pub fn render_svg_to_png(
 
     let mut pixmap = AzulPixmap::new(target_width, target_height)
         .ok_or_else(|| "Failed to create pixmap".to_string())?;
-    pixmap.fill(255, 255, 255, 255);
+    // `None` leaves the pixmap at its zeroed (fully transparent) state.
+    if let Some((r, g, b, a)) = background {
+        pixmap.fill(r, g, b, a);
+    }
 
     render_svg_group(svg_node, &mut pixmap, &root_transform);
 

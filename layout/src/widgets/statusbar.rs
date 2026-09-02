@@ -49,6 +49,7 @@ use azul_css::{
     *,
 };
 
+use azul_css::system::SystemStyle;
 use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut};
 
 use crate::callbacks::CallbackInfo;
@@ -200,6 +201,36 @@ impl StatusBarTheme {
             rail: W13_RAIL,
             thumb: WHITE,
             thumb_border: W13_THUMB_BORDER,
+        }
+    }
+
+    /// Extracts a bar palette from the OS theme.
+    ///
+    /// The status bar is an ACCENT-FILLED strip, so it is the accent colour
+    /// and the colour the platform says goes on top of it that drive the
+    /// whole palette - not the window background. A colour the platform does
+    /// not report falls back to that field's own Office-2013 value, never to
+    /// another derived value; same discipline as
+    /// [`super::ribbon::RibbonTheme::from_system`], no colour arithmetic.
+    ///
+    /// Takes the style by value (FFI constructor convention).
+    #[must_use]
+    pub fn from_system(style: SystemStyle) -> Self {
+        let d = Self::office_2013();
+        let c = &style.colors;
+        let selection = c.selection_background.into_option();
+        let inactive_selection = c.selection_background_inactive.into_option();
+        let on_accent = c.accent_text.into_option();
+        let separator = c.separator.into_option();
+        Self {
+            bar_bg: c.accent.into_option().unwrap_or(d.bar_bg),
+            text: on_accent.unwrap_or(d.text),
+            hover_bg: selection.unwrap_or(d.hover_bg),
+            pressed_bg: inactive_selection.unwrap_or(d.pressed_bg),
+            view_active_bg: inactive_selection.unwrap_or(d.view_active_bg),
+            rail: separator.unwrap_or(d.rail),
+            thumb: on_accent.unwrap_or(d.thumb),
+            thumb_border: separator.unwrap_or(d.thumb_border),
         }
     }
 }
@@ -638,6 +669,14 @@ impl StatusBarStyle {
     #[must_use]
     pub fn office_2013() -> Self {
         Self::from_theme(StatusBarTheme::office_2013())
+    }
+
+    /// Every part style, derived from the OS theme - see
+    /// [`StatusBarTheme::from_system`]. Takes the style by value (FFI
+    /// constructor convention).
+    #[must_use]
+    pub fn from_system(style: SystemStyle) -> Self {
+        Self::from_theme(StatusBarTheme::from_system(style))
     }
 
     /// Derives every part style from the given palette.
@@ -1289,6 +1328,59 @@ mod tests {
     // ------------------------------------------------------------------
     // Constructors and invariants
     // ------------------------------------------------------------------
+
+    #[test]
+    fn from_system_with_no_reported_colors_falls_back_to_office_2013() {
+        // SystemStyle::default() may pre-fill platform colors; the fallback
+        // contract is about a system that reports NO colors at all.
+        let mut sys = azul_css::system::SystemStyle::default();
+        sys.colors = azul_css::system::SystemColors::default();
+        assert_eq!(
+            StatusBarTheme::from_system(sys.clone()),
+            StatusBarTheme::office_2013()
+        );
+        assert_eq!(StatusBarStyle::from_system(sys), StatusBarStyle::office_2013());
+    }
+
+    #[test]
+    fn from_system_fills_the_bar_with_the_accent_and_writes_in_the_on_accent_colour() {
+        let accent = ColorU {
+            r: 61,
+            g: 174,
+            b: 233,
+            a: 255,
+        };
+        let on_accent = ColorU {
+            r: 252,
+            g: 252,
+            b: 252,
+            a: 255,
+        };
+        let mut sys = azul_css::system::SystemStyle::default();
+        sys.colors = azul_css::system::SystemColors::default();
+        sys.colors.accent = Some(accent).into();
+        sys.colors.accent_text = Some(on_accent).into();
+        // Deliberately ALSO report a window background: the bar is an
+        // accent-filled strip and must not take it.
+        sys.colors.window_background = Some(ColorU {
+            r: 239,
+            g: 240,
+            b: 241,
+            a: 255,
+        })
+        .into();
+
+        let t = StatusBarTheme::from_system(sys);
+        assert_eq!(t.bar_bg, accent);
+        assert_eq!(t.text, on_accent);
+        assert_eq!(t.thumb, on_accent, "the thumb sits on the accent fill too");
+        assert_eq!(
+            t.hover_bg,
+            StatusBarTheme::office_2013().hover_bg,
+            "an unreported colour falls back to its OWN office value, never to \
+             another derived one"
+        );
+    }
 
     #[test]
     fn status_bar_new_defaults_to_office_2013_with_no_clusters() {

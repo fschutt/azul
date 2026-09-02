@@ -452,6 +452,7 @@ pub fn regenerate_layout(
     // Clear any stale recording from an earlier callback on this thread —
     // the drain below must see ONLY what this invocation queried.
     let _ = azul_core::callbacks::take_recorded_size_queries();
+    let _ = azul_core::callbacks::take_recorded_style_dependencies();
 
     // The layout callback IS app code (DOM construction): give it a
     // cb:<name> span so "app builds the DOM" separates from engine solving.
@@ -469,6 +470,13 @@ pub fn regenerate_layout(
     // (and crosses no CSS breakpoint) skips this whole produce side and
     // re-flows the existing DOM. See LayoutWindow::size_queries_would_flip.
     layout_window.recorded_size_queries = azul_core::callbacks::take_recorded_size_queries();
+    // ... and which facets of the OS style it declared it reads. This is the
+    // theme switch's evidence, the way the size queries are the resize's: a
+    // system-style change touching nothing declared here re-styles the
+    // existing StyledDom instead of re-invoking this callback. See
+    // LayoutWindow::system_style_change_needs_full_regeneration.
+    layout_window.recorded_style_dependencies =
+        azul_core::callbacks::take_recorded_style_dependencies();
     azul_layout::probe::emit_phase_heap("after_callback");
     phases.mark("after_callback");
 

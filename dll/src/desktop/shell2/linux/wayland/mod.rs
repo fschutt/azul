@@ -7540,10 +7540,11 @@ impl WaylandWindow {
         // same watcher serves X11 and Wayland alike. `observed_system_theme` is
         // a relaxed atomic load; the blocking D-Bus round trip that feeds it
         // runs on a watcher thread, never on this one.
-        if super::system_style::adopt_observed_theme(&mut self.common) {
+        if let Some(new_style) = super::system_style::adopt_observed_theme(&mut self.common) {
             let _ = self.process_window_events(0);
-            self.common
-                .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+            // Full rebuild or restyle, decided from what the app's `layout()`
+            // declared it reads — see `PlatformWindow::adopt_system_style`.
+            self.adopt_system_style(new_style);
             self.needs_redraw.raise();
             self.generate_frame_if_needed();
         }

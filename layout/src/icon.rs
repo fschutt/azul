@@ -59,9 +59,18 @@ use azul_core::{
 #[derive(Debug)]
 pub struct ImageIconData {
     pub image: ImageRef,
-    /// Width duplicated from `ImageRef` at registration time
+    /// The icon's NATURAL WIDTH in logical px - the size it is drawn at, not
+    /// the width of the bitmap behind it.
+    ///
+    /// The two differ whenever the bitmap is oversampled: a 16px indicator
+    /// rasterised from an SVG at 32x32 so it stays crisp on a 2x display is
+    /// still a 16px indicator, and laying it out at 32 makes it twice the
+    /// size the desktop draws it (this is exactly how a window-close button
+    /// once came out as a giant X). [`register_image_icon`] takes the bitmap's
+    /// own size, which is right for a 1:1 bitmap; an oversampled one must say
+    /// its natural size with [`register_image_icon_sized`].
     pub width: f32,
-    /// Height duplicated from `ImageRef` at registration time
+    /// The icon's natural HEIGHT in logical px - see [`Self::width`].
     pub height: f32,
 }
 
@@ -369,12 +378,47 @@ pub fn register_image_icon(
     icon_name: &str,
     image: ImageRef,
 ) {
-    // Get dimensions from ImageRef
+    // The bitmap's own size IS the natural size for a 1:1 bitmap. An
+    // OVERSAMPLED one (an SVG rasterised at 2x for a HiDPI display) must use
+    // `register_image_icon_sized` instead, or it lays out at twice the size
+    // it is drawn at.
     let size = image.get_size();
+    register_image_icon_sized(provider, pack_name, icon_name, image, size.width, size.height);
+}
+
+/// Register an image icon whose NATURAL SIZE differs from its bitmap's.
+///
+/// `width`/`height` are the logical px the icon occupies in layout; the
+/// bitmap may be larger (an SVG rasterised at 2x or 3x so it stays crisp when
+/// the display or the zoom scales it up). This is the difference between
+/// "how big is this picture" and "how big is this icon", and only the caller
+/// that rasterised it knows the second: a freedesktop theme states it in the
+/// directory the file came from (`actions/16`, `actions/22`, ...), and a
+/// `scalable` icon has whatever size its consumer intends.
+///
+/// A non-finite or non-positive size is IGNORED in favour of the bitmap's own
+/// - a zero-sized icon is invisible, which is a worse failure than a
+/// wrong-sized one, and NaN would poison layout.
+pub fn register_image_icon_sized(
+    provider: &mut IconProviderHandle,
+    pack_name: &str,
+    icon_name: &str,
+    image: ImageRef,
+    width: f32,
+    height: f32,
+) {
+    let bitmap = image.get_size();
+    let sane = |asked: f32, fallback: f32| {
+        if asked.is_finite() && asked > 0.0 {
+            asked
+        } else {
+            fallback
+        }
+    };
     let data = ImageIconData {
+        width: sane(width, bitmap.width),
+        height: sane(height, bitmap.height),
         image,
-        width: size.width,
-        height: size.height,
     };
     provider.register_icon(pack_name, icon_name, RefAny::new(data));
 }
@@ -995,6 +1039,41 @@ mod autotest_generated {
         );
         assert_eq!(width_px(&out), Some(-32.0));
         assert_eq!(height_px(&out), Some(-1.5));
+    }
+
+    /// THE bug this exists for: an oversampled bitmap is not a bigger icon.
+    /// A 16px window control rasterised at 32x32 for a 2x display laid out at
+    /// 32px and came out as a giant X next to the title.
+    #[test]
+    fn an_oversampled_icon_lays_out_at_its_natural_size_not_its_bitmap_size() {
+        let mut provider = create_default_icon_provider();
+        register_image_icon_sized(&mut provider, "system", "close", null_img(32, 32), 16.0, 16.0);
+        let data = provider.lookup("close").expect("icon registered");
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
+        assert_eq!(width_px(&out), Some(16.0));
+        assert_eq!(height_px(&out), Some(16.0));
+
+        // The negative control: the plain constructor still takes the bitmap's
+        // size, which is correct for a 1:1 bitmap.
+        let mut provider = create_default_icon_provider();
+        register_image_icon(&mut provider, "system", "close", null_img(32, 32));
+        let data = provider.lookup("close").expect("icon registered");
+        let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
+        assert_eq!(width_px(&out), Some(32.0));
+    }
+
+    /// A nonsense natural size must not make the icon invisible: an unusable
+    /// answer falls back to the bitmap, which is at least drawable.
+    #[test]
+    fn a_nonsense_natural_size_falls_back_to_the_bitmap() {
+        for bad in [0.0, -8.0, f32::NAN, f32::INFINITY] {
+            let mut provider = create_default_icon_provider();
+            register_image_icon_sized(&mut provider, "system", "x", null_img(24, 24), bad, bad);
+            let data = provider.lookup("x").expect("icon registered");
+            let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
+            assert_eq!(width_px(&out), Some(24.0), "natural size {bad} must be ignored");
+            assert_eq!(height_px(&out), Some(24.0));
+        }
     }
 
     #[test]

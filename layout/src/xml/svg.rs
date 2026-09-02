@@ -2426,9 +2426,20 @@ pub fn svg_render(s: &ParsedSvg, options: SvgRenderOptions) -> Option<RawImage> 
         return None;
     }
 
-    let png_data =
-        crate::cpurender::render_svg_to_png(s.svg_data.as_ref(), target_width, target_height)
-            .ok()?;
+    // `background_color: None` = TRANSPARENT, which is what an SVG has. The
+    // rasteriser used to fill opaque white unconditionally and ignore this
+    // field entirely, so every themed icon arrived as a white tile.
+    let background = options
+        .background_color
+        .into_option()
+        .map(|c| (c.r, c.g, c.b, c.a));
+    let png_data = crate::cpurender::render_svg_to_png_over(
+        s.svg_data.as_ref(),
+        target_width,
+        target_height,
+        background,
+    )
+    .ok()?;
 
     // Decode PNG back to raw RGBA (TODO: render_svg_to_rgba to avoid PNG round-trip)
     let decoder = png::Decoder::new(std::io::Cursor::new(&png_data));

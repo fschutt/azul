@@ -17,22 +17,18 @@ use std::cell::RefCell;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Mode {
-    Off,
-    /// Only frames over the budget print.
-    Slow,
-    /// Every frame prints.
-    All,
+pub use crate::args::FrameLog as Mode;
+
+static M: OnceLock<Mode> = OnceLock::new();
+
+/// Store what `--frame-log` asked for. Called once from `start`, before any
+/// frame exists; a second call is ignored rather than racing the first.
+pub fn init_frame_log(mode: Mode) {
+    let _ = M.set(mode);
 }
 
 pub fn mode() -> Mode {
-    static M: OnceLock<Mode> = OnceLock::new();
-    *M.get_or_init(|| match std::env::var("AZWRITER_FRAME_LOG").as_deref() {
-        Ok("all") => Mode::All,
-        Ok(_) => Mode::Slow,
-        Err(_) => Mode::Off,
-    })
+    M.get().copied().unwrap_or(Mode::Off)
 }
 
 thread_local! {

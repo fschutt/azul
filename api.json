@@ -5654,7 +5654,9 @@
                             },
                             "register_image_icon": {
                                 "doc": [
-                                    "Register an image icon in a pack"
+                                    "Register an image icon in a pack.",
+                                    "",
+                                    "The bitmap's own size becomes the icon's NATURAL size - the size it occupies in layout. That is right for a 1:1 bitmap; an OVERSAMPLED one (an SVG rasterised at 2x so it stays crisp on a HiDPI display) must state its natural size with `register_image_icon_sized`, or it lays out at twice the size it is drawn at."
                                 ],
                                 "priority": 82.0,
                                 "fn_args": [
@@ -5672,6 +5674,36 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::icon::register_image_icon(iconproviderhandle, pack_name.as_str(), icon_name.as_str(), image)"
+                            },
+                            "register_image_icon_sized": {
+                                "doc": [
+                                    "Register an image icon whose NATURAL SIZE differs from its bitmap's.",
+                                    "",
+                                    "`width`/`height` are the logical px the icon occupies in layout; the bitmap may be larger (an SVG rasterised at 2x or 3x so it stays crisp when the display or the zoom scales it up). Only the caller that rasterised it knows this: a freedesktop theme states it in the directory the file came from (`actions/16`, `actions/22`, ...).",
+                                    "",
+                                    "A non-finite or non-positive size is ignored in favour of the bitmap's own - a zero-sized icon is invisible, which is a worse failure than a wrong-sized one."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "pack_name": "String"
+                                    },
+                                    {
+                                        "icon_name": "String"
+                                    },
+                                    {
+                                        "image": "ImageRef"
+                                    },
+                                    {
+                                        "width": "f32"
+                                    },
+                                    {
+                                        "height": "f32"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::icon::register_image_icon_sized(iconproviderhandle, pack_name.as_str(), icon_name.as_str(), image, width, height)"
                             },
                             "register_font_icon": {
                                 "doc": [
@@ -13674,6 +13706,76 @@
                                     "type": "RelayoutReason"
                                 },
                                 "fn_body": "object.relayout_reason()"
+                            },
+                            "depends_on_system_style": {
+                                "doc": [
+                                    "Declare that the DOM this callback returns depends on `dep`.",
+                                    "",
+                                    "THE seam between \"the OS appearance changed\" and \"this app's DOM is now wrong\". A theme switch, an accent-colour change and a UI-font resize all arrive as the same kind of event, and the engine has no way to see which of them can change what `layout()` builds - only the callback knows.",
+                                    "",
+                                    "Declare narrowly and a change outside what you declared costs a RESTYLE (the cascade re-resolves `system-*` colours and `@theme` conditions against the new style, warm layout caches intact) instead of a full `Update::RefreshDom` (re-invoke `layout()`, rebuild the StyledDom, re-cascade, re-shape every run of text).",
+                                    "",
+                                    "Declarations UNION over the whole callback, widgets included, and the union is conservative. Declaring NOTHING is not \"depends on nothing\": an undeclared callback is rebuilt on every system-style change. Reading the `theme` field directly declares nothing either - use `get_theme()`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "dep": "SystemStyleDependency"
+                                    }
+                                ],
+                                "fn_body": "object.depends_on_system_style(dep)"
+                            },
+                            "get_theme": {
+                                "doc": [
+                                    "The window's light/dark polarity, declaring `SystemStyleDependency.Theme`.",
+                                    "",
+                                    "The tracked way to read what the `theme` field also holds. Use this and a change that leaves the polarity alone - a new accent colour, a different light scheme - will not rebuild the DOM."
+                                ],
+                                "priority": 70.0,
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "WindowTheme"
+                                },
+                                "fn_body": "object.get_theme()"
+                            },
+                            "get_system_style": {
+                                "doc": [
+                                    "The window's system style (OS palette, fonts, metrics).",
+                                    "",
+                                    "Declares `SystemStyleDependency.Everything`: handing out the whole struct makes the read opaque, so the honest answer is that any part of it may have reached the DOM, and any system-style change rebuilds it. A callback that only wants the palette or the fonts should say so with `depends_on_system_style()` and read through `get_system_style_untracked()`."
+                                ],
+                                "priority": 64.0,
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SystemStyle"
+                                },
+                                "fn_body": "(*object.get_system_style()).clone()"
+                            },
+                            "get_system_style_untracked": {
+                                "doc": [
+                                    "The system style WITHOUT declaring a dependency on all of it.",
+                                    "",
+                                    "For a callback that has already declared what it actually reads with `depends_on_system_style()`. Reading through this without declaring anything means the engine rebuilds the DOM on every system-style change, which is the conservative default."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SystemStyle"
+                                },
+                                "fn_body": "(*object.get_system_style_untracked()).clone()"
                             },
                             "get_ctx": {
                                 "doc": [
@@ -46438,6 +46540,78 @@
                         ],
                         "repr": "C"
                     },
+                    "SystemStyleDependency": {
+                        "doc": [
+                            "Which facet of the OS style a `layout()` callback read.",
+                            "",
+                            "An \"appearance change\" is never one event. The light/dark polarity flips, or the accent colour moves, or the UI font grows, or the icon theme is swapped, and each of those reaches a different app differently. Whether the change can alter what `layout()` RETURNS depends entirely on what that callback read, and only the callback knows. `LayoutCallbackInfo.depends_on_system_style()` is how it says so; this enum is the vocabulary.",
+                            "",
+                            "Declare narrowly and a change outside what you declared costs a restyle instead of a full `Update::RefreshDom`. Declaring nothing is read conservatively: the DOM is rebuilt on every system-style change."
+                        ],
+                        "external": "azul_core::callbacks::SystemStyleDependency",
+                        "derive": [
+                            "PartialEq",
+                            "Eq",
+                            "Clone",
+                            "Hash",
+                            "Copy",
+                            "PartialOrd",
+                            "Ord",
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Theme": {
+                                    "doc": [
+                                        "The light/dark polarity alone (`LayoutCallbackInfo.get_theme()`)."
+                                    ]
+                                }
+                            },
+                            {
+                                "Colors": {
+                                    "doc": [
+                                        "The colour palette: text, background, accent, button, selection."
+                                    ]
+                                }
+                            },
+                            {
+                                "Fonts": {
+                                    "doc": [
+                                        "The UI fonts - family, size, weight."
+                                    ]
+                                }
+                            },
+                            {
+                                "Metrics": {
+                                    "doc": [
+                                        "Sizing and spacing metrics: control sizes, scrollbar geometry, titlebar layout, input timings, focus ring."
+                                    ]
+                                }
+                            },
+                            {
+                                "Icons": {
+                                    "doc": [
+                                        "The icon theme and the icon styling options."
+                                    ]
+                                }
+                            },
+                            {
+                                "Accessibility": {
+                                    "doc": [
+                                        "Accessibility and motion preferences - reduced motion, high contrast, animation speed."
+                                    ]
+                                }
+                            },
+                            {
+                                "Everything": {
+                                    "doc": [
+                                        "Everything: the callback took the whole SystemStyle and the engine cannot see which parts of it were read. The conservative answer."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
                     "DesktopEnvVersion": {
                         "external": "azul_css::dynamic_selector::DesktopEnvVersion",
                         "derive": [
@@ -59827,7 +60001,22 @@
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C",
+                        "constructors": {
+                            "from_system": {
+                                "doc": [
+                                    "Extracts a band palette from the OS theme.",
+                                    "",
+                                    "The quick-access band IS the window's titlebar in an app that draws its own chrome, so it reads the OS TITLEBAR colours first (`SystemMetrics.titlebar`, which every desktop keeps separately from the window background) and falls back to the general palette, then to that field's own Office-2013 value. One system colour per field, no colour arithmetic."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "style": "SystemStyle"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::quick_access::QuickAccessTheme::from_system(style)"
+                            }
+                        }
                     },
                     "QuickAccessBar": {
                         "external": "azul_layout::widgets::quick_access::QuickAccessBar",
@@ -60106,7 +60295,31 @@
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C",
+                        "constructors": {
+                            "from_system": {
+                                "doc": [
+                                    "Every part style, derived from the OS theme - see `QuickAccessTheme.from_system`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "style": "SystemStyle"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::quick_access::QuickAccessStyle::from_system(style)"
+                            },
+                            "from_theme": {
+                                "doc": [
+                                    "Derives every part style from the given palette. Pair with `QuickAccessTheme.from_system` to take the desktop's neutrals and then re-assert an app's own brand colours."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "theme": "QuickAccessTheme"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::quick_access::QuickAccessStyle::from_theme(theme)"
+                            }
+                        }
                     },
                     "StatusBarViewSwitcher": {
                         "external": "azul_layout::widgets::statusbar::StatusBarViewSwitcher",
@@ -60495,7 +60708,31 @@
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C",
+                        "constructors": {
+                            "from_system": {
+                                "doc": [
+                                    "Every part style, derived from the OS theme - see `StatusBarTheme.from_system`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "style": "SystemStyle"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::statusbar::StatusBarStyle::from_system(style)"
+                            },
+                            "from_theme": {
+                                "doc": [
+                                    "Derives every part style from the given palette. Pair with `StatusBarTheme.from_system` to take the desktop's neutrals and then re-assert an app's own brand colours."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "theme": "StatusBarTheme"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::statusbar::StatusBarStyle::from_theme(theme)"
+                            }
+                        }
                     },
                     "StatusBarTheme": {
                         "external": "azul_layout::widgets::statusbar::StatusBarTheme",
@@ -60540,7 +60777,22 @@
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C",
+                        "constructors": {
+                            "from_system": {
+                                "doc": [
+                                    "Extracts a bar palette from the OS theme.",
+                                    "",
+                                    "The status bar is an ACCENT-FILLED strip, so the accent colour and the colour the platform says goes on top of it drive the whole palette, not the window background. A colour the platform does not report falls back to that field's own Office-2013 value, never to another derived value."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "style": "SystemStyle"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::statusbar::StatusBarTheme::from_system(style)"
+                            }
+                        }
                     },
                     "StatusBarSegment": {
                         "external": "azul_layout::widgets::statusbar::StatusBarSegment",
@@ -60711,7 +60963,31 @@
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C",
+                        "constructors": {
+                            "from_system": {
+                                "doc": [
+                                    "Every part style, derived from the OS theme - see `BackstageTheme.from_system`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "style": "SystemStyle"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::backstage::BackstageStyle::from_system(style)"
+                            },
+                            "from_theme": {
+                                "doc": [
+                                    "Derives every part style from the given palette. Pair with `BackstageTheme.from_system` to take the desktop's neutrals and then re-assert an app's own brand colours."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "theme": "BackstageTheme"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::backstage::BackstageStyle::from_theme(theme)"
+                            }
+                        }
                     },
                     "BackstageBehavior": {
                         "external": "azul_layout::widgets::backstage::BackstageBehavior",
@@ -61133,7 +61409,22 @@
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C",
+                        "constructors": {
+                            "from_system": {
+                                "doc": [
+                                    "Extracts a backstage palette from the OS theme.",
+                                    "",
+                                    "The nav column is an ACCENT-FILLED band and the pane behind it is the window surface, so those two system colours carry the whole screen. A colour the platform does not report falls back to that field's own Office-2013 value, never to another derived value."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "style": "SystemStyle"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::backstage::BackstageTheme::from_system(style)"
+                            }
+                        }
                     },
                     "StatusBarViewVecSlice": {
                         "external": "azul_layout::widgets::statusbar::StatusBarViewVecSlice",

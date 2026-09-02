@@ -1463,3 +1463,211 @@ mod size_query_tests {
         assert!(!overflowed2);
     }
 }
+
+/// Tests for the declared system-style dependencies — the seam that decides
+/// whether an appearance change costs the app a full `Update::RefreshDom` or
+/// only a restyle.
+#[cfg(test)]
+mod system_style_dependency_tests {
+    use azul_css::{
+        props::basic::color::ColorU,
+        system::{SystemStyle, Theme},
+    };
+
+    use super::*;
+    use crate::geom::LogicalSize;
+
+    fn style() -> SystemStyle {
+        SystemStyle::default()
+    }
+
+    fn c(r: u8, g: u8, b: u8) -> azul_css::props::basic::color::OptionColorU {
+        Some(ColorU { r, g, b, a: 255 }).into()
+    }
+
+    struct Rd {
+        image_cache: crate::resources::ImageCache,
+        gl: crate::gl::OptionGlContextPtr,
+        fonts: rust_fontconfig::FcFontCache,
+        style: alloc::sync::Arc<SystemStyle>,
+    }
+    impl Rd {
+        fn new() -> Self {
+            Self {
+                image_cache: crate::resources::ImageCache::default(),
+                gl: crate::gl::OptionGlContextPtr::None,
+                fonts: rust_fontconfig::FcFontCache::default(),
+                style: alloc::sync::Arc::new(style()),
+            }
+        }
+        fn ref_data(&self) -> LayoutCallbackInfoRefData<'_> {
+            LayoutCallbackInfoRefData {
+                image_cache: &self.image_cache,
+                gl_context: &self.gl,
+                system_fonts: &self.fonts,
+                system_style: alloc::sync::Arc::clone(&self.style),
+                active_route: None,
+                monitors: crate::window::MonitorVec::from_const_slice(&[]),
+            }
+        }
+    }
+
+    fn info(rd: &LayoutCallbackInfoRefData<'_>) -> LayoutCallbackInfo {
+        LayoutCallbackInfo::new(
+            rd,
+            WindowSize {
+                dimensions: LogicalSize::new(800.0, 600.0),
+                ..WindowSize::default()
+            },
+            WindowTheme::LightMode,
+        )
+    }
+
+    /// The whole point: a callback that only mirrors light/dark keeps its DOM
+    /// across a change that leaves the polarity alone, and loses it when the
+    /// polarity flips. Both directions asserted — a `dom_depends_on_change`
+    /// hardwired to `false` would pass the first half alone.
+    #[test]
+    fn a_theme_only_dependency_ignores_a_palette_move_but_not_a_polarity_flip() {
+        let mut deps = SystemStyleDependencies::empty();
+        deps.insert(SystemStyleDependency::Theme);
+
+        let old = style();
+
+        // Same polarity, different accent: this app cannot have built a
+        // different DOM, so it must not be rebuilt.
+        let mut recoloured = style();
+        recoloured.colors.accent = c(61, 174, 233);
+        assert_ne!(old.colors, recoloured.colors, "the fixture must differ");
+        assert!(!deps.dom_depends_on_change(&old, &recoloured));
+
+        // Polarity flip: rebuild.
+        let mut dark = style();
+        dark.theme = Theme::Dark;
+        assert!(deps.dom_depends_on_change(&old, &dark));
+    }
+
+    /// An app that paints its own controls from the OS palette IS invalidated
+    /// by a light-to-light accent change — the case the theme-only app is not.
+    #[test]
+    fn a_colors_dependency_catches_a_light_to_light_accent_change() {
+        let mut deps = SystemStyleDependencies::empty();
+        deps.insert(SystemStyleDependency::Colors);
+
+        let old = style();
+        let mut recoloured = style();
+        recoloured.colors.accent = c(61, 174, 233);
+        assert!(deps.dom_depends_on_change(&old, &recoloured));
+
+        // ... and is NOT invalidated by something outside the palette.
+        let mut louder = style();
+        louder.audio.event_sounds_enabled = !louder.audio.event_sounds_enabled;
+        assert_ne!(old.audio, louder.audio, "the fixture must differ");
+        assert!(!deps.dom_depends_on_change(&old, &louder));
+    }
+
+    /// Declaring NOTHING is not declaring independence: every callback written
+    /// before this API existed lands here, and silently skipping its rebuild
+    /// would leave the old palette baked into its DOM.
+    #[test]
+    fn an_undeclared_callback_is_rebuilt_on_any_change_and_only_on_a_change() {
+        let deps = SystemStyleDependencies::empty();
+        let old = style();
+
+        let mut moved = style();
+        moved.colors.accent = c(61, 174, 233);
+        assert!(deps.dom_depends_on_change(&old, &moved));
+
+        // But an EQUAL style is still not a change — a settings broadcast that
+        // carries nothing new must stay free.
+        assert!(!deps.dom_depends_on_change(&old, &style()));
+    }
+
+    /// `Everything` subsumes every facet, which is what makes one widget's
+    /// whole-struct read conservative for the entire tree.
+    #[test]
+    fn everything_contains_every_facet() {
+        let mut deps = SystemStyleDependencies::empty();
+        deps.insert(SystemStyleDependency::Everything);
+        for dep in [
+            SystemStyleDependency::Theme,
+            SystemStyleDependency::Colors,
+            SystemStyleDependency::Fonts,
+            SystemStyleDependency::Metrics,
+            SystemStyleDependency::Icons,
+            SystemStyleDependency::Accessibility,
+        ] {
+            assert!(deps.contains(dep), "{dep:?} must be covered by Everything");
+        }
+        // And a narrow declaration does NOT claim its neighbours.
+        let mut narrow = SystemStyleDependencies::empty();
+        narrow.insert(SystemStyleDependency::Theme);
+        assert!(narrow.contains(SystemStyleDependency::Theme));
+        assert!(!narrow.contains(SystemStyleDependency::Colors));
+    }
+
+    /// The recorder unions what the callback declared, and the drain empties
+    /// it — a leak across two `layout()` calls would make the second one
+    /// inherit the first's dependencies.
+    #[test]
+    fn declarations_union_and_the_drain_empties_the_recording() {
+        let rd = Rd::new();
+        let rd = rd.ref_data();
+        let _ = take_recorded_style_dependencies();
+
+        let info = info(&rd);
+        assert!(
+            take_recorded_style_dependencies().is_empty(),
+            "constructing the info declares nothing"
+        );
+
+        info.depends_on_system_style(SystemStyleDependency::Theme);
+        info.depends_on_system_style(SystemStyleDependency::Fonts);
+        let declared = take_recorded_style_dependencies();
+        assert!(declared.contains(SystemStyleDependency::Theme));
+        assert!(declared.contains(SystemStyleDependency::Fonts));
+        assert!(!declared.contains(SystemStyleDependency::Colors));
+
+        assert!(
+            take_recorded_style_dependencies().is_empty(),
+            "the drain must reset — the next layout() starts from nothing"
+        );
+    }
+
+    /// `get_theme()` is the tracked way to read the polarity; the bare `theme`
+    /// FIELD declares nothing, exactly like reading `window_size` directly.
+    #[test]
+    fn get_theme_declares_the_polarity_and_the_bare_field_declares_nothing() {
+        let rd = Rd::new();
+        let rd = rd.ref_data();
+        let _ = take_recorded_style_dependencies();
+
+        let info = info(&rd);
+        let _ = info.theme;
+        assert!(take_recorded_style_dependencies().is_empty());
+
+        assert_eq!(info.get_theme(), WindowTheme::LightMode);
+        let declared = take_recorded_style_dependencies();
+        assert!(declared.contains(SystemStyleDependency::Theme));
+        assert!(!declared.contains(SystemStyleDependency::Colors));
+    }
+
+    /// Handing out the whole struct is opaque, so it declares everything —
+    /// while the untracked accessor (engine-internal readers, and callbacks
+    /// that already said what they read) declares nothing.
+    #[test]
+    fn get_system_style_declares_everything_and_the_untracked_one_declares_nothing() {
+        let rd = Rd::new();
+        let rd = rd.ref_data();
+        let _ = take_recorded_style_dependencies();
+
+        let info = info(&rd);
+        let _ = info.get_system_style_untracked();
+        assert!(take_recorded_style_dependencies().is_empty());
+
+        let _ = info.get_system_style();
+        let declared = take_recorded_style_dependencies();
+        assert!(declared.contains(SystemStyleDependency::Everything));
+        assert!(declared.contains(SystemStyleDependency::Colors));
+    }
+}

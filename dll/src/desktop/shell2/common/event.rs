@@ -8112,6 +8112,83 @@ pub trait PlatformWindow {
         Ok(())
     }
 
+    /// Adopt a freshly discovered [`SystemStyle`], choosing between a full DOM
+    /// rebuild and a restyle of the existing one.
+    ///
+    /// THE theme-switch policy, and the twin of
+    /// [`CommonWindowState::request_regeneration_for_resize`]. An appearance
+    /// change is not one event — the light/dark polarity flips, or the accent
+    /// colour moves, or the UI font grows, or only the icon theme is swapped —
+    /// and whether it can change what the app's `layout()` RETURNS depends
+    /// entirely on what that callback read. Only the callback knows, so it
+    /// says so: `LayoutCallbackInfo::depends_on_system_style`, drained into
+    /// `LayoutWindow::recorded_style_dependencies`.
+    ///
+    /// * The change touches a declared facet (or the callback declared
+    ///   nothing, which is every app written before that API existed) —
+    ///   `RelayoutReason::ThemeChange`, the full rebuild.
+    /// * It does not — RESTYLE: the existing `StyledDom` is re-solved against
+    ///   the new style, so `system-*` colours, `@theme` conditions and the
+    ///   scrollbar's OS geometry all re-resolve, while `layout()`, the
+    ///   cascade, icon resolution and CSD injection are all skipped. The
+    ///   incremental caches are dropped first: they hold a display list and a
+    ///   solved tree built against the OLD palette, and reusing those is
+    ///   exactly the "theme switched, half the window stayed light" bug.
+    ///
+    /// Returns whether anything changed at all — `false` means the two styles
+    /// are equal and the caller owes neither pass nor repaint.
+    fn adopt_system_style(
+        &mut self,
+        new_style: std::sync::Arc<azul_css::system::SystemStyle>,
+    ) -> bool {
+        let old_style = std::sync::Arc::clone(&self.get_common_mut().system_style);
+        if *old_style == *new_style {
+            return false;
+        }
+
+        // Decided BEFORE the new style is installed — the question is about
+        // the transition, and both ends of it have to still be readable.
+        let needs_full = self
+            .get_layout_window()
+            .is_none_or(|lw| lw.system_style_change_needs_full_regeneration(&old_style, &new_style));
+
+        self.get_common_mut().system_style = std::sync::Arc::clone(&new_style);
+        if let Some(lw) = self.get_layout_window_mut() {
+            // `regenerate_layout` pushes the style into the LayoutWindow on
+            // its own; the restyle path below does not go through it, and a
+            // LayoutWindow still holding the old style would re-solve into
+            // the very palette we are leaving.
+            lw.set_system_style(std::sync::Arc::clone(&new_style));
+        }
+
+        if needs_full {
+            self.get_common_mut()
+                .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+            return true;
+        }
+
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.layout_cache.reset_incremental();
+        }
+        let mut debug_messages = None;
+        if let Err(e) =
+            self.incremental_relayout_dispatching(IncrementalRelayout::Restyle, &mut debug_messages)
+        {
+            log_warn!(
+                crate::desktop::shell2::common::debug_server::LogCategory::Layout,
+                "[system_style] restyle failed: {e} — falling back to a full regeneration"
+            );
+            self.get_common_mut()
+                .request_regeneration(azul_core::callbacks::RelayoutReason::ThemeChange);
+        } else {
+            // Layout is already up to date on the existing StyledDom: take the
+            // established relayout-only path (skip regenerate_layout, still
+            // rebuild the hit-tester and send the full transaction).
+            self.get_common_mut().request_relayout_only();
+        }
+        true
+    }
+
     /// Drain `LayoutWindow.pending_lifecycle_events` and dispatch each event.
     ///
     /// Reconciliation (see `common::layout::regenerate_layout`) queues

@@ -54,6 +54,7 @@ use azul_css::{
     *,
 };
 
+use azul_css::system::SystemStyle;
 use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut};
 
 use crate::callbacks::CallbackInfo;
@@ -176,6 +177,36 @@ impl BackstageTheme {
             nav_active_bg: W13_NAV_ACTIVE,
             content_bg: WHITE,
             back_ring: WHITE,
+        }
+    }
+
+    /// Extracts a backstage palette from the OS theme.
+    ///
+    /// The nav column is an ACCENT-FILLED band and the pane behind it is the
+    /// window surface, so those two system colours carry the whole screen. A
+    /// colour the platform does not report falls back to that field's own
+    /// Office-2013 value, never to another derived value; same discipline as
+    /// [`super::ribbon::RibbonTheme::from_system`], no colour arithmetic.
+    ///
+    /// Takes the style by value (FFI constructor convention).
+    #[must_use]
+    pub fn from_system(style: SystemStyle) -> Self {
+        let d = Self::office_2013();
+        let c = &style.colors;
+        let on_accent = c.accent_text.into_option();
+        Self {
+            nav_bg: c.accent.into_option().unwrap_or(d.nav_bg),
+            nav_text: on_accent.unwrap_or(d.nav_text),
+            nav_hover_bg: c
+                .selection_background
+                .into_option()
+                .unwrap_or(d.nav_hover_bg),
+            nav_active_bg: c
+                .selection_background_inactive
+                .into_option()
+                .unwrap_or(d.nav_active_bg),
+            content_bg: c.window_background.into_option().unwrap_or(d.content_bg),
+            back_ring: on_accent.unwrap_or(d.back_ring),
         }
     }
 }
@@ -416,6 +447,14 @@ impl BackstageStyle {
     #[must_use]
     pub fn office_2013() -> Self {
         Self::from_theme(BackstageTheme::office_2013())
+    }
+
+    /// Every part style, derived from the OS theme - see
+    /// [`BackstageTheme::from_system`]. Takes the style by value (FFI
+    /// constructor convention).
+    #[must_use]
+    pub fn from_system(style: SystemStyle) -> Self {
+        Self::from_theme(BackstageTheme::from_system(style))
     }
 
     /// Derives every part style from the given palette.
@@ -911,6 +950,55 @@ mod tests {
 
     extern "C" fn back_cb(_: RefAny, _: CallbackInfo) -> Update {
         Update::DoNothing
+    }
+
+    #[test]
+    fn from_system_with_no_reported_colors_falls_back_to_office_2013() {
+        // SystemStyle::default() may pre-fill platform colors; the fallback
+        // contract is about a system that reports NO colors at all.
+        let mut sys = azul_css::system::SystemStyle::default();
+        sys.colors = azul_css::system::SystemColors::default();
+        assert_eq!(
+            BackstageTheme::from_system(sys.clone()),
+            BackstageTheme::office_2013()
+        );
+        assert_eq!(
+            BackstageStyle::from_system(sys),
+            BackstageStyle::office_2013()
+        );
+    }
+
+    #[test]
+    fn from_system_separates_the_accent_nav_band_from_the_window_surface() {
+        let accent = ColorU {
+            r: 61,
+            g: 174,
+            b: 233,
+            a: 255,
+        };
+        let surface = ColorU {
+            r: 35,
+            g: 38,
+            b: 41,
+            a: 255,
+        };
+        let mut sys = azul_css::system::SystemStyle::default();
+        sys.colors = azul_css::system::SystemColors::default();
+        sys.colors.accent = Some(accent).into();
+        sys.colors.window_background = Some(surface).into();
+
+        let t = BackstageTheme::from_system(sys);
+        assert_eq!(t.nav_bg, accent, "the nav column is the accent band");
+        assert_eq!(t.content_bg, surface, "the pane is the window surface");
+        assert_ne!(
+            t.nav_bg, t.content_bg,
+            "a dark surface must not swallow the nav column"
+        );
+        assert_eq!(
+            t.nav_text,
+            BackstageTheme::office_2013().nav_text,
+            "an unreported colour falls back to its OWN office value"
+        );
     }
 
     // ------------------------------------------------------------------

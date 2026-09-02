@@ -11,12 +11,14 @@ use azul::dom::{Dom, IdOrClass, SliderOnValueChangeCallback, StatusBarOnViewSele
 use azul::option::{OptionDom, OptionRefAny};
 use azul::str::String as AzString;
 use azul::svg::LogicalRect;
+use azul::css::SystemStyle;
 use azul::widgets::{
-    ButtonOnClick, QuickAccessAction, QuickAccessBar, SliderOnValueChange, StatusBar,
-    StatusBarSegment, StatusBarViewSwitcher, StatusBarZoom,
+    ButtonOnClick, QuickAccessAction, QuickAccessBar, QuickAccessStyle, SliderOnValueChange,
+    StatusBar, StatusBarSegment, StatusBarViewSwitcher, StatusBarZoom,
 };
 
 use crate::document::{self, FontCacheSnapshot};
+use crate::palette::Palette;
 use crate::AppState;
 
 /// #28 (b): sheet geometry derives from the ONE `document::A4_*` source —
@@ -43,21 +45,30 @@ fn s(v: &str) -> AzString {
     AzString::from(v)
 }
 
-/// The blue "W" application logo square in the title band.
-fn word_logo() -> Dom {
+/// The accent "W" application logo square in the title band.
+fn word_logo(pal: &Palette) -> Dom {
     Dom::create_div()
         .with_css(
-            "display: flex; align-items: center; justify-content: center; width: 24px; \
-             height: 24px; background: #2b579a; flex-grow: 0;",
+            format!(
+                "display: flex; align-items: center; justify-content: center; width: 24px; \
+                 height: 24px; background: {}; flex-grow: 0;",
+                Palette::hex(pal.brand)
+            )
+            .as_str(),
         )
-        .with_child(crate::fonts::text("W", 13, crate::fonts::WHITE))
+        .with_child(crate::fonts::text("W", 13, pal.on_brand))
 }
 
 /// Title band: Word logo, quick-access save/undo/redo, customize chevron,
 /// centered "<name> - AzWriter", help + window buttons.
-pub fn title_band(state: &AppState, data: &RefAny) -> Dom {
+pub fn title_band(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -> Dom {
     let title = format!("{} - AzWriter", state.document.display_name());
-    let mut band = QuickAccessBar::office_2013(AzString::from(title)).with_leading(word_logo());
+    let mut band =
+        QuickAccessBar::office_2013(AzString::from(title)).with_leading(word_logo(pal));
+    // The band IS this window's titlebar, so it takes the DESKTOP's titlebar
+    // colours (header fill, its own close-button hover) rather than the
+    // Office white - see `QuickAccessStyle::from_system`.
+    band.style = QuickAccessStyle::from_system(SystemStyle::clone(sys));
     band.actions = vec![
         QuickAccessAction::new(s("save")).with_on_click(
             data.clone(),
@@ -96,6 +107,7 @@ fn canvas(
     data: &RefAny,
     fonts: Option<FontCacheSnapshot>,
     total_pages: usize,
+    pal: &Palette,
 ) -> Dom {
     let _ = state;
     let mut area = Dom::create_div().with_css(
@@ -107,9 +119,17 @@ fn canvas(
         // Taffy content size) grew a phantom scrollbar with a full-track thumb.
         // `hidden` still crops the sheet stack the way classic office suites do
         // and stays out of the wheel-target list.
-        "flex-grow: 1; min-height: 0px; background: #e3e3e3; display: flex; \
-         flex-direction: column; align-items: center; padding-top: 18px; \
-         overflow: hidden;",
+        format!(
+            // The top border is the CHROME EDGE: the boundary between the
+            // app's controls and the document. Without it a dark ribbon and a
+            // dark canvas read as one surface and the ribbon appears to float
+            // in nothing.
+            "flex-grow: 1; min-height: 0px; background: {canvas}; display: flex; \
+             flex-direction: column; align-items: center; padding-top: 18px; \
+             border-top: 1px solid {edge}; overflow: hidden;",
+            canvas = Palette::hex(pal.canvas),
+            edge = Palette::hex(pal.chrome_edge)
+        ),
     );
     // #28: pages materialize lazily — the callback renders a ~3-page window
     // around the scroll position; everything else exists only as scrollbar
@@ -119,6 +139,7 @@ fn canvas(
         app: data.clone(),
         fonts,
         total: total_pages,
+        pal: *pal,
     });
     // #28(c): mount/unmount drive the STREAMING background pagination — the
     // mount callback spawns the chunk-loop thread (needs the font cache, so
@@ -174,6 +195,11 @@ struct PagesVv {
     /// wiring the `DocumentEdit` callback onto materialized pages.
     app: RefAny,
     fonts: Option<FontCacheSnapshot>,
+    /// The sheet colours. Carried in the payload because the VirtualView
+    /// callback runs OUTSIDE `layout()` (the manager re-invokes it on scroll)
+    /// and has no `LayoutCallbackInfo` to re-derive them from; the payload is
+    /// rebuilt on every DOM regeneration, so a theme switch refreshes it.
+    pal: Palette,
 }
 
 /// #28: materialize pages `first−1 ..= last_visible+1` around the scroll
@@ -187,11 +213,11 @@ extern "C" fn pages_virtual_view(
 ) -> VirtualViewReturn {
     // RefAny downcasts take `&mut self` (borrow bookkeeping), so clone the
     // handles out of the payload borrow first (refcount bumps only).
-    let (mut app, fonts, payload_total) = {
+    let (mut app, fonts, payload_total, pal) = {
         let Some(vv) = data.downcast_ref::<PagesVv>() else {
             return VirtualViewReturn::default();
         };
-        (vv.app.clone(), vv.fonts.clone(), vv.total)
+        (vv.app.clone(), vv.fonts.clone(), vv.total, vv.pal)
     };
     // Everything that needs `state` happens inside this scope — the borrow
     // must end before `app` is cloned into page callbacks below (E0502).
@@ -235,11 +261,18 @@ extern "C" fn pages_virtual_view(
     let stride = page_h + 16.0;
 
     let page_css = format!(
-        "width: {}px; height: {}px; background: white; flex-grow: 0; \
-         flex-shrink: 0; border: 1px solid #a6a6a6; box-shadow: 0px 1px 4px #00000059; \
+        "width: {}px; height: {}px; background: {sheet}; flex-grow: 0; \
+         flex-shrink: 0; border: 1px solid {border}; box-shadow: 0px 1px 4px {shadow}; \
          margin-bottom: 16px; box-sizing: border-box; padding: {pad}px; \
          overflow: hidden;",
-        page_w as isize, page_h as isize,
+        page_w as isize,
+        page_h as isize,
+        sheet = Palette::hex(pal.sheet),
+        border = Palette::hex(pal.sheet_border),
+        // A drop shadow reads as depth only against a lighter surround. On a
+        // dark canvas the same black smudge just muddies the sheet edge, so
+        // the border carries the separation there and the shadow stands down.
+        shadow = if pal.dark { "#00000000" } else { "#00000059" },
     );
     let mut col =
         Dom::create_div().with_css("display: flex; flex-direction: column; align-items: center;");
@@ -304,7 +337,13 @@ extern "C" fn pages_virtual_view(
 
 /// the Office-2013-era look status bar: page / word count / language left, view switcher
 /// and zoom cluster right.
-pub fn status_bar(state: &AppState, data: &RefAny, page_count: usize) -> Dom {
+pub fn status_bar(
+    state: &AppState,
+    data: &RefAny,
+    page_count: usize,
+    pal: &Palette,
+    sys: &SystemStyle,
+) -> Dom {
     let words = state.document.word_count();
     let segments = vec![
         StatusBarSegment::new(AzString::from(format!("PAGE 1 OF {page_count}"))),
@@ -336,6 +375,9 @@ pub fn status_bar(state: &AppState, data: &RefAny, page_count: usize) -> Dom {
     .into();
 
     let mut bar = StatusBar::new(segments).with_views(views).with_zoom(zoom);
+    // A BRAND-filled strip over the desktop's neutrals - the office blue is
+    // AzWriter's, not the session's accent.
+    bar.style = crate::palette::widgets::status_bar(pal, sys);
     crate::fonts::push_ui_font(&mut bar.style.bar_style);
     bar.dom()
 }
@@ -360,6 +402,8 @@ pub fn editor_screen(
     data: &RefAny,
     fonts: Option<FontCacheSnapshot>,
     max_monitor: Option<LayoutSize>,
+    pal: &Palette,
+    sys: &SystemStyle,
 ) -> Dom {
     // Dynamic pagination: the engine cuts the cached content DOM at its
     // structural break paths; pages build LAZILY inside the canvas
@@ -382,26 +426,27 @@ pub fn editor_screen(
 
     let title = {
         let _p = crate::perf::Phase::start("title_band");
-        title_band(state, data)
+        title_band(state, data, pal, sys)
     };
     let ribbon = {
         let _p = crate::perf::Phase::start("ribbon");
-        crate::ribbon_ui::build(state, data)
+        crate::ribbon_ui::build(state, data, pal, sys)
     };
     let canvas_dom = {
         let _p = crate::perf::Phase::start("canvas");
-        canvas(state, data, fonts, page_count)
+        canvas(state, data, fonts, page_count, pal)
     };
     let status = {
         let _p = crate::perf::Phase::start("status_bar");
-        status_bar(state, data, page_count)
+        status_bar(state, data, page_count, pal, sys)
     };
 
     Dom::create_div()
         .with_css(
             format!(
                 "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
-                 background: white; {}",
+                 background: {}; {}",
+                Palette::hex(pal.chrome),
                 crate::fonts::UI_FONT_CSS
             )
             .as_str(),

@@ -14,9 +14,12 @@ use azul::option::OptionRefAny;
 use azul::str::String as AzString;
 use azul::widgets::{
     ComboBoxState, Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonColumn,
-    RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonRow, RibbonStyle, RibbonTab,
+    RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonRow, RibbonTab,
 };
 
+use azul::css::SystemStyle;
+
+use crate::palette::Palette;
 use crate::AppState;
 
 // ---------------------------------------------------------------------------
@@ -129,7 +132,7 @@ fn column(items: Vec<RibbonItem>) -> RibbonItem {
     )
 }
 
-fn cell(preview_css: &str, sample: &str, name: &str) -> RibbonGalleryCell {
+fn cell(preview_css: String, sample: &str, name: &str) -> RibbonGalleryCell {
     // The preview sits next to the cell's <p> label, so it needs a box of its
     // own — a DIV, which (unlike <p>) adds no UA margins to the sample.
     RibbonGalleryCell::new(
@@ -142,8 +145,12 @@ fn cell(preview_css: &str, sample: &str, name: &str) -> RibbonGalleryCell {
 // The HOME tab (the the Office-2013-era look default tab, cloned control by control)
 // ---------------------------------------------------------------------------
 
-fn home_tab(state: &AppState, data: &RefAny) -> RibbonTab {
-    let ribbon_style = RibbonStyle::office_2013();
+fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -> RibbonTab {
+    // The ribbon chrome is the app's biggest painted surface: the desktop
+    // supplies its neutrals, so the tab strip and every control in it match
+    // the session instead of being a white rectangle pasted into a dark one -
+    // while the FILE button and the active-tab accent stay AzWriter's brand.
+    let ribbon_style = crate::palette::widgets::ribbon(pal, sys);
 
     // -- Clipboard ---------------------------------------------------------
     let clipboard = RibbonGroup::new(s("Clipboard"))
@@ -263,27 +270,48 @@ fn home_tab(state: &AppState, data: &RefAny) -> RibbonTab {
     ]));
 
     // -- Styles (in-ribbon gallery) -------------------------------------------
+    // The gallery previews are SAMPLES OF THE DOCUMENT STYLES, and a document
+    // style is a fixed thing: "Heading 1 is 2E74B5" does not become something
+    // else because the desktop theme did. They are the one part of this app's
+    // chrome that is deliberately NOT themed (user ruling) - the preview has
+    // to show what the style will actually be.
     let cells = vec![
         cell(
-            "font-size: 14px; color: #444444;",
+            "font-size: 14px; color: #444444;".to_string(),
             "AaBbCcDc",
             "\u{00b6} Normal",
         ),
         cell(
-            "font-size: 14px; color: #444444;",
+            "font-size: 14px; color: #444444;".to_string(),
             "AaBbCcDc",
             "\u{00b6} No Spac...",
         ),
-        cell("font-size: 15px; color: #2e74b5;", "AaBbCc", "Heading 1"),
-        cell("font-size: 14px; color: #2e74b5;", "AaBbCcD", "Heading 2"),
-        cell("font-size: 19px; color: #262626;", "AaB", "Title"),
-        cell("font-size: 13px; color: #5a5a5a;", "AaBbCcD", "Subtitle"),
         cell(
-            "font-size: 13px; color: #808080;",
+            "font-size: 15px; color: #2e74b5;".to_string(),
+            "AaBbCc",
+            "Heading 1",
+        ),
+        cell(
+            "font-size: 14px; color: #2e74b5;".to_string(),
+            "AaBbCcD",
+            "Heading 2",
+        ),
+        cell("font-size: 19px; color: #262626;".to_string(), "AaB", "Title"),
+        cell(
+            "font-size: 13px; color: #5a5a5a;".to_string(),
+            "AaBbCcD",
+            "Subtitle",
+        ),
+        cell(
+            "font-size: 13px; color: #808080;".to_string(),
             "AaBbCcDi",
             "Subtle Em...",
         ),
-        cell("font-size: 13px; color: #4472c4;", "AaBbCcDi", "Emphasis"),
+        cell(
+            "font-size: 13px; color: #4472c4;".to_string(),
+            "AaBbCcDi",
+            "Emphasis",
+        ),
     ];
     let mut gallery = RibbonGallery::new(cells).with_selected(state.selected_style);
     gallery.set_on_select(
@@ -323,9 +351,9 @@ fn placeholder_tab(label: &str) -> RibbonTab {
 
 /// Builds the full ribbon (tab strip + active tab content) for the editor
 /// screen. The FILE button opens the backstage.
-pub fn build(state: &AppState, data: &RefAny) -> Dom {
+pub fn build(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -> Dom {
     let tabs: Vec<RibbonTab> = vec![
-        home_tab(state, data),
+        home_tab(state, data, pal, sys),
         placeholder_tab("INSERT"),
         placeholder_tab("DESIGN"),
         placeholder_tab("PAGE LAYOUT"),
@@ -341,6 +369,7 @@ pub fn build(state: &AppState, data: &RefAny) -> Dom {
             crate::on_file_button as ButtonOnClickCallbackType,
         ))
         .with_active_tab(state.ribbon_tab);
+    ribbon.style = crate::palette::widgets::ribbon(pal, sys);
     ribbon.set_on_tab_click(data.clone(), on_tab_click as RibbonOnTabClickCallbackType);
     // WORKAROUND(engine): pin the static UI font on the ribbon container —
     // the font inherits into every tab / group / label (see crate::fonts).

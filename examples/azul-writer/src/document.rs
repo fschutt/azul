@@ -80,6 +80,17 @@ fn box_str(s: &BoxOrStaticString) -> &str {
 /// The document stylesheet: the Office-2013-era default look for markdown content.
 /// Calibri 11pt body (14.7px, the classic default), Calibri Light headings in
 /// the classic office-suite accent blue, 8pt spacing after paragraphs.
+///
+/// FIXED in both themes, on purpose. The sheet is a preview of a PRINTED
+/// page: the paper stays paper (`crate::palette`'s `sheet`, dimmed but not
+/// inverted in a dark session) and the document's own styling stays what it
+/// will print as - the same reasoning as the ribbon's style previews. Only
+/// the chrome AROUND the page follows the desktop.
+///
+/// This sheet is also baked into the CACHED content DOM
+/// (`DocumentModel::content`, the source of truth the C11 edit loop mutates),
+/// which a theme switch does not rebuild - the document did not change, only
+/// the desktop did. Keeping it theme-independent is what makes that safe.
 const DOC_CSS: &str = "
     body { font-family: 'Liberation Sans', sans-serif; font-size: 15px;
            color: #1a1a1a; line-height: 1.35; }
@@ -98,6 +109,7 @@ const DOC_CSS: &str = "
     hr   { border-bottom: 1px solid #bbbbbb; margin-bottom: 11px; }
     strong { font-weight: bold; }
     em   { font-style: italic; }
+
 ";
 
 /// The application-side document model: origin path, raw markdown source,
@@ -317,6 +329,25 @@ fn xml_error_kind(e: &XmlError) -> &'static str {
     }
 }
 
+/// Where `--dump-xml` writes the generated document XML.
+///
+/// A one-time store rather than a parameter because the only caller is
+/// [`markdown_to_content_dom`], reached from the document model, the edit
+/// loop and the tests alike - threading a debug path through all three
+/// signatures would put it in production code that has no use for it. The
+/// VALUE still comes from the command line (`args`), which is the part that
+/// matters: nothing here reads the environment.
+static DUMP_XML: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+
+/// Called once from `start`, before any document is parsed.
+pub fn init_dump_xml(path: Option<PathBuf>) {
+    let _ = DUMP_XML.set(path);
+}
+
+fn dump_xml_path() -> Option<&'static Path> {
+    DUMP_XML.get()?.as_deref()
+}
+
 /// markdown source -> content `Dom`, through the full pipeline:
 /// pulldown-cmark renders HTML, the azul XML parser turns it into an
 /// unstyled `Dom` with the `<style>` document stylesheet attached to
@@ -340,8 +371,8 @@ pub fn markdown_to_content_dom(markdown: &str) -> Dom {
     }
 
     let xml = format!("<html><head><style>{DOC_CSS}</style></head><body>{body}</body></html>");
-    if let Ok(dump) = std::env::var("AZWRITER_DUMP_XML") {
-        let _ = std::fs::write(&dump, &xml);
+    if let Some(dump) = dump_xml_path() {
+        let _ = std::fs::write(dump, &xml);
     }
     match Xml::from_str(xml).into_result() {
         Ok(parsed) => {

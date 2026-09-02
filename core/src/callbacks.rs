@@ -993,6 +993,226 @@ pub fn take_recorded_size_queries() -> (alloc::vec::Vec<SizeQuery>, bool) {
     (alloc::vec::Vec::new(), false)
 }
 
+/// Which facet of the OS style a `layout()` callback read.
+///
+/// An "appearance change" is never one event. The light/dark polarity flips,
+/// or the accent colour moves, or the UI font grows, or the icon theme is
+/// swapped — and each of those reaches a different app differently. Whether
+/// the change can alter what `layout()` RETURNS depends entirely on what that
+/// callback read, and only the callback knows.
+/// [`LayoutCallbackInfo::depends_on_system_style`] is how it says so; this
+/// enum is the vocabulary.
+///
+/// Deliberately coarse. The distinction that pays is between the app that
+/// merely mirrors light/dark (its DOM is byte-identical across two different
+/// LIGHT schemes, so an accent change must not cost it a rebuild) and the app
+/// that baked `colors.button_face` into inline CSS inside `layout()` (its DOM
+/// is wrong the instant the palette moves). Finer facets would be more
+/// precise and nobody would declare them correctly.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SystemStyleDependency {
+    /// The light/dark polarity alone — [`LayoutCallbackInfo::get_theme`].
+    Theme,
+    /// The colour palette: text, background, accent, button, selection.
+    Colors,
+    /// The UI fonts — family, size, weight.
+    Fonts,
+    /// Sizing and spacing metrics: control sizes, scrollbar geometry,
+    /// titlebar layout, input timings, focus ring.
+    Metrics,
+    /// The icon theme and the icon styling options.
+    Icons,
+    /// Accessibility and motion preferences — reduced motion, high contrast,
+    /// animation speed.
+    Accessibility,
+    /// Everything: the callback took the whole [`SystemStyle`] and the engine
+    /// cannot see which parts of it were read. The conservative answer, and
+    /// what [`LayoutCallbackInfo::get_system_style`] records.
+    Everything,
+}
+
+impl SystemStyleDependency {
+    /// This facet's bit in a [`SystemStyleDependencies`] mask.
+    #[must_use]
+    pub const fn bit(self) -> u32 {
+        match self {
+            Self::Theme => 1 << 0,
+            Self::Colors => 1 << 1,
+            Self::Fonts => 1 << 2,
+            Self::Metrics => 1 << 3,
+            Self::Icons => 1 << 4,
+            Self::Accessibility => 1 << 5,
+            Self::Everything => u32::MAX,
+        }
+    }
+}
+
+/// The set of [`SystemStyleDependency`] facets one `layout()` call declared.
+///
+/// A bitmask rather than a list: the facets are few, the union is the only
+/// operation, and it has to be cheap enough to fold on every declaration
+/// inside a deep widget tree.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub struct SystemStyleDependencies {
+    /// Bitmask over [`SystemStyleDependency::bit`]. `0` = nothing declared,
+    /// which is NOT "depends on nothing" — see
+    /// [`Self::dom_depends_on_change`].
+    pub facets: u32,
+}
+
+impl SystemStyleDependencies {
+    /// Nothing declared.
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self { facets: 0 }
+    }
+
+    /// Every facet — what an undeclared callback is treated as.
+    #[must_use]
+    pub const fn all() -> Self {
+        Self { facets: u32::MAX }
+    }
+
+    /// Nothing has been declared yet.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.facets == 0
+    }
+
+    /// Fold one facet in.
+    pub const fn insert(&mut self, dep: SystemStyleDependency) {
+        self.facets |= dep.bit();
+    }
+
+    /// Fold another set in.
+    pub const fn union(&mut self, other: Self) {
+        self.facets |= other.facets;
+    }
+
+    /// Was `dep` declared? `Everything` implies every facet.
+    #[must_use]
+    pub const fn contains(&self, dep: SystemStyleDependency) -> bool {
+        let bit = dep.bit();
+        self.facets & bit == bit
+    }
+
+    /// Would a system-style change from `old` to `new` alter what the
+    /// callback that declared these dependencies returns — i.e. does the
+    /// change need a full `Update::RefreshDom`, or only a restyle?
+    ///
+    /// An EMPTY set answers `true`. "Declared nothing" is not "depends on
+    /// nothing": it is the state of every callback written before this API
+    /// existed, and of every callback that reads the OS style through a
+    /// widget it does not control. Skipping their rebuild would leave the
+    /// previous palette baked into the DOM — a silent wrong-colours bug that
+    /// only a theme switch reveals. Declaring is opt-in; conservatism is the
+    /// default.
+    #[must_use]
+    pub fn dom_depends_on_change(
+        &self,
+        old: &azul_css::system::SystemStyle,
+        new: &azul_css::system::SystemStyle,
+    ) -> bool {
+        if self.is_empty() {
+            return old != new;
+        }
+        if self.contains(SystemStyleDependency::Theme) && old.theme != new.theme {
+            return true;
+        }
+        if self.contains(SystemStyleDependency::Colors) && old.colors != new.colors {
+            return true;
+        }
+        if self.contains(SystemStyleDependency::Fonts) && old.fonts != new.fonts {
+            return true;
+        }
+        if self.contains(SystemStyleDependency::Metrics)
+            && (old.metrics != new.metrics
+                || old.input != new.input
+                || old.focus_visuals != new.focus_visuals
+                || old.scrollbar != new.scrollbar
+                || old.scrollbar_preferences != new.scrollbar_preferences)
+        {
+            return true;
+        }
+        if self.contains(SystemStyleDependency::Icons)
+            && (old.icon_style != new.icon_style
+                || old.visual_hints != new.visual_hints
+                || old.linux.icon_theme != new.linux.icon_theme)
+        {
+            return true;
+        }
+        if self.contains(SystemStyleDependency::Accessibility)
+            && (old.accessibility != new.accessibility
+                || old.animation != new.animation
+                || old.prefers_reduced_motion != new.prefers_reduced_motion
+                || old.prefers_high_contrast != new.prefers_high_contrast)
+        {
+            return true;
+        }
+        false
+    }
+}
+
+/// Thread-local recorder behind [`LayoutCallbackInfo::depends_on_system_style`].
+///
+/// Same shape, and for the same reason, as the size-query recorder above: the
+/// layout callback runs SYNCHRONOUSLY on the calling thread, so the engine
+/// drains what it declared right after it returns. A mask cannot overflow, so
+/// unlike the size queries there is no incomplete-recording flag.
+#[cfg(feature = "std")]
+mod style_dep_recorder {
+    use super::SystemStyleDependencies;
+
+    std::thread_local! {
+        static DECLARED: core::cell::Cell<SystemStyleDependencies> =
+            const { core::cell::Cell::new(SystemStyleDependencies { facets: 0 }) };
+    }
+
+    pub(super) fn record(dep: super::SystemStyleDependency) {
+        DECLARED.with(|d| {
+            let mut set = d.get();
+            set.insert(dep);
+            d.set(set);
+        });
+    }
+
+    pub(super) fn take() -> SystemStyleDependencies {
+        DECLARED.with(core::cell::Cell::take)
+    }
+}
+
+#[cfg(feature = "std")]
+fn record_style_dependency(dep: SystemStyleDependency) {
+    style_dep_recorder::record(dep);
+}
+
+/// Without `std` there is no thread-local to record into. The declarations
+/// still cost nothing and the engine falls back to rebuilding on every
+/// system-style change — today's behaviour, merely un-optimized.
+#[cfg(not(feature = "std"))]
+fn record_style_dependency(_dep: SystemStyleDependency) {}
+
+/// Drain the system-style dependencies declared since the last drain on THIS
+/// thread.
+///
+/// Call immediately after a `layout()` callback returns, on the same thread.
+/// The empty set means the callback declared nothing — which
+/// [`SystemStyleDependencies::dom_depends_on_change`] reads as "assume it
+/// depends on all of it".
+#[cfg(feature = "std")]
+#[must_use]
+pub fn take_recorded_style_dependencies() -> SystemStyleDependencies {
+    style_dep_recorder::take()
+}
+
+#[cfg(not(feature = "std"))]
+#[must_use]
+pub fn take_recorded_style_dependencies() -> SystemStyleDependencies {
+    SystemStyleDependencies::empty()
+}
+
 impl Clone for LayoutCallbackInfo {
     #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
     fn clone(&self) -> Self {
@@ -1091,9 +1311,78 @@ impl LayoutCallbackInfo {
         }
     }
 
-    /// Get a clone of the system style Arc
+    /// Declare that the DOM this callback returns depends on `dep`.
+    ///
+    /// THE seam between "the OS appearance changed" and "this app's DOM is
+    /// now wrong". A theme switch, an accent-colour change, a UI-font resize
+    /// all arrive as the same kind of event, and the engine has no way to see
+    /// which of them can change what `layout()` builds — only the callback
+    /// knows.
+    ///
+    /// Declare narrowly and a change outside what you declared costs a
+    /// RESTYLE (the cascade re-resolves `system-*` colours and `@theme`
+    /// conditions against the new style, warm layout caches intact) instead
+    /// of a full `Update::RefreshDom` (re-invoke `layout()`, rebuild the
+    /// `StyledDom`, re-cascade, re-shape every run of text).
+    ///
+    /// ```ignore
+    /// // "I mirror light/dark and nothing else": switching between two
+    /// // light colour schemes cannot change my DOM.
+    /// info.depends_on_system_style(SystemStyleDependency::Theme);
+    /// let dark = info.get_theme() == WindowTheme::DarkMode;
+    ///
+    /// // "I paint my own buttons from the OS palette": ANY palette move
+    /// // invalidates my DOM, light-to-light included.
+    /// info.depends_on_system_style(SystemStyleDependency::Colors);
+    /// ```
+    ///
+    /// Declarations UNION over the whole callback, widgets included, and the
+    /// union is conservative: one widget calling
+    /// [`Self::get_system_style`] declares [`SystemStyleDependency::Everything`]
+    /// for the entire tree, because a whole-struct read is opaque.
+    ///
+    /// Declaring NOTHING is not "depends on nothing" — an undeclared callback
+    /// is rebuilt on every system-style change, exactly as before this API
+    /// existed. Reading the `theme` field directly (`info.theme`) declares
+    /// nothing either: the engine cannot see a field read, the same way it
+    /// cannot see `info.window_size` being used to branch the DOM.
+    #[allow(clippy::unused_self)] // C-ABI-shaped method: receiver kept for API symmetry
+    pub fn depends_on_system_style(&self, dep: SystemStyleDependency) {
+        record_style_dependency(dep);
+    }
+
+    /// The window's light/dark polarity, declaring
+    /// [`SystemStyleDependency::Theme`].
+    ///
+    /// The tracked way to read what the `theme` field also holds. Use this
+    /// and a change that leaves the polarity alone — a new accent colour, a
+    /// different light scheme — will not rebuild the DOM.
+    #[must_use]
+    pub fn get_theme(&self) -> WindowTheme {
+        self.depends_on_system_style(SystemStyleDependency::Theme);
+        self.theme
+    }
+
+    /// Get a clone of the system style Arc.
+    ///
+    /// Declares [`SystemStyleDependency::Everything`]: handing out the whole
+    /// struct makes the read opaque, so the honest answer is that any part of
+    /// it may have reached the DOM. A callback that only wants the palette or
+    /// the fonts should say so with [`Self::depends_on_system_style`] and
+    /// reach for [`Self::get_system_style_untracked`].
     #[must_use]
     pub fn get_system_style(&self) -> Arc<SystemStyle> {
+        self.depends_on_system_style(SystemStyleDependency::Everything);
+        self.get_system_style_untracked()
+    }
+
+    /// The system style WITHOUT declaring a dependency on all of it.
+    ///
+    /// For a callback that has already declared what it actually reads, and
+    /// for engine-internal readers (CSD, menus) whose output is rebuilt by
+    /// the engine itself rather than by the app's `layout()`.
+    #[must_use]
+    pub fn get_system_style_untracked(&self) -> Arc<SystemStyle> {
         unsafe { (*self.ref_data).system_style.clone() }
     }
 

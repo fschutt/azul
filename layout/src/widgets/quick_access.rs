@@ -51,6 +51,7 @@ use azul_css::{
     *,
 };
 
+use azul_css::system::SystemStyle;
 use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut};
 
 use super::button::{Button, OptionButtonOnClick};
@@ -164,6 +165,54 @@ impl QuickAccessTheme {
             pressed_bg: W13_PRESSED_BG,
             close_hover_bg: W13_CLOSE_HOVER,
             close_hover_icon: WHITE,
+        }
+    }
+
+    /// Extracts a band palette from the OS theme.
+    ///
+    /// The quick-access band IS the window's titlebar in an app that draws its
+    /// own chrome, so it reads the OS TITLEBAR colours first
+    /// (`SystemMetrics::titlebar`, which every desktop keeps separately from
+    /// the window background and which is what the user compares against the
+    /// native window next to it) and falls back to the general palette, then
+    /// to this field's own Office-2013 value. Same discipline as
+    /// [`super::ribbon::RibbonTheme::from_system`]: one system colour per
+    /// field, no colour arithmetic, so the FFI-observable behaviour stays
+    /// trivial to reason about.
+    ///
+    /// Takes the style by value (FFI constructor convention).
+    #[must_use]
+    pub fn from_system(style: SystemStyle) -> Self {
+        let d = Self::office_2013();
+        let c = &style.colors;
+        let tb = &style.metrics.titlebar;
+        let secondary = c.secondary_text.into_option();
+        let title_text = tb.text_active.into_option().or(c.text.into_option());
+        Self {
+            bg: tb
+                .background_active
+                .into_option()
+                .or(c.window_background.into_option())
+                .unwrap_or(d.bg),
+            text: title_text.unwrap_or(d.text),
+            icon: secondary.or(title_text).unwrap_or(d.icon),
+            hover_bg: tb
+                .button_hover_background
+                .into_option()
+                .or(c.selection_background_inactive.into_option())
+                .unwrap_or(d.hover_bg),
+            pressed_bg: c.selection_background.into_option().unwrap_or(d.pressed_bg),
+            // The close button keeps its own colour on every platform (Breeze
+            // and Windows both go red), which is why it is a separate metric
+            // and never falls back to the ordinary hover fill.
+            close_hover_bg: tb
+                .close_button_hover_background
+                .into_option()
+                .unwrap_or(d.close_hover_bg),
+            close_hover_icon: c
+                .accent_text
+                .into_option()
+                .unwrap_or(d.close_hover_icon),
         }
     }
 }
@@ -409,6 +458,14 @@ impl QuickAccessStyle {
     #[must_use]
     pub fn office_2013() -> Self {
         Self::from_theme(QuickAccessTheme::office_2013())
+    }
+
+    /// Every part style, derived from the OS theme - see
+    /// [`QuickAccessTheme::from_system`]. Takes the style by value (FFI
+    /// constructor convention).
+    #[must_use]
+    pub fn from_system(style: SystemStyle) -> Self {
+        Self::from_theme(QuickAccessTheme::from_system(style))
     }
 
     /// Derives every part style from the given palette.
@@ -680,9 +737,17 @@ impl QuickAccessBar {
             children.push(action_button(action, &style.window_button_style, &style));
         }
 
+        // The window controls come from the DESKTOP's icon theme first
+        // (`system:` = the pack the shell fills from the user's icon theme -
+        // Breeze, Adwaita, whatever is installed), with the bundled Material
+        // glyph as the fallback for a desktop that provides none. A bar that
+        // draws its own titlebar and then paints Material chevrons next to
+        // the session's real windows is the one detail that gives client-side
+        // decoration away; the same chain the CSD titlebar widget uses
+        // (`super::titlebar`) keeps them identical.
         if show_minimize {
             children.push(window_button(
-                AzString::from_const_str("minimize"),
+                AzString::from_const_str("system:window-minimize,minimize"),
                 style.window_button_style.clone(),
                 &style,
                 on_minimize,
@@ -690,7 +755,7 @@ impl QuickAccessBar {
         }
         if show_maximize {
             children.push(window_button(
-                AzString::from_const_str("crop_square"),
+                AzString::from_const_str("system:window-maximize,crop_square"),
                 style.window_button_style.clone(),
                 &style,
                 on_maximize,
@@ -698,7 +763,7 @@ impl QuickAccessBar {
         }
         if show_close {
             children.push(window_button(
-                AzString::from_const_str("close"),
+                AzString::from_const_str("system:window-close,close"),
                 merged_style(&style.window_button_style, &style.close_button_style),
                 &style,
                 on_close,
@@ -774,6 +839,120 @@ mod tests {
     // ------------------------------------------------------------------
     // Constructors and invariants
     // ------------------------------------------------------------------
+
+    /// The window controls must ask the DESKTOP first and fall back to the
+    /// bundled glyph - the same chain the CSD titlebar uses. Asserted as a
+    /// CHAIN, not as a literal name: pinning one icon name is how this last
+    /// broke, and an unresolved icon renders as an empty div rather than
+    /// failing loudly.
+    #[test]
+    fn the_window_controls_ask_the_desktop_icon_theme_first() {
+        let dom = QuickAccessBar::new(AzString::from("t")).dom();
+        let icons: Vec<String> = collect_icon_names(&dom);
+        for (system, fallback) in [
+            ("system:window-minimize", "minimize"),
+            ("system:window-maximize", "crop_square"),
+            ("system:window-close", "close"),
+        ] {
+            let chain = icons
+                .iter()
+                .find(|i| i.starts_with(system))
+                .unwrap_or_else(|| panic!("no window button asks for {system}; got {icons:?}"));
+            let mut parts = chain.split(',');
+            assert_eq!(
+                parts.next(),
+                Some(system),
+                "the desktop's icon must come FIRST in the chain"
+            );
+            assert!(
+                parts.any(|p| p == fallback),
+                "{chain} must fall back to the bundled {fallback} glyph"
+            );
+        }
+    }
+
+    /// Every icon name in a DOM tree, in document order.
+    fn collect_icon_names(dom: &Dom) -> Vec<String> {
+        fn walk(node: &Dom, out: &mut Vec<String>) {
+            if let azul_core::dom::NodeType::Icon(icon) = node.root.get_node_type() {
+                out.push(icon.as_str().to_string());
+            }
+            for child in node.children.as_ref() {
+                walk(child, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(dom, &mut out);
+        out
+    }
+
+    #[test]
+    fn from_system_with_no_reported_colors_falls_back_to_office_2013() {
+        // SystemStyle::default() may pre-fill platform colors; the fallback
+        // contract is about a system that reports NO colors at all.
+        let mut sys = azul_css::system::SystemStyle::default();
+        sys.colors = azul_css::system::SystemColors::default();
+        sys.metrics.titlebar = azul_css::system::TitlebarMetrics::default();
+        assert_eq!(
+            QuickAccessTheme::from_system(sys.clone()),
+            QuickAccessTheme::office_2013()
+        );
+        assert_eq!(
+            QuickAccessStyle::from_system(sys),
+            QuickAccessStyle::office_2013()
+        );
+    }
+
+    #[test]
+    fn from_system_prefers_the_os_titlebar_colours_over_the_window_palette() {
+        let header = ColorU {
+            r: 61,
+            g: 174,
+            b: 233,
+            a: 255,
+        };
+        let window_bg = ColorU {
+            r: 239,
+            g: 240,
+            b: 241,
+            a: 255,
+        };
+        let mut sys = azul_css::system::SystemStyle::default();
+        sys.colors = azul_css::system::SystemColors::default();
+        sys.metrics.titlebar = azul_css::system::TitlebarMetrics::default();
+        sys.colors.window_background = Some(window_bg).into();
+
+        // Window background only: the band takes it.
+        assert_eq!(QuickAccessTheme::from_system(sys.clone()).bg, window_bg);
+
+        // A reported HEADER colour outranks it — the band is the titlebar.
+        sys.metrics.titlebar.background_active = Some(header).into();
+        assert_eq!(QuickAccessTheme::from_system(sys).bg, header);
+    }
+
+    #[test]
+    fn from_system_keeps_the_close_hover_out_of_the_ordinary_hover_fill() {
+        let hover = ColorU {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 255,
+        };
+        let mut sys = azul_css::system::SystemStyle::default();
+        sys.colors = azul_css::system::SystemColors::default();
+        sys.metrics.titlebar = azul_css::system::TitlebarMetrics::default();
+        sys.metrics.titlebar.button_hover_background = Some(hover).into();
+
+        let t = QuickAccessTheme::from_system(sys);
+        assert_eq!(t.hover_bg, hover);
+        assert_eq!(
+            t.close_hover_bg,
+            QuickAccessTheme::office_2013().close_hover_bg,
+            "the close button keeps its own colour: a desktop that reports a \
+             button hover but no close hover must NOT paint the close button \
+             in the ordinary fill"
+        );
+    }
 
     #[test]
     fn quick_access_new_has_no_actions_and_all_window_buttons() {

@@ -56,7 +56,16 @@ const WANTED: &[&str] = &[
 ];
 
 /// Where freedesktop themes live, most specific first.
-fn icon_theme_dirs(theme: &str) -> Vec<String> {
+/// The size a `scalable` icon is drawn at when the theme states none.
+///
+/// freedesktop names its directories by NOMINAL size (`actions/16`), and that
+/// number is the size the icon was DESIGNED for - it is what the desktop draws
+/// it at, and what this app must lay it out at. `scalable` has no number, so
+/// an indicator-sized default stands in.
+const SCALABLE_NOMINAL_PX: u32 = 16;
+
+/// Every directory an icon may live in, paired with its NOMINAL size.
+fn icon_theme_dirs(theme: &str) -> Vec<(String, u32)> {
     let home = std::env::var("HOME").unwrap_or_default();
     let mut out = Vec::new();
     for root in [
@@ -67,8 +76,13 @@ fn icon_theme_dirs(theme: &str) -> Vec<String> {
     ] {
         // The sizes a UI indicator is drawn at. 16 first: these are pixel-hinted
         // designs, and the 16px variant is the one drawn beside 10-11pt text.
-        for size in ["16", "22", "24", "scalable"] {
-            out.push(alloc::format!("{root}/{theme}/actions/{size}"));
+        for (size, nominal) in [
+            ("16", 16),
+            ("22", 22),
+            ("24", 24),
+            ("scalable", SCALABLE_NOMINAL_PX),
+        ] {
+            out.push((alloc::format!("{root}/{theme}/actions/{size}"), nominal));
         }
     }
     out
@@ -77,19 +91,24 @@ fn icon_theme_dirs(theme: &str) -> Vec<String> {
 /// Read one named icon out of the theme, following the theme's `Inherits`
 /// chain one level (Breeze Dark inherits Breeze, and only some icons are
 /// overridden in the dark variant).
-fn read_icon_svg(theme: &str, name: &str) -> Option<Vec<u8>> {
-    for dir in icon_theme_dirs(theme) {
+/// Returns the SVG source and the NOMINAL size of the directory it came from
+/// - the size the desktop draws this icon at. The bitmap is rasterised larger
+/// than that for crispness, so the nominal size has to travel with it or the
+/// icon lays out at its oversampled bitmap size (see
+/// `azul_layout::icon::register_image_icon_sized`).
+fn read_icon_svg(theme: &str, name: &str) -> Option<(Vec<u8>, u32)> {
+    for (dir, nominal) in icon_theme_dirs(theme) {
         let path = alloc::format!("{dir}/{name}.svg");
         if let Ok(bytes) = std::fs::read(&path) {
-            return Some(bytes);
+            return Some((bytes, nominal));
         }
     }
     // One level of inheritance, read straight out of index.theme.
     let parent = icon_theme_parent(theme)?;
-    for dir in icon_theme_dirs(&parent) {
+    for (dir, nominal) in icon_theme_dirs(&parent) {
         let path = alloc::format!("{dir}/{name}.svg");
         if let Ok(bytes) = std::fs::read(&path) {
-            return Some(bytes);
+            return Some((bytes, nominal));
         }
     }
     None
@@ -160,7 +179,7 @@ pub fn register_system_icons(provider: &mut IconProviderHandle, style: &SystemSt
 
     let mut registered = 0usize;
     for name in WANTED {
-        let Some(svg) = read_icon_svg(theme, name) else {
+        let Some((svg, nominal_px)) = read_icon_svg(theme, name) else {
             continue;
         };
         let tinted = tint_svg(&svg, tint);
@@ -170,12 +189,15 @@ pub fn register_system_icons(provider: &mut IconProviderHandle, style: &SystemSt
         ) else {
             continue;
         };
-        // 16 logical px: the size an indicator is drawn at beside body text.
-        // The renderer scales from here, so this is a quality floor, not the
-        // final size — 32 keeps it crisp on a 2x display.
+        // Rasterise at 2x the NOMINAL size so the icon stays crisp on a
+        // HiDPI display or under zoom - and register it at the nominal size,
+        // which is the size the desktop actually draws it at. Registering the
+        // bitmap's own size instead made every window control twice as big as
+        // its slot (a 32px close X in a 14px button).
+        let raster_px = isize::try_from(nominal_px.saturating_mul(2)).unwrap_or(32);
         let options = azul_core::svg::SvgRenderOptions {
             target_size: azul_css::props::basic::geometry::OptionLayoutSize::Some(
-                azul_css::props::basic::geometry::LayoutSize::new(32, 32),
+                azul_css::props::basic::geometry::LayoutSize::new(raster_px, raster_px),
             ),
             ..Default::default()
         };
@@ -185,7 +207,11 @@ pub fn register_system_icons(provider: &mut IconProviderHandle, style: &SystemSt
         let Some(image) = azul_core::resources::ImageRef::new_rawimage(raw) else {
             continue;
         };
-        azul_layout::icon::register_image_icon(provider, "system", name, image);
+        #[allow(clippy::cast_precision_loss)] // nominal icon sizes are 16..48
+        let nominal = nominal_px as f32;
+        azul_layout::icon::register_image_icon_sized(
+            provider, "system", name, image, nominal, nominal,
+        );
         registered += 1;
     }
 
@@ -239,12 +265,37 @@ mod tests {
     #[test]
     fn the_search_path_prefers_user_themes_and_covers_the_size_dirs() {
         let dirs = icon_theme_dirs("breeze-dark");
-        assert!(dirs.iter().any(|d| d.ends_with("/breeze-dark/actions/16")));
-        assert!(dirs.iter().any(|d| d.ends_with("/breeze-dark/actions/scalable")));
-        let first_system = dirs.iter().position(|d| d.starts_with("/usr/share"));
-        let first_user = dirs.iter().position(|d| d.contains("/.local/share"));
+        assert!(dirs
+            .iter()
+            .any(|(d, _)| d.ends_with("/breeze-dark/actions/16")));
+        assert!(dirs
+            .iter()
+            .any(|(d, _)| d.ends_with("/breeze-dark/actions/scalable")));
+        let first_system = dirs.iter().position(|(d, _)| d.starts_with("/usr/share"));
+        let first_user = dirs.iter().position(|(d, _)| d.contains("/.local/share"));
         if let (Some(sys), Some(user)) = (first_system, first_user) {
             assert!(user < sys, "a user-installed theme must be searched first");
+        }
+    }
+
+    /// Each directory carries the NOMINAL size freedesktop names it by - the
+    /// size the desktop draws that icon at, which has to survive the trip to
+    /// the icon provider or the icon lays out at its oversampled bitmap size.
+    #[test]
+    fn every_size_directory_reports_the_size_it_is_named_after() {
+        for (dir, nominal) in icon_theme_dirs("breeze") {
+            let leaf = dir.rsplit('/').next().unwrap_or("");
+            match leaf {
+                "scalable" => assert_eq!(
+                    nominal, SCALABLE_NOMINAL_PX,
+                    "a scalable icon has no stated size; the indicator default stands in"
+                ),
+                px => assert_eq!(
+                    px.parse::<u32>().ok(),
+                    Some(nominal),
+                    "{dir} must report {px}, not {nominal}"
+                ),
+            }
         }
     }
 }

@@ -20,10 +20,12 @@
 //! Built entirely on the PUBLIC `azul::` api.json surface (link-dynamic on
 //! desktop) — no internal engine crates.
 
+mod args;
 mod backstage_ui;
 mod document;
 mod editor_ui;
 mod fonts;
+mod palette;
 mod perf;
 mod ribbon_ui;
 
@@ -34,7 +36,9 @@ use azul::callbacks::{
     CallbackInfo, DocumentChangeset, LayoutCallbackInfo, RefAny, TimerCallback,
     TimerCallbackInfo, TimerCallbackReturn, Update, WriteBackCallback,
 };
-use azul::css::{DocumentOperation, LayoutSize, NodePosition};
+use azul::css::{
+    DocumentOperation, LayoutSize, NodePosition, SystemStyleDependency, WindowDecorations,
+};
 use azul::dialog::FileDialog;
 use azul::dom::{Callback, Dom, DomId, DomNodeId, NodeHierarchyItemId};
 use azul::widgets::SliderState;
@@ -52,7 +56,14 @@ use azul::task::{
 use azul::time::{Duration, Instant, SystemTimeDiff};
 use azul::window::{WindowCreateOptions, WindowFrame};
 
+pub use crate::args::Args;
 use crate::document::{DocumentModel, FontCacheSnapshot};
+
+/// The parsed command line, for the ONE consumer that arguments cannot reach
+/// by parameter: `on_window_created` is a `Callback` whose payload slot the
+/// engine owns, so the screenshot switches have nowhere to ride. Written once
+/// in `start`, before any window exists.
+static WINDOW_ARGS: std::sync::OnceLock<Args> = std::sync::OnceLock::new();
 
 /// Diagnostic: log any layout() call slower than the frame budget. A client
 /// that spends too long here cannot answer the compositor's configure/ping
@@ -961,17 +972,43 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     // pagination builds (huge files must not paginate unbounded up front —
     // the background thread delivers the exact count afterwards).
     let max_monitor: Option<LayoutSize> = info.get_max_monitor_size().into_option();
+    // What this UI depends on in the OS style, declared so a theme change
+    // costs it a rebuild only when it has to.
+    //
+    // The chrome is a PALETTE over a fixed layout: every colour comes from the
+    // desktop, so both the polarity (which picks the fallback set) and the
+    // palette itself are read. Fonts and metrics are NOT - the UI family is
+    // pinned (see `fonts`) and the office geometry is fixed - so bumping the
+    // desktop's UI font size must not rebuild this DOM. Reading the whole
+    // style through `get_system_style()` would declare `Everything` and give
+    // that back, which is why the untracked accessor is used AFTER declaring.
+    info.depends_on_system_style(SystemStyleDependency::Theme);
+    info.depends_on_system_style(SystemStyleDependency::Colors);
+    let system_style = info.get_system_style_untracked();
+    let pal = palette::Palette::from_system(&system_style, info.get_theme());
+
     let screen = match state.screen {
-        Screen::Editor => editor_ui::editor_screen(&state, &data, font_cache, max_monitor),
-        Screen::Backstage => backstage_ui::backstage_screen(&state, &data),
+        Screen::Editor => editor_ui::editor_screen(
+            &state,
+            &data,
+            font_cache,
+            max_monitor,
+            &pal,
+            &system_style,
+        ),
+        Screen::Backstage => {
+            backstage_ui::backstage_screen(&state, &data, &pal, &system_style)
+        }
     };
 
     Dom::create_body()
         .with_css(
             format!(
                 "display: flex; flex-direction: column; margin: 0; padding: 0; height: 100%; \
-                 background: white; {} font-size: 12px; color: #444444;",
-                fonts::UI_FONT_CSS
+                 background: {}; {} font-size: 12px; color: {};",
+                palette::Palette::hex(pal.chrome),
+                fonts::UI_FONT_CSS,
+                palette::Palette::hex(pal.text),
             )
             .as_str(),
         )
@@ -1051,11 +1088,10 @@ extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update 
         .with_delay(Duration::System(SystemTimeDiff::from_millis(150)));
         info.add_timer(TimerId::unique(), timer);
     }
-    if let Ok(path) = std::env::var("AZWRITER_SHOT") {
-        let delay_ms: u64 = std::env::var("AZWRITER_SHOT_DELAY_MS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(2500);
+    if let Some((path, delay_ms)) = WINDOW_ARGS
+        .get()
+        .and_then(|a| a.shot.as_ref().map(|p| (p.display().to_string(), a.shot_delay_ms)))
+    {
         let timer = Timer::create(
             RefAny::new(ShotConfig { path }),
             TimerCallback {
@@ -1078,26 +1114,32 @@ extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update 
 /// Start the app. On desktop/iOS this blocks; on Android `App::run` only
 /// stashes the window options for libazul's `android_main` to pick up, then
 /// returns — see the ctor below.
-pub fn start() {
+pub fn start(args: Args) {
+    // The three sinks that cannot take the value through their own signature
+    // (free functions on paths the arguments do not travel) are initialised
+    // here, once, from the parsed command line - see `args`.
+    perf::init_frame_log(args.frame_log);
+    document::init_dump_xml(args.dump_xml.clone());
+
     let mut state = AppState::default();
 
     // Screenshot harness: pick the screen to render.
-    match std::env::var("AZWRITER_SCREEN").as_deref() {
-        Ok("backstage-info") => {
+    match args.screen {
+        args::Screen::Editor => {}
+        args::Screen::BackstageInfo => {
             state.screen = Screen::Backstage;
             state.backstage_pane = 0;
         }
-        Ok("backstage-open") => {
+        args::Screen::BackstageOpen => {
             state.screen = Screen::Backstage;
             state.backstage_pane = 2;
         }
-        _ => {}
     }
 
-    // Harness/CLI: open a markdown file at startup (same pipeline entry as
-    // the backstage Browse dialog).
-    if let Ok(p) = std::env::var("AZWRITER_OPEN") {
-        state.document = DocumentModel::from_path(Path::new(&p));
+    // Open a markdown file at startup (same pipeline entry as the backstage
+    // Browse dialog).
+    if let Some(p) = args.open.as_deref() {
+        state.document = DocumentModel::from_path(p);
     }
 
     // NO PRIMER. This used to paginate here, before the window existed, so the
@@ -1125,7 +1167,7 @@ pub fn start() {
     // the system font scan and every first-use font FILE load; the second
     // pays neither. The gap between them separates "pagination is slow" from
     // "the first pagination is slow".
-    if std::env::var_os("AZWRITER_PAGINATE_TWICE").is_some() {
+    if args.paginate_twice {
         let t = std::time::Instant::now();
         let _ = document::paginate_cached(&state.document.content, document::next_generation());
         eprintln!("[primer] SECOND pagination (warm) took {:?}", t.elapsed());
@@ -1151,22 +1193,37 @@ pub fn start() {
     // xdg_toplevel.set_maximized — so this is one flag rather than four
     // per-platform paths.
     window.window_state.flags.frame = WindowFrame::Maximized;
+    // CLIENT-SIDE DECORATION. The quick-access band already IS a titlebar -
+    // it carries the app logo, the window title, the help button and the
+    // minimize/maximize/close controls, and it declares
+    // `-azul-app-region: drag` so the window manager still gets the drag and
+    // the double-click-to-maximize. A native headerbar on top of that is a
+    // second title bar saying the same thing in a different font.
+    //
+    // `WindowDecorations::None` rather than `NoTitleAutoInject`: the
+    // auto-injected `Titlebar` widget is for apps that DON'T draw their own,
+    // and injecting it here would put a second set of window controls above
+    // the band's. The band's controls now use the desktop's own icon theme
+    // (`system:window-close,close` and friends), so the result reads as a
+    // native window that simply has its toolbar in the title bar - which is
+    // what every modern desktop app does.
+    window.window_state.flags.decorations = WindowDecorations::None;
     // The dimensions still matter: they are the size the window RESTORES to
     // when the user un-maximizes, and the size every headless/screenshot run
     // uses (nothing maximizes a stub window).
     window.window_state.size.dimensions.width = 1280.0;
     window.window_state.size.dimensions.height = 800.0;
-    // Harness: AZWRITER_SIZE=WxH overrides the initial window size (narrow
-    // ribbon states are screenshot-reproducible without a live drag).
-    if let Ok(sz) = std::env::var("AZWRITER_SIZE") {
-        if let Some((w, h)) = sz.split_once('x') {
-            if let (Ok(w), Ok(h)) = (w.parse::<f32>(), h.parse::<f32>()) {
-                window.window_state.size.dimensions.width = w;
-                window.window_state.size.dimensions.height = h;
-            }
-        }
+    // `--size WxH` overrides the initial window size (narrow ribbon states are
+    // screenshot-reproducible without a live drag).
+    if let Some((w, h)) = args.size {
+        window.window_state.size.dimensions.width = w;
+        window.window_state.size.dimensions.height = h;
     }
+    // The window-create hook needs the screenshot switches, and its payload is
+    // the only channel to it - `create_callback` takes a `RefAny`, not the
+    // app data.
     window.create_callback = Some(Callback::create(on_window_created)).into();
+    WINDOW_ARGS.set(args).ok();
 
     app.run(window);
 }
@@ -1179,5 +1236,6 @@ pub fn start() {
 #[cfg(target_os = "android")]
 #[ctor::ctor]
 fn azul_android_init() {
-    start();
+    // No argv on Android: the defaults are the whole configuration.
+    start(Args::default());
 }

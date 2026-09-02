@@ -1328,15 +1328,17 @@ define_class!(
                     // onto a watcher thread — this one is polled right here. It
                     // self-throttles to 500ms and returns false when the theme
                     // already matches, so it costs nothing on an ordinary frame.
-                    let theme_changed =
+                    let new_style =
                         crate::desktop::shell2::macos::system_style::adopt_observed_theme(
                             &mut macos_window.common,
                         );
-                    if theme_changed {
+                    let theme_changed = new_style.is_some();
+                    if let Some(new_style) = new_style {
                         let _ = macos_window.process_window_events(0);
-                        macos_window.common.request_regeneration(
-                            azul_core::callbacks::RelayoutReason::ThemeChange,
-                        );
+                        // Full rebuild or restyle, decided from what the app's
+                        // `layout()` declared it reads — see
+                        // `PlatformWindow::adopt_system_style`.
+                        macos_window.adopt_system_style(new_style);
                     }
                     let needs_redraw = macos_window.process_timers_and_threads();
                     if needs_redraw || theme_changed {
@@ -2253,15 +2255,17 @@ define_class!(
                     // onto a watcher thread — this one is polled right here. It
                     // self-throttles to 500ms and returns false when the theme
                     // already matches, so it costs nothing on an ordinary frame.
-                    let theme_changed =
+                    let new_style =
                         crate::desktop::shell2::macos::system_style::adopt_observed_theme(
                             &mut macos_window.common,
                         );
-                    if theme_changed {
+                    let theme_changed = new_style.is_some();
+                    if let Some(new_style) = new_style {
                         let _ = macos_window.process_window_events(0);
-                        macos_window.common.request_regeneration(
-                            azul_core::callbacks::RelayoutReason::ThemeChange,
-                        );
+                        // Full rebuild or restyle, decided from what the app's
+                        // `layout()` declared it reads — see
+                        // `PlatformWindow::adopt_system_style`.
+                        macos_window.adopt_system_style(new_style);
                     }
                     let needs_redraw = macos_window.process_timers_and_threads();
                     // CPU mode: FLAG the frame and let the CVDisplayLink tick

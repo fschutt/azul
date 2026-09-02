@@ -1897,36 +1897,39 @@ fn ensure_theme_watcher() {
     });
 }
 
-/// Adopt the watcher's theme into `common`, returning whether anything changed.
+/// Adopt the watcher's theme into `common`, returning the RE-DISCOVERED style
+/// when it changed and `None` when it did not.
 ///
 /// Split from the pump deliberately: this half is identical on X11 and Wayland,
 /// while pumping is not (`process_window_events` is a trait method and each
-/// backend follows it with its own redraw request). Returning `false` when the
+/// backend follows it with its own redraw request). Returning `None` when the
 /// theme already matches is what makes it safe to call every frame — a polled
 /// backend re-asserting the current theme must not cost a relayout.
 ///
-/// The caller still owes the event pump and
-/// `request_regeneration(RelayoutReason::ThemeChange)`; see the call sites.
+/// The new style is RETURNED rather than installed here: choosing between a
+/// full rebuild and a restyle needs both ends of the transition, and it is
+/// `PlatformWindow::adopt_system_style` — which the caller owes, along with the
+/// event pump — that makes that choice.
 pub(crate) fn adopt_observed_theme(
     common: &mut crate::desktop::shell2::common::event::CommonWindowState,
-) -> bool {
+) -> Option<alloc::sync::Arc<SystemStyle>> {
     use azul_core::window::WindowTheme;
 
-    let Some(theme) = observed_system_theme() else {
-        return false;
-    };
+    let theme = observed_system_theme()?;
     let theme = match theme {
         Theme::Dark => WindowTheme::DarkMode,
         Theme::Light => WindowTheme::LightMode,
     };
     if common.current_window_state().theme == theme {
-        return false;
+        return None;
     }
 
     // The diff pipeline compares against previous_window_state to decide that a
     // ThemeChanged event fired; without this snapshot the event is never
     // determined and no callback runs.
     common.snapshot_window_state_baseline("linux.adopt_observed_theme");
+
+    common.update_unsynced_state(|ws| ws.theme = theme);
 
     // RE-DISCOVER the style, the way the Windows backend does on
     // WM_THEMECHANGED. Flipping `ws.theme` alone told the app the theme had
@@ -1935,10 +1938,7 @@ pub(crate) fn adopt_observed_theme(
     // scrollbar and the light titlebar, and only the `@theme` CSS conditions
     // moved. The whole palette belongs to the scheme, so the whole palette is
     // re-read.
-    common.system_style = rediscovered_style_for(theme);
-
-    common.update_unsynced_state(|ws| ws.theme = theme);
-    true
+    Some(rediscovered_style_for(theme))
 }
 
 /// The re-discovered style for a theme, discovered ONCE per switch.

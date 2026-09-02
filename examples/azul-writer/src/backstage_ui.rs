@@ -12,9 +12,11 @@ use azul::css::{EventFilter, HoverEventFilter};
 use azul::dom::{BackstageOnNavSelectCallback, Dom};
 use azul::option::OptionRefAny;
 use azul::str::String as AzString;
-use azul::widgets::{Backstage, Button, QuickAccessAction, QuickAccessBar};
+use azul::css::SystemStyle;
+use azul::widgets::{Backstage, Button, QuickAccessAction, QuickAccessBar, QuickAccessStyle};
 
-use crate::fonts::{self, OFFICE_BLUE, TEXT, TEXT_FAINT, TEXT_GRAY, TITLE_GRAY, WHITE};
+use crate::fonts;
+use crate::palette::Palette;
 use crate::AppState;
 
 /// The nav labels `Backstage::office_2013()` builds its column from (the
@@ -26,7 +28,7 @@ const OFFICE_2013_NAV_LABELS: &[&str] = &[
 
 /// Export pane: "Create PDF/XPS Document" (the Office-2013-era wording), wired to
 /// the engine's DOM->PDF path.
-fn export_pane(state: &AppState, data: &RefAny) -> Dom {
+fn export_pane(state: &AppState, data: &RefAny, pal: &Palette) -> Dom {
     let pages =
         crate::document::paginate_cached(&state.document.content, state.document.generation);
     let desc = format!(
@@ -38,14 +40,14 @@ fn export_pane(state: &AppState, data: &RefAny) -> Dom {
         data.clone(),
         crate::on_export_pdf as ButtonOnClickCallbackType,
     );
-    pane_frame().with_child(pane_title("Export")).with_child(
+    pane_frame(pal).with_child(pane_title("Export", pal)).with_child(
         Dom::create_div()
             .with_css("flex-grow: 0; margin-top: 18px; display: flex; flex-direction: column;")
-            .with_child(fonts::text("Create PDF/XPS Document", 16, OFFICE_BLUE))
+            .with_child(fonts::text("Create PDF/XPS Document", 16, pal.brand_text))
             .with_child(
                 Dom::create_div()
                     .with_css("flex-grow: 0; margin-top: 6px;")
-                    .with_child(fonts::text(&desc, 12, TEXT_GRAY)),
+                    .with_child(fonts::text(&desc, 12, pal.text_gray)),
             )
             .with_child(
                 Dom::create_div()
@@ -56,27 +58,29 @@ fn export_pane(state: &AppState, data: &RefAny) -> Dom {
 }
 
 /// Big light pane title ("Info", "Open", …).
-fn pane_title(text: &str) -> Dom {
+fn pane_title(text: &str, pal: &Palette) -> Dom {
     Dom::create_div()
         .with_css("flex-grow: 0; display: flex; flex-direction: row;")
-        .with_child(fonts::text(text, 38, TITLE_GRAY))
+        .with_child(fonts::text(text, 38, pal.title_gray))
 }
 
-fn pane_frame() -> Dom {
-    Dom::create_div().with_css(
+fn pane_frame(pal: &Palette) -> Dom {
+    Dom::create_div().with_css(format!(
         "display: flex; flex-direction: column; flex-grow: 1; padding-left: 46px; \
-         padding-top: 20px; padding-right: 30px; background: white;",
-    )
+         padding-top: 20px; padding-right: 30px; background: {};",
+        Palette::hex(pal.chrome)
+    ))
 }
 
-/// The small blue "W" document icon in the recent-documents list.
-fn doc_icon() -> Dom {
+/// The small accent "W" document icon in the recent-documents list.
+fn doc_icon(pal: &Palette) -> Dom {
     Dom::create_div()
-        .with_css(
+        .with_css(format!(
             "display: flex; align-items: center; justify-content: center; width: 22px; \
-             height: 22px; background: #2b579a; flex-grow: 0; margin-right: 10px;",
-        )
-        .with_child(fonts::text("W", 12, WHITE))
+             height: 22px; background: {}; flex-grow: 0; margin-right: 10px;",
+            Palette::hex(pal.brand)
+        ))
+        .with_child(fonts::text("W", 12, pal.on_brand))
 }
 
 /// A margin-owning wrapper around a text node.
@@ -92,25 +96,37 @@ fn boxed(css: &str, child: Dom) -> Dom {
 // Info pane
 // ---------------------------------------------------------------------------
 
-fn info_action(icon: &str, button_label: &str, heading: &str, description: &str) -> Dom {
+fn info_action(
+    icon: &str,
+    button_label: &str,
+    heading: &str,
+    description: &str,
+    pal: &Palette,
+) -> Dom {
     let button = Dom::create_div()
-        .with_css(
+        .with_css(format!(
             "display: flex; flex-direction: column; align-items: center; \
              justify-content: center; width: 78px; height: 66px; flex-grow: 0; \
-             border: 1px solid #c5c5c5; background: white; margin-right: 18px; \
-             :hover { background: #f2f7fc; }",
-        )
-        .with_child(Dom::create_icon(icon).with_css("font-size: 24px; color: #2b579a;"))
+             border: 1px solid {border}; background: {bg}; margin-right: 18px; \
+             :hover {{ background: {hover}; }}",
+            border = Palette::hex(pal.control_border),
+            bg = Palette::hex(pal.control_bg),
+            hover = Palette::hex(pal.hover_bg),
+        ))
+        .with_child(Dom::create_icon(icon).with_css(format!(
+            "font-size: 24px; color: {};",
+            Palette::hex(pal.brand_text)
+        )))
         .with_child(boxed(
             "margin-top: 3px;",
-            fonts::text(button_label, 10, TEXT),
+            fonts::text(button_label, 10, pal.text),
         ));
     let text_col = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
-        .with_child(boxed("", fonts::text(heading, 16, TEXT)))
+        .with_child(boxed("", fonts::text(heading, 16, pal.text)))
         .with_child(boxed(
             "margin-top: 4px; max-width: 430px;",
-            fonts::text(description, 12, TEXT_GRAY),
+            fonts::text(description, 12, pal.text_gray),
         ));
     Dom::create_div()
         .with_css(
@@ -121,18 +137,18 @@ fn info_action(icon: &str, button_label: &str, heading: &str, description: &str)
         .with_child(text_col)
 }
 
-fn property_row(label: &str, value: &str) -> Dom {
+fn property_row(label: &str, value: &str, pal: &Palette) -> Dom {
     Dom::create_div()
         .with_css("display: flex; flex-direction: row; flex-grow: 0; margin-bottom: 9px;")
         .with_child(
             Dom::create_div()
                 .with_css("width: 130px; flex-grow: 0;")
-                .with_child(fonts::text(label, 12, TEXT_GRAY)),
+                .with_child(fonts::text(label, 12, pal.text_gray)),
         )
-        .with_child(fonts::text(value, 12, TEXT))
+        .with_child(fonts::text(value, 12, pal.text))
 }
 
-fn info_pane(state: &AppState) -> Dom {
+fn info_pane(state: &AppState, pal: &Palette) -> Dom {
     let name = state.document.display_name();
     let location = if state.document.path.is_some() {
         "Documents"
@@ -148,6 +164,7 @@ fn info_pane(state: &AppState) -> Dom {
             "Protect",
             "Protect Document",
             "Control what types of changes people can make to this document.",
+            pal,
         ))
         .with_child(info_action(
             "find_in_page",
@@ -155,12 +172,14 @@ fn info_pane(state: &AppState) -> Dom {
             "Inspect Document",
             "Before publishing this file, be aware that it contains document \
              properties and the author's name.",
+            pal,
         ))
         .with_child(info_action(
             "history",
             "Manage Versions",
             "Versions",
             "There are no previous versions of this file.",
+            pal,
         ));
 
     let right = Dom::create_div()
@@ -170,26 +189,26 @@ fn info_pane(state: &AppState) -> Dom {
         )
         .with_child(boxed(
             "margin-bottom: 14px;",
-            fonts::text("Properties", 15, TEXT),
+            fonts::text("Properties", 15, pal.text),
         ))
-        .with_child(property_row("Size", "\u{2014}"))
-        .with_child(property_row("Pages", "1"))
-        .with_child(property_row("Words", &words))
-        .with_child(property_row("Total Editing Time", "0 Minutes"))
+        .with_child(property_row("Size", "\u{2014}", pal))
+        .with_child(property_row("Pages", "1", pal))
+        .with_child(property_row("Words", &words, pal))
+        .with_child(property_row("Total Editing Time", "0 Minutes", pal))
         .with_child(boxed(
             "margin-top: 22px; margin-bottom: 14px;",
-            fonts::text("Related Dates", 15, TEXT),
+            fonts::text("Related Dates", 15, pal.text),
         ))
-        .with_child(property_row("Last Modified", "Today"))
-        .with_child(property_row("Created", "Today"));
+        .with_child(property_row("Last Modified", "Today", pal))
+        .with_child(property_row("Created", "Today", pal));
 
-    pane_frame()
-        .with_child(pane_title("Info"))
+    pane_frame(pal)
+        .with_child(pane_title("Info", pal))
         .with_child(boxed(
             "margin-top: 16px;",
-            fonts::text(&name, 20, OFFICE_BLUE),
+            fonts::text(&name, 20, pal.brand_text),
         ))
-        .with_child(boxed("", fonts::text(location, 12, TEXT_FAINT)))
+        .with_child(boxed("", fonts::text(location, 12, pal.text_faint)))
         .with_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; flex-grow: 1;")
@@ -202,11 +221,14 @@ fn info_pane(state: &AppState) -> Dom {
 // Open pane
 // ---------------------------------------------------------------------------
 
-fn place_row(icon: &str, label: &str, active: bool) -> Dom {
+fn place_row(icon: &str, label: &str, active: bool, pal: &Palette) -> Dom {
     let bg = if active {
-        "background: #d5e1f2;"
+        format!("background: {};", Palette::hex(pal.selected_bg))
     } else {
-        "background: transparent; :hover { background: #e8eff9; }"
+        format!(
+            "background: transparent; :hover {{ background: {}; }}",
+            Palette::hex(pal.hover_bg)
+        )
     };
     Dom::create_div()
         .with_css(
@@ -216,41 +238,46 @@ fn place_row(icon: &str, label: &str, active: bool) -> Dom {
             )
             .as_str(),
         )
-        .with_child(
-            Dom::create_icon(icon).with_css("font-size: 20px; color: #2b579a; margin-right: 12px;"),
-        )
-        .with_child(fonts::text(label, 13, TEXT))
+        .with_child(Dom::create_icon(icon).with_css(format!(
+            "font-size: 20px; color: {}; margin-right: 12px;",
+            Palette::hex(pal.brand_text)
+        )))
+        .with_child(fonts::text(label, 13, pal.text))
 }
 
-fn recent_row(name: &str, place: &str) -> Dom {
+fn recent_row(name: &str, place: &str, pal: &Palette) -> Dom {
     let text_col = Dom::create_div()
         .with_css("display: flex; flex-direction: column; flex-grow: 1;")
-        .with_child(fonts::text(name, 13, TEXT))
-        .with_child(fonts::text(place, 11, TEXT_FAINT));
+        .with_child(fonts::text(name, 13, pal.text))
+        .with_child(fonts::text(place, 11, pal.text_faint));
     Dom::create_div()
-        .with_css(
+        .with_css(format!(
             "display: flex; flex-direction: row; align-items: center; flex-grow: 0; \
              height: 42px; padding-left: 8px; padding-right: 8px; cursor: pointer; \
-             :hover { background: #d6e2f3; }",
-        )
-        .with_child(doc_icon())
+             :hover {{ background: {}; }}",
+            Palette::hex(pal.hover_bg)
+        ))
+        .with_child(doc_icon(pal))
         .with_child(text_col)
 }
 
 /// The bordered "Browse" button — opens the native *.md file dialog.
-fn browse_button(data: &RefAny) -> Dom {
+fn browse_button(data: &RefAny, pal: &Palette) -> Dom {
     Dom::create_div()
-        .with_css(
+        .with_css(format!(
             "display: flex; flex-direction: row; align-items: center; flex-grow: 0; \
-             border: 1px solid #ababab; background: #fdfdfd; padding: 7px 16px 7px 12px; \
+             border: 1px solid {border}; background: {bg}; padding: 7px 16px 7px 12px; \
              margin-top: 18px; margin-left: 14px; cursor: pointer; \
-             :hover { background: #e8f0fa; }",
-        )
-        .with_child(
-            Dom::create_icon("folder_open")
-                .with_css("font-size: 18px; color: #2b579a; margin-right: 8px;"),
-        )
-        .with_child(fonts::text("Browse", 13, TEXT))
+             :hover {{ background: {hover}; }}",
+            border = Palette::hex(pal.control_border),
+            bg = Palette::hex(pal.control_bg),
+            hover = Palette::hex(pal.hover_bg),
+        ))
+        .with_child(Dom::create_icon("folder_open").with_css(format!(
+            "font-size: 18px; color: {}; margin-right: 8px;",
+            Palette::hex(pal.brand_text)
+        )))
+        .with_child(fonts::text("Browse", 13, pal.text))
         .with_callback(
             EventFilter::Hover(HoverEventFilter::MouseUp),
             data.clone(),
@@ -258,16 +285,16 @@ fn browse_button(data: &RefAny) -> Dom {
         )
 }
 
-fn open_pane(data: &RefAny) -> Dom {
+fn open_pane(data: &RefAny, pal: &Palette) -> Dom {
     let places = Dom::create_div()
         .with_css(
             "display: flex; flex-direction: column; flex-grow: 0; width: 270px; \
              margin-top: 26px;",
         )
-        .with_child(place_row("schedule", "Recent Documents", true))
-        .with_child(place_row("computer", "Computer", false))
-        .with_child(place_row("add", "Add a Place", false))
-        .with_child(browse_button(data));
+        .with_child(place_row("schedule", "Recent Documents", true, pal))
+        .with_child(place_row("computer", "Computer", false, pal))
+        .with_child(place_row("add", "Add a Place", false, pal))
+        .with_child(browse_button(data, pal));
 
     let recent = Dom::create_div()
         .with_css(
@@ -276,18 +303,19 @@ fn open_pane(data: &RefAny) -> Dom {
         )
         .with_child(boxed(
             "margin-bottom: 12px;",
-            fonts::text("Recent Documents", 16, OFFICE_BLUE),
+            fonts::text("Recent Documents", 16, pal.brand_text),
         ))
-        .with_child(recent_row("Welcome", "Desktop"))
-        .with_child(recent_row("Project Notes", "Documents"))
-        .with_child(recent_row("recipes", "Desktop \u{00bb} Personal"))
+        .with_child(recent_row("Welcome", "Desktop", pal))
+        .with_child(recent_row("Project Notes", "Documents", pal))
+        .with_child(recent_row("recipes", "Desktop \u{00bb} Personal", pal))
         .with_child(recent_row(
             "Meeting Minutes 2026",
             "Documents \u{00bb} Work",
+            pal,
         ))
-        .with_child(recent_row("Velvet Market Segmentation", "Downloads"));
+        .with_child(recent_row("Velvet Market Segmentation", "Downloads", pal));
 
-    pane_frame().with_child(pane_title("Open")).with_child(
+    pane_frame(pal).with_child(pane_title("Open", pal)).with_child(
         Dom::create_div()
             .with_css("display: flex; flex-direction: row; flex-grow: 1;")
             .with_child(places)
@@ -300,7 +328,12 @@ fn open_pane(data: &RefAny) -> Dom {
 // ---------------------------------------------------------------------------
 
 /// Full-window backstage takeover: widget chrome + the active pane.
-pub fn backstage_screen(state: &AppState, data: &RefAny) -> Dom {
+pub fn backstage_screen(
+    state: &AppState,
+    data: &RefAny,
+    pal: &Palette,
+    sys: &SystemStyle,
+) -> Dom {
     let title = format!("{} - AzWriter", state.document.display_name());
 
     // The white strip right of the nav column: centered title, help and the
@@ -309,20 +342,21 @@ pub fn backstage_screen(state: &AppState, data: &RefAny) -> Dom {
     let mut strip = QuickAccessBar::new(AzString::from(title));
     strip.trailing_actions =
         vec![QuickAccessAction::new(AzString::from("help_outline"))].into();
+    strip.style = QuickAccessStyle::from_system(SystemStyle::clone(sys));
     crate::fonts::push_ui_font(&mut strip.style.bar_style);
     let title_strip = strip.dom();
 
     let content = match state.backstage_pane {
-        0 => info_pane(state),
-        2 => open_pane(data),
-        7 => export_pane(state, data),
+        0 => info_pane(state, pal),
+        2 => open_pane(data, pal),
+        7 => export_pane(state, data, pal),
         i => {
             let label = OFFICE_2013_NAV_LABELS.get(i).copied().unwrap_or(if i == 9 {
                 "Account"
             } else {
                 "Options"
             });
-            pane_frame().with_child(pane_title(label))
+            pane_frame(pal).with_child(pane_title(label, pal))
         }
     };
 
@@ -341,6 +375,9 @@ pub fn backstage_screen(state: &AppState, data: &RefAny) -> Dom {
         )
         .with_title_strip(title_strip)
         .with_content(content);
+    // A BRAND nav column over the desktop's window surface: the office blue
+    // is AzWriter's identity, the pane behind it is the session's.
+    backstage.style = crate::palette::widgets::backstage(pal, sys);
     // WORKAROUND(engine): pin the static UI font (inherits into the panes).
     crate::fonts::push_ui_font(&mut backstage.style.root_style);
     backstage.dom()
