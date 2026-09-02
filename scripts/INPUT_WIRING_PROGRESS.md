@@ -283,13 +283,21 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       hold → 0, release → 1) and `an_unsynced_modifier_set_emits_nothing`, which pins the exact
       shape of the bug. 8-target gate green; azul-core 2736 green; azul-layout unchanged at the
       20 pre-existing scroll_timer/gamepad failures.
-- [ ] 9e-i-a Wayland `locks`. `keyboard_modifiers_handler` receives `mods_locked` and feeds it
-      straight to `xkb_state_update_mask`, but that mask is a set of KEYMAP-SPECIFIC modifier
-      INDICES, not fixed bit positions — reading caps/num out of it needs
-      `xkb_keymap_mod_get_index(XKB_MOD_NAME_CAPS)` or `xkb_state_mod_name_is_active`, and
-      NEITHER symbol is in the dlopen table (`x11/dlopen.rs` binds only new/unref/update_mask/
-      key_get_one_sym/key_get_utf8). Guessing bit positions would be right on one keymap and
-      wrong on the next, so this is left open deliberately: add the symbol first.
+- [x] 9e-i-a DONE. `locks` is now fed on every backend that has them.
+      The blocker was exactly as recorded: `mods_locked` is a mask of KEYMAP-SPECIFIC modifier
+      INDICES, so its bit positions mean nothing without a name lookup, and no lookup symbol was
+      bound. Added `xkb_state_mod_name_is_active` to the Xkb table — which Wayland SHARES with
+      X11 (`x11/dlopen.rs`), so one symbol served it — and queried it in
+      `keyboard_modifiers_handler` right after `xkb_state_update_mask`, so it answers for THIS
+      event.
+      Bound as OPTIONAL: an xkbcommon too old to export it leaves locks unreported rather than
+      failing to load the library and taking the whole Wayland backend with it.
+      xkb's own modifier names are used rather than invented ones — caps lock is "Lock", num
+      lock is "Mod2" — with `XKB_STATE_MODS_LOCKED` as the component. Scroll lock is left alone
+      for the same reason the X11 path leaves it: xkb has no conventional name for it, and
+      guessing at a Mod3/Mod5 bit is right on one keymap and wrong on the next.
+      Host check, Linux-target check and 8-target gate green. NOT runtime-verified — needs a
+      real compositor with caps lock pressed.
 - [x] 9e-i-b DONE on all three, and it turned out X11 and Wayland share ONE rule.
       X11: `XkbSetDetectableAutoRepeat` is ALREADY enabled on the connection (x11/mod.rs, gated
       on `owns_display`), which the item did not know. With it on, a held key delivers repeated
@@ -1222,3 +1230,13 @@ FOUND AND FIXED HERE:
       superseded rulings or deleted classes.
       Workspace: azul-css 2856, azul-core 2749 + 21 integration targets, azul-layout 7555,
       azul-dll 1943, azul-doc 206 — all green. Host check and 8-target gate green.
+- [x] FLAKE FIXED: `malloc_heap_bytes_actually_tracks_live_heap` raced the rest of the suite.
+      The probe is PROCESS-WIDE and the test runs beside every other test in the crate, so a
+      neighbour freeing more than the 8 MiB ballast inside the measurement window drove `during`
+      BELOW `before` — an observed "before=178012256, during=177253248", a NET DROP across an
+      8 MiB allocation. Intermittent at first, about one run in two once the suite passed 7 500
+      tests. RETRIED (8 attempts) rather than loosened: our own 8 MiB is deterministic and the
+      churn is not, so a genuinely broken probe fails every attempt while a noisy window costs
+      one. Verified in both directions — three consecutive green full-suite runs, and with
+      `during` pinned to `before` all eight attempts fail and the panic lists them.
+

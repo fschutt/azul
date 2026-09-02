@@ -2808,6 +2808,33 @@ pub(super) extern "C" fn keyboard_modifiers_handler(
             group,
         )
     };
+
+    // LOCKS. `mods_locked` cannot be read directly: it is a mask of
+    // KEYMAP-SPECIFIC modifier INDICES, so its bit positions mean nothing
+    // without a name lookup — which is why this was left open rather than
+    // guessed at. `xkb_state_mod_name_is_active` is that lookup, and the state
+    // has just been updated above, so it answers for THIS event.
+    //
+    // A lock is not derivable from the pressed set on any backend: it is a
+    // toggle that stays engaged after its key is released, and no key event
+    // describes it.
+    if let Some(is_active) = window.xkb.xkb_state_mod_name_is_active {
+        // XKB_STATE_MODS_LOCKED. Named constants are not exported by the C
+        // header in a form worth binding for one use.
+        const LOCKED: u32 = 1 << 2;
+        // xkb's own names: caps lock is "Lock", num lock is "Mod2".
+        let query = |name: &[u8]| -> bool {
+            // 1 = active, 0 = not, -1 = no such modifier in this keymap.
+            unsafe { is_active(window.keyboard_state.state, name.as_ptr().cast(), LOCKED) == 1 }
+        };
+        let caps = query(b"Lock\0");
+        let num = query(b"Mod2\0");
+        let ks = window.common.keyboard_state_mut();
+        ks.locks.caps_lock = caps;
+        ks.locks.num_lock = num;
+        // Scroll lock has no conventional xkb name — the same reason the X11
+        // path leaves it alone rather than guessing at a Mod3/Mod5 bit.
+    }
 }
 
 // xdg_surface listener

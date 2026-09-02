@@ -388,6 +388,17 @@ pub struct Xkb {
     pub xkb_state_unref: unsafe extern "C" fn(state: *mut xkb_state),
     pub xkb_state_update_mask:
         unsafe extern "C" fn(*mut xkb_state, u32, u32, u32, u32, u32, u32) -> u32,
+    /// Is a named modifier active in a given state component?
+    ///
+    /// The only way to read LOCK state out of xkb: `mods_locked` is a mask of
+    /// keymap-specific modifier INDICES, so its bit positions mean nothing
+    /// without a name lookup. Returns 1 (active), 0 (not) or -1 (no such
+    /// modifier in this keymap).
+    ///
+    /// Optional: an xkbcommon too old to export it leaves locks unreported
+    /// rather than failing to load the library.
+    pub xkb_state_mod_name_is_active:
+        Option<unsafe extern "C" fn(*mut xkb_state, *const i8, u32) -> i32>,
     pub xkb_state_key_get_one_sym: unsafe extern "C" fn(*mut xkb_state, u32) -> u32,
     pub xkb_state_key_get_utf8: unsafe extern "C" fn(*mut xkb_state, u32, *mut i8, usize) -> i32,
     /// Does this key auto-repeat? The keymap knows (modifiers, locks and
@@ -425,6 +436,9 @@ impl Xkb {
             xkb_state_new: load_symbol!(lib, _, "xkb_state_new"),
             xkb_state_unref: load_symbol!(lib, _, "xkb_state_unref"),
             xkb_state_update_mask: load_symbol!(lib, _, "xkb_state_update_mask"),
+            xkb_state_mod_name_is_active: unsafe {
+                lib.get_symbol("xkb_state_mod_name_is_active").ok()
+            },
             xkb_state_key_get_one_sym: load_symbol!(lib, _, "xkb_state_key_get_one_sym"),
             xkb_state_key_get_utf8: load_symbol!(lib, _, "xkb_state_key_get_utf8"),
             xkb_keymap_key_repeats: load_symbol!(lib, _, "xkb_keymap_key_repeats"),
