@@ -544,6 +544,17 @@ pub fn should_exclude_path(path: &std::path::Path) -> bool {
 const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // "Tablet*" collides with the css keyword "table".
     ("Tablet", "gesture"),
+    // "Haptic*" has no keyword in any module, so it fell through to "misc".
+    // Haptics is the OUTPUT half of the input stack - every platform exposes
+    // it through the same subsystem that reports pens and dials - so it
+    // belongs with the other input types rather than in the junk drawer.
+    ("Haptic", "gesture"),
+    // A dial (Surface Dial, Apple Watch crown) is an input device, not
+    // miscellany. Spelled in FULL rather than as a "Dial" prefix, because
+    // that prefix also captures "Dialog*" and dragged `DialogAriaInfo` out
+    // of the dialog module - the same word-boundary trap as Tablet/Table
+    // above, caught by `autofix modules` on the very first run.
+    ("DialState", "gesture"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -1053,6 +1064,33 @@ mod tests {
             assert_eq!(module, "gesture", "{name} must resolve to gesture");
             assert!(!is_warning, "{name} must resolve confidently");
         }
+    }
+
+    /// Haptics and dials had NO keyword in any module, so they landed in
+    /// "misc" - the junk drawer - which is where a binding user would never
+    /// look for an input type.
+    #[test]
+    fn haptic_and_dial_types_resolve_to_gesture() {
+        for name in [
+            "HapticPattern",
+            "HapticTarget",
+            "HapticRequest",
+            "DialState",
+        ] {
+            let (module, is_warning) = determine_module(name);
+            assert_eq!(module, "gesture", "{name} must resolve to gesture");
+            assert!(!is_warning, "{name} must resolve confidently");
+        }
+    }
+
+    /// The `DialState` entry is spelled in full for exactly this reason: a
+    /// "Dial" prefix also matches "Dialog", and it really did pull
+    /// `DialogAriaInfo` out of the dialog module.
+    #[test]
+    fn the_dial_override_does_not_capture_dialog_types() {
+        assert_eq!(difficult_type_module("DialState"), Some("gesture"));
+        assert_eq!(difficult_type_module("DialogAriaInfo"), None);
+        assert_eq!(determine_module("DialogAriaInfo").0, "dialog");
     }
 
     /// The override is a PREFIX match, so it must not capture the css `table`

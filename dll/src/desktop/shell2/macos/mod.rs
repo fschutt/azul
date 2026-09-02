@@ -9009,3 +9009,78 @@ mod objc_class_registration_tests {
         }
     }
 }
+
+/// Play one haptic request on the trackpad.
+///
+/// macOS has exactly ONE haptic actuator reachable from an app: the Force
+/// Touch trackpad, through `NSHapticFeedbackManager`. There is no API for the
+/// keyboard, no API for an external mouse, and no API for a controller's
+/// motors, so `HapticTarget::Gamepad` and `HapticTarget::Pen` have nothing to
+/// drive and are skipped rather than redirected to the trackpad — a rumble
+/// request answered by the palm rest is worse than silence.
+///
+/// The vocabulary is only three patterns wide (`Generic`, `Alignment`,
+/// `LevelChange`), so the engine's nineteen collapse onto them by weight.
+/// `HapticRequest::intensity` is dropped rather than emulated: the API has no
+/// strength axis, and faking one with repeated taps reads as a stutter.
+///
+/// Sent through raw `msg_send!` rather than an `objc2-app-kit` binding so this
+/// needs no new crate feature — `NSHapticFeedbackManager` is not in the
+/// feature set the shell already enables.
+pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
+    use azul_core::haptics::{HapticPattern, HapticTarget};
+
+    // Only the trackpad exists here. Anything else is silently ignored, which
+    // is the documented contract on `HapticTarget`.
+    if request.target != HapticTarget::System {
+        return;
+    }
+
+    // NSHapticFeedbackPattern
+    const GENERIC: isize = 0;
+    const ALIGNMENT: isize = 1;
+    const LEVEL_CHANGE: isize = 2;
+    // NSHapticFeedbackPerformanceTime::Now — the drain already runs at the end
+    // of the pass, so "now" IS "after the change that asked for it".
+    // `DrawCompleted` would be a better fit semantically but never fires if
+    // the pass turns out not to redraw, and a haptic that sometimes does not
+    // happen is worse than one a frame early.
+    const PERFORM_NOW: usize = 1;
+
+    let pattern = match request.pattern {
+        // The lightest tap the hardware has.
+        HapticPattern::Selection
+        | HapticPattern::ImpactLight
+        | HapticPattern::ImpactSoft
+        | HapticPattern::KeyPress
+        | HapticPattern::KeyRelease
+        | HapticPattern::TextHandleMove
+        | HapticPattern::GestureStart
+        | HapticPattern::GestureEnd
+        | HapticPattern::Rise
+        | HapticPattern::Fall
+        | HapticPattern::Spin => ALIGNMENT,
+        // The middle weight — a discrete thing committed.
+        HapticPattern::ImpactMedium
+        | HapticPattern::ImpactRigid
+        | HapticPattern::Success
+        | HapticPattern::LongPress
+        | HapticPattern::ContextClick => LEVEL_CHANGE,
+        // The heaviest the API offers.
+        HapticPattern::ImpactHeavy | HapticPattern::Warning | HapticPattern::Error => GENERIC,
+    };
+
+    unsafe {
+        let performer: *mut objc2::runtime::AnyObject =
+            msg_send![objc2::class!(NSHapticFeedbackManager), defaultPerformer];
+        if performer.is_null() {
+            // No Force Touch trackpad on this Mac.
+            return;
+        }
+        let _: () = msg_send![
+            performer,
+            performFeedbackPattern: pattern,
+            performanceTime: PERFORM_NOW
+        ];
+    }
+}

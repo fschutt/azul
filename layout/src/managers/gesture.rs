@@ -590,6 +590,11 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq]
 );
+impl_option!(
+    TabletToolKind,
+    OptionTabletToolKind,
+    [Debug, Clone, Copy, PartialEq]
+);
 azul_css::impl_vec!(
     TabletDeviceInfo,
     TabletDeviceInfoVec,
@@ -4087,6 +4092,8 @@ pub struct DialState {
     /// including for the same Dial used off-screen.
     pub contact_position: azul_core::geom::OptionLogicalPosition,
 }
+
+impl_option!(DialState, OptionDialState, [Debug, Clone, Copy, PartialEq]);
 
 /// Yields `DialRotate` / `DialClick` for the dial.
 ///

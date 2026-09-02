@@ -572,6 +572,24 @@ fn set_soft_keyboard_visible(visible: bool) {
     crate::desktop::shell2::android::set_soft_keyboard_visible(visible);
 }
 
+/// Play ONE haptic request on whatever actuator this platform drives.
+///
+/// Dispatched as a free function rather than a `PlatformWindow` method for the
+/// same reason as `set_soft_keyboard_visible` above: there is nothing about
+/// the request that depends on the window, and a trait method would have to be
+/// implemented (or forgotten) by all eight backends.
+///
+/// Backends that have no actuator do nothing. That is not a stub to fill in
+/// later — X11 and Wayland have no haptic protocol at all, and a desktop
+/// mouse has no motor, so "nothing" is the correct behaviour there.
+#[allow(unused_variables)]
+fn play_haptic_native(request: &azul_core::haptics::HapticRequest) {
+    #[cfg(target_os = "macos")]
+    crate::desktop::shell2::macos::play_haptic(request);
+    #[cfg(target_os = "android")]
+    crate::desktop::shell2::android::play_haptic(request);
+}
+
 fn apply_focus_restyle(
     layout_window: &mut LayoutWindow,
     old_focus: Option<NodeId>,
@@ -6251,9 +6269,9 @@ pub trait PlatformWindow {
             // Both are OUTWARD effects the shell performs after the pass,
             // not state the layout owns — queued here, drained by the
             // platform backend. Neither repaints anything.
-            CallbackChange::PlayHaptic { pattern, target } => {
+            CallbackChange::PlayHaptic { request } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.haptic_manager.play(*pattern, *target);
+                    lw.haptic_manager.play_request(*request);
                 }
                 ProcessEventResult::DoNothing
             }
@@ -9015,6 +9033,30 @@ pub trait PlatformWindow {
         // callback may have pushed scroll input (caret-into-view glide,
         // scroll_to_animated) that no platform wheel handler will drain.
         self.arm_animation_drivers_if_needed();
+
+        // HAPTICS. `CallbackInfo::play_haptic()` -> `CallbackChange::PlayHaptic`
+        // -> `HapticManager::play()` was a complete chain with NO drain on any
+        // platform, so every request ever made just accumulated in a Vec that
+        // nothing read — the public API did nothing, everywhere, and the queue
+        // grew for the lifetime of the window.
+        //
+        // Drained HERE, at the outermost pass only, because the queue's
+        // coalescing is adjacent-dedup: it collapses a per-frame drag callback
+        // to one tick, which only works if the drain is less frequent than the
+        // callback. Draining inside the recursion (depth > 0) would flush
+        // between two callbacks of the SAME pass and the device would buzz
+        // continuously instead of ticking once — the exact failure the
+        // coalescing exists to prevent.
+        if depth == 0 {
+            let pending = self
+                .get_layout_window_mut()
+                .filter(|lw| lw.haptic_manager.has_pending())
+                .map(|lw| lw.haptic_manager.take_pending())
+                .unwrap_or_default();
+            for request in &pending {
+                play_haptic_native(request);
+            }
+        }
 
         result
     }

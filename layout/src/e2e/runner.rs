@@ -2959,8 +2959,8 @@ impl Runner {
             // so a snapshot or an undo would restore nothing.
             // The runner owns its LayoutWindow directly, and every arm here
             // returns a ProcessEventResult.
-            CallbackChange::PlayHaptic { pattern, target } => {
-                self.layout_window.haptic_manager.play(*pattern, *target);
+            CallbackChange::PlayHaptic { request } => {
+                self.layout_window.haptic_manager.play_request(*request);
                 // No repaint: a haptic changes nothing on screen.
                 ProcessEventResult::DoNothing
             }

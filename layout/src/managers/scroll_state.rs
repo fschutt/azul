@@ -45,6 +45,7 @@
 //! - Scrollbar geometry and hit-testing
 //! - Virtual scroll bounds for `VirtualView` nodes
 
+use azul_css::{impl_option, impl_option_inner};
 use alloc::collections::BTreeMap;
 #[cfg(feature = "std")]
 use alloc::vec::Vec;
@@ -476,7 +477,11 @@ pub struct ScrollAnimation {
 ///
 /// Provides all the information a timer callback needs to compute scroll physics
 /// without requiring mutable access to the `ScrollManager`.
-#[derive(Copy, Debug, Clone)]
+/// `#[repr(C)]` because this is returned THROUGH the C API by
+/// `CallbackInfo::get_scroll_node_info` - without it the layout is undefined
+/// across the boundary and the generated bindings read garbage fields.
+#[derive(Copy, Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct ScrollNodeInfo {
     /// Current scroll offset
     pub current_offset: LogicalPosition,
@@ -495,6 +500,13 @@ pub struct ScrollNodeInfo {
     /// Per-node overflow scrolling mode (auto vs touch)
     pub overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling,
 }
+
+azul_css::impl_option!(
+    ScrollNodeInfo,
+    OptionScrollNodeInfo,
+    copy = false,
+    [Debug, Copy, Clone, PartialEq]
+);
 
 /// Result of a scroll tick, indicating what actions are needed
 #[derive(Debug, Default)]

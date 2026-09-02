@@ -902,8 +902,7 @@ pub enum CallbackChange {
     /// Deferred like every other outward-facing effect: a callback runs on
     /// the layout thread and the platform actuator APIs want the event loop.
     PlayHaptic {
-        pattern: azul_core::haptics::HapticPattern,
-        target: azul_core::haptics::HapticTarget,
+        request: azul_core::haptics::HapticRequest,
     },
     /// Ask the platform to show or hide the on-screen keyboard. APPENDED.
     RequestSoftKeyboard { visible: bool },
@@ -1903,7 +1902,7 @@ impl CallbackInfo {
     ///
     /// Called by the scroll-physics timer when it runs dry. Routed as a
     /// `CallbackChange` rather than touching the manager directly because a
-    /// timer callback holds only its own downcast state — the change queue is
+    /// timer callback holds only its own downcast state - the change queue is
     /// the seam that reaches `LayoutWindow` from inside a callback.
     pub fn settle_scroll_gesture(&mut self) {
         self.push_change(CallbackChange::SettleScrollGesture);
@@ -4602,8 +4601,8 @@ impl CallbackInfo {
     /// technology had requested it.
     ///
     /// Applied after the callback returns, via
-    /// `CallbackChange::PerformAccessibilityAction` →
-    /// `LayoutWindow::process_accessibility_action` → dispatch of the synthetic
+    /// `CallbackChange::PerformAccessibilityAction` ->
+    /// `LayoutWindow::process_accessibility_action` -> dispatch of the synthetic
     /// events the action maps to (e.g. `AccessibilityAction::Default` on a
     /// button becomes a `MouseUp` on that button, so its `on_click` runs).
     ///
@@ -4870,7 +4869,7 @@ impl CallbackInfo {
     /// focused node, if any.
     ///
     /// Read this from a `CompositionStart` / `CompositionUpdate` /
-    /// `CompositionEnd` callback to render composition yourself — a code
+    /// `CompositionEnd` callback to render composition yourself - a code
     /// editor, a terminal, a chat box with inline candidates. On
     /// `CompositionEnd` this is the COMMITTED string, matching W3C
     /// `compositionend.data`, not the (already discarded) preedit.
@@ -4911,7 +4910,7 @@ impl CallbackInfo {
         self.get_layout_window().text_edit_manager.preedit_text.is_some()
     }
 
-    /// What kind of device produced the pointer event being handled —
+    /// What kind of device produced the pointer event being handled -
     /// a mouse, a touchpad, a trackball, a pen. `Unknown` when the platform
     /// does not classify, which is most of them today.
     ///
@@ -4932,7 +4931,7 @@ impl CallbackInfo {
         self.get_current_mouse_state().pointer_device_id
     }
 
-    /// The most recent rotary-control rotation — a tablet pad dial, a Surface
+    /// The most recent rotary-control rotation - a tablet pad dial, a Surface
     /// Dial, a Wear crown. `None` until one reports.
     ///
     /// `delta_rad` is rotation SINCE THE LAST FRAME, not an angle: a dial has
@@ -4953,7 +4952,7 @@ impl CallbackInfo {
     /// which is what a 3D orbit, a first-person camera or an infinite-drag
     /// scrubber needs.
     ///
-    /// Units are the device's own counts, whose size depends on its DPI —
+    /// Units are the device's own counts, whose size depends on its DPI -
     /// which is exactly why applications expose a sensitivity setting rather
     /// than treating them as pixels.
     #[must_use]
@@ -4970,7 +4969,7 @@ impl CallbackInfo {
         self.get_current_keyboard_state().modifiers
     }
 
-    /// Which lock keys are engaged — Caps, Num, Scroll.
+    /// Which lock keys are engaged - Caps, Num, Scroll.
     ///
     /// Not derivable from the pressed-key set: a lock is a TOGGLE, so it
     /// stays on after the key is released and no key event describes it. This
@@ -4981,7 +4980,7 @@ impl CallbackInfo {
     }
 
     /// The physical position of the currently pressed key, independent of
-    /// layout — `KeyW` is the key where W sits on US ANSI even when the
+    /// layout - `KeyW` is the key where W sits on US ANSI even when the
     /// user's layout produces Z there.
     ///
     /// Use this for anything positional (game movement bindings); use
@@ -5024,7 +5023,7 @@ impl CallbackInfo {
     /// thread and the platform actuator APIs want the event loop, the same
     /// reason clipboard writes and menu opens are deferred.
     ///
-    /// Repeated identical requests coalesce — a callback firing per frame
+    /// Repeated identical requests coalesce - a callback firing per frame
     /// during a drag would otherwise make the device buzz continuously
     /// instead of ticking once.
     pub fn play_haptic(
@@ -5032,14 +5031,26 @@ impl CallbackInfo {
         pattern: azul_core::haptics::HapticPattern,
         target: azul_core::haptics::HapticTarget,
     ) {
-        self.push_change(CallbackChange::PlayHaptic { pattern, target });
+        self.play_haptic_request(azul_core::haptics::HapticRequest::new(pattern, target));
+    }
+
+    /// Play a haptic pattern with an explicit strength and duration.
+    ///
+    /// The long form of [`Self::play_haptic`], for the two axes that only some
+    /// actuators have: `intensity` scales Android's composition primitives and
+    /// iOS's `impactOccurred(intensity:)` and IS the amplitude for gamepad
+    /// rumble, while `duration_ms` only means anything for a continuous motor.
+    /// Both are ignored by tap-style actuators such as a macOS trackpad, which
+    /// has no strength axis at all.
+    pub fn play_haptic_request(&mut self, request: azul_core::haptics::HapticRequest) {
+        self.push_change(CallbackChange::PlayHaptic { request });
     }
 
     /// Ask the platform to show or hide the on-screen keyboard.
     ///
     /// A REQUEST, not a setting: only the OS knows whether a keyboard is
-    /// actually up — a hardware keyboard suppresses it, and the user can
-    /// dismiss it at any time — so this records intent and the shell
+    /// actually up - a hardware keyboard suppresses it, and the user can
+    /// dismiss it at any time - so this records intent and the shell
     /// reconciles. Desktop shells ignore it.
     ///
     /// Focusing a text field does NOT do this implicitly, because a field can
@@ -5116,8 +5127,8 @@ impl CallbackInfo {
     /// 0.0-1.0 against the tool's own sensing range. `None` when no pen is
     /// active.
     ///
-    /// The scale is the DEVICE's, not millimetres — Wayland reports a 16-bit
-    /// fraction of maximum range and Win32 only reports in/out of range — so
+    /// The scale is the DEVICE's, not millimetres - Wayland reports a 16-bit
+    /// fraction of maximum range and Win32 only reports in/out of range - so
     /// compare it against itself over time (a brush preview that grows as the
     /// pen approaches) rather than measuring with it. A touching pen reads
     /// `0.0`, so check [`Self::is_pen_in_contact`] to tell "on the surface"
@@ -5127,7 +5138,7 @@ impl CallbackInfo {
         self.get_pen_state().map(|pen| pen.hover_distance)
     }
 
-    /// Which tool of the tablet is in use — stylus, eraser, airbrush, lens
+    /// Which tool of the tablet is in use - stylus, eraser, airbrush, lens
     /// and the rest of the `zwp_tablet_tool_v2` vocabulary. `None` when no pen
     /// is active; `Unknown` when the platform does not classify, which is
     /// every backend except Wayland today.

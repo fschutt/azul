@@ -275,9 +275,124 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `HidD_GetAttributes` from **hid.dll**, a library this codebase does not load at all, plus
       `GetRawInputDeviceList`/`GetRawInputDeviceInfoW` for enumeration. Separated from 9d-i for
       that reason rather than half-wired.
-- [ ] 9g-i No backend plays haptics. macOS `NSHapticFeedbackManager.defaultPerformer` (trackpad only),
-      Android `performHapticFeedback`, Win32 `SimpleHapticsController` via WinRT, gamepad rumble via SDL
-      or raw HID output reports. The shell also has to DRAIN `haptic_manager.take_pending()` each pass.
+- [x] 9g-i DONE for the drain + macOS + Android. The drain was the real defect: `CallbackInfo::
+      play_haptic()` -> `CallbackChange::PlayHaptic` -> `HapticManager::play()` was a complete chain
+      with NO drain on ANY platform, so every request ever made accumulated in a Vec nothing read.
+      The public API did nothing, everywhere, and the queue grew for the window's lifetime.
+      DRAIN: end of `PlatformWindow::process_window_events`, gated on `depth == 0`. All eight
+      backends route through it, so there is ONE site instead of the ten `process_accessibility_
+      actions` has. The depth gate is load-bearing: the queue's coalescing is adjacent-dedup, which
+      only collapses a per-frame drag callback if the drain is LESS frequent than the callback.
+      Draining inside the recursion would flush between two callbacks of the same pass and the
+      device would buzz continuously - the exact failure the coalescing exists to prevent.
+      VOCABULARY REDESIGNED first (user: "there are many different haptic patterns on Android -
+      research and design a good api"). The old 4 (Tick/Click/Thud/Warning) named TEXTURES and were
+      the intersection of the platforms, which is nearly empty - macOS has three patterns total.
+      Now 19 semantic intents (Selection, Impact{Light,Medium,Heavy,Soft,Rigid}, Success/Warning/
+      Error, KeyPress/KeyRelease/LongPress/ContextClick/TextHandleMove, GestureStart/GestureEnd,
+      Rise/Fall/Spin) = the UNION of the platform vocabularies, because a caller wanting
+      `TextHandleMove` on Android should not be denied it just because macOS renders it generically.
+      Anything a platform lacks degrades along `HapticPattern::fallback()`, a chain that provably
+      terminates at `Selection` (every device has it) - the degradation is a property of the
+      PATTERN, so all six backends cannot each invent a different one.
+      `HapticRequest` gained `intensity` (Android primitives, iOS `impactOccurred(intensity:)` and
+      gamepad amplitude all take a scale) and `duration_ms` (continuous motors only).
+      macOS: `NSHapticFeedbackManager.defaultPerformer`, raw `msg_send!` so it needs no new
+      objc2-app-kit feature. 19 patterns collapse onto its 3 by weight. `intensity` is DROPPED, not
+      emulated - the API has no strength axis and faking one with repeated taps reads as a stutter.
+      Android: `View.performHapticFeedback` on the decor view, chosen over `Vibrator`/
+      `VibrationEffect` because the latter needs the `VIBRATE` manifest permission (the APP's call,
+      not a toolkit's) and bypasses the user's touch-feedback setting. Constants are read
+      REFLECTIVELY by name: `HapticFeedbackConstants` gained values across API levels, and a
+      hard-coded int fires a WRONG effect on an older device rather than none, because the
+      framework accepts an unknown int and picks something. `NoSuchFieldError` is caught, cleared
+      (a pending exception aborts the process at the next JNI boundary) and degraded via fallback.
+      EVIDENCE: 9 new azul-core tests incl. `every_fallback_chain_terminates_at_selection` (a cycle
+      there would be an infinite loop inside the event loop, on-device only); the Android path was
+      proven COMPILED, not cfg'd out, by a deliberate type error at that line being reported under
+      `--target aarch64-linux-android --features _internal_deps` (the 8-target gate does NOT enable
+      `jni`, so the gate alone would have proved nothing). Host + 8/8 mobile + 2759/7561/1953/208.
+
+- [ ] 9g-i-a Android `Vibrator`/`VibrationEffect.Composition` path - the ONLY way to reach the
+      composition primitives (`LOW_TICK`, `QUICK_RISE`, `QUICK_FALL`, `SPIN`), amplitude scaling and
+      arbitrary waveforms, so it is also the only way `HapticRequest::intensity` and `duration_ms`
+      mean anything on Android. NOT wired because it requires `android.permission.VIBRATE` in the
+      app's manifest: an app that has not declared it gets a `SecurityException`, not a silent
+      no-op, and a UI toolkit cannot declare a permission on the app's behalf. Needs an opt-in
+      (a builder flag or a manifest probe via `PackageManager.checkPermission`) before it can ship.
+- [ ] 9g-i-b iOS `UIFeedbackGenerator` - maps 1:1 onto more of the vocabulary than any other
+      platform (`UIImpactFeedbackGenerator` has all five impact weights, `UINotificationFeedback
+      Generator` has success/warning/error, `UISelectionFeedbackGenerator` has selection). Needs
+      `prepare()` called ahead of the event to avoid the actuator spin-up latency, which does not
+      fit the current fire-and-forget drain and is why it is not in this commit.
+- [ ] 9g-i-c Win32 `SimpleHapticsController` via WinRT - reaches Surface Pen and some gamepads,
+      NOT the trackpad. Needs the WinRT activation plumbing, which the shell does not have yet.
+- [ ] 9g-i-d Gamepad rumble (`HapticTarget::Gamepad`). Every backend currently skips it: it is a
+      continuous dual-motor amplitude, not a tap, which is exactly what `intensity`/`duration_ms`
+      were added for. Needs a per-controller actuator handle and a STOP path (a motor left running
+      when the window closes keeps buzzing), neither of which exists.
+
+### API REACHABILITY - the whole arc's surface was missing from api.json (2026-09-02)
+
+User: "add all apis then (for all the features we added in the plan + todo list) - otherwise
+they're unreachable of course". They were right: `CallbackInfo` had 281 functions in api.json and
+300 in Rust. Every input-wiring accessor this arc built - `get_dial_state`, `get_physical_key`,
+`get_pointer_source`, `get_key_modifiers`, `get_pen_tool_kind`, `play_haptic`, ... - existed only
+in Rust and was absent from all 27 language bindings. A wired event nobody can read is not wired.
+
+LANDED: 23 methods + 7 types (`HapticPattern`/`HapticTarget`/`HapticRequest`/`DialState` ->
+`gesture`, `ScrollNodeInfo`/`OptionScrollNodeInfo`, `OptionDialState`, `OptionTabletToolKind`,
+`OverflowScrolling`). CallbackInfo: 281 -> 304 functions. All via `autofix add`/`apply` only.
+
+Rust changes this forced, each a real FFI defect:
+  - `HapticTarget` was `#[repr(C)]` with a data variant (`Gamepad(u32)`); a data-carrying enum
+    needs `#[repr(C, u8)]` or its layout is undefined across the boundary.
+  - `ScrollNodeInfo` had NO repr at all and was returned through the C API.
+  - `OptionDialState` / `OptionTabletToolKind` / `OptionScrollNodeInfo` were referenced by api.json
+    but never defined in Rust - codegen emitted calls to types that did not exist.
+
+TOOLING TRAPS (cost real time, worth knowing):
+  - `autofix add` PRINTS only `fn name(&self) -> T`, never the arguments. The generated patch has
+    them and is correct. I nearly "fixed" a non-bug: verify against the patch JSON, not the console.
+  - Every `autofix add` WIPES `target/autofix/patches` first (main.rs:1104), so a loop that adds N
+    then applies once applies only the LAST. Add and apply one at a time.
+  - `zsh` does not word-split unquoted variables: `for m in $METHODS` iterates ONCE over the whole
+    string. Use an array. (Also `$PIPESTATUS[0]` is bash; zsh is `$pipestatus[1]` - it silently
+    yielded an EMPTY exit code, which reads as success.)
+  - The FFI checker validates TYPES but not the Option wrappers codegen derives from them, so
+    `autofix` reported ZERO errors on api.json that then generated `AzOption(usize, usize)` and
+    calls to a nonexistent `AzOptionDialState`. api.json being clean does NOT mean the bindings
+    build - always run `codegen all` + a dll check.
+  - Removing a method does NOT remove the types it dragged in; they linger and keep failing the
+    checker. `autofix difficult remove <Type>` is the only way out.
+  - api.json docs must be ASCII: an em-dash in a Rust doc comment is a HARD checker error, so 15
+    doc lines across 12 methods had to be de-dashed and the methods re-added.
+
+- [ ] 9g-ii-a `get_composition_cursor` and `get_raw_mouse_motion` return `Option<(usize, usize)>` /
+      `Option<(f64, f64)>`. Non-empty tuples are not C-compatible. Each needs a NAMED two-field
+      struct, and naming it is an API design decision (is raw motion a `LogicalVec2`? a new
+      `MouseMotionDelta`?) - LOGGED rather than invented. Removed from api.json meanwhile.
+- [ ] 9g-ii-b `find_scroll_target` returns `Option<NodeId>`. `NodeId`'s own doc says
+      `NodeHierarchyItemId` is "the FFI wrapper type" and `NodeId`'s field is private, so exposing
+      `NodeId` directly would hand bindings a type they cannot construct. Which of the two the
+      public API should return is a decision, not a mechanical fix.
+- [ ] 9g-ii-c Four accessors return borrowed slices, which are not C-compatible:
+      `get_hid_reports` -> `&[HidReport]`, `get_hid_devices` -> `&[HidDevice]`,
+      `get_coalesced_touches` / `get_predicted_touches` -> `&[TouchPoint]`.
+      `TouchPointVec` ALREADY EXISTS (core/src/window.rs) so the touch pair is nearly free; HID
+      needs `impl_vec!(HidReport, ...)` + `impl_vec!(HidDevice, ...)`. All four also need the Rust
+      signature changed from `&[T]` to an owned `TVec`, which copies - fine for touches, worth
+      measuring for HID reports.
+- [ ] 9g-ii-d `get_last_input_sample` -> `Option<&InputSample>`: `InputSample` has no `repr` and two
+      `(f32, f32)` tuple fields (`tilt`, `touch_radius`). Same named-struct decision as 9g-ii-a.
+- [ ] 9g-ii-e `get_current_hit_test` / `get_hit_test_frame` / `get_hit_test_history` return
+      `FullHitTest`, which is FIVE `BTreeMap`s deep plus an `Option<(DomId, LogicalPosition)>`.
+      Exposing it needs a custom map type; this is a large piece of work, not a wiring gap.
+- [ ] 9g-ii-f `query_pagination` -> `FakePageConfig` -> `PageSequence` -> ... ->
+      `MarginBoxContent::Custom(Arc<dyn Fn(PageInfo) -> String + Send + Sync>)`. A boxed Rust
+      closure is not expressible in C at all. This one may be correctly UNEXPOSED forever; if it
+      should be reachable it needs a callback-handle design, not a type fix.
+
 
 ### Follow-ups opened by 9e
 

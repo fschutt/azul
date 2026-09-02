@@ -2092,6 +2092,162 @@ pub fn set_soft_keyboard_visible(visible: bool) {
 #[cfg(all(target_os = "android", not(feature = "jni")))]
 pub fn set_soft_keyboard_visible(_visible: bool) {}
 
+/// The `android.view.HapticFeedbackConstants` field name this pattern is
+/// rendered as, or `None` if Android has no constant for it.
+///
+/// `None` is not a failure — it is the signal to walk
+/// [`HapticPattern::fallback`] and ask again. The chirp patterns (`Rise`,
+/// `Fall`, `Spin`) genuinely have no `performHapticFeedback` constant: they
+/// exist only as `VibrationEffect.Composition` primitives, which need the
+/// `VIBRATE` permission (see the note on `play_haptic`).
+#[cfg(all(target_os = "android", feature = "jni"))]
+const fn haptic_constant_name(pattern: azul_core::haptics::HapticPattern) -> Option<&'static str> {
+    use azul_core::haptics::HapticPattern::*;
+    Some(match pattern {
+        Selection => "CLOCK_TICK",
+        ImpactLight | ImpactSoft => "KEYBOARD_TAP",
+        ImpactMedium => "VIRTUAL_KEY",
+        ImpactHeavy | ImpactRigid => "LONG_PRESS",
+        Success => "CONFIRM",
+        Error => "REJECT",
+        KeyPress => "KEYBOARD_PRESS",
+        KeyRelease => "KEYBOARD_RELEASE",
+        LongPress => "LONG_PRESS",
+        ContextClick => "CONTEXT_CLICK",
+        TextHandleMove => "TEXT_HANDLE_MOVE",
+        GestureStart => "GESTURE_START",
+        GestureEnd => "GESTURE_END",
+        // No constant: degrade via the fallback chain.
+        Warning | Rise | Fall | Spin => return None,
+    })
+}
+
+/// Play one haptic request through the decor view's `performHapticFeedback`.
+///
+/// # Why `performHapticFeedback` and not `Vibrator`/`VibrationEffect`
+///
+/// `Vibrator` is the richer API — it is the only way to reach the composition
+/// primitives, amplitude scaling and arbitrary waveforms — but it requires the
+/// `android.permission.VIBRATE` manifest entry, which is the APP's decision
+/// and not something a UI toolkit can declare on its behalf. An app that has
+/// not declared it gets a `SecurityException`, not a silent no-op.
+/// `performHapticFeedback` needs no permission, and it respects the user's
+/// system-wide "touch feedback" setting, which the `Vibrator` path bypasses.
+///
+/// So `HapticRequest::intensity` and `duration_ms` are IGNORED here: this API
+/// has neither axis. Wiring the `Vibrator` path is logged as 9g-i-a rather
+/// than guessed at, because it needs a permission decision from the app.
+///
+/// # Why the constants are looked up reflectively
+///
+/// `HapticFeedbackConstants` gained values over many API levels (`CONFIRM` and
+/// `REJECT` in 30, `GESTURE_START`/`GESTURE_END` in 30, `TEXT_HANDLE_MOVE` in
+/// 27). Hard-coding the ints would fire a WRONG effect on an older device
+/// rather than none, because the framework happily accepts an unknown int and
+/// picks something. Reading the field by name means an absent constant raises
+/// `NoSuchFieldError`, which is caught and degraded through
+/// [`HapticPattern::fallback`] to something the device does have.
+#[cfg(all(target_os = "android", feature = "jni"))]
+pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
+    use azul_core::haptics::HapticTarget;
+    use jni::JavaVM;
+
+    // Android exposes no per-controller actuator through this API, and the
+    // phone body is not a stand-in for a gamepad's motors.
+    if request.target != HapticTarget::System {
+        return;
+    }
+
+    let vm_ptr = java_vm_ptr();
+    let activity_ptr = activity_ptr();
+    if vm_ptr.is_null() || activity_ptr.is_null() {
+        return;
+    }
+
+    let result = (|| -> Result<(), String> {
+        let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }
+            .map_err(|e| format!("JavaVM::from_raw: {e:?}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        let activity =
+            unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
+
+        // `android.view.*` is on the BOOT classpath, so a bare `find_class`
+        // resolves it even from a Rust thread with no Java frame. This is the
+        // one case where `find_app_class` is NOT needed — that helper exists
+        // for APK classes, which the system loader cannot see.
+        let constants = env
+            .find_class("android/view/HapticFeedbackConstants")
+            .map_err(|e| {
+                let _ = env.exception_clear();
+                format!("HapticFeedbackConstants: {e:?}")
+            })?;
+
+        // Walk the degradation chain until a constant exists on THIS device.
+        let mut current = Some(request.pattern);
+        let mut effect = None;
+        while let Some(pattern) = current {
+            if let Some(name) = haptic_constant_name(pattern) {
+                match env.get_static_field(&constants, name, "I").and_then(|v| v.i()) {
+                    Ok(value) => {
+                        effect = Some(value);
+                        break;
+                    }
+                    Err(_) => {
+                        // NoSuchFieldError: this API level predates the
+                        // constant. Clear it or the pending exception aborts
+                        // the process at the next JNI boundary.
+                        let _ = env.exception_clear();
+                    }
+                }
+            }
+            current = pattern.fallback();
+        }
+        let Some(effect) = effect else {
+            return Err(format!("no constant for {:?} or any fallback", request.pattern));
+        };
+
+        let window = env
+            .call_method(&activity, "getWindow", "()Landroid/view/Window;", &[])
+            .and_then(|v| v.l())
+            .map_err(|e| {
+                let _ = env.exception_clear();
+                format!("getWindow: {e:?}")
+            })?;
+        let view = env
+            .call_method(&window, "getDecorView", "()Landroid/view/View;", &[])
+            .and_then(|v| v.l())
+            .map_err(|e| {
+                let _ = env.exception_clear();
+                format!("getDecorView: {e:?}")
+            })?;
+
+        // The one-argument form, deliberately: the two-argument overload takes
+        // flags that OVERRIDE the user's system haptics setting, and an app
+        // silently ignoring "turn off touch feedback" is a bug, not a feature.
+        env.call_method(
+            &view,
+            "performHapticFeedback",
+            "(I)Z",
+            &[jni::objects::JValue::Int(effect)],
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            let _ = env.exception_clear();
+            format!("performHapticFeedback: {e:?}")
+        })
+    })();
+
+    if let Err(e) = result {
+        log_debug!(LogCategory::Input, "[Android] haptic: {e}");
+    }
+}
+
+/// No-op without the `jni` feature — there is no way to reach the actuator.
+#[cfg(all(target_os = "android", not(feature = "jni")))]
+pub fn play_haptic(_request: &azul_core::haptics::HapticRequest) {}
+
 // ---------------------------------------------------------------------------
 // JNI bridge — surfaces NativeGestureBridge.java callbacks to Rust.
 //

@@ -14015,6 +14015,451 @@
                                     "type": "OptionTabletPadState"
                                 },
                                 "fn_body": "object.get_tablet_pad().into()"
+                            },
+                            "play_haptic_request": {
+                                "doc": [
+                                    "Play a haptic pattern with an explicit strength and duration.",
+                                    "",
+                                    "The long form of [`Self::play_haptic`], for the two axes that only some",
+                                    "actuators have: `intensity` scales Android's composition primitives and",
+                                    "iOS's `impactOccurred(intensity:)` and IS the amplitude for gamepad",
+                                    "rumble, while `duration_ms` only means anything for a continuous motor.",
+                                    "Both are ignored by tap-style actuators such as a macOS trackpad, which",
+                                    "has no strength axis at all."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "request": "HapticRequest"
+                                    }
+                                ],
+                                "fn_body": "object.play_haptic_request(request)"
+                            },
+                            "get_keyboard_inset": {
+                                "doc": [
+                                    "How much of the window the on-screen keyboard currently covers, in",
+                                    "logical px from the bottom edge. `0.0` when no keyboard is up.",
+                                    "",
+                                    "Separate from `get_safe_area_insets().bottom`, which is the home",
+                                    "indicator or navigation bar and does not move. A layout that needs to",
+                                    "stay above the keyboard adds the two; one that wants to know why it",
+                                    "shrank needs them apart."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.get_keyboard_inset()"
+                            },
+                            "is_composing": {
+                                "doc": [
+                                    "Whether an IME composition is currently open on the focused node."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_composing()"
+                            },
+                            "get_pointer_device_id": {
+                                "doc": [
+                                    "Which physical pointing device is driving, or `0` when the platform",
+                                    "does not say."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u64"
+                                },
+                                "fn_body": "object.get_pointer_device_id()"
+                            },
+                            "get_key_modifiers": {
+                                "doc": [
+                                    "Which modifier keys are held right now."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyModifiers"
+                                },
+                                "fn_body": "object.get_key_modifiers()"
+                            },
+                            "is_key_repeat": {
+                                "doc": [
+                                    "Whether the key event being handled is an auto-repeat rather than a",
+                                    "fresh press. A text field wants repeats; a jump button does not."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_key_repeat()"
+                            },
+                            "get_scroll_node_info": {
+                                "doc": [
+                                    "Get a read-only snapshot of a scroll node's bounds and position.",
+                                    "",
+                                    "This is the recommended API for timer callbacks that need to compute",
+                                    "scroll physics. Returns container/content rects and max scroll bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "dom_id": "DomId"
+                                    },
+                                    {
+                                        "node_id": "NodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionScrollNodeInfo"
+                                },
+                                "fn_body": "object.get_scroll_node_info(dom_id, node_id).into()"
+                            },
+                            "scroll_to_animated": {
+                                "doc": [
+                                    "Scroll a node toward a target offset with the critically-damped",
+                                    "spring the scroll physics already uses for momentum and rubber-band",
+                                    "(AZUL-STILL-TODO B8/I27): the position GLIDES to the target instead",
+                                    "of jumping, and a retarget mid-flight keeps the current velocity.",
+                                    "One mechanism shared by scroll-to-caret, scroll-to-page and",
+                                    "find-result navigation.",
+                                    "",
+                                    "The input lands in the shared scroll queue; the platform shell",
+                                    "starts the physics timer when it sees pending input (the same path",
+                                    "wheel momentum takes)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "dom_id": "DomId"
+                                    },
+                                    {
+                                        "node_id": "NodeId"
+                                    },
+                                    {
+                                        "target": "LogicalPosition"
+                                    }
+                                ],
+                                "fn_body": "object.scroll_to_animated(dom_id, node_id, target)"
+                            },
+                            "record_document_edit": {
+                                "doc": [
+                                    "Record a structural document edit programmatically (the bold/italic",
+                                    "toolbar path - keyboard defaults record through the default-action",
+                                    "layer instead). Applied after the callback returns; azul never applies",
+                                    "it to the `StyledDom`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "changeset": "DocumentChangeset"
+                                    }
+                                ],
+                                "fn_body": "object.record_document_edit(changeset)"
+                            },
+                            "mark_document_edit_applied": {
+                                "doc": [
+                                    "The commit handshake: confirm structural edit `id` was applied to the",
+                                    "app's model (usually called for you by",
+                                    "`document_edit::apply_document_operation` users)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "id": "u64"
+                                    }
+                                ],
+                                "fn_body": "object.mark_document_edit_applied(id)"
+                            },
+                            "undo_structural_edit": {
+                                "doc": [
+                                    "Undo the newest structural edit: a NEW changeset (the inverse) is",
+                                    "recorded for the app to apply - nothing mutates here."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.undo_structural_edit()"
+                            },
+                            "redo_structural_edit": {
+                                "doc": [
+                                    "Redo the newest undone structural edit."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.redo_structural_edit()"
+                            },
+                            "play_haptic": {
+                                "doc": [
+                                    "Play a haptic pattern.",
+                                    "",
+                                    "Queued rather than played synchronously: callbacks run on the layout",
+                                    "thread and the platform actuator APIs want the event loop, the same",
+                                    "reason clipboard writes and menu opens are deferred.",
+                                    "",
+                                    "Repeated identical requests coalesce - a callback firing per frame",
+                                    "during a drag would otherwise make the device buzz continuously",
+                                    "instead of ticking once."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "pattern": "HapticPattern"
+                                    },
+                                    {
+                                        "target": "HapticTarget"
+                                    }
+                                ],
+                                "fn_body": "object.play_haptic(pattern, target)"
+                            },
+                            "request_soft_keyboard": {
+                                "doc": [
+                                    "Ask the platform to show or hide the on-screen keyboard.",
+                                    "",
+                                    "A REQUEST, not a setting: only the OS knows whether a keyboard is",
+                                    "actually up - a hardware keyboard suppresses it, and the user can",
+                                    "dismiss it at any time - so this records intent and the shell",
+                                    "reconciles. Desktop shells ignore it.",
+                                    "",
+                                    "Focusing a text field does NOT do this implicitly, because a field can",
+                                    "be focused for reasons that should not raise a keyboard: restoring",
+                                    "focus after a dialog closes, or a programmatic focus during startup."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "visible": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.request_soft_keyboard(visible)"
+                            },
+                            "get_composition_text": {
+                                "doc": [
+                                    "The IME composition (preedit) text currently being composed on the",
+                                    "focused node, if any.",
+                                    "",
+                                    "Read this from a `CompositionStart` / `CompositionUpdate` /",
+                                    "`CompositionEnd` callback to render composition yourself - a code",
+                                    "editor, a terminal, a chat box with inline candidates. On",
+                                    "`CompositionEnd` this is the COMMITTED string, matching W3C",
+                                    "`compositionend.data`, not the (already discarded) preedit.",
+                                    "",
+                                    "The built-in text widgets do not need this: the engine applies the",
+                                    "preedit to their text cache directly."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionString"
+                                },
+                                "fn_body": "object.get_composition_text().into()"
+                            },
+                            "get_pointer_source": {
+                                "doc": [
+                                    "What kind of device produced the pointer event being handled -",
+                                    "a mouse, a touchpad, a trackball, a pen. `Unknown` when the platform",
+                                    "does not classify, which is most of them today.",
+                                    "",
+                                    "Azul splits Mouse/Touch/Pen into separate FILTERS, so this is not how",
+                                    "you tell a finger from a mouse. What it answers is the distinction",
+                                    "WITHIN the pointer family that a filter cannot: whether a scroll came",
+                                    "from a wheel detent or a continuous trackpad drag, and therefore",
+                                    "whether a pinch gesture is even possible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PointerSource"
+                                },
+                                "fn_body": "object.get_pointer_source()"
+                            },
+                            "get_dial_state": {
+                                "doc": [
+                                    "The most recent rotary-control rotation - a tablet pad dial, a Surface",
+                                    "Dial, a Wear crown. `None` until one reports.",
+                                    "",
+                                    "`delta_rad` is rotation SINCE THE LAST FRAME, not an angle: a dial has",
+                                    "no endstops, so there is no absolute position to read. Integrate it",
+                                    "into whatever value the dial controls."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDialState"
+                                },
+                                "fn_body": "object.get_dial_state().into()"
+                            },
+                            "get_key_locks": {
+                                "doc": [
+                                    "Which lock keys are engaged - Caps, Num, Scroll.",
+                                    "",
+                                    "Not derivable from the pressed-key set: a lock is a TOGGLE, so it",
+                                    "stays on after the key is released and no key event describes it. This",
+                                    "is what a password field reads to warn that Caps Lock is on."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyLocks"
+                                },
+                                "fn_body": "object.get_key_locks()"
+                            },
+                            "get_physical_key": {
+                                "doc": [
+                                    "The physical position of the currently pressed key, independent of",
+                                    "layout - `KeyW` is the key where W sits on US ANSI even when the",
+                                    "user's layout produces Z there.",
+                                    "",
+                                    "Use this for anything positional (game movement bindings); use",
+                                    "`get_current_keyboard_state().current_virtual_keycode` for anything",
+                                    "the user reads as a letter."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionPhysicalKey"
+                                },
+                                "fn_body": "object.get_physical_key().into()"
+                            },
+                            "get_pen_hover_distance": {
+                                "doc": [
+                                    "How far the pen is from the surface while hovering, normalized",
+                                    "0.0-1.0 against the tool's own sensing range. `None` when no pen is",
+                                    "active.",
+                                    "",
+                                    "The scale is the DEVICE's, not millimetres - Wayland reports a 16-bit",
+                                    "fraction of maximum range and Win32 only reports in/out of range - so",
+                                    "compare it against itself over time (a brush preview that grows as the",
+                                    "pen approaches) rather than measuring with it. A touching pen reads",
+                                    "`0.0`, so check [`Self::is_pen_in_contact`] to tell \"on the surface\"",
+                                    "from \"not reported\"."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionF32"
+                                },
+                                "fn_body": "object.get_pen_hover_distance().into()"
+                            },
+                            "get_pen_tool_kind": {
+                                "doc": [
+                                    "Which tool of the tablet is in use - stylus, eraser, airbrush, lens",
+                                    "and the rest of the `zwp_tablet_tool_v2` vocabulary. `None` when no pen",
+                                    "is active; `Unknown` when the platform does not classify, which is",
+                                    "every backend except Wayland today."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTabletToolKind"
+                                },
+                                "fn_body": "object.get_pen_tool_kind().into()"
+                            },
+                            "settle_scroll_gesture": {
+                                "doc": [
+                                    "Declare the current scroll gesture finished, so `ScrollEnd` fires.",
+                                    "",
+                                    "Called by the scroll-physics timer when it runs dry. Routed as a",
+                                    "`CallbackChange` rather than touching the manager directly because a",
+                                    "timer callback holds only its own downcast state - the change queue is",
+                                    "the seam that reaches `LayoutWindow` from inside a callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.settle_scroll_gesture()"
+                            },
+                            "perform_accessibility_action": {
+                                "doc": [
+                                    "Perform an accessibility action on a node, exactly as if assistive",
+                                    "technology had requested it.",
+                                    "",
+                                    "Applied after the callback returns, via",
+                                    "`CallbackChange::PerformAccessibilityAction` ->",
+                                    "`LayoutWindow::process_accessibility_action` -> dispatch of the synthetic",
+                                    "events the action maps to (e.g. `AccessibilityAction::Default` on a",
+                                    "button becomes a `MouseUp` on that button, so its `on_click` runs).",
+                                    "",
+                                    "This is the door the E2E `accessibility_action` op uses. Before it,",
+                                    "nothing outside a real screen reader could reach that code path, so",
+                                    "\"activation invokes no callback\" was unobservable from any test."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "dom_id": "DomId"
+                                    },
+                                    {
+                                        "node_id": "NodeId"
+                                    },
+                                    {
+                                        "action": "AccessibilityAction"
+                                    }
+                                ],
+                                "fn_body": "object.perform_accessibility_action(dom_id, node_id, action)"
                             }
                         },
                         "repr": "C"
@@ -27065,6 +27510,44 @@
                                 "Touchscreen": {},
                                 "Pen": {},
                                 "Eraser": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ScrollNodeInfo": {
+                        "external": "azul_layout::managers::scroll_state::ScrollNodeInfo",
+                        "derive": [
+                            "Copy",
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "current_offset": {
+                                    "type": "LogicalPosition"
+                                },
+                                "container_rect": {
+                                    "type": "LogicalRect"
+                                },
+                                "content_rect": {
+                                    "type": "LogicalRect"
+                                },
+                                "max_scroll_x": {
+                                    "type": "f32"
+                                },
+                                "max_scroll_y": {
+                                    "type": "f32"
+                                },
+                                "overscroll_behavior_x": {
+                                    "type": "OverscrollBehavior"
+                                },
+                                "overscroll_behavior_y": {
+                                    "type": "OverscrollBehavior"
+                                },
+                                "overflow_scrolling": {
+                                    "type": "OverflowScrolling"
+                                }
                             }
                         ],
                         "repr": "C"
@@ -48342,6 +48825,27 @@
                                 "Down": {},
                                 "Left": {},
                                 "Right": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OverflowScrolling": {
+                        "external": "azul_css::props::style::scrollbar::OverflowScrolling",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Touch": {}
                             }
                         ],
                         "repr": "C"
@@ -110841,6 +111345,60 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionDialState": {
+                        "external": "azul_layout::managers::gesture::OptionDialState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "DialState"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionTabletToolKind": {
+                        "external": "azul_layout::managers::gesture::OptionTabletToolKind",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "TabletToolKind"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionScrollNodeInfo": {
+                        "external": "azul_layout::managers::scroll_state::OptionScrollNodeInfo",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "ScrollNodeInfo"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -117420,6 +117978,9 @@
                     },
                     "TabletPadState": {
                         "external": "azul_layout::managers::gesture::TabletPadState",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -117455,6 +118016,122 @@
                                 "strip_active": {
                                     "type": "bool"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "HapticTarget": {
+                        "external": "azul_core::haptics::HapticTarget",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "System": {},
+                                "Gamepad": {
+                                    "type": "u32"
+                                },
+                                "Pen": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "DialState": {
+                        "external": "azul_layout::managers::gesture::DialState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "device_id": {
+                                    "type": "u64"
+                                },
+                                "delta_rad": {
+                                    "type": "f32"
+                                },
+                                "detent_count": {
+                                    "type": "f32"
+                                },
+                                "pressed": {
+                                    "type": "bool"
+                                },
+                                "contact_position": {
+                                    "type": "OptionLogicalPosition"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "HapticRequest": {
+                        "external": "azul_core::haptics::HapticRequest",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "pattern": {
+                                    "type": "HapticPattern"
+                                },
+                                "target": {
+                                    "type": "HapticTarget"
+                                },
+                                "intensity": {
+                                    "type": "f32"
+                                },
+                                "duration_ms": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "HapticPattern": {
+                        "external": "azul_core::haptics::HapticPattern",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Selection": {},
+                                "ImpactLight": {},
+                                "ImpactMedium": {},
+                                "ImpactHeavy": {},
+                                "ImpactSoft": {},
+                                "ImpactRigid": {},
+                                "Success": {},
+                                "Warning": {},
+                                "Error": {},
+                                "KeyPress": {},
+                                "KeyRelease": {},
+                                "LongPress": {},
+                                "ContextClick": {},
+                                "TextHandleMove": {},
+                                "GestureStart": {},
+                                "GestureEnd": {},
+                                "Rise": {},
+                                "Fall": {},
+                                "Spin": {}
                             }
                         ],
                         "repr": "C"
