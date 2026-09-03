@@ -441,6 +441,11 @@ pub struct WaylandWindow {
     /// separate rather than relying on a compositor accepting one surface as
     /// two pointers' cursor.
     seat_cursor_surfaces: std::collections::BTreeMap<u64, *mut defines::wl_surface>,
+    /// The non-primary seats whose pointer is currently over the active menu
+    /// POPUP's surface (9b-ii-a-iii) - the per-seat twin of
+    /// `pointer_over_popup`. A popup's coordinates are the popup's, and
+    /// reading them against the main surface hit-tested the wrong node.
+    seat_over_popup: std::collections::BTreeSet<u64>,
     xdg_wm_base: *mut defines::xdg_wm_base,
     pub(crate) surface: *mut defines::wl_surface,
     xdg_surface: *mut defines::xdg_surface,
@@ -1881,6 +1886,7 @@ impl WaylandWindow {
             seat_axis: std::collections::BTreeMap::new(),
             seat_serials: std::collections::BTreeMap::new(),
             seat_cursor_surfaces: std::collections::BTreeMap::new(),
+            seat_over_popup: std::collections::BTreeSet::new(),
             xdg_wm_base: std::ptr::null_mut(),
             surface: std::ptr::null_mut(),
             xdg_surface: std::ptr::null_mut(),
@@ -5130,12 +5136,31 @@ impl WaylandWindow {
     /// history, the ordinary diff pass - and NOT the popup routing, the
     /// scrollbar drag, the gesture samples or the cursor-shape sync, which are
     /// all the primary cursor's (see 9b-ii-b and 9b-ii-a-ii).
-    pub(super) fn handle_seat_pointer_enter(&mut self, seat_id: u64, serial: u32, x: f64, y: f64) {
+    pub(super) fn handle_seat_pointer_enter(
+        &mut self,
+        seat_id: u64,
+        serial: u32,
+        x: f64,
+        y: f64,
+        over_popup: bool,
+    ) {
         use crate::desktop::shell2::common::event::PlatformWindow;
         let pos = LogicalPosition::new(x as f32, y as f32);
         // The enter serial is what `set_cursor` for THIS seat must answer
         // with (9b-ii-a-ii).
         self.seat_serials.insert(seat_id, serial);
+        // OVER THE MENU POPUP (9b-ii-a-iii): the same routing the primary gets.
+        // A popup is not per seat - any cursor clicking an item selects it -
+        // so the popup's own enter/motion/button handlers serve every seat;
+        // what is per seat is knowing whose events are the popup's, which
+        // used to be a single bool and so only ever the primary's.
+        if over_popup && self.active_popup.is_some() {
+            self.seat_over_popup.insert(seat_id);
+            if let Some(popup) = self.active_popup.as_mut() {
+                popup.pointer_enter(pos);
+            }
+            return;
+        }
         self.snapshot_window_state_baseline("wayland.seat.pointer_enter");
         self.common.pointer_seat_mut(seat_id).cursor_position = CursorPosition::InWindow(pos);
         self.update_seat_hit_test_at(seat_id, pos);
@@ -5173,6 +5198,12 @@ impl WaylandWindow {
     }
 
     pub(super) fn handle_seat_pointer_leave(&mut self, seat_id: u64) {
+        if self.seat_over_popup.remove(&seat_id) {
+            if let Some(popup) = self.active_popup.as_mut() {
+                popup.pointer_leave();
+            }
+            return;
+        }
         let last = self
             .common
             .current_window_state()
@@ -5194,6 +5225,12 @@ impl WaylandWindow {
     pub(super) fn handle_seat_pointer_motion(&mut self, seat_id: u64, x: f64, y: f64) {
         use crate::desktop::shell2::common::event::PlatformWindow;
         let pos = LogicalPosition::new(x as f32, y as f32);
+        if self.seat_over_popup.contains(&seat_id) && self.active_popup.is_some() {
+            if let Some(popup) = self.active_popup.as_mut() {
+                popup.pointer_motion(pos);
+            }
+            return;
+        }
         self.snapshot_window_state_baseline("wayland.seat.pointer_motion");
         self.common.pointer_seat_mut(seat_id).cursor_position = CursorPosition::InWindow(pos);
         self.update_seat_hit_test_at(seat_id, pos);
@@ -5209,6 +5246,12 @@ impl WaylandWindow {
     /// data device, and a serial from another seat would be rejected there.
     pub(super) fn handle_seat_pointer_button(&mut self, seat_id: u64, button: u32, state: u32) {
         use crate::desktop::shell2::common::event::{apply_pointer_button_state, PlatformWindow};
+        if self.seat_over_popup.contains(&seat_id) && self.active_popup.is_some() {
+            if let Some(popup) = self.active_popup.as_mut() {
+                popup.pointer_button(button, state);
+            }
+            return;
+        }
         let mouse_button = match button {
             0x110 => MouseButton::Left,
             0x111 => MouseButton::Right,
@@ -5239,6 +5282,7 @@ impl WaylandWindow {
     /// now is diffed against a default state) releases whatever it held.
     pub(super) fn handle_seat_gone(&mut self, seat_id: u64) {
         self.seat_serials.remove(&seat_id);
+        self.seat_over_popup.remove(&seat_id);
         self.seat_axis.remove(&seat_id);
         if let Some(sf) = self.seat_cursor_surfaces.remove(&seat_id) {
             if !sf.is_null() {

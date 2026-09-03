@@ -3210,11 +3210,19 @@ pub(super) extern "C" fn pointer_enter_handler(
     // A second cursor (9b-ii-a) takes its own path; see `seat_id_for_pointer`.
     let seat_id = window.seat_id_for_pointer(pointer);
     if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        // Which SURFACE this seat entered (9b-ii-a-iii): the popup's or the
+        // window's - resolved here, where the raw `wl_surface` is in hand,
+        // exactly as it is for the primary below.
+        let seat_over_popup = window
+            .active_popup
+            .as_ref()
+            .map_or(false, |p| !surface.is_null() && p.surface == surface);
         window.handle_seat_pointer_enter(
             seat_id,
             serial,
             surface_x as f64 / 256.0,
             surface_y as f64 / 256.0,
+            seat_over_popup,
         );
         return;
     }

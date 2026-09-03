@@ -2023,10 +2023,24 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `compute_cursor_type_hit_test` the primary uses, defaulting to the arrow with nothing hit
       - an unanswered enter is invisible, not an arrow - and re-sending only on change.
       ⚠ NOT COMPILED OR RUN (batch compiles at the end); the Linux target is the one to watch.
-- [ ] 9b-ii-a-iii A second cursor over a menu POPUP. The popup routing (`pointer_over_popup`,
-      the xdg_popup grab) is the primary seat's; a second seat's enter on the popup surface is
-      treated as the main surface. The grab is per seat in xdg-shell, so this is a real
-      per-seat question and not a line.
+- [x] 9b-ii-a-iii DONE. The "real per-seat question" had a plain answer once split in two: the
+      POPUP is not per seat (any cursor clicking an item selects it, so the popup's own
+      enter / motion / button / leave handlers serve every seat unchanged), while KNOWING WHOSE
+      EVENTS ARE THE POPUP'S is - and that knowledge was one bool (`pointer_over_popup`), so it
+      was only ever the primary's, and a second seat entering the popup surface had its
+      popup-relative coordinates hit-tested against the main window. `seat_over_popup` (a set of
+      seat ids) is the per-seat twin: the seat enter handler now receives `over_popup`, resolved
+      in the listener where the raw `wl_surface` is compared against the popup's exactly as for
+      the primary, and the seat's motion, button and leave route to the popup while it is in the
+      set. Forgotten when the seat goes. The xdg_popup GRAB itself stays the primary seat's - the
+      grab is what makes clicking outside dismiss the menu, and xdg-shell allows one grabbing seat
+      per popup; a second seat's outside-click therefore does not dismiss (9b-ii-a-iii-a).
+      ⚠ NOT COMPILED OR RUN (batch compiles at the end).
+- [ ] 9b-ii-a-iii-a A second seat's click OUTSIDE the popup does not dismiss it: dismissal rides
+      the xdg_popup grab, which belongs to the seat that opened the menu (xdg-shell: one grabbing
+      seat). Making another seat's outside-press dismiss means the engine, not the compositor,
+      deciding "outside" for that seat - the same check the X11 backend does by bounds. Small, but
+      it wants the X11 rule ported rather than a Wayland-only special case.
 - [x] 9b-ii-b DONE for the wheel, pointer capture and the dedup; the gestures are 9b-ii-b-i.
       THE WHEEL: `ScrollManager::record_scroll_from_hit_test` already took an `InputPointId`, so
       the scroll physics had been per input point all along - what was missing was a producer
