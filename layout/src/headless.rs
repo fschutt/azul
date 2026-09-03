@@ -965,7 +965,9 @@ impl CpuHitTester {
     /// content went.
     ///
     /// Returns `(dom, node, local_point)` triples in reverse paint order
-    /// (topmost first), where `local_point` is the query point mapped into
+    /// (topmost first) ACROSS DOMs as well as within one - a child DOM's hits
+    /// precede its host's, as they do in WebRender's result - where
+    /// `local_point` is the query point mapped into
     /// that node's STATIC layout space — callers use it directly for
     /// node-relative points (caret placement, `point_relative_to_item`).
     #[must_use]
@@ -993,7 +995,15 @@ impl CpuHitTester {
             mapped.get(chain as usize).copied().unwrap_or(position)
         };
 
-        for (dom_id, entries) in &self.node_rects {
+        // DOMs FRONT-MOST FIRST (9g-ii-e-i): a child DOM (a `VirtualView` page,
+        // an iframe) always has a higher `DomId` than its host and is
+        // composited ON TOP of it, so the hits of the highest DOM are the
+        // nearest to the user. Visiting the map in ascending order gave the
+        // HOST's nodes the lower depth numbers, while WebRender - one scene
+        // for every DOM, walked in reverse paint order - numbers the page's
+        // nodes first. The two producers disagreed exactly where a page sat
+        // over its host, which is the only place the order matters.
+        for (dom_id, entries) in self.node_rects.iter().rev() {
             // Walk in reverse (last painted = topmost)
             for entry in entries.iter().rev() {
                 if entry.pointer_events_none {
@@ -1919,6 +1929,65 @@ mod autotest_generated {
             tester.hit_test(p(50.0, 50.0)),
             vec![(dom(0), NodeId::new(2)), (dom(0), NodeId::new(1))]
         );
+    }
+
+    #[test]
+    fn a_child_dom_on_top_of_its_host_comes_first_and_gets_the_lower_depth() {
+        // Host dom 0: one node covering (0,0)-(300,300), showing child dom 1
+        // through a VirtualView at (100,100)-(150,150). Child dom 1: one node
+        // covering its whole 200x200. A point inside the page is over BOTH.
+        //
+        // WebRender answers page first (front to back, one scene for every
+        // DOM). The CPU tester visited DOMs in ascending id order, so the
+        // HOST came first and `FullHitTest::topmost_node` - the smallest
+        // `hit_depth` - named the node the page was covering.
+        let mut results = BTreeMap::new();
+        results.insert(
+            dom(0),
+            layout_result(
+                styled(""),
+                vec![hot(Some(1), Some((300.0, 300.0)), None)],
+                vec![p(0.0, 0.0)],
+                vec![virtual_view(1, r(100.0, 100.0, 50.0, 50.0))],
+            ),
+        );
+        results.insert(
+            dom(1),
+            layout_result(
+                styled(""),
+                vec![hot(Some(1), Some((200.0, 200.0)), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout(&results);
+
+        let hits = tester.hit_test_scrolled(p(120.0, 120.0), &|_, _| None, &|_, _| None);
+        let order: Vec<(DomId, NodeId)> = hits.iter().map(|(d, n, _)| (*d, *n)).collect();
+        assert_eq!(
+            order,
+            vec![(dom(1), NodeId::new(1)), (dom(0), NodeId::new(1))],
+            "the page over the host is nearer the user"
+        );
+
+        let full = convert_cpu_hit_test_to_full(
+            &tester,
+            &hits,
+            None,
+            &results,
+            p(120.0, 120.0),
+            &|_, _| None,
+            &|_, _| None,
+        );
+        let depth = |d: usize| full.hovered_nodes[&dom(d)].regular_hit_test_nodes[&NodeId::new(1)].hit_depth;
+        assert_eq!(depth(1), 0, "front-most");
+        assert_eq!(depth(0), 1);
+        let top = full.topmost_node().expect("something is hit");
+        assert_eq!(top.dom, dom(1), "topmost_node agrees with WebRender's rule now");
+        // Outside the page, only the host - and it is then the front-most.
+        let outside = tester.hit_test(p(20.0, 20.0));
+        assert_eq!(outside, vec![(dom(0), NodeId::new(1))]);
     }
 
     #[test]

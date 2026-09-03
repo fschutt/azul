@@ -5600,22 +5600,19 @@ impl CallbackInfo {
     /// drag auto-scroll when there is no focused node - node drags and OS
     /// file hovers scroll the container under the pointer, not the focused
     /// text field.
+    ///
+    /// "Deepest" is the FRONT-MOST regular hit - the node the pointer events
+    /// themselves are targeted at (9g-ii-e-i), so the auto-scroll anchor and
+    /// the drop target are always the same node. This used to pick the
+    /// LARGEST `NodeId` of the FIRST hit DOM: a proxy for z-order that two
+    /// overlapping absolutely-positioned siblings break (the one on top can
+    /// have either id), and one that named a HOST node under a `VirtualView`
+    /// page rather than the page's own.
     #[must_use]
     pub fn get_deepest_hovered_node(&self) -> Option<DomNodeId> {
-        let hit = self
-            .get_layout_window()
+        self.get_layout_window()
             .hover_manager
-            .get_current(&InputPointId::Mouse)?;
-        hit.hovered_nodes.iter().next().and_then(|(dom_id, entry)| {
-            entry
-                .regular_hit_test_nodes
-                .keys()
-                .next_back()
-                .map(|nid| DomNodeId {
-                    dom: *dom_id,
-                    node: NodeHierarchyItemId::from_crate_internal(Some(*nid)),
-                })
-        })
+            .current_hover_node_full()
     }
 
     /// Check if a node or file drag is currently active
@@ -7065,6 +7062,99 @@ mod autotest_generated {
         );
 
         f(&mut info)
+    }
+
+    /// [`with_info`], but on a `LayoutWindow` the test has prepared first.
+    fn with_info_on<R>(
+        layout_window: LayoutWindow,
+        hit: DomNodeId,
+        f: impl FnOnce(&mut CallbackInfo) -> R,
+    ) -> R {
+        let renderer_resources = RendererResources::default();
+        let previous_window_state: Option<FullWindowState> = None;
+        let current_window_state = FullWindowState::default();
+        let gl_context = OptionGlContextPtr::None;
+        let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
+            BTreeMap::new();
+        let window_handle = RawWindowHandle::Unsupported;
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+
+        let ref_data = CallbackInfoRefData {
+            layout_window: &layout_window,
+            renderer_resources: &renderer_resources,
+            previous_window_state: &previous_window_state,
+            current_window_state: &current_window_state,
+            gl_context: &gl_context,
+            current_scroll_manager: &scroll_states,
+            current_window_handle: &window_handle,
+            system_callbacks: &system_callbacks,
+            system_style: Arc::new(SystemStyle::default()),
+            monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
+            #[cfg(feature = "icu")]
+            icu_localizer: IcuLocalizerHandle::default(),
+            ctx: OptionRefAny::None,
+        };
+
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let mut info = CallbackInfo::new(
+            &ref_data,
+            &changes,
+            hit,
+            OptionLogicalPosition::None,
+            OptionLogicalPosition::None,
+        );
+
+        f(&mut info)
+    }
+
+    #[test]
+    fn get_deepest_hovered_node_is_the_front_most_hit_not_the_largest_id() {
+        use azul_core::hit_test::{FullHitTest, HitTest, HitTestItem};
+        let item = |depth: u32| HitTestItem {
+            point_in_viewport: LogicalPosition::zero(),
+            point_relative_to_item: Default::default(),
+            is_focusable: false,
+            is_virtual_view_hit: None,
+            hit_depth: depth,
+        };
+        // Node 5 is BEHIND node 1 (an earlier sibling with a higher z-index,
+        // say). The old rule answered 5 - the largest id.
+        let mut ht = HitTest::empty();
+        ht.regular_hit_test_nodes.insert(NodeId::new(1), item(0));
+        ht.regular_hit_test_nodes.insert(NodeId::new(5), item(3));
+        let mut full = FullHitTest::empty(None);
+        full.hovered_nodes.insert(DomId::ROOT_ID, ht);
+        // A VirtualView page (dom 1) on top: its node wins over any host node,
+        // whatever the depth numbers say - the page is the front-most surface.
+        let mut page = HitTest::empty();
+        page.regular_hit_test_nodes.insert(NodeId::new(2), item(7));
+        full.hovered_nodes.insert(DomId { inner: 1 }, page);
+
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        lw.hover_manager.push_hit_test(InputPointId::Mouse, full);
+        let picked = with_info_on(lw, node0(), |info| info.get_deepest_hovered_node());
+        let picked = picked.expect("something is hovered");
+        assert_eq!(picked.dom, DomId { inner: 1 });
+        assert_eq!(picked.node.into_crate_internal(), Some(NodeId::new(2)));
+
+        // Single DOM: the front-most, not the largest id.
+        let mut ht = HitTest::empty();
+        ht.regular_hit_test_nodes.insert(NodeId::new(1), item(0));
+        ht.regular_hit_test_nodes.insert(NodeId::new(5), item(3));
+        let mut full = FullHitTest::empty(None);
+        full.hovered_nodes.insert(DomId::ROOT_ID, ht);
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        lw.hover_manager.push_hit_test(InputPointId::Mouse, full);
+        let picked = with_info_on(lw, node0(), |info| info.get_deepest_hovered_node());
+        assert_eq!(
+            picked.and_then(|p| p.node.into_crate_internal()),
+            Some(NodeId::new(1)),
+            "the one on top, whatever its id"
+        );
+        // And nothing hovered is None, as before.
+        let lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        assert!(with_info_on(lw, node0(), |info| info.get_deepest_hovered_node()).is_none());
     }
 
     /// `DomNodeId` pointing at node 0 of the root DOM.

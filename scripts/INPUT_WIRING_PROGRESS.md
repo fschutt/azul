@@ -1378,15 +1378,38 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       the answer. `codegen all` + a dll build put `AzCallbackInfo_getHoveredNodes` and
       `AzDomNodeIdVec` in the C ABI; autofix converged at 0 patches, `azul-doc check` PASSED.
       Host, 8/8 mobile, azul-core 2779.
-- [ ] 9g-ii-e-i `get_deepest_hovered_node` PICKS BY THE LARGEST NODE ID, WITHIN THE FIRST DOM
-      ONLY (`hovered_nodes.iter().next()` then `regular_hit_test_nodes.keys().next_back()`). That
-      is a proxy for z-order that overlapping absolutely-positioned siblings break, and it ignores
-      every DOM after the first - so a hit inside a `VirtualView` page can name a node from the
-      host instead. `FullHitTest::topmost_node()` is the correct implementation and is already
-      written and tested. NOT SWITCHED HERE on purpose: it is a shipped API whose documented job
-      is the drag auto-scroll anchor, it works today, and changing its selection rule needs
-      confirmation that both hit-test producers order `hit_depth` consistently - which is a
-      device-level check, not a reading one.
+- [x] 9g-ii-e-i DONE - and the confirmation it asked for came back NEGATIVE, which is why it
+      was worth asking. Both producers number hits front to back WITHIN a DOM, and they DISAGREE
+      ACROSS DOMs: WebRender walks ONE scene for every DOM in reverse paint order
+      (`webrender/core/src/hit_test.rs`: `scene.items.iter().rev()`), so a `VirtualView` page
+      composited over its host gets the lower depth; the CPU tester walked `node_rects` - a
+      `BTreeMap<DomId, _>` - in ASCENDING id order, so the HOST's nodes came first and the page
+      on top of them got the higher numbers. `FullHitTest::topmost_node` (the global minimum,
+      "already written and tested") was therefore right on the GPU path and wrong on the CPU
+      path exactly where a page sat over its host - which is every headless E2E run and every
+      CPU-rendered window. Not device-level after all: both producers are code, and the order
+      falls out of one line each.
+      FIXED IN THE PRODUCER, not papered over in the consumer: the CPU tester now visits DOMs
+      highest-id first (a child DOM always has a higher id than its host and is composited on
+      top - the engine's stated model, the same assumption `deepest_node_across_doms` makes),
+      so its numbering matches WebRender's globally and `topmost_node` is right on both.
+      `get_deepest_hovered_node` delegates to `HoverManager::current_hover_node_full` - the
+      front-most regular hit of the front-most DOM, which is the node the pointer events are
+      targeted at - so the auto-scroll anchor and the drop target are one node. The largest-id
+      proxy is gone.
+      EVIDENCE: a CPU test with a host node under a VirtualView page (page first in the hit list,
+      depth 0 for the page and 1 for the host, `topmost_node` names the page, outside the page
+      only the host) - NEGATIVE CONTROL: restoring ascending DOM order fails it while the
+      single-DOM `hit_test_returns_topmost_first` still passes; a `CallbackInfo` test where node 5
+      sits behind node 1 and a page dom sits over both (picks the page; single-DOM picks node 1,
+      not 5; nothing hovered is `None`). The four integration suites that consume CPU hit order
+      (`click_into_a_virtual_view_page`, `virtualview_hit_matches_render`, `hover_manager`,
+      `drag_selection_scroll`: 15 tests) still pass. Host, 8/8 mobile.
+- [ ] 9g-ii-e-ii The e2e runner's click-to-focus scan (`runner.rs`, "clicked_focusable_node")
+      walks `hovered_nodes` in ASCENDING DomId order and takes the first DOM's front-most hit, so
+      a focusable HOST node under a `VirtualView` page can take the focus the click meant for
+      the page. Same class as this item, one consumer over; wants
+      `deepest_node_across_doms`-style ordering (highest DOM first).
 - [ ] 9g-ii-f `query_pagination` -> `FakePageConfig` -> `PageSequence` -> ... ->
       `MarginBoxContent::Custom(Arc<dyn Fn(PageInfo) -> String + Send + Sync>)`. A boxed Rust
       closure is not expressible in C at all. This one may be correctly UNEXPOSED forever; if it
