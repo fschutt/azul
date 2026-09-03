@@ -394,6 +394,9 @@ winapi = { version = "0.3.9", optional = true, default-features = false, feature
 # Motion sensors (Windows.Devices.Sensors, WinRT) — accel/gyro/mag.
 windows = { version = "0.62", optional = true, features = [
     "Devices_Sensors",
+    # The precision touchpad's scroll-direction preference
+    # (extra/natural_scroll.rs, 9b-ii-b-i-a).
+    "Win32_System_Registry",
     # Proximity sensor discovery (extra/sensors/windows.rs, 8e-i-a-ii):
     # `ProximitySensor` has no GetDefault(), only a device selector.
     "Devices_Enumeration",

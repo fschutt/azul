@@ -288,6 +288,58 @@ pub fn synthesize_pinch_from_ctrl_wheel() -> bool {
     SYNTHESIZE_PINCH_FROM_CTRL_WHEEL.load(core::sync::atomic::Ordering::Relaxed)
 }
 
+/// App-global `AppConfig::natural_scroll` (9b-ii-b-i-a), published by
+/// `App::create` like the settings above: every `ScrollManager` is built
+/// from it. `0` Disabled, `1` Enabled, `2` System.
+static NATURAL_SCROLL_MODE: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+/// The PLATFORM's natural-scrolling preference, where a backend reports one:
+/// `0` unknown, `1` off, `2` on. macOS reads its preference at startup, the
+/// Windows precision touchpad its registry key, Wayland the compositor's
+/// `axis_relative_direction` as it arrives; X11 reports nothing.
+static SYSTEM_NATURAL_SCROLL: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+/// Install the app-global natural-scroll mode.
+pub fn set_global_natural_scroll(mode: azul_core::resources::NaturalScroll) {
+    use azul_core::resources::NaturalScroll;
+    let v = match mode {
+        NaturalScroll::Disabled => 0,
+        NaturalScroll::Enabled => 1,
+        NaturalScroll::System => 2,
+    };
+    NATURAL_SCROLL_MODE.store(v, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// The app-global natural-scroll mode.
+#[must_use]
+pub fn natural_scroll_mode() -> azul_core::resources::NaturalScroll {
+    use azul_core::resources::NaturalScroll;
+    match NATURAL_SCROLL_MODE.load(core::sync::atomic::Ordering::Relaxed) {
+        1 => NaturalScroll::Enabled,
+        2 => NaturalScroll::System,
+        _ => NaturalScroll::Disabled,
+    }
+}
+
+/// A backend reports the platform's natural-scrolling preference.
+pub fn set_global_system_natural_scroll(natural: Option<bool>) {
+    let v = match natural {
+        None => 0,
+        Some(false) => 1,
+        Some(true) => 2,
+    };
+    SYSTEM_NATURAL_SCROLL.store(v, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// The platform's natural-scrolling preference, if a backend reported one.
+#[must_use]
+pub fn system_natural_scroll() -> Option<bool> {
+    match SYSTEM_NATURAL_SCROLL.load(core::sync::atomic::Ordering::Relaxed) {
+        1 => Some(false),
+        2 => Some(true),
+        _ => None,
+    }
+}
+
 /// App-global `AppConfig::expose_system_media_controls`, published the same way
 /// and for the same reason: the Linux media-key backend starts from a place
 /// with no path back to the `AppConfig` the app was built with.

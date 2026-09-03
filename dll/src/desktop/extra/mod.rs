@@ -32,6 +32,7 @@ pub mod gamepad;
 pub mod haptics;
 pub mod hid;
 pub mod media_keys;
+pub mod natural_scroll;
 /// Bringing a window to the front, per platform (9h-i-a-ii).
 pub mod window_activation;
 pub mod geolocation;

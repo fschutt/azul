@@ -160,6 +160,15 @@ impl App {
         azul_layout::window::set_global_synthesize_pinch_from_ctrl_wheel(
             app_config.synthesize_pinch_from_ctrl_wheel,
         );
+        // Natural scrolling (9b-ii-b-i-a): the mode every ScrollManager reads,
+        // and - for `System` - the platform's preference, read once here
+        // (Wayland keeps it current from the compositor's own events).
+        azul_layout::window::set_global_natural_scroll(app_config.natural_scroll);
+        if app_config.natural_scroll == azul_core::resources::NaturalScroll::System {
+            azul_layout::window::set_global_system_natural_scroll(
+                crate::desktop::extra::natural_scroll::read_system_preference(),
+            );
+        }
         azul_layout::window::set_global_expose_system_media_controls(app_config.expose_system_media_controls);
 
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)

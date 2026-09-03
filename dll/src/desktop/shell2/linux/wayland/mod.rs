@@ -4251,7 +4251,14 @@ impl WaylandWindow {
         let inverted = direction == WL_POINTER_AXIS_RELATIVE_DIRECTION_INVERTED;
         match axis {
             WL_POINTER_AXIS_HORIZONTAL_SCROLL => self.axis_inverted.0 = inverted,
-            WL_POINTER_AXIS_VERTICAL_SCROLL => self.axis_inverted.1 = inverted,
+            WL_POINTER_AXIS_VERTICAL_SCROLL => {
+                self.axis_inverted.1 = inverted;
+                // The compositor's own word on natural scrolling (9b-ii-b-i-a):
+                // "inverted" = the deltas run against the physical motion =
+                // natural scrolling is on. Published as the platform's
+                // preference; the engine never flips on top of it.
+                azul_layout::window::set_global_system_natural_scroll(Some(inverted));
+            }
             _ => {}
         }
     }

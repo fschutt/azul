@@ -4809,6 +4809,36 @@ impl CallbackInfo {
         self.get_layout_window().sensor_manager.reading(kind)
     }
 
+    /// Whether the ENGINE flips scroll deltas (9b-ii-b-i-a):
+    /// `AppConfig::natural_scroll == Enabled` (or the `AZ_NATURAL_SCROLL`
+    /// override). The platform's own preference is `get_system_natural_scroll`.
+    #[must_use]
+    pub fn get_natural_scroll(&self) -> bool {
+        self.get_layout_window().scroll_manager.is_natural_scroll()
+    }
+
+    /// The PLATFORM's natural-scrolling preference, if it reports one
+    /// (9b-ii-b-i-a): macOS's setting, the Windows precision touchpad's, a
+    /// Wayland compositor's `axis_relative_direction`. `false` also when the
+    /// platform says nothing - `has_system_natural_scroll` tells the two
+    /// apart. What `AppConfig::natural_scroll = System` loads.
+    #[must_use]
+    pub fn get_system_natural_scroll(&self) -> bool {
+        self.get_layout_window()
+            .scroll_manager
+            .system_natural_scroll()
+            .unwrap_or(false)
+    }
+
+    /// Whether the platform reported a natural-scrolling preference at all.
+    #[must_use]
+    pub fn has_system_natural_scroll(&self) -> bool {
+        self.get_layout_window()
+            .scroll_manager
+            .system_natural_scroll()
+            .is_some()
+    }
+
     /// The proximity sensor's TYPED answer (8e-i-a-i, 8e-i-a-ii): `Near` /
     /// `Far` from a binary sensor (iOS, Windows without ranging), a
     /// `Distance` in the sensor's native unit from a ranging one. `None`

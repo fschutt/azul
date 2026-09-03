@@ -2263,17 +2263,28 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       api.json untouched (autofix: 0 modifications); layout lib 7679 and `--test all` 999 tests
       green after the one break - eight test literals of `InputSession` without `seat_id` -
       was fixed (d42e0d757); dll lib tests green; the 8-target gate 8/8.
-- [ ] 9b-ii-b-i-a Wayland `axis_relative_direction` is RECORDED for every seat and CONSUMED for
-      none: `axis_inverted` has no reader. The compositor already delivers deltas in the user's
-      configured direction and `record_scroll_input` applies the engine's natural-scroll sign
-      centrally, so this is either redundant or a double inversion waiting to happen; needs a
-      device check on a v9 compositor before it is wired to anything.
-      USER RULING 2026-09-04: "we'll check later, let's just wire it in + a field on the appconfig
-      (can be enabled at startup / loaded from system config, like on macos). Default: disabled,
-      app has to enable / load from system manually." So: an `AppConfig` natural-scrolling
-      field, default OFF; the engine's natural-scroll sign follows it; a way to load the system's
-      setting on demand (macOS reads its preference; Wayland's per-seat
-      `axis_relative_direction` is the system's answer there; Windows / X11 have theirs). Implement.
+- [x] 9b-ii-b-i-a DONE per the USER RULING (2026-09-04). `AppConfig::natural_scroll:
+      NaturalScroll { Disabled (default), Enabled, System }`, published app-globally like the
+      pinch setting and read by every `ScrollManager::new` (the `AZ_NATURAL_SCROLL` env override
+      still wins). `Enabled` flips every delta in the engine; `System` reads the platform's
+      preference once at startup (`extra/natural_scroll.rs`: macOS `NSUserDefaults`
+      `com.apple.swipescrolldirection`, absent = on; Windows the precision touchpad's
+      `ScrollDirection` registry key, `0` = natural - both blind per the ruling; Wayland keeps
+      it current from `axis_relative_direction`, which is the compositor's own word; X11 and
+      mobile report nothing) and makes it readable - `CallbackInfo::get_natural_scroll` (the
+      engine's flip), `get_system_natural_scroll` / `has_system_natural_scroll` (the platform's
+      answer). THE POINT THAT DECIDED THE SEMANTICS: every desktop platform already applies the
+      user's preference to the deltas it hands over (macOS, the precision touchpad, libinput on
+      Wayland and X11), so `System` must NOT flip again - it would undo the user's setting; the
+      previously recorded-but-unread Wayland flag was exactly a double inversion waiting to
+      happen, and it is now consumed as a READING. The "check on a real compositor" the note
+      asked for still stands as the device check (9b-ii-b-i-a-i). ⏳ EIGHTH BATCH: uncompiled
+      until its end pass (api.json: `AppConfig.natural_scroll`, `NaturalScroll`, the three
+      `CallbackInfo` getters through autofix then).
+- [ ] 9b-ii-b-i-a-i Device check (the user: "we'll check later"): on a v9 compositor with natural
+      scrolling on, confirm the deltas already arrive inverted and `get_system_natural_scroll`
+      reads true; on macOS confirm the absent-key default; on a Windows precision touchpad the
+      `ScrollDirection` values.
 - [x] 9b-ii-b-i-b DONE. `seat_pens: BTreeMap<u64, SeatPen>` holds the non-primary seats' pens
       (state, previous, pending flag, own report-rate estimate); the primary keeps its three
       fields. `update_pen_state_full_for` / `clear_pen_state_for` / `set_pen_hover_distance_for`

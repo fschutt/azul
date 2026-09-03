@@ -896,6 +896,19 @@ pub struct AppConfig {
     /// Ignored on every platform but Windows: macOS and Wayland report real
     /// pinch gestures, so nothing has to be inferred there.
     pub synthesize_pinch_from_ctrl_wheel: bool,
+    /// NATURAL SCROLLING (9b-ii-b-i-a; USER RULING 2026-09-04: a field here,
+    /// default off, the app enables it or loads the system's setting).
+    ///
+    /// The engine's own scroll sign: `Disabled` never flips a delta, `Enabled`
+    /// flips every wheel / trackpad delta (in-app natural scrolling regardless
+    /// of the OS), `System` reads the platform's preference at startup and
+    /// keeps it readable (`CallbackInfo::get_natural_scroll`) - WITHOUT a
+    /// second flip, because every desktop platform already applies the user's
+    /// preference to the deltas it hands over (macOS, the Windows precision
+    /// touchpad, libinput on Wayland and X11); flipping again would undo it.
+    /// Where the platform reports nothing the answer is unknown and `System`
+    /// behaves as `Disabled`.
+    pub natural_scroll: NaturalScroll,
     /// Whether the app publishes itself to the OS as a media player.
     /// Default `false`.
     ///
@@ -1015,6 +1028,8 @@ impl AppConfig {
             // ON by default: a precision touchpad is how most Windows laptops
             // pinch, and without this they cannot pinch at all.
             synthesize_pinch_from_ctrl_wheel: true,
+            // OFF (user ruling): the app enables it or asks for the system's.
+            natural_scroll: NaturalScroll::Disabled,
             // OFF: publishing a media player is visible in the desktop UI.
             expose_system_media_controls: false,
             custom_e2e_op: crate::events::CustomE2eOpCallback::default(),
@@ -1194,6 +1209,22 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self::create()
     }
+}
+
+/// How the engine treats scroll direction (9b-ii-b-i-a) - see
+/// `AppConfig::natural_scroll`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum NaturalScroll {
+    /// Never flip a delta in the engine. The OS's own preference, if the user
+    /// set one, still reaches the app in the deltas.
+    #[default]
+    Disabled,
+    /// Flip every wheel and trackpad delta in the engine.
+    Enabled,
+    /// Read the platform's preference at startup and keep it readable; no
+    /// engine flip, since the platform already applied it to the deltas.
+    System,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

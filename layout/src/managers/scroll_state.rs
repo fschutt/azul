@@ -528,14 +528,29 @@ impl ScrollManager {
     #[must_use]
     pub fn new() -> Self {
         let mut m = Self::default();
-        // Power-user / test override. Platform shells should call
-        // `set_natural_scroll` from the OS preference; this env var wins so the
-        // direction can be flipped without a rebuild and so tests are hermetic.
+        // `AppConfig::natural_scroll` (9b-ii-b-i-a): `Enabled` flips in the
+        // engine; `System` and `Disabled` do not - the platform already
+        // applied the user's preference to the deltas it hands over, and
+        // `System` only makes that preference readable.
+        m.natural_scroll = matches!(
+            crate::window::natural_scroll_mode(),
+            azul_core::resources::NaturalScroll::Enabled
+        );
+        // Power-user / test override: this env var wins so the direction can
+        // be flipped without a rebuild and so tests are hermetic.
         #[cfg(feature = "std")]
         if let Some(v) = std::env::var_os("AZ_NATURAL_SCROLL") {
             m.natural_scroll = matches!(v.to_str(), Some("1" | "true" | "TRUE"));
         }
         m
+    }
+
+    /// The platform's natural-scrolling preference, where a backend reported
+    /// one (9b-ii-b-i-a): what `AppConfig::natural_scroll = System` reads.
+    /// `None` = the platform said nothing (X11, mobile, or no reader yet).
+    #[must_use]
+    pub fn system_natural_scroll(&self) -> Option<bool> {
+        crate::window::system_natural_scroll()
     }
 
     /// Set the scroll-direction preference. `true` = natural (content follows the
