@@ -45,6 +45,37 @@ use azul_core::{
     media_session::{MediaPlaybackState, NowPlayingInfo},
     window::VirtualKeyCode,
 };
+
+/// `CGSize` / `NSSize`: two `CGFloat`s, which are `f64` on every 64-bit Apple
+/// target. Declared here rather than pulled from a crate for the same reason
+/// the gamepad backend declares `GcVector3` - the surface needed is one struct.
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+struct CgSize {
+    width: f64,
+    height: f64,
+}
+
+// SAFETY: matches `struct CGSize { CGFloat width, height; }` exactly, which is
+// what the encoding has to describe for objc2 to pass and return it correctly.
+unsafe impl objc2::encode::Encode for CgSize {
+    const ENCODING: objc2::encode::Encoding = objc2::encode::Encoding::Struct(
+        "CGSize",
+        &[
+            objc2::encode::Encoding::Double,
+            objc2::encode::Encoding::Double,
+        ],
+    );
+}
+
+/// The image the current artwork's request handler hands back, retained.
+///
+/// ONE SLOT, replaced on each publish, because the handler block is copied by
+/// `MPMediaItemArtwork` and outlives this call - so the image it returns has to
+/// outlive it too. Releasing the PREVIOUS image when a new one is published
+/// bounds this at one retained image rather than one per track, which is what a
+/// plain leak would give a player that changes tracks all day.
+static CURRENT_ARTWORK_IMAGE: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
 use azul_layout::managers::media_keys::push_media_key;
 
 /// `MPRemoteCommandHandlerStatus.success`.
@@ -294,6 +325,12 @@ pub fn publish(info: &NowPlayingInfo) {
             b"MPNowPlayingInfoPropertyPlaybackRate\0",
             nsnumber(rate),
         );
+        if !info.artwork_url.as_str().is_empty() {
+            put(
+                b"MPMediaItemPropertyArtwork\0",
+                artwork_for_url(info.artwork_url.as_str()),
+            );
+        }
 
         let _: () = msg_send![center, setNowPlayingInfo: dict];
 
@@ -304,6 +341,139 @@ pub fn publish(info: &NowPlayingInfo) {
         };
         let _: () = msg_send![center, setPlaybackState: state];
     }
+}
+
+/// Build an `MPMediaItemArtwork` for a LOCAL artwork URI, or null.
+///
+/// # Only local files, on purpose
+///
+/// `NSImage`/`UIImage` will happily load an `http(s)` URL, and doing so would
+/// block the event loop on a network round trip inside a media publish - a
+/// player calls this whenever the track changes. Remote art needs a fetch, a
+/// cache and a failure path, which is a feature rather than a line of glue
+/// (9h-i-a-i-e-i). A non-file URI is skipped, and the rest of the metadata
+/// still publishes: a missing cover must not cost the title.
+///
+/// `NSURL` does the parsing rather than a `strip_prefix("file://")`, because a
+/// real cover path is percent-encoded - a space is `%20`, and stripping the
+/// scheme by hand hands the decoder a filename that does not exist.
+unsafe fn artwork_for_url(url: &str) -> *mut objc2::runtime::AnyObject {
+    let null = core::ptr::null_mut();
+    // The POLICY, answered before touching the platform and shared with any
+    // future backend that has to load rather than link the image. NSURL still
+    // parses the local case - that is where percent-encoding lives - but the
+    // "would this need a network" question belongs in one place.
+    if azul_core::media_session::artwork_is_remote(url) {
+        static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        if WARNED.set(()).is_ok() {
+            crate::plog_info!(
+                "[media-session] artwork_url is remote and is skipped: fetching it would \
+                 block the event loop (9h-i-a-i-e-i)"
+            );
+        }
+        return null;
+    }
+    let Some(nsurl_cls) = std::ffi::CString::new("NSURL")
+        .ok()
+        .as_deref()
+        .and_then(objc2::runtime::AnyClass::get)
+    else {
+        return null;
+    };
+    let url_str = nsstring(url);
+    if url_str.is_null() {
+        return null;
+    }
+    let nsurl: *mut objc2::runtime::AnyObject =
+        objc2::msg_send![nsurl_cls, URLWithString: url_str];
+    if nsurl.is_null() {
+        return null;
+    }
+    // A BARE PATH is not a URL at all, so `URLWithString:` gives either nil or
+    // a URL with no scheme and an empty `path`. Falling back to the string
+    // itself is what makes `cover.png` work - which is what an app that stored
+    // a filename rather than a URI has.
+    let is_file: bool = objc2::msg_send![nsurl, isFileURL];
+    let path: *mut objc2::runtime::AnyObject = if is_file {
+        objc2::msg_send![nsurl, path]
+    } else {
+        nsstring(url)
+    };
+    if path.is_null() {
+        return null;
+    }
+
+    // The platform decodes it. Rolling our own would mean turning azul's
+    // decoded pixels into a CGImage, which buys nothing here - the file is on
+    // disk and Apple already knows every format its own widget will show.
+    #[cfg(target_os = "macos")]
+    let image: *mut objc2::runtime::AnyObject = {
+        let Some(cls) = std::ffi::CString::new("NSImage")
+            .ok()
+            .as_deref()
+            .and_then(objc2::runtime::AnyClass::get)
+        else {
+            return null;
+        };
+        let alloc: *mut objc2::runtime::AnyObject = objc2::msg_send![cls, alloc];
+        objc2::msg_send![alloc, initWithContentsOfFile: path]
+    };
+    #[cfg(target_os = "ios")]
+    let image: *mut objc2::runtime::AnyObject = {
+        let Some(cls) = std::ffi::CString::new("UIImage")
+            .ok()
+            .as_deref()
+            .and_then(objc2::runtime::AnyClass::get)
+        else {
+            return null;
+        };
+        objc2::msg_send![cls, imageWithContentsOfFile: path]
+    };
+    if image.is_null() {
+        // A path that does not resolve, or a format the platform will not
+        // decode. Not an error: the track still publishes without a cover.
+        return null;
+    }
+
+    // RETAIN, because the handler block below outlives this function: the
+    // artwork object copies the block and calls it later, off this stack.
+    let retained: *mut objc2::runtime::AnyObject = objc2::msg_send![image, retain];
+    let previous = {
+        let mut slot = CURRENT_ARTWORK_IMAGE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        core::mem::replace(&mut *slot, retained as usize)
+    };
+    if previous != 0 {
+        let old = previous as *mut objc2::runtime::AnyObject;
+        let _: () = objc2::msg_send![old, release];
+    }
+
+    let size: CgSize = objc2::msg_send![retained, size];
+
+    let Some(artwork_cls) = std::ffi::CString::new("MPMediaItemArtwork")
+        .ok()
+        .as_deref()
+        .and_then(objc2::runtime::AnyClass::get)
+    else {
+        return null;
+    };
+    // `initWithBoundsSize:requestHandler:` is the ONLY initialiser on macOS -
+    // `initWithImage:` is iPhone-only and deprecated - so there is no simpler
+    // route to weigh up. The handler ignores the requested size and returns the
+    // full image; the system scales, which is what every implementation of this
+    // does short of rendering per size.
+    let handler = block2::RcBlock::new(
+        move |_size: CgSize| -> *mut objc2::runtime::AnyObject { retained },
+    );
+    let alloc: *mut objc2::runtime::AnyObject = objc2::msg_send![artwork_cls, alloc];
+    // The block is COPIED by the initialiser, so `handler` may drop here; the
+    // image it returns is what needed the retain above.
+    objc2::msg_send![
+        alloc,
+        initWithBoundsSize: size,
+        requestHandler: block2::RcBlock::as_ptr(&handler),
+    ]
 }
 
 /// An autoreleased `NSString` from a Rust string, or null if it contains an

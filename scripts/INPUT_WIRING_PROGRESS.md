@@ -797,10 +797,39 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       open question is whether azul should offer an OPT-IN for it (a second `AppConfig` flag, or
       an explicit `CallbackInfo` call) or simply document that a media app must activate its own
       session. A product decision, not plumbing.
-- [ ] 9h-i-a-i-e macOS drops `artwork_url`. `MPMediaItemPropertyArtwork` wants an
-      `MPMediaItemArtwork` wrapping a decoded `NSImage`, and the field is a URI because that is
-      what MPRIS takes - so filling it means fetching a URL and decoding an image from inside the
-      event loop, which is a feature with a cache and a failure mode, not glue.
+- [x] 9h-i-a-i-e DONE for LOCAL artwork on both Apple platforms; the remote half is
+      9h-i-a-i-e-i and is genuinely a feature.
+      The note treated "fetch a URL and decode an image" as one problem. It is two, and only one
+      of them is hard: a cover on DISK needs no fetch, no cache and no failure path - the
+      platform decodes it - and a local file is what a player that just opened a track actually
+      has. Splitting them is the whole item.
+      `initWithBoundsSize:requestHandler:` is the ONLY initialiser on macOS (`initWithImage:` is
+      iPhone-only and deprecated), so there was no simpler route to weigh up. The handler ignores
+      the requested size and returns the full image; the system scales.
+      THE BLOCK OUTLIVES THE CALL, which is the memory-management question this raised:
+      `MPMediaItemArtwork` COPIES the handler and calls it later, off this stack, so the image it
+      returns must be retained. Retaining per publish would leak one image per track, so a
+      single slot holds the current one and releases the previous - bounded at one.
+      NSURL PARSES, not `strip_prefix("file://")`: a real cover path is percent-encoded, and a
+      space is `%20`, so stripping the scheme by hand hands the decoder a filename that does not
+      exist. A BARE PATH is not a URL at all, so `cover.png` falls back to the string itself -
+      which is what an app that stored a filename rather than a URI has.
+      THE LOCAL/REMOTE POLICY MOVED TO CORE (`artwork_is_remote`) rather than living inside the
+      ObjC path: it is the one part that is pure, any future backend that has to LOAD rather than
+      link an image asks the same question, and the Apple file is cfg-gated where it cannot be
+      tested on a Linux host. A scheme that is not `file` is remote; NO SCHEME is a plain path
+      and is local, and a Windows drive letter is a path rather than a one-character scheme.
+      EVIDENCE: 1 core test over 12 URIs with a NEGATIVE CONTROL - collapsing the policy to
+      "contains a colon" fails with "`file:///Users/me/cover.png` is loadable from disk and must
+      not be skipped". Both artwork seams proven COMPILED on the macOS host AND
+      aarch64-apple-ios. Host, both iOS targets, 8/8 mobile, azul-core media_session 10, autofix
+      0 patches. ⚠ No device - compile-only, and no cover has actually been drawn.
+- [ ] 9h-i-a-i-e-i REMOTE artwork (`http(s)`) on Apple, which is skipped and logged rather than
+      fetched. Loading it inside `publish` would block the event loop on a network round trip
+      that a player makes on every track change, so it needs an async fetch, a cache keyed on the
+      URL, and a decision about what to show while it is in flight - a feature with a failure
+      mode, not the line of glue the local case turned out to be. MPRIS and SMTC are unaffected:
+      both take the URI directly and let the desktop fetch it.
 - [ ] 9h-i-a-ii MPRIS `Raise` is inert. Focusing a window from the desktop's media widget is a
       window-manager action the shell owns, and there is no seam from a D-Bus thread to "raise
       window N" - it needs the same cross-thread request path the media keys now have.
