@@ -109,6 +109,14 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
         lw.hid_manager.push_report(report);
         changed = true;
     }
+    // PlayStation pads' IMU and touch surface ride the raw HID stream
+    // (8f-i-a-i-b): decoded here, after the fold, off the same slice the
+    // app reads. Gated like the gilrs poll - motion nobody listens for is
+    // work nobody asked for.
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    if lw.gamepad_manager.has_listeners() {
+        changed |= crate::desktop::extra::gamepad::ingest_hid_reports(lw);
+    }
 
     // Geolocation: fixes / errors are pushed by the native subscription's
     // OS-thread callbacks; folding raises the manager's pending flags

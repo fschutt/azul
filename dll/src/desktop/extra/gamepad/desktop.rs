@@ -125,6 +125,23 @@ pub fn poll() {
             }
         }
 
+        // Vendor / product per pad, from the SDL-layout GUID gilrs builds
+        // (bytes 4-5 vendor, 8-9 product, little-endian): what pairs a pad
+        // with its raw HID twin (8f-i-a-i-b, -c).
+        let identities: Vec<(u32, u16, u16)> = gilrs
+            .gamepads()
+            .map(|(gid, pad)| {
+                let (v, p) = guid_vendor_product(pad.uuid());
+                (usize::from(gid) as u32, v, p)
+            })
+            .collect();
+        {
+            let mut ids = PAD_IDENTITIES
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            *ids = identities.clone();
+        }
+
         // Snapshot every currently-connected pad.
         for (gid, pad) in gilrs.gamepads() {
             let mut buttons = 0u32;
@@ -142,7 +159,7 @@ pub fn poll() {
                 apply_radial_deadzone(pad.value(Axis::LeftStickX), pad.value(Axis::LeftStickY));
             let (rx, ry) =
                 apply_radial_deadzone(pad.value(Axis::RightStickX), pad.value(Axis::RightStickY));
-            push_gamepad_state(GamepadState {
+            let mut state = GamepadState {
                 id: GamepadId {
                     id: usize::from(gid) as u32,
                 },
@@ -155,12 +172,19 @@ pub fn poll() {
                 left_z: apply_axial_deadzone(pad.value(Axis::LeftZ)),
                 right_z: apply_axial_deadzone(pad.value(Axis::RightZ)),
                 battery: power_info_to_battery(pad.power_info()),
-                // Fields this site does not set: the pad touchpad and its
-                // gyro/accelerometer, which gilrs does not surface at all -
-                // they need SDL or raw HID, and that is 8f-i-a, not something
-                // this backend can reach.
                 ..Default::default()
-            });
+            };
+            // The pad's touch surface and its gyro/accelerometer, which
+            // gilrs does not surface at all, come from its raw HID twin
+            // (8f-i-a-i-b) - laid over HERE so the manager sees one writer
+            // per slot and an idle pad raises no event.
+            let (v, p) = guid_vendor_product(pad.uuid());
+            let twins = identities
+                .iter()
+                .filter(|(_, iv, ip)| *iv == v && *ip == p)
+                .count();
+            super::overlay_hid_motion(&mut state, v, p, twins);
+            push_gamepad_state(state);
         }
     });
 }
@@ -343,4 +367,46 @@ pub fn stop_all_rumble() {
             let _ = effect.stop();
         }
     });
+}
+
+/// `(GamepadId.id, vendor, product)` of every pad gilrs currently sees, as
+/// of the last poll (8f-i-a-i-b).
+static PAD_IDENTITIES: std::sync::Mutex<Vec<(u32, u16, u16)>> = std::sync::Mutex::new(Vec::new());
+
+/// Snapshot of [`PAD_IDENTITIES`].
+pub fn pad_identities() -> Vec<(u32, u16, u16)> {
+    PAD_IDENTITIES
+        .lock()
+        .map(|v| v.clone())
+        .unwrap_or_default()
+}
+
+/// Vendor and product out of an SDL-layout GUID: bytes 4-5 and 8-9,
+/// little-endian. Zero for a pad whose GUID carries none (a virtual pad).
+fn guid_vendor_product(guid: [u8; 16]) -> (u16, u16) {
+    (
+        u16::from_le_bytes([guid[4], guid[5]]),
+        u16::from_le_bytes([guid[8], guid[9]]),
+    )
+}
+
+#[cfg(test)]
+mod guid_tests {
+    use super::guid_vendor_product;
+
+    /// An SDL GUID for a USB DualSense: bus 0x03, vendor 0x054c, product
+    /// 0x0ce6, version 0x0100 - each little-endian at its slot.
+    #[test]
+    fn vendor_and_product_sit_at_bytes_4_and_8_little_endian() {
+        let mut g = [0u8; 16];
+        g[0] = 0x03;
+        g[4] = 0x4c;
+        g[5] = 0x05;
+        g[8] = 0xe6;
+        g[9] = 0x0c;
+        g[12] = 0x00;
+        g[13] = 0x01;
+        assert_eq!(guid_vendor_product(g), (0x054c, 0x0ce6));
+        assert_eq!(guid_vendor_product([0; 16]), (0, 0));
+    }
 }

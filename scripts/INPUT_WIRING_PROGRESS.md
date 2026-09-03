@@ -2692,17 +2692,38 @@ session needs. Recorded verbatim so the framing is not lost.
       `HidD_GetSerialNumberString` on a handle opened with `CreateFile` on the device path, i.e.
       loading hid.dll and opening each device - which the raw-input backend deliberately avoids.
       Worth doing when an app needs the string itself rather than the identity.
-- [ ] 8f-i-a-i-b Step (3): the DualSense / DualShock 4 input-report parser (IMU: gyro + accel;
-      touchpad: two fingers with ids) keyed by `HidDevice.instance`, reading
-      `HidManager::reports()` in the capability pump after the fold. USB report 0x01 and the
-      Bluetooth 0x31 layout differ (the BT one is offset by one and CRC-tailed); both are public
-      (Linux hid-playstation is the reference). Publishes into the gamepad manager's motion /
-      touch surface slots (8f-i-a landed those on Apple / Android) under the pad identity below.
-- [ ] 8f-i-a-i-c Step (4): correlating the HID instance with the gilrs pad. Linux: gilrs exposes
-      `devpath()` and evdev's `uniq` IS the serial - match by serial. Any platform: when exactly
-      one pad of that vendor/product is present the match is unambiguous. Otherwise the motion is
-      published as its own device keyed by `instance` rather than guessed onto a pad; the app
-      that needs the pairing can match `HidDevice.serial` itself.
+- [x] 8f-i-a-i-b DONE. `extra/gamepad/playstation.rs`: a pure, platform-free decoder for the
+      DualSense (0x0ce6, Edge 0x0df2) and DualShock 4 (0x05c4, 0x09cc, dongle 0x0ba0) input
+      reports, layouts checked against the kernel's `hid-playstation` before writing - USB 0x01
+      (struct at 1), Bluetooth 0x31 / 0x11 (struct at 2 / 3, IEEE CRC32 over the rest seeded
+      with 0xA1, verified and a bad CRC dropped); gyro raw/1024 deg/s -> rad/s, accel raw/8192 g
+      -> m/s², sticks -1..1 with y UP, triggers 0..1, the first finger normalized on the 1920x1080
+      (DS4: 942) surface with the bottom-left origin `GamepadState` specifies; all sixteen
+      buttons plus touchpad-click and mute mapped onto `GamepadButton`. Seven unit tests with
+      synthetic reports cover both pads, both transports, the CRC (reference vector
+      0xcbf43926) and the rejects. Publishing: the pump ingests each pass's reports off
+      `HidManager::reports()` (nothing stolen from `get_hid_reports`) into a per-instance
+      last-sample map; the gilrs poll lays that motion over its own pad state as it builds it -
+      ONE writer per slot, so an idle pad raises no event and a pass without a fresh report
+      keeps the last motion instead of snapping to zero; pads with no gilrs twin (Windows,
+      where gilrs is XInput and never sees a DualSense) or several identical twins are their
+      own complete devices under `HID_PAD_ID_FLAG | instance`. ⏳ THIRD BATCH: uncompiled until
+      its end pass.
+- [ ] 8f-i-a-i-b-i Per-pad CALIBRATION: the kernel reads bias and per-axis sensitivity from
+      feature report 0x05 and applies them; this decoder uses the nominal resolutions, which is
+      what every user-space reader without that report does. Needs a feature-report read on each
+      platform (hidraw `HIDIOCGFEATURE`, IOKit `IOHIDDeviceGetReport`, hid.dll `HidD_GetFeature`)
+      - the raw HID layer is read-only today.
+- [~] 8f-i-a-i-c Step (4), the UNAMBIGUOUS half DONE with 8f-i-a-i-b: the gilrs backend now
+      knows each pad's vendor/product (from the SDL-layout GUID gilrs builds, bytes 4-5 and 8-9;
+      pinned by a test) and, when exactly one gilrs pad AND exactly one HID instance of that
+      kind exist, the HID motion is laid over that pad. OPEN: several identical pads. Linux can
+      pair them by serial (`HidDevice.serial` is evdev's `uniq`; gilrs exposes `devpath()` and
+      the evdev node's uniq can be read from sysfs); macOS and Windows have no gilrs-side serial.
+      Until then each such pad is published as its own complete device under
+      `HID_PAD_ID_FLAG | instance` - duplicate entries for a multiplayer table of identical
+      DualSenses on Linux/macOS (one gilrs pad each + one HID pad each), which is correct data
+      twice rather than a guess once. An app can pair them itself through `HidDevice.serial`.
 - [ ] 8f-i-a-ii The pad TOUCHPAD on Android, which the platform does not expose: Android turns a
       DualShock touch surface into an on-screen MOUSE POINTER rather than reporting the surface,
       so there is nothing to read. Filling it would mean claiming the pointer is a finger, which

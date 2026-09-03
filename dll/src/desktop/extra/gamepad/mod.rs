@@ -29,6 +29,128 @@ pub mod android;
 pub mod apple;
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub mod desktop;
+/// DualSense / DualShock 4 report decoding (8f-i-a-i-b), platform-free.
+pub mod playstation;
+
+/// Marks a `GamepadId` minted for a pad the raw HID stream sees but gilrs
+/// does not pair with (no unique vendor/product twin): the low bits are the
+/// HID instance's. Never collides with gilrs's small dense ids.
+pub const HID_PAD_ID_FLAG: u32 = 0x4000_0000;
+
+/// The last decoded PlayStation sample per HID instance (8f-i-a-i-b), with
+/// the device it came from. Kept across passes because the gilrs backend
+/// rebuilds every pad state from scratch each poll: the motion is laid over
+/// that state as it is built, so a pass without a fresh report keeps the
+/// last motion rather than snapping to zero.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+static LAST_PS_SAMPLES: std::sync::Mutex<
+    std::collections::BTreeMap<u64, (azul_core::hid::HidDevice, playstation::PadSample)>,
+> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// Decode this pass's PlayStation reports (8f-i-a-i-b) from the HID manager
+/// - the same slice `get_hid_reports` copies, so nothing is stolen - and
+/// publish the pads that have no gilrs twin as their own devices. Pads that
+/// DO have a unique gilrs twin get their motion laid over the gilrs state
+/// in [`overlay_hid_motion`] instead, at the next poll.
+///
+/// Returns whether a pad state advanced.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub fn ingest_hid_reports(lw: &mut azul_layout::window::LayoutWindow) -> bool {
+    use azul_core::gamepad::{GamepadId, GamepadState};
+    use playstation::PlayStationPad;
+
+    let mut last = LAST_PS_SAMPLES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for report in lw.hid_manager.reports() {
+        let Some(pad) = PlayStationPad::of(&report.device) else {
+            continue;
+        };
+        if let Some(sample) = playstation::parse(pad, report.bytes.as_ref()) {
+            last.insert(report.device.instance, (report.device.clone(), sample));
+        }
+    }
+    if last.is_empty() {
+        return false;
+    }
+    let identities = desktop::pad_identities();
+    let mut changed = false;
+    for (instance, (device, sample)) in last.iter() {
+        let twins = identities
+            .iter()
+            .filter(|(_, v, p)| *v == device.vendor_id && *p == device.product_id)
+            .count();
+        if twins == 1 {
+            // Paired: the gilrs poll lays this motion over its own state.
+            continue;
+        }
+        // No twin (Windows: gilrs is XInput and never sees a DualSense) or
+        // several identical ones (8f-i-a-i-c): the pad is its own device,
+        // complete - buttons, sticks and triggers come from the same report.
+        let id = GamepadId {
+            id: HID_PAD_ID_FLAG | (*instance as u32 & !HID_PAD_ID_FLAG),
+        };
+        let mut state = lw
+            .gamepad_manager
+            .state(id)
+            .unwrap_or_else(|| GamepadState::empty(id));
+        state.connected = true;
+        state.buttons = sample.buttons;
+        state.left_stick_x = sample.left_stick.0;
+        state.left_stick_y = sample.left_stick.1;
+        state.right_stick_x = sample.right_stick.0;
+        state.right_stick_y = sample.right_stick.1;
+        state.left_z = sample.left_trigger;
+        state.right_z = sample.right_trigger;
+        apply_sample_motion(&mut state, sample);
+        // `set_state` compares bitwise, so an unchanged pad raises nothing.
+        changed |= lw.gamepad_manager.set_state(state);
+    }
+    changed
+}
+
+/// Lay the last decoded motion and touch of the HID pad that is this gilrs
+/// pad's UNIQUE vendor/product twin over `state` (8f-i-a-i-b). Called by
+/// the gilrs poll as it builds each state, so the published state already
+/// carries the motion and the manager sees one writer per slot.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+pub fn overlay_hid_motion(state: &mut azul_core::gamepad::GamepadState, vendor_id: u16, product_id: u16, twins_of_this_kind: usize) {
+    if twins_of_this_kind != 1 {
+        return;
+    }
+    let last = LAST_PS_SAMPLES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut matching = last
+        .values()
+        .filter(|(d, _)| d.vendor_id == vendor_id && d.product_id == product_id);
+    let (Some((_, sample)), None) = (matching.next(), matching.next()) else {
+        // No HID sample yet, or several HID instances of this kind - the
+        // pairing is ambiguous and nothing is guessed onto this pad.
+        return;
+    };
+    apply_sample_motion(state, sample);
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn apply_sample_motion(state: &mut azul_core::gamepad::GamepadState, sample: &playstation::PadSample) {
+    state.gyro_x = sample.gyro[0];
+    state.gyro_y = sample.gyro[1];
+    state.gyro_z = sample.gyro[2];
+    state.accel_x = sample.accel[0];
+    state.accel_y = sample.accel[1];
+    state.accel_z = sample.accel[2];
+    match sample.touch {
+        Some((x, y)) => {
+            state.touchpad_active = true;
+            state.touchpad_x = x;
+            state.touchpad_y = y;
+        }
+        None => {
+            state.touchpad_active = false;
+        }
+    }
+}
 
 /// Stick deadzone radius (Xbox/DualShock resting jitter stays well below
 /// 0.15; SDL and XInput use comparable defaults).
