@@ -564,6 +564,19 @@ impl MultiCursorState {
     /// The sync layer still owns the semantics of CONCURRENT edits; this is
     /// only the local user's own change, which the peer will also receive.
     pub fn shift_peers_across(&mut self, changes: &[RunTextChange]) {
+        self.shift_across(changes, false);
+    }
+
+    /// Move EVERY selection, the local ones included, across a change to the
+    /// text that nobody's edit placed them for (U3-b): the app's new
+    /// generation carried different text for the node - a remote
+    /// participant's edit applied through the app's model, an app-side
+    /// rewrite - and each caret keeps its logical anchor in it.
+    pub fn shift_all_across(&mut self, changes: &[RunTextChange]) {
+        self.shift_across(changes, true);
+    }
+
+    fn shift_across(&mut self, changes: &[RunTextChange], include_local: bool) {
         if changes.is_empty() {
             return;
         }
@@ -576,7 +589,11 @@ impl MultiCursorState {
             }
             c
         };
-        for sel in self.selections.iter_mut().filter(|s| !s.owner.is_local()) {
+        for sel in self
+            .selections
+            .iter_mut()
+            .filter(|s| include_local || !s.owner.is_local())
+        {
             sel.selection = match sel.selection {
                 Selection::Cursor(c) => Selection::Cursor(shift(c)),
                 Selection::Range(r) => Selection::Range(SelectionRange {

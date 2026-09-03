@@ -2416,19 +2416,26 @@ session needs. Recorded verbatim so the framing is not lost.
       then, so peers on the affected runs stay where they were until the next snapshot. Needs
       a run-mapping (old run -> new run + byte base) computed alongside the edit, which
       `edit_text_outcome` knows and currently discards.
-- [ ] U3-b (from the user's question, 2026-09-03: "isn't this already the case where we
-      preserve the caret position ... across layout() RefreshDom events?") - NOT YET. Across a
-      `RefreshDom` the engine preserves the caret's NODE (`TextEditManager::remap_node_ids`
-      follows the diff's node moves and drops the session if the node vanished) and keeps the
-      caret's (run, byte) VERBATIM; nothing transforms it against the node's new text. So when
-      the app's `layout()` delivers text that differs from what the engine had (a remote
-      participant's insert applied through the app's model, an app-side rewrite), the local
-      caret and every peer keep a byte position that may now point elsewhere - or past the end.
-      The ruling's rule and `RunTextChange` are exactly the transform this needs: diff the
-      node's old and new runs at reconciliation and shift EVERY caret (local and peers) the way
-      U3-a shifts peers. Logged rather than done in the same item because the reconciliation of
-      the engine's quick-edit overlay against the app's text is the delicate seam (see the
-      "structural edit latch" notes) and deserves its own firing and its own tests.
+- [x] U3-b DONE (the user's question, 2026-09-03: "isn't this already the case where we
+      preserve the caret position ... across layout() RefreshDom events?" - it was not: the
+      engine preserved the caret's NODE across a refresh and kept its (run, byte) verbatim, so
+      text the app changed under it left every caret stale). Now the layout funnel
+      (`layout_and_generate_display_list`) keeps `caret_text_snapshot` = the session node's
+      RESOLVED text (overlay first, DOM second - exactly what is shown) keyed by the session's
+      `contenteditable_key`, and at the end of every pass, AFTER the convergence GC (only then
+      does the node resolve to what will be shown), diffs it against the new generation:
+      a difference is text the APP changed (a remote participant's edit applied through its
+      model, an app-side rewrite, an acked local edit merged with a remote one) and
+      `MultiCursorState::shift_all_across` moves the local carets and the peers by the same
+      `RunTextChange` transform as U3-a. Engine edits refresh the snapshot at their chokepoint
+      (`update_text_cache_after_edit`), so a keystroke never registers as an app change and is
+      never applied twice; a session on a new node is snapshotted, never diffed against another
+      node's text; no session clears it. Independent of remap timing (the runner remaps before
+      the funnel, the shells hand-roll their diff) because identity is the session key, not the
+      node id. Same run-count limit as U3-a (U3-a-i). Tests: core `shift_all_moves_the_local_
+      caret_as_well`; layout `a_generation_that_changes_the_text_shifts_every_caret` (snapshot
+      pass, remote insert shifts local + peer, unchanged pass moves nothing, a delete spanning
+      the caret collapses it). ⏳ SECOND BATCH: uncompiled until its end pass.
 
 ### Follow-ups opened by 9a
 

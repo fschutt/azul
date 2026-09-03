@@ -858,6 +858,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         image_cache: _,
         content_overlay: _,
         content_journal: _,
+        caret_text_snapshot: _,
         scroll_manager: _,
         gesture_drag_manager: _,
         focus_manager: _,
@@ -1240,6 +1241,14 @@ pub struct LayoutWindow {
     /// buffer, retention = swapchain depth). Fed by the same chokepoint;
     /// user-intent history lives in [`Self::undo_redo_manager`] instead.
     pub content_journal: crate::overlay::ContentJournal,
+    /// The text of the editing session's node as the engine last saw it,
+    /// keyed by the session's `contenteditable_key` (U3-b). Diffed at the end
+    /// of every layout pass against what the node resolves to in the NEW
+    /// generation: a difference is text the APP changed (a remote edit
+    /// applied through its model, a rewrite), and every caret is shifted
+    /// across it. Engine edits refresh it at their chokepoint
+    /// (`update_text_cache_after_edit`), so they never register as a change.
+    pub caret_text_snapshot: Option<(u64, Vec<InlineContent>)>,
     /// Cached layout results for all DOMs (root + virtualized views)
     pub layout_results: BTreeMap<DomId, DomLayoutResult>,
     /// Scroll state manager for all nodes across all DOMs
@@ -1919,6 +1928,7 @@ impl LayoutWindow {
             image_cache: ImageCache::default(),
             content_overlay: crate::overlay::ContentOverlay::default(),
             content_journal: crate::overlay::ContentJournal::default(),
+            caret_text_snapshot: None,
             layout_results: BTreeMap::new(),
             scroll_manager: ScrollManager::new(),
             gesture_drag_manager: crate::managers::gesture::GestureAndDragManager::new(),
@@ -2308,6 +2318,11 @@ impl LayoutWindow {
                     self.content_overlay.gc_converged_text(dom_id, styled_dom);
                 }
             }
+            // Text the APP changed under the carets moves them (U3-b). After
+            // the GC on purpose: only then does the node resolve to what
+            // will actually be shown - an outstanding overlay entry still
+            // wins over the DOM, and a converged one has just been dropped.
+            self.shift_carets_across_generation();
         }
 
         // A4: an ACKED structural edit's caret lands now, against the NEW
@@ -4127,6 +4142,52 @@ impl LayoutWindow {
     /// DOM's display list: the restore runs AFTER the new generation's list
     /// was emitted (it needs the new DOM to resolve the path), so the list
     /// still paints the caret where the OLD session had it.
+    /// Move every caret of the editing session across text the APP's new
+    /// generation changed (U3-b) - the user's rule: a caret is anchored at a
+    /// logical position and moves with the text before it.
+    ///
+    /// Compares the session node's resolved text (overlay first, DOM second,
+    /// exactly what will be shown) with `caret_text_snapshot`, the text the
+    /// engine last saw for this session. Equal - the overwhelmingly common
+    /// pass - costs one comparison. Different means the app delivered other
+    /// text for the node (a remote participant's insert applied through the
+    /// app's model, an app-side rewrite, an acked local edit merged with a
+    /// remote one): the per-run changes shift local carets and peers alike.
+    /// A session on a different node than the snapshot's is a NEW session:
+    /// it is snapshotted, never diffed against another node's text.
+    ///
+    /// The same run-count limit as U3-a applies (see `run_text_changes`).
+    fn shift_carets_across_generation(&mut self) {
+        let Some((key, dom_id, node_id)) = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .and_then(|mc| {
+                Some((
+                    mc.contenteditable_key,
+                    mc.node_id.dom,
+                    mc.node_id.node.into_crate_internal()?,
+                ))
+            })
+        else {
+            self.caret_text_snapshot = None;
+            return;
+        };
+        let now = self.get_text_before_textinput(dom_id, node_id);
+        if let Some((snapshot_key, before)) = self.caret_text_snapshot.as_ref() {
+            if *snapshot_key == key {
+                let changes = crate::text3::edit::run_text_changes(before, &now);
+                if !changes.is_empty() {
+                    if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                        mc.shift_all_across(&changes);
+                    }
+                    self.text_edit_manager.mark_dirty();
+                }
+            }
+        }
+        self.caret_text_snapshot = Some((key, now));
+    }
+
     fn restore_caret_from_resume_point(
         &mut self,
         resume: &crate::managers::changeset::EditResumePoint,
@@ -15908,6 +15969,14 @@ impl LayoutWindow {
                 revision: self.document_text_revision,
             },
         );
+        // An ENGINE edit placed its carets itself; the generation diff must
+        // not shift them again for it (U3-b).
+        if let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() {
+            if mc.node_id.dom == dom_id && mc.node_id.node.into_crate_internal() == Some(node_id) {
+                self.caret_text_snapshot =
+                    Some((mc.contenteditable_key, new_inline_content.clone()));
+            }
+        }
 
         self.reshape_text_node(dom_id, node_id, new_inline_content);
 
@@ -21082,6 +21151,76 @@ mod autotest_generated {
     fn text_of(w: &LayoutWindow, node: usize) -> String {
         let content = w.get_text_before_textinput(DomId::ROOT_ID, NodeId::new(node));
         w.extract_text_from_inline_content(&content)
+    }
+
+    /// U3-b: text the APP's generation changed under the carets moves them -
+    /// the local caret and a peer alike - and a pass that changes nothing
+    /// moves nothing.
+    #[test]
+    fn a_generation_that_changes_the_text_shifts_every_caret() {
+        use azul_core::selection::{
+            CursorAffinity, GraphemeClusterId, Selection, SelectionOwner, TextCursor,
+        };
+
+        fn editable(text: &str) -> StyledDom {
+            StyledDom::create_from_dom(
+                Dom::create_div()
+                    .with_contenteditable(true)
+                    .with_child(Dom::create_p().with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper(text),
+                    )),
+            )
+        }
+        fn at(byte: u32) -> TextCursor {
+            TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: byte,
+                },
+                affinity: CursorAffinity::Leading,
+            }
+        }
+
+        let mut w = window_for(editable("hello world"));
+        w.text_edit_manager
+            .initialize_editing(at(6), DomId::ROOT_ID, NodeId::new(0), 77);
+        let bob = SelectionOwner::new(2, 2);
+        assert!(w
+            .text_edit_manager
+            .multi_cursor
+            .as_mut()
+            .unwrap()
+            .set_owner_selections(bob, &[Selection::Cursor(at(8))]));
+        // First pass: nothing to compare against yet - snapshot only.
+        w.shift_carets_across_generation();
+        assert_eq!(w.text_edit_manager.get_primary_cursor(), Some(at(6)));
+
+        // The app's next generation carries a remote insert of "XX" at 0.
+        w.layout_results
+            .insert(DomId::ROOT_ID, bare_layout_result(editable("XXhello world")));
+        w.shift_carets_across_generation();
+        assert_eq!(w.text_edit_manager.get_primary_cursor(), Some(at(8)), "local");
+        let peer = w
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .unwrap()
+            .selections
+            .iter()
+            .find(|s| s.owner == bob)
+            .unwrap()
+            .selection;
+        assert_eq!(peer, Selection::Cursor(at(10)), "peer");
+
+        // An unchanged generation moves nothing.
+        w.shift_carets_across_generation();
+        assert_eq!(w.text_edit_manager.get_primary_cursor(), Some(at(8)));
+
+        // A delete spanning the local caret collapses it to the change start.
+        w.layout_results
+            .insert(DomId::ROOT_ID, bare_layout_result(editable("XXhorld")));
+        w.shift_carets_across_generation();
+        assert_eq!(w.text_edit_manager.get_primary_cursor(), Some(at(4)));
     }
 
     #[test]

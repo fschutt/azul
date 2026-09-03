@@ -1815,6 +1815,16 @@ mod peer_shift_tests {
         assert_eq!(mc.get_primary_cursor(), Some(cursor(0)));
     }
 
+    /// U3-b: a change the app's generation brought moves the LOCAL caret too.
+    #[test]
+    fn shift_all_moves_the_local_caret_as_well() {
+        let (mut mc, bob) = with_peer_at(Selection::Cursor(cursor(6)));
+        mc.set_single_cursor(cursor(3));
+        mc.shift_all_across(&[change(0, 0, 2)]);
+        assert_eq!(mc.get_primary_cursor(), Some(cursor(5)));
+        assert_eq!(peer(&mc, bob), Selection::Cursor(cursor(8)));
+    }
+
     /// A change on ANOTHER run leaves a caret alone.
     #[test]
     fn only_the_changed_run_is_affected() {
