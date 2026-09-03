@@ -1,6 +1,6 @@
 {
   "name": "spatial_nav_auto_scroll_container",
-  "description": "SPATIAL NAVIGATION CONTAINMENT under `auto` (9a-i-b-i, css-nav-1): a scroll container (overflow: auto) is a spatial navigation container without any `spatial-navigation-contain` declaration. #f1 sits top-left INSIDE the box, #f2 bottom-right inside it (far, off to the side), and #out sits directly below the box, closer to #f1 and aligned with it. With containment, ArrowDown from #f1 must land on #f2 - the candidate inside the innermost container wins over the nearer one outside; without containment the aligned, nearer #out would win. The last ArrowDown from #f2 finds nothing inside and must escape outward to #out (the chain widens to the document). Tab focuses #f1 first (it is first in tab order).",
+  "description": "SPATIAL NAVIGATION CONTAINMENT under `auto` (9a-i-b-i, css-nav-1): a scroll container (overflow: auto) is a spatial navigation container without any `spatial-navigation-contain` declaration. #f1 sits top-left INSIDE the box (centre 40,25); #f2 lower and to the right inside it (centre 100,105: inside azul's 90-degree down cone, cross 60 <= along 80, but scoring 80 + 3*60 = 260); #out sits directly below the box, aligned with #f1 (centre 40,175: score 150). Without containment the better-scoring #out wins; with containment ArrowDown from #f1 must land on #f2, the only candidate inside the innermost container. The last ArrowDown from #f2 finds nothing inside and must escape outward to #out (centre 40,175 is in #f2's cone: cross 60 <= along 70). The geometry is pinned to the resolver's cone-and-weight rule on purpose: a candidate outside the cone is not a candidate at all. Tab focuses #f1 first (it is first in tab order).",
   "setup": {
     "window_width": 400,
     "window_height": 300,
@@ -24,8 +24,8 @@
         "#box { position: absolute; left: 0; top: 0; width: 260px; height: 130px; overflow: auto; background: gainsboro; }",
         ".item { position: absolute; width: 60px; height: 30px; background: silver; font-family: \"Azul Mock Mono\"; font-size: 20px; }",
         "#f1 { left: 10px; top: 10px; }",
-        "#f2 { left: 190px; top: 90px; }",
-        "#out { left: 10px; top: 140px; }"
+        "#f2 { left: 70px; top: 90px; }",
+        "#out { left: 10px; top: 160px; }"
       ]
     },
     { "op": "wait_frame" },

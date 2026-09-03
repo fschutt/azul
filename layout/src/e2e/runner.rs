@@ -3515,10 +3515,20 @@ impl Runner {
         }
 
         match &action.action {
+            // The DIRECTIONAL four were missing here (9a-i-b-i): the shells
+            // apply every focus action through the same resolver, but the
+            // headless runner listed only the Tab family, so an arrow that
+            // the decision function had already resolved to a focus move did
+            // nothing in a scenario - the spatial-navigation corpus could
+            // never have gone green, or red.
             DefaultAction::FocusNext
             | DefaultAction::FocusPrevious
             | DefaultAction::FocusFirst
-            | DefaultAction::FocusLast => {
+            | DefaultAction::FocusLast
+            | DefaultAction::FocusUp
+            | DefaultAction::FocusDown
+            | DefaultAction::FocusLeft
+            | DefaultAction::FocusRight => {
                 let Some(target) = default_action_to_focus_target(&action.action) else {
                     return (ProcessEventResult::DoNothing, false);
                 };
