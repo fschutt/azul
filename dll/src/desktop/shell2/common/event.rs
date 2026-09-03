@@ -4604,6 +4604,10 @@ pub trait PlatformWindow {
                     match resolve_focus_target(target, &lw.layout_results, current, &out_of_scope) {
                         Ok(FocusResolution::Resolved(n)) => Some(n),
                         Ok(FocusResolution::ClearRequested) => None,
+                        // `resolve_focus_target` (not the `_or_defer` twin)
+                        // never yields this; a seat exists only once input
+                        // arrived, after the first layout.
+                        Ok(FocusResolution::Deferred) => return ProcessEventResult::DoNothing,
                         Ok(FocusResolution::NotFound) => {
                             crate::log_debug!(
                                 crate::desktop::shell2::common::debug_server::LogCategory::Window,

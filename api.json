@@ -15148,6 +15148,126 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_system_audio_active()"
+                            },
+                            "get_natural_scroll": {
+                                "doc": [
+                                    "Whether the ENGINE flips scroll deltas (9b-ii-b-i-a):",
+                                    "`AppConfig::natural_scroll == Enabled` (or the `AZ_NATURAL_SCROLL`",
+                                    "override). The platform's own preference is `get_system_natural_scroll`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.get_natural_scroll()"
+                            },
+                            "get_system_natural_scroll": {
+                                "doc": [
+                                    "The PLATFORM's natural-scrolling preference, if it reports one",
+                                    "(9b-ii-b-i-a): macOS's setting, the Windows precision touchpad's, a",
+                                    "Wayland compositor's `axis_relative_direction`. `false` also when the",
+                                    "platform says nothing - `has_system_natural_scroll` tells the two",
+                                    "apart. What `AppConfig::natural_scroll = System` loads."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.get_system_natural_scroll()"
+                            },
+                            "has_system_natural_scroll": {
+                                "doc": [
+                                    "Whether the platform reported a natural-scrolling preference at all."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.has_system_natural_scroll()"
+                            },
+                            "set_focus_for_seat": {
+                                "doc": [
+                                    "Set the focus of pointer / keyboard SEAT `seat_id` (9b-ii-a-i-d): a",
+                                    "second seat has its own focused node, so two people can edit two",
+                                    "fields of one window. `Next` / `Previous` walk from that seat's",
+                                    "current focus. Seat 0 is the primary and behaves as `set_focus`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "seat_id": "u64"
+                                    },
+                                    {
+                                        "target": "FocusTarget"
+                                    }
+                                ],
+                                "fn_body": "object.set_focus_for_seat(seat_id, target)"
+                            },
+                            "clear_focus_for_seat": {
+                                "doc": [
+                                    "Clear the focus of seat `seat_id` (9b-ii-a-i-d)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "seat_id": "u64"
+                                    }
+                                ],
+                                "fn_body": "object.clear_focus_for_seat(seat_id)"
+                            },
+                            "get_focused_node_for_seat": {
+                                "doc": [
+                                    "The node seat `seat_id` focuses (9b-ii-a-i-d); the primary's for",
+                                    "seat 0. `None` when that seat focuses nothing."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "seat_id": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDomNodeId"
+                                },
+                                "fn_body": "object.get_focused_node_for_seat(seat_id)"
+                            },
+                            "is_node_focused_for_seat": {
+                                "doc": [
+                                    "Whether seat `seat_id` focuses `node_id` (9b-ii-a-i-d)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "seat_id": "u64"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_node_focused_for_seat(seat_id, node_id)"
                             }
                         },
                         "repr": "C"
@@ -96196,231 +96316,6 @@
                             "returns": null
                         }
                     },
-                    "TabletDeviceInfoVecDestructor": {
-                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "TabletDeviceInfoVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "TabletDeviceInfoVecDestructorType": {
-                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVecDestructorType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "TabletDeviceInfoVec",
-                                    "ref_kind": "mutptr"
-                                }
-                            ],
-                            "returns": null
-                        }
-                    },
-                    "TabletDeviceInfoVec": {
-                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVec",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "PartialEq"
-                        ],
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "TabletDeviceInfo",
-                                    "ref_kind": "constptr"
-                                },
-                                "len": {
-                                    "type": "usize"
-                                },
-                                "cap": {
-                                    "type": "usize"
-                                },
-                                "destructor": {
-                                    "type": "TabletDeviceInfoVecDestructor"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "create": {
-                                "doc": [
-                                    "Creates an empty `TabletDeviceInfoVec`"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "TabletDeviceInfoVec"
-                                },
-                                "fn_body": "TabletDeviceInfoVec::new()"
-                            },
-                            "with_capacity": {
-                                "doc": [
-                                    "Creates a `TabletDeviceInfoVec` with a given capacity"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "cap": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TabletDeviceInfoVec"
-                                },
-                                "fn_body": "TabletDeviceInfoVec::with_capacity(cap)"
-                            },
-                            "len": {
-                                "doc": [
-                                    "Returns the number of elements in the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "tablet_device_info_vec.len()"
-                            },
-                            "capacity": {
-                                "doc": [
-                                    "Returns the capacity of the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "tablet_device_info_vec.capacity()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Returns whether the Vec is empty"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "tablet_device_info_vec.is_empty()"
-                            },
-                            "get": {
-                                "doc": [
-                                    "Returns a reference to the element at the given index, or None if out of bounds"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionTabletDeviceInfo"
-                                },
-                                "fn_body": "tablet_device_info_vec.get(index).cloned().into()"
-                            },
-                            "from_item": {
-                                "doc": [
-                                    "Creates a `TabletDeviceInfoVec` containing a single element"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "item": "TabletDeviceInfo"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TabletDeviceInfoVec"
-                                },
-                                "fn_body": "TabletDeviceInfoVec::from_item(item)"
-                            },
-                            "copy_from_ptr": {
-                                "doc": [
-                                    "Copies elements from a C array into a `TabletDeviceInfoVec`. The array must be valid for `len` elements."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "ptr": "*const TabletDeviceInfo"
-                                    },
-                                    {
-                                        "len": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TabletDeviceInfoVec"
-                                },
-                                "fn_body": "unsafe { TabletDeviceInfoVec::copy_from_ptr(ptr, len) }"
-                            },
-                            "c_get": {
-                                "doc": [
-                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionTabletDeviceInfo"
-                                },
-                                "fn_body": "tablet_device_info_vec.c_get(index).into()"
-                            },
-                            "as_c_slice": {
-                                "doc": [
-                                    "Returns a C-compatible slice of the entire Vec as a `TabletDeviceInfoVecSlice`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TabletDeviceInfoVecSlice"
-                                },
-                                "fn_body": "tablet_device_info_vec.as_c_slice()"
-                            },
-                            "as_c_slice_range": {
-                                "doc": [
-                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "start": "usize"
-                                    },
-                                    {
-                                        "end": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TabletDeviceInfoVecSlice"
-                                },
-                                "fn_body": "tablet_device_info_vec.as_c_slice_range(start, end)"
-                            }
-                        },
-                        "repr": "C"
-                    },
                     "StyledTextRunVec": {
                         "external": "azul_layout::managers::selection::StyledTextRunVec",
                         "custom_impls": [
@@ -106649,424 +106544,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "HidDeviceVecDestructor": {
-                        "external": "azul_core::hid::HidDeviceVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "HidDeviceVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "HidReportVecDestructorType": {
-                        "external": "azul_core::hid::HidReportVecDestructorType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "HidReportVec",
-                                    "ref_kind": "mutptr"
-                                }
-                            ],
-                            "returns": null
-                        },
-                        "repr": "C"
-                    },
-                    "HidDeviceVec": {
-                        "external": "azul_core::hid::HidDeviceVec",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "PartialEq"
-                        ],
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "HidDevice",
-                                    "ref_kind": "constptr"
-                                },
-                                "len": {
-                                    "type": "usize"
-                                },
-                                "cap": {
-                                    "type": "usize"
-                                },
-                                "destructor": {
-                                    "type": "HidDeviceVecDestructor"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "create": {
-                                "doc": [
-                                    "Creates an empty `HidDeviceVec`"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "HidDeviceVec"
-                                },
-                                "fn_body": "Self::new()"
-                            },
-                            "with_capacity": {
-                                "doc": [
-                                    "Creates a `HidDeviceVec` with a given capacity"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "cap": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidDeviceVec"
-                                },
-                                "fn_body": "Self::with_capacity(cap)"
-                            },
-                            "len": {
-                                "doc": [
-                                    "Returns the number of elements in the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "hid_device_vec.len()"
-                            },
-                            "capacity": {
-                                "doc": [
-                                    "Returns the capacity of the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "hid_device_vec.capacity()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Returns whether the Vec is empty"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "hid_device_vec.is_empty()"
-                            },
-                            "from_item": {
-                                "doc": [
-                                    "Creates a `HidDeviceVec` containing a single element"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "item": "HidDevice"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidDeviceVec"
-                                },
-                                "fn_body": "Self::from_item(item)"
-                            },
-                            "copy_from_ptr": {
-                                "doc": [
-                                    "Copies elements from a C array into a `HidDeviceVec`. The array must be valid for `len` elements."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "ptr": "*const HidDevice"
-                                    },
-                                    {
-                                        "len": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidDeviceVec"
-                                },
-                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
-                            },
-                            "c_get": {
-                                "doc": [
-                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionHidDevice"
-                                },
-                                "fn_body": "hid_device_vec.c_get(index).into()"
-                            },
-                            "as_c_slice": {
-                                "doc": [
-                                    "Returns a C-compatible slice of the entire Vec as a `HidDeviceVecSlice`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidDeviceVecSlice"
-                                },
-                                "fn_body": "hid_device_vec.as_c_slice()"
-                            },
-                            "as_c_slice_range": {
-                                "doc": [
-                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "start": "usize"
-                                    },
-                                    {
-                                        "end": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidDeviceVecSlice"
-                                },
-                                "fn_body": "hid_device_vec.as_c_slice_range(start, end)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "HidReportVecDestructor": {
-                        "external": "azul_core::hid::HidReportVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "HidReportVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "HidDeviceVecDestructorType": {
-                        "external": "azul_core::hid::HidDeviceVecDestructorType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "HidDeviceVec",
-                                    "ref_kind": "mutptr"
-                                }
-                            ],
-                            "returns": null
-                        },
-                        "repr": "C"
-                    },
-                    "HidReportVec": {
-                        "external": "azul_core::hid::HidReportVec",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "PartialEq"
-                        ],
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "HidReport",
-                                    "ref_kind": "constptr"
-                                },
-                                "len": {
-                                    "type": "usize"
-                                },
-                                "cap": {
-                                    "type": "usize"
-                                },
-                                "destructor": {
-                                    "type": "HidReportVecDestructor"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "create": {
-                                "doc": [
-                                    "Creates an empty `HidReportVec`"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "HidReportVec"
-                                },
-                                "fn_body": "Self::new()"
-                            },
-                            "with_capacity": {
-                                "doc": [
-                                    "Creates a `HidReportVec` with a given capacity"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "cap": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidReportVec"
-                                },
-                                "fn_body": "Self::with_capacity(cap)"
-                            },
-                            "len": {
-                                "doc": [
-                                    "Returns the number of elements in the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "hid_report_vec.len()"
-                            },
-                            "capacity": {
-                                "doc": [
-                                    "Returns the capacity of the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "hid_report_vec.capacity()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Returns whether the Vec is empty"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "hid_report_vec.is_empty()"
-                            },
-                            "from_item": {
-                                "doc": [
-                                    "Creates a `HidReportVec` containing a single element"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "item": "HidReport"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidReportVec"
-                                },
-                                "fn_body": "Self::from_item(item)"
-                            },
-                            "copy_from_ptr": {
-                                "doc": [
-                                    "Copies elements from a C array into a `HidReportVec`. The array must be valid for `len` elements."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "ptr": "*const HidReport"
-                                    },
-                                    {
-                                        "len": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidReportVec"
-                                },
-                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
-                            },
-                            "c_get": {
-                                "doc": [
-                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionHidReport"
-                                },
-                                "fn_body": "hid_report_vec.c_get(index).into()"
-                            },
-                            "as_c_slice": {
-                                "doc": [
-                                    "Returns a C-compatible slice of the entire Vec as a `HidReportVecSlice`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidReportVecSlice"
-                                },
-                                "fn_body": "hid_report_vec.as_c_slice()"
-                            },
-                            "as_c_slice_range": {
-                                "doc": [
-                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "start": "usize"
-                                    },
-                                    {
-                                        "end": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidReportVecSlice"
-                                },
-                                "fn_body": "hid_report_vec.as_c_slice_range(start, end)"
-                            }
-                        },
-                        "repr": "C"
-                    },
                     "DomNodeIdVecDestructor": {
                         "external": "azul_core::dom::DomNodeIdVecDestructor",
                         "derive": [
@@ -107694,6 +107171,649 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "HidDeviceVec": {
+                        "external": "azul_core::hid::HidDeviceVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "HidDevice",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "HidDeviceVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `HidDeviceVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "HidDeviceVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `HidDeviceVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidDeviceVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "hid_device_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "hid_device_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "hid_device_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `HidDeviceVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "HidDevice"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidDeviceVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `HidDeviceVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const HidDevice"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidDeviceVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionHidDevice"
+                                },
+                                "fn_body": "hid_device_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `HidDeviceVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidDeviceVecSlice"
+                                },
+                                "fn_body": "hid_device_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidDeviceVecSlice"
+                                },
+                                "fn_body": "hid_device_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "HidReportVecDestructorType": {
+                        "external": "azul_core::hid::HidReportVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "HidReportVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "TabletDeviceInfoVecDestructor": {
+                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "TabletDeviceInfoVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "HidDeviceVecDestructor": {
+                        "external": "azul_core::hid::HidDeviceVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "HidDeviceVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "HidReportVec": {
+                        "external": "azul_core::hid::HidReportVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "HidReport",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "HidReportVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `HidReportVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "HidReportVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `HidReportVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidReportVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "hid_report_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "hid_report_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "hid_report_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `HidReportVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "HidReport"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidReportVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `HidReportVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const HidReport"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidReportVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionHidReport"
+                                },
+                                "fn_body": "hid_report_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `HidReportVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidReportVecSlice"
+                                },
+                                "fn_body": "hid_report_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidReportVecSlice"
+                                },
+                                "fn_body": "hid_report_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "HidReportVecDestructor": {
+                        "external": "azul_core::hid::HidReportVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "HidReportVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "TabletDeviceInfoVec": {
+                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TabletDeviceInfo",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "TabletDeviceInfoVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `TabletDeviceInfoVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVec"
+                                },
+                                "fn_body": "TabletDeviceInfoVec::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `TabletDeviceInfoVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVec"
+                                },
+                                "fn_body": "TabletDeviceInfoVec::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "tablet_device_info_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "tablet_device_info_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "tablet_device_info_vec.is_empty()"
+                            },
+                            "get": {
+                                "doc": [
+                                    "Returns a reference to the element at the given index, or None if out of bounds"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTabletDeviceInfo"
+                                },
+                                "fn_body": "tablet_device_info_vec.get(index).cloned().into()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `TabletDeviceInfoVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "TabletDeviceInfo"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVec"
+                                },
+                                "fn_body": "TabletDeviceInfoVec::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `TabletDeviceInfoVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const TabletDeviceInfo"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVec"
+                                },
+                                "fn_body": "unsafe { TabletDeviceInfoVec::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTabletDeviceInfo"
+                                },
+                                "fn_body": "tablet_device_info_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `TabletDeviceInfoVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVecSlice"
+                                },
+                                "fn_body": "tablet_device_info_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVecSlice"
+                                },
+                                "fn_body": "tablet_device_info_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "HidDeviceVecDestructorType": {
+                        "external": "azul_core::hid::HidDeviceVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "HidDeviceVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "TabletDeviceInfoVecDestructorType": {
+                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "TabletDeviceInfoVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
                     }
                 }
             },
@@ -116427,6 +116547,9 @@
                                 "log_level": {
                                     "type": "AppLogLevel"
                                 },
+                                "natural_scroll": {
+                                    "type": "NaturalScroll"
+                                },
                                 "enable_visual_panic_hook": {
                                     "type": "bool"
                                 },
@@ -116847,6 +116970,28 @@
                                 "inverse_resume": {
                                     "type": "EditResumePoint"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NaturalScroll": {
+                        "external": "azul_core::resources::NaturalScroll",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Disabled": {},
+                                "Enabled": {},
+                                "System": {}
                             }
                         ],
                         "repr": "C"

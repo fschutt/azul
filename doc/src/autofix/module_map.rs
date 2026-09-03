@@ -542,6 +542,9 @@ pub fn should_exclude_path(path: &std::path::Path) -> bool {
 /// this table, so an entry here never steals `OptionTabletPadState` from
 /// `option`.
 const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
+    // `AppConfig::natural_scroll` (9b-ii-b-i-a) belongs beside AppConfig, not
+    // in `image` where the keyword pass filed it.
+    ("NaturalScroll", "app"),
     // "Tablet*" collides with the css keyword "table".
     ("Tablet", "gesture"),
     // "Haptic*" has no keyword in any module, so it fell through to "misc".
@@ -710,6 +713,18 @@ pub fn get_correct_module_with_path(
         } else {
             return None; // structural type is in correct module
         }
+    }
+
+    // The manual override table wins over the external-path short-circuit
+    // below - that is what the table is FOR. It used to be consulted only
+    // through `determine_module`, AFTER that short-circuit, so a type whose
+    // source module already mapped to its current api.json module could
+    // never be moved by naming it: `NaturalScroll` (in `azul_core::resources`,
+    // which maps to `image`) sat in `image` with a table entry saying `app`.
+    // Structural types are settled above, so a prefix entry never steals
+    // `HidDeviceVec` from `vec`.
+    if let Some(forced) = difficult_type_module(type_name) {
+        return (forced != current_module).then(|| forced.to_string());
     }
 
     // If the external path CONFIRMS the current module, the type is correctly

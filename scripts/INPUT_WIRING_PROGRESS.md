@@ -1611,8 +1611,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `query_pagination -> FakePageConfig -> PageSequence -> MarginBoxContent` is C-incompatible any
       more. NOT YET IN api.json: `query_pagination` itself is not exposed (nothing references the
       family from an exposed type), so autofix at the eighth batch's end pass will not pull it in
-      by itself - exposing the family is a separate, now UNBLOCKED item (9g-ii-f-i). ⏳ EIGHTH
-      BATCH: uncompiled until its end pass.
+      by itself - exposing the family is a separate, now UNBLOCKED item (9g-ii-f-i). ✅ COMPILED in the eighth batch pass of 2026-09-04: host check EXIT=0; autofix converged at 0 patches / 0 FFI errors after two source fixes (`natural_scroll` moved beside `log_level` so the alignment checker sees no padding; the runner and the seat-focus arm gained the missing match arms); `codegen all` EXIT=0; azul-core 2809, azul-layout lib 7683 / `--test all` 1003, e2e corpus 62 scenarios, azul-dll 2040 (+5), all 0 failed; 8/8 gate targets green including windows-gnu, which compiles the hid.dll and registry code.
 - [ ] 9g-ii-f-i Expose the pagination family (`CallbackInfo::query_pagination`, `FakePageConfig`,
       `PageSequence`, `MarginBoxContent`, `MarginBoxCallback`, `PageInfo`, `PaginationInfo`)
       through api.json via `autofix add CallbackInfo.query_pagination` once the batch compiles;
@@ -2192,8 +2191,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       seat's current focus). `seat_of_event` now reads the keyboard seat too - a keyboard seat is
       its paired pointer seat on both producers. WHY the gap existed: focus predates seats and
       was one field read from ~270 sites; the "product question" note was refuted by the ruling.
-      Tests: the manager's independence and remap. ⏳ EIGHTH BATCH: uncompiled until its end pass
-      (api.json: the four `CallbackInfo` methods through autofix then).
+      Tests: the manager's independence and remap. ✅ COMPILED in the eighth batch pass of 2026-09-04: host check EXIT=0; autofix converged at 0 patches / 0 FFI errors after two source fixes (`natural_scroll` moved beside `log_level` so the alignment checker sees no padding; the runner and the seat-focus arm gained the missing match arms); `codegen all` EXIT=0; azul-core 2809, azul-layout lib 7683 / `--test all` 1003, e2e corpus 62 scenarios, azul-dll 2040 (+5), all 0 failed; 8/8 gate targets green including windows-gnu, which compiles the hid.dll and registry code.
 - [ ] 9b-ii-a-i-d-ii The TEXT-EDIT SESSION per seat: caret, blink timer, IME, `record_text_input`,
       `ime_document` and the soft keyboard all read `focused_node` (the primary's), so a second
       seat's typing still lands in the primary's field even though its focus is its own. Needs
@@ -2325,9 +2323,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       Wayland and X11), so `System` must NOT flip again - it would undo the user's setting; the
       previously recorded-but-unread Wayland flag was exactly a double inversion waiting to
       happen, and it is now consumed as a READING. The "check on a real compositor" the note
-      asked for still stands as the device check (9b-ii-b-i-a-i). ⏳ EIGHTH BATCH: uncompiled
-      until its end pass (api.json: `AppConfig.natural_scroll`, `NaturalScroll`, the three
-      `CallbackInfo` getters through autofix then).
+      asked for still stands as the device check (9b-ii-b-i-a-i). ✅ COMPILED in the eighth batch pass of 2026-09-04: host check EXIT=0; autofix converged at 0 patches / 0 FFI errors after two source fixes (`natural_scroll` moved beside `log_level` so the alignment checker sees no padding; the runner and the seat-focus arm gained the missing match arms); `codegen all` EXIT=0; azul-core 2809, azul-layout lib 7683 / `--test all` 1003, e2e corpus 62 scenarios, azul-dll 2040 (+5), all 0 failed; 8/8 gate targets green including windows-gnu, which compiles the hid.dll and registry code.
 - [ ] 9b-ii-b-i-a-i Device check (the user: "we'll check later"): on a v9 compositor with natural
       scrolling on, confirm the deltas already arrive inverted and `get_system_natural_scroll`
       reads true; on macOS confirm the absent-key default; on a Windows precision touchpad the
@@ -2879,8 +2875,7 @@ session needs. Recorded verbatim so the framing is not lost.
       so it pairs with gilrs' serial (8f-i-a-i-c), the path hash only as the fallback. The same
       module carries `feature_report` (`HidD_GetFeature`) for 8f-i-a-i-b-i. Cargo: winapi
       `fileapi` + `handleapi`. NOT RUN on Windows: the cross-compile at the eighth batch's end
-      pass (13d-windows) is the check available here; a real pad settles the rest. ⏳ EIGHTH
-      BATCH: uncompiled until its end pass.
+      pass (13d-windows) is the check available here; a real pad settles the rest. ✅ COMPILED in the eighth batch pass of 2026-09-04: host check EXIT=0; autofix converged at 0 patches / 0 FFI errors after two source fixes (`natural_scroll` moved beside `log_level` so the alignment checker sees no padding; the runner and the seat-focus arm gained the missing match arms); `codegen all` EXIT=0; azul-core 2809, azul-layout lib 7683 / `--test all` 1003, e2e corpus 62 scenarios, azul-dll 2040 (+5), all 0 failed; 8/8 gate targets green including windows-gnu, which compiles the hid.dll and registry code.
 - [x] 8f-i-a-i-b DONE. `extra/gamepad/playstation.rs`: a pure, platform-free decoder for the
       DualSense (0x0ce6, Edge 0x0df2) and DualShock 4 (0x05c4, 0x09cc, dongle 0x0ba0) input
       reports, layouts checked against the kernel's `hid-playstation` before writing - USB 0x01
@@ -2918,7 +2913,7 @@ session needs. Recorded verbatim so the framing is not lost.
       forgets a pad that vanishes. Tests: scale + bias applied and nominal untouched, the BT CRC
       gate, the zero-range rejection, the DS4-BT interleave. NOT RUN on a pad - the layouts are
       from the kernel source (hid-playstation.c), the user's ruling; a real pad settles them
-      (8f-i-a-i-b-i-a). ⏳ EIGHTH BATCH: uncompiled until its end pass.
+      (8f-i-a-i-b-i-a). ✅ COMPILED in the eighth batch pass of 2026-09-04: host check EXIT=0; autofix converged at 0 patches / 0 FFI errors after two source fixes (`natural_scroll` moved beside `log_level` so the alignment checker sees no padding; the runner and the seat-focus arm gained the missing match arms); `codegen all` EXIT=0; azul-core 2809, azul-layout lib 7683 / `--test all` 1003, e2e corpus 62 scenarios, azul-dll 2040 (+5), all 0 failed; 8/8 gate targets green including windows-gnu, which compiles the hid.dll and registry code.
 - [ ] 8f-i-a-i-b-i-a Device check: a DualSense over USB and BT, a DualShock 4 over USB, BT and
       the dongle - the calibration report answers, the CRC seed, the DS4-BT interleave, and that
       a calibrated 1 g at rest reads within a percent.

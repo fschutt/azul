@@ -1825,6 +1825,35 @@ impl Runner {
             }
 
             // === Focus ===
+            // A NON-primary seat's focus (9b-ii-a-i-d): the DLL's arm - resolve
+            // against that seat's own focus, move only its entry, scroll it
+            // into view. No caret arming: the text-edit session stays the
+            // primary's (9b-ii-a-i-d-ii).
+            CallbackChange::SetSeatFocusTarget { seat_id, target } => {
+                use azul_layout::managers::focus_cursor::{resolve_focus_target, FocusResolution};
+                use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
+
+                let now = self.now();
+                let lw = &mut self.layout_window;
+                let current = lw.focus_manager.focused_node_for(*seat_id);
+                let out_of_scope = lw.focus_out_of_scope_doms();
+                let new_focus =
+                    match resolve_focus_target(target, &lw.layout_results, current, &out_of_scope) {
+                        Ok(FocusResolution::Resolved(n)) => Some(n),
+                        Ok(FocusResolution::ClearRequested) => None,
+                        Ok(FocusResolution::NotFound | FocusResolution::Deferred) | Err(_) => {
+                            return ProcessEventResult::DoNothing;
+                        }
+                    };
+                if new_focus == current {
+                    return ProcessEventResult::DoNothing;
+                }
+                lw.focus_manager.set_focused_node_for(*seat_id, new_focus);
+                if let Some(n) = new_focus {
+                    lw.scroll_node_into_view(n, ScrollIntoViewOptions::nearest(), now);
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
             CallbackChange::SetFocusTarget { target } => {
                 use azul_layout::managers::focus_cursor::{
                     resolve_focus_target_or_defer, FocusResolution,

@@ -872,6 +872,19 @@ pub struct AppConfig {
     ///
     /// Default is `LevelFilter::Error` to log all errors by default
     pub log_level: AppLogLevel,
+    /// NATURAL SCROLLING (9b-ii-b-i-a; USER RULING 2026-09-04: a field here,
+    /// default off, the app enables it or loads the system's setting).
+    ///
+    /// The engine's own scroll sign: `Disabled` never flips a delta, `Enabled`
+    /// flips every wheel / trackpad delta (in-app natural scrolling regardless
+    /// of the OS), `System` reads the platform's preference at startup and
+    /// keeps it readable (`CallbackInfo::get_natural_scroll`) - WITHOUT a
+    /// second flip, because every desktop platform already applies the user's
+    /// preference to the deltas it hands over (macOS, the Windows precision
+    /// touchpad, libinput on Wayland and X11); flipping again would undo it.
+    /// Where the platform reports nothing the answer is unknown and `System`
+    /// behaves as `Disabled`.
+    pub natural_scroll: NaturalScroll,
     /// If the app crashes / panics, a window with a message box pops up.
     /// Setting this to `false` disables the popup box.
     pub enable_visual_panic_hook: bool,
@@ -896,19 +909,6 @@ pub struct AppConfig {
     /// Ignored on every platform but Windows: macOS and Wayland report real
     /// pinch gestures, so nothing has to be inferred there.
     pub synthesize_pinch_from_ctrl_wheel: bool,
-    /// NATURAL SCROLLING (9b-ii-b-i-a; USER RULING 2026-09-04: a field here,
-    /// default off, the app enables it or loads the system's setting).
-    ///
-    /// The engine's own scroll sign: `Disabled` never flips a delta, `Enabled`
-    /// flips every wheel / trackpad delta (in-app natural scrolling regardless
-    /// of the OS), `System` reads the platform's preference at startup and
-    /// keeps it readable (`CallbackInfo::get_natural_scroll`) - WITHOUT a
-    /// second flip, because every desktop platform already applies the user's
-    /// preference to the deltas it hands over (macOS, the Windows precision
-    /// touchpad, libinput on Wayland and X11); flipping again would undo it.
-    /// Where the platform reports nothing the answer is unknown and `System`
-    /// behaves as `Disabled`.
-    pub natural_scroll: NaturalScroll,
     /// Whether the app publishes itself to the OS as a media player.
     /// Default `false`.
     ///
