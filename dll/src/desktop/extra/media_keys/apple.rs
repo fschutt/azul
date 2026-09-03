@@ -343,69 +343,96 @@ pub fn publish(info: &NowPlayingInfo) {
     }
 }
 
-/// Build an `MPMediaItemArtwork` for a LOCAL artwork URI, or null.
+/// Bytes for an artwork URI, fetched through the shared resolver.
 ///
-/// # Only local files, on purpose
+/// LOCAL URIs are read on this thread - a disk read on the event loop is
+/// cheap and a player only changes tracks occasionally. A REMOTE one is
+/// fetched on a thread of its own and cached; the publish that asked for it
+/// goes out without a cover, and the NEXT one picks it up. A player publishes
+/// its position continuously, so "the next one" is a frame away - which is why
+/// this needs no re-publish machinery of its own.
 ///
-/// `NSImage`/`UIImage` will happily load an `http(s)` URL, and doing so would
-/// block the event loop on a network round trip inside a media publish - a
-/// player calls this whenever the track changes. Remote art needs a fetch, a
-/// cache and a failure path, which is a feature rather than a line of glue
-/// (9h-i-a-i-e-i). A non-file URI is skipped, and the rest of the metadata
-/// still publishes: a missing cover must not cost the title.
+/// One fetch per URL: an in-flight entry blocks a second attempt, or a player
+/// publishing at 60 Hz would open sixty connections for one cover.
+fn artwork_bytes(uri: &str) -> Option<Vec<u8>> {
+    use azul_layout::fetch::{route_of, UriRoute};
+
+    match route_of(uri) {
+        UriRoute::LocalPath(_) => azul_layout::fetch::fetch_uri(uri).ok(),
+        UriRoute::Remote(url) => {
+            let mut cache = ARTWORK_CACHE
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            match cache.get(&url) {
+                // `None` means a fetch is in flight or failed; either way, do
+                // not start another.
+                Some(entry) => entry.clone(),
+                None => {
+                    cache.insert(url.clone(), None);
+                    drop(cache);
+                    std::thread::Builder::new()
+                        .name("azul-artwork".into())
+                        .spawn(move || {
+                            let bytes = azul_layout::fetch::fetch_uri(&url).ok();
+                            let mut cache = ARTWORK_CACHE
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                            cache.insert(url, bytes);
+                        })
+                        .ok();
+                    None
+                }
+            }
+        }
+        UriRoute::Unsupported(scheme) => {
+            static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+            if WARNED.set(()).is_ok() {
+                crate::plog_info!(
+                    "[media-session] artwork_url scheme `{}` cannot be fetched",
+                    scheme
+                );
+            }
+            None
+        }
+    }
+}
+
+/// Fetched remote artwork, by URL. `None` = in flight, or failed.
+static ARTWORK_CACHE: std::sync::Mutex<
+    std::collections::BTreeMap<String, Option<Vec<u8>>>,
+> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// Build an `MPMediaItemArtwork` from an artwork URI, or null.
 ///
-/// `NSURL` does the parsing rather than a `strip_prefix("file://")`, because a
-/// real cover path is percent-encoded - a space is `%20`, and stripping the
-/// scheme by hand hands the decoder a filename that does not exist.
+/// FROM BYTES, not from a path: `initWithData:` covers a downloaded cover and a
+/// local file alike, where `initWithContentsOfFile:` covers only the second and
+/// left every remote URL unhandled.
 unsafe fn artwork_for_url(url: &str) -> *mut objc2::runtime::AnyObject {
     let null = core::ptr::null_mut();
-    // The POLICY, answered before touching the platform and shared with any
-    // future backend that has to load rather than link the image. NSURL still
-    // parses the local case - that is where percent-encoding lives - but the
-    // "would this need a network" question belongs in one place.
-    if azul_core::media_session::artwork_is_remote(url) {
-        static WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-        if WARNED.set(()).is_ok() {
-            crate::plog_info!(
-                "[media-session] artwork_url is remote and is skipped: fetching it would \
-                 block the event loop (9h-i-a-i-e-i)"
-            );
-        }
+    let Some(bytes) = artwork_bytes(url) else {
+        return null;
+    };
+    if bytes.is_empty() {
         return null;
     }
-    let Some(nsurl_cls) = std::ffi::CString::new("NSURL")
+
+    let Some(data_cls) = std::ffi::CString::new("NSData")
         .ok()
         .as_deref()
         .and_then(objc2::runtime::AnyClass::get)
     else {
         return null;
     };
-    let url_str = nsstring(url);
-    if url_str.is_null() {
-        return null;
-    }
-    let nsurl: *mut objc2::runtime::AnyObject =
-        objc2::msg_send![nsurl_cls, URLWithString: url_str];
-    if nsurl.is_null() {
-        return null;
-    }
-    // A BARE PATH is not a URL at all, so `URLWithString:` gives either nil or
-    // a URL with no scheme and an empty `path`. Falling back to the string
-    // itself is what makes `cover.png` work - which is what an app that stored
-    // a filename rather than a URI has.
-    let is_file: bool = objc2::msg_send![nsurl, isFileURL];
-    let path: *mut objc2::runtime::AnyObject = if is_file {
-        objc2::msg_send![nsurl, path]
-    } else {
-        nsstring(url)
-    };
-    if path.is_null() {
+    // COPIES the bytes, so the Vec may drop when this returns.
+    let data: *mut objc2::runtime::AnyObject = objc2::msg_send![
+        data_cls,
+        dataWithBytes: bytes.as_ptr().cast::<core::ffi::c_void>(),
+        length: bytes.len(),
+    ];
+    if data.is_null() {
         return null;
     }
 
-    // The platform decodes it. Rolling our own would mean turning azul's
-    // decoded pixels into a CGImage, which buys nothing here - the file is on
-    // disk and Apple already knows every format its own widget will show.
     #[cfg(target_os = "macos")]
     let image: *mut objc2::runtime::AnyObject = {
         let Some(cls) = std::ffi::CString::new("NSImage")
@@ -416,7 +443,7 @@ unsafe fn artwork_for_url(url: &str) -> *mut objc2::runtime::AnyObject {
             return null;
         };
         let alloc: *mut objc2::runtime::AnyObject = objc2::msg_send![cls, alloc];
-        objc2::msg_send![alloc, initWithContentsOfFile: path]
+        objc2::msg_send![alloc, initWithData: data]
     };
     #[cfg(target_os = "ios")]
     let image: *mut objc2::runtime::AnyObject = {
@@ -427,11 +454,11 @@ unsafe fn artwork_for_url(url: &str) -> *mut objc2::runtime::AnyObject {
         else {
             return null;
         };
-        objc2::msg_send![cls, imageWithContentsOfFile: path]
+        objc2::msg_send![cls, imageWithData: data]
     };
     if image.is_null() {
-        // A path that does not resolve, or a format the platform will not
-        // decode. Not an error: the track still publishes without a cover.
+        // Bytes the platform will not decode. Not an error: the track still
+        // publishes without a cover.
         return null;
     }
 
@@ -461,8 +488,7 @@ unsafe fn artwork_for_url(url: &str) -> *mut objc2::runtime::AnyObject {
     // `initWithBoundsSize:requestHandler:` is the ONLY initialiser on macOS -
     // `initWithImage:` is iPhone-only and deprecated - so there is no simpler
     // route to weigh up. The handler ignores the requested size and returns the
-    // full image; the system scales, which is what every implementation of this
-    // does short of rendering per size.
+    // full image; the system scales.
     let handler = block2::RcBlock::new(
         move |_size: CgSize| -> *mut objc2::runtime::AnyObject { retained },
     );

@@ -372,6 +372,9 @@ pub use file::{
 /// HTTP client: GET/POST requests with pure-Rust TLS.
 ///
 /// API surface always present (stub when off); ureq/rustls only pulled in with `http`.
+/// One way to turn a URI into bytes, whatever scheme it names - `file://`,
+/// a bare path, or `http(s)://` through [`http`].
+pub mod fetch;
 pub mod http;
 pub use http::{
     download_bytes, download_bytes_with_config, http_get, http_get_with_config, http_post,

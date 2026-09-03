@@ -824,12 +824,37 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       not be skipped". Both artwork seams proven COMPILED on the macOS host AND
       aarch64-apple-ios. Host, both iOS targets, 8/8 mobile, azul-core media_session 10, autofix
       0 patches. ⚠ No device - compile-only, and no cover has actually been drawn.
-- [ ] 9h-i-a-i-e-i REMOTE artwork (`http(s)`) on Apple, which is skipped and logged rather than
-      fetched. Loading it inside `publish` would block the event loop on a network round trip
-      that a player makes on every track change, so it needs an async fetch, a cache keyed on the
-      URL, and a decision about what to show while it is in flight - a feature with a failure
-      mode, not the line of glue the local case turned out to be. MPRIS and SMTC are unaffected:
-      both take the URI directly and let the desktop fetch it.
+- [x] 9h-i-a-i-e-i DONE, on the USER'S DIRECTION (2026-09-03: "we have a Rust URL parser
+      already" and "we do have http fetching, so we just need a unified fetch api that also
+      covers file://"). Both premises were right and both were things I had worked around
+      instead of using: `azul_core::url::Url` wraps the real `url` crate, and
+      `azul_layout::http` is a working client. My previous entry called this "a feature with a
+      cache" because I had looked at neither.
+      `azul_layout::fetch` is that unified API: one `route_of` that decides file / bare path /
+      http(s) / unsupported, and one `fetch_uri` that returns bytes. It replaces the NSURL path
+      dance AND the hand-rolled `artwork_is_remote` scheme scan in core, which is now deleted -
+      one parser instead of three half-parsers.
+      THE ROUTE IS SEPARATE FROM THE FETCH on purpose: a caller on the event loop needs to ask
+      "would this block on a network?" WITHOUT performing it, which is exactly the question the
+      artwork publish has.
+      A WINDOWS DRIVE LETTER IS CHECKED BEFORE THE PARSER, not after: the URL spec says `C:` is
+      a perfectly good one-character scheme, so `C:\cover.png` parses as a URL. The parser is
+      not wrong, it is answering a different question.
+      `file:` PATHS ARE PERCENT-DECODED. A real cover path has `%20` for a space, and the URL
+      crate's `path()` returns it ENCODED - handing that to the filesystem asks for a file
+      nobody has. A `%` that is not a valid escape is left alone, so a `100%_done` folder
+      survives.
+      REMOTE ARTWORK NEEDS NO RE-PUBLISH MACHINERY, which is the part that made this small: the
+      fetch runs on a thread into a cache, that publish goes out without a cover, and the NEXT
+      one picks it up - and a player publishes its position continuously, so "the next one" is a
+      frame away. One fetch per URL, because a 60 Hz publisher would otherwise open sixty
+      connections for one cover.
+      `initWithData:` replaced `initWithContentsOfFile:`, which is what lets one code path serve
+      a downloaded cover and a local file alike.
+      EVIDENCE: 7 fetch tests with a NEGATIVE CONTROL - dropping the drive-letter guard and the
+      percent-decode fails with "a space is `%20` in a real cover path, and the filesystem wants
+      the space". Host, both iOS targets, 8/8 mobile, azul-layout fetch 7, azul-core
+      media_session 9, autofix 0 patches. ⚠ No device - compile-only.
 - [x] 9h-i-a-ii DONE, and it turned into the WINDOW-ACTIVATION path azul did not have at all -
       `WindowState::has_focus` and `request_user_attention` are both applied by nobody on any
       platform, so this is the first thing that can bring a window forward.

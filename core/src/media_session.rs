@@ -159,33 +159,6 @@ impl NowPlayingInfo {
     }
 }
 
-/// Is this artwork URI something only a network fetch could load?
-///
-/// The Apple backend cannot hand `MPMediaItemArtwork` a URI - it wants decoded
-/// pixels - so it loads the file itself, and loading a remote one would mean a
-/// blocking network round trip inside a media publish that a player makes on
-/// every track change. This is the policy in one place: a scheme that is not
-/// `file` is remote and is skipped; NO SCHEME AT ALL IS A PLAIN PATH and is
-/// local, which is what an app that stored a filename rather than a URI has.
-///
-/// A pre-filter, not a parser: the platform still parses the local case, which
-/// is where percent-encoding lives. This only has to be right about whether to
-/// try.
-#[must_use]
-pub fn artwork_is_remote(uri: &str) -> bool {
-    let uri = uri.trim();
-    // A Windows drive letter (`C:\cover.png`) looks like a one-character
-    // scheme. Requiring at least two characters keeps it a path.
-    let Some(colon) = uri.find(':') else {
-        return false;
-    };
-    let scheme = &uri[..colon];
-    if scheme.len() < 2 || !scheme.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.') {
-        return false;
-    }
-    !scheme.eq_ignore_ascii_case("file")
-}
-
 /// Milliseconds as WinRT `TimeSpan` ticks, which are 100 NANOSECONDS each.
 ///
 /// A third unit, disagreeing with both of the others: MPRIS wants microseconds
@@ -394,41 +367,6 @@ mod tests {
         i.duration_ms = u64::MAX;
         assert_eq!(i.duration_us(), i64::MAX, "an absurd duration must clamp");
         assert!(i.duration_us() > 0, "and must never come out negative");
-    }
-
-    /// The Apple backend loads artwork itself, so "can I load this without a
-    /// network" has to be answered before touching the platform. A wrong
-    /// answer either blocks the event loop on a fetch or silently drops a
-    /// cover that was on disk all along.
-    #[test]
-    fn only_a_non_file_scheme_counts_as_remote_artwork() {
-        for local in [
-            "file:///Users/me/cover.png",
-            "FILE:///cover.png",
-            "/Users/me/cover.png",
-            "cover.png",
-            "./art/cover.jpg",
-            // A Windows drive letter is a PATH, not a one-letter scheme.
-            "C:\\Music\\cover.png",
-            "",
-        ] {
-            assert!(
-                !artwork_is_remote(local),
-                "`{local}` is loadable from disk and must not be skipped"
-            );
-        }
-        for remote in [
-            "http://example.com/cover.png",
-            "https://example.com/cover.png",
-            "HTTPS://EXAMPLE.COM/cover.png",
-            "ftp://example.com/cover.png",
-            "data:image/png;base64,AAAA",
-        ] {
-            assert!(
-                artwork_is_remote(remote),
-                "`{remote}` needs a fetch and must be skipped"
-            );
-        }
     }
 
     /// A THIRD unit, and the one most likely to be got wrong because it looks
