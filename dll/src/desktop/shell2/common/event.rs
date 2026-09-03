@@ -10554,15 +10554,63 @@ pub trait PlatformWindow {
                                         )
                                     }
                                 };
-                                let ev = azul_core::events::SyntheticEvent::new(
-                                    azul_core::events::EventType::Submit,
-                                    azul_core::events::EventSource::User,
-                                    *form_node,
-                                    now,
-                                    azul_core::events::EventData::None,
-                                );
-                                let (r, _u, _p) = self.dispatch_events_propagated(&[ev]);
-                                result = result.max(r);
+                                // CONSTRAINT VALIDATION FIRST, which is the
+                                // HTML order: a form whose controls fail must
+                                // fire `Invalid` on them and NOT submit.
+                                // Submitting anyway would hand the app data it
+                                // had already declared unacceptable.
+                                let invalid = {
+                                    let lw = self.get_layout_window();
+                                    lw.map(|lw| {
+                                        azul_layout::form::validate_form(
+                                            *form_node,
+                                            &lw.layout_results,
+                                            &|node| {
+                                                let id = node.node.into_crate_internal()?;
+                                                let content =
+                                                    lw.get_text_before_textinput(node.dom, id);
+                                                Some(
+                                                    lw.extract_text_from_inline_content(&content),
+                                                )
+                                            },
+                                        )
+                                    })
+                                    .unwrap_or_default()
+                                };
+
+                                if invalid.is_empty() {
+                                    let ev = azul_core::events::SyntheticEvent::new(
+                                        azul_core::events::EventType::Submit,
+                                        azul_core::events::EventSource::User,
+                                        *form_node,
+                                        now,
+                                        azul_core::events::EventData::None,
+                                    );
+                                    let (r, _u, _p) = self.dispatch_events_propagated(&[ev]);
+                                    result = result.max(r);
+                                } else {
+                                    // One `Invalid` per failing control, in
+                                    // document order. ALL of them, not just
+                                    // the first: an app marking every bad
+                                    // field at once needs every event, and
+                                    // firing only the first would make the
+                                    // second error appear only after the
+                                    // first was fixed.
+                                    let events: Vec<_> = invalid
+                                        .iter()
+                                        .map(|failure| {
+                                            azul_core::events::SyntheticEvent::new(
+                                                azul_core::events::EventType::Invalid,
+                                                azul_core::events::EventSource::User,
+                                                failure.node,
+                                                now.clone(),
+                                                azul_core::events::EventData::None,
+                                            )
+                                        })
+                                        .collect();
+                                    let (r, _u, _p) = self.dispatch_events_propagated(&events);
+                                    result = result.max(r);
+                                }
                             }
 
                             DefaultAction::CloseModal { .. } | DefaultAction::SelectAllText => {

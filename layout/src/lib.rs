@@ -437,6 +437,7 @@ pub mod cpurender;
 /// Default keyboard actions (copy, paste, select-all, undo, etc.).
 #[cfg(feature = "text_layout")]
 pub mod default_actions;
+pub mod form;
 /// Apply structural `DocumentOperation`s to a plain XML tree.
 ///
 /// The Path-2 helper for apps without their own document model (the PDF
