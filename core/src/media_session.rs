@@ -395,7 +395,7 @@ impl crate::events::EventProvider for MediaSessionManager {
                     crate::dom::DomNodeId::ROOT,
                     timestamp.clone(),
                     EventData::MediaControl(MediaControlEventData {
-                        volume: r.volume,
+                        volume: req.volume,
                         kind: req.kind,
                         position_us: req.position_us,
                     }),
