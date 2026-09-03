@@ -4172,14 +4172,17 @@ pub trait PlatformWindow {
     /// * X11 holds the grab until it is explicitly released, so an unfocused
     ///   window would keep the pointer confined.
     ///
-    /// Wayland is the exception and needs no caller: the compositor ends the
-    /// lock itself and says so through `zwp_locked_pointer_v1.unlocked`, which
-    /// already writes the flag.
+    /// Wayland calls it too (9d-ii-c): a persistent constraint would otherwise
+    /// re-activate by itself when focus returns, which is the one thing the
+    /// ruling forbids, so the constraint is destroyed on keyboard leave like
+    /// every other backend's grab. (`zwp_locked_pointer_v1.unlocked` still
+    /// covers a lock the compositor ends on its own.)
     ///
-    /// This deliberately does NOT re-acquire on focus return. Whether a lock
-    /// should silently come back is a product decision (a game wants it, a
-    /// drawing app does not), and guessing it would re-grab the pointer behind
-    /// the user's back.
+    /// This does NOT re-acquire on focus return - USER RULING 2026-09-03: the
+    /// flag going false is emitted to the app as `PointerLockChange` by the
+    /// state diff, and an app that wants the lock back (a game on alt-tab
+    /// return) requests it again from `WindowFocusReceived`. A drawing app is
+    /// never re-captured behind the user's back.
     fn release_pointer_lock_on_focus_loss(&mut self) {
         if !self
             .get_current_window_state()

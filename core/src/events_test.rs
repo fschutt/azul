@@ -2212,7 +2212,8 @@ mod autotest_generated {
             EventType::DialRotate => EventType::DialClick,
             EventType::DialClick => EventType::MouseMove,
             EventType::MouseMove => EventType::MediaControl,
-            EventType::MediaControl => return None,
+            EventType::MediaControl => EventType::PointerLockChange,
+            EventType::PointerLockChange => return None,
         })
     }
 
@@ -2373,6 +2374,7 @@ mod autotest_generated {
             (EventType::DialRotate, EventData::None),
             (EventType::DialClick, EventData::None),
             (EventType::MediaControl, EventData::None),
+            (EventType::PointerLockChange, EventData::None),
         ];
 
         // COVERAGE PROOF. Not "the list looks complete" - `all_event_types`

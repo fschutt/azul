@@ -1075,6 +1075,15 @@ pub enum EventType {
     /// KEY events, a seek carries a position - read it with
     /// `CallbackInfo::get_media_control_request`.
     MediaControl,
+    /// The pointer lock changed hands (9d-ii-c): the app took or released it,
+    /// or the platform ended it - every grab-based backend drops the grab
+    /// when the window loses focus, and a Wayland compositor may end a
+    /// constraint at any time. Both directions, like the browser's
+    /// `pointerlockchange`; read `mouse_state.is_cursor_locked` for which.
+    /// Nothing re-takes a lost lock on focus return (USER RULING
+    /// 2026-09-03): an app that wants it back asks again from
+    /// `WindowFocusReceived`.
+    PointerLockChange,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1966,7 +1975,7 @@ fn matches_window_filter(
         LeftMouseUp, MiddleMouseDown, MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseMove,
         MouseOver,
         MouseUp, Moved, PenDoubleTap, PenDown, PenEnter, PenHover, PenLeave, PenMove, PenSqueeze,
-        ModifiersChanged, PenUp, PermissionChanged, RawMouseMotion, Resized,
+        ModifiersChanged, PenUp, PermissionChanged, PointerLockChange, RawMouseMotion, Resized,
         RightMouseDown, RightMouseUp, ScreenColorPicked, Scroll, ScrollEnd, ScrollStart,
         SensorChanged, TextInput, ThemeChanged, TouchCancel, TouchEnd, TouchMove, TouchStart,
         VirtualKeyDown, VirtualKeyUp, WindowFocusLost, WindowFocusReceived,
@@ -2030,6 +2039,7 @@ fn matches_window_filter(
         (ThemeChanged, EventType::ThemeChange) => true,
         (WindowFocusReceived, EventType::WindowFocusIn) => true,
         (WindowFocusLost, EventType::WindowFocusOut) => true,
+        (PointerLockChange, EventType::PointerLockChange) => true,
         (SensorChanged, EventType::SensorChanged) => true,
         (GamepadInput, EventType::GamepadInput) => true,
         (GeolocationFix, EventType::GeolocationFix) => true,
@@ -3057,6 +3067,9 @@ pub enum WindowEventFilter {
     DialClick,
     /// The pointer moved anywhere in the window. APPENDED at the end.
     MouseMove,
+    /// The pointer lock was taken, released, or ended by the platform
+    /// (9d-ii-c). Window-level: the lock belongs to the window, not a node.
+    PointerLockChange,
 }
 
 impl WindowEventFilter {
@@ -3105,6 +3118,7 @@ impl WindowEventFilter {
             Self::ThemeChanged => None,
             Self::WindowFocusReceived => None, // specific to window!
             Self::WindowFocusLost => None,     // specific to window!
+            Self::PointerLockChange => None,   // specific to window!
             Self::PenDown => Some(HoverEventFilter::PenDown),
             Self::PenMove => Some(HoverEventFilter::PenMove),
             Self::PenUp => Some(HoverEventFilter::PenUp),
@@ -3574,6 +3588,7 @@ static ALL_WINDOW: &[WindowEventFilter] = &[
     WindowEventFilter::ThemeChanged,
     WindowEventFilter::WindowFocusReceived,
     WindowEventFilter::WindowFocusLost,
+    WindowEventFilter::PointerLockChange,
     WindowEventFilter::PenDown,
     WindowEventFilter::PenMove,
     WindowEventFilter::PenUp,
@@ -4015,6 +4030,7 @@ fn event_type_to_filters_legacy_hint(
         E::WindowClose => vec![EF::Window(W::CloseRequested)],
         E::WindowFocusIn => vec![EF::Window(W::WindowFocusReceived)],
         E::WindowFocusOut => vec![EF::Window(W::WindowFocusLost)],
+        E::PointerLockChange => vec![EF::Window(W::PointerLockChange)],
         E::ThemeChange => vec![EF::Window(W::ThemeChanged)],
         E::WindowDpiChanged => vec![EF::Window(W::DpiChanged)],
         E::WindowMonitorChanged => vec![EF::Window(W::MonitorChanged)],

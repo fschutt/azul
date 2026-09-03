@@ -867,7 +867,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       the published session and need nothing.
       EVIDENCE: 2 core tests (a queued seek is delivered once and stays readable as the last; a
       per-frame advance is not a seek, a 2 s+ jump is, announced once, backwards too).
-      ⚠ NOT COMPILED OR RUN (batch compiles at the end): api.json gains `EventType::MediaControl`,
+      ✅ COMPILED AND RUN in the 2026-09-03 batch pass (evidence: the pass note on 9h-i-a-i-b): api.json gains `EventType::MediaControl`,
       `ApplicationEventFilter::MediaControl`, `MediaControlKind` / `MediaControlRequest` /
       `OptionMediaControlRequest` and `CallbackInfo.get_media_control_request` through `autofix` in
       that pass - the Rust compiles without them (appended variants keep the C layout), the C
@@ -884,7 +884,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       entry beside `nativeOnMediaButton`), plus `ACTION_SEEK_TO` in the published actions, which
       is the gate for the system UI offering a bar at all. All three land as
       `MediaControlKind::SeekAbsolute` on the seek queue, so the app sees one `MediaControl` event whatever
-      the platform. ⚠ NOT COMPILED OR RUN (batch compiles at the end); the Java re-compile
+      the platform. ✅ COMPILED AND RUN in the 2026-09-03 batch pass (evidence: the pass note on 9h-i-a-i-b); the Java re-compile
       against android-34 is part of that pass.
 - [x] 9h-i-a-i-b DONE. Both halves the note asked for existed once 9h-i-a-i-a landed, so this is
       the volume on top of that path. The app-level concept is `NowPlayingInfo::volume`
@@ -1787,21 +1787,21 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       re-grab the pointer behind the user's back. That half stays open as 9d-ii-c.
       Host, Linux-target and Windows-target checks green; 8-target gate green; azul-dll 1935 with
       only its 8 pre-existing headless failures.
-- [ ] 9d-ii-c Should focus RETURN re-take a pointer lock that focus loss dropped? A game wants
-      the lock back on alt-tab return; a drawing app would find the cursor silently captured
-      again. Wayland's `LIFETIME_PERSISTENT` already reactivates on its own, so the three
-      grab-based backends currently behave DIFFERENTLY from it — that divergence is the thing to
-      settle, not just the yes/no. Needs a product decision; do not guess. Every platform revokes a grab when the window
-      loses focus, so the flag can outlive the lock it describes and report one that is not held.
-      The backends already clear keyboard/mouse state at focus-out (x11 `clear_keyboard_state`,
-      windows WM_KILLFOCUS); this wants the same treatment, but it is a behaviour decision about
-      whether focus return should RE-take the grab silently, so it is logged rather than guessed.
-      USER RULING 2026-09-03: do NOT re-take the lock silently. On focus loss every backend drops
-      the grab and clears the flag, and the app is TOLD through an event so it can re-request the
-      lock on return if it wants it (browser semantics: `pointerlockchange` after an exit). Check
-      for an existing unemitted lock-change filter before adding an event kind - the audit's rule
-      is to wire what exists, never to add a second name for it. Wayland's persistent lock is
-      then the odd one out and must be re-aligned: destroy the lock on focus-out and tell the app.
+- [x] 9d-ii-c DONE per the USER RULING (2026-09-03): the lock is never re-taken silently; the
+      app is TOLD and re-requests. `EventType::PointerLockChange` /
+      `WindowEventFilter::PointerLockChange` fire from the state diff whenever
+      `mouse_state.is_cursor_locked` changes, in BOTH directions like the browser's
+      `pointerlockchange` (the flag is the payload); so a lock the platform ends - every
+      grab-based backend drops it on focus loss and already wrote the flag false, a Wayland
+      compositor through `unlocked` - reaches the app without any backend emitting anything by
+      hand. The divergence is settled the other way round from Wayland: `handle_keyboard_leave`
+      now destroys the constraint like the three grabs, because a `LIFETIME_PERSISTENT` lock
+      re-activating by itself on focus return is exactly the behaviour ruled out. A game gets
+      the lock back by calling `set_pointer_lock(true)` from `WindowFocusReceived`; a drawing
+      app is never re-captured. The e2e runner already honours the flag, so the diff covers
+      headless scenarios too; layout test `pointer_lock_transitions_emit_a_change_each_way...`
+      pins taken / lost / steady. ⏳ SECOND BATCH: uncompiled until its end pass (api.json gets
+      the `WindowEventFilter` variant through autofix then).
 
 ### Follow-ups opened by 9c
 
@@ -2069,7 +2069,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       motion, resolving the icon from THAT seat's hit test through the same
       `compute_cursor_type_hit_test` the primary uses, defaulting to the arrow with nothing hit
       - an unanswered enter is invisible, not an arrow - and re-sending only on change.
-      ⚠ NOT COMPILED OR RUN (batch compiles at the end); the Linux target is the one to watch.
+      ✅ COMPILED AND RUN in the 2026-09-03 batch pass (evidence: the pass note on 9h-i-a-i-b); the Linux target is the one to watch.
 - [x] 9b-ii-a-iii DONE. The "real per-seat question" had a plain answer once split in two: the
       POPUP is not per seat (any cursor clicking an item selects it, so the popup's own
       enter / motion / button / leave handlers serve every seat unchanged), while KNOWING WHOSE
@@ -2156,7 +2156,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       the primary clicks r1 -> focus r1; seat 7 presses r3 again -> focus r3 (its position
       persisted across the primary's activity). `click` and the higher-level ops stay
       primary-only; a seat click is `mouse_down` + `mouse_up` with `seat`.
-      ⚠ NOT COMPILED OR RUN: per the user (2026-09-03, "put all the compilation at the end"),
+      ✅ COMPILED AND RUN in the 2026-09-03 batch pass (evidence: the pass note on 9h-i-a-i-b); written uncompiled per the user ("put all the compilation at the end"),
       this and the following items are checked against rust-analyzer only; the batch compiles
       once at the end, and the scenario runs with the corpus then.
 
@@ -2331,7 +2331,7 @@ session needs. Recorded verbatim so the framing is not lost.
       positions itself against the NEW range through `onGetContentRect`). No Java change.
       Same behaviour as Android's own fields, for the same reason - the bar floats over the
       selection being resized under the finger.
-      ⚠ NOT COMPILED OR RUN (the batch compiles once at the end, per the user); the hook is a
+      ✅ COMPILED AND RUN in the 2026-09-03 batch pass (evidence: the pass note on 9h-i-a-i-b); the hook is a
       one-expression change on a path that is already exercised by U2.
 - [x] U2-a-iii DONE, and "pointer 0" was the whole defect: Android's pointer INDEX 0 is not an
       identity. When the finger holding a handle lifted with a second finger down, the second

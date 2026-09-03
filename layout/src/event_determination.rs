@@ -1014,6 +1014,22 @@ pub fn determine_all_events(
         ));
     }
 
+    // Pointer lock changed hands (9d-ii-c). Both directions, like the
+    // browser's `pointerlockchange`; the app reads `is_cursor_locked` for
+    // which. This is how a lock ENDED BY THE PLATFORM reaches the app: every
+    // backend drops its grab on focus loss and writes the flag false, and
+    // nothing re-takes it on return (USER RULING 2026-09-03) - a game that
+    // wants it back requests it again from `WindowFocusReceived`.
+    if current_state.mouse_state.is_cursor_locked != previous_state.mouse_state.is_cursor_locked {
+        events.push(SyntheticEvent::new(
+            EventType::PointerLockChange,
+            EventSource::User,
+            root_node,
+            timestamp.clone(),
+            EventData::None,
+        ));
+    }
+
     // Theme changed
     if current_state.theme != previous_state.theme {
         events.push(SyntheticEvent::new(
@@ -3127,6 +3143,32 @@ mod autotest_generated {
 
         let events = run_plain(&state(), &unfocused);
         assert_eq!(count(&events, EventType::WindowFocusIn), 1);
+    }
+
+    #[test]
+    fn pointer_lock_transitions_emit_a_change_each_way_and_nothing_while_steady() {
+        let locked = {
+            let mut s = state();
+            s.mouse_state.is_cursor_locked = true;
+            s
+        };
+        assert_eq!(
+            count(&run_plain(&locked, &state()), EventType::PointerLockChange),
+            1,
+            "taken"
+        );
+        // The platform dropped it (focus loss): the flag went false with no
+        // request from the app, and the app must hear about it.
+        assert_eq!(
+            count(&run_plain(&state(), &locked), EventType::PointerLockChange),
+            1,
+            "lost"
+        );
+        assert_eq!(
+            count(&run_plain(&locked, &locked.clone()), EventType::PointerLockChange),
+            0,
+            "steady"
+        );
     }
 
     #[test]

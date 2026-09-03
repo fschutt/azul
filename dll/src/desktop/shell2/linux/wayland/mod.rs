@@ -4596,6 +4596,14 @@ impl WaylandWindow {
         // Focus is gone — the compositor will not send the key release.
         self.disarm_key_repeat();
         self.snapshot_window_state_baseline("wayland.handle_keyboard_leave");
+        // A pointer lock ends with focus here as on every other backend
+        // (9d-ii-c): a `LIFETIME_PERSISTENT` constraint would otherwise
+        // re-activate by itself on focus return, the one behaviour the user
+        // ruled out - the app is told (`PointerLockChange`) and re-requests.
+        {
+            use crate::desktop::shell2::common::event::PlatformWindow;
+            self.release_pointer_lock_on_focus_loss();
+        }
         self.common.update_unsynced_state(|ws| {
             ws.window_focused = false;
             // Release the mouse buttons: focus left while a button was down, so the
