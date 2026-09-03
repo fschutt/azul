@@ -19545,6 +19545,8 @@ impl LayoutWindow {
             // A document-space Y, no NodeIds.
             pagination_dirty_from: _,
             resize_watch_dpi: _,
+            // Keyed by the session's contenteditable key, not a node id (U3-b).
+            caret_text_snapshot: _,
         } = self;
 
         // Only a NOTIFIED edit can be rejected: an un-notified one cannot

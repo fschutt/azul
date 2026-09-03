@@ -4034,7 +4034,8 @@
                                 "HidReport": {},
                                 "DialRotate": {},
                                 "DialClick": {},
-                                "MouseMove": {}
+                                "MouseMove": {},
+                                "PointerLockChange": {}
                             }
                         ],
                         "repr": "C"
@@ -15016,6 +15017,85 @@
                                     "type": "OptionMediaControlRequest"
                                 },
                                 "fn_body": "object.get_media_control_request()"
+                            },
+                            "get_proximity": {
+                                "doc": [
+                                    "The proximity sensor's TYPED answer (8e-i-a-i, 8e-i-a-ii): `Near` /",
+                                    "`Far` from a binary sensor (iOS, Windows without ranging), a",
+                                    "`Distance` in the sensor's native unit from a ranging one. `None`",
+                                    "until a sensor has reported, or on a device without one. The raw",
+                                    "centimetres, where a platform reports them, stay readable through",
+                                    "`get_sensor_reading(SensorKind::Proximity)`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionProximity"
+                                },
+                                "fn_body": "object.get_proximity()"
+                            },
+                            "set_system_audio_takeover": {
+                                "doc": [
+                                    "TAKE OVER THE SYSTEM AUDIO, or give it back (9h-i-a-i-d-i; USER RULING",
+                                    "2026-09-03: a runtime call around playback, not a config flag).",
+                                    "",
+                                    "On iOS this activates the shared `AVAudioSession` with the playback",
+                                    "category, which is what makes the lock-screen and remote controls",
+                                    "deliver anything - and what interrupts other apps' audio, which is",
+                                    "why it is done when playback STARTS and undone (`false`, notifying",
+                                    "others so their audio resumes) when it stops. On Android it requests",
+                                    "audio focus for media. Desktop mixers share, so there the call is a",
+                                    "no-op that reports `Granted`.",
+                                    "",
+                                    "The answer, and every later change - a call interrupting, a prompt",
+                                    "ducking, focus regained or lost for good - arrives as a",
+                                    "`SystemAudioChange` event (`ApplicationEventFilter::SystemAudioChange`)",
+                                    "and stays readable through `get_system_audio_change`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "active": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_system_audio_takeover(active)"
+                            },
+                            "get_system_audio_change": {
+                                "doc": [
+                                    "What the system last did with the audio the app took over",
+                                    "(9h-i-a-i-d-i) - the payload of a `SystemAudioChange` event, or the",
+                                    "last one delivered. `None` before any takeover."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionSystemAudioChange"
+                                },
+                                "fn_body": "object.get_system_audio_change()"
+                            },
+                            "is_system_audio_active": {
+                                "doc": [
+                                    "Whether the app currently holds (asked for and was not told it lost)",
+                                    "the system audio. `Lost` clears it; `Interrupted` and `Ducked` do",
+                                    "not - the takeover is still the app's, only paused by the system."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_system_audio_active()"
                             }
                         },
                         "repr": "C"
@@ -17822,7 +17902,8 @@
                                 "TooShort": {},
                                 "TooLong": {},
                                 "RangeUnderflow": {},
-                                "RangeOverflow": {}
+                                "RangeOverflow": {},
+                                "PatternMismatch": {}
                             }
                         ],
                         "repr": "C"
@@ -40388,7 +40469,8 @@
                                 "DeviceDisconnected": {},
                                 "MonitorConnected": {},
                                 "MonitorDisconnected": {},
-                                "MediaControl": {}
+                                "MediaControl": {},
+                                "SystemAudioChange": {}
                             }
                         ],
                         "repr": "C"
@@ -113375,6 +113457,43 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionProximity": {
+                        "external": "azul_core::sensors::OptionProximity",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "Proximity"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionSystemAudioChange": {
+                        "external": "azul_core::media_session::OptionSystemAudioChange",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "SystemAudioChange"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -120515,6 +120634,66 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "Proximity": {
+                        "external": "azul_core::sensors::Proximity",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Near": {},
+                                "Far": {},
+                                "Distance": {
+                                    "type": "ProximityDistance"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "ProximityDistance": {
+                        "external": "azul_core::sensors::ProximityDistance",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "value": {
+                                    "type": "f32"
+                                },
+                                "unit": {
+                                    "type": "DistanceUnit"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DistanceUnit": {
+                        "external": "azul_core::sensors::DistanceUnit",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Millimeters": {},
+                                "Centimeters": {},
+                                "Meters": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -121749,6 +121928,30 @@
                                 "volume": {
                                     "type": "OptionF32"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SystemAudioChange": {
+                        "external": "azul_core::media_session::SystemAudioChange",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Granted": {},
+                                "Interrupted": {},
+                                "Ducked": {},
+                                "Resumed": {},
+                                "Ended": {},
+                                "Lost": {}
                             }
                         ],
                         "repr": "C"
