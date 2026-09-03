@@ -140,6 +140,19 @@ pub fn determine_keyboard_default_action_with_editing(
                     }
                     return DefaultAction::SplitBlockAtCursor { target: *focus };
                 }
+                // A RESET control is checked BEFORE the generic activation:
+                // it IS activatable, so the arm below would swallow it and the
+                // form would never reset. Same reason submit is checked after
+                // activation and reset before it - the specific case has to
+                // win over the general one.
+                if is_reset_control(focus, layout_results) {
+                    if let Some(form_node) = find_form_ancestor(focus, layout_results) {
+                        return DefaultAction::ResetForm { form_node };
+                    }
+                    // A reset button outside a form resets nothing; fall
+                    // through to ordinary activation so a click handler on it
+                    // still runs.
+                }
                 if is_element_activatable(focus, layout_results) {
                     DefaultAction::ActivateFocusedElement { target: *focus }
                 } else if let Some(form_node) = find_form_ancestor(focus, layout_results) {
@@ -349,6 +362,32 @@ fn is_element_activatable(
         .as_container()
         .get(internal_id)
         .is_some_and(azul_core::dom::NodeData::is_activatable)
+}
+
+/// Whether this control is a form RESET button (`type="reset"`).
+///
+/// HTML distinguishes reset from submit by the `type` attribute alone - both
+/// are `<button>` or `<input>` - so this is an attribute read rather than a
+/// node-type check.
+fn is_reset_control(
+    node_id: &DomNodeId,
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+) -> bool {
+    use azul_core::dom::AttributeType;
+
+    let Some(layout) = layout_results.get(&node_id.dom) else {
+        return false;
+    };
+    let Some(internal_id) = node_id.node.into_crate_internal() else {
+        return false;
+    };
+    let node_data = layout.styled_dom.node_data.as_container();
+    let Some(data) = node_data.get(internal_id) else {
+        return false;
+    };
+    data.attributes().as_ref().iter().any(|a| {
+        matches!(a, AttributeType::InputType(t) if t.as_str().eq_ignore_ascii_case("reset"))
+    })
 }
 
 /// The nearest `NodeType::Form` ancestor of `node_id`, including itself.
@@ -857,6 +896,56 @@ mod autotest_generated {
                 form_node: dom_node(1)
             },
             "Enter in a non-activatable form control must submit its form"
+        );
+    }
+
+    /// A reset button must produce `ResetForm`, NOT `ActivateFocusedElement`.
+    /// A button IS activatable, so the generic arm would swallow it and the
+    /// form would never reset - which is why the reset check runs first.
+    #[test]
+    fn activating_a_reset_button_resets_its_form() {
+        use azul_core::dom::AttributeType;
+
+        let mut button = NodeData::create_button_no_a11y();
+        button.set_attributes(vec![AttributeType::InputType("reset".into())].into());
+        let dom = Dom::create_body()
+            .with_child(Dom::create_node(NodeType::Form).with_child(Dom::create_from_data(button)));
+        let styled_dom = StyledDom::create_from_dom(dom);
+        let mut layouts = BTreeMap::new();
+        layouts.insert(
+            DomId::ROOT_ID,
+            DomLayoutResult {
+                styled_dom,
+                layout_tree: LayoutTree {
+                    nodes: Vec::new(),
+                    warm: Vec::new(),
+                    cold: Vec::new(),
+                    root: 0,
+                    dom_to_layout: BTreeMap::new(),
+                    children_arena: Vec::new(),
+                    children_offsets: Vec::new(),
+                    subtree_needs_intrinsic: Vec::new(),
+                },
+                calculated_positions: Vec::new(),
+                viewport: LogicalRect::zero(),
+                display_list: std::sync::Arc::new(DisplayList::default()),
+                scroll_ids: HashMap::new(),
+                scroll_id_to_node_id: HashMap::new(),
+            },
+        );
+
+        let result = determine_keyboard_default_action(
+            &kbd(VirtualKeyCode::Return, &[]),
+            Some(dom_node(2)),
+            &layouts,
+            false,
+        );
+        assert_eq!(
+            result.action,
+            DefaultAction::ResetForm {
+                form_node: dom_node(1)
+            },
+            "a reset button must reset, not merely activate"
         );
     }
 

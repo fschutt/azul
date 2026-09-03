@@ -1437,6 +1437,13 @@ pub enum DefaultAction {
     /// veto, undo, and caret-follow along) instead of recording a structural
     /// block split. APPENDED at the enum tail for ABI stability.
     InsertLineBreakAtCursor { target: DomNodeId },
+    /// Reset a form to its controls' default values (a `type="reset"` control
+    /// was activated). APPENDED at the enum tail for ABI stability.
+    ///
+    /// The sibling of [`Self::SubmitForm`]: both name the FORM rather than the
+    /// control that triggered them, because a reset handler belongs on the
+    /// form and the button is an implementation detail of how the user asked.
+    ResetForm { form_node: DomNodeId },
 }
 
 /// Amount to scroll for keyboard-based scrolling

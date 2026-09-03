@@ -175,7 +175,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       never compared against another node, nor across DomIds; no snapshot is distinguishable from
       no change; and re-focusing REPLACES the baseline rather than accumulating.
       azul-layout 7575 (+7), azul-dll 1963, azul-core 2759, host, 8/8 mobile, autofix converged.
-- [~] 11b-i SUBMIT + INVALID DONE; only `Reset` remains.
+- [x] 11b-i DONE — the whole form family (Submit, Invalid, Reset) now produces.
       ⚠ The investigation found `Submit` was ALSO unproducible, not just Reset/Invalid.
       `DefaultAction::SubmitForm` existed with a consumer whose comment claimed "Enter on a
       focused control produced this action" - but nothing ever constructed it, and the producer
@@ -202,11 +202,30 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       negative-controlled (stubbing it back to `None` makes the test fail with `left: None`).
       The gate proven compiled. azul-layout 7596, azul-core 2760, azul-dll 1973, host, 8/8 mobile.
 
-- [ ] 11b-i-a `Reset` is the last of the family. HTML restores each control to its `Value`
-      ATTRIBUTE - the default value - which is exactly the "initial values to restore" the
-      original item called missing; they are already in the DOM. Needs a trigger (a control whose
-      `InputType` is "reset") and a `DefaultAction::ResetForm`, then the same walk `validate_form`
-      already does.
+- [x] 11b-i-a DONE — `Reset`, completing the family. `DefaultAction::ResetForm` (appended for
+      ABI) is produced when a control whose `InputType` is "reset" is activated, and consumed by
+      firing `EventType::Reset` on the FORM - the sibling of `SubmitForm`, naming the form rather
+      than the button, because a reset handler belongs on the form.
+      ⚠ THE ORDER OF THE TWO CHECKS IS LOAD-BEARING. A reset button IS activatable, so the
+      generic `ActivateFocusedElement` arm would have swallowed it and the form would never
+      reset. The reset check therefore runs BEFORE activation, where the submit check runs after
+      it - the specific case has to win over the general one. Negative-controlled: stubbing the
+      check out makes the test fail with `left: ActivateFocusedElement`, which is exactly the bug.
+      THE EVENT FIRES FIRST AND IS CANCELLABLE, which is HTML's order: an app that wants to
+      confirm ("discard your changes?") calls `prevent_default` on the `Reset`, and the values
+      must still be there when it does. Restoring first would make the veto meaningless.
+      `azul_layout::form::default_values` supplies the restore set: each control's `Value`
+      ATTRIBUTE, which is what HTML restores and why the "initial values to restore" the original
+      item called missing turned out to be already in the DOM - the engine never had to remember
+      them. A control with no `value` resets to EMPTY, also HTML's rule.
+      Disabled and readonly controls ARE reset here, unlike in validation where they are barred:
+      a reset is the APP's action, not the user's, and a browser clears a readonly field too.
+      Only `Input`/`TextArea`/`Select` are touched - a form full of divs would otherwise have
+      every one of them blanked.
+      EVIDENCE: 4 new tests (default value, empty default, disabled/readonly still reset, the
+      trigger) plus the negative control. azul-layout 7600, azul-core 2760, azul-dll 1973, host,
+      8/8 mobile, autofix converged.
+
 - [ ] 11b-i-b `Pattern` is the one constraint NOT validated: it needs a regex engine and this
       workspace has no regex dependency. Adding one is a dependency decision rather than a wiring
       one, and a hand-rolled matcher would accept and reject the wrong strings - worse than not

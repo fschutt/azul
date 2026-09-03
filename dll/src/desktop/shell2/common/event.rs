@@ -10613,6 +10613,65 @@ pub trait PlatformWindow {
                                 }
                             }
 
+                            DefaultAction::ResetForm { form_node } => {
+                                let now = {
+                                    #[cfg(feature = "std")]
+                                    {
+                                        azul_core::task::Instant::from(std::time::Instant::now())
+                                    }
+                                    #[cfg(not(feature = "std"))]
+                                    {
+                                        azul_core::task::Instant::Tick(
+                                            azul_core::task::SystemTick::new(0),
+                                        )
+                                    }
+                                };
+                                // THE EVENT FIRES FIRST AND IS CANCELLABLE,
+                                // which is HTML's order: an app that wants to
+                                // confirm ("discard your changes?") calls
+                                // `prevent_default` on the `Reset`, and the
+                                // values must still be there when it does.
+                                // Restoring first would make the veto
+                                // meaningless.
+                                let ev = azul_core::events::SyntheticEvent::new(
+                                    azul_core::events::EventType::Reset,
+                                    azul_core::events::EventSource::User,
+                                    *form_node,
+                                    now,
+                                    azul_core::events::EventData::None,
+                                );
+                                let (r, _u, prevented) =
+                                    self.dispatch_events_propagated(&[ev]);
+                                result = result.max(r);
+
+                                if !prevented {
+                                    // Each control goes back to its `Value`
+                                    // ATTRIBUTE - the DEFAULT value, not the
+                                    // current one. That is what HTML restores,
+                                    // and it is why the item's "initial values
+                                    // to restore" turned out to be already in
+                                    // the DOM rather than something the engine
+                                    // had to remember.
+                                    let restores = self
+                                        .get_layout_window()
+                                        .map(|lw| {
+                                            azul_layout::form::default_values(
+                                                *form_node,
+                                                &lw.layout_results,
+                                            )
+                                        })
+                                        .unwrap_or_default();
+                                    for (node, value) in restores {
+                                        let change =
+                                            azul_layout::callbacks::CallbackChange::ChangeNodeText {
+                                                node_id: node,
+                                                text: value.into(),
+                                            };
+                                        result = result.max(self.apply_user_change(&change));
+                                    }
+                                }
+                            }
+
                             DefaultAction::CloseModal { .. } | DefaultAction::SelectAllText => {
                                 // Placeholder for future implementation
                             }

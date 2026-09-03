@@ -148,6 +148,70 @@ pub fn validate_form(
     failures
 }
 
+/// Every control in `form` paired with the value a reset restores it to.
+///
+/// HTML restores each control to its `value` ATTRIBUTE - the DEFAULT value,
+/// not whatever it currently holds - so the "initial values to restore" the
+/// original item said were missing are already in the DOM. A control with no
+/// `value` attribute resets to EMPTY, which is also what HTML does.
+///
+/// Disabled and readonly controls are NOT skipped here, unlike in validation:
+/// a reset clears a readonly field in a browser, because the reset is the
+/// app's action rather than the user's.
+pub fn default_values(
+    form: DomNodeId,
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+) -> Vec<(DomNodeId, String)> {
+    let mut out = Vec::new();
+    let Some(layout) = layout_results.get(&form.dom) else {
+        return out;
+    };
+    let Some(form_id) = form.node.into_crate_internal() else {
+        return out;
+    };
+    let node_data = layout.styled_dom.node_data.as_container();
+    let hierarchy = layout.styled_dom.node_hierarchy.as_container();
+
+    let count = hierarchy.subtree_len(form_id);
+    let start = form_id.index() + 1;
+    for index in start..start + count {
+        let node_id = NodeId::new(index);
+        let Some(data) = node_data.get(node_id) else {
+            continue;
+        };
+        let attrs = data.attributes();
+        // Only controls that can HOLD a value are reset. A form full of divs
+        // would otherwise have every one of them blanked.
+        let is_control = matches!(
+            data.get_node_type(),
+            azul_core::dom::NodeType::Input
+                | azul_core::dom::NodeType::TextArea
+                | azul_core::dom::NodeType::Select
+        );
+        if !is_control {
+            continue;
+        }
+        let default = attrs
+            .as_ref()
+            .iter()
+            .find_map(|a| match a {
+                AttributeType::Value(v) => Some(v.as_str().to_string()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        out.push((
+            DomNodeId {
+                dom: form.dom,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                    node_id,
+                )),
+            },
+            default,
+        ));
+    }
+    out
+}
+
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use azul_core::{
@@ -311,6 +375,44 @@ mod tests {
         assert_eq!(got.len(), 2);
         assert_eq!(got[0].node, node(2));
         assert_eq!(got[1].node, node(3), "in document order");
+    }
+
+    /// A control resets to its `value` ATTRIBUTE - the default - not to
+    /// whatever it currently holds. That is the whole reason the "initial
+    /// values" did not need storing anywhere.
+    #[test]
+    fn a_control_resets_to_its_value_attribute() {
+        let layouts = form_with(vec![vec![AttributeType::Value("hello".into())]]);
+        let got = default_values(node(FORM), &layouts);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, node(2));
+        assert_eq!(got[0].1, "hello");
+    }
+
+    /// No `value` attribute means reset-to-EMPTY, which is what HTML does -
+    /// not "leave it alone".
+    #[test]
+    fn a_control_with_no_value_attribute_resets_to_empty() {
+        let layouts = form_with(vec![vec![AttributeType::Required]]);
+        let got = default_values(node(FORM), &layouts);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].1, "");
+    }
+
+    /// Disabled and readonly controls ARE reset, unlike in validation where
+    /// they are barred: a reset is the app's action, not the user's, and a
+    /// browser clears a readonly field too.
+    #[test]
+    fn reset_does_not_skip_disabled_or_readonly_controls() {
+        for barred in [AttributeType::Disabled, AttributeType::Readonly] {
+            let layouts =
+                form_with(vec![vec![AttributeType::Value("v".into()), barred.clone()]]);
+            assert_eq!(
+                default_values(node(FORM), &layouts).len(),
+                1,
+                "{barred:?} must still be reset"
+            );
+        }
     }
 
     #[test]
