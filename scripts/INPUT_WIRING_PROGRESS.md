@@ -833,11 +833,38 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       something visible is the exact failure mode this whole backlog is about.
       No Linux desktop and no Input-Monitoring-free way to observe Control Center here, so this
       is compile-only on both halves. Never seen a real media widget.
-- [ ] 9h-i-a-i-a `Seek`, `SetPosition`, `OpenUri` and the `Seeked` signal are still absent, and
-      `CanSeek` still reports false. Unlike the transport commands these cannot become a
-      `VirtualKeyCode` - there is no seek KEY - so they need an event kind that carries a
-      position, which is a dispatch-model change rather than a backend gap. Reporting `CanSeek`
-      true without it would put a dead scrubber in the desktop UI.
+- [x] 9h-i-a-i-a DONE, with the event kind the note asked for. `EventType::MediaSeek` (APPENDED)
+      + `ApplicationEventFilter::MediaSeek` + `EventData::MediaSeek(MediaSeekEventData { kind,
+      position_us })`, planned and matched at the application level like `DeviceConnected`,
+      emitted at the ROOT by `MediaSessionManager`'s new `EventProvider` impl - a seek is a
+      window-level command like a media key, not a node's. The request itself is
+      `MediaSeekRequest { kind: Relative | Absolute | OpenUri, position_us, uri, track_id }`
+      (repr(C), `OptionMediaSeekRequest`), read with `CallbackInfo::get_media_seek_request()`
+      (the one being delivered, or the last delivered). It rides the media-KEY queue's twin
+      (`media_keys::push_media_seek` / `drain_media_seeks`, NOT de-duplicated: two `Seek(+5s)`
+      mean ten seconds), drained at the top of the pass into the manager and cleared with the
+      other pending flags after dispatch. Providers: the dll slice AND the runner's.
+      MPRIS: `Seek(x)` -> Relative, `SetPosition(o, x)` -> Absolute with the object path as
+      `track_id` (so an app can drop a seek made against a track that ended - the spec's rule),
+      `OpenUri(s)` -> OpenUri; `CanSeek` is TRUE now that they reach the app. THE OTHER
+      DIRECTION: `Position` is kept out of `PropertiesChanged` by spec, so a jump the APP makes
+      (its own progress bar) left every desktop widget extrapolating from the old position; the
+      manager now notes a same-track jump of more than 2 s (`POSITION_JUMP_THRESHOLD_US` - far
+      above a frame's advance, far below any human seek) and the drain announces it as the
+      MPRIS `Seeked` signal once. SMTC and the Apple command centre read the position back from
+      the published session and need nothing.
+      EVIDENCE: 2 core tests (a queued seek is delivered once and stays readable as the last; a
+      per-frame advance is not a seek, a 2 s+ jump is, announced once, backwards too).
+      ⚠ NOT COMPILED OR RUN (batch compiles at the end): api.json gains `EventType::MediaSeek`,
+      `ApplicationEventFilter::MediaSeek`, `MediaSeekKind` / `MediaSeekRequest` /
+      `OptionMediaSeekRequest` and `CallbackInfo.get_media_seek_request` through `autofix` in
+      that pass - the Rust compiles without them (appended variants keep the C layout), the C
+      side just cannot name them yet.
+- [ ] 9h-i-a-i-a-i The inbound seek exists for MPRIS only. Windows SMTC's
+      `PlaybackPositionChangeRequested`, Apple's `MPChangePlaybackPositionCommand` and Android's
+      `MediaSession.Callback.onSeekTo` all carry an absolute position and map onto
+      `MediaSeekKind::Absolute` through `push_media_seek` - each is a platform handler on the
+      existing session object, none blocked on anything.
 - [ ] 9h-i-a-i-b MPRIS `Volume` is read/WRITE and is omitted entirely. Answering it needs an
       app-level volume concept azul does not have, and a writable property needs the same inbound
       path 9h-i-a-i-a does. Some desktops render a volume slider only when the property exists.

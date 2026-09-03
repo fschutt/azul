@@ -4998,6 +4998,27 @@ impl CallbackInfo {
     /// which is exactly why applications expose a sensitivity setting rather
     /// than treating them as pixels.
     #[must_use]
+    /// The seek the platform's media controls asked for (9h-i-a-i-a) - the
+    /// payload of a `MediaSeek` event, or the last one delivered. A desktop
+    /// scrubber, a lock-screen slider and `playerctl position` all arrive
+    /// here; the transport buttons arrive as media KEYS instead, because
+    /// they carry no position.
+    ///
+    /// `Relative` is an offset in microseconds (negative = back), `Absolute`
+    /// a position to jump to - MPRIS says to ignore it when `track_id` is not
+    /// the current track - and `OpenUri` carries the `uri` to open and play.
+    /// The app reports the resulting position through `set_now_playing`; a
+    /// position that is not the continuation of the last one is announced
+    /// back to the desktop as a seek.
+    #[must_use]
+    pub fn get_media_seek_request(&self) -> azul_core::media_session::OptionMediaSeekRequest {
+        self.get_layout_window()
+            .media_session_manager
+            .current_seek()
+            .cloned()
+            .into()
+    }
+
     pub fn get_raw_mouse_motion(&self) -> azul_core::events::OptionRawMotionEventData {
         self.get_layout_window()
             .device_event_manager

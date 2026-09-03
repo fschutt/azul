@@ -219,3 +219,13 @@ mod tests {
         assert_eq!(KEYCODE_MEDIA_PAUSE, 127);
     }
 }
+
+/// The app reported a position that is not the continuation of the last one
+/// (9h-i-a-i-a): tell the platform so its scrubber re-syncs. MPRIS has the
+/// `Seeked` signal for exactly this; SMTC and the Apple command centre read
+/// the position back from the published session, so they need nothing here.
+#[allow(unused_variables)]
+pub fn announce_seeked(position_us: i64) {
+    #[cfg(target_os = "linux")]
+    linux::announce_seeked(position_us);
+}

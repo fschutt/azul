@@ -9264,6 +9264,22 @@ pub trait PlatformWindow {
         // and leaving the key latched would make it look held forever.
         if depth == 0 {
             crate::desktop::extra::media_keys::ensure_started(self.get_raw_window_handle());
+            // SEEKS (9h-i-a-i-a) ride the same drain: into the media session
+            // manager, whose `EventProvider` impl turns each into a
+            // `MediaSeek` event at the root on this pass. And the other
+            // direction: a position jump the app reported is announced to
+            // the desktop (MPRIS `Seeked`) so its scrubber re-syncs.
+            for request in azul_layout::managers::media_keys::drain_media_seeks() {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.media_session_manager.push_seek(request);
+                }
+            }
+            if let Some(position_us) = self
+                .get_layout_window_mut()
+                .and_then(|lw| lw.media_session_manager.take_seeked())
+            {
+                crate::desktop::extra::media_keys::announce_seeked(position_us);
+            }
             let keys = azul_layout::managers::media_keys::drain_media_keys();
             for key in keys {
                 use azul_core::window::OptionVirtualKeyCode;
@@ -9455,6 +9471,8 @@ pub trait PlatformWindow {
                 // from THIS slice is what would keep the new filters
                 // unreachable, exactly as the note above says.
                 &w.gesture_drag_manager,
+                // Media seeks (9h-i-a-i-a): same rule, same slice.
+                &w.media_session_manager,
             )
         });
 
@@ -9471,7 +9489,9 @@ pub trait PlatformWindow {
         if let Some(p) = document_edit_provider.as_ref() {
             event_providers.push(p as &dyn azul_core::events::EventProvider);
         }
-        if let Some((tm, sm, gm, geo, pm, bm, km, ed, scroll, te, dev, dial)) = providers_ref {
+        if let Some((tm, sm, gm, geo, pm, bm, km, ed, scroll, te, dev, dial, media)) =
+            providers_ref
+        {
             event_providers.push(tm as &dyn azul_core::events::EventProvider);
             event_providers.push(sm as &dyn azul_core::events::EventProvider);
             event_providers.push(gm as &dyn azul_core::events::EventProvider);
@@ -9484,6 +9504,7 @@ pub trait PlatformWindow {
             event_providers.push(te as &dyn azul_core::events::EventProvider);
             event_providers.push(dev as &dyn azul_core::events::EventProvider);
             event_providers.push(dial as &dyn azul_core::events::EventProvider);
+            event_providers.push(media as &dyn azul_core::events::EventProvider);
         }
 
         // Get current timestamp
@@ -9594,6 +9615,7 @@ pub trait PlatformWindow {
             }
             w.sensor_manager.clear_pending_event();
             w.gamepad_manager.clear_pending_event();
+            w.media_session_manager.clear_pending_seeks();
             w.geolocation_manager.clear_pending_event();
             w.permission_manager.clear_pending_changed();
             w.biometric_manager.clear_pending_event();

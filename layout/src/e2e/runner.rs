@@ -821,6 +821,7 @@ impl Runner {
                 &lw.permission_manager,
                 &lw.biometric_manager,
                 &lw.keyring_manager,
+                &lw.media_session_manager,
             ];
             azul_layout::event_determination::determine_all_events(
                 &self.window_state,

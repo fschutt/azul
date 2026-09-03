@@ -618,6 +618,17 @@ azul_css::impl_option!(
     [Debug, Copy, Clone, PartialEq]
 );
 
+/// Data carried by a `MediaSeek` event (9h-i-a-i-a): what the platform's
+/// media controls asked for. The URI of an `OpenUri` is not repeated here -
+/// `CallbackInfo::get_media_seek_request` carries the whole request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct MediaSeekEventData {
+    pub kind: crate::media_session::MediaSeekKind,
+    /// Microseconds; relative for `Relative`, absolute for `Absolute`.
+    pub position_us: i64,
+}
+
 /// Data carried by the three IME composition events.
 ///
 /// Every desktop shell already runs a real IME client — Win32 `WM_IME_*` with
@@ -701,6 +712,8 @@ pub enum EventData {
     Composition(CompositionEventData),
     /// Raw, pre-acceleration pointer motion. APPENDED at the end.
     RawMotion(RawMotionEventData),
+    /// A media seek (9h-i-a-i-a). APPENDED for ABI stability.
+    MediaSeek(MediaSeekEventData),
 }
 
 /// High-level event type classification.
@@ -1052,6 +1065,12 @@ pub enum EventType {
     /// name. `MouseOver` now means what the spec says (the pointer
     /// ENTERED the node) and movement lives here.
     MouseMove,
+    /// The platform's media controls asked for a SEEK (9h-i-a-i-a): a desktop
+    /// scrubber, a lock-screen slider, `playerctl position`. APPENDED at the
+    /// end for ABI stability. Unlike Play/Pause/Next, which arrive as media
+    /// KEY events, a seek carries a position - read it with
+    /// `CallbackInfo::get_media_seek_request`.
+    MediaSeek,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1915,10 +1934,11 @@ fn matches_application_filter(
     _phase: EventPhase,
 ) -> bool {
     use ApplicationEventFilter::{
-        DeviceConnected, DeviceDisconnected, MonitorConnected, MonitorDisconnected,
+        DeviceConnected, DeviceDisconnected, MediaSeek, MonitorConnected, MonitorDisconnected,
     };
 
     match (filter, &event.event_type) {
+        (MediaSeek, EventType::MediaSeek) => true,
         (DeviceConnected, EventType::DeviceConnected) => true,
         (DeviceDisconnected, EventType::DeviceDisconnected) => true,
         (MonitorConnected, EventType::MonitorConnected) => true,
@@ -3171,6 +3191,9 @@ pub enum ApplicationEventFilter {
     MonitorConnected,
     /// Fired when a monitor/display is disconnected from the system.
     MonitorDisconnected,
+    /// The platform's media controls asked for a seek (9h-i-a-i-a). APPENDED
+    /// at the end for ABI stability.
+    MediaSeek,
 }
 
 /// Sets the target for what events can reach the callbacks specifically.
@@ -3661,6 +3684,7 @@ static ALL_APPLICATION: &[ApplicationEventFilter] = &[
     ApplicationEventFilter::DeviceDisconnected,
     ApplicationEventFilter::MonitorConnected,
     ApplicationEventFilter::MonitorDisconnected,
+    ApplicationEventFilter::MediaSeek,
 ];
 
 pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter> {
@@ -4012,6 +4036,7 @@ fn event_type_to_filters_legacy_hint(
         E::DeviceDisconnected => {
             vec![EF::Application(ApplicationEventFilter::DeviceDisconnected)]
         }
+        E::MediaSeek => vec![EF::Application(ApplicationEventFilter::MediaSeek)],
         E::MonitorConnected => vec![EF::Application(ApplicationEventFilter::MonitorConnected)],
         E::MonitorDisconnected => {
             vec![EF::Application(ApplicationEventFilter::MonitorDisconnected)]

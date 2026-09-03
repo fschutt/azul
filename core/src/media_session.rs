@@ -181,11 +181,70 @@ pub fn ms_to_winrt_ticks(ms: u64) -> i64 {
 /// shell drains once per pass. The difference is that this is a LATEST-WINS
 /// value rather than a queue - a media widget wants the current track, not
 /// every track the app has ever played.
+/// What a seek request asks for (9h-i-a-i-a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum MediaSeekKind {
+    /// Move by `position_us` RELATIVE to the current position (MPRIS `Seek`;
+    /// negative moves back). The app clamps to the track.
+    Relative,
+    /// Jump to the ABSOLUTE `position_us` (MPRIS `SetPosition`, SMTC's
+    /// position change, `MPChangePlaybackPositionCommand`, `onSeekTo`).
+    Absolute,
+    /// Open and play `uri` (MPRIS `OpenUri`). `position_us` is 0.
+    OpenUri,
+}
+
+/// One inbound seek from the platform's media controls (9h-i-a-i-a): a
+/// desktop scrubber, a lock-screen slider, `playerctl position 30`.
+///
+/// Unlike the transport commands, which become media KEY events, a seek
+/// carries a position - which is why this is its own event kind
+/// (`EventType::MediaSeek`) with its own data rather than a key code.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct MediaSeekRequest {
+    pub kind: MediaSeekKind,
+    /// Microseconds, the MPRIS unit; relative for `Relative`, absolute for
+    /// `Absolute`, 0 for `OpenUri`.
+    pub position_us: i64,
+    /// The URI for `OpenUri`, empty otherwise.
+    pub uri: AzString,
+    /// For `Absolute`: the track id the request was made against, so an
+    /// app can drop a seek meant for a track that has since ended - MPRIS
+    /// says exactly that about `SetPosition`. Empty when the platform gave
+    /// none.
+    pub track_id: AzString,
+}
+
+impl_option!(
+    MediaSeekRequest,
+    OptionMediaSeekRequest,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+/// A position jump larger than this, on the same track, is a SEEK the app
+/// made on its own (a click on its own progress bar) and is announced back to
+/// the desktop (`Seeked`) so a scrubber re-syncs. A player reports its
+/// position once per frame, so the natural step is ~16 ms; 2 s is far above
+/// any frame stutter and far below any jump a person would make.
+pub const POSITION_JUMP_THRESHOLD_US: i64 = 2_000_000;
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MediaSessionManager {
     info: NowPlayingInfo,
     /// Set when [`Self::set`] changes a field the platform must be told about.
     needs_publish: bool,
+    /// Seeks received since the last pass, delivered as `MediaSeek` events by
+    /// the `EventProvider` impl and cleared by the dispatcher afterwards.
+    pending_seeks: Vec<MediaSeekRequest>,
+    /// The most recent seek, kept after delivery so a callback can read it
+    /// (`CallbackInfo::get_media_seek_request`).
+    last_seek: Option<MediaSeekRequest>,
+    /// A position jump the APP reported; the platform side announces it
+    /// (MPRIS `Seeked`) once, then this is cleared.
+    seeked_to_us: Option<i64>,
 }
 
 impl MediaSessionManager {
@@ -211,6 +270,15 @@ impl MediaSessionManager {
         if self.info.differs_in_announced_fields(&info) {
             self.needs_publish = true;
         }
+        // A jump on the SAME track is a seek the app made on its own
+        // (9h-i-a-i-a): remembered for the platform to announce. A new track
+        // starting at 0 is not a seek, and neither is the ordinary per-frame
+        // advance.
+        if !self.info.is_different_track(&info)
+            && (info.position_us() - self.info.position_us()).abs() > POSITION_JUMP_THRESHOLD_US
+        {
+            self.seeked_to_us = Some(info.position_us());
+        }
         self.info = info;
     }
 
@@ -230,6 +298,110 @@ impl MediaSessionManager {
         } else {
             None
         }
+    }
+
+    /// An inbound seek from the platform (9h-i-a-i-a). Queued; the next pass
+    /// delivers it as a `MediaSeek` event at the root.
+    pub fn push_seek(&mut self, request: MediaSeekRequest) {
+        self.pending_seeks.push(request);
+    }
+
+    /// The seek being delivered this pass, or the last one delivered - what
+    /// a `MediaSeek` callback reads.
+    #[must_use]
+    pub fn current_seek(&self) -> Option<&MediaSeekRequest> {
+        self.pending_seeks.first().or(self.last_seek.as_ref())
+    }
+
+    /// The pass is over: the queued seeks were delivered. The newest is kept
+    /// as `last_seek`.
+    pub fn clear_pending_seeks(&mut self) {
+        if let Some(last) = self.pending_seeks.pop() {
+            self.last_seek = Some(last);
+        }
+        self.pending_seeks.clear();
+    }
+
+    #[must_use]
+    pub fn has_pending_seeks(&self) -> bool {
+        !self.pending_seeks.is_empty()
+    }
+
+    /// The position jump to announce (MPRIS `Seeked`), if any; cleared by
+    /// the take.
+    pub fn take_seeked(&mut self) -> Option<i64> {
+        self.seeked_to_us.take()
+    }
+}
+
+impl crate::events::EventProvider for MediaSessionManager {
+    /// One `MediaSeek` event per queued request, at the root: a seek is a
+    /// window-level command like a media key, not a node's.
+    fn get_pending_events(
+        &self,
+        timestamp: crate::task::Instant,
+    ) -> Vec<crate::events::SyntheticEvent> {
+        use crate::events::{EventData, EventSource, EventType, MediaSeekEventData, SyntheticEvent};
+        self.pending_seeks
+            .iter()
+            .map(|req| {
+                SyntheticEvent::new(
+                    EventType::MediaSeek,
+                    EventSource::User,
+                    crate::dom::DomNodeId::ROOT,
+                    timestamp.clone(),
+                    EventData::MediaSeek(MediaSeekEventData {
+                        kind: req.kind,
+                        position_us: req.position_us,
+                    }),
+                )
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod seek_tests {
+    use super::*;
+
+    fn at(position_us: i64) -> NowPlayingInfo {
+        let mut i = NowPlayingInfo::empty();
+        i.position_ms = u64::try_from(position_us / 1000).unwrap_or(0);
+        i
+    }
+
+    #[test]
+    fn a_queued_seek_is_delivered_once_then_readable_as_the_last() {
+        use crate::events::EventProvider;
+        let mut m = MediaSessionManager::new();
+        assert!(m.current_seek().is_none());
+        m.push_seek(MediaSeekRequest {
+            kind: MediaSeekKind::Absolute,
+            position_us: 30_000_000,
+            uri: AzString::from_const_str(""),
+            track_id: AzString::from_const_str("/org/mpris/MediaPlayer2/Track/1"),
+        });
+        let events = m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0)));
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, crate::events::EventType::MediaSeek);
+        assert_eq!(m.current_seek().map(|r| r.position_us), Some(30_000_000));
+        m.clear_pending_seeks();
+        assert!(!m.has_pending_seeks());
+        assert!(m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0))).is_empty());
+        assert_eq!(m.current_seek().map(|r| r.position_us), Some(30_000_000), "still readable");
+    }
+
+    #[test]
+    fn only_a_jump_on_the_same_track_is_announced_as_a_seek() {
+        let mut m = MediaSessionManager::new();
+        m.set(at(1_000_000));
+        m.set(at(1_016_000));
+        assert_eq!(m.take_seeked(), None, "the per-frame advance is not a seek");
+        m.set(at(40_000_000));
+        assert_eq!(m.take_seeked(), Some(40_000_000), "a jump is");
+        assert_eq!(m.take_seeked(), None, "announced once");
+        m.set(at(1_000_000));
+        assert_eq!(m.take_seeked(), Some(1_000_000), "backwards too");
     }
 }
 

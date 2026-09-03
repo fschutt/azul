@@ -59,7 +59,9 @@ use azul_core::{
     media_session::{MediaPlaybackState, NowPlayingInfo},
     window::VirtualKeyCode,
 };
-use azul_layout::managers::media_keys::push_media_key;
+use azul_core::media_session::{MediaSeekKind, MediaSeekRequest};
+use azul_css::AzString;
+use azul_layout::managers::media_keys::{push_media_key, push_media_seek};
 
 /// The object path both interfaces are served at. Fixed by the MPRIS spec:
 /// clients look here and nowhere else.
@@ -191,6 +193,45 @@ impl MprisPlayer {
         push_media_key(VirtualKeyCode::PrevTrack);
     }
 
+    // THE THREE POSITION COMMANDS (9h-i-a-i-a). None can be a key: they carry
+    // a position (or a URI), so they go through their own queue and arrive as
+    // `MediaSeek` events with `CallbackInfo::get_media_seek_request`.
+
+    /// `Seek(x)`: move by `offset` microseconds relative to the current
+    /// position; negative is backwards. MPRIS: the app clamps.
+    fn seek(&self, offset: i64) {
+        push_media_seek(MediaSeekRequest {
+            kind: MediaSeekKind::Relative,
+            position_us: offset,
+            uri: AzString::from_const_str(""),
+            track_id: AzString::from_const_str(""),
+        });
+    }
+
+    /// `SetPosition(o, x)`: jump to `position` microseconds on `track_id`.
+    /// The track id is passed through so the app can drop a request made
+    /// against a track that has since ended, exactly as the spec says.
+    #[zbus(name = "SetPosition")]
+    fn set_position(&self, track_id: zbus::zvariant::ObjectPath<'_>, position: i64) {
+        push_media_seek(MediaSeekRequest {
+            kind: MediaSeekKind::Absolute,
+            position_us: position,
+            uri: AzString::from_const_str(""),
+            track_id: track_id.as_str().into(),
+        });
+    }
+
+    /// `OpenUri(s)`: open and play `uri`.
+    #[zbus(name = "OpenUri")]
+    fn open_uri(&self, uri: String) {
+        push_media_seek(MediaSeekRequest {
+            kind: MediaSeekKind::OpenUri,
+            position_us: 0,
+            uri: uri.into(),
+            track_id: AzString::from_const_str(""),
+        });
+    }
+
     /// What the app published, or `Stopped` if it never published anything.
     ///
     /// REQUIRED by the spec and read by every desktop; omitting it makes some
@@ -270,9 +311,13 @@ impl MprisPlayer {
 
     /// FALSE, unlike the others: seeking needs a position, and azul has none.
     /// Claiming it would put a scrubber in the desktop UI that does nothing.
+    /// TRUE now that `Seek` / `SetPosition` reach the app (9h-i-a-i-a). It
+    /// was false on purpose while they did not: a desktop renders a scrubber
+    /// off this property, and a scrubber that moves nothing is worse than
+    /// none.
     #[zbus(property)]
     fn can_seek(&self) -> bool {
-        false
+        true
     }
 
     #[zbus(property)]
@@ -480,5 +525,25 @@ fn announce() {
     ) {
         // A dead bus is not worth failing a frame over.
         crate::plog_info!("[media-session] PropertiesChanged failed: {}", e);
+    }
+}
+
+/// Announce a position jump the APP made (9h-i-a-i-a) - the `Seeked` signal,
+/// which is how a desktop's scrubber learns the position changed other than
+/// by playing: `Position` is deliberately kept out of `PropertiesChanged`
+/// (see `announce`), so without this a click on the app's own progress bar
+/// left every desktop widget extrapolating from the old position.
+pub fn announce_seeked(position_us: i64) {
+    let Some(conn) = CONN.get() else {
+        return;
+    };
+    if let Err(e) = conn.emit_signal(
+        None::<&str>,
+        OBJECT_PATH,
+        "org.mpris.MediaPlayer2.Player",
+        "Seeked",
+        &(position_us,),
+    ) {
+        crate::plog_info!("[media-session] Seeked failed: {}", e);
     }
 }
