@@ -1,0 +1,56 @@
+{
+  "name": "spatial_nav_auto_scroll_container",
+  "description": "SPATIAL NAVIGATION CONTAINMENT under `auto` (9a-i-b-i, css-nav-1): a scroll container (overflow: auto) is a spatial navigation container without any `spatial-navigation-contain` declaration. #f1 sits top-left INSIDE the box, #f2 bottom-right inside it (far, off to the side), and #out sits directly below the box, closer to #f1 and aligned with it. With containment, ArrowDown from #f1 must land on #f2 - the candidate inside the innermost container wins over the nearer one outside; without containment the aligned, nearer #out would win. The last ArrowDown from #f2 finds nothing inside and must escape outward to #out (the chain widens to the document). Tab focuses #f1 first (it is first in tab order).",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\">",
+        "  <div id=\"box\">",
+        "    <div id=\"f1\" tabindex=\"0\" class=\"item\">one</div>",
+        "    <div id=\"f2\" tabindex=\"0\" class=\"item\">two</div>",
+        "  </div>",
+        "  <div id=\"out\" tabindex=\"0\" class=\"item\">out</div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#root { position: relative; width: 400px; height: 300px; }",
+        "#box { position: absolute; left: 0; top: 0; width: 260px; height: 130px; overflow: auto; background: gainsboro; }",
+        ".item { position: absolute; width: 60px; height: 30px; background: silver; font-family: \"Azul Mock Mono\"; font-size: 20px; }",
+        "#f1 { left: 10px; top: 10px; }",
+        "#f2 { left: 190px; top: 90px; }",
+        "#out { left: 10px; top: 140px; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 200 },
+
+    { "op": "assert_exists", "selector": "#f1" },
+    { "op": "assert_exists", "selector": "#out" },
+
+    { "op": "key_down", "key": "tab" },
+    { "op": "key_up", "key": "tab" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "type": "focus_state" },
+    { "op": "assert_response", "contains": "f1" },
+
+    { "op": "key_down", "key": "down" },
+    { "op": "key_up", "key": "down" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "f2" },
+
+    { "op": "key_down", "key": "down" },
+    { "op": "key_up", "key": "down" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "out" }
+  ]
+}

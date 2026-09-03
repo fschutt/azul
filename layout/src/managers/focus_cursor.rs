@@ -734,25 +734,27 @@ pub fn resolve_focus_target(
         // and out-of-scope DOMs, and a node that cannot be tabbed to should
         // not be reachable with an arrow key either.
         //
-        // `spatial-navigation-contain: contain` (9a-i-b) narrows that pool to
-        // one subtree FIRST, and only widens back to the whole document when
-        // nothing inside answers. That two-step is the spec's own shape: the
-        // search runs in the innermost spatial navigation container and moves
-        // outward when it finds nothing, so an arrow at the edge of a panel
-        // still escapes it rather than dying there.
+        // Spatial navigation CONTAINERS (9a-i-b, 9a-i-b-i) narrow that pool:
+        // the search runs in the innermost container first, then in each
+        // container outward, and in the whole document last. That chain is
+        // the spec's own shape, so an arrow at the edge of a scroll box or a
+        // `contain` panel still escapes it rather than dying there - but a
+        // candidate INSIDE the box wins over a nearer one outside.
         Directional(dir) => {
             let all = collect_tab_order(layout_results, out_of_scope);
-            let inside = current_focus
-                .and_then(|c| spatial_navigation_container(layout_results, c))
-                .map(|container| {
-                    all.iter()
+            let chain = current_focus
+                .map(|c| spatial_navigation_containers(layout_results, c))
+                .unwrap_or_default();
+            let found = chain
+                .iter()
+                .find_map(|container| {
+                    let pool: Vec<DomNodeId> = all
+                        .iter()
                         .copied()
-                        .filter(|cand| is_within(layout_results, *cand, container))
-                        .collect::<Vec<_>>()
-                });
-            let found = inside
-                .as_ref()
-                .and_then(|pool| next_in_direction(pool, layout_results, current_focus, *dir))
+                        .filter(|cand| is_within(layout_results, *cand, *container))
+                        .collect();
+                    next_in_direction(&pool, layout_results, current_focus, *dir)
+                })
                 .or_else(|| next_in_direction(&all, layout_results, current_focus, *dir));
             Ok(found.map_or(FocusResolution::NotFound, FocusResolution::Resolved))
         }
@@ -1045,10 +1047,89 @@ mod autotest_generated {
         // A sibling OUTSIDE the panel is in no container.
         assert_eq!(spatial_navigation_container(&contained, nid(0, 1)), None);
 
-        // Without the declaration nothing is a container - `auto` does NOT
-        // make one, deliberately (see the function's own docs).
+        // Without the declaration a PLAIN div is still no container: `auto`
+        // makes a container of a scroll container and of nothing else.
         let plain = window(vec![(dom(0), contain_fixture(false))]);
         assert_eq!(spatial_navigation_container(&plain, inside), None);
+    }
+
+    /// [`contain_fixture`]'s shape with `overflow-y` on the panel instead of
+    /// `contain`, so the panel is a container under `auto` only if it is a
+    /// scroll container.
+    fn scroll_fixture(overflow: azul_css::props::layout::overflow::LayoutOverflow) -> StyledDom {
+        use azul_css::{css::CssPropertyValue, props::property::CssProperty};
+
+        let mut panel = azul_core::dom::NodeData::create_div();
+        panel.upsert_inline_css_property(CssProperty::OverflowY(CssPropertyValue::Exact(
+            overflow,
+        )));
+        StyledDom::create_from_dom(
+            Dom::create_body()
+                .with_child(Dom::create_node(NodeType::Button))
+                .with_child(Dom::create_node(NodeType::Button))
+                .with_child(
+                    Dom::create_from_data(panel)
+                        .with_child(Dom::create_node(NodeType::Button))
+                        .with_child(Dom::create_node(NodeType::Button)),
+                ),
+        )
+    }
+
+    /// `auto` (the initial value) makes a container of a SCROLL CONTAINER -
+    /// `css-nav-1`, per the user's ruling (9a-i-b-i) - and `visible` does not.
+    #[test]
+    fn auto_makes_a_container_of_a_scroll_container_only() {
+        use azul_css::props::layout::overflow::LayoutOverflow;
+
+        let panel = nid(0, 3);
+        let inside = nid(0, 4);
+        for scrolling in [LayoutOverflow::Auto, LayoutOverflow::Scroll, LayoutOverflow::Hidden] {
+            let w = window(vec![(dom(0), scroll_fixture(scrolling))]);
+            assert_eq!(
+                spatial_navigation_container(&w, inside),
+                Some(panel),
+                "overflow: {scrolling:?} is a scroll container, so a container under auto"
+            );
+        }
+        let w = window(vec![(dom(0), scroll_fixture(LayoutOverflow::Visible))]);
+        assert_eq!(spatial_navigation_container(&w, inside), None);
+    }
+
+    /// The CHAIN is innermost-first and lists every container on the way up:
+    /// body > `contain` panel > scrolling inner box > button.
+    ///
+    /// Flat pre-order indices: 0 body, 1 outer (contain), 2 inner (overflow),
+    /// 3 button.
+    #[test]
+    fn the_container_chain_runs_innermost_first_to_the_outermost() {
+        use azul_css::{
+            css::CssPropertyValue,
+            props::{
+                layout::overflow::LayoutOverflow, property::CssProperty,
+                style::spatial_nav::StyleSpatialNavigationContain,
+            },
+        };
+
+        let mut outer = azul_core::dom::NodeData::create_div();
+        outer.upsert_inline_css_property(CssProperty::SpatialNavigationContain(
+            CssPropertyValue::Exact(StyleSpatialNavigationContain::Contain),
+        ));
+        let mut inner = azul_core::dom::NodeData::create_div();
+        inner.upsert_inline_css_property(CssProperty::OverflowY(CssPropertyValue::Exact(
+            LayoutOverflow::Auto,
+        )));
+        let sd = StyledDom::create_from_dom(Dom::create_body().with_child(
+            Dom::create_from_data(outer).with_child(
+                Dom::create_from_data(inner).with_child(Dom::create_node(NodeType::Button)),
+            ),
+        ));
+        let w = window(vec![(dom(0), sd)]);
+        assert_eq!(
+            spatial_navigation_containers(&w, nid(0, 3)),
+            vec![nid(0, 2), nid(0, 1)],
+            "innermost (the scroll box) first, then the contain panel; the body is implicit"
+        );
+        assert_eq!(spatial_navigation_containers(&w, nid(0, 0)), Vec::new());
     }
 
     /// Containment is a SUBTREE test, not a "same parent" test, and it must
@@ -2201,54 +2282,55 @@ mod autotest_generated {
     }
 }
 
-/// Find the focusable nearest to `current` in `dir`.
+/// Every spatial navigation container on the way up from `from`, INNERMOST
+/// FIRST - the chain `css-nav-1` searches outward through (9a-i-b-i).
 ///
-/// The rule is the one `css-nav-1` describes and every TV framework
-/// re-implements: consider only candidates that lie in the requested
-/// direction, then pick the closest — where "closest" weights movement ALONG
-/// the axis you asked for much more heavily than drift across it.
+/// A node is a container when it declares `spatial-navigation-contain:
+/// contain`, or - under `auto`, the initial value - when it is a SCROLL
+/// CONTAINER (`overflow` other than `visible`/`clip` on either axis). That is
+/// the spec's rule, and the user's ruling (2026-09-03) after 9a-i-a had held
+/// it back. The document itself is the outermost container and is not
+/// listed: the caller falls back to the whole candidate pool after the chain,
+/// so an arrow at the edge of the innermost box still escapes it.
 ///
-/// That weighting is the whole algorithm. Plain Euclidean distance picks
-/// diagonal neighbours over the obvious one directly to the side, so pressing
-/// Right in a grid walks diagonally down the screen. Weighting the
-/// cross-axis makes "straight ahead, further away" beat "off to one side,
-/// nearer", which is what a person means by the arrow key.
-/// The nearest `spatial-navigation-contain: contain` ancestor of `from`,
-/// itself included.
-///
-/// `auto` - the initial value - deliberately answers `None` here even for a
-/// scroll container, although `css-nav-1` says a scroll container IS a spatial
-/// navigation container under `auto`. Honouring that would change what every
-/// existing arrow key does: navigation would silently become confined to
-/// whatever scroll box the focus happens to sit in, which is not what 9a-i-a
-/// shipped and not something a stylesheet asked for. So only an EXPLICIT
-/// `contain` narrows the search, and the default stays "the whole document" -
-/// see 9a-i-b-i in the ledger.
-fn spatial_navigation_container(
+/// Self-inclusive: `contain` on the focused node, or a focused scroll
+/// container, counts as its own innermost container.
+fn spatial_navigation_containers(
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     from: DomNodeId,
-) -> Option<DomNodeId> {
+) -> Vec<DomNodeId> {
     use azul_css::props::style::spatial_nav::StyleSpatialNavigationContain;
 
-    let lr = layout_results.get(&from.dom)?;
+    use crate::solver3::getters::{
+        get_overflow_x, get_overflow_y, get_spatial_navigation_contain, MultiValue,
+    };
+
+    let mut chain = Vec::new();
+    let Some(lr) = layout_results.get(&from.dom) else {
+        return chain;
+    };
     let hierarchy = lr.styled_dom.node_hierarchy.as_container();
     let states = lr.styled_dom.styled_nodes.as_container();
-    let mut node = from.node.into_crate_internal()?;
+    let Some(mut node) = from.node.into_crate_internal() else {
+        return chain;
+    };
     // Bounded by the node count: a corrupt hierarchy whose parent chain loops
     // must not hang the event loop, and a valid chain can never be longer.
     for _ in 0..hierarchy.internal.len().saturating_add(1) {
         if let Some(sn) = states.get(node) {
-            if matches!(
-                crate::solver3::getters::get_spatial_navigation_contain(
-                    &lr.styled_dom,
-                    node,
-                    &sn.styled_node_state,
-                ),
-                crate::solver3::getters::MultiValue::Exact(
-                    StyleSpatialNavigationContain::Contain
-                )
-            ) {
-                return Some(DomNodeId {
+            let state = &sn.styled_node_state;
+            let is_container = match get_spatial_navigation_contain(&lr.styled_dom, node, state)
+            {
+                MultiValue::Exact(StyleSpatialNavigationContain::Contain) => true,
+                // `auto`, and unset (whose initial value is `auto`): a
+                // container exactly when the box is a scroll container.
+                _ => {
+                    get_overflow_x(&lr.styled_dom, node, state).is_scroll_container()
+                        || get_overflow_y(&lr.styled_dom, node, state).is_scroll_container()
+                }
+            };
+            if is_container {
+                chain.push(DomNodeId {
                     dom: from.dom,
                     node: NodeHierarchyItemId::from_crate_internal(Some(node)),
                 });
@@ -2256,10 +2338,21 @@ fn spatial_navigation_container(
         }
         match hierarchy.get(node).and_then(|h| h.parent_id()) {
             Some(parent) => node = parent,
-            None => return None,
+            None => break,
         }
     }
-    None
+    chain
+}
+
+/// The INNERMOST spatial navigation container of `from`, if any - the first
+/// entry of [`spatial_navigation_containers`].
+fn spatial_navigation_container(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    from: DomNodeId,
+) -> Option<DomNodeId> {
+    spatial_navigation_containers(layout_results, from)
+        .first()
+        .copied()
 }
 
 /// Is `candidate` inside `container` (or the container itself)?
@@ -2292,6 +2385,18 @@ fn is_within(
         .is_some()
 }
 
+/// Find the focusable nearest to `current` in `dir`.
+///
+/// The rule is the one `css-nav-1` describes and every TV framework
+/// re-implements: consider only candidates that lie in the requested
+/// direction, then pick the closest — where "closest" weights movement ALONG
+/// the axis you asked for much more heavily than drift across it.
+///
+/// That weighting is the whole algorithm. Plain Euclidean distance picks
+/// diagonal neighbours over the obvious one directly to the side, so pressing
+/// Right in a grid walks diagonally down the screen. Weighting the
+/// cross-axis makes "straight ahead, further away" beat "off to one side,
+/// nearer", which is what a person means by the arrow key.
 fn next_in_direction(
     candidates: &[DomNodeId],
     layout_results: &BTreeMap<DomId, DomLayoutResult>,

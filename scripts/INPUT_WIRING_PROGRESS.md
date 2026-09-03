@@ -2502,15 +2502,24 @@ session needs. Recorded verbatim so the framing is not lost.
       containment filter fails with "a contained search must land inside the panel". autofix
       converged at 0 patches, `azul-doc check` PASSED, `codegen all` + dll build green. Host,
       8/8 mobile, azul-css 2865, azul-core 2767, azul-layout 7610, azul-dll 1990.
-- [ ] 9a-i-b-i `spatial-navigation-contain: auto` should, per `css-nav-1`, make every SCROLL
-      CONTAINER a spatial navigation container. It does not here, and that is a deliberate hold
-      rather than an oversight: turning it on changes the behaviour of every existing arrow key
-      in every scroll container at once, confining navigation to whatever box the focus sits in.
-      It needs the spec's full container CHAIN (search the innermost container, then its parent,
-      then outward) to be safe, which is a different shape from the current single-container
-      filter - and it wants a real visual test, not just a fixture.
-      USER RULING 2026-09-03: follow the spec - `spatial-navigation-contain: auto` makes every
-      scroll container a spatial navigation container.
+- [x] 9a-i-b-i DONE per the USER RULING (2026-09-03): `spatial-navigation-contain: auto` (the
+      initial value) now makes every SCROLL CONTAINER (`overflow` other than `visible`/`clip`
+      on either axis - css-overflow-3's definition, read off the cascade so it holds without a
+      layout) a spatial navigation container, exactly as `css-nav-1` says. The hold's own
+      condition is met: the resolver now searches the full container CHAIN -
+      `spatial_navigation_containers` lists every container on the way up, innermost first,
+      the `Directional` arm tries each in turn and the whole document last - so a candidate
+      inside the innermost box wins over a nearer one outside, and an arrow at the edge of a box
+      still escapes outward instead of dying there. Also fixed a doc comment that had been
+      glued to the wrong function. Tests: `auto_makes_a_container_of_a_scroll_container_only`
+      (auto / scroll / hidden yes, visible no) and
+      `the_container_chain_runs_innermost_first_to_the_outermost`; and the "real visual test"
+      the hold asked for: `e2e/spatial-nav-auto-scroll-container.json` - #f1 top-left inside an
+      `overflow: auto` box, #f2 far bottom-right inside it, #out directly below the box and
+      nearer; ArrowDown must pick #f2 (inside wins), and from #f2 must escape to #out.
+      ⏳ SECOND BATCH: uncompiled until its end pass. END-PASS CHECK REQUIRED: run the scenario
+      with the `auto` arm stubbed to `false` and confirm it goes RED (a scenario that cannot
+      fail proves nothing - see the harness lesson).
 - [x] 8f-i BATTERY DONE on every platform that has a gamepad backend; the IMU/touchpad half is
       8f-i-a. `GamepadState::battery` was modelled, documented, and filled by NOBODY - it read as
       its `-1.0` "not reported" default everywhere, which the note called "honest but inert".
