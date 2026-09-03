@@ -18,7 +18,7 @@ use azul_layout::{
 use rust_fontconfig::FcFontCache;
 
 fn layout_with(insets: SafeAreaInsets, extend: bool) -> LayoutWindow {
-    let (css, _) = azul_css::parser2::new_from_str("body { width: 100%; height: 100%; }");
+    let (css, _) = azul_css::parser2::new_from_str("body { margin: 0; width: 100%; height: 100%; }");
     let mut dom = Dom::create_body().with_child(Dom::create_div());
     let styled_dom = StyledDom::create(&mut dom, css);
     let mut layout_window = LayoutWindow::new(FcFontCache::build()).unwrap();
@@ -41,7 +41,8 @@ fn layout_with(insets: SafeAreaInsets, extend: bool) -> LayoutWindow {
     layout_window
 }
 
-/// The laid-out rect of the ROOT node, in window coordinates.
+/// The laid-out rect of the ROOT node, in window coordinates. The body's
+/// UA margin is zeroed by the test stylesheet so the rect IS the viewport.
 fn root_rect(w: &LayoutWindow) -> LogicalRect {
     let lr = w.layout_results.get(&DomId::ROOT_ID).expect("root layout");
     let idx = *lr

@@ -644,7 +644,6 @@ mod autotest_generated {
             let f = WindowFlags {
                 window_type: ty,
                 ..WindowFlags::default()
-                extend_into_safe_area: false,
             };
             assert_eq!(f.is_menu_window(), menu);
             assert_eq!(f.is_tooltip_window(), tooltip);
@@ -682,7 +681,6 @@ mod autotest_generated {
                 use_native_menus: b,
                 use_native_context_menus: b,
                 ..WindowFlags::default()
-                extend_into_safe_area: false,
             };
             assert_eq!(f.window_has_focus(), b);
             assert_eq!(f.is_close_requested(), b);
