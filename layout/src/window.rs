@@ -4952,6 +4952,48 @@ impl LayoutWindow {
                 // are sound (the for-loop iterated them), so load_missing_for_chains below proceeds.
                 crate::probe::sample_peak_rss("rss:after_font_chain");
 
+                // The resolver scanned the DOM's text; the content overlay
+                // holds text the user typed that the app has not synced back
+                // yet, possibly in a script the DOM does not contain. Extend
+                // the chains for it now, BEFORE the load below, or a
+                // re-materialized document (the app's RefreshDom after a
+                // structural edit) shapes that text to .notdef boxes — the
+                // edit-time extension in `reshape_text_node` cannot help,
+                // since this replacement of the chain cache discards it.
+                {
+                    use crate::text3::cache::{missing_coverage_faces, FontChainKeyOrRef};
+                    let overlay_content: Vec<&[InlineContent]> = self
+                        .content_overlay
+                        .iter_text()
+                        .filter(|((d, _), _)| *d == dom_id)
+                        .map(|(_, dirty)| dirty.content.as_slice())
+                        .collect();
+                    if !overlay_content.is_empty() {
+                        let loaded = self.font_manager.get_loaded_fonts();
+                        for content in overlay_content {
+                            let additions = missing_coverage_faces(
+                                content,
+                                &mut |key| {
+                                    chains
+                                        .chains
+                                        .get(&FontChainKeyOrRef::Chain(key.clone()))
+                                        .cloned()
+                                },
+                                &self.font_manager.fc_cache,
+                                self.font_manager.registry.as_deref(),
+                                &loaded,
+                            );
+                            for (key, faces) in additions {
+                                if let Some(chain) =
+                                    chains.chains.get_mut(&FontChainKeyOrRef::Chain(key))
+                                {
+                                    chain.unicode_fallbacks.extend(faces);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Phase 3 (scout-on-demand): no snapshot-refresh
                 // step is needed any more. rust-fontconfig 4.1
                 // made `FcFontCache` a shared-state handle backed
@@ -14918,6 +14960,24 @@ impl LayoutWindow {
                         }
                     }
                 }
+            }
+        }
+
+        // 2c. Typed text may be in a script the document did not contain when
+        // its font chains were resolved (Arabic into a Latin paragraph): the
+        // chain has no covering face and the shaper would fall through to
+        // .notdef boxes. Extend the chains (and load the faces) before shaping;
+        // a no-op for every keystroke the chain already covers.
+        {
+            use crate::text3::default::PathLoader;
+            let loader = PathLoader::new();
+            let added = self
+                .font_manager
+                .extend_chains_for_content(&new_inline_content, |bytes, index| {
+                    loader.load_font_shared(bytes, index)
+                });
+            if added > 0 && std::env::var_os("AZ_FONT_FALLBACK_DEBUG").is_some() {
+                eprintln!("[FONT FALLBACK] edit-time chain extension: {added} face(s) added");
             }
         }
 

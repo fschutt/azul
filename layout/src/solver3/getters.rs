@@ -5140,6 +5140,7 @@ pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
                 &used_chars,
                 &font_manager.memory_families,
             );
+            extend_chains_to_cover(&mut fast, &used_chars, fc_cache, Some(registry));
             ensure_chains_nonempty(&mut fast, fc_cache);
             return fast;
         }
@@ -5161,6 +5162,17 @@ pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
     for chain in resolved.chains.values_mut() {
         prune_chain_to_used_chars(chain, &used_chars);
     }
+    // AFTER the prune (the prune keeps faces for the chars the DOM uses; this
+    // adds faces for the chars nothing in the chain covers — Hebrew, Thai,
+    // anything outside the seven `scripts_present_in_styled_dom` blocks).
+    let used_chars: std::collections::BTreeSet<char> =
+        used_chars.iter().filter_map(|cp| char::from_u32(*cp)).collect();
+    extend_chains_to_cover(
+        &mut resolved,
+        &used_chars,
+        fc_cache,
+        font_manager.registry.as_deref(),
+    );
     // WEB-LIFT last resort (AFTER the prune, so it survives — the prune drops fonts
     // whose parsed cmap doesn't cover used_chars, which removes the registered fallback
     // before it's parsed): if a chain ended up empty, append the first registered font
@@ -5282,15 +5294,24 @@ pub fn resolve_font_chains_fast(
         // on a target with nothing installed they are what is left.
         chain.css_fallbacks.extend(mem_fallbacks);
 
-        // A family that produced no group matched NOTHING. Record it — a
-        // silently-unmatched family is the root cause of "every font-family
-        // renders in the same fallback font".
-        for family in &font_families {
-            let matched = chain
+        // A family AHEAD of the first matched one produced no group: it
+        // matched NOTHING, and the text renders in a later family instead.
+        // Record it — a silently-unmatched family is the root cause of
+        // "every font-family renders in the same fallback font".
+        //
+        // Families BEHIND the first match are not judged: the probe stops as
+        // soon as the requested chars are covered and skips a family whose
+        // faces add no new coverage, so an installed "DejaVu Sans" listed
+        // after "Liberation Sans" produces no group either. Reporting those
+        // was a wall of false "UNRESOLVED" lines for fonts that are on disk.
+        let matched = |family: &String| {
+            chain
                 .css_fallbacks
                 .iter()
-                .any(|g| g.css_name.eq_ignore_ascii_case(family) && !g.fonts.is_empty());
-            if !matched && !is_generic_family(family) {
+                .any(|g| g.css_name.eq_ignore_ascii_case(family) && !g.fonts.is_empty())
+        };
+        for family in font_families.iter().take_while(|f| !matched(f)) {
+            if !is_generic_family(family) {
                 unresolved.insert(family.clone());
             }
         }
@@ -5305,6 +5326,59 @@ pub fn resolve_font_chains_fast(
     };
     report_unresolved_families(&out);
     out
+}
+
+/// Give every chain a face for each of the DOM's codepoints it cannot draw.
+///
+/// Both resolvers leave gaps. `request_fonts_fast` walks the stack's plain OS
+/// expansion (the sans-serif list: Ubuntu, Arial, DejaVu Sans, Noto Sans,
+/// Liberation Sans on Linux) and treats a codepoint no listed family covers
+/// as a miss for the shaper's .notdef — so Arabic in a `sans-serif` paragraph
+/// renders as boxes on any machine whose sans list has no Arabic face (Noto
+/// Sans does not carry it; "Noto Sans Arabic" is only reached through the
+/// script-aware expansion). The legacy resolver attaches unicode fallbacks
+/// only for the seven `scripts_present_in_styled_dom` blocks, so Hebrew or
+/// Thai in a Latin stack is on its own. [`faces_covering`] runs the
+/// script-aware lookup for exactly the chars left uncovered and appends what
+/// it finds as unicode fallbacks; the steady state for a document in a
+/// script its stack covers is no work at all.
+///
+/// Whitespace, controls and default-ignorables are not asked for (see
+/// `needs_own_glyph`); a face's coverage is judged by the OS/2 ranges its
+/// match carries, since nothing is loaded yet at this point.
+fn extend_chains_to_cover(
+    resolved: &mut ResolvedFontChains,
+    used_chars: &std::collections::BTreeSet<char>,
+    fc_cache: &FcFontCache,
+    registry: Option<&rust_fontconfig::registry::FcFontRegistry>,
+) {
+    use crate::text3::cache::{faces_covering, needs_own_glyph};
+
+    let wanted: Vec<char> = used_chars
+        .iter()
+        .copied()
+        .filter(|c| needs_own_glyph(*c))
+        .collect();
+    if wanted.is_empty() {
+        return;
+    }
+    for (key, chain) in resolved.chains.iter_mut() {
+        let FontChainKeyOrRef::Chain(key) = key else {
+            continue;
+        };
+        let uncovered: std::collections::BTreeSet<char> = wanted
+            .iter()
+            .copied()
+            .filter(|c| chain.resolve_char(fc_cache, *c).is_none())
+            .collect();
+        if uncovered.is_empty() {
+            continue;
+        }
+        let added = faces_covering(key, chain, uncovered, fc_cache, registry, &|_, _| None);
+        if !added.is_empty() {
+            chain.unicode_fallbacks.extend(added);
+        }
+    }
 }
 
 /// CSS generic families are not expected to match by name (they are
