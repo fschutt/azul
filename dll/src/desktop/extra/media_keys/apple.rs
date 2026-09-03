@@ -605,7 +605,7 @@ const INTERRUPTION_SHOULD_RESUME: usize = 1;
 /// why it is a runtime call around playback rather than a config flag.
 #[cfg(target_os = "ios")]
 pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
-    use objc2::{msg_send, rc::Retained, runtime::AnyObject};
+    use objc2::{msg_send, runtime::AnyObject};
 
     if avfaudio().is_none() {
         crate::plog_info!("[media-session] AVFAudio unavailable");
@@ -626,28 +626,33 @@ pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
             let Some(category) = avf_constant(b"AVAudioSessionCategoryPlayback\0") else {
                 return Some(false);
             };
-            let set: Result<(), Retained<AnyObject>> =
-                msg_send![session, setCategory: category, error: _];
-            if set.is_err() {
+            // Explicit out-pointers rather than objc2's `error: _` shorthand:
+            // that one wants a typed `NSError` class, and this file works on
+            // untyped objects from a dlopen'd framework. The error object is
+            // autoreleased; only the BOOL is read.
+            let mut err: *mut AnyObject = core::ptr::null_mut();
+            let set: bool = msg_send![session, setCategory: category, error: &mut err];
+            if !set {
                 crate::plog_info!("[media-session] AVAudioSession setCategory failed");
                 return Some(false);
             }
-            let activated: Result<(), Retained<AnyObject>> =
-                msg_send![session, setActive: true, error: _];
-            if activated.is_err() {
+            let mut err: *mut AnyObject = core::ptr::null_mut();
+            let activated: bool = msg_send![session, setActive: true, error: &mut err];
+            if !activated {
                 crate::plog_info!("[media-session] AVAudioSession setActive failed");
                 return Some(false);
             }
             install_interruption_observer();
             Some(true)
         } else {
-            let released: Result<(), Retained<AnyObject>> = msg_send![
+            let mut err: *mut AnyObject = core::ptr::null_mut();
+            let released: bool = msg_send![
                 session,
                 setActive: false,
                 withOptions: SET_ACTIVE_NOTIFY_OTHERS,
-                error: _
+                error: &mut err
             ];
-            Some(released.is_ok())
+            Some(released)
         }
     }
 }
