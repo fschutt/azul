@@ -11806,11 +11806,25 @@ impl LayoutWindow {
         let local = LogicalPosition::new(point.x - origin.x, point.y - origin.y);
         let cursor = inline_layout.hittest_cursor(local)?;
 
-        // The cursor names a cluster inside ONE RUN; the shells want an offset
-        // into the whole string, so every run before it has to be counted
-        // back in. `cursor_byte_offset_in_run` answers only the within-run
-        // half, which is why using it alone would put every offset in a
-        // multi-run paragraph at the wrong character.
+        self.byte_offset_of_cursor(session_node, &cursor)
+    }
+
+    /// A `TextCursor`'s offset into the node's whole string (10b-i-b).
+    ///
+    /// The cursor names a cluster inside ONE RUN, and
+    /// `cursor_byte_offset_in_run` answers only the within-run half - so using
+    /// it alone puts every offset in a multi-run paragraph at the wrong
+    /// character. Every run before the cursor's has to be counted back in,
+    /// which is what this does and what makes it worth having once rather than
+    /// at each call site.
+    #[must_use]
+    pub fn byte_offset_of_cursor(
+        &self,
+        session_node: DomNodeId,
+        cursor: &TextCursor,
+    ) -> Option<usize> {
+        use crate::text3::edit::cursor_byte_offset_in_run;
+
         let node = session_node.node.into_crate_internal()?;
         let content = self.get_text_before_textinput(session_node.dom, node);
         let target_run = cursor.cluster_id.source_run;
@@ -11823,13 +11837,96 @@ impl LayoutWindow {
             match i.cmp(&target_run) {
                 core::cmp::Ordering::Less => consumed += run.text.len(),
                 core::cmp::Ordering::Equal => {
-                    let byte = cursor_byte_offset_in_run(&run.text, &cursor).min(run.text.len());
+                    let byte = cursor_byte_offset_in_run(&run.text, cursor).min(run.text.len());
                     return Some(consumed + byte);
                 }
                 core::cmp::Ordering::Greater => break,
             }
         }
         None
+    }
+
+    /// Where the caret is, as a byte offset into the focused editable's text
+    /// (10b-i-b).
+    ///
+    /// The answer both IME protocols want for `selectedRange` /
+    /// `selectedTextRange`, and the one both shells were faking: macOS pins it
+    /// to `(0, 0)` and iOS reported the end of the document, because neither
+    /// could turn the engine's cursor into an offset.
+    #[must_use]
+    pub fn focused_caret_byte_offset(&self) -> Option<usize> {
+        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        let cursor = self.text_edit_manager.get_primary_cursor()?;
+        self.byte_offset_of_cursor(session_node, &cursor)
+    }
+
+    /// The primary selection as a byte range, or the caret twice when there is
+    /// no selection (10b-i-b).
+    ///
+    /// ALWAYS ORDERED, because a selection dragged backwards has its anchor
+    /// after its focus and both protocols define a range as `(location,
+    /// length)` with a non-negative length.
+    #[must_use]
+    pub fn focused_selection_byte_range(&self) -> Option<(usize, usize)> {
+        use azul_core::selection::Selection;
+
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+        let session_node = mc.node_id;
+        let primary = mc.get_primary()?;
+        match &primary.selection {
+            Selection::Cursor(c) => {
+                let at = self.byte_offset_of_cursor(session_node, c)?;
+                Some((at, at))
+            }
+            Selection::Range(r) => {
+                let a = self.byte_offset_of_cursor(session_node, &r.start)?;
+                let b = self.byte_offset_of_cursor(session_node, &r.end)?;
+                Some(if a <= b { (a, b) } else { (b, a) })
+            }
+        }
+    }
+
+    /// Set the focused editable's selection from a BYTE RANGE (10b-i-b).
+    ///
+    /// The seam whose absence made `setSelectedTextRange:` a no-op, so a
+    /// dragged selection handle sprang back. `byte_offset_to_cursor` resolves
+    /// each end against the SHAPED LAYOUT rather than by counting characters,
+    /// which is what keeps an offset inside a multi-byte grapheme from landing
+    /// between its bytes.
+    ///
+    /// Returns `false` when there is no live editable to select in - the
+    /// caller then leaves the platform's own idea of the selection alone
+    /// rather than clearing it.
+    pub fn set_focused_selection_from_byte_range(&mut self, start: usize, end: usize) -> bool {
+        use azul_core::selection::SelectionRange;
+
+        let Some(session_node) = self.text_edit_manager.multi_cursor.as_ref().map(|mc| mc.node_id)
+        else {
+            return false;
+        };
+        let Some((inline_layout, _)) = self.session_inline_geometry(session_node) else {
+            return false;
+        };
+        let (lo, hi) = if start <= end { (start, end) } else { (end, start) };
+        let from = Self::byte_offset_to_cursor(&inline_layout, u32::try_from(lo).unwrap_or(u32::MAX));
+        let to = Self::byte_offset_to_cursor(&inline_layout, u32::try_from(hi).unwrap_or(u32::MAX));
+        drop(inline_layout);
+
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
+            return false;
+        };
+        if lo == hi {
+            mc.set_single_cursor(from);
+        } else {
+            mc.set_single_range(SelectionRange {
+                start: from,
+                end: to,
+            });
+        }
+        // A moved caret restarts the blink and owes a repaint; without this the
+        // selection changes and nothing on screen does until the next tick.
+        self.text_edit_manager.mark_dirty();
+        true
     }
 
     /// Compute the bounding rect of all selection ranges in the focused node.
@@ -23861,12 +23958,92 @@ pub fn first_line_span(first: LogicalRect, last: LogicalRect) -> LogicalRect {
     }
 }
 
+/// Splice a preedit into the committed text at the caret, and report the
+/// marked range (10b-i-b).
+///
+/// Both IME protocols model the document as ONE flat string with the
+/// composition already in it - `markedRange` / `markedTextRange` names a span
+/// of that string - so the shell has to build it. Appending instead of
+/// splicing is the natural shortcut and is wrong the moment someone composes
+/// in the middle of a field: the preedit lands after text that comes AFTER it,
+/// the candidate window points at the wrong place, and every offset the
+/// platform derives from the string is past the real insertion point.
+///
+/// Lives here rather than in the iOS shell because macOS has the same problem
+/// and the same fix, and because a file `cfg`-gated to one platform is a file
+/// whose tests never run.
+///
+/// `caret` is clamped into the string and snapped DOWN to a character
+/// boundary: it arrives from the engine in bytes, and slicing a multi-byte
+/// grapheme in half panics.
+#[must_use]
+pub fn splice_preedit(committed: &str, preedit: &str, caret: usize) -> (String, (usize, usize)) {
+    let mut at = caret.min(committed.len());
+    while at > 0 && !committed.is_char_boundary(at) {
+        at -= 1;
+    }
+    let mut text = String::with_capacity(committed.len() + preedit.len());
+    text.push_str(&committed[..at]);
+    text.push_str(preedit);
+    text.push_str(&committed[at..]);
+    (text, (at, at + preedit.len()))
+}
+
 /// How far two caret tops may differ and still count as one line.
 ///
 /// Sub-pixel, because it is guarding against rounding rather than against a
 /// real line height - anything larger would merge two genuinely adjacent lines
 /// in small text.
 const LINE_BREAK_TOLERANCE_PX: f32 = 0.5;
+
+#[cfg(test)]
+mod splice_preedit_tests {
+    use super::*;
+
+    /// THE BUG THIS FIXES. Appending puts the composition after text that
+    /// comes after it, so the IME points at the wrong place.
+    #[test]
+    fn a_preedit_lands_at_the_caret_not_at_the_end() {
+        let (text, marked) = splice_preedit("hello world", "XY", 5);
+        assert_eq!(text, "helloXY world");
+        assert_eq!(marked, (5, 7));
+    }
+
+    #[test]
+    fn a_caret_at_either_end_still_works() {
+        assert_eq!(splice_preedit("abc", "X", 0), (String::from("Xabc"), (0, 1)));
+        assert_eq!(splice_preedit("abc", "X", 3), (String::from("abcX"), (3, 4)));
+    }
+
+    /// An offset past the end is clamped rather than panicking: it arrives
+    /// from the engine, and a stale caret can outlive the text it named.
+    #[test]
+    fn an_offset_past_the_end_is_clamped() {
+        let (text, marked) = splice_preedit("abc", "X", 99);
+        assert_eq!(text, "abcX");
+        assert_eq!(marked, (3, 4));
+    }
+
+    /// A byte offset inside a multi-byte grapheme would PANIC on the slice,
+    /// and this is not hypothetical: the caret is in bytes and CJK - the text
+    /// an IME is for - is three bytes per character.
+    #[test]
+    fn an_offset_inside_a_multibyte_character_snaps_down() {
+        // "日本" is 6 bytes; 4 is inside the second character.
+        let (text, marked) = splice_preedit("日本", "X", 4);
+        assert_eq!(text, "日X本", "the splice must land on a character boundary");
+        assert_eq!(marked, (3, 4));
+    }
+
+    /// An empty preedit is a CLOSED composition, and the marked range must
+    /// still be a valid empty span at the caret rather than nonsense.
+    #[test]
+    fn an_empty_preedit_reports_an_empty_range_at_the_caret() {
+        let (text, marked) = splice_preedit("abc", "", 2);
+        assert_eq!(text, "abc");
+        assert_eq!(marked, (2, 2));
+    }
+}
 
 #[cfg(test)]
 mod first_line_span_tests {

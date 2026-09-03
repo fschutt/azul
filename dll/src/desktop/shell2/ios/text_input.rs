@@ -136,26 +136,23 @@ fn document(window: &IOSWindow) -> (String, Option<(usize, usize)>) {
     let Some(preedit) = lw.text_edit_manager.preedit_text.as_ref() else {
         return (committed, None);
     };
-    // The preedit is appended, NOT spliced at the caret.
+    // SPLICED AT THE CARET (10b-i-b), not appended. It used to be appended
+    // because nothing could turn the engine's `TextCursor` into a flat offset;
+    // `focused_caret_byte_offset` is that bridge.
     //
-    // azul addresses text by grapheme cluster (`TextCursor` is a
-    // `(source_run, start_byte_in_run)` pair), while UIKit addresses it by a
-    // flat offset, and bridging the two needs the node's shaped layout. The
-    // macOS shell - where IME already works - does not bridge them either: its
-    // `markedRange` reports `(0, preedit_len)` and its `selectedRange` is a
-    // fixed `(0, 0)`, with a comment recording that a `NSNotFound` there stops
-    // the IME talking at all. This follows that proven model rather than
-    // inventing a bridge that cannot be tested here.
+    // The difference is visible the moment someone composes in the MIDDLE of a
+    // field: appending put the preedit after text that comes AFTER it, so the
+    // IME's candidate window pointed at the wrong place and every offset UIKit
+    // derived from this string was past the end of the real insertion point.
     //
-    // The consequence is precision, not correctness: composing in the MIDDLE
-    // of existing text reports the preedit at the wrong offset, so the
-    // candidate window may be positioned by the node rect instead of the
-    // caret. Logged as 10b-i-b.
-    let caret = committed.len();
-    let mut text = String::with_capacity(committed.len() + preedit.len());
-    text.push_str(&committed);
-    text.push_str(preedit);
-    (text, Some((caret, caret + preedit.len())))
+    // Falling back to the end of the committed text keeps the previous
+    // behaviour for a field whose caret cannot be resolved, which is better
+    // than reporting offset 0 and having UIKit compose at the start.
+    let caret = lw
+        .focused_caret_byte_offset()
+        .map_or(committed.len(), |c| c.min(committed.len()));
+    let (text, marked) = azul_layout::window::splice_preedit(&committed, preedit, caret);
+    (text, Some(marked))
 }
 
 /// Snap an offset to a char boundary at or below it.
@@ -350,15 +347,28 @@ extern "C" fn replace_range_with_text(
                     let _ = lw.record_text_input(&replacement);
                 }
             }
+        } else if lw.set_focused_selection_from_byte_range(start, end) {
+            // AN INTERIOR REPLACE, which used to be DROPPED because there was
+            // no way to say "select this range" - and falling through to an
+            // insert would have appended the correction instead of replacing
+            // it, silently duplicating text on every autocorrect.
+            //
+            // Now it is the same two steps the editor itself performs for a
+            // selection: delete what is selected, then insert. Ordering
+            // matters - inserting first would put the new text beside the old
+            // and then delete the wrong span.
+            if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
+                lw.delete_selection(focused, false);
+                if !replacement.is_empty() {
+                    let _ = lw.record_text_input(&replacement);
+                }
+            }
         } else {
-            // An interior replace. Deliberately DROPPED rather than applied
-            // as an insert: falling through to an insert would append the
-            // correction instead of replacing, silently duplicating text on
-            // every autocorrect. Doing nothing loses the correction; doing
-            // the wrong thing corrupts the document. Logged as 10b-i-b.
+            // No live editable to select in - the correction is lost rather
+            // than applied at the wrong place, which is still the right trade.
             log_debug!(
                 LogCategory::Input,
-                "[iOS] replaceRange {}..{} is interior; no engine seam for it (10b-i-b)",
+                "[iOS] replaceRange {}..{}: no focused editable to select in",
                 start,
                 end
             );
@@ -383,27 +393,49 @@ extern "C" fn selected_text_range(_this: &Object, _cmd: Sel) -> *mut Object {
     if lw.focus_manager.get_focused_node().is_none() {
         return core::ptr::null_mut();
     }
-    // A caret at the end of the document: a VALID, non-nil answer, which is
-    // what keeps UIKit sending text. macOS pins this to `(0, 0)` for exactly
-    // the same reason - the answer has to be a real insertion point even when
-    // the true one cannot be expressed in this offset space.
-    let _ = lw;
-    let caret = text.len();
-    make_range(caret, caret)
+    // THE REAL SELECTION (10b-i-b). This used to answer "a caret at the end of
+    // the document" because nothing could express the true insertion point in
+    // this offset space - so an IME that asked where the user was typing was
+    // told "at the end", wherever they actually were.
+    //
+    // The end of the document remains the FALLBACK, and it has to be a real
+    // insertion point rather than nil: macOS pins `(0, 0)` for the same
+    // reason, because an unanswerable selection stops the IME talking.
+    match lw.focused_selection_byte_range() {
+        Some((start, end)) => {
+            let start = clamp_to_char_boundary(&text, start.min(text.len()));
+            let end = clamp_to_char_boundary(&text, end.min(text.len()));
+            make_range(start, end)
+        }
+        None => {
+            let caret = text.len();
+            make_range(caret, caret)
+        }
+    }
 }
 
 extern "C" fn set_selected_text_range(_this: &Object, _cmd: Sel, range: *mut Object) {
     let Some(window) = (unsafe { azul_ios_window() }) else {
         return;
     };
-    // Accepted and ignored. There is no engine seam that sets a selection
-    // from a BYTE RANGE - `TextEditManager` selects by grapheme cluster - and
-    // fabricating one from an offset without the shaped layout would move the
-    // caret to the wrong grapheme in any non-ASCII text.
-    //
-    // Ignoring is safe: the dragged selection handle springs back, which is a
-    // visible limitation rather than a corruption. Logged as 10b-i-b.
-    let _ = (window, unsafe { range_bounds(range) });
+    // APPLIED (10b-i-b). This used to be accepted and ignored, so a dragged
+    // selection handle sprang back - the engine had no seam that selects from
+    // a byte range, and fabricating one by counting characters would land
+    // between the bytes of a multi-byte grapheme.
+    // `set_focused_selection_from_byte_range` resolves each end against the
+    // shaped layout instead.
+    let Some((start, end)) = (unsafe { range_bounds(range) }) else {
+        return;
+    };
+    let changed = window
+        .common
+        .layout_window
+        .as_mut()
+        .is_some_and(|lw| lw.set_focused_selection_from_byte_range(start, end));
+    if changed {
+        let result = window.process_window_events(0);
+        settle(window, result);
+    }
 }
 
 extern "C" fn marked_text_range(_this: &Object, _cmd: Sel) -> *mut Object {

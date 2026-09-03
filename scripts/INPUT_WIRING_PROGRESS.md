@@ -488,14 +488,42 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       fails with "a multi-line range must not become a bounding box". All three iOS seams proven
       COMPILED under aarch64-apple-ios. Host, 8/8 mobile, azul-layout 7625. ⚠ No simulator run -
       compile-only, and no candidate window has actually moved.
-- [ ] 10b-i-b The offset-space limits inherited from the macOS model, all of them precision
-      rather than correctness: the preedit is appended rather than spliced at the caret (so
-      composing mid-text reports it at the wrong offset), `setSelectedTextRange:` is accepted and
-      ignored (no engine seam selects by byte range, so a dragged handle springs back), and an
-      interior `replaceRange:` is dropped. All three need one thing: a bridge between UIKit's flat
-      offsets and `TextCursor`'s grapheme-cluster ids, built on the existing
-      `byte_offset_to_cursor` / `cursor_byte_offset_in_run` helpers plus the node's shaped layout.
-      That bridge would also fix the macOS shell, which has the same limits.
+- [x] 10b-i-b DONE - all three, and the note was right that they are ONE problem: the bridge
+      10b-i-a built in the read direction needed a write direction, and then every limit fell out.
+      `byte_offset_of_cursor` (extracted from 10b-i-a's point lookup),
+      `focused_caret_byte_offset`, `focused_selection_byte_range` and
+      `set_focused_selection_from_byte_range` are that bridge, both ways.
+      1. THE PREEDIT IS SPLICED AT THE CARET. Appending is the natural shortcut and is wrong the
+         moment someone composes mid-field: the preedit landed after text that comes AFTER it, so
+         the candidate window pointed at the wrong place and every offset UIKit derived from the
+         string was past the real insertion point.
+      2. `selectedTextRange` REPORTS THE REAL SELECTION. It answered "a caret at the end of the
+         document" for everything, so an IME asking where the user was typing was told "at the
+         end" wherever they actually were.
+      3. `setSelectedTextRange:` IS APPLIED, so a dragged selection handle no longer springs
+         back. This is the one that needed the write direction: fabricating a cursor by counting
+         characters would land between the bytes of a multi-byte grapheme, which is why the ends
+         resolve against the SHAPED LAYOUT.
+      4. AN INTERIOR `replaceRange:` IS APPLIED instead of dropped - select the range, delete,
+         insert, in that order. It was dropped because falling through to an insert would have
+         APPENDED the correction rather than replacing it, duplicating text on every autocorrect;
+         the fix is the selection seam, not a different fallback.
+      `splice_preedit` LIVES IN `azul_layout::window`, NOT IN THE iOS SHELL, for two reasons: the
+      macOS shell has the identical limit and now has the fix available, and a file cfg-gated to
+      one platform is a file whose tests never run here - the same lesson as `sensors/units.rs`.
+      It clamps and snaps DOWN to a character boundary, which is not hypothetical: the caret is
+      in bytes and CJK, the text an IME exists for, is three bytes per character - slicing one in
+      half panics.
+      EVIDENCE: 5 splice tests with a NEGATIVE CONTROL - restoring the append fails with
+      "hello worldXY" against "helloXY world". All four iOS seams proven COMPILED under
+      aarch64-apple-ios. Host, 8/8 mobile, azul-layout 7634. ⚠ No simulator - compile-only.
+- [ ] 10b-i-b-i The macOS shell still has the limits iOS just lost: `markedRange` reports
+      `(0, preedit_len)` and `selectedRange` a fixed `(0, 0)`. Every seam it needs now exists
+      (`focused_caret_byte_offset`, `focused_selection_byte_range`, `splice_preedit`,
+      `set_focused_selection_from_byte_range`), so this is now a wiring job rather than a design
+      one - but it is a different shell with its own `NSTextInputClient` conformance, and macOS
+      IME currently WORKS, so changing it wants a real IME to test against rather than a
+      compile.
 - [x] 10b-ii DONE. On iOS the keyboard is not something you show - it is a CONSEQUENCE of a view
       becoming first responder while conforming to `UIKeyInput`. The view had conformed and
       answered `canBecomeFirstResponder = true` since 10b, and implemented `insertText:` /
