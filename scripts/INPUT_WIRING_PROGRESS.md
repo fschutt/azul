@@ -1465,6 +1465,8 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `rumble_plan` - the mapping is in exactly one place for that reason. Also unverified:
       whether `startAndReturnError:` once per engine survives the app backgrounding with
       `autoShutdownEnabled` (the documented design), or needs a restart on failure.
+      USER RULING 2026-09-04 (the hardware / platform group): "just implement blindly and we cross-compile
+      at the end. Real verification will come with time."
 - [x] 9g-ii-a DONE, per the ruling ("make new structs if needed"). Both accessors returned
       non-empty tuples, which have no C representation, so neither could be exposed and no
       binding could read an IME caret or a raw motion delta.
@@ -2783,6 +2785,8 @@ session needs. Recorded verbatim so the framing is not lost.
       `HidD_GetSerialNumberString` on a handle opened with `CreateFile` on the device path, i.e.
       loading hid.dll and opening each device - which the raw-input backend deliberately avoids.
       Worth doing when an app needs the string itself rather than the identity.
+      USER RULING 2026-09-04 (the hardware / platform group): "just implement blindly and we cross-compile
+      at the end. Real verification will come with time."
 - [x] 8f-i-a-i-b DONE. `extra/gamepad/playstation.rs`: a pure, platform-free decoder for the
       DualSense (0x0ce6, Edge 0x0df2) and DualShock 4 (0x05c4, 0x09cc, dongle 0x0ba0) input
       reports, layouts checked against the kernel's `hid-playstation` before writing - USB 0x01
@@ -2809,6 +2813,8 @@ session needs. Recorded verbatim so the framing is not lost.
       what every user-space reader without that report does. Needs a feature-report read on each
       platform (hidraw `HIDIOCGFEATURE`, IOKit `IOHIDDeviceGetReport`, hid.dll `HidD_GetFeature`)
       - the raw HID layer is read-only today.
+      USER RULING 2026-09-04 (the hardware / platform group): "just implement blindly and we cross-compile
+      at the end. Real verification will come with time."
 - [x] 8f-i-a-i-c DONE, without the fork change the previous note asked for: `Gamepad::devpath()`
       is a method of the `LinuxGamepadExt` EXTENSION TRAIT, which gilrs-azul re-exports at its
       root - the batch-pass error ("no method named devpath") was the trait not being in scope,
@@ -2831,6 +2837,8 @@ session needs. Recorded verbatim so the framing is not lost.
       DualShock touch surface into an on-screen MOUSE POINTER rather than reporting the surface,
       so there is nothing to read. Filling it would mean claiming the pointer is a finger, which
       is wrong for a pad used alongside a real mouse.
+      USER RULING 2026-09-04 (the hardware / platform group): "just implement blindly and we cross-compile
+      at the end. Real verification will come with time."
 - [x] 8e-i ANDROID DONE (all eleven kinds, `HingeAngle` included); apple/linux/windows are 8e-i-a.
       The note's premise was STALE in the part that mattered: it said the work was blocked behind
       a Java helper, but `scripts/android/AzulSensors.java` had already SHIPPED - the module's own
@@ -3304,6 +3312,8 @@ session needs. Recorded verbatim so the framing is not lost.
       are not obtainable on macOS; `x86_64-pc-windows-gnu` may check without them. **The Win32 code in
       this arc (WM_GESTURE, WM_APPCOMMAND, WM_DEVICECHANGE, the pointer/pen paths) is therefore still
       uncompiled.**
+      USER RULING 2026-09-04 (the hardware / platform group): "just implement blindly and we cross-compile
+      at the end. Real verification will come with time."
 
 ### iOS simulator — investigated, NOT reachable on this machine
 
