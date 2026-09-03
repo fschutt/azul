@@ -2,6 +2,14 @@
 
 ## USER RULINGS — 2026-09-03 (unblock the decision-gated items)
 
+- 2026-09-03 (decisions batch, answered in one message): pointer lock is NOT re-taken on focus
+  return - emit an event and let the app re-request (9d-ii-c); system audio is a RUNTIME
+  take-over API around playback, not a flag (9h-i-a-i-d-i); `regex-lite`, minimal features, for
+  `pattern` (11b-i-b); `spatial-navigation-contain: auto` follows the spec (9a-i-b-i); peer
+  carets shift with edits before them (U3-a); proximity is an enum Near / Far / Distance(value,
+  unit) (8e-i-a-i, 8e-i-a-ii); pads get a per-instance identity on connect so two identical
+  controllers work for multiplayer (8f-i-a-i).
+
 Verbatim decisions, recorded because seven items were logged as "needs a decision, do NOT
 guess" and are now answerable. Where a ruling changes an item, the item itself is edited too.
 
@@ -230,6 +238,10 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       workspace has no regex dependency. Adding one is a dependency decision rather than a wiring
       one, and a hand-rolled matcher would accept and reject the wrong strings - worse than not
       checking, because an app would trust it.
+      USER RULING 2026-09-03: add `regex-lite` (well-maintained, minimal), with the minimal
+      feature set only. HTML semantics: the pattern must match the WHOLE value (anchored), and a
+      pattern that does not compile is ignored rather than failing the field, exactly as browsers
+      treat an invalid `pattern` attribute.
 - [x] 11b-i-c DONE, and THE NOTE'S PROPOSED DESIGN WOULD NOT HAVE WORKED. It said exposing the
       reason "means a new `EventData` variant (an ABI addition) plus api.json". `CallbackInfo`
       never sees the `SyntheticEvent`: it carries the hit node and read-only access to the
@@ -979,6 +991,14 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       open question is whether azul should offer an OPT-IN for it (a second `AppConfig` flag, or
       an explicit `CallbackInfo` call) or simply document that a media app must activate its own
       session. A product decision, not plumbing.
+      USER RULING 2026-09-03: neither a flag nor documentation - a RUNTIME API. The session has
+      to be toggled when playback starts and released after ("take over system audio"), because
+      activating it is what interrupts other apps' audio and an app wants that exactly while it
+      plays. Design: `CallbackInfo` call that activates / releases the system audio session:
+      iOS `AVAudioSession` playback category + `setActive`, Android audio focus
+      (`requestAudioFocus` / `abandonAudioFocus`), no-op elsewhere; and an EVENT back when the
+      system takes it away (`AVAudioSessionInterruptionNotification`, `onAudioFocusChange` loss)
+      so the app pauses. Research the current API shape on the web first, then implement.
 - [x] 9h-i-a-i-e DONE for LOCAL artwork on both Apple platforms; the remote half is
       9h-i-a-i-e-i and is genuinely a feature.
       The note treated "fetch a URL and decode an image" as one problem. It is two, and only one
@@ -1775,6 +1795,12 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       The backends already clear keyboard/mouse state at focus-out (x11 `clear_keyboard_state`,
       windows WM_KILLFOCUS); this wants the same treatment, but it is a behaviour decision about
       whether focus return should RE-take the grab silently, so it is logged rather than guessed.
+      USER RULING 2026-09-03: do NOT re-take the lock silently. On focus loss every backend drops
+      the grab and clears the flag, and the app is TOLD through an event so it can re-request the
+      lock on return if it wants it (browser semantics: `pointerlockchange` after an exit). Check
+      for an existing unemitted lock-change filter before adding an event kind - the audit's rule
+      is to wire what exists, never to add a second name for it. Wayland's persistent lock is
+      then the odd one out and must be re-aligned: destroy the lock on focus-out and tell the app.
 
 ### Follow-ups opened by 9c
 
@@ -2361,6 +2387,11 @@ session needs. Recorded verbatim so the framing is not lost.
       locally. Not done here because it is exactly the kind of guess that looks done while
       being wrong for every non-trivial edit (a replace across the peer's caret, a paste of N
       lines).
+      USER RULING 2026-09-03: yes, apply it. A peer's caret is anchored at a LOGICAL position, so
+      when an edit changes the text before it the caret moves with the text: an insert or delete
+      entirely before the caret shifts it by the delta; an edit that spans the caret collapses it
+      to the edit's start (the only position that still exists). Nothing beyond that - the sync
+      layer still owns the semantics of concurrent edits.
 
 ### Follow-ups opened by 9a
 
@@ -2464,6 +2495,8 @@ session needs. Recorded verbatim so the framing is not lost.
       It needs the spec's full container CHAIN (search the innermost container, then its parent,
       then outward) to be safe, which is a different shape from the current single-container
       filter - and it wants a real visual test, not just a fixture.
+      USER RULING 2026-09-03: follow the spec - `spatial-navigation-contain: auto` makes every
+      scroll container a spatial navigation container.
 - [x] 8f-i BATTERY DONE on every platform that has a gamepad backend; the IMU/touchpad half is
       8f-i-a. `GamepadState::battery` was modelled, documented, and filled by NOBODY - it read as
       its `-1.0` "not reported" default everywhere, which the note called "honest but inert".
@@ -2549,6 +2582,15 @@ session needs. Recorded verbatim so the framing is not lost.
       option that does not exist on the others - GameController.framework works there and would
       give `GCMotion` directly - but pad IDENTITY still comes from gilrs, so it needs the same
       correlation answer.
+      USER RULING 2026-09-03: give each pad an IDENTITY on connect - a per-instance id (the
+      device's serial number where it reports one, a DualSense does; a session-unique id
+      otherwise) - so two identical pads stay distinct and two controllers on one PC work for
+      multiplayer. Plan, in order: (1) per-instance identity on the HID layer and stamped on
+      every `HidReport`; (2) a non-stealing tap so the engine's own readers do not drain
+      `get_hid_reports`; (3) the DualSense / DualShock IMU + touchpad parser keyed by that id;
+      (4) correlation with the gilrs pad: Linux by evdev `uniq` (= the serial), any platform by
+      VID/PID when only one such pad is present, otherwise the motion stays its own device under
+      its serial rather than being guessed onto a pad.
 - [ ] 8f-i-a-ii The pad TOUCHPAD on Android, which the platform does not expose: Android turns a
       DualShock touch surface into an on-screen MOUSE POINTER rather than reporting the surface,
       so there is nothing to read. Filling it would mean claiming the pointer is a finger, which
@@ -2637,12 +2679,20 @@ session needs. Recorded verbatim so the framing is not lost.
       BOOLEAN, while `SensorKind::Proximity` is a distance in cm: near is 0.0, but there is no
       value for far. Android's binary sensors report `getMaximumRange()` and iOS exposes no
       range, so the far value would have to be invented.
+      USER RULING 2026-09-03 (with 8e-i-a-ii): model proximity properly as a Rust enum -
+      `Proximity { Near, Far, Distance(ProximityDistance) }` with
+      `ProximityDistance { value, unit }` (millimetres, centimetres, ...). The boolean sensors
+      (`UIDevice.proximityState`, Windows `IsDetected`) report `Near` / `Far`; a ranging sensor
+      reports `Distance`. That removes the cm-vs-boolean mismatch that blocked both platforms.
 - [ ] 8e-i-a-ii `Proximity` on WINDOWS, for two reasons that stack. `ProximitySensor` has no
       `GetDefault()` - it needs `DeviceInformation` enumeration over `GetDeviceSelector()`, which
       means a new `Devices_Enumeration` cargo feature and another async resolve. And its
       `DistanceInMillimeters` is an `IReference`, i.e. OPTIONAL: a binary sensor reports only
       `IsDetected`, which lands back on the same missing "far" value as 8e-i-a-i. Worth doing
       once that has an answer, since a sensor that DOES report a distance would work fully.
+      USER RULING 2026-09-03: same enum as 8e-i-a-i; the Windows sensor reports `Near` / `Far`
+      from `IsDetected` and `Distance` when `DistanceInMillimeters` is present. The
+      `Devices_Enumeration` feature and the async resolve are plumbing, not blockers.
 
 ### Follow-ups opened by 8c/8d
 

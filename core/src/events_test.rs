@@ -2211,7 +2211,8 @@ mod autotest_generated {
             EventType::RawMouseMotion => EventType::DialRotate,
             EventType::DialRotate => EventType::DialClick,
             EventType::DialClick => EventType::MouseMove,
-            EventType::MouseMove => return None,
+            EventType::MouseMove => EventType::MediaControl,
+            EventType::MediaControl => return None,
         })
     }
 
@@ -2371,6 +2372,7 @@ mod autotest_generated {
             (EventType::HidReport, EventData::None),
             (EventType::DialRotate, EventData::None),
             (EventType::DialClick, EventData::None),
+            (EventType::MediaControl, EventData::None),
         ];
 
         // COVERAGE PROOF. Not "the list looks complete" - `all_event_types`
@@ -4702,6 +4704,7 @@ fn every_component_and_application_filter_is_reachable_from_planning() {
         (A::DeviceDisconnected, EventType::DeviceDisconnected),
         (A::MonitorConnected, EventType::MonitorConnected),
         (A::MonitorDisconnected, EventType::MonitorDisconnected),
+        (A::MediaControl, EventType::MediaControl),
     ];
     for (filter, event_type) in application {
         let planned = event_type_to_filters(*event_type, &EventData::None);
