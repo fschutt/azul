@@ -2685,7 +2685,11 @@ session needs. Recorded verbatim so the framing is not lost.
       nothing ever cleared that buffer (`take_reports` had no caller), so `get_hid_reports`
       answered the whole process history and the buffer grew without bound; the pump now clears
       it at the top of each fold, so a callback sees this pass's reports. Two core tests pin
-      distinct-twins, stability, the non-zero rule and serial-over-handle. ⏳ THIRD BATCH:
+      distinct-twins, stability, the non-zero rule and serial-over-handle. ✅ COMPILED AND RUN in the third batch pass of 2026-09-03: host check EXIT=0; api.json
+      converged (`HidDevice` + `serial`, `instance`); codegen green; core 2809, layout 7679, dll 2030
+      tests green (the seven decoder tests and the two GUID tests among them); the 8-target gate
+      8/8. One compile error, in 8f-i-a-i-c: the gilrs fork keeps `devpath()` private - see that
+      entry.
       uncompiled until its end pass (api.json: `HidDevice` gains `serial` and `instance`).
 - [ ] 8f-i-a-i-a Windows: the serial STRING. The instance id is already reconnect-stable there
       (the path carries the serial), but `HidDevice.serial` is empty: reading it needs
@@ -2707,23 +2711,35 @@ session needs. Recorded verbatim so the framing is not lost.
       ONE writer per slot, so an idle pad raises no event and a pass without a fresh report
       keeps the last motion instead of snapping to zero; pads with no gilrs twin (Windows,
       where gilrs is XInput and never sees a DualSense) or several identical twins are their
-      own complete devices under `HID_PAD_ID_FLAG | instance`. ⏳ THIRD BATCH: uncompiled until
+      own complete devices under `HID_PAD_ID_FLAG | instance`. ✅ COMPILED AND RUN in the third batch pass of 2026-09-03: host check EXIT=0; api.json
+      converged (`HidDevice` + `serial`, `instance`); codegen green; core 2809, layout 7679, dll 2030
+      tests green (the seven decoder tests and the two GUID tests among them); the 8-target gate
+      8/8. One compile error, in 8f-i-a-i-c: the gilrs fork keeps `devpath()` private - see that
+      entry.
       its end pass.
 - [ ] 8f-i-a-i-b-i Per-pad CALIBRATION: the kernel reads bias and per-axis sensitivity from
       feature report 0x05 and applies them; this decoder uses the nominal resolutions, which is
       what every user-space reader without that report does. Needs a feature-report read on each
       platform (hidraw `HIDIOCGFEATURE`, IOKit `IOHIDDeviceGetReport`, hid.dll `HidD_GetFeature`)
       - the raw HID layer is read-only today.
-- [x] 8f-i-a-i-c DONE as far as the platforms allow. Two rules, serial first: on Linux the gilrs
-      backend reads evdev's `uniq` through sysfs (`/dev/input/eventN` ->
-      `/sys/class/input/eventN/device/uniq`, path pinned by a test) via `Gamepad::devpath()`, and
-      `uniq` is the very string hidraw answers `HIDIOCGRAWUNIQ` with - both come from
-      `hdev->uniq` - so a table of identical DualSenses pairs each gilrs pad with exactly its own
-      HID stream by serial, and no duplicate device is published for a serial-paired pad. Where
-      the gilrs side has no serial (macOS IOKit, Windows XInput) the unique-vendor/product rule
-      from 8f-i-a-i-b stands, and several identical pads fall back to their own complete
-      HID devices under `HID_PAD_ID_FLAG | instance` - correct data twice rather than a guess.
-      ⏳ THIRD BATCH: uncompiled until its end pass.
+- [~] 8f-i-a-i-c Step (4). The ENGINE side is done: `overlay_hid_motion` pairs a gilrs pad with its
+      HID stream by SERIAL first (exact match on `HidDevice.serial`) and by the unique
+      vendor/product rule second, and a serial-paired pad publishes no duplicate; vendor and product
+      come from gilrs's own `vendor_id()` / `product_id()` with the SDL GUID as the fallback (bytes
+      4-5 and 8-9, pinned by a test). The GILRS side of the serial is EMPTY on every platform for
+      now: on Linux it is evdev's `uniq`, readable through sysfs beside the pad's event node - the
+      exact string hidraw answers `HIDIOCGRAWUNIQ` with, both from `hdev->uniq` - but the event
+      node is `Gamepad::devpath()`, which gilrs-azul 0.11.2 declares WITHOUT `pub`
+      (`gamepad.rs:989`, used by its own force-feedback code), so the read cannot compile against
+      the published crate (the batch pass caught it). The sysfs half (`sysfs_uniq_path`, tested) is
+      in place; the one-line fork change is 8f-i-a-i-c-i. Until then several identical pads fall
+      back to their own complete HID devices under `HID_PAD_ID_FLAG | instance` - correct data
+      twice rather than a guess once; an app can pair them itself through `HidDevice.serial`.
+- [ ] 8f-i-a-i-c-i The fork change: make `gilrs::Gamepad::devpath()` `pub` in gilrs-azul (it is
+      already implemented and used internally), release, bump, then `pad_serial` becomes
+      `sysfs_uniq_path(pad.devpath().to_str()?)` + `read_to_string` on Linux. macOS would need the
+      fork to hand out the `IOHIDDeviceRef` it holds (or read `kIOHIDSerialNumberKey` itself) the
+      same way; Windows needs nothing - XInput never sees a DualSense, so the HID device IS the pad.
 - [ ] 8f-i-a-i-c-i macOS: pairing several identical pads needs a gilrs-side serial. gilrs's IOKit
       backend exposes only the SDL GUID; the IOHIDDeviceRef it holds is the same object the raw
       HID layer enumerated (`kIOHIDSerialNumberKey` is readable from it), but gilrs does not hand
