@@ -59,9 +59,9 @@ use azul_core::{
     media_session::{MediaPlaybackState, NowPlayingInfo},
     window::VirtualKeyCode,
 };
-use azul_core::media_session::{MediaSeekKind, MediaSeekRequest};
+use azul_core::media_session::{MediaControlKind, MediaControlRequest};
 use azul_css::AzString;
-use azul_layout::managers::media_keys::{push_media_key, push_media_seek};
+use azul_layout::managers::media_keys::{push_media_key, push_media_control};
 
 /// The object path both interfaces are served at. Fixed by the MPRIS spec:
 /// clients look here and nowhere else.
@@ -157,11 +157,11 @@ fn metadata_map() -> std::collections::HashMap<String, zbus::zvariant::OwnedValu
     map
 }
 
-/// The MPRIS `Player` interface, reduced to the transport controls.
+/// The MPRIS `Player` interface.
 ///
-/// Only the methods a media KEY can produce are implemented. `Seek`,
-/// `SetPosition` and `OpenUri` are absent: no key produces them, and answering
-/// them would imply a position azul does not have.
+/// The transport methods become media KEYS; `Seek`, `SetPosition`, `OpenUri`
+/// and a written `Volume` carry a value no key can, so they become
+/// `MediaControl` events (9h-i-a-i-a, 9h-i-a-i-b).
 struct MprisPlayer;
 
 #[zbus::interface(name = "org.mpris.MediaPlayer2.Player")]
@@ -195,16 +195,17 @@ impl MprisPlayer {
 
     // THE THREE POSITION COMMANDS (9h-i-a-i-a). None can be a key: they carry
     // a position (or a URI), so they go through their own queue and arrive as
-    // `MediaSeek` events with `CallbackInfo::get_media_seek_request`.
+    // `MediaControl` events with `CallbackInfo::get_media_control_request`.
 
     /// `Seek(x)`: move by `offset` microseconds relative to the current
     /// position; negative is backwards. MPRIS: the app clamps.
     fn seek(&self, offset: i64) {
-        push_media_seek(MediaSeekRequest {
-            kind: MediaSeekKind::Relative,
+        push_media_control(MediaControlRequest {
+            kind: MediaControlKind::SeekRelative,
             position_us: offset,
             uri: AzString::from_const_str(""),
             track_id: AzString::from_const_str(""),
+            volume: 0.0,
         });
     }
 
@@ -213,22 +214,24 @@ impl MprisPlayer {
     /// against a track that has since ended, exactly as the spec says.
     #[zbus(name = "SetPosition")]
     fn set_position(&self, track_id: zbus::zvariant::ObjectPath<'_>, position: i64) {
-        push_media_seek(MediaSeekRequest {
-            kind: MediaSeekKind::Absolute,
+        push_media_control(MediaControlRequest {
+            kind: MediaControlKind::SeekAbsolute,
             position_us: position,
             uri: AzString::from_const_str(""),
             track_id: track_id.as_str().into(),
+            volume: 0.0,
         });
     }
 
     /// `OpenUri(s)`: open and play `uri`.
     #[zbus(name = "OpenUri")]
     fn open_uri(&self, uri: String) {
-        push_media_seek(MediaSeekRequest {
-            kind: MediaSeekKind::OpenUri,
+        push_media_control(MediaControlRequest {
+            kind: MediaControlKind::OpenUri,
             position_us: 0,
             uri: uri.into(),
             track_id: AzString::from_const_str(""),
+            volume: 0.0,
         });
     }
 
@@ -323,6 +326,36 @@ impl MprisPlayer {
     #[zbus(property)]
     fn can_control(&self) -> bool {
         true
+    }
+
+    /// `Volume` (9h-i-a-i-b), the one read/WRITE property, was omitted
+    /// entirely - and some desktops render a volume slider only when it
+    /// exists. Answers the app's published volume, or `1.0` when the app
+    /// exposes none: the spec makes the property mandatory, and a player
+    /// that reports nothing is at full volume as far as the desktop can
+    /// tell.
+    #[zbus(property)]
+    fn volume(&self) -> f64 {
+        match session().map(|s| s.volume) {
+            Some(azul_css::OptionF32::Some(v)) => f64::from(v),
+            _ => 1.0,
+        }
+    }
+
+    /// A WRITE to `Volume`: the desktop's slider moved. Queued like a seek
+    /// and delivered as a `MediaControl` event of kind `SetVolume`; the app
+    /// applies it to its own output and publishes the result, which is what
+    /// announces the new value back (`announce`). Negative is clamped to
+    /// silence, as the spec says a player should.
+    #[zbus(property)]
+    fn set_volume(&self, volume: f64) {
+        push_media_control(MediaControlRequest {
+            kind: MediaControlKind::SetVolume,
+            position_us: 0,
+            uri: AzString::from_const_str(""),
+            track_id: AzString::from_const_str(""),
+            volume: volume.max(0.0) as f32,
+        });
     }
 }
 
@@ -513,6 +546,16 @@ fn announce() {
     if let Ok(v) = zbus::zvariant::OwnedValue::try_from(zbus::zvariant::Value::from(metadata_map()))
     {
         changed.insert("Metadata".to_string(), v);
+    }
+    // `Volume` IS announced, unlike `Position`: it changes when the user or
+    // the app moves it, not continuously, and a desktop slider that is not
+    // told stays where the user left it while the app plays at another level.
+    if let Some(azul_css::OptionF32::Some(volume)) = session().map(|s| s.volume) {
+        if let Ok(v) =
+            zbus::zvariant::OwnedValue::try_from(zbus::zvariant::Value::from(f64::from(volume)))
+        {
+            changed.insert("Volume".to_string(), v);
+        }
     }
 
     let invalidated: Vec<String> = Vec::new();

@@ -65,21 +65,21 @@ pub fn drain_media_keys() -> Vec<VirtualKeyCode> {
 /// as the keys above and for the same reason: the D-Bus / SMTC / remote
 /// command callbacks run on their own threads, and the window drains them at
 /// the top of its pass.
-static PENDING_SEEKS: std::sync::Mutex<Vec<azul_core::media_session::MediaSeekRequest>> =
+static PENDING_REQUESTS: std::sync::Mutex<Vec<azul_core::media_session::MediaControlRequest>> =
     std::sync::Mutex::new(Vec::new());
 
 /// Queue one seek request. Unlike keys, seeks are NOT de-duplicated: two
 /// `Seek(+5s)` in one batch mean ten seconds, and a `SetPosition` after a
 /// `Seek` is a different destination.
-pub fn push_media_seek(request: azul_core::media_session::MediaSeekRequest) {
-    if let Ok(mut q) = PENDING_SEEKS.lock() {
+pub fn push_media_control(request: azul_core::media_session::MediaControlRequest) {
+    if let Ok(mut q) = PENDING_REQUESTS.lock() {
         q.push(request);
     }
 }
 
 /// Take every queued seek, oldest first.
-pub fn drain_media_seeks() -> Vec<azul_core::media_session::MediaSeekRequest> {
-    PENDING_SEEKS
+pub fn drain_media_controls() -> Vec<azul_core::media_session::MediaControlRequest> {
+    PENDING_REQUESTS
         .lock()
         .map(|mut q| core::mem::take(&mut *q))
         .unwrap_or_default()

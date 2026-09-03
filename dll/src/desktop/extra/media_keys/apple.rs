@@ -76,9 +76,9 @@ unsafe impl objc2::encode::Encode for CgSize {
 /// bounds this at one retained image rather than one per track, which is what a
 /// plain leak would give a player that changes tracks all day.
 static CURRENT_ARTWORK_IMAGE: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
-use azul_core::media_session::{MediaSeekKind, MediaSeekRequest};
+use azul_core::media_session::{MediaControlKind, MediaControlRequest};
 use azul_css::AzString;
-use azul_layout::managers::media_keys::{push_media_key, push_media_seek};
+use azul_layout::managers::media_keys::{push_media_key, push_media_control};
 
 /// `MPRemoteCommandHandlerStatus.success`.
 const HANDLER_STATUS_SUCCESS: isize = 0;
@@ -233,11 +233,12 @@ pub fn start() {
                     if !event.is_null() {
                         let seconds: f64 = msg_send![event, positionTime];
                         if seconds.is_finite() {
-                            push_media_seek(MediaSeekRequest {
-                                kind: MediaSeekKind::Absolute,
+                            push_media_control(MediaControlRequest {
+                                kind: MediaControlKind::SeekAbsolute,
                                 position_us: (seconds.max(0.0) * 1_000_000.0) as i64,
                                 uri: AzString::from_const_str(""),
                                 track_id: AzString::from_const_str(""),
+                                volume: 0.0,
                             });
                         }
                     }

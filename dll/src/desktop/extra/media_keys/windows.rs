@@ -35,9 +35,9 @@ use azul_core::{
     media_session::{MediaPlaybackState, NowPlayingInfo},
     window::VirtualKeyCode,
 };
-use azul_core::media_session::{MediaSeekKind, MediaSeekRequest};
+use azul_core::media_session::{MediaControlKind, MediaControlRequest};
 use azul_css::AzString;
-use azul_layout::managers::media_keys::{push_media_key, push_media_seek};
+use azul_layout::managers::media_keys::{push_media_key, push_media_control};
 use windows::{
     core::{Interface, HSTRING},
     Media::{
@@ -130,11 +130,12 @@ pub fn start(hwnd: isize) {
         >::new(|_sender, args| {
             if let Some(args) = args.as_ref() {
                 if let Ok(position) = args.RequestedPlaybackPosition() {
-                    push_media_seek(MediaSeekRequest {
-                        kind: MediaSeekKind::Absolute,
+                    push_media_control(MediaControlRequest {
+                        kind: MediaControlKind::SeekAbsolute,
                         position_us: position.Duration / 10,
                         uri: AzString::from_const_str(""),
                         track_id: AzString::from_const_str(""),
+                        volume: 0.0,
                     });
                 }
             }

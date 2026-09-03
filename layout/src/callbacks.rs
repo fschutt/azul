@@ -4998,23 +4998,24 @@ impl CallbackInfo {
     /// which is exactly why applications expose a sensitivity setting rather
     /// than treating them as pixels.
     #[must_use]
-    /// The seek the platform's media controls asked for (9h-i-a-i-a) - the
-    /// payload of a `MediaSeek` event, or the last one delivered. A desktop
-    /// scrubber, a lock-screen slider and `playerctl position` all arrive
-    /// here; the transport buttons arrive as media KEYS instead, because
-    /// they carry no position.
+    /// What the platform's media controls asked for (9h-i-a-i-a, 9h-i-a-i-b)
+    /// - the payload of a `MediaControl` event, or the last one delivered. A
+    /// desktop scrubber, a lock-screen slider, `playerctl position` and the
+    /// desktop widget's volume slider all arrive here; the transport buttons
+    /// arrive as media KEYS instead, because they carry no value.
     ///
-    /// `Relative` is an offset in microseconds (negative = back), `Absolute`
-    /// a position to jump to - MPRIS says to ignore it when `track_id` is not
-    /// the current track - and `OpenUri` carries the `uri` to open and play.
-    /// The app reports the resulting position through `set_now_playing`; a
-    /// position that is not the continuation of the last one is announced
-    /// back to the desktop as a seek.
+    /// `SeekRelative` is an offset in microseconds (negative = back),
+    /// `SeekAbsolute` a position to jump to - MPRIS says to ignore it when
+    /// `track_id` is not the current track - `OpenUri` carries the `uri` to
+    /// open and play, and `SetVolume` the `volume` to apply (`0.0`..`1.0`).
+    /// The app reports the result through `set_now_playing`: a position that
+    /// is not the continuation of the last one is announced back to the
+    /// desktop as a seek, and a changed `volume` as the new `Volume`.
     #[must_use]
-    pub fn get_media_seek_request(&self) -> azul_core::media_session::OptionMediaSeekRequest {
+    pub fn get_media_control_request(&self) -> azul_core::media_session::OptionMediaControlRequest {
         self.get_layout_window()
             .media_session_manager
-            .current_seek()
+            .current_request()
             .cloned()
             .into()
     }

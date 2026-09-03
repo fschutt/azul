@@ -833,15 +833,15 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       something visible is the exact failure mode this whole backlog is about.
       No Linux desktop and no Input-Monitoring-free way to observe Control Center here, so this
       is compile-only on both halves. Never seen a real media widget.
-- [x] 9h-i-a-i-a DONE, with the event kind the note asked for. `EventType::MediaSeek` (APPENDED)
-      + `ApplicationEventFilter::MediaSeek` + `EventData::MediaSeek(MediaSeekEventData { kind,
+- [x] 9h-i-a-i-a DONE, with the event kind the note asked for. `EventType::MediaControl` (APPENDED)
+      + `ApplicationEventFilter::MediaControl` + `EventData::MediaControl(MediaControlEventData { kind,
       position_us })`, planned and matched at the application level like `DeviceConnected`,
       emitted at the ROOT by `MediaSessionManager`'s new `EventProvider` impl - a seek is a
       window-level command like a media key, not a node's. The request itself is
-      `MediaSeekRequest { kind: Relative | Absolute | OpenUri, position_us, uri, track_id }`
-      (repr(C), `OptionMediaSeekRequest`), read with `CallbackInfo::get_media_seek_request()`
+      `MediaControlRequest { kind: Relative | Absolute | OpenUri, position_us, uri, track_id }`
+      (repr(C), `OptionMediaControlRequest`), read with `CallbackInfo::get_media_control_request()`
       (the one being delivered, or the last delivered). It rides the media-KEY queue's twin
-      (`media_keys::push_media_seek` / `drain_media_seeks`, NOT de-duplicated: two `Seek(+5s)`
+      (`media_keys::push_media_control` / `drain_media_controls`, NOT de-duplicated: two `Seek(+5s)`
       mean ten seconds), drained at the top of the pass into the manager and cleared with the
       other pending flags after dispatch. Providers: the dll slice AND the runner's.
       MPRIS: `Seek(x)` -> Relative, `SetPosition(o, x)` -> Absolute with the object path as
@@ -855,9 +855,9 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       the published session and need nothing.
       EVIDENCE: 2 core tests (a queued seek is delivered once and stays readable as the last; a
       per-frame advance is not a seek, a 2 s+ jump is, announced once, backwards too).
-      ⚠ NOT COMPILED OR RUN (batch compiles at the end): api.json gains `EventType::MediaSeek`,
-      `ApplicationEventFilter::MediaSeek`, `MediaSeekKind` / `MediaSeekRequest` /
-      `OptionMediaSeekRequest` and `CallbackInfo.get_media_seek_request` through `autofix` in
+      ⚠ NOT COMPILED OR RUN (batch compiles at the end): api.json gains `EventType::MediaControl`,
+      `ApplicationEventFilter::MediaControl`, `MediaControlKind` / `MediaControlRequest` /
+      `OptionMediaControlRequest` and `CallbackInfo.get_media_control_request` through `autofix` in
       that pass - the Rust compiles without them (appended variants keep the C layout), the C
       side just cannot name them yet.
 - [x] 9h-i-a-i-a-i DONE on all three, each checked against its current documentation first
@@ -871,12 +871,32 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `MediaSession.Callback.onSeekTo(long pos)` in MILLISECONDS -> `nativeOnMediaSeek` (new JNI
       entry beside `nativeOnMediaButton`), plus `ACTION_SEEK_TO` in the published actions, which
       is the gate for the system UI offering a bar at all. All three land as
-      `MediaSeekKind::Absolute` on the seek queue, so the app sees one `MediaSeek` event whatever
+      `MediaControlKind::SeekAbsolute` on the seek queue, so the app sees one `MediaControl` event whatever
       the platform. ⚠ NOT COMPILED OR RUN (batch compiles at the end); the Java re-compile
       against android-34 is part of that pass.
-- [ ] 9h-i-a-i-b MPRIS `Volume` is read/WRITE and is omitted entirely. Answering it needs an
-      app-level volume concept azul does not have, and a writable property needs the same inbound
-      path 9h-i-a-i-a does. Some desktops render a volume slider only when the property exists.
+- [x] 9h-i-a-i-b DONE. Both halves the note asked for existed once 9h-i-a-i-a landed, so this is
+      the volume on top of that path. The app-level concept is `NowPlayingInfo::volume`
+      (`OptionF32`: `0.0` silent .. `1.0` full, `None` = the app exposes no volume): azul plays no
+      audio, so like the position it is the app's own value, published for the desktop to show
+      and to ask about. MPRIS `Volume` now exists - it answers the published value or `1.0` when
+      `None` (the spec makes the property mandatory, and a player that reports nothing is at
+      full volume as far as the desktop can tell), a WRITE queues a request of kind `SetVolume`
+      (negative clamped to silence) that arrives as the same event the seeks do, and a changed
+      volume is an ANNOUNCED field (`PropertiesChanged`, unlike `Position`, because it moves when
+      someone moves it and not continuously). THE RENAME: a volume is not a seek, so the inbound
+      type 9h-i-a-i-a introduced under the name `MediaSeekRequest` is now `MediaControlRequest`
+      with `MediaControlKind { SeekRelative, SeekAbsolute, OpenUri, SetVolume }`, the event is
+      `EventType::MediaControl` / `ApplicationEventFilter::MediaControl` /
+      `EventData::MediaControl(MediaControlEventData { kind, position_us, volume })`, and the
+      callback getter is `get_media_control_request`. Done now, before any of these names reach
+      `api.json` in the end pass, which is the last moment a rename is free. `NowPlayingInfo`
+      lost `Eq` (an `f32` cannot have it) and gained a spelled-out `Default`. No other platform
+      has a per-player volume to wire: Windows SMTC, `MPRemoteCommandCenter` and Android's
+      `MediaSession` for local playback route volume to the system mixer and carry none, so
+      the field is MPRIS-only by the platforms' own design, not by omission.
+      ⚠ NOT COMPILED OR RUN (batch compiles at the end; api.json picks up the new names,
+      `NowPlayingInfo.volume`, `MediaControlKind`, `MediaControlRequest`, `OptionMediaControlRequest`
+      and `get_media_control_request` through autofix then).
 - [x] 9h-i-a-i-c DONE. Windows now has a media session: title, artist, album and ALBUM ART in the
       volume flyout and on the lock screen, plus a playback status and a timeline.
       `ISystemMediaTransportControlsInterop::GetForWindow(HWND)` rather than the UWP

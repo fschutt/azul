@@ -9266,12 +9266,12 @@ pub trait PlatformWindow {
             crate::desktop::extra::media_keys::ensure_started(self.get_raw_window_handle());
             // SEEKS (9h-i-a-i-a) ride the same drain: into the media session
             // manager, whose `EventProvider` impl turns each into a
-            // `MediaSeek` event at the root on this pass. And the other
+            // `MediaControl` event at the root on this pass. And the other
             // direction: a position jump the app reported is announced to
             // the desktop (MPRIS `Seeked`) so its scrubber re-syncs.
-            for request in azul_layout::managers::media_keys::drain_media_seeks() {
+            for request in azul_layout::managers::media_keys::drain_media_controls() {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.media_session_manager.push_seek(request);
+                    lw.media_session_manager.push_request(request);
                 }
             }
             if let Some(position_us) = self
@@ -9615,7 +9615,7 @@ pub trait PlatformWindow {
             }
             w.sensor_manager.clear_pending_event();
             w.gamepad_manager.clear_pending_event();
-            w.media_session_manager.clear_pending_seeks();
+            w.media_session_manager.clear_pending_requests();
             w.geolocation_manager.clear_pending_event();
             w.permission_manager.clear_pending_changed();
             w.biometric_manager.clear_pending_event();

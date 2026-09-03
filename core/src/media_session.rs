@@ -60,7 +60,7 @@ impl Default for MediaPlaybackState {
 /// valid "I do not know" - there is no `Option` here because a media widget
 /// treats an absent title and an empty title identically, and the FFI cost of
 /// six `Option<AzString>`s would buy nothing.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct NowPlayingInfo {
     /// What the player is doing. This is the field that decides whether the
@@ -99,6 +99,38 @@ pub struct NowPlayingInfo {
     /// SEE [`MediaSessionManager::set`]: this field deliberately does NOT
     /// trigger a change announcement, because MPRIS forbids announcing it.
     pub position_ms: u64,
+    /// The app's OUTPUT VOLUME, `0.0` silent to `1.0` full, or `None` when the
+    /// app does not expose one (9h-i-a-i-b).
+    ///
+    /// azul plays no audio; this is the app's own volume, published so the
+    /// desktop can show it and ask to change it - MPRIS `Volume` is a
+    /// read/WRITE property, and some desktops render a volume slider only
+    /// when it exists. A request to change it arrives as a `MediaControl`
+    /// event of kind `SetVolume`; the app applies it to its own output and
+    /// publishes the new value here. `None` answers the property with `1.0`
+    /// and still accepts writes, so a desktop's slider is never dead.
+    /// Only MPRIS has a per-player volume: Windows SMTC, the Apple remote
+    /// command centre and Android's session (for local playback) route volume
+    /// to the system mixer and carry none.
+    pub volume: azul_css::OptionF32,
+}
+
+impl Default for NowPlayingInfo {
+    /// A stopped player with no track and no volume of its own. Spelled out
+    /// rather than derived so that the "not reported" state of every field is
+    /// visible in one place: empty strings, zero times, `None` volume.
+    fn default() -> Self {
+        Self {
+            state: MediaPlaybackState::Stopped,
+            title: AzString::from_const_str(""),
+            artist: AzString::from_const_str(""),
+            album: AzString::from_const_str(""),
+            artwork_url: AzString::from_const_str(""),
+            duration_ms: 0,
+            position_ms: 0,
+            volume: azul_css::OptionF32::None,
+        }
+    }
 }
 
 impl NowPlayingInfo {
@@ -119,6 +151,7 @@ impl NowPlayingInfo {
             || self.album != other.album
             || self.artwork_url != other.artwork_url
             || self.duration_ms != other.duration_ms
+            || self.volume != other.volume
     }
 
     /// True when this is a DIFFERENT TRACK, not merely a different state of
@@ -181,45 +214,55 @@ pub fn ms_to_winrt_ticks(ms: u64) -> i64 {
 /// shell drains once per pass. The difference is that this is a LATEST-WINS
 /// value rather than a queue - a media widget wants the current track, not
 /// every track the app has ever played.
-/// What a seek request asks for (9h-i-a-i-a).
+/// What a control request from the platform's media controls asks for
+/// (9h-i-a-i-a, 9h-i-a-i-b): everything a transport KEY cannot carry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub enum MediaSeekKind {
+pub enum MediaControlKind {
     /// Move by `position_us` RELATIVE to the current position (MPRIS `Seek`;
     /// negative moves back). The app clamps to the track.
-    Relative,
+    SeekRelative,
     /// Jump to the ABSOLUTE `position_us` (MPRIS `SetPosition`, SMTC's
     /// position change, `MPChangePlaybackPositionCommand`, `onSeekTo`).
-    Absolute,
+    SeekAbsolute,
     /// Open and play `uri` (MPRIS `OpenUri`). `position_us` is 0.
     OpenUri,
+    /// Set the app's output volume to `volume` (MPRIS `Volume` written;
+    /// `0.0` silent, `1.0` full, above `1.0` is amplification a client may
+    /// ask for and the app may clamp). The app applies it and publishes the
+    /// result in `NowPlayingInfo::volume`.
+    SetVolume,
 }
 
-/// One inbound seek from the platform's media controls (9h-i-a-i-a): a
-/// desktop scrubber, a lock-screen slider, `playerctl position 30`.
+/// One inbound request from the platform's media controls (9h-i-a-i-a): a
+/// desktop scrubber, a lock-screen slider, `playerctl position 30`, a volume
+/// slider in the desktop's media widget.
 ///
-/// Unlike the transport commands, which become media KEY events, a seek
-/// carries a position - which is why this is its own event kind
-/// (`EventType::MediaSeek`) with its own data rather than a key code.
+/// Unlike the transport commands, which become media KEY events, these carry
+/// a value - a position, a URI, a volume - which is why they are their own
+/// event kind (`EventType::MediaControl`) with their own data rather than a
+/// key code.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
-pub struct MediaSeekRequest {
-    pub kind: MediaSeekKind,
-    /// Microseconds, the MPRIS unit; relative for `Relative`, absolute for
-    /// `Absolute`, 0 for `OpenUri`.
+pub struct MediaControlRequest {
+    pub kind: MediaControlKind,
+    /// Microseconds, the MPRIS unit; relative for `SeekRelative`, absolute for
+    /// `SeekAbsolute`, 0 otherwise.
     pub position_us: i64,
     /// The URI for `OpenUri`, empty otherwise.
     pub uri: AzString,
-    /// For `Absolute`: the track id the request was made against, so an
+    /// For `SeekAbsolute`: the track id the request was made against, so an
     /// app can drop a seek meant for a track that has since ended - MPRIS
     /// says exactly that about `SetPosition`. Empty when the platform gave
     /// none.
     pub track_id: AzString,
+    /// For `SetVolume`: the requested volume, `0.0`..`1.0`. `0.0` otherwise.
+    pub volume: f32,
 }
 
 impl_option!(
-    MediaSeekRequest,
-    OptionMediaSeekRequest,
+    MediaControlRequest,
+    OptionMediaControlRequest,
     copy = false,
     [Debug, Clone, PartialEq]
 );
@@ -236,12 +279,13 @@ pub struct MediaSessionManager {
     info: NowPlayingInfo,
     /// Set when [`Self::set`] changes a field the platform must be told about.
     needs_publish: bool,
-    /// Seeks received since the last pass, delivered as `MediaSeek` events by
-    /// the `EventProvider` impl and cleared by the dispatcher afterwards.
-    pending_seeks: Vec<MediaSeekRequest>,
+    /// Requests received since the last pass, delivered as `MediaControl`
+    /// events by the `EventProvider` impl and cleared by the dispatcher
+    /// afterwards.
+    pending_requests: Vec<MediaControlRequest>,
     /// The most recent seek, kept after delivery so a callback can read it
-    /// (`CallbackInfo::get_media_seek_request`).
-    last_seek: Option<MediaSeekRequest>,
+    /// (`CallbackInfo::get_media_control_request`).
+    last_request: Option<MediaControlRequest>,
     /// A position jump the APP reported; the platform side announces it
     /// (MPRIS `Seeked`) once, then this is cleared.
     seeked_to_us: Option<i64>,
@@ -301,30 +345,30 @@ impl MediaSessionManager {
     }
 
     /// An inbound seek from the platform (9h-i-a-i-a). Queued; the next pass
-    /// delivers it as a `MediaSeek` event at the root.
-    pub fn push_seek(&mut self, request: MediaSeekRequest) {
-        self.pending_seeks.push(request);
+    /// delivers it as a `MediaControl` event at the root.
+    pub fn push_request(&mut self, request: MediaControlRequest) {
+        self.pending_requests.push(request);
     }
 
     /// The seek being delivered this pass, or the last one delivered - what
-    /// a `MediaSeek` callback reads.
+    /// a `MediaControl` callback reads.
     #[must_use]
-    pub fn current_seek(&self) -> Option<&MediaSeekRequest> {
-        self.pending_seeks.first().or(self.last_seek.as_ref())
+    pub fn current_request(&self) -> Option<&MediaControlRequest> {
+        self.pending_requests.first().or(self.last_request.as_ref())
     }
 
     /// The pass is over: the queued seeks were delivered. The newest is kept
-    /// as `last_seek`.
-    pub fn clear_pending_seeks(&mut self) {
-        if let Some(last) = self.pending_seeks.pop() {
-            self.last_seek = Some(last);
+    /// as `last_request`.
+    pub fn clear_pending_requests(&mut self) {
+        if let Some(last) = self.pending_requests.pop() {
+            self.last_request = Some(last);
         }
-        self.pending_seeks.clear();
+        self.pending_requests.clear();
     }
 
     #[must_use]
-    pub fn has_pending_seeks(&self) -> bool {
-        !self.pending_seeks.is_empty()
+    pub fn has_pending_requests(&self) -> bool {
+        !self.pending_requests.is_empty()
     }
 
     /// The position jump to announce (MPRIS `Seeked`), if any; cleared by
@@ -335,22 +379,23 @@ impl MediaSessionManager {
 }
 
 impl crate::events::EventProvider for MediaSessionManager {
-    /// One `MediaSeek` event per queued request, at the root: a seek is a
+    /// One `MediaControl` event per queued request, at the root: a seek is a
     /// window-level command like a media key, not a node's.
     fn get_pending_events(
         &self,
         timestamp: crate::task::Instant,
     ) -> Vec<crate::events::SyntheticEvent> {
-        use crate::events::{EventData, EventSource, EventType, MediaSeekEventData, SyntheticEvent};
-        self.pending_seeks
+        use crate::events::{EventData, EventSource, EventType, MediaControlEventData, SyntheticEvent};
+        self.pending_requests
             .iter()
             .map(|req| {
                 SyntheticEvent::new(
-                    EventType::MediaSeek,
+                    EventType::MediaControl,
                     EventSource::User,
                     crate::dom::DomNodeId::ROOT,
                     timestamp.clone(),
-                    EventData::MediaSeek(MediaSeekEventData {
+                    EventData::MediaControl(MediaControlEventData {
+                        volume: r.volume,
                         kind: req.kind,
                         position_us: req.position_us,
                     }),
@@ -374,21 +419,53 @@ mod seek_tests {
     fn a_queued_seek_is_delivered_once_then_readable_as_the_last() {
         use crate::events::EventProvider;
         let mut m = MediaSessionManager::new();
-        assert!(m.current_seek().is_none());
-        m.push_seek(MediaSeekRequest {
-            kind: MediaSeekKind::Absolute,
+        assert!(m.current_request().is_none());
+        m.push_request(MediaControlRequest {
+            kind: MediaControlKind::SeekAbsolute,
             position_us: 30_000_000,
             uri: AzString::from_const_str(""),
             track_id: AzString::from_const_str("/org/mpris/MediaPlayer2/Track/1"),
+            volume: 0.0,
         });
         let events = m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0)));
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, crate::events::EventType::MediaSeek);
-        assert_eq!(m.current_seek().map(|r| r.position_us), Some(30_000_000));
-        m.clear_pending_seeks();
-        assert!(!m.has_pending_seeks());
+        assert_eq!(events[0].event_type, crate::events::EventType::MediaControl);
+        assert_eq!(m.current_request().map(|r| r.position_us), Some(30_000_000));
+        m.clear_pending_requests();
+        assert!(!m.has_pending_requests());
         assert!(m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0))).is_empty());
-        assert_eq!(m.current_seek().map(|r| r.position_us), Some(30_000_000), "still readable");
+        assert_eq!(m.current_request().map(|r| r.position_us), Some(30_000_000), "still readable");
+    }
+
+    #[test]
+    fn a_volume_change_is_announced_and_a_set_volume_request_carries_its_value() {
+        use crate::events::{EventData, EventProvider};
+        let mut m = MediaSessionManager::new();
+        let mut i = NowPlayingInfo::empty();
+        i.volume = azul_css::OptionF32::Some(0.5);
+        m.set(i.clone());
+        assert!(m.take_if_dirty().is_some(), "a volume is an announced field (MPRIS Volume)");
+        i.volume = azul_css::OptionF32::Some(0.25);
+        m.set(i.clone());
+        assert!(m.take_if_dirty().is_some(), "and so is a change to it");
+        m.set(i);
+        assert!(m.take_if_dirty().is_none(), "the same volume again is not");
+        m.push_request(MediaControlRequest {
+            kind: MediaControlKind::SetVolume,
+            position_us: 0,
+            uri: AzString::from_const_str(""),
+            track_id: AzString::from_const_str(""),
+            volume: 0.75,
+        });
+        let events = m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0)));
+        assert_eq!(events.len(), 1);
+        match &events[0].data {
+            EventData::MediaControl(d) => {
+                assert_eq!(d.kind, MediaControlKind::SetVolume);
+                assert_eq!(d.volume, 0.75);
+            }
+            other => panic!("not a media control event: {:?}", other),
+        }
     }
 
     #[test]

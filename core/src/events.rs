@@ -618,15 +618,19 @@ azul_css::impl_option!(
     [Debug, Copy, Clone, PartialEq]
 );
 
-/// Data carried by a `MediaSeek` event (9h-i-a-i-a): what the platform's
-/// media controls asked for. The URI of an `OpenUri` is not repeated here -
-/// `CallbackInfo::get_media_seek_request` carries the whole request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Data carried by a `MediaControl` event (9h-i-a-i-a, 9h-i-a-i-b): what the
+/// platform's media controls asked for. The URI of an `OpenUri` is not
+/// repeated here - `CallbackInfo::get_media_control_request` carries the
+/// whole request.
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
-pub struct MediaSeekEventData {
-    pub kind: crate::media_session::MediaSeekKind,
-    /// Microseconds; relative for `Relative`, absolute for `Absolute`.
+pub struct MediaControlEventData {
+    pub kind: crate::media_session::MediaControlKind,
+    /// Microseconds; relative for `SeekRelative`, absolute for `SeekAbsolute`.
     pub position_us: i64,
+    /// The requested volume for `SetVolume` (`0.0` silent, `1.0` full), `0.0`
+    /// for every other kind.
+    pub volume: f32,
 }
 
 /// Data carried by the three IME composition events.
@@ -713,7 +717,7 @@ pub enum EventData {
     /// Raw, pre-acceleration pointer motion. APPENDED at the end.
     RawMotion(RawMotionEventData),
     /// A media seek (9h-i-a-i-a). APPENDED for ABI stability.
-    MediaSeek(MediaSeekEventData),
+    MediaControl(MediaControlEventData),
 }
 
 /// High-level event type classification.
@@ -1069,8 +1073,8 @@ pub enum EventType {
     /// scrubber, a lock-screen slider, `playerctl position`. APPENDED at the
     /// end for ABI stability. Unlike Play/Pause/Next, which arrive as media
     /// KEY events, a seek carries a position - read it with
-    /// `CallbackInfo::get_media_seek_request`.
-    MediaSeek,
+    /// `CallbackInfo::get_media_control_request`.
+    MediaControl,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1934,11 +1938,11 @@ fn matches_application_filter(
     _phase: EventPhase,
 ) -> bool {
     use ApplicationEventFilter::{
-        DeviceConnected, DeviceDisconnected, MediaSeek, MonitorConnected, MonitorDisconnected,
+        DeviceConnected, DeviceDisconnected, MediaControl, MonitorConnected, MonitorDisconnected,
     };
 
     match (filter, &event.event_type) {
-        (MediaSeek, EventType::MediaSeek) => true,
+        (MediaControl, EventType::MediaControl) => true,
         (DeviceConnected, EventType::DeviceConnected) => true,
         (DeviceDisconnected, EventType::DeviceDisconnected) => true,
         (MonitorConnected, EventType::MonitorConnected) => true,
@@ -3193,7 +3197,7 @@ pub enum ApplicationEventFilter {
     MonitorDisconnected,
     /// The platform's media controls asked for a seek (9h-i-a-i-a). APPENDED
     /// at the end for ABI stability.
-    MediaSeek,
+    MediaControl,
 }
 
 /// Sets the target for what events can reach the callbacks specifically.
@@ -3684,7 +3688,7 @@ static ALL_APPLICATION: &[ApplicationEventFilter] = &[
     ApplicationEventFilter::DeviceDisconnected,
     ApplicationEventFilter::MonitorConnected,
     ApplicationEventFilter::MonitorDisconnected,
-    ApplicationEventFilter::MediaSeek,
+    ApplicationEventFilter::MediaControl,
 ];
 
 pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter> {
@@ -4036,7 +4040,7 @@ fn event_type_to_filters_legacy_hint(
         E::DeviceDisconnected => {
             vec![EF::Application(ApplicationEventFilter::DeviceDisconnected)]
         }
-        E::MediaSeek => vec![EF::Application(ApplicationEventFilter::MediaSeek)],
+        E::MediaControl => vec![EF::Application(ApplicationEventFilter::MediaControl)],
         E::MonitorConnected => vec![EF::Application(ApplicationEventFilter::MonitorConnected)],
         E::MonitorDisconnected => {
             vec![EF::Application(ApplicationEventFilter::MonitorDisconnected)]

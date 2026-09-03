@@ -23,9 +23,9 @@
 //! azul-side numbering crossing a boundary - the same hazard as the sensor
 //! kind codes, and it gets the same guard.
 
-use azul_core::media_session::{MediaSeekKind, MediaSeekRequest, NowPlayingInfo};
+use azul_core::media_session::{MediaControlKind, MediaControlRequest, NowPlayingInfo};
 use azul_css::AzString;
-use azul_layout::managers::media_keys::{push_media_key, push_media_seek};
+use azul_layout::managers::media_keys::{push_media_key, push_media_control};
 
 use super::media_keycode_to_key;
 
@@ -55,11 +55,12 @@ pub unsafe extern "system" fn Java_com_azul_media_AzulMediaSession_nativeOnMedia
     _class: *mut core::ffi::c_void,
     position_ms: i64,
 ) {
-    push_media_seek(MediaSeekRequest {
-        kind: MediaSeekKind::Absolute,
+    push_media_control(MediaControlRequest {
+        kind: MediaControlKind::SeekAbsolute,
         position_us: position_ms.saturating_mul(1000),
         uri: AzString::from_const_str(""),
         track_id: AzString::from_const_str(""),
+        volume: 0.0,
     });
 }
 
