@@ -7751,14 +7751,27 @@ fn reloc_templateize(
                     // 16-byte mistranslation in a 32-byte shim. At-or-
                     // beyond-end targets resolve via symbol identity.
                     let rel = va.wrapping_sub(lift_addr);
+                    // @delta translates by THIS fn's lift delta, which is only
+                    // sound for pc-ARITHMETIC tokens (`pc - fixed` difference
+                    // values in backward-offset computations). The old guard
+                    // tested va against the RUNTIME synth band — but va is
+                    // PROBE-space, where image addresses sit wherever the
+                    // probe base puts them (typically below 0x100000), so
+                    // cross-function targets slipped into @delta and were
+                    // translated by the wrong delta: the verifier caught
+                    // <str as Display>::fmt's tail-jmp to Formatter::pad
+                    // spliced 2014896 short, into Vec::Drain::drop. Decide by
+                    // mapping va through the probe bias instead: an address
+                    // inside the native image is never pc-arithmetic.
+                    let in_image = img
+                        .map(|(lo, hi)| {
+                            let n = va.wrapping_add(bias);
+                            n >= lo && n < hi
+                        })
+                        .unwrap_or(false);
                     let ident = if rel < fn_len as u64 {
                         format!("@rel:{rel:x}")
-                    } else if !(0x100000..0x6000000).contains(&va) {
-                        // Out of every synth band: cannot be an image
-                        // address, so its probe-variation is pc-ARITHMETIC
-                        // (`pc - fixed` difference tokens in backward-offset
-                        // computations). Those translate by the fn's own
-                        // lift delta, no identity involved.
+                    } else if !in_image && !(0x100000..0x6000000).contains(&va) {
                         format!("@delta:{va:x}")
                     } else {
                         ident_for(va)?
