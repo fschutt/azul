@@ -10476,7 +10476,25 @@ pub trait PlatformWindow {
                 // the e2e runner (9g-ii-e-ii). This used to walk every hit DOM
                 // and let the last focusable win, so a focusable host node
                 // under a VirtualView page took a click meant for the page.
-                let clicked_focusable_node = match (&hit_test_for_dispatch, self.get_layout_window())
+                // The hit test of the seat that PRESSED (9b-ii-c), which is the
+                // primary's unless a second cursor pressed.
+                let press_seat = synthetic_events
+                    .iter()
+                    .find(|e| e.event_type == azul_core::events::EventType::MouseDown)
+                    .map_or(
+                        azul_core::window::PRIMARY_POINTER_SEAT,
+                        azul_layout::managers::hover::seat_of_event,
+                    );
+                let hit_for_focus = if press_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                    hit_test_for_dispatch.clone()
+                } else {
+                    self.get_layout_window().and_then(|lw| {
+                        lw.hover_manager
+                            .get_current(&InputPointId::for_seat(press_seat))
+                            .cloned()
+                    })
+                };
+                let clicked_focusable_node = match (&hit_for_focus, self.get_layout_window())
                 {
                     (Some(hit_test), Some(layout_window)) => {
                         let results = &layout_window.layout_results;

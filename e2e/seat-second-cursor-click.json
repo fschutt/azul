@@ -1,0 +1,56 @@
+{
+  "name": "seat_second_cursor_click",
+  "description": "SECOND POINTER SEAT (9b-ii / 9b-ii-c): two focusable rows. The primary cursor (seat 0) rests on r1; a second seat (seat 7, an X11 MPX master pointer or a Wayland wl_seat) presses on r3. Before the seat model every pointer wrote the ONE mouse state, so the second cursor's press landed at the first cursor's position; and before 9b-ii-c the runner's click-to-focus scan read the PRIMARY's hit test for every press, so seat 7's click would have focused r1. Asserts: seat 7's press focuses r3 while the primary still hovers r1; the primary's own click afterwards focuses r1 - the two cursors keep separate positions; and a seat-7 press+release on r3 again re-focuses r3 after the primary click, i.e. the seat's state persisted across the primary's activity.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"list\">",
+        "  <div class=\"row\" id=\"r0\" tabindex=\"0\"></div>",
+        "  <div class=\"row\" id=\"r1\" tabindex=\"0\"></div>",
+        "  <div class=\"row\" id=\"r2\" tabindex=\"0\"></div>",
+        "  <div class=\"row\" id=\"r3\" tabindex=\"0\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#list { width: 200px; }",
+        ".row { width: 100%; height: 50px; background: blue; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 150 },
+    { "op": "assert_node_count", "selector": ".row", "expected": 4 },
+
+    { "op": "mouse_move", "x": 100, "y": 75 },
+    { "op": "wait_frame" },
+
+    { "op": "mouse_move", "x": 100, "y": 175, "seat": 7 },
+    { "op": "mouse_down", "x": 100, "y": 175, "seat": 7 },
+    { "op": "wait_frame" },
+    { "op": "mouse_up", "x": 100, "y": 175, "seat": 7 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "r3" },
+
+    { "op": "click", "x": 100, "y": 75 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "r1" },
+
+    { "op": "mouse_down", "x": 100, "y": 175, "seat": 7 },
+    { "op": "wait_frame" },
+    { "op": "mouse_up", "x": 100, "y": 175, "seat": 7 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "r3" }
+  ]
+}

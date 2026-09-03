@@ -1943,21 +1943,34 @@ pub enum DebugEvent {
         args: serde_json::Value,
     },
     // Mouse Events
+    //
+    // `seat` (9b-ii-c) names the pointer SEAT the op drives: 0 (the default)
+    // is the ordinary mouse, anything else a second independent cursor - the
+    // same id an X11 master pointer or a Wayland `wl_seat` would carry. The
+    // op is applied to that seat's own `MouseState`, so a scenario can put two
+    // cursors on two nodes and press either. `click` and the higher-level
+    // ops stay primary-only; a seat click is `mouse_down` + `mouse_up`.
     MouseMove {
         x: f32,
         y: f32,
+        #[serde(default)]
+        seat: u64,
     },
     MouseDown {
         x: f32,
         y: f32,
         #[serde(default)]
         button: MouseButton,
+        #[serde(default)]
+        seat: u64,
     },
     MouseUp {
         x: f32,
         y: f32,
         #[serde(default)]
         button: MouseButton,
+        #[serde(default)]
+        seat: u64,
     },
     Click {
         /// X position (used if no selector/node_id provided)
@@ -13047,16 +13060,18 @@ pub fn process_debug_event(
             send_ok(request, None, None);
         }
 
-        DebugEvent::MouseMove { x, y } => {
+        DebugEvent::MouseMove { x, y, seat } => {
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
-                format!("Debug mouse move to ({}, {})", x, y),
+                format!("Debug mouse move to ({}, {}) seat {}", x, y, seat),
                 None,
             );
 
             let mut new_state = callback_info.get_current_window_state().clone();
-            new_state.mouse_state.cursor_position =
+            // `pointer_seat_mut(0)` IS `mouse_state`, so one path covers the
+            // ordinary mouse and a second cursor alike.
+            new_state.pointer_seat_mut(*seat).cursor_position =
                 azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
             callback_info.modify_window_state(new_state);
             // NO `needs_update` — see the note on `process_debug_event`.
@@ -13064,21 +13079,22 @@ pub fn process_debug_event(
             send_ok(request, None, None);
         }
 
-        DebugEvent::MouseDown { x, y, button } => {
+        DebugEvent::MouseDown { x, y, button, seat } => {
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
-                format!("Debug mouse down at ({}, {}) button {:?}", x, y, button),
+                format!("Debug mouse down at ({}, {}) button {:?} seat {}", x, y, button, seat),
                 None,
             );
 
             let mut new_state = callback_info.get_current_window_state().clone();
-            new_state.mouse_state.cursor_position =
+            let ms = new_state.pointer_seat_mut(*seat);
+            ms.cursor_position =
                 azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
             match button {
-                MouseButton::Left => new_state.mouse_state.left_down = true,
-                MouseButton::Right => new_state.mouse_state.right_down = true,
-                MouseButton::Middle => new_state.mouse_state.middle_down = true,
+                MouseButton::Left => ms.left_down = true,
+                MouseButton::Right => ms.right_down = true,
+                MouseButton::Middle => ms.middle_down = true,
             }
             callback_info.modify_window_state(new_state);
             // NO `needs_update` — see the note on `process_debug_event`.
@@ -13091,21 +13107,22 @@ pub fn process_debug_event(
             send_ok(request, None, None);
         }
 
-        DebugEvent::MouseUp { x, y, button } => {
+        DebugEvent::MouseUp { x, y, button, seat } => {
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
-                format!("Debug mouse up at ({}, {}) button {:?}", x, y, button),
+                format!("Debug mouse up at ({}, {}) button {:?} seat {}", x, y, button, seat),
                 None,
             );
 
             let mut new_state = callback_info.get_current_window_state().clone();
-            new_state.mouse_state.cursor_position =
+            let ms = new_state.pointer_seat_mut(*seat);
+            ms.cursor_position =
                 azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
             match button {
-                MouseButton::Left => new_state.mouse_state.left_down = false,
-                MouseButton::Right => new_state.mouse_state.right_down = false,
-                MouseButton::Middle => new_state.mouse_state.middle_down = false,
+                MouseButton::Left => ms.left_down = false,
+                MouseButton::Right => ms.right_down = false,
+                MouseButton::Middle => ms.middle_down = false,
             }
             callback_info.modify_window_state(new_state);
             // NO `needs_update` — see the note on `process_debug_event`.

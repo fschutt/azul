@@ -2022,9 +2022,24 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       a second seat's `axis_stop` (the momentum phase) and `axis_relative_direction` (natural
       scroll) are not recorded either - the gesture latch and the inversion flag are the window's.
       Needs the manager keyed by input point, which is its own arc.
-- [ ] 9b-ii-c No harness op injects a second seat: the headless backend and the e2e runner
-      are primary-only, so the per-seat pipeline is proven at the determination level, not
-      through a scenario.
+- [x] 9b-ii-c DONE - as a FIELD, not a new op: `mouse_move` / `mouse_down` / `mouse_up` take
+      `"seat": N` (default 0, the ordinary mouse), applied through `FullWindowState::pointer_seat_mut`,
+      whose seat 0 IS `mouse_state` - so the three appliers have ONE code path and a seat op is
+      the same op with one more key. `ModifyWindowState` then carries the seats (9b-ii) and the
+      runner's arm now hit-tests each changed seat into its own hover history
+      (`update_hit_test_for(InputPointId::for_seat(id), pos)`, with `update_hit_test_at` a
+      wrapper over it - the dll's `update_seat_hit_test_at` split).
+      ⚠ THE SCENARIO EXPOSED A GAP the determination tests could not: click-to-focus in BOTH
+      dispatchers read the PRIMARY's hit test for every press, so a second seat's press would
+      have focused whatever the first cursor hovered. Both now take the hit test of the seat
+      that pressed (`seat_of_event` on the first `MouseDown` of the pass).
+      `e2e/seat-second-cursor-click.json`: primary rests on r1, seat 7 presses r3 -> focus r3;
+      the primary clicks r1 -> focus r1; seat 7 presses r3 again -> focus r3 (its position
+      persisted across the primary's activity). `click` and the higher-level ops stay
+      primary-only; a seat click is `mouse_down` + `mouse_up` with `seat`.
+      ⚠ NOT COMPILED OR RUN: per the user (2026-09-03, "put all the compilation at the end"),
+      this and the following items are checked against rust-analyzer only; the batch compiles
+      once at the end, and the scenario runs with the corpus then.
 
 ### QUEUED BY THE USER - 2026-09-03, collaborative editing
 
