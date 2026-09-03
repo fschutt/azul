@@ -3283,10 +3283,11 @@ pub(super) extern "C" fn pointer_axis_handler(
     value: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
-    // accumulate on the window, and a second seat's would be mixed into the
-    // first's frame and scrolled under the first cursor. Dropped, as on X11.
-    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
+    // A second seat's axis events go to ITS OWN frame (9b-ii-b), never the
+    // window's, which is the primary's.
+    let seat_id = window.seat_id_for_pointer(pointer);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        window.handle_seat_pointer_axis(seat_id, axis, value as f64 / 256.0);
         return;
     }
     window.handle_pointer_axis(axis, value as f64 / 256.0);
@@ -3298,10 +3299,11 @@ pub(super) extern "C" fn pointer_axis_handler(
 /// where the frame-scoped `axis_source` is dropped.
 extern "C" fn pointer_frame_handler(data: *mut c_void, pointer: *mut wl_pointer) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
-    // accumulate on the window, and a second seat's would be mixed into the
-    // first's frame and scrolled under the first cursor. Dropped, as on X11.
-    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
+    // A second seat's axis events go to ITS OWN frame (9b-ii-b), never the
+    // window's, which is the primary's.
+    let seat_id = window.seat_id_for_pointer(pointer);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        window.handle_seat_pointer_frame(seat_id);
         return;
     }
     window.handle_pointer_frame();
@@ -3316,10 +3318,11 @@ extern "C" fn pointer_axis_source_handler(
     axis_source: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
-    // accumulate on the window, and a second seat's would be mixed into the
-    // first's frame and scrolled under the first cursor. Dropped, as on X11.
-    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
+    // A second seat's axis events go to ITS OWN frame (9b-ii-b), never the
+    // window's, which is the primary's.
+    let seat_id = window.seat_id_for_pointer(pointer);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        window.handle_seat_pointer_axis_source(seat_id, axis_source);
         return;
     }
     window.current_axis_source = axis_source;
@@ -3331,10 +3334,11 @@ extern "C" fn pointer_axis_stop_handler(
     _axis: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
-    // accumulate on the window, and a second seat's would be mixed into the
-    // first's frame and scrolled under the first cursor. Dropped, as on X11.
-    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
+    // A second seat's axis events go to ITS OWN frame (9b-ii-b), never the
+    // window's, which is the primary's.
+    let seat_id = window.seat_id_for_pointer(pointer);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        // axis_stop (the momentum phase) is primary-only: 9b-ii-b-i.
         return;
     }
     window.handle_pointer_axis_stop();
@@ -3350,6 +3354,13 @@ extern "C" fn pointer_axis_value120_handler(
     value120: i32,
 ) {
     let window = unsafe { &mut *(data as *mut super::WaylandWindow) };
+    // A second seat's axis events go to ITS OWN frame (9b-ii-b), never the
+    // window's, which is the primary's.
+    let seat_id = window.seat_id_for_pointer(pointer);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        window.handle_seat_pointer_axis_value120(seat_id, axis, value120);
+        return;
+    }
     window.handle_pointer_axis_value120(axis, value120);
 }
 
@@ -3361,6 +3372,13 @@ extern "C" fn pointer_axis_relative_direction_handler(
     direction: u32,
 ) {
     let window = unsafe { &mut *(data as *mut super::WaylandWindow) };
+    // A second seat's axis events go to ITS OWN frame (9b-ii-b), never the
+    // window's, which is the primary's.
+    let seat_id = window.seat_id_for_pointer(pointer);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        // the inversion flag is recorded for the primary only; a seat's frame reads the raw sign.
+        return;
+    }
     window.handle_pointer_axis_relative_direction(axis, direction);
 }
 
@@ -3371,22 +3389,11 @@ extern "C" fn pointer_axis_discrete_handler(
     discrete: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
-    // accumulate on the window, and a second seat's would be mixed into the
-    // first's frame and scrolled under the first cursor. Dropped, as on X11.
-    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
-        return;
-    }
-    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
-    // accumulate on the window, and a second seat's would be mixed into the
-    // first's frame and scrolled under the first cursor. Dropped, as on X11.
-    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
-        return;
-    }
-    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
-    // accumulate on the window, and a second seat's would be mixed into the
-    // first's frame and scrolled under the first cursor. Dropped, as on X11.
-    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
+    // A second seat's axis events go to ITS OWN frame (9b-ii-b), never the
+    // window's, which is the primary's.
+    let seat_id = window.seat_id_for_pointer(pointer);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        window.handle_seat_pointer_axis_discrete(seat_id, axis, discrete);
         return;
     }
     window.handle_pointer_axis_discrete(axis, discrete);

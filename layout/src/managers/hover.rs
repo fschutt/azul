@@ -80,6 +80,52 @@ pub fn focusable_under_pointer(
     None
 }
 
+/// Which pointer seat an event belongs to: the seat on a mouse or scroll
+/// event, the primary for everything else.
+#[must_use]
+pub fn seat_of_event(event: &SyntheticEvent) -> u64 {
+    match &event.data {
+        EventData::Mouse(m) => m.seat_id,
+        EventData::Scroll(s) => s.seat_id,
+        _ => azul_core::window::PRIMARY_POINTER_SEAT,
+    }
+}
+
+/// An active pointer capture (`CallbackInfo::capture_pointer`): while set,
+/// the capturing SEAT's moves and release are delivered to `node` no matter
+/// what is under that cursor (W3C `setPointerCapture`). Per seat (9b-ii-b):
+/// a capture a second cursor's press started must not swallow the first
+/// cursor's moves, and vice versa.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PointerCapture {
+    pub seat_id: u64,
+    pub node: DomNodeId,
+}
+
+/// Retarget the captured seat's `MouseMove` / `MouseOver` / `MouseUp` at the
+/// capturing node; returns whether that seat RELEASED (the capture ends with
+/// the release). Other seats' events pass through untouched.
+pub fn apply_pointer_capture(events: &mut [SyntheticEvent], capture: PointerCapture) -> bool {
+    let mut released = false;
+    for ev in events.iter_mut() {
+        let EventData::Mouse(mouse) = &ev.data else {
+            continue;
+        };
+        if mouse.seat_id != capture.seat_id {
+            continue;
+        }
+        if matches!(
+            ev.event_type,
+            EventType::MouseMove | EventType::MouseOver | EventType::MouseUp
+        ) {
+            ev.target = capture.node;
+            ev.current_target = capture.node;
+            released |= ev.event_type == EventType::MouseUp;
+        }
+    }
+    released
+}
+
 /// Identifier for an input point (mouse, touch, pen, etc.)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InputPointId {
@@ -1493,6 +1539,48 @@ mod autotest_generated {
         assert_eq!(ht.regular_hit_test_nodes.len(), 2);
         assert_eq!(ht.regular_hit_test_nodes[&NodeId::new(2)].hit_depth, 10);
         assert_eq!(ht.regular_hit_test_nodes[&NodeId::new(1)].hit_depth, 20);
+    }
+
+    // ------------------------------------------------- apply_pointer_capture
+
+    fn seat_move(seat_id: u64, target: DomNodeId, ty: EventType) -> SyntheticEvent {
+        use azul_core::events::{KeyModifiers, MouseEventData};
+        SyntheticEvent::new(
+            ty,
+            EventSource::User,
+            target,
+            azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 }),
+            EventData::Mouse(MouseEventData {
+                position: LogicalPosition::zero(),
+                button: MouseButton::Left,
+                buttons: 0,
+                modifiers: KeyModifiers::default(),
+                seat_id,
+                ..Default::default()
+            }),
+        )
+    }
+
+    #[test]
+    fn a_capture_retargets_only_its_own_seat_and_ends_on_that_seats_release() {
+        // Seat 0 captured node 3; seat 9 is moving over node 5 on its own.
+        let capture = PointerCapture {
+            seat_id: 0,
+            node: press_dnid(3),
+        };
+        let mut events = vec![
+            seat_move(0, press_dnid(8), EventType::MouseMove),
+            seat_move(9, press_dnid(5), EventType::MouseMove),
+            seat_move(9, press_dnid(5), EventType::MouseUp),
+        ];
+        let released = apply_pointer_capture(&mut events, capture);
+        assert_eq!(events[0].target, press_dnid(3), "the captured seat's move went to the node");
+        assert_eq!(events[1].target, press_dnid(5), "the other seat's move did not");
+        assert!(!released, "the OTHER seat's release does not end this capture");
+
+        let mut events = vec![seat_move(0, press_dnid(8), EventType::MouseUp)];
+        assert!(apply_pointer_capture(&mut events, capture));
+        assert_eq!(events[0].target, press_dnid(3));
     }
 
     // ------------------------------------------------- focusable_under_pointer

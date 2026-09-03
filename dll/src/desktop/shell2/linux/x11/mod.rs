@@ -2008,11 +2008,11 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
 /// which derives its MouseDown/Up/Move/Click with the seat id on the event.
 ///
 /// Deliberately NOT the primary's path: no motion compression (the batch
-/// holds one pending motion, the primary's), no gesture samples
-/// (`GestureAndDragManager` tracks one pointer - see 9b-ii-b) and no wheel:
-/// `handle_scroll_input` scrolls the node under the PRIMARY cursor, which is
-/// the wrong node for this seat, so a second cursor's wheel is dropped here
-/// rather than delivered to the first cursor's hover (9b-ii-b again).
+/// holds one pending motion, the primary's) and no gesture samples
+/// (`GestureAndDragManager` tracks one pointer - see 9b-ii-b-i). The wheel
+/// IS handled (9b-ii-b), through `handle_scroll_input_for_seat`, which
+/// hit-tests into this seat's own hover history so the scroll lands under
+/// this cursor.
 fn handle_secondary_seat_pointer(
     win: &mut X11Window,
     seat_id: u64,
@@ -2032,9 +2032,35 @@ fn handle_secondary_seat_pointer(
                 1 => MouseButton::Left,
                 2 => MouseButton::Middle,
                 3 => MouseButton::Right,
-                // Wheel emulation (press+release pairs). Primary-only, see
-                // the doc above.
-                4..=7 => return ProcessEventResult::DoNothing,
+                // THE WHEEL (9b-ii-b): legacy buttons 4-7 as press+release
+                // pairs, one pair per detent. Same decoding as the core
+                // handler - only the press scrolls, the release is swallowed,
+                // and the emulated pair that rides alongside a smooth-scroll
+                // valuator is skipped so a touchpad flick is not applied
+                // twice.
+                4..=7 => {
+                    if !is_down {
+                        return ProcessEventResult::DoNothing;
+                    }
+                    let emulated_wheel = ev.flags & defines::XIPointerEmulated != 0
+                        && win.scroll_valuators.contains_key(&ev.sourceid);
+                    if emulated_wheel {
+                        return ProcessEventResult::DoNothing;
+                    }
+                    let (dx, dy): (f32, f32) = match ev.detail {
+                        4 => (0.0, 1.0),
+                        5 => (0.0, -1.0),
+                        6 => (1.0, 0.0),
+                        _ => (-1.0, 0.0),
+                    };
+                    return win.handle_scroll_input_for_seat(
+                        seat_id,
+                        dx * events::X11_SCROLL_TICK_PIXELS,
+                        dy * events::X11_SCROLL_TICK_PIXELS,
+                        pos,
+                        false,
+                    );
+                }
                 // The thumb pair, the same decoding the core handler applies.
                 8 => MouseButton::Other(MOUSE_BUTTON_BACK),
                 9 => MouseButton::Other(MOUSE_BUTTON_FORWARD),
@@ -2046,10 +2072,18 @@ fn handle_secondary_seat_pointer(
             win.process_window_events(0)
         }
         defines::XI_Motion => {
+            // Smooth scroll rides on XI_Motion valuators for this seat's
+            // device too (9b-ii-b); `decode_smooth_scroll` keys by sourceid,
+            // so it answers for whichever device drove this seat.
+            let scrolled = unsafe { decode_smooth_scroll(win, ev) }
+                .map(|(dx, dy, continuous)| {
+                    win.handle_scroll_input_for_seat(seat_id, dx, dy, pos, continuous)
+                });
             win.snapshot_window_state_baseline("x11.seat.motion");
             win.common.pointer_seat_mut(seat_id).cursor_position = CursorPosition::InWindow(pos);
             win.update_seat_hit_test_at(seat_id, pos);
-            win.process_window_events(0)
+            let moved = win.process_window_events(0);
+            scrolled.map_or(moved, |s| s.max(moved))
         }
         _ => ProcessEventResult::DoNothing,
     }

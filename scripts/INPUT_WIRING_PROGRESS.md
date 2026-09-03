@@ -1983,14 +1983,45 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       the xdg_popup grab) is the primary seat's; a second seat's enter on the popup surface is
       treated as the main surface. The grab is per seat in xdg-shell, so this is a real
       per-seat question and not a line.
-- [ ] 9b-ii-b Per-seat gestures, wheel and pointer capture. `GestureAndDragManager` tracks ONE
-      pointer and is fed from the primary cursor, so drag / double-click / long-press / pen stay
-      primary-only; a second seat's wheel is DROPPED on X11 rather than scrolling the node under
-      the first cursor; `pointer_capture` (one `Option<DomNodeId>`, no seat) still retargets
-      every seat's moves and releases - left as it was rather than approximated, because both
-      "primary only" and "all seats" are wrong for a capture a second seat's press started.
-      Also `deduplicate_synthetic_events` coalesces by (target, type), so two seats pressing
-      the same node produce one MouseDown - the touch path's documented limit, now shared.
+- [x] 9b-ii-b DONE for the wheel, pointer capture and the dedup; the gestures are 9b-ii-b-i.
+      THE WHEEL: `ScrollManager::record_scroll_from_hit_test` already took an `InputPointId`, so
+      the scroll physics had been per input point all along - what was missing was a producer
+      that hit-tested into the seat's own history and asked about `Seat(id)`. X11:
+      `handle_scroll_input` is now a wrapper over `handle_scroll_input_for_seat`; a second
+      master's legacy buttons 4-7 (press only, the emulated pair beside a smooth valuator
+      skipped, exactly the core rule) and its XI_Motion smooth-scroll valuators both go through
+      it. Wayland: a `SeatAxisFrame` per non-primary seat (`seat_axis` map) accumulates that
+      seat's `axis` / `axis_discrete` / `axis_value120` / `axis_source` until ITS `frame`, then
+      `flush_seat_axis` hit-tests at the seat's own cursor and hands the delta to the new shared
+      `dispatch_scroll_delta(input_id, ..)` - the record-and-arm-the-physics-timer block that
+      `flush_pending_axis` and the seat flush now share. The `Scroll` EVENT names the seat too:
+      `ScrollEventData.seat_id` (Rust-only) and `ScrollManager.pending_wheel_seat`, and
+      `determine_all_events` aims it at `hover_node_full_for(Seat(id))`, so a wheel-as-zoom widget
+      under the second cursor is the one that zooms.
+      ⚠ FOUND ON THE WAY, a 9b-ii-a hole: the axis guards were inserted by matching the handler's
+      `let window = ... as *mut WaylandWindow` line, and `axis_value120` and
+      `axis_relative_direction` spell the type `super::WaylandWindow` - so those two were never
+      guarded (a second seat's high-resolution wheel fed the PRIMARY's frame) and the discrete
+      handler got THREE guards. All seven now route by seat, checked per handler.
+      POINTER CAPTURE: `PointerCapture { seat_id, node }`; `CallbackChange::CapturePointer` carries
+      a seat the DISPATCHER stamps - the callback cannot know it, so `capture_pointer` writes the
+      primary and `dispatch_events_propagated` rewrites it from the planned invocation's event
+      (`PlannedInvocation.seat_id`, `hover::seat_of_event`). `hover::apply_pointer_capture` is the
+      retarget rule (host-tested): only the capturing seat's moves and release are retargeted, and
+      only that seat's release ends it. Both the dll and the e2e runner use the one type.
+      DEDUP: `deduplicate_synthetic_events` keys on the seat as well, so two cursors pressing one
+      node are two presses; one seat pressing twice in a pass still coalesces; non-pointer events
+      key on the primary and behave exactly as before.
+      EVIDENCE: a determination test (a delta recorded for seat 7 aims `Scroll` at the node under
+      seat 7 with `seat_id` 7; the primary's still at the primary's), the capture test (the other
+      seat's move passes through, its release does not end the capture, the captured seat's does)
+      - NEGATIVE CONTROL: dropping the seat filter fails it - and a core dedup test. Host, the dll
+      test target, the Linux target directly (X11 + Wayland compile) and 8/8 mobile.
+- [ ] 9b-ii-b-i Per-seat GESTURES: `GestureAndDragManager` tracks one pointer and is fed from
+      the primary cursor, so drag / double-click / long-press / pen stay primary-only; on Wayland
+      a second seat's `axis_stop` (the momentum phase) and `axis_relative_direction` (natural
+      scroll) are not recorded either - the gesture latch and the inversion flag are the window's.
+      Needs the manager keyed by input point, which is its own arc.
 - [ ] 9b-ii-c No harness op injects a second seat: the headless backend and the e2e runner
       are primary-only, so the per-seat pipeline is proven at the determination level, not
       through a scenario.

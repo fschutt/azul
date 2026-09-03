@@ -5262,9 +5262,12 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
-            CallbackChange::CapturePointer { node } => {
+            CallbackChange::CapturePointer { node, seat_id } => {
                 if let Some(lw) = self.get_layout_window_mut() {
-                    lw.pointer_capture = Some(*node);
+                    lw.pointer_capture = Some(azul_layout::managers::hover::PointerCapture {
+                        seat_id: *seat_id,
+                        node: *node,
+                    });
                 }
                 ProcessEventResult::DoNothing
             }
@@ -8027,6 +8030,9 @@ pub trait PlatformWindow {
             dom_id: DomId,
             node_id: NodeId,
             callback_data: CoreCallbackData,
+            /// The pointer seat of the event this callback answers (9b-ii-b):
+            /// a `capture_pointer` it pushes binds to THIS seat.
+            seat_id: u64,
         }
 
         // ===================================================================
@@ -8119,6 +8125,7 @@ pub trait PlatformWindow {
                                                 dom_id,
                                                 node_id: *node_id,
                                                 callback_data: cb.clone(),
+                                                seat_id: azul_layout::managers::hover::seat_of_event(event),
                                             });
                                         }
                                     }
@@ -8139,6 +8146,7 @@ pub trait PlatformWindow {
                                                         dom_id,
                                                         node_id,
                                                         callback_data: cb.clone(),
+                                                        seat_id: azul_layout::managers::hover::seat_of_event(event),
                                                     });
                                                 }
                                             }
@@ -8160,6 +8168,7 @@ pub trait PlatformWindow {
                                                     dom_id: *dom_id,
                                                     node_id,
                                                     callback_data: cb.clone(),
+                                                    seat_id: azul_layout::managers::hover::seat_of_event(event),
                                                 });
                                             }
                                         }
@@ -8180,6 +8189,7 @@ pub trait PlatformWindow {
                                                     dom_id: *dom_id,
                                                     node_id,
                                                     callback_data: cb.clone(),
+                                                    seat_id: azul_layout::managers::hover::seat_of_event(event),
                                                 });
                                             }
                                         }
@@ -8209,6 +8219,7 @@ pub trait PlatformWindow {
                                         dom_id,
                                         node_id,
                                         callback_data: cb.clone(),
+                                        seat_id: azul_layout::managers::hover::seat_of_event(event),
                                     });
                                 }
                             }
@@ -8293,8 +8304,18 @@ pub trait PlatformWindow {
                 }
             }
 
-            // Accumulate changes for later application
-            all_changes.extend(changes);
+            // Accumulate changes for later application. A pointer capture
+            // binds to the seat whose event this callback answered (9b-ii-b);
+            // the callback itself cannot know it.
+            all_changes.extend(changes.into_iter().map(|c| match c {
+                azul_layout::callbacks::CallbackChange::CapturePointer { node, .. } => {
+                    azul_layout::callbacks::CallbackChange::CapturePointer {
+                        node,
+                        seat_id: planned.seat_id,
+                    }
+                }
+                other => other,
+            }));
 
             // stopPropagation: record that we should stop after remaining same-node handlers
             if should_stop_propagation && !propagation_stopped {
@@ -9477,6 +9498,10 @@ pub trait PlatformWindow {
         let wheel_delta = self
             .get_layout_window()
             .and_then(|w| w.scroll_manager.pending_wheel_event);
+        let wheel_seat = self.get_layout_window().map_or(
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            |w| w.scroll_manager.pending_wheel_seat,
+        );
 
         // Determine all events (returns Vec<SyntheticEvent>)
         let mut synthetic_events = if let (Some(fm), Some(fdm), Some(hm)) =
@@ -9491,6 +9516,7 @@ pub trait PlatformWindow {
                 gesture_manager,
                 &event_providers,
                 wheel_delta,
+                wheel_seat,
                 timestamp,
             )
         } else {
@@ -9539,19 +9565,12 @@ pub trait PlatformWindow {
         // Pointer capture: while a node holds the pointer, moves and the
         // release go to IT, not to whatever the hit test found. The capture
         // ends with the release (W3C `setPointerCapture` semantics).
+        // PER SEAT (9b-ii-b): only the capturing seat's events are retargeted,
+        // and only that seat's release ends the capture - the rule and its
+        // test live in `hover::apply_pointer_capture`.
         if let Some(captured) = self.get_layout_window().and_then(|lw| lw.pointer_capture) {
-            use azul_core::events::EventType;
-            let mut released = false;
-            for ev in &mut synthetic_events {
-                if matches!(
-                    ev.event_type,
-                    EventType::MouseMove | EventType::MouseOver | EventType::MouseUp
-                ) {
-                    ev.target = captured;
-                    ev.current_target = captured;
-                    released |= ev.event_type == EventType::MouseUp;
-                }
-            }
+            let released =
+                azul_layout::managers::hover::apply_pointer_capture(&mut synthetic_events, captured);
             if released {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.pointer_capture = None;

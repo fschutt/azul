@@ -515,6 +515,10 @@ pub struct ScrollEventData {
     pub delta: LogicalPosition,
     /// How the delta should be interpreted
     pub delta_mode: ScrollDeltaMode,
+    /// Which pointer SEAT turned the wheel (9b-ii-b); `PRIMARY_POINTER_SEAT`
+    /// for the ordinary mouse. A second cursor's wheel scrolls the node under
+    /// THAT cursor, so the event names the seat the way a mouse event does.
+    pub seat_id: u64,
 }
 
 /// Type-specific event data for touch events.
@@ -3324,15 +3328,26 @@ pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<Synt
         return events;
     }
 
-    events.sort_by_key(|e| (e.target.dom, e.target.node, e.event_type));
+    // The pointer SEAT is part of the key (9b-ii-b): two cursors pressing the
+    // same node are two presses, not one. Non-pointer events key on the
+    // primary and coalesce exactly as before.
+    let seat_of = |e: &SyntheticEvent| match &e.data {
+        EventData::Mouse(m) => m.seat_id,
+        EventData::Scroll(s) => s.seat_id,
+        _ => crate::window::PRIMARY_POINTER_SEAT,
+    };
+    events.sort_by_key(|e| (e.target.dom, e.target.node, e.event_type, seat_of(e)));
 
-    // Coalesce consecutive events with same target and event_type
+    // Coalesce consecutive events with same target, event_type and seat
     let mut result = Vec::with_capacity(events.len());
     let mut iter = events.into_iter();
 
     if let Some(mut prev) = iter.next() {
         for curr in iter {
-            if prev.target == curr.target && prev.event_type == curr.event_type {
+            if prev.target == curr.target
+                && prev.event_type == curr.event_type
+                && seat_of(&prev) == seat_of(&curr)
+            {
                 // Keep the one with later timestamp
                 prev = if curr.timestamp > prev.timestamp {
                     curr

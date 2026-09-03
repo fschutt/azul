@@ -1329,7 +1329,7 @@ pub struct LayoutWindow {
     /// matter what is under the cursor — W3C `setPointerCapture`. A slider
     /// or colour plane that only listened for `MouseOver` on itself lost the
     /// drag the instant the cursor slipped off it. Released on mouse-up.
-    pub pointer_capture: Option<DomNodeId>,
+    pub pointer_capture: Option<crate::managers::hover::PointerCapture>,
     /// What layout has done to the set of open popups since the backend last
     /// looked — accumulated across passes (see `TransientDiff::merge`), taken
     /// with [`Self::take_transient_diff`] to create/move/destroy surfaces.
@@ -19575,14 +19575,18 @@ impl LayoutWindow {
         }
         // A pointer capture follows its node; an unmounted node releases it.
         if let Some(captured) = *pointer_capture {
-            if captured.dom == dom {
+            if captured.node.dom == dom {
                 *pointer_capture = captured
+                    .node
                     .node
                     .into_crate_internal()
                     .and_then(|n| map.resolve(n))
-                    .map(|n| DomNodeId {
-                        dom,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+                    .map(|n| crate::managers::hover::PointerCapture {
+                        seat_id: captured.seat_id,
+                        node: DomNodeId {
+                            dom,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+                        },
                     });
             }
         }

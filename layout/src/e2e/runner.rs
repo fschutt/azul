@@ -819,6 +819,7 @@ impl Runner {
                 Some(&lw.gesture_drag_manager),
                 &providers,
                 wheel_delta,
+                self.layout_window.scroll_manager.pending_wheel_seat,
                 timestamp,
             )
         };
@@ -2867,8 +2868,12 @@ impl Runner {
             }
             CallbackChange::OpenMenu { .. } => self.unsupported("OpenMenu", "no native menu host"),
             // Pointer capture is pure engine state: mirror the DLL arm.
-            CallbackChange::CapturePointer { node } => {
-                self.layout_window.pointer_capture = Some(*node);
+            CallbackChange::CapturePointer { node, seat_id } => {
+                self.layout_window.pointer_capture =
+                    Some(crate::managers::hover::PointerCapture {
+                        seat_id: *seat_id,
+                        node: *node,
+                    });
                 ProcessEventResult::DoNothing
             }
             CallbackChange::ReleasePointerCapture => {

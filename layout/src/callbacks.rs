@@ -585,6 +585,10 @@ pub enum CallbackChange {
     /// comes up, whatever is under the cursor (W3C `setPointerCapture`).
     CapturePointer {
         node: DomNodeId,
+        /// Which pointer SEAT the capturing press came from (9b-ii-b). A
+        /// callback cannot know it - it is stamped by the dispatcher from the
+        /// event being delivered - so `capture_pointer` writes the primary.
+        seat_id: u64,
     },
     /// Drop an active pointer capture before the release would.
     ReleasePointerCapture,
@@ -2643,7 +2647,10 @@ impl CallbackInfo {
     /// while captured, so coordinates may run outside `[0, size]`.
     /// Released automatically on mouse-up, or by [`Self::release_pointer_capture`].
     pub fn capture_pointer(&mut self, node: DomNodeId) {
-        self.push_change(CallbackChange::CapturePointer { node });
+        self.push_change(CallbackChange::CapturePointer {
+            node,
+            seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
+        });
     }
 
     /// End an active pointer capture early.

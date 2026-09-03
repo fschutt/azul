@@ -837,6 +837,29 @@ impl X11Window {
         position: LogicalPosition,
         continuous: bool,
     ) -> ProcessEventResult {
+        self.handle_scroll_input_for_seat(
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            delta_x,
+            delta_y,
+            position,
+            continuous,
+        )
+    }
+
+    /// [`Self::handle_scroll_input`] for ANY pointer seat (9b-ii-b): the hit
+    /// test goes into the seat's own hover history and the scroll manager is
+    /// asked about that input point, so a second cursor's wheel scrolls the
+    /// node under the second cursor. The scroll-physics timer and the input
+    /// queue are the window's, shared by every seat, exactly as they are
+    /// shared by a wheel and a trackpad on one seat.
+    pub(super) fn handle_scroll_input_for_seat(
+        &mut self,
+        seat_id: u64,
+        delta_x: f32,
+        delta_y: f32,
+        position: LogicalPosition,
+        continuous: bool,
+    ) -> ProcessEventResult {
         // Save previous state BEFORE making changes
         self.snapshot_window_state_baseline("x11.handle_scroll_input");
 
@@ -850,7 +873,12 @@ impl X11Window {
         }
 
         // Update hit test
-        self.update_hit_test(position);
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.update_hit_test(position);
+        } else {
+            use crate::desktop::shell2::common::event::PlatformWindow;
+            self.update_seat_hit_test_at(seat_id, position);
+        }
 
         // Queue scroll input for the physics timer instead of directly setting offsets.
         {
@@ -897,7 +925,7 @@ impl X11Window {
                         source,
                         device,
                         &layout_window.hover_manager,
-                        &InputPointId::Mouse,
+                        &InputPointId::for_seat(seat_id),
                         now,
                     )
                 {

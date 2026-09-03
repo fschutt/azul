@@ -463,6 +463,7 @@ pub fn determine_all_events(
     gesture_manager: Option<&crate::managers::gesture::GestureAndDragManager>,
     managers: &[&dyn EventProvider],
     wheel_delta: Option<LogicalPosition>,
+    wheel_seat: u64,
     timestamp: Instant,
 ) -> Vec<SyntheticEvent> {
     let mut events = Vec::new();
@@ -708,14 +709,26 @@ pub fn determine_all_events(
     // read back by the callback via `CallbackInfo::get_scroll_delta`.
     if let Some(delta) = wheel_delta {
         if delta.x != 0.0 || delta.y != 0.0 {
+            // The node under the seat that TURNED the wheel (9b-ii-b): a
+            // second cursor's scroll must not zoom the map under the first.
+            let wheel_target = if wheel_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                mouse_target
+            } else {
+                hover_manager
+                    .hover_node_full_for(&crate::managers::hover::InputPointId::for_seat(
+                        wheel_seat,
+                    ))
+                    .unwrap_or(root_node)
+            };
             events.push(SyntheticEvent::new(
                 EventType::Scroll,
                 EventSource::User,
-                mouse_target,
+                wheel_target,
                 timestamp.clone(),
                 EventData::Scroll(ScrollEventData {
                     delta,
                     delta_mode: ScrollDeltaMode::Pixel,
+                    seat_id: wheel_seat,
                 }),
             ));
         }
@@ -1476,6 +1489,7 @@ mod tests {
             None,
             &providers,
             None,
+            azul_core::window::PRIMARY_POINTER_SEAT,
             ts(),
         )
     }
@@ -1914,6 +1928,7 @@ mod autotest_generated {
             gesture,
             &providers,
             wheel,
+            azul_core::window::PRIMARY_POINTER_SEAT,
             ts(0),
         )
     }
@@ -2885,6 +2900,51 @@ mod autotest_generated {
     }
 
     #[test]
+    fn a_second_seats_wheel_scrolls_the_node_under_that_seat() {
+        // Seat 0 hovers node 3, seat 7 hovers node 9. A wheel delta recorded
+        // for seat 7 must aim the Scroll event at node 9 and say so.
+        let mut hm = HoverManager::new();
+        hm.push_hit_test(InputPointId::Mouse, hits(&[(0, 3)]));
+        hm.push_hit_test(InputPointId::Seat(7), hits(&[(0, 9)]));
+        let s = cursor_at(1.0, 1.0);
+        let focus = crate::managers::focus_cursor::FocusManager::new();
+        let fd = crate::managers::file_drop::FileDropManager::new();
+        let providers: Vec<&dyn EventProvider> = Vec::new();
+        let events = determine_all_events(
+            &s,
+            &s,
+            &hm,
+            &focus,
+            &fd,
+            None,
+            &providers,
+            Some(LogicalPosition::new(0.0, -10.0)),
+            7,
+            ts(0),
+        );
+        let scroll = only(&events, EventType::Scroll);
+        assert_eq!(scroll.target, node(0, 9), "under the SECOND cursor");
+        match &scroll.data {
+            EventData::Scroll(d) => assert_eq!(d.seat_id, 7),
+            other => panic!("{other:?}"),
+        }
+        // The primary's wheel still goes to the primary's hover.
+        let events = determine_all_events(
+            &s,
+            &s,
+            &hm,
+            &focus,
+            &fd,
+            None,
+            &providers,
+            Some(LogicalPosition::new(0.0, -10.0)),
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            ts(0),
+        );
+        assert_eq!(only(&events, EventType::Scroll).target, node(0, 3));
+    }
+
+    #[test]
     fn a_single_seat_state_derives_exactly_what_it_did_before() {
         // No `pointer_seats` entries: the refactor must be invisible.
         let mut previous = cursor_at(20.0, 20.0);
@@ -2920,6 +2980,7 @@ mod autotest_generated {
             None,
             &providers,
             None,
+            azul_core::window::PRIMARY_POINTER_SEAT,
             ts(0),
         );
         let down = only(&events, EventType::KeyDown);
@@ -3095,6 +3156,7 @@ mod autotest_generated {
             None,
             &providers,
             None,
+            azul_core::window::PRIMARY_POINTER_SEAT,
             ts(u64::MAX),
         );
         let theme = only(&events, EventType::ThemeChange);
@@ -3119,6 +3181,7 @@ mod autotest_generated {
             None,
             &providers,
             None,
+            azul_core::window::PRIMARY_POINTER_SEAT,
             ts(0),
         )
     }
@@ -3195,7 +3258,7 @@ mod autotest_generated {
         fd.set_dropped_file(Some(AzString::from(String::from("/tmp/x"))));
         let providers: Vec<&dyn EventProvider> = Vec::new();
         let events =
-            determine_all_events(&s, &s, &hover, &focus, &fd, None, &providers, None, ts(0));
+            determine_all_events(&s, &s, &hover, &focus, &fd, None, &providers, None, azul_core::window::PRIMARY_POINTER_SEAT, ts(0));
         let drop = only(&events, EventType::FileDrop);
         assert_eq!(drop.target, node(1, 4));
     }
@@ -3281,7 +3344,7 @@ mod autotest_generated {
         );
 
         let events = determine_all_events(
-            &after, &before, &hover, &focus, &fd, None, &providers, None, ts(0),
+            &after, &before, &hover, &focus, &fd, None, &providers, None, azul_core::window::PRIMARY_POINTER_SEAT, ts(0),
         );
         assert_eq!(
             count(&events, EventType::ModifiersChanged),
@@ -3291,7 +3354,7 @@ mod autotest_generated {
 
         // Holding it is not a change.
         let events = determine_all_events(
-            &after, &after, &hover, &focus, &fd, None, &providers, None, ts(1),
+            &after, &after, &hover, &focus, &fd, None, &providers, None, azul_core::window::PRIMARY_POINTER_SEAT, ts(1),
         );
         assert_eq!(
             count(&events, EventType::ModifiersChanged),
@@ -3301,7 +3364,7 @@ mod autotest_generated {
 
         // And releasing it moves back.
         let events = determine_all_events(
-            &before, &after, &hover, &focus, &fd, None, &providers, None, ts(2),
+            &before, &after, &hover, &focus, &fd, None, &providers, None, azul_core::window::PRIMARY_POINTER_SEAT, ts(2),
         );
         assert_eq!(
             count(&events, EventType::ModifiersChanged),
@@ -3334,7 +3397,7 @@ mod autotest_generated {
         );
         assert!(!after.keyboard_state.modifiers.shift);
         let events = determine_all_events(
-            &after, &before, &hover, &focus, &fd, None, &providers, None, ts(0),
+            &after, &before, &hover, &focus, &fd, None, &providers, None, azul_core::window::PRIMARY_POINTER_SEAT, ts(0),
         );
         assert_eq!(count(&events, EventType::ModifiersChanged), 0);
     }
@@ -3807,6 +3870,7 @@ mod autotest_generated {
             None,
             &providers,
             None,
+            azul_core::window::PRIMARY_POINTER_SEAT,
             ts(0),
         );
         assert_eq!(events.len(), 2);
@@ -3832,6 +3896,7 @@ mod autotest_generated {
             None,
             &providers,
             Some(LogicalPosition::new(0.0, -1.0)),
+            azul_core::window::PRIMARY_POINTER_SEAT,
             ts(0),
         );
         assert_eq!(count(&events, EventType::Scroll), 1);
@@ -3860,6 +3925,7 @@ mod autotest_generated {
             Some(&g),
             &providers,
             None,
+            azul_core::window::PRIMARY_POINTER_SEAT,
             ts(0),
         );
         assert!(events.is_empty(), "got {events:?}");

@@ -375,6 +375,10 @@ pub struct ScrollManager {
     /// [`Self::record_scroll_from_hit_test`]; read during event determination and
     /// callback dispatch, then cleared at the end of the pass.
     pub pending_wheel_event: Option<LogicalPosition>,
+    /// Which pointer seat the pending wheel delta came from (9b-ii-b); the
+    /// `Scroll` event is aimed at THAT seat's hovered node. `Default` (0) is
+    /// the primary.
+    pub pending_wheel_seat: u64,
     /// Set when a scroll position changes; cleared after the display list
     /// is regenerated.  Used by the CPU renderer path to detect when the
     /// display list must be rebuilt even though the DOM hasn't changed.
@@ -690,6 +694,10 @@ impl ScrollManager {
             x: delta_x,
             y: delta_y,
         });
+        self.pending_wheel_seat = match input_point_id {
+            InputPointId::Seat(id) => *id,
+            _ => azul_core::window::PRIMARY_POINTER_SEAT,
+        };
 
         let hit_test = hover_manager.get_current(input_point_id)?;
 

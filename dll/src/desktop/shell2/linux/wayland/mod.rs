@@ -390,6 +390,18 @@ impl MonitorState {
 /// one.
 const FRAME_CALLBACK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
 
+/// One `wl_pointer` frame's accumulated axis events for a non-primary seat
+/// (9b-ii-b) - the same fields the primary keeps on the window, boxed per
+/// seat so two seats' frames cannot mix.
+#[derive(Debug, Default, Clone, Copy)]
+pub(super) struct SeatAxisFrame {
+    pub(super) source: u32,
+    pub(super) value: (f32, f32),
+    pub(super) discrete: (f32, f32),
+    pub(super) value120_seen: bool,
+    pub(super) pending: bool,
+}
+
 pub struct WaylandWindow {
     wayland: Rc<Wayland>,
     xkb: Rc<Xkb>,
@@ -414,6 +426,11 @@ pub struct WaylandWindow {
     /// `wl_pointer` proxy an event names, because listener user-data is
     /// re-pointed wholesale by `rebind_listeners` and cannot carry a seat.
     seats: crate::desktop::shell2::common::seats::SeatTable<*mut std::ffi::c_void>,
+    /// The in-progress `wl_pointer` axis frame of each NON-PRIMARY seat
+    /// (9b-ii-b). The primary's accumulator is the `pending_axis_*` fields
+    /// below; a second seat's axis events used to be dropped because mixing
+    /// them into those fields would have scrolled under the first cursor.
+    seat_axis: std::collections::BTreeMap<u64, SeatAxisFrame>,
     xdg_wm_base: *mut defines::xdg_wm_base,
     pub(crate) surface: *mut defines::wl_surface,
     xdg_surface: *mut defines::xdg_surface,
@@ -1851,6 +1868,7 @@ impl WaylandWindow {
             shm: std::ptr::null_mut(),
             seat: std::ptr::null_mut(),
             seats: crate::desktop::shell2::common::seats::SeatTable::new(),
+            seat_axis: std::collections::BTreeMap::new(),
             xdg_wm_base: std::ptr::null_mut(),
             surface: std::ptr::null_mut(),
             xdg_surface: std::ptr::null_mut(),
@@ -4248,6 +4266,29 @@ impl WaylandWindow {
         }
 
         // Queue scroll input for the physics timer instead of directly setting offsets.
+        self.dispatch_scroll_delta(InputPointId::Mouse, delta_x, delta_y, is_trackpad);
+
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+    }
+
+    /// MWA-C-scroll: wl_pointer.axis_stop — fingers lifted from the
+    /// touchpad. Emits a zero-delta `TrackpadEnd` at the current scroll
+    /// target so the physics timer runs its rubber-band spring-back (the
+    /// same signal macOS derives from NSEventPhase::Ended). Without it an
+    /// overshot Wayland touchpad scroll stayed stuck past the boundary.
+    /// Record one scroll delta for `input_id` with the scroll manager and arm
+    /// the physics timer if it asks for one - the part of a flushed axis
+    /// frame that is the same for every seat (9b-ii-b). The primary's flush
+    /// passes `InputPointId::Mouse`; a second seat's passes its own point, so
+    /// the manager resolves the target from THAT seat's hover history.
+    fn dispatch_scroll_delta(
+        &mut self,
+        input_id: InputPointId,
+        delta_x: f32,
+        delta_y: f32,
+        is_trackpad: bool,
+    ) {
         {
             let mut should_start_timer = false;
             let mut input_queue_clone = None;
@@ -4300,7 +4341,7 @@ impl WaylandWindow {
                         source,
                         device,
                         &layout_window.hover_manager,
-                        &InputPointId::Mouse,
+                        &input_id,
                         now,
                     )
                 {
@@ -4356,15 +4397,108 @@ impl WaylandWindow {
         }
 
         // V2: Process events through state-diffing system
+    }
+
+    // ─── Axis frames of additional seats (9b-ii-b) ──────────────────────
+
+    pub(super) fn handle_seat_pointer_axis(&mut self, seat_id: u64, axis: u32, value: f64) {
+        let frame = self.seat_axis.entry(seat_id).or_default();
+        match axis {
+            WL_POINTER_AXIS_HORIZONTAL_SCROLL => frame.value.0 -= value as f32,
+            WL_POINTER_AXIS_VERTICAL_SCROLL => frame.value.1 -= value as f32,
+            _ => return,
+        }
+        frame.pending = true;
+        // A seat bound below v5 never sends `frame`: flush per event, like
+        // the primary does.
+        let version = self
+            .seats
+            .iter()
+            .find(|(id, _)| *id == seat_id)
+            .map_or(self.seat_version, |(_, e)| e.version);
+        if version < WL_POINTER_FRAME_SINCE_VERSION {
+            self.flush_seat_axis(seat_id);
+        }
+    }
+
+    pub(super) fn handle_seat_pointer_axis_discrete(&mut self, seat_id: u64, axis: u32, discrete: i32) {
+        let frame = self.seat_axis.entry(seat_id).or_default();
+        if frame.value120_seen {
+            return;
+        }
+        match axis {
+            WL_POINTER_AXIS_HORIZONTAL_SCROLL => frame.discrete.0 -= discrete as f32,
+            WL_POINTER_AXIS_VERTICAL_SCROLL => frame.discrete.1 -= discrete as f32,
+            _ => return,
+        }
+        frame.pending = true;
+    }
+
+    pub(super) fn handle_seat_pointer_axis_value120(&mut self, seat_id: u64, axis: u32, value120: i32) {
+        let detents = value120 as f32 / WL_POINTER_AXIS_VALUE120_PER_DETENT;
+        let frame = self.seat_axis.entry(seat_id).or_default();
+        match axis {
+            WL_POINTER_AXIS_HORIZONTAL_SCROLL => frame.discrete.0 -= detents,
+            WL_POINTER_AXIS_VERTICAL_SCROLL => frame.discrete.1 -= detents,
+            _ => return,
+        }
+        frame.value120_seen = true;
+        frame.pending = true;
+    }
+
+    pub(super) fn handle_seat_pointer_axis_source(&mut self, seat_id: u64, source: u32) {
+        self.seat_axis.entry(seat_id).or_default().source = source;
+    }
+
+    pub(super) fn handle_seat_pointer_frame(&mut self, seat_id: u64) {
+        self.flush_seat_axis(seat_id);
+        if let Some(frame) = self.seat_axis.get_mut(&seat_id) {
+            frame.source = WL_AXIS_SOURCE_WHEEL;
+        }
+    }
+
+    /// The seat's version of `flush_pending_axis`: its own frame, its own
+    /// cursor position, its own hover history. No gesture latch / momentum
+    /// phase for a second seat - `axis_stop` is primary-only (9b-ii-b-i).
+    fn flush_seat_axis(&mut self, seat_id: u64) {
+        let Some(frame) = self.seat_axis.get_mut(&seat_id) else {
+            return;
+        };
+        if !frame.pending {
+            return;
+        }
+        frame.pending = false;
+        frame.value120_seen = false;
+        let (raw_x, raw_y) = std::mem::replace(&mut frame.value, (0.0, 0.0));
+        let (disc_x, disc_y) = std::mem::replace(&mut frame.discrete, (0.0, 0.0));
+        let is_trackpad = axis_source_is_trackpad(frame.source);
+        let (delta_x, delta_y) = axis_frame_delta(is_trackpad, (raw_x, raw_y), (disc_x, disc_y));
+        if delta_x == 0.0 && delta_y == 0.0 {
+            return;
+        }
+        let Some(pos) = self
+            .common
+            .current_window_state()
+            .pointer_seat(seat_id)
+            .and_then(|s| s.cursor_position.get_position())
+        else {
+            return;
+        };
+        self.snapshot_window_state_baseline("wayland.seat.flush_axis");
+        self.common.pointer_seat_mut(seat_id).pointer_source = if is_trackpad {
+            azul_core::events::PointerSource::Touchpad
+        } else {
+            azul_core::events::PointerSource::Mouse
+        };
+        {
+            use crate::desktop::shell2::common::event::PlatformWindow;
+            self.update_seat_hit_test_at(seat_id, pos);
+        }
+        self.dispatch_scroll_delta(InputPointId::for_seat(seat_id), delta_x, delta_y, is_trackpad);
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
     }
 
-    /// MWA-C-scroll: wl_pointer.axis_stop — fingers lifted from the
-    /// touchpad. Emits a zero-delta `TrackpadEnd` at the current scroll
-    /// target so the physics timer runs its rubber-band spring-back (the
-    /// same signal macOS derives from NSEventPhase::Ended). Without it an
-    /// overshot Wayland touchpad scroll stayed stuck past the boundary.
     pub fn handle_pointer_axis_stop(&mut self) {
         use azul_core::task::Instant;
         use azul_layout::managers::hover::InputPointId;

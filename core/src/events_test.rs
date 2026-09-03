@@ -4741,3 +4741,50 @@ fn the_dial_filters_are_reachable_from_planning() {
         );
     }
 }
+
+
+#[cfg(test)]
+mod seat_dedup_tests {
+    use crate::{
+        dom::{DomId, DomNodeId},
+        events::{
+            deduplicate_synthetic_events, EventData, EventSource, EventType, KeyModifiers,
+            MouseButton, MouseEventData, SyntheticEvent,
+        },
+        geom::LogicalPosition,
+        id::NodeId,
+        styled_dom::NodeHierarchyItemId,
+        task::{Instant, SystemTick},
+    };
+
+    fn press(seat_id: u64) -> SyntheticEvent {
+        SyntheticEvent::new(
+            EventType::MouseDown,
+            EventSource::User,
+            DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(4))),
+            },
+            Instant::Tick(SystemTick { tick_counter: 0 }),
+            EventData::Mouse(MouseEventData {
+                position: LogicalPosition::zero(),
+                button: MouseButton::Left,
+                buttons: 1,
+                modifiers: KeyModifiers::default(),
+                seat_id,
+                ..Default::default()
+            }),
+        )
+    }
+
+    #[test]
+    fn two_seats_pressing_one_node_are_two_presses() {
+        // The touch path's documented limit, no longer shared by seats
+        // (9b-ii-b): coalescing by (target, type) alone folded them into one.
+        let out = deduplicate_synthetic_events(vec![press(0), press(7)]);
+        assert_eq!(out.len(), 2, "{out:?}");
+        // One seat pressing twice in a pass still coalesces.
+        let out = deduplicate_synthetic_events(vec![press(7), press(7)]);
+        assert_eq!(out.len(), 1);
+    }
+}
