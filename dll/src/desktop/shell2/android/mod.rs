@@ -2218,6 +2218,210 @@ const fn haptic_constant_name(pattern: azul_core::haptics::HapticPattern) -> Opt
 /// picks something. Reading the field by name means an absent constant raises
 /// `NoSuchFieldError`, which is caught and degraded through
 /// [`HapticPattern::fallback`] to something the device does have.
+/// The `VibrationEffect.Composition` primitive for this pattern, by NAME.
+///
+/// `None` means the pattern has no composition primitive and belongs on the
+/// `performHapticFeedback` path instead.
+///
+/// Named rather than numbered for the same reason `haptic_constant_name` is:
+/// the primitives arrived across API levels (SPIN and the chirps in 31), and a
+/// hard-coded int fires the WRONG effect on a device that predates it, because
+/// the framework accepts an unknown id and picks something.
+#[cfg(all(target_os = "android", feature = "jni"))]
+const fn composition_primitive_name(
+    pattern: azul_core::haptics::HapticPattern,
+) -> Option<&'static str> {
+    use azul_core::haptics::HapticPattern::*;
+    Some(match pattern {
+        ImpactLight | ImpactSoft => "PRIMITIVE_LOW_TICK",
+        ImpactMedium => "PRIMITIVE_TICK",
+        ImpactHeavy | ImpactRigid => "PRIMITIVE_CLICK",
+        Rise => "PRIMITIVE_QUICK_RISE",
+        Fall => "PRIMITIVE_QUICK_FALL",
+        Spin => "PRIMITIVE_SPIN",
+        // Everything else is better served by performHapticFeedback, which
+        // respects the user's touch-feedback setting.
+        _ => return None,
+    })
+}
+
+/// Play through `Vibrator`/`VibrationEffect.Composition`.
+///
+/// # Why this exists next to `performHapticFeedback`
+///
+/// `performHapticFeedback` needs no permission and honours the user's
+/// touch-feedback setting, which is why it stays the default. What it CANNOT
+/// do is scale intensity or reach the chirp primitives - there is no
+/// `HapticFeedbackConstants` for a rise, a fall or a spin, and no way to ask
+/// for a half-strength tap. Those are the only cases routed here.
+///
+/// # The permission
+///
+/// `Vibrator.vibrate` requires `android.permission.VIBRATE`. Azul's own
+/// manifest (`scripts/android/AndroidManifest.xml`) declares it, so an app
+/// built from that template is fine - but an app supplying its OWN manifest
+/// may not, and Android answers that with a `SecurityException` rather than a
+/// silent no-op. Every call here is therefore fallible and the exception is
+/// CLEARED: a pending JNI exception aborts the process at the next boundary,
+/// which would turn a missing permission into a crash far from its cause.
+///
+/// Returns whether the effect was actually played, so the caller can fall back.
+#[cfg(all(target_os = "android", feature = "jni"))]
+fn play_via_vibrator(
+    env: &mut jni::JNIEnv,
+    activity: &jni::objects::JObject,
+    request: &azul_core::haptics::HapticRequest,
+) -> bool {
+    use jni::objects::{JObject, JValue};
+
+    let Some(primitive_name) = composition_primitive_name(request.pattern) else {
+        return false;
+    };
+
+    let mut attempt = || -> Result<bool, String> {
+        // The composition API is API 30+; its absence is the common case on
+        // older devices and must degrade, not error.
+        let composition_cls = match env.find_class("android/os/VibrationEffect$Composition") {
+            Ok(c) => c,
+            Err(_) => {
+                let _ = env.exception_clear();
+                return Ok(false);
+            }
+        };
+        let primitive = match env
+            .get_static_field(&composition_cls, primitive_name, "I")
+            .and_then(|v| v.i())
+        {
+            Ok(v) => v,
+            Err(_) => {
+                // This API level predates the primitive (SPIN and the chirps
+                // are 31+). Fall back rather than fire a wrong id.
+                let _ = env.exception_clear();
+                return Ok(false);
+            }
+        };
+
+        // The vibrator itself. API 31 moved it behind VibratorManager; the
+        // older direct service still works below that, so both are tried.
+        let vibrator: JObject = {
+            let manager = env
+                .call_method(
+                    activity,
+                    "getSystemService",
+                    "(Ljava/lang/String;)Ljava/lang/Object;",
+                    &[JValue::Object(&JObject::from(
+                        env.new_string("vibrator_manager")
+                            .map_err(|e| format!("new_string: {e:?}"))?,
+                    ))],
+                )
+                .and_then(|v| v.l());
+            match manager {
+                Ok(m) if !m.is_null() => env
+                    .call_method(&m, "getDefaultVibrator", "()Landroid/os/Vibrator;", &[])
+                    .and_then(|v| v.l())
+                    .map_err(|e| {
+                        let _ = env.exception_clear();
+                        format!("getDefaultVibrator: {e:?}")
+                    })?,
+                _ => {
+                    let _ = env.exception_clear();
+                    env.call_method(
+                        activity,
+                        "getSystemService",
+                        "(Ljava/lang/String;)Ljava/lang/Object;",
+                        &[JValue::Object(&JObject::from(
+                            env.new_string("vibrator")
+                                .map_err(|e| format!("new_string: {e:?}"))?,
+                        ))],
+                    )
+                    .and_then(|v| v.l())
+                    .map_err(|e| {
+                        let _ = env.exception_clear();
+                        format!("getSystemService(vibrator): {e:?}")
+                    })?
+                }
+            }
+        };
+        if vibrator.is_null() {
+            return Ok(false);
+        }
+        // A device with no actuator: asking it to vibrate is not an error, it
+        // just does nothing, and falling back to performHapticFeedback there
+        // is pointless too.
+        let has = env
+            .call_method(&vibrator, "hasVibrator", "()Z", &[])
+            .and_then(|v| v.z())
+            .unwrap_or(false);
+        if !has {
+            return Ok(true);
+        }
+
+        // startComposition().addPrimitive(id, scale).compose()
+        let composition = env
+            .call_static_method(
+                "android/os/VibrationEffect",
+                "startComposition",
+                "()Landroid/os/VibrationEffect$Composition;",
+                &[],
+            )
+            .and_then(|v| v.l())
+            .map_err(|e| {
+                let _ = env.exception_clear();
+                format!("startComposition: {e:?}")
+            })?;
+        // THE POINT OF THIS PATH: a real scale, which
+        // `performHapticFeedback` has no way to express.
+        let scale = request.intensity_clamped();
+        let composition = env
+            .call_method(
+                &composition,
+                "addPrimitive",
+                "(IF)Landroid/os/VibrationEffect$Composition;",
+                &[JValue::Int(primitive), JValue::Float(scale)],
+            )
+            .and_then(|v| v.l())
+            .map_err(|e| {
+                let _ = env.exception_clear();
+                format!("addPrimitive: {e:?}")
+            })?;
+        let effect = env
+            .call_method(
+                &composition,
+                "compose",
+                "()Landroid/os/VibrationEffect;",
+                &[],
+            )
+            .and_then(|v| v.l())
+            .map_err(|e| {
+                let _ = env.exception_clear();
+                format!("compose: {e:?}")
+            })?;
+
+        env.call_method(
+            &vibrator,
+            "vibrate",
+            "(Landroid/os/VibrationEffect;)V",
+            &[JValue::Object(&effect)],
+        )
+        .map(|_| true)
+        .map_err(|e| {
+            // A missing VIBRATE permission lands HERE as a SecurityException.
+            // Clearing it is what keeps a permission problem from aborting the
+            // process at the next JNI boundary.
+            let _ = env.exception_clear();
+            format!("vibrate: {e:?} (is android.permission.VIBRATE declared?)")
+        })
+    };
+
+    match attempt() {
+        Ok(played) => played,
+        Err(e) => {
+            log_debug!(LogCategory::Input, "[Android] vibrator: {e}");
+            false
+        }
+    }
+}
+
 #[cfg(all(target_os = "android", feature = "jni"))]
 pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
     use azul_core::haptics::HapticTarget;
@@ -2243,6 +2447,21 @@ pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
             .map_err(|e| format!("attach_current_thread: {e:?}"))?;
         let activity =
             unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
+
+        // THE VIBRATOR PATH FIRST, but only for the two things
+        // `performHapticFeedback` cannot express: a scaled intensity, and the
+        // chirp primitives (rise / fall / spin) that have no
+        // `HapticFeedbackConstants` at all.
+        //
+        // Everything else deliberately stays on `performHapticFeedback`, which
+        // needs no permission and HONOURS THE USER'S touch-feedback setting -
+        // the `Vibrator` path bypasses that setting, so routing ordinary taps
+        // through it would make an app ignore "turn off haptics".
+        let wants_scaling = (request.intensity_clamped() - 1.0).abs() > f32::EPSILON;
+        let has_no_constant = haptic_constant_name(request.pattern).is_none();
+        if (wants_scaling || has_no_constant) && play_via_vibrator(&mut env, &activity, request) {
+            return Ok(());
+        }
 
         // `android.view.*` is on the BOOT classpath, so a bare `find_class`
         // resolves it even from a Rust thread with no Java frame. This is the

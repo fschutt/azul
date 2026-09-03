@@ -639,13 +639,38 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `--target aarch64-linux-android --features _internal_deps` (the 8-target gate does NOT enable
       `jni`, so the gate alone would have proved nothing). Host + 8/8 mobile + 2759/7561/1953/208.
 
-- [ ] IN SCOPE (implement blindly). 9g-i-a Android `Vibrator`/`VibrationEffect.Composition` path - the ONLY way to reach the
-      composition primitives (`LOW_TICK`, `QUICK_RISE`, `QUICK_FALL`, `SPIN`), amplitude scaling and
-      arbitrary waveforms, so it is also the only way `HapticRequest::intensity` and `duration_ms`
-      mean anything on Android. NOT wired because it requires `android.permission.VIBRATE` in the
-      app's manifest: an app that has not declared it gets a `SecurityException`, not a silent
-      no-op, and a UI toolkit cannot declare a permission on the app's behalf. Needs an opt-in
-      (a builder flag or a manifest probe via `PackageManager.checkPermission`) before it can ship.
+- [x] 9g-i-a DONE. ⚠ THE BLOCKER I LOGGED WAS STALE: the note said this "requires
+      `android.permission.VIBRATE` in the app's manifest, which is the APP's decision and not
+      something a UI toolkit can declare on its behalf". Azul SHIPS a manifest
+      (`scripts/android/AndroidManifest.xml`) and it has declared VIBRATE all along - line 26,
+      alongside INTERNET and USE_BIOMETRIC. So an app built from azul's template was never
+      blocked; only an app supplying its own manifest is, and that case degrades rather than
+      fails (see below). Checking the file took one grep and the item had been sitting on a
+      wrong premise.
+      WHAT THE VIBRATOR PATH BUYS, and the reason it is NOT the default: `performHapticFeedback`
+      needs no permission and HONOURS the user's touch-feedback setting, so it stays the path for
+      ordinary taps - routing those through `Vibrator` would make an app ignore "turn off
+      haptics". Only the two things it cannot express are routed here: a SCALED intensity
+      (`addPrimitive(id, scale)` - there is no way to ask `performHapticFeedback` for a
+      half-strength tap) and the CHIRP primitives (rise/fall/spin have no
+      `HapticFeedbackConstants` at all, so before this they fell all the way down
+      `HapticPattern::fallback` to a plain tick).
+      So `HapticRequest::intensity` now means something on Android, where it previously did not.
+      Primitives are read REFLECTIVELY BY NAME, the same discipline as the
+      `HapticFeedbackConstants`: they arrived across API levels (SPIN and the chirps in 31), and
+      a hard-coded id fires a WRONG effect on an older device because the framework accepts an
+      unknown id and picks something. A `NoSuchFieldError` falls back to
+      `performHapticFeedback` instead.
+      The vibrator is fetched through `VibratorManager.getDefaultVibrator()` (API 31+) with the
+      direct `getSystemService("vibrator")` as the fallback, and `hasVibrator()` gates the play.
+      A MISSING PERMISSION arrives as a `SecurityException` from `vibrate`, which is CAUGHT AND
+      CLEARED: a pending JNI exception aborts the process at the next boundary, so an app with
+      its own manifest lacking VIBRATE would otherwise crash far from the cause instead of just
+      not buzzing. It returns `false` and the `performHapticFeedback` path runs.
+      EVIDENCE: both seams (routing decision, composition build) proven COMPILED under
+      `--target aarch64-linux-android` with `_internal_deps` - the 8-target gate does not enable
+      `jni`, so it alone would prove nothing. Host, 8/8 mobile, azul-dll 1973, 9 haptics tests,
+      and `AzulSensors.java` still compiles against android-34. ⚠ No device - compile-only.
 - [x] 9g-i-b DONE. My own note here was WRONG about the blocker: it said `prepare()` is needed
       "to avoid the actuator spin-up latency, which does not fit the current fire-and-forget
       drain". `prepare()` is a latency OPTIMISATION, not a precondition - `impactOccurred` works
