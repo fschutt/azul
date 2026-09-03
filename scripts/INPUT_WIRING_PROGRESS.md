@@ -2036,11 +2036,19 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       grab is what makes clicking outside dismiss the menu, and xdg-shell allows one grabbing seat
       per popup; a second seat's outside-click therefore does not dismiss (9b-ii-a-iii-a).
       ⚠ NOT COMPILED OR RUN (batch compiles at the end).
-- [ ] 9b-ii-a-iii-a A second seat's click OUTSIDE the popup does not dismiss it: dismissal rides
-      the xdg_popup grab, which belongs to the seat that opened the menu (xdg-shell: one grabbing
-      seat). Making another seat's outside-press dismiss means the engine, not the compositor,
-      deciding "outside" for that seat - the same check the X11 backend does by bounds. Small, but
-      it wants the X11 rule ported rather than a Wayland-only special case.
+- [x] 9b-ii-a-iii-a DONE. The X11 rule ported turned out to need no bounds at all on Wayland:
+      X11 checks bounds because the grab delivers EVERY press to the menu window, inside or out;
+      on Wayland a second seat's press that reaches the PARENT surface while a popup is open is
+      by construction outside the popup (a press over the popup surface was already routed to it
+      by 9b-ii-a-iii). So `handle_seat_pointer_button` now treats "a press on the parent while
+      `active_popup` is open" as the click-outside: it marks the popup dismissed through the same
+      signal the compositor's `popup_done` uses (`WaylandPopup::mark_dismissed`, `is_open=false`
+      before the popup is configured), so the run loop drops it through the ONE dismissal path -
+      `drive_active_popup` -> `dismiss_active_popup` - and a `<transient-window>` popup's parent
+      mailbox learns of it exactly as for the primary seat. The press is swallowed, as X11 swallows
+      its outside press and as the compositor swallows the primary's: the press that closes a menu
+      does not click through to what was under it.
+      ⚠ NOT COMPILED OR RUN (batch compiles at the end).
 - [x] 9b-ii-b DONE for the wheel, pointer capture and the dedup; the gestures are 9b-ii-b-i.
       THE WHEEL: `ScrollManager::record_scroll_from_hit_test` already took an `InputPointId`, so
       the scroll physics had been per input point all along - what was missing was a producer

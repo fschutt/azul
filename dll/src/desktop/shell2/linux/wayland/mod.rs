@@ -5252,6 +5252,22 @@ impl WaylandWindow {
             }
             return;
         }
+        // A PRESS OUTSIDE THE POPUP dismisses it (9b-ii-a-iii-a). For the seat
+        // that opened the menu the compositor decides this: the xdg_popup grab
+        // turns an outside press into `popup_done` and the parent never sees
+        // the press. xdg-shell allows ONE grabbing seat per popup, so another
+        // seat's outside press arrives here, on the parent surface, as an
+        // ordinary button - and "a press on the parent while a menu is open"
+        // IS the click-outside, the same bounds rule the X11 backend applies
+        // in its own grab window. Swallowed like there, and like the
+        // compositor swallows the primary's: the press that closes a menu
+        // does not also click through to what was under it.
+        if state == 1 && self.active_popup.is_some() {
+            if let Some(popup) = self.active_popup.as_mut() {
+                popup.mark_dismissed();
+            }
+            return;
+        }
         let mouse_button = match button {
             0x110 => MouseButton::Left,
             0x111 => MouseButton::Right,
@@ -8627,6 +8643,24 @@ impl WaylandPopup {
             return false;
         }
         unsafe { (*self.listener_context).dismissed.get() }
+    }
+
+    /// Dismiss the popup the way the compositor's `popup_done` does: only
+    /// SIGNAL it, so the parent drops it on its next loop iteration through the
+    /// one dismissal path (`drive_active_popup` -> `dismiss_active_popup`),
+    /// which posts `dismissed` to the parent's mailbox for a
+    /// `<transient-window>`. Used for a click outside that the compositor
+    /// cannot see as one (9b-ii-a-iii-a): the xdg_popup grab belongs to the
+    /// seat that opened the menu, so another seat's outside press reaches the
+    /// parent surface instead of ending the grab. Before the popup is
+    /// configured there is no listener context yet; closing it outright then
+    /// is the same drop, one branch earlier.
+    fn mark_dismissed(&mut self) {
+        if self.listener_context.is_null() {
+            self.is_open = false;
+            return;
+        }
+        unsafe { (*self.listener_context).dismissed.set(true) }
     }
 
     /// Render the menu DOM into the popup's shm buffer and present it.
