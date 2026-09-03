@@ -3210,7 +3210,12 @@ pub(super) extern "C" fn pointer_enter_handler(
     // A second cursor (9b-ii-a) takes its own path; see `seat_id_for_pointer`.
     let seat_id = window.seat_id_for_pointer(pointer);
     if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
-        window.handle_seat_pointer_enter(seat_id, surface_x as f64 / 256.0, surface_y as f64 / 256.0);
+        window.handle_seat_pointer_enter(
+            seat_id,
+            serial,
+            surface_x as f64 / 256.0,
+            surface_y as f64 / 256.0,
+        );
         return;
     }
     // wl_fixed_t (24.8 fixed-point) -> logical f64.

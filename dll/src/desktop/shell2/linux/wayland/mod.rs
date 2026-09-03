@@ -431,6 +431,16 @@ pub struct WaylandWindow {
     /// below; a second seat's axis events used to be dropped because mixing
     /// them into those fields would have scrolled under the first cursor.
     seat_axis: std::collections::BTreeMap<u64, SeatAxisFrame>,
+    /// The last `wl_pointer.enter` serial of each NON-PRIMARY seat
+    /// (9b-ii-a-ii): `wl_pointer.set_cursor` is only honoured with the serial
+    /// of the enter it answers, so a seat's cursor image needs its own.
+    seat_serials: std::collections::BTreeMap<u64, u32>,
+    /// One cursor surface per non-primary seat, created on first use like the
+    /// primary's `pointer_state.cursor_surface`. A `wl_surface` takes the
+    /// "cursor" role once; giving every pointer its own keeps the roles
+    /// separate rather than relying on a compositor accepting one surface as
+    /// two pointers' cursor.
+    seat_cursor_surfaces: std::collections::BTreeMap<u64, *mut defines::wl_surface>,
     xdg_wm_base: *mut defines::xdg_wm_base,
     pub(crate) surface: *mut defines::wl_surface,
     xdg_surface: *mut defines::xdg_surface,
@@ -1869,6 +1879,8 @@ impl WaylandWindow {
             seat: std::ptr::null_mut(),
             seats: crate::desktop::shell2::common::seats::SeatTable::new(),
             seat_axis: std::collections::BTreeMap::new(),
+            seat_serials: std::collections::BTreeMap::new(),
+            seat_cursor_surfaces: std::collections::BTreeMap::new(),
             xdg_wm_base: std::ptr::null_mut(),
             surface: std::ptr::null_mut(),
             xdg_surface: std::ptr::null_mut(),
@@ -5118,15 +5130,46 @@ impl WaylandWindow {
     /// history, the ordinary diff pass - and NOT the popup routing, the
     /// scrollbar drag, the gesture samples or the cursor-shape sync, which are
     /// all the primary cursor's (see 9b-ii-b and 9b-ii-a-ii).
-    pub(super) fn handle_seat_pointer_enter(&mut self, seat_id: u64, x: f64, y: f64) {
+    pub(super) fn handle_seat_pointer_enter(&mut self, seat_id: u64, serial: u32, x: f64, y: f64) {
         use crate::desktop::shell2::common::event::PlatformWindow;
         let pos = LogicalPosition::new(x as f32, y as f32);
+        // The enter serial is what `set_cursor` for THIS seat must answer
+        // with (9b-ii-a-ii).
+        self.seat_serials.insert(seat_id, serial);
         self.snapshot_window_state_baseline("wayland.seat.pointer_enter");
         self.common.pointer_seat_mut(seat_id).cursor_position = CursorPosition::InWindow(pos);
         self.update_seat_hit_test_at(seat_id, pos);
+        self.sync_seat_cursor_image(seat_id);
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
         self.request_redraw();
+    }
+
+    /// Give seat `seat_id` the cursor image of the node under IT (9b-ii-a-ii)
+    /// - the primary's motion path does the same from its own hit test. Falls
+    /// back to the default arrow with nothing hit, because an unanswered
+    /// enter is an invisible pointer, not an arrow.
+    fn sync_seat_cursor_image(&mut self, seat_id: u64) {
+        let icon = self
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| {
+                lw.hover_manager
+                    .get_current(&InputPointId::for_seat(seat_id))
+                    .map(|hit| lw.compute_cursor_type_hit_test(hit).cursor_icon)
+            })
+            .unwrap_or(azul_core::window::MouseCursorType::Default);
+        let current = self
+            .common
+            .current_window_state()
+            .pointer_seat(seat_id)
+            .and_then(|s| s.mouse_cursor_type.into_option());
+        let needs_set = current != Some(icon) || !self.seat_cursor_surfaces.contains_key(&seat_id);
+        self.common.pointer_seat_mut(seat_id).mouse_cursor_type = Some(icon).into();
+        if needs_set {
+            self.set_cursor_for(seat_id, icon);
+        }
     }
 
     pub(super) fn handle_seat_pointer_leave(&mut self, seat_id: u64) {
@@ -5154,6 +5197,7 @@ impl WaylandWindow {
         self.snapshot_window_state_baseline("wayland.seat.pointer_motion");
         self.common.pointer_seat_mut(seat_id).cursor_position = CursorPosition::InWindow(pos);
         self.update_seat_hit_test_at(seat_id, pos);
+        self.sync_seat_cursor_image(seat_id);
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
         self.request_redraw();
@@ -5194,6 +5238,13 @@ impl WaylandWindow {
     /// leaves with it, and the diff pass (a seat present before and absent
     /// now is diffed against a default state) releases whatever it held.
     pub(super) fn handle_seat_gone(&mut self, seat_id: u64) {
+        self.seat_serials.remove(&seat_id);
+        self.seat_axis.remove(&seat_id);
+        if let Some(sf) = self.seat_cursor_surfaces.remove(&seat_id) {
+            if !sf.is_null() {
+                unsafe { (self.wayland.wl_proxy_destroy)(sf.cast()) };
+            }
+        }
         self.snapshot_window_state_baseline("wayland.seat.gone");
         self.common.update_unsynced_state(|ws| {
             let _ = ws.remove_pointer_seat(seat_id);
@@ -7225,6 +7276,16 @@ impl WaylandWindow {
 
     /// Set the mouse cursor for this window
     fn set_cursor(&mut self, cursor_type: azul_core::window::MouseCursorType) {
+        self.set_cursor_for(azul_core::window::PRIMARY_POINTER_SEAT, cursor_type);
+    }
+
+    /// [`Self::set_cursor`] for ANY pointer seat (9b-ii-a-ii). A Wayland
+    /// pointer shows NO cursor over a surface until the client answers its
+    /// `enter` with `set_cursor`, so a second seat that never got one was
+    /// invisible in the window. Each seat uses its own pointer, its own enter
+    /// serial and its own cursor surface; the theme and the image lookup are
+    /// shared.
+    fn set_cursor_for(&mut self, seat_id: u64, cursor_type: azul_core::window::MouseCursorType) {
         // Only proceed if we have cursor functions loaded
         let cursor_theme_load = match self.wayland.wl_cursor_theme_load {
             Some(f) => f,
@@ -7244,7 +7305,29 @@ impl WaylandWindow {
         };
 
         // Check if we have a pointer
-        if self.pointer_state.pointer.is_null() {
+        // WHICH POINTER, WHICH SERIAL. The primary's live on `pointer_state`;
+        // a seat's come from the seat table and the serial of its last enter.
+        let (pointer, serial): (*mut defines::wl_pointer, u32) =
+            if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+                (self.pointer_state.pointer, self.pointer_state.serial)
+            } else {
+                let Some(seat) = self
+                    .seats
+                    .iter()
+                    .find(|(id, _)| *id == seat_id)
+                    .map(|(_, e)| e.seat)
+                else {
+                    return;
+                };
+                let Some(p) = self.seats.pointer_of(seat) else {
+                    return;
+                };
+                let Some(serial) = self.seat_serials.get(&seat_id).copied() else {
+                    return;
+                };
+                (p.cast(), serial)
+            };
+        if pointer.is_null() {
             return;
         }
 
@@ -7330,34 +7413,45 @@ impl WaylandWindow {
 
         // Create a dedicated surface for the cursor if we don't have one
         // This surface is reused across cursor changes for efficiency
-        if self.pointer_state.cursor_surface.is_null() {
-            self.pointer_state.cursor_surface =
-                unsafe { (self.wayland.wl_compositor_create_surface)(self.compositor) };
+        // The cursor surface: the primary's on `pointer_state`, a seat's in
+        // its own slot - both created on first use.
+        let cursor_surface = if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
             if self.pointer_state.cursor_surface.is_null() {
-                return;
+                self.pointer_state.cursor_surface =
+                    unsafe { (self.wayland.wl_compositor_create_surface)(self.compositor) };
             }
+            self.pointer_state.cursor_surface
+        } else {
+            let existing = self.seat_cursor_surfaces.get(&seat_id).copied();
+            match existing {
+                Some(sf) if !sf.is_null() => sf,
+                _ => {
+                    let sf = unsafe { (self.wayland.wl_compositor_create_surface)(self.compositor) };
+                    if !sf.is_null() {
+                        self.seat_cursor_surfaces.insert(seat_id, sf);
+                    }
+                    sf
+                }
+            }
+        };
+        if cursor_surface.is_null() {
+            return;
         }
 
         // Attach buffer to cursor surface and commit
         unsafe {
-            (self.wayland.wl_surface_attach)(self.pointer_state.cursor_surface, buffer, 0, 0);
-            (self.wayland.wl_surface_damage)(
-                self.pointer_state.cursor_surface,
-                0,
-                0,
-                i32::MAX,
-                i32::MAX,
-            );
-            (self.wayland.wl_surface_commit)(self.pointer_state.cursor_surface);
+            (self.wayland.wl_surface_attach)(cursor_surface, buffer, 0, 0);
+            (self.wayland.wl_surface_damage)(cursor_surface, 0, 0, i32::MAX, i32::MAX);
+            (self.wayland.wl_surface_commit)(cursor_surface);
         }
 
         // Set cursor on pointer
         let image_struct = unsafe { &*image };
         unsafe {
             pointer_set_cursor(
-                self.pointer_state.pointer,
-                self.pointer_state.serial,
-                self.pointer_state.cursor_surface,
+                pointer,
+                serial,
+                cursor_surface,
                 image_struct.hotspot_x as i32,
                 image_struct.hotspot_y as i32,
             );

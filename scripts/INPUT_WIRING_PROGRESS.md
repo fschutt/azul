@@ -1975,10 +1975,18 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       the engine has one `KeyboardState` and one `TouchState`, so a second keyboard would have
       to be merged into the primary's (two people's modifiers in one bitset) and a second
       touchscreen's ids into one point list. Needs per-seat keyboard state first.
-- [ ] 9b-ii-a-ii A second cursor's IMAGE. `wl_pointer.set_cursor` is called for the primary's
-      pointer only, with the primary's enter serial; the compositor shows whatever it shows for
-      an unset cursor on the second pointer. Needs the per-seat enter serial (now on the
-      handler's doorstep) and a `set_cursor` per pointer whenever the CSS cursor changes.
+- [x] 9b-ii-a-ii DONE. "Whatever the compositor shows for an unset cursor" is NOTHING: a
+      Wayland pointer has no cursor over a surface until the client answers its `enter` with
+      `set_cursor`, so a second seat was an invisible cursor. `set_cursor` is now a wrapper over
+      `set_cursor_for(seat_id, ..)`: the primary keeps `pointer_state`'s pointer / serial /
+      surface, a seat uses its table pointer, the serial of its last enter (`seat_serials`, set
+      in the seat enter handler, which now receives the serial) and its own cursor surface
+      (`seat_cursor_surfaces`, one per pointer so no surface has to serve two cursor roles;
+      destroyed with the seat). `sync_seat_cursor_image` runs on the seat's enter and every
+      motion, resolving the icon from THAT seat's hit test through the same
+      `compute_cursor_type_hit_test` the primary uses, defaulting to the arrow with nothing hit
+      - an unanswered enter is invisible, not an arrow - and re-sending only on change.
+      ⚠ NOT COMPILED OR RUN (batch compiles at the end); the Linux target is the one to watch.
 - [ ] 9b-ii-a-iii A second cursor over a menu POPUP. The popup routing (`pointer_over_popup`,
       the xdg_popup grab) is the primary seat's; a second seat's enter on the popup surface is
       treated as the main surface. The grab is per seat in xdg-shell, so this is a real
