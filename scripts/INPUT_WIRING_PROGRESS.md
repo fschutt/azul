@@ -573,23 +573,31 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       hideKeyboard via `InputMethodManager`. Verified on a headless android-34 emulator: the keyboard
       opens from a tap and `commitText("hi ")` reaches Rust.
 
-- [ ] 10a-iv RULED (user 2026-09-03: "ideally we can refactor to one, but not game-breaking if
-      not possible") - attempt the unification, keep both only with a stated reason. The soft keyboard is now raised by TWO
-      paths and they disagree by design:
-        (a) the focus-driven raise added with the Java bridge, hooked to `CursorBlinkTimerAction`
-            (a caret blinks exactly when the focused thing is editable), and
-        (b) the app-facing `request_soft_keyboard()` drained in 10a-ii.
-      `request_soft_keyboard`'s own doc comment states the intended contract explicitly: "Focusing a
-      text field does NOT do this implicitly, because a field can be focused for reasons that should
-      not raise a keyboard: restoring focus after a dialog closes, or a programmatic focus during
-      startup." Path (a) violates that.
-      It is also why tapping AzWriter's page raises the keyboard at all — no azul app calls
-      `request_soft_keyboard`, so removing (a) makes every existing mobile app's text fields
-      unusable until each one opts in.
-      The resolution is a POLICY call (should a user-initiated focus raise the keyboard on mobile,
-      and can the engine distinguish user focus from restored/programmatic focus?), not a wiring one,
-      so it is logged rather than decided here.
-
+- [x] 10a-iv DONE, per the ruling ("ideally we can refactor to one"). THE MECHANISM IS NOW ONE;
+      the two POLICIES stay, with the reason stated.
+      The two paths were not just duplicated, they were UNORDERED. The shell called
+      `set_soft_keyboard_visible` directly from the blink-timer arms while the app's request was
+      drained separately per platform - two writers to one piece of OS state with nothing
+      sequencing them, so an app that focused a field and then asked for the keyboard to stay
+      down raced its own request. Both now write `pending_soft_keyboard` and ONE drain at
+      `process_window_events` depth 0 applies it, beside the haptic drain and for the same
+      reasons. The per-platform drain in the Android loop is gone: a second drain would race the
+      first, and whichever ran would consume the request while the other saw nothing.
+      LAST WRITER WINS is the whole ordering rule, and it is the right one: a callback runs AFTER
+      the focus change that triggered it, so the app's call is an OVERRIDE of the focus default
+      rather than a coin flip.
+      ⚠ AND THE DOC COMMENT WAS LYING. `request_soft_keyboard` claimed "focusing a text field
+      does NOT do this implicitly" - the engine has always raised the keyboard on focus for the
+      mobile shells, which is precisely why tapping a field in an existing app works when no app
+      calls this API. The contract as written would have left every mobile text field dead until
+      each app opted in. The doc now describes the override the code actually implements, and
+      names the cases the old comment named (restoring focus after a dialog, a programmatic focus
+      at startup) as what the `false` call is FOR.
+      That is also the answer to the policy question the item deferred: the engine cannot
+      distinguish user focus from programmatic focus, but it does not need to - the app can, and
+      the override is how it says so.
+      EVIDENCE: an ordering test over both directions plus the drain-once rule. Host, Android,
+      8/8 mobile, azul-layout 7637, autofix 0 patches.
 - [x] 10a-iii DONE. ⚠ THE "DESIGN QUESTION" WAS ALREADY ANSWERED IN THE DOM. The note said this
       "needs an input-purpose attribute on the DOM node first, which is a design question, not
       plumbing" - but `AttributeType::InputType` is HTML's `type` attribute and has existed all

@@ -676,6 +676,32 @@ impl TextEditManager {
     /// actually up (a hardware keyboard suppresses it, the user can dismiss
     /// it), so this records intent and the shell reconciles. Desktop shells
     /// ignore it entirely.
+    /// # LAST WRITER WINS, and that is the whole ordering rule (10a-iv)
+    ///
+    /// TWO writers share this queue: the focus-driven raise the shell issues
+    /// when an editable gains focus, and the app's own
+    /// `CallbackInfo::request_soft_keyboard`. They used to be separate paths -
+    /// the shell called the platform directly while the app's request was
+    /// drained per platform - so two writers hit one piece of OS state with no
+    /// ordering between them, and an app that focused a field and then asked
+    /// for the keyboard to stay down raced its own request.
+    ///
+    /// One queue makes the order defined: a callback runs AFTER the focus
+    /// change that triggered it, so the app's call is an override of the focus
+    /// default rather than a coin flip.
+    /// # LAST WRITER WINS, and that is the whole ordering rule (10a-iv)
+    ///
+    /// TWO writers share this queue: the focus-driven raise the shell issues
+    /// when an editable gains focus, and the app's own
+    /// `CallbackInfo::request_soft_keyboard`. They used to be separate paths -
+    /// the shell called the platform directly while the app's request was
+    /// drained per platform - so two writers hit one piece of OS state with no
+    /// ordering between them, and an app that focused a field and then asked
+    /// for the keyboard to stay down raced its own request.
+    ///
+    /// One queue makes the order defined: a callback runs AFTER the focus
+    /// change that triggered it, so the app's call is an override of the focus
+    /// default rather than a coin flip.
     pub fn request_soft_keyboard(&mut self, visible: bool) {
         self.pending_soft_keyboard = Some(visible);
     }
@@ -1044,6 +1070,37 @@ impl TextEditManager {
 // ============================================================================
 #[cfg(test)]
 mod autotest_generated {
+    use super::*;
+
+    /// THE ORDERING RULE (10a-iv). Two writers share one queue - the shell's
+    /// focus-driven raise and the app's explicit request - and the app must be
+    /// able to override, because a callback runs after the focus change that
+    /// triggered it.
+    #[test]
+    fn the_last_soft_keyboard_request_in_a_pass_wins() {
+        let mut m = TextEditManager::new();
+        assert_eq!(m.take_soft_keyboard_request(), None, "nothing asked yet");
+
+        // Focus raises it, then the app says no in its callback.
+        m.request_soft_keyboard(true);
+        m.request_soft_keyboard(false);
+        assert_eq!(
+            m.take_soft_keyboard_request(),
+            Some(false),
+            "the app's later call must override the focus default"
+        );
+        assert_eq!(
+            m.take_soft_keyboard_request(),
+            None,
+            "a drained request must not fire twice - one raise per pass"
+        );
+
+        // And the other way round.
+        m.request_soft_keyboard(false);
+        m.request_soft_keyboard(true);
+        assert_eq!(m.take_soft_keyboard_request(), Some(true));
+    }
+
     use azul_core::{
         selection::{
             CursorAffinity, GraphemeClusterId, IdentifiedSelection, SelectionId, SelectionRange,

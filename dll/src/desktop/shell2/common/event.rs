@@ -569,6 +569,17 @@ fn record_multi_edit_undo(
 /// two from disagreeing (a keyboard over a non-editable node, or an editable
 /// node with no way to type into it).
 ///
+/// Ask for the soft keyboard, through the same queue the app's own
+/// `CallbackInfo::request_soft_keyboard` writes to (10a-iv).
+///
+/// The shell used to call `set_soft_keyboard_visible` directly here; routing
+/// it through the queue is what gives the two writers a defined order.
+fn request_soft_keyboard_shared(window: Option<&mut LayoutWindow>, visible: bool) {
+    if let Some(lw) = window {
+        lw.text_edit_manager.request_soft_keyboard(visible);
+    }
+}
+
 /// A no-op on desktop, which has a physical keyboard and no concept to drive.
 /// Android raises the IME through `InputMethodManager`; iOS has no "show the
 /// keyboard" call at all - there the keyboard is a CONSEQUENCE of the view
@@ -7333,16 +7344,16 @@ pub trait PlatformWindow {
                     match timer_action {
                         azul_layout::CursorBlinkTimerAction::Start(timer) => {
                             self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
-                            set_soft_keyboard_visible(true);
+                            request_soft_keyboard_shared(self.get_layout_window_mut(), true);
                         }
                         azul_layout::CursorBlinkTimerAction::Restart(timer) => {
                             self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
                             self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
-                            set_soft_keyboard_visible(true);
+                            request_soft_keyboard_shared(self.get_layout_window_mut(), true);
                         }
                         azul_layout::CursorBlinkTimerAction::Stop => {
                             self.stop_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id);
-                            set_soft_keyboard_visible(false);
+                            request_soft_keyboard_shared(self.get_layout_window_mut(), false);
                         }
                         azul_layout::CursorBlinkTimerAction::NoChange => {}
                     }
@@ -9196,6 +9207,28 @@ pub trait PlatformWindow {
                         id,
                     );
                 }
+            }
+        }
+
+        // SOFT KEYBOARD (10a-iv). ONE drain for BOTH the focus-driven raise
+        // and the app's explicit `request_soft_keyboard`, which used to be two
+        // separate paths: the shell called `set_soft_keyboard_visible`
+        // directly from the blink-timer arms while the app's request was
+        // drained per platform. Two writers to one piece of OS state with no
+        // ordering between them - an app that focused a field and then asked
+        // for the keyboard to stay down raced its own request.
+        //
+        // Now both write the same pending flag and LAST WINS, which makes the
+        // app's call an override of the focus default rather than a coin flip.
+        // Drained at depth 0 for the same reason the haptics are: the platform
+        // call belongs outside the recursion, and one raise per pass is right
+        // however many focus changes happened inside it.
+        if depth == 0 {
+            let request = self
+                .get_layout_window_mut()
+                .and_then(|lw| lw.text_edit_manager.take_soft_keyboard_request());
+            if let Some(visible) = request {
+                set_soft_keyboard_visible(visible);
             }
         }
 

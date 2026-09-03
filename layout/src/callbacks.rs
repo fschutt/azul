@@ -5148,9 +5148,21 @@ impl CallbackInfo {
     /// dismiss it at any time - so this records intent and the shell
     /// reconciles. Desktop shells ignore it.
     ///
-    /// Focusing a text field does NOT do this implicitly, because a field can
-    /// be focused for reasons that should not raise a keyboard: restoring
-    /// focus after a dialog closes, or a programmatic focus during startup.
+    /// # It OVERRIDES the focus default; it does not stand alone
+    ///
+    /// This doc used to claim that focusing a text field does NOT raise the
+    /// keyboard implicitly. THAT WAS NOT TRUE of the engine it described:
+    /// focusing an editable raises it on the mobile shells and always has,
+    /// which is why tapping a text field in an existing app works at all -
+    /// no app calls this. The contract the comment stated would have left
+    /// every mobile text field dead until each app opted in.
+    ///
+    /// The real contract is an OVERRIDE. This and the focus-driven raise write
+    /// ONE queue and the last writer wins, and a callback runs after the focus
+    /// change that triggered it - so an app that wants a focused field WITHOUT
+    /// a keyboard (restoring focus after a dialog closes, a programmatic focus
+    /// during startup - the cases the old comment named) calls this with
+    /// `false` from that callback and gets it.
     pub fn request_soft_keyboard(&mut self, visible: bool) {
         self.push_change(CallbackChange::RequestSoftKeyboard { visible });
     }
