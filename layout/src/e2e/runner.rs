@@ -1090,37 +1090,34 @@ impl Runner {
                 .iter()
                 .any(|e| e.event_type == azul_core::events::EventType::MouseDown)
         {
+            // ONE rule, shared with the dll (9g-ii-e-ii): the nearest focusable
+            // ancestor of the FRONT-MOST hit, in that hit's own DOM. This used
+            // to walk every hit DOM and let the last focusable win, so a
+            // focusable host node under a VirtualView page took a click meant
+            // for the page.
             let clicked_focusable_node = hit_test_for_dispatch.as_ref().and_then(|hit_test| {
-                let mut found: Option<DomNodeId> = None;
-                for (dom_id, hit_test_data) in &hit_test.hovered_nodes {
-                    let deepest = hit_test_data
-                        .regular_hit_test_nodes
-                        .iter()
-                        .max_by_key(|(_, hit_item)| core::cmp::Reverse(hit_item.hit_depth));
-                    let Some((node_id, _)) = deepest else {
-                        continue;
-                    };
-                    let Some(layout_result) = self.layout_window.layout_results.get(dom_id) else {
-                        continue;
-                    };
-                    let node_data = layout_result.styled_dom.node_data.as_container();
-                    let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
-                    let mut current = Some(*node_id);
-                    while let Some(nid) = current {
-                        if node_data
-                            .get(nid)
-                            .is_some_and(azul_core::dom::NodeData::is_focusable)
-                        {
-                            found = Some(DomNodeId {
-                                dom: *dom_id,
-                                node: NodeHierarchyItemId::from_crate_internal(Some(nid)),
-                            });
-                            break;
-                        }
-                        current = node_hierarchy.get(nid).and_then(|h| h.parent_id());
-                    }
-                }
-                found
+                let results = &self.layout_window.layout_results;
+                crate::managers::hover::focusable_under_pointer(
+                    hit_test,
+                    |dom_id, nid| {
+                        results.get(&dom_id).is_some_and(|lr| {
+                            lr.styled_dom
+                                .node_data
+                                .as_container()
+                                .get(nid)
+                                .is_some_and(azul_core::dom::NodeData::is_focusable)
+                        })
+                    },
+                    |dom_id, nid| {
+                        results.get(&dom_id).and_then(|lr| {
+                            lr.styled_dom
+                                .node_hierarchy
+                                .as_container()
+                                .get(nid)
+                                .and_then(|h| h.parent_id())
+                        })
+                    },
+                )
             });
 
             if let Some(new_focus_target) = clicked_focusable_node {

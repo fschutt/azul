@@ -10452,47 +10452,38 @@ pub trait PlatformWindow {
                 .any(|e| matches!(e.event_type, azul_core::events::EventType::MouseDown));
 
             if has_mouse_down {
-                // Pure detection: find deepest focusable node
-                let clicked_focusable_node = if let Some(ref hit_test) = hit_test_for_dispatch {
-                    let mut found: Option<azul_core::dom::DomNodeId> = None;
-                    for (dom_id, hit_test_data) in &hit_test.hovered_nodes {
-                        let deepest = hit_test_data
-                            .regular_hit_test_nodes
-                            .iter()
-                            .max_by_key(|(_, hit_item)| std::cmp::Reverse(hit_item.hit_depth));
-
-                        if let Some((node_id, _)) = deepest {
-                            if let Some(layout_window) = self.get_layout_window() {
-                                if let Some(layout_result) =
-                                    layout_window.layout_results.get(dom_id)
-                                {
-                                    let node_data =
-                                        layout_result.styled_dom.node_data.as_container();
-                                    let node_hierarchy =
-                                        layout_result.styled_dom.node_hierarchy.as_container();
-                                    let mut current = Some(*node_id);
-                                    while let Some(nid) = current {
-                                        if let Some(nd) = node_data.get(nid) {
-                                            if nd.is_focusable() {
-                                                found = Some(azul_core::dom::DomNodeId {
-                                                    dom: *dom_id,
-                                                    node: NodeHierarchyItemId::from_crate_internal(
-                                                        Some(nid),
-                                                    ),
-                                                });
-                                                break;
-                                            }
-                                        }
-                                        current =
-                                            node_hierarchy.get(nid).and_then(|h| h.parent_id());
-                                    }
-                                }
-                            }
-                        }
+                // Pure detection: the nearest focusable ancestor of the
+                // FRONT-MOST hit, in that hit's own DOM - ONE rule shared with
+                // the e2e runner (9g-ii-e-ii). This used to walk every hit DOM
+                // and let the last focusable win, so a focusable host node
+                // under a VirtualView page took a click meant for the page.
+                let clicked_focusable_node = match (&hit_test_for_dispatch, self.get_layout_window())
+                {
+                    (Some(hit_test), Some(layout_window)) => {
+                        let results = &layout_window.layout_results;
+                        azul_layout::managers::hover::focusable_under_pointer(
+                            hit_test,
+                            |dom_id, nid| {
+                                results.get(&dom_id).is_some_and(|lr| {
+                                    lr.styled_dom
+                                        .node_data
+                                        .as_container()
+                                        .get(nid)
+                                        .is_some_and(azul_core::dom::NodeData::is_focusable)
+                                })
+                            },
+                            |dom_id, nid| {
+                                results.get(&dom_id).and_then(|lr| {
+                                    lr.styled_dom
+                                        .node_hierarchy
+                                        .as_container()
+                                        .get(nid)
+                                        .and_then(|h| h.parent_id())
+                                })
+                            },
+                        )
                     }
-                    found
-                } else {
-                    None
+                    _ => None,
                 };
 
                 if let Some(new_focus_target) = clicked_focusable_node {

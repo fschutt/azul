@@ -47,6 +47,39 @@ pub fn deepest_node_across_doms(ht: &FullHitTest) -> Option<DomNodeId> {
     None
 }
 
+/// The node a mouse press FOCUSES: the nearest focusable ancestor (self
+/// included) of the front-most hit, walking that node's OWN DOM only
+/// (9g-ii-e-ii).
+///
+/// `is_focusable(dom, node)` and `parent(dom, node)` are the two questions
+/// the walk asks of the layout results; taking them as closures keeps the
+/// rule testable without a laid-out document, and lets the e2e runner and
+/// the dll share it instead of each keeping a copy - both copies walked
+/// EVERY hit DOM in ascending id order and let the LAST focusable win, so a
+/// focusable host node under a `VirtualView` page took the focus a click on
+/// the page meant for the page (or for nobody: a click on unfocusable page
+/// content is a BLUR, not a focus of whatever the page covers).
+#[must_use]
+pub fn focusable_under_pointer(
+    ht: &FullHitTest,
+    is_focusable: impl Fn(azul_core::dom::DomId, azul_core::id::NodeId) -> bool,
+    parent: impl Fn(azul_core::dom::DomId, azul_core::id::NodeId) -> Option<azul_core::id::NodeId>,
+) -> Option<DomNodeId> {
+    let target = deepest_node_across_doms(ht)?;
+    let dom = target.dom;
+    let mut current = target.node.into_crate_internal();
+    while let Some(nid) = current {
+        if is_focusable(dom, nid) {
+            return Some(DomNodeId {
+                dom,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(nid)),
+            });
+        }
+        current = parent(dom, nid);
+    }
+    None
+}
+
 /// Identifier for an input point (mouse, touch, pen, etc.)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InputPointId {
@@ -1460,6 +1493,70 @@ mod autotest_generated {
         assert_eq!(ht.regular_hit_test_nodes.len(), 2);
         assert_eq!(ht.regular_hit_test_nodes[&NodeId::new(2)].hit_depth, 10);
         assert_eq!(ht.regular_hit_test_nodes[&NodeId::new(1)].hit_depth, 20);
+    }
+
+    // ------------------------------------------------- focusable_under_pointer
+
+    /// Hits: dom 0 (the host) node 3 at depth 1; dom 1 (a page over it) node
+    /// 2 at depth 0. Parents: in dom 0, 3 -> 1 -> 0; in dom 1, 2 -> 0.
+    fn host_and_page() -> FullHitTest {
+        let mut full = FullHitTest::empty(None);
+        let mut host = HitTest::empty();
+        host.regular_hit_test_nodes.insert(NodeId::new(3), hit_item(1));
+        full.hovered_nodes.insert(dom(0), host);
+        let mut page = HitTest::empty();
+        page.regular_hit_test_nodes.insert(NodeId::new(2), hit_item(0));
+        full.hovered_nodes.insert(dom(1), page);
+        full
+    }
+
+    fn parent_of(d: DomId, n: NodeId) -> Option<NodeId> {
+        match (d.inner, n.index()) {
+            (0, 3) => Some(NodeId::new(1)),
+            (0, 1) => Some(NodeId::new(0)),
+            (1, 2) => Some(NodeId::new(0)),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_click_on_unfocusable_page_content_does_not_focus_the_host_beneath() {
+        // THE DEFECT: both copies of this scan walked every hit DOM and let
+        // the last focusable win, so the host's focusable node 1 - under the
+        // page, not in the click's own DOM at all - took the focus.
+        let ht = host_and_page();
+        let host_node_1_is_focusable = |d: DomId, n: NodeId| d.inner == 0 && n.index() == 1;
+        assert_eq!(
+            focusable_under_pointer(&ht, host_node_1_is_focusable, parent_of),
+            None,
+            "nothing focusable in the page's own chain: a blur, not the host"
+        );
+    }
+
+    #[test]
+    fn a_click_on_a_page_focuses_the_pages_own_focusable_ancestor() {
+        let ht = host_and_page();
+        // Both DOMs have a focusable root; the page's wins because the page
+        // is the front-most surface.
+        let roots = |_: DomId, n: NodeId| n.index() == 0;
+        let got = focusable_under_pointer(&ht, roots, parent_of).expect("the page root");
+        assert_eq!(got.dom, dom(1));
+        assert_eq!(got.node.into_crate_internal(), Some(NodeId::new(0)));
+    }
+
+    #[test]
+    fn the_walk_starts_at_the_front_most_hit_not_the_largest_id() {
+        // One DOM, node 7 (depth 2) behind node 4 (depth 0); 7 is focusable,
+        // 4's chain is not. The old largest-id proxy would have focused 7.
+        let mut full = FullHitTest::empty(None);
+        let mut ht = HitTest::empty();
+        ht.regular_hit_test_nodes.insert(NodeId::new(4), hit_item(0));
+        ht.regular_hit_test_nodes.insert(NodeId::new(7), hit_item(2));
+        full.hovered_nodes.insert(dom(0), ht);
+        let seven = |_: DomId, n: NodeId| n.index() == 7;
+        let no_parents = |_: DomId, _: NodeId| None;
+        assert_eq!(focusable_under_pointer(&full, seven, no_parents), None);
+        assert!(focusable_under_pointer(&FullHitTest::empty(None), seven, no_parents).is_none());
     }
 
     #[test]

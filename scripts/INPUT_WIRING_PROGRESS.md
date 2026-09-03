@@ -1440,11 +1440,23 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       not 5; nothing hovered is `None`). The four integration suites that consume CPU hit order
       (`click_into_a_virtual_view_page`, `virtualview_hit_matches_render`, `hover_manager`,
       `drag_selection_scroll`: 15 tests) still pass. Host, 8/8 mobile.
-- [ ] 9g-ii-e-ii The e2e runner's click-to-focus scan (`runner.rs`, "clicked_focusable_node")
-      walks `hovered_nodes` in ASCENDING DomId order and takes the first DOM's front-most hit, so
-      a focusable HOST node under a `VirtualView` page can take the focus the click meant for
-      the page. Same class as this item, one consumer over; wants
-      `deepest_node_across_doms`-style ordering (highest DOM first).
+- [x] 9g-ii-e-ii DONE - and the scan existed TWICE, byte-for-byte in shape: the e2e runner's
+      and the dll's `clicked_focusable_node`. Both walked EVERY hit DOM (ascending id) and let
+      the LAST focusable win (the `break` left only the ancestor walk, not the DOM loop). That
+      is not "host first" as logged but "any DOM's focusable, host included": a click on
+      UNFOCUSABLE page content - which is a BLUR in every browser, the click target's own chain
+      having nothing to focus - focused the host node the page was covering, because the host's
+      chain was walked too. One rule now, `HoverManager`-side `focusable_under_pointer`: the
+      nearest focusable ancestor of the FRONT-MOST hit (`deepest_node_across_doms`), walking
+      that node's OWN DOM only. It takes `is_focusable` / `parent` as closures so the rule is
+      tested on the host without a laid-out document and both callers pass the same two lookups
+      over `layout_results`.
+      EVIDENCE: 3 host tests (unfocusable page content over a focusable host = `None`, the
+      defect; a page with a focusable root beats the host's; the walk starts at the front-most
+      hit, not the largest id). NEGATIVE CONTROL: the old any-DOM-last-wins loop fails the first.
+      The five click-to-focus integration suites (`textinput_first_draw_and_focus`,
+      `caret_reveal_and_session_identity`, `text_edit_seam_regressions`,
+      `click_into_a_virtual_view_page`, `focus_ring_tween`: 44 tests) still pass. Host, 8/8 mobile.
 - [ ] 9g-ii-f `query_pagination` -> `FakePageConfig` -> `PageSequence` -> ... ->
       `MarginBoxContent::Custom(Arc<dyn Fn(PageInfo) -> String + Send + Sync>)`. A boxed Rust
       closure is not expressible in C at all. This one may be correctly UNEXPOSED forever; if it
