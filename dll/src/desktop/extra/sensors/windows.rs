@@ -36,7 +36,7 @@ use azul_core::sensors::{SensorKind, SensorReading};
 use azul_layout::managers::sensors::push_sensor_reading;
 use windows::Devices::Sensors::{
     Accelerometer, AccelerometerReadingType, Barometer, Gyrometer, HingeAngleSensor, LightSensor,
-    Magnetometer, OrientationSensor, Pedometer, PedometerStepKind,
+    Magnetometer, OrientationSensor, Pedometer, PedometerStepKind, ProximitySensor,
 };
 
 use super::units::{DEG_TO_RAD, G_TO_MS2};
@@ -74,6 +74,9 @@ unsafe impl<T> Sync for Agile<T> {}
 static PEDOMETER: OnceLock<Agile<Pedometer>> = OnceLock::new();
 /// Held only to keep the `ReadingChanged` subscription alive.
 static HINGE: OnceLock<Agile<HingeAngleSensor>> = OnceLock::new();
+/// The proximity sensor (8e-i-a-ii). No `GetDefault()` on this one: it is
+/// found through device enumeration over its own selector and opened by id.
+static PROXIMITY: OnceLock<Agile<ProximitySensor>> = OnceLock::new();
 
 /// MWA-C-sensors: non-destructive IMU presence probe for AzCapability —
 /// the capability report used to hardcode available=false on Windows
@@ -180,6 +183,27 @@ fn start_async_sensors() {
                 let _ = PEDOMETER.set(Agile(p));
             }
 
+            // PROXIMITY (8e-i-a-ii): `ProximitySensor` has no `GetDefault()`;
+            // the documented route is `DeviceInformation` enumeration over
+            // its selector, then `FromId`, which is synchronous. The first
+            // device is the built-in one on every machine that has any.
+            if let Ok(selector) = ProximitySensor::GetDeviceSelector() {
+                if let Ok(devices) =
+                    windows::Devices::Enumeration::DeviceInformation::FindAllAsyncAqsFilter(
+                        &selector,
+                    )
+                    .and_then(|op| pollster::block_on(op.into_future()))
+                {
+                    if devices.Size().unwrap_or(0) > 0 {
+                        if let Ok(id) = devices.GetAt(0).and_then(|d| d.Id()) {
+                            if let Ok(p) = ProximitySensor::FromId(&id) {
+                                let _ = PROXIMITY.set(Agile(p));
+                            }
+                        }
+                    }
+                }
+            }
+
             if let Ok(h) = HingeAngleSensor::GetDefaultAsync()
                 .and_then(|op| pollster::block_on(op.into_future()))
             {
@@ -219,6 +243,29 @@ fn start_async_sensors() {
 }
 
 pub fn poll() {
+    // The typed proximity answer (8e-i-a-ii), before the IMU gate below: a
+    // machine can have the one without the other. `DistanceInMillimeters` is
+    // OPTIONAL (an `IReference`) - present only on a ranging sensor - and
+    // `IsDetected` is the whole answer of a binary one.
+    if let Some(p) = PROXIMITY.get() {
+        if let Ok(r) = p.0.GetCurrentReading() {
+            use azul_core::sensors::{DistanceUnit, Proximity, ProximityDistance};
+            let ranged = r
+                .DistanceInMillimeters()
+                .ok()
+                .and_then(|d| d.Value().ok());
+            let proximity = match ranged {
+                Some(mm) => Proximity::Distance(ProximityDistance {
+                    value: mm as f32,
+                    unit: DistanceUnit::Millimeters,
+                }),
+                None if r.IsDetected().unwrap_or(false) => Proximity::Near,
+                None => Proximity::Far,
+            };
+            azul_layout::managers::sensors::push_proximity(proximity);
+        }
+    }
+
     let Some(s) = SENSORS.get() else {
         return;
     };

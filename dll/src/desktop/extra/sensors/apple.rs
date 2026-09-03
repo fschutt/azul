@@ -34,9 +34,11 @@
 //! class the docs mark iOS-only would make an older macOS fail to LAUNCH
 //! rather than quietly report nothing.
 //!
-//! Neither `AmbientLight` nor `Proximity` nor `HingeAngle` is filled on Apple -
-//! see 8e-i-a-i/ii in the ledger for why each one is a decision rather than an
-//! omission.
+//! `AmbientLight` and `HingeAngle` are not filled on Apple - iOS has no public
+//! ambient-light API and no hinge (see 8e-i-a-i). `Proximity` IS, on iOS: it
+//! is a boolean there (`UIDevice.proximityState`), which the typed
+//! `Proximity::Near` / `Far` answer carries without inventing a distance for
+//! "far" - the mismatch that kept it unfilled (8e-i-a-i, user ruling).
 //!
 //! Units: CoreMotion reports acceleration in **G**, so we scale to azul-core's
 //! m/s² ([`G_TO_MS2`]); gyroscope (rad/s) and magnetometer (µT) already match
@@ -66,6 +68,8 @@ static MANAGER: AtomicPtr<CMMotionManager> = AtomicPtr::new(core::ptr::null_mut(
 /// Create the motion manager and begin sampling every available sensor.
 /// Called once per process via the dispatcher's OnceLock.
 pub fn start() {
+    #[cfg(target_os = "ios")]
+    start_proximity();
     unsafe {
         let mgr = CMMotionManager::new();
         if mgr.isAccelerometerAvailable() {
@@ -180,6 +184,54 @@ fn start_push_only_sensors() {
 /// Wall-clock milliseconds, for the push-only sensors whose sample carries no
 /// `CMLogItem` timestamp.
 #[cfg(target_os = "ios")]
+/// Turn proximity monitoring on. UIKit answers by leaving
+/// `proximityMonitoringEnabled` false on a device without the sensor, which
+/// is the only way it says so.
+#[cfg(target_os = "ios")]
+fn start_proximity() {
+    use objc2::runtime::AnyObject;
+    unsafe {
+        let device: *mut AnyObject = objc2::msg_send![objc2::class!(UIDevice), currentDevice];
+        if device.is_null() {
+            return;
+        }
+        let _: () = objc2::msg_send![device, setProximityMonitoringEnabled: true];
+        let enabled: bool = objc2::msg_send![device, isProximityMonitoringEnabled];
+        if !enabled {
+            crate::plog_info!("[sensors] no proximity sensor on this device");
+        }
+    }
+}
+
+/// Publish `UIDevice.proximityState` when it changes. A boolean, so the
+/// typed `Near` / `Far` answer is the whole truth (8e-i-a-i).
+#[cfg(target_os = "ios")]
+fn poll_proximity() {
+    use core::sync::atomic::AtomicU8;
+
+    use azul_core::sensors::Proximity;
+    use azul_layout::managers::sensors::push_proximity;
+    use objc2::runtime::AnyObject;
+
+    /// 2 = not yet read; UIKit's answer is published on every change.
+    static LAST: AtomicU8 = AtomicU8::new(2);
+    unsafe {
+        let device: *mut AnyObject = objc2::msg_send![objc2::class!(UIDevice), currentDevice];
+        if device.is_null() {
+            return;
+        }
+        let enabled: bool = objc2::msg_send![device, isProximityMonitoringEnabled];
+        if !enabled {
+            return;
+        }
+        let near: bool = objc2::msg_send![device, proximityState];
+        let now = u8::from(near);
+        if LAST.swap(now, Ordering::Relaxed) != now {
+            push_proximity(if near { Proximity::Near } else { Proximity::Far });
+        }
+    }
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -209,6 +261,10 @@ pub fn has_motion_hardware() -> bool {
 /// Read the latest sample of each sensor and park it for the layout pass.
 /// No-op until [`start`] has published the manager.
 pub fn poll() {
+    // Independent of CoreMotion: a device with no IMU can still have the
+    // proximity sensor.
+    #[cfg(target_os = "ios")]
+    poll_proximity();
     let ptr = MANAGER.load(Ordering::Acquire);
     if ptr.is_null() {
         return;

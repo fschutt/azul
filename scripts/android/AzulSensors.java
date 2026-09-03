@@ -59,6 +59,11 @@ public final class AzulSensors {
                     // monotonic base, NOT epoch. Converted to ms here; the
                     // Rust side only ever diffs them.
                     nativeOnSensorReading(kind, x, y, z, event.timestamp / 1_000_000L);
+                    // The typed proximity answer needs the sensor's own
+                    // maximum range: that value IS "far" on a binary sensor.
+                    if (kind == 7) {
+                        nativeOnProximity(x, event.sensor.getMaximumRange());
+                    }
                 }
 
                 @Override
@@ -115,4 +120,5 @@ public final class AzulSensors {
 
     private static native void nativeOnSensorReading(int kind, float x, float y, float z,
                                                      long timestampMs);
+    private static native void nativeOnProximity(float distanceCm, float maxRangeCm);
 }

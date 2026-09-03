@@ -34,6 +34,12 @@ pub struct SensorManager {
     /// the derived sensors landed, and one field each would have meant a new
     /// field, two match arms and an accessor per addition.
     pub readings: [Option<SensorReading>; SensorKind::COUNT],
+    /// The typed proximity answer (8e-i-a-i, 8e-i-a-ii): Near / Far from a
+    /// binary sensor, a distance from a ranging one. Separate from the
+    /// `Proximity` reading slot, which keeps the raw centimetres where a
+    /// platform reports them, because an `(x, y, z)` triple cannot say
+    /// "far" without inventing a number for it.
+    pub proximity: Option<azul_core::sensors::Proximity>,
     /// `true` when a reading advanced since the last event-pass drain. Set by
     /// [`set_reading`](Self::set_reading), read by the `EventProvider` impl,
     /// cleared by [`clear_pending_event`](Self::clear_pending_event).
@@ -67,6 +73,22 @@ impl SensorManager {
             .as_mut()
             .is_none_or(|prev| !reading_bitwise_eq(prev, &reading));
         *slot = Some(reading);
+        if changed {
+            self.pending_event = true;
+        }
+        changed
+    }
+
+    #[must_use]
+    pub const fn proximity(&self) -> Option<azul_core::sensors::Proximity> {
+        self.proximity
+    }
+
+    /// Record the typed proximity answer; a change raises `SensorChanged`
+    /// like any reading. Returns whether it changed.
+    pub fn set_proximity(&mut self, proximity: azul_core::sensors::Proximity) -> bool {
+        let changed = self.proximity != Some(proximity);
+        self.proximity = Some(proximity);
         if changed {
             self.pending_event = true;
         }
@@ -145,6 +167,27 @@ pub fn drain_sensor_readings() -> Vec<SensorReading> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
+}
+
+/// The typed proximity answer, LATEST-WINS rather than queued: proximity is
+/// a state, and a widget wants the current one, not every flicker between
+/// two polls.
+static PENDING_PROXIMITY: std::sync::Mutex<Option<azul_core::sensors::Proximity>> =
+    std::sync::Mutex::new(None);
+
+/// Backend side: publish the current proximity answer.
+pub fn push_proximity(proximity: azul_core::sensors::Proximity) {
+    if let Ok(mut slot) = PENDING_PROXIMITY.lock() {
+        *slot = Some(proximity);
+    }
+}
+
+/// Engine side: take the latest published answer, if any.
+pub fn take_proximity() -> Option<azul_core::sensors::Proximity> {
+    PENDING_PROXIMITY
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take())
 }
 
 #[cfg(test)]

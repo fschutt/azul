@@ -394,6 +394,9 @@ winapi = { version = "0.3.9", optional = true, default-features = false, feature
 # Motion sensors (Windows.Devices.Sensors, WinRT) — accel/gyro/mag.
 windows = { version = "0.62", optional = true, features = [
     "Devices_Sensors",
+    # Proximity sensor discovery (extra/sensors/windows.rs, 8e-i-a-ii):
+    # `ProximitySensor` has no GetDefault(), only a device selector.
+    "Devices_Enumeration",
     "Foundation",
     "Security_Credentials_UI",
     "Win32_Foundation",

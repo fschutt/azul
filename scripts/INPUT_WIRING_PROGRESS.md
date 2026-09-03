@@ -2726,26 +2726,35 @@ session needs. Recorded verbatim so the framing is not lost.
       quaternion under linux-gnu, three WinRT seams under windows-gnu, the iOS push-only path
       under aarch64-apple-ios, and device motion on BOTH ios and the macOS host. Host, 8/8
       mobile, azul-dll 1980. No device with any of these sensors here - compile-only.
-- [ ] 8e-i-a-i `AmbientLight` and `Proximity` stay unfilled on APPLE, and neither is a wiring
-      gap. iOS has no public ambient-light API at all (the only route is reading exposure off an
-      `AVCaptureDevice`, i.e. holding the camera open). Proximity is `UIDevice.proximityState`, a
-      BOOLEAN, while `SensorKind::Proximity` is a distance in cm: near is 0.0, but there is no
-      value for far. Android's binary sensors report `getMaximumRange()` and iOS exposes no
-      range, so the far value would have to be invented.
-      USER RULING 2026-09-03 (with 8e-i-a-ii): model proximity properly as a Rust enum -
-      `Proximity { Near, Far, Distance(ProximityDistance) }` with
-      `ProximityDistance { value, unit }` (millimetres, centimetres, ...). The boolean sensors
-      (`UIDevice.proximityState`, Windows `IsDetected`) report `Near` / `Far`; a ranging sensor
-      reports `Distance`. That removes the cm-vs-boolean mismatch that blocked both platforms.
-- [ ] 8e-i-a-ii `Proximity` on WINDOWS, for two reasons that stack. `ProximitySensor` has no
-      `GetDefault()` - it needs `DeviceInformation` enumeration over `GetDeviceSelector()`, which
-      means a new `Devices_Enumeration` cargo feature and another async resolve. And its
-      `DistanceInMillimeters` is an `IReference`, i.e. OPTIONAL: a binary sensor reports only
-      `IsDetected`, which lands back on the same missing "far" value as 8e-i-a-i. Worth doing
-      once that has an answer, since a sensor that DOES report a distance would work fully.
-      USER RULING 2026-09-03: same enum as 8e-i-a-i; the Windows sensor reports `Near` / `Far`
-      from `IsDetected` and `Distance` when `DistanceInMillimeters` is present. The
-      `Devices_Enumeration` feature and the async resolve are plumbing, not blockers.
+- [x] 8e-i-a-i DONE per the USER RULING (2026-09-03): proximity is a typed answer now -
+      `Proximity { Near, Far, Distance(ProximityDistance { value, unit }) }` with
+      `DistanceUnit { Millimeters, Centimeters, Meters }` (the sensor's NATIVE unit, kept so no
+      precision is invented; `in_millimeters/centimeters/meters` convert). `Proximity::is_near`
+      answers `Some` only for the binary variants: a distance is a measurement, not a verdict.
+      `SensorManager.proximity` + `CallbackInfo::get_proximity()` (latest-wins channel
+      `push_proximity` / `take_proximity`, drained in the capability pump; a change raises
+      `SensorChanged`). iOS: `UIDevice.proximityMonitoringEnabled` on start, `proximityState`
+      polled and published on change as `Near` / `Far` - the boolean that blocked this item is
+      the whole truth in the enum. `AmbientLight` on Apple stays unfilled: no public API (the
+      camera-exposure route is not a sensor). The raw `SensorKind::Proximity` reading keeps
+      the centimetres where a platform reports them. Core tests pin the conversions and the
+      verdict rule. Landed in two commits (fe6e5876f carried only the core half: the edit
+      script stopped on a stale anchor after the shell had already staged the commit - a
+      `&&`-less chain, the same trap class as the exit-code one; the follow-up carries the
+      rest). ⏳ SECOND BATCH: uncompiled until its end pass; api.json then gets `Proximity`,
+      `ProximityDistance`, `DistanceUnit`, `OptionProximity` and `CallbackInfo.get_proximity`
+      through `autofix add`.
+- [x] 8e-i-a-ii DONE per the USER RULING (2026-09-03). The two stacked reasons are both
+      answered: `Devices_Enumeration` is a cargo feature now, `ProximitySensor` is found by
+      `DeviceInformation::FindAllAsyncAqsFilter(GetDeviceSelector())` on the same
+      CoInitialize'd worker the pedometer's async resolve uses and opened by the synchronous
+      `FromId`; and the optional `DistanceInMillimeters` maps exactly onto the enum - present
+      (a ranging sensor) = `Distance` in millimetres, absent = `Near` / `Far` from `IsDetected`.
+      Polled each pass BEFORE the IMU gate, since a machine can have one without the other.
+      Android got the same typed answer from its own rule (max range = far, zero = near, in
+      between = a distance in cm, via a new `nativeOnProximity(distance, maxRange)` JNI hook),
+      Linux iio publishes its scaled metres as a `Distance`. ⏳ SECOND BATCH: uncompiled until
+      its end pass (Windows-gnu target in the gate; the Java class recompiles then).
 
 ### Follow-ups opened by 8c/8d
 

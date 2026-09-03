@@ -127,6 +127,18 @@ pub fn poll() {
                     z: 0.0,
                     timestamp_ms: now_ms,
                 });
+                // The typed answer too (8e-i-a-i/ii): iio proximity is a
+                // distance in METRES once scaled, so it is a ranging reading
+                // in its native unit - no verdict is invented for it.
+                if kind == SensorKind::Proximity {
+                    use azul_core::sensors::{DistanceUnit, Proximity, ProximityDistance};
+                    azul_layout::managers::sensors::push_proximity(Proximity::Distance(
+                        ProximityDistance {
+                            value: v,
+                            unit: DistanceUnit::Meters,
+                        },
+                    ));
+                }
             }
         }
     }

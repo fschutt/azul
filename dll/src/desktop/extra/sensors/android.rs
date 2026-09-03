@@ -120,3 +120,32 @@ pub unsafe extern "system" fn Java_com_azul_sensors_AzulSensors_nativeOnSensorRe
         });
     }
 }
+
+/// The typed proximity answer (8e-i-a-ii's sibling on Android). Android's
+/// own rule: a sensor that cannot range reports its MAXIMUM RANGE when far
+/// and a lesser value when near; a ranging sensor reports the distance in
+/// cm. So the maximum range IS far, zero IS near (touching, or the usual
+/// binary near value), and anything between is a distance the app judges.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_azul_sensors_AzulSensors_nativeOnProximity(
+    _env: *mut jni::sys::JNIEnv,
+    _class: jni::sys::jclass,
+    distance_cm: jni::sys::jfloat,
+    max_range_cm: jni::sys::jfloat,
+) {
+    use azul_core::sensors::{DistanceUnit, Proximity, ProximityDistance};
+    use azul_layout::managers::sensors::push_proximity;
+
+    let proximity = if max_range_cm > 0.0 && distance_cm >= max_range_cm {
+        Proximity::Far
+    } else if distance_cm <= 0.0 {
+        Proximity::Near
+    } else {
+        Proximity::Distance(ProximityDistance {
+            value: distance_cm,
+            unit: DistanceUnit::Centimeters,
+        })
+    };
+    push_proximity(proximity);
+}

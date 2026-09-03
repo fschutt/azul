@@ -4781,6 +4781,20 @@ impl CallbackInfo {
         self.get_layout_window().sensor_manager.reading(kind)
     }
 
+    /// The proximity sensor's TYPED answer (8e-i-a-i, 8e-i-a-ii): `Near` /
+    /// `Far` from a binary sensor (iOS, Windows without ranging), a
+    /// `Distance` in the sensor's native unit from a ranging one. `None`
+    /// until a sensor has reported, or on a device without one. The raw
+    /// centimetres, where a platform reports them, stay readable through
+    /// `get_sensor_reading(SensorKind::Proximity)`.
+    #[must_use]
+    pub const fn get_proximity(&self) -> azul_core::sensors::OptionProximity {
+        match self.get_layout_window().sensor_manager.proximity() {
+            Some(p) => azul_core::sensors::OptionProximity::Some(p),
+            None => azul_core::sensors::OptionProximity::None,
+        }
+    }
+
     /// The safe-area insets (notch / system-UI margins) for this window, in
     /// logical px - lay out interactive content within them so it isn't hidden
     /// by a notch / rounded corners / status bar. Zero where the platform or

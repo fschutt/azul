@@ -74,6 +74,9 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     for reading in azul_layout::managers::sensors::drain_sensor_readings() {
         changed |= lw.sensor_manager.set_reading(reading);
     }
+    if let Some(proximity) = azul_layout::managers::sensors::take_proximity() {
+        changed |= lw.sensor_manager.set_proximity(proximity);
+    }
 
     // Generic HID. Enumerated ONCE (hidraw offers no hotplug signal without
     // libudev, and re-scanning /dev every pass would stat dozens of nodes at
