@@ -21,9 +21,8 @@
 //!
 //! See: <https://www.w3.org/TR/css-gcpm-3>/
 
-use std::sync::Arc;
-
-use azul_css::props::basic::ColorU;
+use azul_core::refany::{OptionRefAny, RefAny};
+use azul_css::{props::basic::ColorU, AzString};
 
 /// Content that can appear in a page margin box.
 ///
@@ -47,8 +46,43 @@ pub enum MarginBoxContent {
     Combined(Vec<MarginBoxContent>),
     /// Literal text
     Text(String),
-    /// Custom callback for dynamic content generation
-    Custom(Arc<dyn Fn(PageInfo) -> String + Send + Sync>),
+    /// Custom callback for dynamic content generation (9g-ii-f): the ordinary
+    /// azul callback shape - a C function pointer plus the app's `RefAny`,
+    /// which the callback downcasts - so a margin box's text can come from
+    /// any binding language, not only a Rust closure.
+    Custom {
+        /// The generator; called once per occurrence per page.
+        callback: MarginBoxCallback,
+        /// The app's data, handed to `callback` (shared: a refcount bump per
+        /// clone of the content, never a deep copy).
+        data: RefAny,
+    },
+}
+
+/// The C shape of a margin-box content generator (9g-ii-f): the app's data
+/// and the page, out comes the text.
+pub type MarginBoxCallbackType = extern "C" fn(&mut RefAny, PageInfo) -> AzString;
+
+/// A margin-box content generator plus the foreign callable a binding
+/// language stores in `ctx` (native Rust and C leave it `None`).
+#[repr(C)]
+pub struct MarginBoxCallback {
+    pub cb: MarginBoxCallbackType,
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
+    pub ctx: OptionRefAny,
+}
+
+azul_core::impl_callback!(MarginBoxCallback, MarginBoxCallbackType);
+
+impl MarginBoxContent {
+    /// A custom generator from a C callback and the data it downcasts.
+    #[must_use]
+    pub fn custom(cb: MarginBoxCallbackType, data: RefAny) -> Self {
+        Self::Custom {
+            callback: MarginBoxCallback::from(cb),
+            data,
+        }
+    }
 }
 
 impl std::fmt::Debug for MarginBoxContent {
@@ -65,7 +99,7 @@ impl std::fmt::Debug for MarginBoxContent {
                 .finish(),
             Self::Combined(v) => f.debug_tuple("Combined").field(v).finish(),
             Self::Text(s) => f.debug_tuple("Text").field(s).finish(),
-            Self::Custom(_) => write!(f, "Custom(<fn>)"),
+            Self::Custom { .. } => write!(f, "Custom(<callback>)"),
         }
     }
 }
@@ -107,6 +141,7 @@ impl CounterFormat {
 
 /// Information about the current page, passed to content generators.
 #[derive(Debug, Clone, Copy)]
+#[repr(C)] // crosses the MarginBoxCallback C boundary (9g-ii-f)
 #[allow(clippy::struct_excessive_bools)] // independent page-position flags (first/last/left/right)
 pub struct PageInfo {
     /// Current page number (1-indexed for display)
@@ -276,7 +311,12 @@ impl HeaderFooterConfig {
                 // Running elements are rendered as display items, not text
                 format!("[element:{name}]")
             }
-            MarginBoxContent::Custom(f) => f(info),
+            MarginBoxContent::Custom { callback, data } => {
+                // The callback gets its own handle to the shared data (a
+                // refcount bump), as every azul callback does.
+                let mut data = data.clone();
+                (callback.cb)(&mut data, info).as_str().to_string()
+            }
         }
     }
 
@@ -1038,7 +1078,10 @@ pub fn collect_table_row_ranges(
 
 #[cfg(test)]
 mod autotest_generated {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
     use super::super::display_list::DisplayListItem;
     use super::*;
@@ -1500,12 +1543,13 @@ mod autotest_generated {
 
     #[test]
     fn header_footer_generate_content_calls_a_custom_hook_exactly_once() {
+        extern "C" fn page_of_total(data: &mut RefAny, info: PageInfo) -> AzString {
+            let calls = data.downcast_ref::<Arc<AtomicUsize>>().expect("the app's data");
+            calls.fetch_add(1, Ordering::SeqCst);
+            format!("{}/{}", info.page_number, info.total_pages).into()
+        }
         let calls = Arc::new(AtomicUsize::new(0));
-        let seen = Arc::clone(&calls);
-        let content = MarginBoxContent::Custom(Arc::new(move |info: PageInfo| {
-            seen.fetch_add(1, Ordering::SeqCst);
-            format!("{}/{}", info.page_number, info.total_pages)
-        }));
+        let content = MarginBoxContent::custom(page_of_total, RefAny::new(Arc::clone(&calls)));
         let cfg = HeaderFooterConfig::default();
         assert_eq!(cfg.generate_content(&content, PageInfo::new(2, 5)), "2/5");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -1527,13 +1571,14 @@ mod autotest_generated {
     fn header_footer_hidden_box_short_circuits_before_generating_content() {
         // show_header == false must win even when header_content would panic-free
         // produce text — otherwise a disabled box still costs a callback call.
+        extern "C" fn leaked(data: &mut RefAny, _: PageInfo) -> AzString {
+            let calls = data.downcast_ref::<Arc<AtomicUsize>>().expect("the app's data");
+            calls.fetch_add(1, Ordering::SeqCst);
+            "leaked".into()
+        }
         let calls = Arc::new(AtomicUsize::new(0));
-        let seen = Arc::clone(&calls);
         let mut cfg = HeaderFooterConfig {
-            header_content: MarginBoxContent::Custom(Arc::new(move |_| {
-                seen.fetch_add(1, Ordering::SeqCst);
-                "leaked".to_string()
-            })),
+            header_content: MarginBoxContent::custom(leaked, RefAny::new(Arc::clone(&calls))),
             ..Default::default()
         };
         assert_eq!(cfg.header_text(PageInfo::new(1, 1)), "");

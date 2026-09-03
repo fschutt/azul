@@ -1598,14 +1598,26 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       The five click-to-focus integration suites (`textinput_first_draw_and_focus`,
       `caret_reveal_and_session_identity`, `text_edit_seam_regressions`,
       `click_into_a_virtual_view_page`, `focus_ring_tween`: 44 tests) still pass. Host, 8/8 mobile.
-- [ ] 9g-ii-f `query_pagination` -> `FakePageConfig` -> `PageSequence` -> ... ->
-      `MarginBoxContent::Custom(Arc<dyn Fn(PageInfo) -> String + Send + Sync>)`. A boxed Rust
-      closure is not expressible in C at all. This one may be correctly UNEXPOSED forever; if it
-      should be reachable it needs a callback-handle design, not a type fix.
-      USER RULING 2026-09-04: "We can always transform that to a wrapped RefAny + C callback with
-      downcasting." So expose it: `MarginBoxContent::Custom` becomes the ordinary azul callback
-      shape - a C function pointer plus a `RefAny` the app downcasts - instead of a boxed Rust
-      closure. Implement.
+- [x] 9g-ii-f DONE per the USER RULING (2026-09-04, "We can always transform that to a wrapped
+      RefAny + C callback with downcasting"). `MarginBoxContent::Custom` is no longer a boxed Rust
+      closure: it is `Custom { callback: MarginBoxCallback, data: RefAny }` - the ordinary azul
+      callback shape (`extern "C" fn(&mut RefAny, PageInfo) -> AzString` behind `impl_callback!`,
+      so the foreign-callable `ctx` slot the bindings use is there too), `PageInfo` is `#[repr(C)]`,
+      the generator gets a refcount-bumped handle to the app's data like every other callback, and
+      `MarginBoxContent::custom(cb, data)` builds one. The two hook tests now downcast an
+      `Arc<AtomicUsize>` out of the `RefAny` from an `extern "C" fn` - the shape a C or Python
+      caller would use. WHY the gap existed: the pagination family was written Rust-first and the
+      closure was the one member no binding could ever express; with it gone nothing in
+      `query_pagination -> FakePageConfig -> PageSequence -> MarginBoxContent` is C-incompatible any
+      more. NOT YET IN api.json: `query_pagination` itself is not exposed (nothing references the
+      family from an exposed type), so autofix at the eighth batch's end pass will not pull it in
+      by itself - exposing the family is a separate, now UNBLOCKED item (9g-ii-f-i). ⏳ EIGHTH
+      BATCH: uncompiled until its end pass.
+- [ ] 9g-ii-f-i Expose the pagination family (`CallbackInfo::query_pagination`, `FakePageConfig`,
+      `PageSequence`, `MarginBoxContent`, `MarginBoxCallback`, `PageInfo`, `PaginationInfo`)
+      through api.json via `autofix add CallbackInfo.query_pagination` once the batch compiles;
+      unblocked by 9g-ii-f. `FakePageConfig`/`PageSequence` still hold `String`/`Vec` fields that
+      autofix will want as `AzString`/vec types - do that conversion when exposing, not before.
 
 
 ### Follow-ups opened by 9e
