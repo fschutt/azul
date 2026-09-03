@@ -2240,7 +2240,28 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       ⚠ The e2e run is expensive (160-185s plus a rebuild). USER RULING mid-item: implement and
       write tests, do not run the batteries between items - so 13e is the checkpoint, not a
       per-item gate.
-- [ ] 13f Drive the step-0 ratchet allow-list to empty; anything left is a real remaining gap.
+- [x] 13f DONE, and the allow-list was ALREADY EMPTY - which is exactly why this needed doing.
+      ⚠ THE RATCHET COVERED 68 OF 104 EVENT TYPES. `KNOWN_DESYNC` being empty meant nothing,
+      because the `cases` list it guards had never been complete: 36 variants were absent,
+      including `MouseMove` - about as core as it gets - and every type this arc added
+      (`Submit`, `Reset`, `Invalid`, `HidReport`, `DialRotate`, `DialClick`, `RawMouseMotion`,
+      the three new Pen types, the media and monitor families). A desync in any of them would
+      have landed green. Same shape as the `TIER1_SLOTS` table that let `cursor` overwrite
+      `align-self`: a guard over an incomplete table proves nothing.
+      THE FIX IS NOT "ADD THE 36". A hand-written list drifts again the moment someone adds a
+      variant, so the enumeration is now DERIVED from the enum: `next_event_type` is an
+      exhaustive match returning each variant's successor, and `all_event_types` walks it. A new
+      variant fails to COMPILE until it is spliced into the chain, and splicing it in
+      automatically puts it in the walk - which a parallel array cannot guarantee, because the
+      array and the match can drift apart. That is the difference between this and the guards
+      that failed before.
+      THE ANSWER TO THE ITEM'S QUESTION: with all 104 covered and the allow-list still empty, the
+      test PASSES - so there is no planning/matcher/phase desync left anywhere in the enum. That
+      is a real result rather than a tidy-up: it is the first time the claim has been checked
+      over the whole surface.
+      EVIDENCE: NEGATIVE CONTROL - removing `MouseMove` from `cases` fails with "the ratchet does
+      not cover 1 of 104 EventTypes, so a desync in them lands green: [MouseMove]". azul-core
+      2775, host check green.
 
 ---
 

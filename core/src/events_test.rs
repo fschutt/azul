@@ -2097,6 +2097,137 @@ mod autotest_generated {
         }
     }
 
+    /// The next `EventType` in declaration order, or `None` at the end.
+    ///
+    /// THIS IS THE ENUMERATION, and it is sound in a way a hand-written array
+    /// is not: the match is exhaustive, so adding a variant fails to compile
+    /// until it is spliced into the chain - and splicing it in automatically
+    /// puts it in the walk. A parallel `ALL_EVENT_TYPES` array would let a new
+    /// variant be added to a match and forgotten in the list, which is how
+    /// this ratchet came to cover 65% of the enum while reading as green, and
+    /// how `TIER1_SLOTS` let `cursor` overwrite `align-self`.
+    fn next_event_type(ty: EventType) -> Option<EventType> {
+        Some(match ty {
+            EventType::MouseOver => EventType::MouseEnter,
+            EventType::MouseEnter => EventType::MouseLeave,
+            EventType::MouseLeave => EventType::MouseOut,
+            EventType::MouseOut => EventType::MouseDown,
+            EventType::MouseDown => EventType::MouseUp,
+            EventType::MouseUp => EventType::Click,
+            EventType::Click => EventType::DoubleClick,
+            EventType::DoubleClick => EventType::ContextMenu,
+            EventType::ContextMenu => EventType::KeyDown,
+            EventType::KeyDown => EventType::KeyUp,
+            EventType::KeyUp => EventType::KeyPress,
+            EventType::KeyPress => EventType::CompositionStart,
+            EventType::CompositionStart => EventType::CompositionUpdate,
+            EventType::CompositionUpdate => EventType::CompositionEnd,
+            EventType::CompositionEnd => EventType::Focus,
+            EventType::Focus => EventType::Blur,
+            EventType::Blur => EventType::FocusIn,
+            EventType::FocusIn => EventType::FocusOut,
+            EventType::FocusOut => EventType::Input,
+            EventType::Input => EventType::Change,
+            EventType::Change => EventType::Submit,
+            EventType::Submit => EventType::Reset,
+            EventType::Reset => EventType::Invalid,
+            EventType::Invalid => EventType::Scroll,
+            EventType::Scroll => EventType::ScrollStart,
+            EventType::ScrollStart => EventType::ScrollEnd,
+            EventType::ScrollEnd => EventType::DragStart,
+            EventType::DragStart => EventType::Drag,
+            EventType::Drag => EventType::DragEnd,
+            EventType::DragEnd => EventType::DragEnter,
+            EventType::DragEnter => EventType::DragOver,
+            EventType::DragOver => EventType::DragLeave,
+            EventType::DragLeave => EventType::Drop,
+            EventType::Drop => EventType::TouchStart,
+            EventType::TouchStart => EventType::TouchMove,
+            EventType::TouchMove => EventType::TouchEnd,
+            EventType::TouchEnd => EventType::TouchCancel,
+            EventType::TouchCancel => EventType::PenDown,
+            EventType::PenDown => EventType::PenMove,
+            EventType::PenMove => EventType::PenUp,
+            EventType::PenUp => EventType::PenEnter,
+            EventType::PenEnter => EventType::PenLeave,
+            EventType::PenLeave => EventType::LongPress,
+            EventType::LongPress => EventType::SwipeLeft,
+            EventType::SwipeLeft => EventType::SwipeRight,
+            EventType::SwipeRight => EventType::SwipeUp,
+            EventType::SwipeUp => EventType::SwipeDown,
+            EventType::SwipeDown => EventType::PinchIn,
+            EventType::PinchIn => EventType::PinchOut,
+            EventType::PinchOut => EventType::RotateClockwise,
+            EventType::RotateClockwise => EventType::RotateCounterClockwise,
+            EventType::RotateCounterClockwise => EventType::Copy,
+            EventType::Copy => EventType::Cut,
+            EventType::Cut => EventType::Paste,
+            EventType::Paste => EventType::Play,
+            EventType::Play => EventType::Pause,
+            EventType::Pause => EventType::Ended,
+            EventType::Ended => EventType::TimeUpdate,
+            EventType::TimeUpdate => EventType::VolumeChange,
+            EventType::VolumeChange => EventType::MediaError,
+            EventType::MediaError => EventType::Mount,
+            EventType::Mount => EventType::Unmount,
+            EventType::Unmount => EventType::Update,
+            EventType::Update => EventType::Resize,
+            EventType::Resize => EventType::Dismiss,
+            EventType::Dismiss => EventType::TearOff,
+            EventType::TearOff => EventType::Dock,
+            EventType::Dock => EventType::WindowResize,
+            EventType::WindowResize => EventType::WindowMove,
+            EventType::WindowMove => EventType::WindowClose,
+            EventType::WindowClose => EventType::WindowFrameChanged,
+            EventType::WindowFrameChanged => EventType::WindowFocusIn,
+            EventType::WindowFocusIn => EventType::WindowFocusOut,
+            EventType::WindowFocusOut => EventType::ThemeChange,
+            EventType::ThemeChange => EventType::WindowDpiChanged,
+            EventType::WindowDpiChanged => EventType::WindowMonitorChanged,
+            EventType::WindowMonitorChanged => EventType::MonitorConnected,
+            EventType::MonitorConnected => EventType::MonitorDisconnected,
+            EventType::MonitorDisconnected => EventType::FileHover,
+            EventType::FileHover => EventType::FileDrop,
+            EventType::FileDrop => EventType::FileHoverCancel,
+            EventType::FileHoverCancel => EventType::SensorChanged,
+            EventType::SensorChanged => EventType::GamepadInput,
+            EventType::GamepadInput => EventType::GeolocationFix,
+            EventType::GeolocationFix => EventType::GeolocationError,
+            EventType::GeolocationError => EventType::PermissionChanged,
+            EventType::PermissionChanged => EventType::BiometricResult,
+            EventType::BiometricResult => EventType::ScreenColorPicked,
+            EventType::ScreenColorPicked => EventType::KeyringResult,
+            EventType::KeyringResult => EventType::DocumentEdit,
+            EventType::DocumentEdit => EventType::DeviceConnected,
+            EventType::DeviceConnected => EventType::DeviceDisconnected,
+            EventType::DeviceDisconnected => EventType::PenSqueeze,
+            EventType::PenSqueeze => EventType::PenDoubleTap,
+            EventType::PenDoubleTap => EventType::PenHover,
+            EventType::PenHover => EventType::DefaultAction,
+            EventType::DefaultAction => EventType::Selected,
+            EventType::Selected => EventType::HidReport,
+            EventType::HidReport => EventType::ModifiersChanged,
+            EventType::ModifiersChanged => EventType::RawMouseMotion,
+            EventType::RawMouseMotion => EventType::DialRotate,
+            EventType::DialRotate => EventType::DialClick,
+            EventType::DialClick => EventType::MouseMove,
+            EventType::MouseMove => return None,
+        })
+    }
+
+    /// Every `EventType`, in declaration order.
+    fn all_event_types() -> Vec<EventType> {
+        let mut out = vec![EventType::MouseOver];
+        while let Some(next) = next_event_type(*out.last().expect("seeded above")) {
+            out.push(next);
+            assert!(
+                out.len() < 10_000,
+                "next_event_type has a cycle - an arm points backwards"
+            );
+        }
+        out
+    }
+
     #[test]
     fn event_type_to_filters_never_panics_and_stays_synced_with_the_hover_matcher() {
         // ROUND-TRIP INVARIANT: a Hover filter emitted by `event_type_to_filters`
@@ -2196,7 +2327,74 @@ mod autotest_generated {
             (EventType::PenEnter, EventData::None),
             (EventType::PenLeave, EventData::None),
             (EventType::DocumentEdit, EventData::None),
+            // ── Added by 13f ──────────────────────────────────────────────
+            // THIRTY-SIX of the 104 `EventType`s were absent from this list,
+            // so the ratchet was green over 65% of the enum and silent about
+            // the rest - including `MouseMove`, and including every type this
+            // arc added. An allow-list that is empty proves nothing if the
+            // table it guards is not complete; that is the same shape as the
+            // `TIER1_SLOTS` table that let `cursor` overwrite `align-self`.
+            // The exhaustiveness match below now makes an omission impossible.
+            (EventType::MouseMove, mouse_data.clone()),
+            (EventType::ModifiersChanged, EventData::None),
+            (EventType::RawMouseMotion, EventData::None),
+            (EventType::Submit, EventData::None),
+            (EventType::Reset, EventData::None),
+            (EventType::Invalid, EventData::None),
+            (EventType::Selected, EventData::None),
+            (EventType::DefaultAction, EventData::None),
+            (EventType::SwipeLeft, EventData::None),
+            (EventType::SwipeRight, EventData::None),
+            (EventType::SwipeUp, EventData::None),
+            (EventType::SwipeDown, EventData::None),
+            (EventType::PinchIn, EventData::None),
+            (EventType::PinchOut, EventData::None),
+            (EventType::RotateClockwise, EventData::None),
+            (EventType::RotateCounterClockwise, EventData::None),
+            (EventType::Pause, EventData::None),
+            (EventType::Ended, EventData::None),
+            (EventType::TimeUpdate, EventData::None),
+            (EventType::VolumeChange, EventData::None),
+            (EventType::MediaError, EventData::None),
+            (EventType::WindowFrameChanged, EventData::None),
+            (EventType::WindowFocusIn, EventData::None),
+            (EventType::WindowFocusOut, EventData::None),
+            (EventType::WindowDpiChanged, EventData::None),
+            (EventType::WindowMonitorChanged, EventData::None),
+            (EventType::MonitorConnected, EventData::None),
+            (EventType::MonitorDisconnected, EventData::None),
+            (EventType::DeviceConnected, EventData::None),
+            (EventType::DeviceDisconnected, EventData::None),
+            (EventType::PenSqueeze, EventData::None),
+            (EventType::PenDoubleTap, EventData::None),
+            (EventType::PenHover, EventData::None),
+            (EventType::HidReport, EventData::None),
+            (EventType::DialRotate, EventData::None),
+            (EventType::DialClick, EventData::None),
         ];
+
+        // COVERAGE PROOF. Not "the list looks complete" - `all_event_types`
+        // walks the enum itself, so a variant that exists and is missing here
+        // fails the test by name rather than being silently skipped.
+        {
+            let covered: BTreeSet<EventType> = cases.iter().map(|(ty, _)| *ty).collect();
+            assert_eq!(
+                covered.len(),
+                cases.len(),
+                "`cases` lists the same EventType twice"
+            );
+            let missing: Vec<EventType> = all_event_types()
+                .into_iter()
+                .filter(|ty| !covered.contains(ty))
+                .collect();
+            assert!(
+                missing.is_empty(),
+                "the ratchet does not cover {} of {} EventTypes, so a desync in \
+                 them lands green: {missing:?}",
+                missing.len(),
+                all_event_types().len(),
+            );
+        }
 
         for (ty, data) in cases {
             let filters = event_type_to_filters(ty, &data);
