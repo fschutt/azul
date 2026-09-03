@@ -75,6 +75,13 @@ static SESSION: std::sync::Mutex<Option<NowPlayingInfo>> = std::sync::Mutex::new
 /// the thread's scope.
 static CONN: std::sync::OnceLock<zbus::blocking::Connection> = std::sync::OnceLock::new();
 
+/// The window that registered the session, for `Raise` (9h-i-a-ii).
+///
+/// MPRIS is per-PROCESS but a raise has to name a WINDOW, and an app can have
+/// several. The one that registered is the honest answer: it is the window the
+/// desktop's media widget is showing.
+static RAISE_TARGET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Bumped only when the TRACK changes, never on a pause or a seek - see
 /// `NowPlayingInfo::is_different_track` for why that distinction matters to a
 /// desktop's progress bar.
@@ -284,10 +291,16 @@ struct MprisRoot {
 
 #[zbus::interface(name = "org.mpris.MediaPlayer2")]
 impl MprisRoot {
-    /// `Raise` is the desktop asking to focus the app from its media widget.
-    /// Not wired to a window: raising is a window-manager action the shell
-    /// owns, and inventing one from here would fight it. Logged as 9h-i-a-ii.
-    fn raise(&self) {}
+    /// The desktop asking to focus the app from its media widget.
+    ///
+    /// Parked rather than performed: this runs on the D-Bus thread, and
+    /// activating a window is a call that belongs on the event loop - which is
+    /// also the only place that knows whether the window still exists. The
+    /// loop takes it on its next pass (9h-i-a-ii).
+    fn raise(&self) {
+        let target = RAISE_TARGET.load(Ordering::Relaxed);
+        azul_layout::managers::window_activation::request_raise(target);
+    }
 
     /// NOT wired to a quit. A media widget's close button terminating the app
     /// would be a surprise; `CanQuit` reports false so no desktop offers it.
@@ -298,9 +311,17 @@ impl MprisRoot {
         false
     }
 
+    /// TRUE now that `Raise` does something. A desktop greys out its "open the
+    /// player" affordance when this is false, so leaving it false while the
+    /// method worked would hide the feature.
+    ///
+    /// It stays true even where the platform will decline - a Wayland session
+    /// cannot raise on request - because this advertises what the APP
+    /// supports, and the refusal is the compositor's answer rather than a
+    /// missing capability.
     #[zbus(property)]
     fn can_raise(&self) -> bool {
-        false
+        true
     }
 
     #[zbus(property)]
@@ -328,10 +349,13 @@ impl MprisRoot {
 ///
 /// Idempotent and quiet: no session bus (a headless build, a CI container) is
 /// the normal case, not an error.
-pub fn start() {
+pub fn start(window_id: u64) {
     if !azul_layout::window::expose_system_media_controls() {
         return;
     }
+    // Recorded before the OnceLock guard, so a second window calling this does
+    // not silently leave `Raise` pointing at a window that has since closed.
+    RAISE_TARGET.store(window_id, std::sync::atomic::Ordering::Relaxed);
     static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     if STARTED.set(()).is_err() {
         return;

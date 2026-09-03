@@ -830,9 +830,41 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       URL, and a decision about what to show while it is in flight - a feature with a failure
       mode, not the line of glue the local case turned out to be. MPRIS and SMTC are unaffected:
       both take the URI directly and let the desktop fetch it.
-- [ ] 9h-i-a-ii MPRIS `Raise` is inert. Focusing a window from the desktop's media widget is a
-      window-manager action the shell owns, and there is no seam from a D-Bus thread to "raise
-      window N" - it needs the same cross-thread request path the media keys now have.
+- [x] 9h-i-a-ii DONE, and it turned into the WINDOW-ACTIVATION path azul did not have at all -
+      `WindowState::has_focus` and `request_user_attention` are both applied by nobody on any
+      platform, so this is the first thing that can bring a window forward.
+      The seam is the one the note predicted: a request parked in
+      `managers::window_activation` and taken by the owning window's next pass, like the media
+      keys. KEYED BY `registry_window_id`, NOT DRAINED WHOLESALE - an app can have several
+      windows and MPRIS is per-PROCESS, so a plain drain would have whichever window reached the
+      loop first answer a request meant for another. That is a coin flip, and the negative
+      control pins it.
+      EVERY PLATFORM DISAGREES ABOUT WHETHER AN APP MAY DO THIS, which is why it is four
+      implementations rather than one call:
+        - macOS needs BOTH `activateIgnoringOtherApps:` and `makeKeyAndOrderFront:` - activating
+          brings the APPLICATION forward but leaves whichever window was key still key, and
+          ordering a window front inside a background app only sorts it among that app's own.
+        - Windows REFUSES unless the app already owns the foreground, and reports that by
+          returning false rather than erroring. It also has to un-minimise first: a minimised
+          window cannot be foreground, so `SetForegroundWindow` succeeds and leaves it in the
+          taskbar, which looks exactly like the raise being ignored.
+        - X11 sends `_NET_ACTIVE_WINDOW` to the ROOT window, not `XRaiseWindow` - raising
+          restacks without focusing, so the window comes to the front and then ignores the
+          keyboard. `data[0] = 2` is the honest source indication ("another application asked");
+          claiming `1` would be a lie some WMs check. The mask must be
+          SubstructureNotify|Redirect or the message is delivered nowhere.
+        - WAYLAND REFUSES BY DESIGN and cannot be worked around: `xdg_activation_v1` needs a
+          token minted from a recent INPUT SERIAL, and a request from another process has none.
+          That is the protocol working, not a gap.
+      A refusal is returned rather than swallowed, so the loop logs "declined by the platform"
+      instead of claiming success. `CanRaise` is now TRUE - a desktop greys out its "open the
+      player" affordance when it is false - and stays true on Wayland, because it advertises what
+      the APP supports and the refusal is the compositor's answer.
+      EVIDENCE: 4 channel tests with a NEGATIVE CONTROL - replacing the per-window take with a
+      wholesale drain fails with "window 9 answered window 7's raise". All four seams proven
+      COMPILED on their own targets: x11 under linux-gnu, windows under windows-gnu, macOS on the
+      host, and the drain on all three. Host, 8/8 mobile, azul-layout window_activation 4.
+      ⚠ No Linux desktop and no Windows machine here - compile-only.
 - [x] 9f-i LINUX DONE (`/dev/hidraw*`); macOS is 9f-i-a and Windows 9f-i-b.
       The consumer side had been complete for a while - `HidManager`, `get_hid_devices()`,
       `get_hid_reports()`, and since 9g-ii-c the `HidDeviceVec`/`HidReportVec` types that let a

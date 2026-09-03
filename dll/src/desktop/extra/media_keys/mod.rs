@@ -35,7 +35,7 @@ pub mod android;
 /// started.
 pub fn ensure_started(window: azul_core::window::RawWindowHandle) {
     #[cfg(target_os = "linux")]
-    linux::start();
+    linux::start(registry_id_of(window));
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     apple::start();
     #[cfg(target_os = "windows")]
@@ -50,6 +50,18 @@ pub fn ensure_started(window: azul_core::window::RawWindowHandle) {
         target_os = "android"
     )))]
     let _ = window;
+}
+
+/// The same id `PlatformWindow::registry_window_id` derives - what a raise
+/// request names (9h-i-a-ii).
+#[cfg(target_os = "linux")]
+fn registry_id_of(window: azul_core::window::RawWindowHandle) -> u64 {
+    use azul_core::window::RawWindowHandle;
+    match window {
+        RawWindowHandle::Xlib(h) => h.window,
+        RawWindowHandle::Wayland(h) => h.surface as usize as u64,
+        _ => 0,
+    }
 }
 
 /// The `HWND` behind a raw window handle, or `0` where there is none.

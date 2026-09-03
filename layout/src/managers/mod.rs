@@ -43,6 +43,8 @@ pub mod geolocation;
 pub mod gesture;
 pub mod hid;
 pub mod media_keys;
+/// Cross-thread "raise this window" requests (9h-i-a-ii).
+pub mod window_activation;
 pub mod gpu_state;
 pub mod hover;
 pub mod keyring;

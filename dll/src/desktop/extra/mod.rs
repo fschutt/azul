@@ -32,6 +32,8 @@ pub mod gamepad;
 pub mod haptics;
 pub mod hid;
 pub mod media_keys;
+/// Bringing a window to the front, per platform (9h-i-a-ii).
+pub mod window_activation;
 pub mod geolocation;
 pub mod keyring;
 /// MVT tile decode + projection math for the `MapWidget` content

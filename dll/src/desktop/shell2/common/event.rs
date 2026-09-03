@@ -9174,6 +9174,31 @@ pub trait PlatformWindow {
             }
         }
 
+        // WINDOW RAISE (9h-i-a-ii). A desktop's media widget clicking MPRIS
+        // `Raise` arrives on the D-Bus thread, where activating a window is
+        // not something that can be done - so the request is parked and taken
+        // HERE, by the window it names.
+        //
+        // Keyed by `registry_window_id` rather than drained wholesale: a
+        // two-window app would otherwise have whichever window reached this
+        // first answer a request meant for the other, which is a coin flip.
+        if depth == 0 {
+            let id = self.registry_window_id();
+            if azul_layout::managers::window_activation::take_raise_request(id) {
+                let handle = self.get_raw_window_handle();
+                if !crate::desktop::extra::window_activation::raise_window(handle) {
+                    // A REFUSAL IS AN ANSWER, not a failure to retry: Windows
+                    // declines unless the app already owns the foreground, and
+                    // Wayland declines by design. Saying so beats silence.
+                    log_warn!(
+                        super::debug_server::LogCategory::EventLoop,
+                        "[azul] window raise declined by the platform for window {}",
+                        id,
+                    );
+                }
+            }
+        }
+
         // MEDIA SESSION. `CallbackInfo::set_now_playing()` ->
         // `CallbackChange::SetNowPlaying` -> `MediaSessionManager::set()`, and
         // then the same missing last step the haptic queue had: nothing read
