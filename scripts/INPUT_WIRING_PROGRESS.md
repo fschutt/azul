@@ -517,13 +517,52 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       EVIDENCE: 5 splice tests with a NEGATIVE CONTROL - restoring the append fails with
       "hello worldXY" against "helloXY world". All four iOS seams proven COMPILED under
       aarch64-apple-ios. Host, 8/8 mobile, azul-layout 7634. ⚠ No simulator - compile-only.
-- [ ] 10b-i-b-i The macOS shell still has the limits iOS just lost: `markedRange` reports
-      `(0, preedit_len)` and `selectedRange` a fixed `(0, 0)`. Every seam it needs now exists
-      (`focused_caret_byte_offset`, `focused_selection_byte_range`, `splice_preedit`,
-      `set_focused_selection_from_byte_range`), so this is now a wiring job rather than a design
-      one - but it is a different shell with its own `NSTextInputClient` conformance, and macOS
-      IME currently WORKS, so changing it wants a real IME to test against rather than a
-      compile.
+- [x] 10b-i-b-i DONE - and the reason it was a "wiring job" undersold it: `NSTextInputClient`
+      measures EVERY range in UTF-16 units of the client's string, and the engine measures in
+      bytes. The two agree on ASCII and on nothing else, which is exactly why the old client
+      "worked": every range answer was wrong by construction for the scripts an IME exists for.
+      What was there: `markedRange` = `(0, preedit_len)` in BYTES at location 0 (not where the
+      caret is); `selectedRange` = `(0, 0)` always; `characterIndexForPoint:` = NSNotFound;
+      `attributedSubstringForProposedRange:` = nil ("I have no text"); `firstRectForCharacterRange:`
+      = the caret rect whatever range was asked for; and `setMarkedText:`'s `selectedRange` -
+      UTF-16 units relative to the marked string - handed to `set_preedit` AS BYTES, so the
+      composition caret sat a third of the way into the wrong kana. An explicit
+      `replacementRange` on `insertText:` (autocorrect replacing a committed word) was reported
+      and DROPPED, inserting the correction beside the word it replaced.
+      NOW, on the same document iOS answers from: `LayoutWindow::ime_document` (moved out of
+      the iOS shell - the committed text with the preedit spliced at the caret; iOS delegates
+      to it) plus `utf16_offset_to_byte` / `byte_offset_to_utf16` / `utf16_range_to_bytes` /
+      `byte_range_to_utf16` in `azul_layout::window` (host-tested: CJK, surrogate pairs snap
+      DOWN to the scalar start, clamps, reversed ranges, boundary round-trips), and
+      `ime_selected_byte_range` for the one rule that needed writing down: with a composition
+      open the selection is INSIDE the marked text (the IME's own selected sub-range rebased onto
+      the document), otherwise the committed selection, otherwise a caret at the END - a real
+      insertion point, never NSNotFound, because that stops AppKit sending `insertText:` at all
+      (the old `(0, 0)` stub's one valid reason, kept with the right location).
+      `insertText:` with an explicit range that is neither the composition nor the selection is
+      applied the iOS way: select, delete, insert, in that order. `characterIndexForPoint:` goes
+      screen -> window -> azul top-left -> `focused_byte_offset_for_point` -> UTF-16.
+      `firstRectForCharacterRange:` resolves the ASKED range through `focused_rect_for_byte_range`
+      and fills `actualRange`, falling back to the live caret rect and then the cached IME
+      position as before. An empty `setMarkedText:` string is now a cancel (AppKit clears marked
+      text by marking the empty string), un-shaping the composition like `unmarkText`.
+      DEDUP: the protocol impl existed TWICE, once per view class (`GLView`, `CPUView`), 230
+      byte-identical lines drifting only in comments. Both are now thin wrappers over one set of
+      `ime_*` functions; the view contributes its window pointer, its frame height (the y-flip)
+      and its `ime_key_handled` latch, nothing else.
+      EVIDENCE: 7 host tests on the conversions and the selection rule; NEGATIVE CONTROL:
+      treating UTF-16 units as bytes fails the CJK, emoji and round-trip tests. Host check (the
+      macOS shell IS the host), 8/8 mobile (the iOS delegation compiled on the three Apple
+      targets). ⚠ NOT DRIVEN BY A REAL IME HERE - the user said to check at the end; the
+      Japanese/Chinese composition path on macOS is the first thing to try then, and the traces
+      (`[IME markedRange]` etc.) are in place to read.
+- [ ] 10b-i-b-i-a Composing OVER committed text (reconversion: `setMarkedText:` with an
+      explicit `replacementRange` that is not the current composition) and an explicit
+      `insertText:` range DURING a composition are reported and applied at the caret instead. The
+      engine can select the range, but a preedit shaped at the caret next to a live selection
+      is not "replacing" it, and the offsets index a document whose preedit is about to be
+      un-shaped. Needs a "replace this range with a composition" seam; guessing it would put
+      reconverted text in the wrong place.
 - [x] 10b-ii DONE. On iOS the keyboard is not something you show - it is a CONSEQUENCE of a view
       becoming first responder while conforming to `UIKeyInput`. The view had conformed and
       answered `canBecomeFirstResponder = true` since 10b, and implemented `insertText:` /

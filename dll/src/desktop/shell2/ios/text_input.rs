@@ -121,38 +121,13 @@ const WRITING_DIRECTION_NATURAL: i64 = -1;
 /// Returns `(text, preedit_range)`. `preedit_range` is `None` when no
 /// composition is open.
 fn document(window: &IOSWindow) -> (String, Option<(usize, usize)>) {
-    let Some(lw) = window.common.layout_window.as_ref() else {
-        return (String::new(), None);
-    };
-    let Some(focused) = lw.focus_manager.get_focused_node().copied() else {
-        return (String::new(), None);
-    };
-    let Some(node_id) = focused.node.into_crate_internal() else {
-        return (String::new(), None);
-    };
-    let content = lw.get_text_before_textinput(focused.dom, node_id);
-    let committed = lw.extract_text_from_inline_content(&content);
-
-    let Some(preedit) = lw.text_edit_manager.preedit_text.as_ref() else {
-        return (committed, None);
-    };
-    // SPLICED AT THE CARET (10b-i-b), not appended. It used to be appended
-    // because nothing could turn the engine's `TextCursor` into a flat offset;
-    // `focused_caret_byte_offset` is that bridge.
-    //
-    // The difference is visible the moment someone composes in the MIDDLE of a
-    // field: appending put the preedit after text that comes AFTER it, so the
-    // IME's candidate window pointed at the wrong place and every offset UIKit
-    // derived from this string was past the end of the real insertion point.
-    //
-    // Falling back to the end of the committed text keeps the previous
-    // behaviour for a field whose caret cannot be resolved, which is better
-    // than reporting offset 0 and having UIKit compose at the start.
-    let caret = lw
-        .focused_caret_byte_offset()
-        .map_or(committed.len(), |c| c.min(committed.len()));
-    let (text, marked) = azul_layout::window::splice_preedit(&committed, preedit, caret);
-    (text, Some(marked))
+    // The assembly lives in the engine since 10b-i-b-i, so macOS asks the same
+    // questions of the same string.
+    window
+        .common
+        .layout_window
+        .as_ref()
+        .map_or((String::new(), None), |lw| lw.ime_document())
 }
 
 /// Snap an offset to a char boundary at or below it.

@@ -11838,6 +11838,42 @@ impl LayoutWindow {
         Some(rect)
     }
 
+    /// The focused editable's text with the preedit spliced in at the caret,
+    /// and the preedit's byte range in it - the DOCUMENT a platform text-input
+    /// client is asked about (10b-i-b-i).
+    ///
+    /// Moved here from the iOS shell so macOS answers the same questions from
+    /// the same string: `markedRange`, `selectedRange`,
+    /// `attributedSubstringForProposedRange:` and `firstRectForCharacterRange:`
+    /// all index into THIS text, and two shells assembling it two ways would
+    /// disagree by exactly the preedit.
+    ///
+    /// Empty with nothing focused. `preedit_range` is `None` when no
+    /// composition is open.
+    #[must_use]
+    pub fn ime_document(&self) -> (String, Option<(usize, usize)>) {
+        let Some(focused) = self.focus_manager.get_focused_node().copied() else {
+            return (String::new(), None);
+        };
+        let Some(node_id) = focused.node.into_crate_internal() else {
+            return (String::new(), None);
+        };
+        let content = self.get_text_before_textinput(focused.dom, node_id);
+        let committed = self.extract_text_from_inline_content(&content);
+
+        let Some(preedit) = self.text_edit_manager.preedit_text.as_ref() else {
+            return (committed, None);
+        };
+        // SPLICED AT THE CARET (10b-i-b), not appended - see `splice_preedit`.
+        // Falling back to the end of the committed text keeps a field whose
+        // caret cannot be resolved composing at its end rather than at 0.
+        let caret = self
+            .focused_caret_byte_offset()
+            .map_or(committed.len(), |c| c.min(committed.len()));
+        let (text, marked) = splice_preedit(&committed, preedit, caret);
+        (text, Some(marked))
+    }
+
     // ─── Selection handles (U2-a) ────────────────────────────────────────
 
     /// The two draggable handles of the LOCAL primary selection, in window
@@ -24226,6 +24262,174 @@ pub fn splice_preedit(committed: &str, preedit: &str, caret: usize) -> (String, 
 /// real line height - anything larger would merge two genuinely adjacent lines
 /// in small text.
 const LINE_BREAK_TOLERANCE_PX: f32 = 0.5;
+
+/// A UTF-16 unit offset into `text`, as a BYTE offset (10b-i-b-i).
+///
+/// `NSTextInputClient` measures every `NSRange` in UTF-16 code units of the
+/// client's string; the engine measures in bytes. The two agree on ASCII and
+/// on nothing else - a Japanese preedit is 3 bytes per 1 unit, an emoji 4 per
+/// 2 - which is why the macOS client could answer none of the range questions
+/// truthfully before this existed. Past the end clamps to the end; an offset
+/// that lands inside a surrogate pair snaps to the START of that scalar,
+/// since a byte offset in the middle of a scalar is not a place.
+#[must_use]
+pub fn utf16_offset_to_byte(text: &str, utf16_offset: usize) -> usize {
+    let mut units = 0usize;
+    for (byte, ch) in text.char_indices() {
+        let next = units + ch.len_utf16();
+        // The offset points AT this scalar's first unit, or INSIDE its
+        // surrogate pair: both are this scalar's start.
+        if utf16_offset < next {
+            return byte;
+        }
+        units = next;
+    }
+    text.len()
+}
+
+/// The inverse of [`utf16_offset_to_byte`]: a byte offset as UTF-16 units.
+/// A byte offset inside a scalar counts that scalar as not yet reached;
+/// past the end is the end.
+#[must_use]
+pub fn byte_offset_to_utf16(text: &str, byte_offset: usize) -> usize {
+    let mut units = 0usize;
+    for (byte, ch) in text.char_indices() {
+        if byte + ch.len_utf8() > byte_offset {
+            return units;
+        }
+        units += ch.len_utf16();
+    }
+    units
+}
+
+/// A byte range as an `(location, length)` pair in UTF-16 units, ordered.
+#[must_use]
+pub fn byte_range_to_utf16(text: &str, range: (usize, usize)) -> (usize, usize) {
+    let (lo, hi) = if range.0 <= range.1 { range } else { (range.1, range.0) };
+    let a = byte_offset_to_utf16(text, lo);
+    let b = byte_offset_to_utf16(text, hi);
+    (a, b.saturating_sub(a))
+}
+
+/// A `(location, length)` UTF-16 range as an ordered byte range, clamped.
+#[must_use]
+pub fn utf16_range_to_bytes(text: &str, location: usize, length: usize) -> (usize, usize) {
+    let start = utf16_offset_to_byte(text, location);
+    let end = utf16_offset_to_byte(text, location.saturating_add(length));
+    (start, end.max(start))
+}
+
+/// WHAT "THE SELECTION" IS while a platform text-input client asks
+/// (10b-i-b-i), in BYTES of the IME document (see `LayoutWindow::ime_document`).
+///
+/// - With a composition open, the selection lives INSIDE the marked text:
+///   the IME's own `selectedRange` from `setMarkedText:`, which is relative to
+///   the marked string, rebased onto the document and clamped to the marked
+///   span. That is what AppKit reads back to place the candidate window and
+///   to decide which part of the composition a keystroke edits; reporting the
+///   committed caret there instead put the candidate window a preedit-length
+///   away from the text being composed.
+/// - Otherwise the committed selection, if the engine can name one.
+/// - Otherwise a caret at the END of the document - a real insertion point
+///   rather than "none", because an unanswerable selection stops the IME
+///   talking (`insertText:` is never sent). This is the `(0, 0)` stub's one
+///   valid reason, now with the right location.
+#[must_use]
+pub fn ime_selected_byte_range(
+    document_len: usize,
+    marked: Option<(usize, usize)>,
+    preedit_selection: Option<(usize, usize)>,
+    committed_selection: Option<(usize, usize)>,
+) -> (usize, usize) {
+    if let Some((mark_start, mark_end)) = marked {
+        let (begin, end) = preedit_selection.unwrap_or((mark_end - mark_start, mark_end - mark_start));
+        let span = mark_end.saturating_sub(mark_start);
+        let begin = begin.min(span);
+        let end = end.clamp(begin, span);
+        return (mark_start + begin, mark_start + end);
+    }
+    if let Some((start, end)) = committed_selection {
+        let (lo, hi) = if start <= end { (start, end) } else { (end, start) };
+        return (lo.min(document_len), hi.min(document_len));
+    }
+    (document_len, document_len)
+}
+
+#[cfg(test)]
+mod ime_offset_tests {
+    use super::*;
+
+    #[test]
+    fn ascii_is_the_identity() {
+        assert_eq!(utf16_offset_to_byte("hello", 3), 3);
+        assert_eq!(byte_offset_to_utf16("hello", 3), 3);
+        assert_eq!(byte_range_to_utf16("hello", (1, 4)), (1, 3));
+        assert_eq!(utf16_range_to_bytes("hello", 1, 3), (1, 4));
+    }
+
+    #[test]
+    fn cjk_is_three_bytes_per_unit() {
+        // "日本" = 6 bytes, 2 UTF-16 units.
+        assert_eq!(utf16_offset_to_byte("日本語", 1), 3);
+        assert_eq!(utf16_offset_to_byte("日本語", 2), 6);
+        assert_eq!(byte_offset_to_utf16("日本語", 6), 2);
+        assert_eq!(byte_range_to_utf16("日本語", (3, 9)), (1, 2));
+        assert_eq!(utf16_range_to_bytes("a日本b", 1, 2), (1, 7));
+    }
+
+    #[test]
+    fn an_emoji_is_a_surrogate_pair_of_four_bytes() {
+        // "a😀b": 'a' 1 byte / 1 unit, the emoji 4 bytes / 2 units.
+        assert_eq!(utf16_offset_to_byte("a😀b", 1), 1);
+        assert_eq!(utf16_offset_to_byte("a😀b", 3), 5);
+        // Inside the pair: snaps to the START of the scalar, never between
+        // its bytes.
+        assert_eq!(utf16_offset_to_byte("a😀b", 2), 1);
+        assert_eq!(byte_offset_to_utf16("a😀b", 5), 3);
+        assert_eq!(byte_offset_to_utf16("a😀b", 3), 1, "mid-scalar: not yet reached");
+    }
+
+    #[test]
+    fn past_the_end_clamps_and_reversed_ranges_are_ordered() {
+        assert_eq!(utf16_offset_to_byte("ab", 99), 2);
+        assert_eq!(byte_offset_to_utf16("ab", 99), 2);
+        assert_eq!(utf16_range_to_bytes("ab", 1, 99), (1, 2));
+        assert_eq!(byte_range_to_utf16("abcd", (3, 1)), (1, 2));
+    }
+
+    #[test]
+    fn round_trips_on_every_boundary() {
+        let s = "x日😀y";
+        for (byte, _) in s.char_indices().chain(core::iter::once((s.len(), ' '))) {
+            let u = byte_offset_to_utf16(s, byte);
+            assert_eq!(utf16_offset_to_byte(s, u), byte, "byte {byte}");
+        }
+    }
+
+    #[test]
+    fn during_a_composition_the_selection_is_inside_the_marked_text() {
+        // Document "ab" + marked "かな" spliced at 1: "aかなb", marked (1, 7).
+        let marked = Some((1, 7));
+        // The IME selected the second syllable: preedit bytes 3..6.
+        assert_eq!(
+            ime_selected_byte_range(8, marked, Some((3, 6)), Some((1, 1))),
+            (4, 7),
+            "rebased onto the document, not the committed caret"
+        );
+        // No preedit selection reported: the caret sits at the END of the
+        // marked text.
+        assert_eq!(ime_selected_byte_range(8, marked, None, Some((1, 1))), (7, 7));
+        // Clamped to the marked span.
+        assert_eq!(ime_selected_byte_range(8, marked, Some((2, 99)), None), (3, 7));
+    }
+
+    #[test]
+    fn without_a_composition_it_is_the_committed_selection_or_a_caret_at_the_end() {
+        assert_eq!(ime_selected_byte_range(5, None, None, Some((4, 1))), (1, 4), "ordered");
+        assert_eq!(ime_selected_byte_range(5, None, None, Some((2, 99))), (2, 5), "clamped");
+        assert_eq!(ime_selected_byte_range(5, None, None, None), (5, 5));
+    }
+}
 
 #[cfg(test)]
 mod splice_preedit_tests {

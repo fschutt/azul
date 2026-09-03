@@ -1511,38 +1511,37 @@ define_class!(
     // the required protocol methods against the block that declares the
     // conformance and aborts class registration if any are missing — methods
     // with matching selectors in the plain `impl` block above don't count.
+    //
+    // THIN ON PURPOSE (10b-i-b-i): every body is a shared `ime_*` function
+    // below, because this block exists twice - once per view class - and the
+    // two copies had drifted only in comments so far. The view contributes
+    // exactly what only it knows: its window pointer, its frame height (the
+    // y-flip) and its `ime_key_handled` latch.
     unsafe impl NSTextInputClient for GLView {
         #[unsafe(method(hasMarkedText))]
         fn has_marked_text(&self) -> bool {
-            let has = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
-                let w = &*(ptr as *const MacOSWindow);
-                w.common.layout_window.as_ref().map(|lw| lw.text_edit_manager.preedit_text.is_some())
-            }).unwrap_or(false);
+            let has = self
+                .get_window_ptr()
+                .is_some_and(|ptr| unsafe { ime_has_marked_text(ptr as *const MacOSWindow) });
             log_trace!(LogCategory::Input, "[IME hasMarkedText] -> {}", has);
             has
         }
 
         #[unsafe(method(markedRange))]
         fn marked_range(&self) -> NSRange {
-            let preedit_len = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
-                let w = &*(ptr as *const MacOSWindow);
-                w.common.layout_window.as_ref()
-                    .and_then(|lw| lw.text_edit_manager.preedit_text.as_ref().map(|p| p.len()))
-            });
-            match preedit_len {
-                Some(len) => NSRange { location: 0, length: len },
-                None => NSRange { location: usize::MAX, length: 0 },
+            match self.get_window_ptr() {
+                Some(ptr) => unsafe { ime_marked_range(ptr as *const MacOSWindow) },
+                None => ns_range_not_found(),
             }
         }
 
         #[unsafe(method(selectedRange))]
         fn selected_range(&self) -> NSRange {
-            // CRITICAL: Return a valid cursor position (location 0, length 0 = cursor at position 0)
-            // Returning NSNotFound (usize::MAX) tells macOS there's no insertion point,
-            // and it will NOT call insertText:replacementRange:
-            NSRange {
-                location: 0,
-                length: 0,
+            match self.get_window_ptr() {
+                Some(ptr) => unsafe { ime_selected_range(ptr as *const MacOSWindow) },
+                // A real insertion point rather than NSNotFound: "no insertion
+                // point" stops AppKit sending insertText: at all.
+                None => NSRange { location: 0, length: 0 },
             }
         }
 
@@ -1553,39 +1552,10 @@ define_class!(
             selected_range: NSRange,
             replacement_range: NSRange,
         ) {
-            let _ = ime_replacement_range_is_implicit(replacement_range, "setMarkedText");
-            // macOS sends either NSString or NSAttributedString — handle both.
-            let preedit = if let Some(ns_string) = string.downcast_ref::<NSString>() {
-                ns_string.to_string()
-            } else if let Some(attr_string) = string.downcast_ref::<NSAttributedString>() {
-                unsafe { attr_string.string() }.to_string()
-            } else {
-                String::new()
-            };
-            log_trace!(LogCategory::Input, "[IME setMarkedText] text='{}' selectedRange=({},{})", preedit, selected_range.location, selected_range.length);
             self.ivars().ime_key_handled.set(true);
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(ptr) = self.get_window_ptr() {
                 unsafe {
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    // Get the editing node before borrowing layout_window mutably
-                    let editing_info = macos_window.common.layout_window.as_ref().and_then(|lw| {
-                        let dom_id = lw.text_edit_manager.get_editing_dom_id()?;
-                        let node_id = lw.text_edit_manager.get_editing_node_id()?;
-                        Some((dom_id, node_id))
-                    });
-                    if let Some(ref mut lw) = macos_window.common.layout_window {
-                        lw.text_edit_manager.set_preedit(
-                            preedit,
-                            selected_range.location as i32,
-                            (selected_range.location + selected_range.length) as i32,
-                        );
-                        // Inject preedit into text cache and re-shape
-                        if let Some((dom_id, node_id)) = editing_info {
-                            lw.apply_preedit_to_text_cache(dom_id, node_id);
-                        }
-                    }
-                    macos_window.sync_ime_position_to_os();
-                    macos_window.request_redraw();
+                    ime_set_marked_text(ptr as *mut MacOSWindow, string, selected_range, replacement_range);
                 }
             }
         }
@@ -1593,20 +1563,8 @@ define_class!(
         #[unsafe(method(unmarkText))]
         fn unmark_text(&self) {
             log_trace!(LogCategory::Input, "[IME unmarkText] composition cancelled");
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    if let Some(ref mut lw) = macos_window.common.layout_window {
-                        // Cancelling drops the composition ENTIRELY. Clearing
-                        // the preedit string alone left the composed glyphs
-                        // shaped into the node's inline layout, so a cancelled
-                        // composition stayed on screen until something else
-                        // happened to re-shape that node.
-                        lw.text_edit_manager.clear_preedit();
-                        lw.end_preedit_shaping();
-                    }
-                    macos_window.request_redraw();
-                }
+            if let Some(ptr) = self.get_window_ptr() {
+                unsafe { ime_unmark_text(ptr as *mut MacOSWindow) };
             }
         }
 
@@ -1619,114 +1577,59 @@ define_class!(
         #[unsafe(method_id(attributedSubstringForProposedRange:actualRange:))]
         fn attributed_substring_for_proposed_range(
             &self,
-            _range: NSRange,
-            _actual_range: *mut NSRange,
+            range: NSRange,
+            actual_range: *mut NSRange,
         ) -> Option<Retained<NSAttributedString>> {
-            None
+            // No `?`: define_class! wraps this return in its own type.
+            match self.get_window_ptr() {
+                Some(ptr) => unsafe {
+                    ime_attributed_substring(ptr as *const MacOSWindow, range, actual_range)
+                },
+                None => None,
+            }
         }
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, replacement_range: NSRange) {
-            // macOS sends either NSString or NSAttributedString — handle both.
-            let committed_text = if let Some(ns_string) = string.downcast_ref::<NSString>() {
-                ns_string.to_string()
-            } else if let Some(attr_string) = string.downcast_ref::<NSAttributedString>() {
-                unsafe { attr_string.string() }.to_string()
-            } else {
-                String::new()
-            };
-            log_trace!(LogCategory::Input, "[IME insertText] text='{}'", committed_text);
-            let _ = ime_replacement_range_is_implicit(replacement_range, "insertText");
             self.ivars().ime_key_handled.set(true);
-            let window_ptr = match self.get_window_ptr() {
-                Some(ptr) => ptr,
-                None => return,
-            };
-
-            if committed_text.is_empty() {
-                return;
-            }
-            unsafe {
-                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                if let Some(ref mut lw) = macos_window.common.layout_window {
-                    // END the composition before inserting: the composed string
-                    // is glyphs in the node's inline layout, never document
-                    // text, so it has to be un-shaped or the commit lands next
-                    // to a composition that is still on screen (typing "か" and
-                    // committing rendered "かか").
-                    //
-                    // Commit rather than a bare clear, so `CompositionEnd`
-                    // carries the committed string. macOS is the one backend
-                    // that hands it to us directly, on `insertText:`.
-                    lw.text_edit_manager
-                        .commit_composition(committed_text.clone());
-                    lw.end_preedit_shaping();
-                }
-                macos_window.handle_text_input(&committed_text);
+            if let Some(ptr) = self.get_window_ptr() {
+                unsafe { ime_insert_text(ptr as *mut MacOSWindow, string, replacement_range) };
             }
         }
 
         #[unsafe(method(characterIndexForPoint:))]
-        fn character_index_for_point(&self, _point: NSPoint) -> usize {
-            // Return NSNotFound
-            usize::MAX
+        fn character_index_for_point(&self, point: NSPoint) -> usize {
+            match self.get_window_ptr() {
+                Some(ptr) => unsafe {
+                    ime_character_index_for_point(
+                        ptr as *const MacOSWindow,
+                        self.frame().size.height,
+                        point,
+                    )
+                },
+                None => objc2_foundation::NSNotFound as usize,
+            }
         }
 
         #[unsafe(method(firstRectForCharacterRange:actualRange:))]
         fn first_rect_for_character_range(
             &self,
-            _range: NSRange,
-            _actual_range: *mut NSRange,
+            range: NSRange,
+            actual_range: *mut NSRange,
         ) -> NSRect {
-            // Compute cursor rect live from the layout (don't rely on cached ime_position
-            // which may be stale or Uninitialized).
-            let window_ptr = match self.get_window_ptr() {
-                Some(ptr) => ptr,
+            match self.get_window_ptr() {
+                Some(ptr) => unsafe {
+                    ime_first_rect_for_character_range(
+                        ptr as *const MacOSWindow,
+                        self.frame().size.height,
+                        range,
+                        actual_range,
+                    )
+                },
                 None => {
                     log_trace!(LogCategory::Input, "[IME firstRect] no window_ptr");
-                    return NSRect::ZERO;
+                    NSRect::ZERO
                 }
-            };
-
-            unsafe {
-                let window = &*(window_ptr as *const MacOSWindow);
-
-                // Try live cursor rect from layout
-                let cursor_rect = window.common.layout_window.as_ref()
-                    .and_then(|lw| lw.get_focused_cursor_rect_viewport());
-
-                let rect = match cursor_rect {
-                    Some(r) => r,
-                    None => {
-                        // Fallback: cached ime_position
-                        use azul_core::window::ImePosition;
-                        match window.common.current_window_state().ime_position {
-                            ImePosition::Initialized(r) => r,
-                            _ => {
-                                log_trace!(LogCategory::Input, "[IME firstRect] no cursor rect, no ime_position");
-                                return NSRect::ZERO;
-                            }
-                        }
-                    }
-                };
-
-                log_trace!(LogCategory::Input, "[IME firstRect] cursor at ({}, {}) size ({}, {})",
-                    rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
-
-                // Convert from top-left (azul) to bottom-left (macOS) view coordinates
-                let content_height = self.frame().size.height;
-                let window_local = NSRect {
-                    origin: NSPoint {
-                        x: rect.origin.x as f64,
-                        y: content_height - rect.origin.y as f64 - rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
-                    },
-                    size: NSSize {
-                        width: rect.size.width.max(1.0) as f64,
-                        height: rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
-                    },
-                };
-                // Convert from view-local to screen coordinates
-                window.window.convertRectToScreen(window_local)
             }
         }
 
@@ -2479,35 +2382,43 @@ define_class!(
 
     // NSTextInputClient Protocol — same IME implementation as GLView.
     // Must be a protocol impl block, not plain methods (see GLView above).
+    // NSTextInputClient Protocol
+    // IME support for Unicode composition (Japanese, Chinese, accented characters).
+    // The methods MUST live inside this protocol impl block: objc2 validates
+    // the required protocol methods against the block that declares the
+    // conformance and aborts class registration if any are missing — methods
+    // with matching selectors in the plain `impl` block above don't count.
+    //
+    // THIN ON PURPOSE (10b-i-b-i): every body is a shared `ime_*` function
+    // below, because this block exists twice - once per view class - and the
+    // two copies had drifted only in comments so far. The view contributes
+    // exactly what only it knows: its window pointer, its frame height (the
+    // y-flip) and its `ime_key_handled` latch.
     unsafe impl NSTextInputClient for CPUView {
         #[unsafe(method(hasMarkedText))]
         fn has_marked_text(&self) -> bool {
-            let has = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
-                let w = &*(ptr as *const MacOSWindow);
-                w.common.layout_window.as_ref().map(|lw| lw.text_edit_manager.preedit_text.is_some())
-            }).unwrap_or(false);
+            let has = self
+                .get_window_ptr()
+                .is_some_and(|ptr| unsafe { ime_has_marked_text(ptr as *const MacOSWindow) });
             log_trace!(LogCategory::Input, "[IME hasMarkedText] -> {}", has);
             has
         }
 
         #[unsafe(method(markedRange))]
         fn marked_range(&self) -> NSRange {
-            let preedit_len = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
-                let w = &*(ptr as *const MacOSWindow);
-                w.common.layout_window.as_ref()
-                    .and_then(|lw| lw.text_edit_manager.preedit_text.as_ref().map(|p| p.len()))
-            });
-            match preedit_len {
-                Some(len) => NSRange { location: 0, length: len },
-                None => NSRange { location: usize::MAX, length: 0 },
+            match self.get_window_ptr() {
+                Some(ptr) => unsafe { ime_marked_range(ptr as *const MacOSWindow) },
+                None => ns_range_not_found(),
             }
         }
 
         #[unsafe(method(selectedRange))]
         fn selected_range(&self) -> NSRange {
-            NSRange {
-                location: 0,
-                length: 0,
+            match self.get_window_ptr() {
+                Some(ptr) => unsafe { ime_selected_range(ptr as *const MacOSWindow) },
+                // A real insertion point rather than NSNotFound: "no insertion
+                // point" stops AppKit sending insertText: at all.
+                None => NSRange { location: 0, length: 0 },
             }
         }
 
@@ -2518,39 +2429,10 @@ define_class!(
             selected_range: NSRange,
             replacement_range: NSRange,
         ) {
-            let _ = ime_replacement_range_is_implicit(replacement_range, "setMarkedText");
-            // macOS sends either NSString or NSAttributedString — handle both.
-            let preedit = if let Some(ns_string) = string.downcast_ref::<NSString>() {
-                ns_string.to_string()
-            } else if let Some(attr_string) = string.downcast_ref::<NSAttributedString>() {
-                unsafe { attr_string.string() }.to_string()
-            } else {
-                String::new()
-            };
-            log_trace!(LogCategory::Input, "[IME setMarkedText] text='{}' selectedRange=({},{})", preedit, selected_range.location, selected_range.length);
             self.ivars().ime_key_handled.set(true);
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(ptr) = self.get_window_ptr() {
                 unsafe {
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    // Get the editing node before borrowing layout_window mutably
-                    let editing_info = macos_window.common.layout_window.as_ref().and_then(|lw| {
-                        let dom_id = lw.text_edit_manager.get_editing_dom_id()?;
-                        let node_id = lw.text_edit_manager.get_editing_node_id()?;
-                        Some((dom_id, node_id))
-                    });
-                    if let Some(ref mut lw) = macos_window.common.layout_window {
-                        lw.text_edit_manager.set_preedit(
-                            preedit,
-                            selected_range.location as i32,
-                            (selected_range.location + selected_range.length) as i32,
-                        );
-                        // Inject preedit into text cache and re-shape
-                        if let Some((dom_id, node_id)) = editing_info {
-                            lw.apply_preedit_to_text_cache(dom_id, node_id);
-                        }
-                    }
-                    macos_window.sync_ime_position_to_os();
-                    macos_window.request_redraw();
+                    ime_set_marked_text(ptr as *mut MacOSWindow, string, selected_range, replacement_range);
                 }
             }
         }
@@ -2558,20 +2440,8 @@ define_class!(
         #[unsafe(method(unmarkText))]
         fn unmark_text(&self) {
             log_trace!(LogCategory::Input, "[IME unmarkText] composition cancelled");
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
-                unsafe {
-                    let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    if let Some(ref mut lw) = macos_window.common.layout_window {
-                        // Cancelling drops the composition ENTIRELY. Clearing
-                        // the preedit string alone left the composed glyphs
-                        // shaped into the node's inline layout, so a cancelled
-                        // composition stayed on screen until something else
-                        // happened to re-shape that node.
-                        lw.text_edit_manager.clear_preedit();
-                        lw.end_preedit_shaping();
-                    }
-                    macos_window.request_redraw();
-                }
+            if let Some(ptr) = self.get_window_ptr() {
+                unsafe { ime_unmark_text(ptr as *mut MacOSWindow) };
             }
         }
 
@@ -2584,118 +2454,68 @@ define_class!(
         #[unsafe(method_id(attributedSubstringForProposedRange:actualRange:))]
         fn attributed_substring_for_proposed_range(
             &self,
-            _range: NSRange,
-            _actual_range: *mut NSRange,
+            range: NSRange,
+            actual_range: *mut NSRange,
         ) -> Option<Retained<NSAttributedString>> {
-            None
+            // No `?`: define_class! wraps this return in its own type.
+            match self.get_window_ptr() {
+                Some(ptr) => unsafe {
+                    ime_attributed_substring(ptr as *const MacOSWindow, range, actual_range)
+                },
+                None => None,
+            }
         }
 
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &NSObject, replacement_range: NSRange) {
-            // macOS sends either NSString or NSAttributedString — handle both.
-            let committed_text = if let Some(ns_string) = string.downcast_ref::<NSString>() {
-                ns_string.to_string()
-            } else if let Some(attr_string) = string.downcast_ref::<NSAttributedString>() {
-                unsafe { attr_string.string() }.to_string()
-            } else {
-                String::new()
-            };
-            log_trace!(LogCategory::Input, "[IME insertText] text='{}'", committed_text);
-            let _ = ime_replacement_range_is_implicit(replacement_range, "insertText");
             self.ivars().ime_key_handled.set(true);
-            let window_ptr = match self.get_window_ptr() {
-                Some(ptr) => ptr,
-                None => return,
-            };
-
-            if committed_text.is_empty() {
-                return;
-            }
-            unsafe {
-                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                if let Some(ref mut lw) = macos_window.common.layout_window {
-                    // END the composition before inserting: the composed string
-                    // is glyphs in the node's inline layout, never document
-                    // text, so it has to be un-shaped or the commit lands next
-                    // to a composition that is still on screen (typing "か" and
-                    // committing rendered "かか").
-                    //
-                    // Commit rather than a bare clear, so `CompositionEnd`
-                    // carries the committed string. macOS is the one backend
-                    // that hands it to us directly, on `insertText:`.
-                    lw.text_edit_manager
-                        .commit_composition(committed_text.clone());
-                    lw.end_preedit_shaping();
-                }
-                macos_window.handle_text_input(&committed_text);
+            if let Some(ptr) = self.get_window_ptr() {
+                unsafe { ime_insert_text(ptr as *mut MacOSWindow, string, replacement_range) };
             }
         }
 
         #[unsafe(method(characterIndexForPoint:))]
-        fn character_index_for_point(&self, _point: NSPoint) -> usize {
-            usize::MAX
+        fn character_index_for_point(&self, point: NSPoint) -> usize {
+            match self.get_window_ptr() {
+                Some(ptr) => unsafe {
+                    ime_character_index_for_point(
+                        ptr as *const MacOSWindow,
+                        self.frame().size.height,
+                        point,
+                    )
+                },
+                None => objc2_foundation::NSNotFound as usize,
+            }
         }
 
         #[unsafe(method(firstRectForCharacterRange:actualRange:))]
         fn first_rect_for_character_range(
             &self,
-            _range: NSRange,
-            _actual_range: *mut NSRange,
+            range: NSRange,
+            actual_range: *mut NSRange,
         ) -> NSRect {
-            // Compute cursor rect live from the layout (don't rely on cached ime_position
-            // which may be stale or Uninitialized).
-            let window_ptr = match self.get_window_ptr() {
-                Some(ptr) => ptr,
+            match self.get_window_ptr() {
+                Some(ptr) => unsafe {
+                    ime_first_rect_for_character_range(
+                        ptr as *const MacOSWindow,
+                        self.frame().size.height,
+                        range,
+                        actual_range,
+                    )
+                },
                 None => {
                     log_trace!(LogCategory::Input, "[IME firstRect] no window_ptr");
-                    return NSRect::ZERO;
+                    NSRect::ZERO
                 }
-            };
-
-            unsafe {
-                let window = &*(window_ptr as *const MacOSWindow);
-
-                // Try live cursor rect from layout
-                let cursor_rect = window.common.layout_window.as_ref()
-                    .and_then(|lw| lw.get_focused_cursor_rect_viewport());
-
-                let rect = match cursor_rect {
-                    Some(r) => r,
-                    None => {
-                        // Fallback: cached ime_position
-                        use azul_core::window::ImePosition;
-                        match window.common.current_window_state().ime_position {
-                            ImePosition::Initialized(r) => r,
-                            _ => {
-                                log_trace!(LogCategory::Input, "[IME firstRect] no cursor rect, no ime_position");
-                                return NSRect::ZERO;
-                            }
-                        }
-                    }
-                };
-
-                log_trace!(LogCategory::Input, "[IME firstRect] cursor at ({}, {}) size ({}, {})",
-                    rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
-
-                // Convert from top-left (azul) to bottom-left (macOS) view coordinates
-                let content_height = self.frame().size.height;
-                let window_local = NSRect {
-                    origin: NSPoint {
-                        x: rect.origin.x as f64,
-                        y: content_height - rect.origin.y as f64 - rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
-                    },
-                    size: NSSize {
-                        width: rect.size.width.max(1.0) as f64,
-                        height: rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
-                    },
-                };
-                // Convert from view-local to screen coordinates
-                window.window.convertRectToScreen(window_local)
             }
         }
 
         #[unsafe(method(doCommandBySelector:))]
-        fn do_command_by_selector(&self, _selector: objc2::runtime::Sel) {
+        fn do_command_by_selector(&self, selector: objc2::runtime::Sel) {
+            log_trace!(LogCategory::Input, "[IME doCommandBySelector] selector={:?}", selector.name());
+            // Don't call super — prevents NSBeep for "unhandled" commands.
+            // Don't set ime_key_handled — arrow keys / backspace / enter should
+            // still fall through to handle_key_down for processing.
         }
     }
 );
@@ -3590,30 +3410,397 @@ fn set_window_frame_and_dispatch(window: &mut MacOSWindow, frame: WindowFrame) {
     window.apply_activation_pass_result(result);
 }
 
-/// `NSTextInputClient` hands `insertText:` and `setMarkedText:` a
-/// `replacementRange` naming the part of the client's text the operation
-/// replaces. `location == NSNotFound` means "the current selection / marked
-/// range", which is the only form this client can honour: the engine addresses
-/// text through its own cursor model and exposes no UTF-16 offset mapping into
-/// it (which is also why `selectedRange` is a fixed stub). An explicit range is
-/// reported instead of being silently applied at the caret, where it would
-/// insert text in the wrong place.
-fn ime_replacement_range_is_implicit(range: NSRange, method: &str) -> bool {
-    // AppKit passes NSNotFound (== NSIntegerMax) through NSRange's unsigned
-    // location field; accept usize::MAX too, which is what `markedRange`
-    // returns here for "no marked text".
-    if range.location == objc2_foundation::NSNotFound as usize || range.location == usize::MAX {
-        return true;
+// ─── NSTextInputClient, shared by both views (10b-i-b-i) ──────────────
+//
+// Every range an `NSTextInputClient` sees is measured in UTF-16 units of the
+// IME DOCUMENT - the focused editable's text with the preedit spliced in at
+// the caret (`LayoutWindow::ime_document`, the same string iOS answers from).
+// The engine measures in bytes; `azul_layout::window::{utf16_range_to_bytes,
+// byte_range_to_utf16}` are the bridge. Before it existed `markedRange` was
+// `(0, preedit_len)` in BYTES, `selectedRange` a fixed `(0, 0)`,
+// `characterIndexForPoint:` NSNotFound and `attributedSubstringForProposedRange:`
+// nil - the client could not say where anything was, so a Japanese IME placed
+// its candidate window off the composition by the length of everything before
+// it, and `setMarkedText:`'s selected range (UTF-16, relative to the marked
+// string) was handed to `set_preedit` as if it were bytes.
+
+fn ns_range_not_found() -> NSRange {
+    NSRange {
+        location: objc2_foundation::NSNotFound as usize,
+        length: 0,
     }
-    log_warn!(
-        LogCategory::Input,
-        "[IME {}] replacementRange ({}, {}) not honoured: the engine exposes no UTF-16 offset \
-         mapping into its text model",
-        method,
+}
+
+fn ns_range_is_not_found(range: NSRange) -> bool {
+    // AppKit passes NSNotFound (== NSIntegerMax) through NSRange's unsigned
+    // location field; accept usize::MAX too, which this client used to return.
+    range.location == objc2_foundation::NSNotFound as usize || range.location == usize::MAX
+}
+
+fn ns_object_to_string(string: &NSObject) -> String {
+    // macOS sends either NSString or NSAttributedString — handle both.
+    if let Some(ns_string) = string.downcast_ref::<NSString>() {
+        ns_string.to_string()
+    } else if let Some(attr_string) = string.downcast_ref::<NSAttributedString>() {
+        unsafe { attr_string.string() }.to_string()
+    } else {
+        String::new()
+    }
+}
+
+/// An EXPLICIT `replacementRange` as a byte range of the IME document, or
+/// `None` for the implicit "the current selection / marked text".
+fn ime_explicit_replacement(document: &str, range: NSRange) -> Option<(usize, usize)> {
+    if ns_range_is_not_found(range) {
+        return None;
+    }
+    Some(azul_layout::window::utf16_range_to_bytes(
+        document,
         range.location,
-        range.length
+        range.length,
+    ))
+}
+
+/// The IME document and its marked byte range for this window.
+unsafe fn ime_document_of(window: *const MacOSWindow) -> (String, Option<(usize, usize)>) {
+    let w = &*window;
+    w.common
+        .layout_window
+        .as_ref()
+        .map_or((String::new(), None), |lw| lw.ime_document())
+}
+
+unsafe fn ime_has_marked_text(window: *const MacOSWindow) -> bool {
+    let w = &*window;
+    w.common
+        .layout_window
+        .as_ref()
+        .is_some_and(|lw| lw.text_edit_manager.preedit_text.is_some())
+}
+
+unsafe fn ime_marked_range(window: *const MacOSWindow) -> NSRange {
+    let (doc, marked) = ime_document_of(window);
+    match marked {
+        Some(range) => {
+            let (location, length) = azul_layout::window::byte_range_to_utf16(&doc, range);
+            NSRange { location, length }
+        }
+        None => ns_range_not_found(),
+    }
+}
+
+/// See `azul_layout::window::ime_selected_byte_range` for the rule.
+unsafe fn ime_selected_range(window: *const MacOSWindow) -> NSRange {
+    let w = &*window;
+    let (doc, marked) = ime_document_of(window);
+    let (preedit_selection, committed_selection) =
+        w.common.layout_window.as_ref().map_or((None, None), |lw| {
+            let te = &lw.text_edit_manager;
+            let preedit_selection = (te.preedit_cursor_begin >= 0).then(|| {
+                let begin = te.preedit_cursor_begin as usize;
+                let end = te.preedit_cursor_end.max(te.preedit_cursor_begin) as usize;
+                (begin, end)
+            });
+            (preedit_selection, lw.focused_selection_byte_range())
+        });
+    let bytes = azul_layout::window::ime_selected_byte_range(
+        doc.len(),
+        marked,
+        preedit_selection,
+        committed_selection,
     );
-    false
+    let (location, length) = azul_layout::window::byte_range_to_utf16(&doc, bytes);
+    NSRange { location, length }
+}
+
+unsafe fn ime_set_marked_text(
+    window: *mut MacOSWindow,
+    string: &NSObject,
+    selected_range: NSRange,
+    replacement_range: NSRange,
+) {
+    let preedit = ns_object_to_string(string);
+    log_trace!(
+        LogCategory::Input,
+        "[IME setMarkedText] text='{}' selectedRange=({},{})",
+        preedit,
+        selected_range.location,
+        selected_range.length
+    );
+    let (doc, marked) = ime_document_of(window);
+    if let Some(explicit) = ime_explicit_replacement(&doc, replacement_range) {
+        if Some(explicit) != marked {
+            // Composing OVER a range that is not the current composition
+            // (reconversion of committed text). The engine can select it, but
+            // a preedit shaped at the caret next to a live selection is not
+            // "replacing" it - see 10b-i-b-i-a. Reported, not guessed.
+            log_warn!(
+                LogCategory::Input,
+                "[IME setMarkedText] replacementRange {}..{} (bytes) is not the marked text; \
+                 composing at the caret instead (10b-i-b-i-a)",
+                explicit.0,
+                explicit.1
+            );
+        }
+    }
+    let macos_window = &mut *window;
+    if preedit.is_empty() {
+        // AppKit clears marked text by marking the empty string. That is a
+        // cancel, not a composition of nothing: the composed glyphs have to
+        // leave the inline layout, exactly as on `unmarkText`.
+        if let Some(ref mut lw) = macos_window.common.layout_window {
+            lw.text_edit_manager.clear_preedit();
+            lw.end_preedit_shaping();
+        }
+        macos_window.request_redraw();
+        return;
+    }
+    // `selectedRange` is in UTF-16 units RELATIVE TO THE MARKED STRING;
+    // `set_preedit` wants bytes within the preedit. On ASCII the two agree,
+    // which is how passing units as bytes survived; on the first kana it put
+    // the composition caret a third of the way into the wrong syllable.
+    let (begin, end) = azul_layout::window::utf16_range_to_bytes(
+        &preedit,
+        selected_range.location,
+        selected_range.length,
+    );
+    // Get the editing node before borrowing layout_window mutably
+    let editing_info = macos_window.common.layout_window.as_ref().and_then(|lw| {
+        let dom_id = lw.text_edit_manager.get_editing_dom_id()?;
+        let node_id = lw.text_edit_manager.get_editing_node_id()?;
+        Some((dom_id, node_id))
+    });
+    if let Some(ref mut lw) = macos_window.common.layout_window {
+        lw.text_edit_manager.set_preedit(
+            preedit,
+            i32::try_from(begin).unwrap_or(i32::MAX),
+            i32::try_from(end).unwrap_or(i32::MAX),
+        );
+        // Inject preedit into text cache and re-shape
+        if let Some((dom_id, node_id)) = editing_info {
+            lw.apply_preedit_to_text_cache(dom_id, node_id);
+        }
+    }
+    macos_window.sync_ime_position_to_os();
+    macos_window.request_redraw();
+}
+
+unsafe fn ime_unmark_text(window: *mut MacOSWindow) {
+    let macos_window = &mut *window;
+    if let Some(ref mut lw) = macos_window.common.layout_window {
+        // Cancelling drops the composition ENTIRELY. Clearing the preedit
+        // string alone left the composed glyphs shaped into the node's inline
+        // layout, so a cancelled composition stayed on screen until something
+        // else happened to re-shape that node.
+        lw.text_edit_manager.clear_preedit();
+        lw.end_preedit_shaping();
+    }
+    macos_window.request_redraw();
+}
+
+/// The document's text for a proposed range - what a Japanese IME reads for
+/// reconversion and what the spell checker reads for context. Was `nil`
+/// ("I have no text"), which every consumer treats as "nothing to work with".
+unsafe fn ime_attributed_substring(
+    window: *const MacOSWindow,
+    range: NSRange,
+    actual_range: *mut NSRange,
+) -> Option<Retained<NSAttributedString>> {
+    if ns_range_is_not_found(range) {
+        return None;
+    }
+    let (doc, _) = ime_document_of(window);
+    let (start, end) =
+        azul_layout::window::utf16_range_to_bytes(&doc, range.location, range.length);
+    if start >= end {
+        return None;
+    }
+    if !actual_range.is_null() {
+        let (location, length) = azul_layout::window::byte_range_to_utf16(&doc, (start, end));
+        *actual_range = NSRange { location, length };
+    }
+    Some(NSAttributedString::from_nsstring(&NSString::from_str(
+        &doc[start..end],
+    )))
+}
+
+unsafe fn ime_insert_text(window: *mut MacOSWindow, string: &NSObject, replacement_range: NSRange) {
+    let committed_text = ns_object_to_string(string);
+    log_trace!(LogCategory::Input, "[IME insertText] text='{}'", committed_text);
+    if committed_text.is_empty() {
+        return;
+    }
+    let (doc, marked) = ime_document_of(window);
+    let macos_window = &mut *window;
+    if let Some(ref mut lw) = macos_window.common.layout_window {
+        // AN EXPLICIT REPLACEMENT that is neither the composition nor the
+        // current selection: autocorrect swapping a committed word, or a
+        // dictation edit. It used to be reported and dropped, so the
+        // correction was inserted at the caret NEXT TO the word it replaced.
+        // Now it is the iOS rule: select the range, delete, insert - in that
+        // order, since inserting first would put the new text beside the old
+        // and then delete the wrong span.
+        if let Some((start, end)) = ime_explicit_replacement(&doc, replacement_range) {
+            let is_composition = marked == Some((start, end));
+            let is_selection =
+                marked.is_none() && lw.focused_selection_byte_range() == Some((start, end));
+            if !is_composition && !is_selection && start != end {
+                if marked.is_some() {
+                    // The offsets index a document with a preedit in it, and
+                    // the shaped layout the selection seam resolves against
+                    // is about to lose that preedit. Not guessed - see
+                    // 10b-i-b-i-a.
+                    log_warn!(
+                        LogCategory::Input,
+                        "[IME insertText] replacementRange {}..{} (bytes) during a composition \
+                         is applied at the caret instead (10b-i-b-i-a)",
+                        start,
+                        end
+                    );
+                } else if lw.set_focused_selection_from_byte_range(start, end) {
+                    if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
+                        lw.delete_selection(focused, false);
+                    }
+                } else {
+                    log_debug!(
+                        LogCategory::Input,
+                        "[IME insertText] replacementRange {}..{}: no focused editable to select in",
+                        start,
+                        end
+                    );
+                }
+            }
+        }
+        // END the composition before inserting: the composed string is glyphs
+        // in the node's inline layout, never document text, so it has to be
+        // un-shaped or the commit lands next to a composition that is still
+        // on screen (typing "か" and committing rendered "かか").
+        //
+        // Commit rather than a bare clear, so `CompositionEnd` carries the
+        // committed string. macOS is the one backend that hands it to us
+        // directly, on `insertText:`.
+        lw.text_edit_manager.commit_composition(committed_text.clone());
+        lw.end_preedit_shaping();
+    }
+    macos_window.handle_text_input(&committed_text);
+}
+
+/// Screen point -> UTF-16 index into the IME document. Was NSNotFound, so a
+/// click into a composition, and every "what is under the pointer" question
+/// the input method asks (the Japanese reconversion popup, dictionary
+/// lookup), got "nothing".
+unsafe fn ime_character_index_for_point(
+    window: *const MacOSWindow,
+    view_height: f64,
+    point: NSPoint,
+) -> usize {
+    let w = &*window;
+    let Some(lw) = w.common.layout_window.as_ref() else {
+        return objc2_foundation::NSNotFound as usize;
+    };
+    // Screen (bottom-left) -> window content (bottom-left) -> azul (top-left).
+    let local = w.window.convertRectFromScreen(NSRect {
+        origin: point,
+        size: NSSize {
+            width: 0.0,
+            height: 0.0,
+        },
+    });
+    let azul_point = azul_core::geom::LogicalPosition::new(
+        local.origin.x as f32,
+        (view_height - local.origin.y) as f32,
+    );
+    let Some(byte) = lw.focused_byte_offset_for_point(azul_point) else {
+        return objc2_foundation::NSNotFound as usize;
+    };
+    let (doc, _) = ime_document_of(window);
+    azul_layout::window::byte_offset_to_utf16(&doc, byte.min(doc.len()))
+}
+
+/// The on-screen rect of a UTF-16 range of the IME document - where the
+/// candidate window goes. Was the caret rect whatever range was asked for,
+/// which is right only when the range IS the caret; the marked text's first
+/// line, which is what AppKit actually asks for, starts a preedit-length
+/// earlier. Falls back to the live caret rect, then to the cached IME
+/// position, so a range the engine cannot resolve still gets a window.
+unsafe fn ime_first_rect_for_character_range(
+    window: *const MacOSWindow,
+    view_height: f64,
+    range: NSRange,
+    actual_range: *mut NSRange,
+) -> NSRect {
+    let w = &*window;
+    let (doc, _) = ime_document_of(window);
+    let from_range = if ns_range_is_not_found(range) {
+        None
+    } else {
+        let (start, end) =
+            azul_layout::window::utf16_range_to_bytes(&doc, range.location, range.length);
+        w.common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.focused_rect_for_byte_range(start, end))
+            .map(|r| (r, (start, end)))
+    };
+    let rect = match from_range {
+        Some((rect, bytes)) => {
+            if !actual_range.is_null() {
+                let (location, length) = azul_layout::window::byte_range_to_utf16(&doc, bytes);
+                *actual_range = NSRange { location, length };
+            }
+            rect
+        }
+        None => {
+            // Try live cursor rect from layout
+            let cursor_rect = w
+                .common
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.get_focused_cursor_rect_viewport());
+            match cursor_rect {
+                Some(r) => r,
+                None => {
+                    // Fallback: cached ime_position
+                    use azul_core::window::ImePosition;
+                    match w.common.current_window_state().ime_position {
+                        ImePosition::Initialized(r) => r,
+                        _ => {
+                            log_trace!(
+                                LogCategory::Input,
+                                "[IME firstRect] no cursor rect, no ime_position"
+                            );
+                            return NSRect::ZERO;
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    log_trace!(
+        LogCategory::Input,
+        "[IME firstRect] rect at ({}, {}) size ({}, {})",
+        rect.origin.x,
+        rect.origin.y,
+        rect.size.width,
+        rect.size.height
+    );
+
+    // Convert from top-left (azul) to bottom-left (macOS) view coordinates
+    let window_local = NSRect {
+        origin: NSPoint {
+            x: rect.origin.x as f64,
+            y: view_height
+                - rect.origin.y as f64
+                - rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
+        },
+        size: NSSize {
+            width: rect.size.width.max(1.0) as f64,
+            height: rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
+        },
+    };
+    // Convert from view-local to screen coordinates
+    w.window.convertRectToScreen(window_local)
 }
 
 /// Present a menu parked by [`PendingContextMenu`]. Blocks in a nested tracking
