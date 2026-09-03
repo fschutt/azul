@@ -128,11 +128,16 @@ pub fn poll() {
         // Vendor / product per pad, from the SDL-layout GUID gilrs builds
         // (bytes 4-5 vendor, 8-9 product, little-endian): what pairs a pad
         // with its raw HID twin (8f-i-a-i-b, -c).
-        let identities: Vec<(u32, u16, u16)> = gilrs
+        let identities: Vec<PadIdentity> = gilrs
             .gamepads()
             .map(|(gid, pad)| {
-                let (v, p) = guid_vendor_product(pad.uuid());
-                (usize::from(gid) as u32, v, p)
+                let (vendor, product) = guid_vendor_product(pad.uuid());
+                PadIdentity {
+                    id: usize::from(gid) as u32,
+                    vendor,
+                    product,
+                    serial: pad_serial(pad.devpath()),
+                }
             })
             .collect();
         {
@@ -181,9 +186,13 @@ pub fn poll() {
             let (v, p) = guid_vendor_product(pad.uuid());
             let twins = identities
                 .iter()
-                .filter(|(_, iv, ip)| *iv == v && *ip == p)
+                .filter(|i| i.vendor == v && i.product == p)
                 .count();
-            super::overlay_hid_motion(&mut state, v, p, twins);
+            let serial = identities
+                .iter()
+                .find(|i| i.id == usize::from(gid) as u32)
+                .map_or("", |i| i.serial.as_str());
+            super::overlay_hid_motion(&mut state, v, p, serial, twins);
             push_gamepad_state(state);
         }
     });
@@ -369,16 +378,56 @@ pub fn stop_all_rumble() {
     });
 }
 
-/// `(GamepadId.id, vendor, product)` of every pad gilrs currently sees, as
-/// of the last poll (8f-i-a-i-b).
-static PAD_IDENTITIES: std::sync::Mutex<Vec<(u32, u16, u16)>> = std::sync::Mutex::new(Vec::new());
+/// What pairs a gilrs pad with its raw HID twin (8f-i-a-i-b, -c).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PadIdentity {
+    /// `GamepadId.id`.
+    pub id: u32,
+    pub vendor: u16,
+    pub product: u16,
+    /// The pad's serial as the input layer reports it - on Linux evdev's
+    /// `uniq`, the SAME string hidraw answers `HIDIOCGRAWUNIQ` with (both
+    /// come from `hdev->uniq`), so two identical pads pair exactly. Empty
+    /// where the platform's gilrs backend exposes none (macOS, Windows).
+    pub serial: String,
+}
+
+/// Every pad gilrs currently sees, as of the last poll.
+static PAD_IDENTITIES: std::sync::Mutex<Vec<PadIdentity>> = std::sync::Mutex::new(Vec::new());
 
 /// Snapshot of [`PAD_IDENTITIES`].
-pub fn pad_identities() -> Vec<(u32, u16, u16)> {
+pub fn pad_identities() -> Vec<PadIdentity> {
     PAD_IDENTITIES
         .lock()
         .map(|v| v.clone())
         .unwrap_or_default()
+}
+
+/// The sysfs `uniq` attribute behind an evdev node: `/dev/input/eventN` ->
+/// `/sys/class/input/eventN/device/uniq`. `None` for anything that is not
+/// an event node.
+fn sysfs_uniq_path(devpath: &str) -> Option<String> {
+    let node = devpath.strip_prefix("/dev/input/")?;
+    if !node.starts_with("event") || !node[5..].bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!("/sys/class/input/{node}/device/uniq"))
+}
+
+/// The pad's serial (8f-i-a-i-c): Linux reads evdev's `uniq` through sysfs;
+/// the other desktop backends have no gilrs-side serial and answer empty,
+/// which leaves the unique-vendor/product rule.
+#[allow(unused_variables)]
+fn pad_serial(devpath: &str) -> String {
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(path) = sysfs_uniq_path(devpath) {
+            if let Ok(uniq) = std::fs::read_to_string(path) {
+                return uniq.trim().to_owned();
+            }
+        }
+    }
+    String::new()
 }
 
 /// Vendor and product out of an SDL-layout GUID: bytes 4-5 and 8-9,
@@ -408,5 +457,16 @@ mod guid_tests {
         g[13] = 0x01;
         assert_eq!(guid_vendor_product(g), (0x054c, 0x0ce6));
         assert_eq!(guid_vendor_product([0; 16]), (0, 0));
+    }
+
+    #[test]
+    fn the_uniq_attribute_sits_beside_the_event_node_in_sysfs() {
+        assert_eq!(
+            super::sysfs_uniq_path("/dev/input/event5").as_deref(),
+            Some("/sys/class/input/event5/device/uniq")
+        );
+        assert_eq!(super::sysfs_uniq_path("/dev/input/js0"), None);
+        assert_eq!(super::sysfs_uniq_path("/dev/input/eventX"), None);
+        assert_eq!(super::sysfs_uniq_path(""), None);
     }
 }

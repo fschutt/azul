@@ -2714,16 +2714,20 @@ session needs. Recorded verbatim so the framing is not lost.
       what every user-space reader without that report does. Needs a feature-report read on each
       platform (hidraw `HIDIOCGFEATURE`, IOKit `IOHIDDeviceGetReport`, hid.dll `HidD_GetFeature`)
       - the raw HID layer is read-only today.
-- [~] 8f-i-a-i-c Step (4), the UNAMBIGUOUS half DONE with 8f-i-a-i-b: the gilrs backend now
-      knows each pad's vendor/product (from the SDL-layout GUID gilrs builds, bytes 4-5 and 8-9;
-      pinned by a test) and, when exactly one gilrs pad AND exactly one HID instance of that
-      kind exist, the HID motion is laid over that pad. OPEN: several identical pads. Linux can
-      pair them by serial (`HidDevice.serial` is evdev's `uniq`; gilrs exposes `devpath()` and
-      the evdev node's uniq can be read from sysfs); macOS and Windows have no gilrs-side serial.
-      Until then each such pad is published as its own complete device under
-      `HID_PAD_ID_FLAG | instance` - duplicate entries for a multiplayer table of identical
-      DualSenses on Linux/macOS (one gilrs pad each + one HID pad each), which is correct data
-      twice rather than a guess once. An app can pair them itself through `HidDevice.serial`.
+- [x] 8f-i-a-i-c DONE as far as the platforms allow. Two rules, serial first: on Linux the gilrs
+      backend reads evdev's `uniq` through sysfs (`/dev/input/eventN` ->
+      `/sys/class/input/eventN/device/uniq`, path pinned by a test) via `Gamepad::devpath()`, and
+      `uniq` is the very string hidraw answers `HIDIOCGRAWUNIQ` with - both come from
+      `hdev->uniq` - so a table of identical DualSenses pairs each gilrs pad with exactly its own
+      HID stream by serial, and no duplicate device is published for a serial-paired pad. Where
+      the gilrs side has no serial (macOS IOKit, Windows XInput) the unique-vendor/product rule
+      from 8f-i-a-i-b stands, and several identical pads fall back to their own complete
+      HID devices under `HID_PAD_ID_FLAG | instance` - correct data twice rather than a guess.
+      ⏳ THIRD BATCH: uncompiled until its end pass.
+- [ ] 8f-i-a-i-c-i macOS: pairing several identical pads needs a gilrs-side serial. gilrs's IOKit
+      backend exposes only the SDL GUID; the IOHIDDeviceRef it holds is the same object the raw
+      HID layer enumerated (`kIOHIDSerialNumberKey` is readable from it), but gilrs does not hand
+      the ref out. A fork-side accessor (`gilrs-azul` is already a fork) would close it.
 - [ ] 8f-i-a-ii The pad TOUCHPAD on Android, which the platform does not expose: Android turns a
       DualShock touch surface into an on-screen MOUSE POINTER rather than reporting the surface,
       so there is nothing to read. Filling it would mean claiming the pointer is a finger, which

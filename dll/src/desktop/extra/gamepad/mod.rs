@@ -76,12 +76,17 @@ pub fn ingest_hid_reports(lw: &mut azul_layout::window::LayoutWindow) -> bool {
     let identities = desktop::pad_identities();
     let mut changed = false;
     for (instance, (device, sample)) in last.iter() {
+        // Paired by SERIAL (8f-i-a-i-c, Linux: evdev's uniq is hidraw's
+        // uniq), or by being the only pad of its kind: the gilrs poll lays
+        // this motion over its own state, nothing to publish here.
+        let serial = device.serial.as_str();
+        let paired_by_serial =
+            !serial.is_empty() && identities.iter().any(|i| i.serial == serial);
         let twins = identities
             .iter()
-            .filter(|(_, v, p)| *v == device.vendor_id && *p == device.product_id)
+            .filter(|i| i.vendor == device.vendor_id && i.product == device.product_id)
             .count();
-        if twins == 1 {
-            // Paired: the gilrs poll lays this motion over its own state.
+        if paired_by_serial || twins == 1 {
             continue;
         }
         // No twin (Windows: gilrs is XInput and never sees a DualSense) or
@@ -109,18 +114,31 @@ pub fn ingest_hid_reports(lw: &mut azul_layout::window::LayoutWindow) -> bool {
     changed
 }
 
-/// Lay the last decoded motion and touch of the HID pad that is this gilrs
-/// pad's UNIQUE vendor/product twin over `state` (8f-i-a-i-b). Called by
+/// Lay the last decoded motion and touch of this gilrs pad's HID twin over
+/// `state` (8f-i-a-i-b, -c). The twin is found by SERIAL when the gilrs
+/// side has one (Linux), else as the unique vendor/product match. Called by
 /// the gilrs poll as it builds each state, so the published state already
 /// carries the motion and the manager sees one writer per slot.
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
-pub fn overlay_hid_motion(state: &mut azul_core::gamepad::GamepadState, vendor_id: u16, product_id: u16, twins_of_this_kind: usize) {
-    if twins_of_this_kind != 1 {
-        return;
-    }
+pub fn overlay_hid_motion(
+    state: &mut azul_core::gamepad::GamepadState,
+    vendor_id: u16,
+    product_id: u16,
+    serial: &str,
+    twins_of_this_kind: usize,
+) {
     let last = LAST_PS_SAMPLES
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !serial.is_empty() {
+        if let Some((_, sample)) = last.values().find(|(d, _)| d.serial.as_str() == serial) {
+            apply_sample_motion(state, sample);
+            return;
+        }
+    }
+    if twins_of_this_kind != 1 {
+        return;
+    }
     let mut matching = last
         .values()
         .filter(|(d, _)| d.vendor_id == vendor_id && d.product_id == product_id);
