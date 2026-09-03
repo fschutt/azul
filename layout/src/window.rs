@@ -5033,6 +5033,39 @@ impl LayoutWindow {
     /// (the root DOM). Found 2026-08-29: a `width: 66%` child of a VV root
     /// resolved against the 640px window instead of the 140px view and
     /// painted "full width" after clipping.
+    /// `full` shrunk by the platform's safe-area insets (10c-v): the origin
+    /// moves in by the left and top insets, the size loses all four; a
+    /// window smaller than its insets collapses to zero rather than going
+    /// negative. Only absolute (px) insets count - that is what every
+    /// platform reports.
+    pub fn inset_by_safe_area(
+        full: &LogicalRect,
+        insets: &azul_css::system::SafeAreaInsets,
+    ) -> LogicalRect {
+        let px = |v: azul_css::props::basic::pixel::OptionPixelValue| -> f32 {
+            v.into_option()
+                .and_then(|p| p.to_pixels_absolute().into_option())
+                .unwrap_or(0.0)
+                .max(0.0)
+        };
+        let (top, bottom, left, right) = (
+            px(insets.top),
+            px(insets.bottom),
+            px(insets.left),
+            px(insets.right),
+        );
+        LogicalRect {
+            origin: LogicalPosition {
+                x: full.origin.x + left,
+                y: full.origin.y + top,
+            },
+            size: azul_core::geom::LogicalSize {
+                width: (full.size.width - left - right).max(0.0),
+                height: (full.size.height - top - bottom).max(0.0),
+            },
+        }
+    }
+
     pub fn layout_dom_recursive_with_viewport(
         &mut self,
         mut styled_dom: StyledDom,
@@ -5311,9 +5344,22 @@ impl LayoutWindow {
         // A child DOM's viewport is ITS OWN box (the VirtualView bounds),
         // not the window - percentages and the root's fill size resolve
         // against it. See `layout_dom_recursive_with_viewport`.
-        let viewport = child_viewport.unwrap_or(LogicalRect {
-            origin: LogicalPosition::zero(),
-            size: window_state.size.dimensions,
+        // The ROOT's viewport is the window minus the SAFE AREA (10c-v):
+        // the notch, the home indicator, the status bar. The browser's
+        // default (`viewport-fit=auto`), opted out of per window with
+        // `WindowFlags::extend_into_safe_area`, which is `viewport-fit=cover`.
+        // A child DOM (a VirtualView's) is placed by its host and is never
+        // inset here. Zero on every desktop, so this is a no-op there.
+        let viewport = child_viewport.unwrap_or_else(|| {
+            let full = LogicalRect {
+                origin: LogicalPosition::zero(),
+                size: window_state.size.dimensions,
+            };
+            if window_state.flags.extend_into_safe_area {
+                full
+            } else {
+                Self::inset_by_safe_area(&full, &self.safe_area_insets)
+            }
         });
 
         // Get the platform from system_style, falling back to compile-time detection

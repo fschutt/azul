@@ -359,14 +359,19 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       CSS function with a resolution context plumbed through the cascade. Rescoped rather than left as
       a small-looking follow-up on a false premise.
 
-- [~] 10c-v UNBLOCKED (the app CAN now read them), not yet applied. `LayoutCallbackInfo::
-      get_safe_area_insets()` is new and codegen-exposed: the insets lived on `LayoutWindow` and were
-      reachable only through `CallbackInfo`, i.e. from EVENT callbacks — so an app could read the notch
-      from a click handler but NOT from `layout()`, the one function that decides where to draw. That
-      was the real blocker, not policy.
-      Still open: whether the ENGINE insets the root automatically on mobile or each app does (a
-      fullscreen video or map wants to draw under the bars), and AzWriter applying it to its title band.
-      Original note kept below.
+- [x] 10c-v DONE. The open question ("does the ENGINE inset the root automatically on mobile, or
+      each app") is answered the way browsers answer it: the engine insets by default
+      (`viewport-fit=auto`) and a window opts out with `WindowFlags::extend_into_safe_area`
+      (`viewport-fit=cover`) when it wants to draw under the bars - a full-screen video, a map.
+      `LayoutWindow::inset_by_safe_area` shrinks the root viewport by the platform's absolute
+      insets (origin in by left / top, size minus all four, clamped at zero) inside
+      `layout_dom_recursive_with_viewport`; child DOMs are placed by their host and never inset;
+      the on-screen keyboard is deliberately not part of it (a transient occlusion the app reads
+      from `get_safe_area_insets().keyboard`); desktops report zero insets, so nothing moves
+      there. Four tests (`layout/tests/safe_area_inset.rs`): inset by default, cover fills the
+      surface, the desktop no-op, and the clamp. AzWriter is not in this repository, so its title
+      band is its own change. ⏳ SIXTH BATCH: uncompiled until its end pass (api.json:
+      `WindowFlags.extend_into_safe_area` through autofix then).
 
 - [x] 10c-v-b DONE. `PixelValue` had 7 CONSTRUCTORS and ZERO functions in api.json: a binding
       could build one and never read it back. So an app handed the `OptionPixelValue` that

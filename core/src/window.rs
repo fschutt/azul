@@ -1420,6 +1420,17 @@ pub struct WindowFlags {
     /// The actual current frame state still lives in [`WindowFlags::frame`]; this
     /// field only describes how the next transition should be performed.
     pub fullscreen_mode: FullScreenMode,
+    /// Draw UNDER the notch, the home indicator and the status bar (10c-v).
+    ///
+    /// `false` (the default, and the browser's `viewport-fit=auto`): the
+    /// engine insets the root layout by the platform's safe-area insets, so
+    /// nothing lands under a bar and the window's clear colour shows there.
+    /// `true` (`viewport-fit=cover`): the root fills the whole surface and the
+    /// app places its own content with `get_safe_area_insets()` - what a
+    /// full-screen video, a map or a photo viewer wants. The on-screen
+    /// keyboard is never part of this: it is a transient occlusion the app
+    /// reads from `get_safe_area_insets().keyboard`.
+    pub extend_into_safe_area: bool,
 }
 
 impl_option!(
@@ -1547,6 +1558,7 @@ impl Default for WindowFlags {
             is_top_level: false,
             prevent_system_sleep: false,
             fullscreen_mode: FullScreenMode::FastFullScreen,
+            extend_into_safe_area: false,
         }
     }
 }
