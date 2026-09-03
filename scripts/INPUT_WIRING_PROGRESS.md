@@ -488,10 +488,38 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `cargo check --tests -p azul-dll` was RED on every target and had been for some time. That
       is what stopped the new tests being verifiable at all; confirmed pre-existing by stashing.
 
-- [ ] IN SCOPE (user 2026-09-03: implement blindly, research the API first). 9h-i-b macOS media keys: `NSEventTypeSystemDefined` subtype 8 (`NX_SYSDEFINED`), which
-      needs a CGEventTap (and therefore the accessibility permission) or the `MediaPlayer`
-      framework's remote-command centre. Neither is a keysym table; both are a separate transport
-      with a permission prompt attached, which is why the Linux half landed alone.
+- [x] 9h-i-b DONE — macOS media keys via `MPRemoteCommandCenter`, NOT a CGEventTap.
+      ⚠ THE NOTE OFFERED TWO ROUTES AND THE FIRST IS THE WRONG ONE. It said this "needs a
+      CGEventTap (and therefore the accessibility permission) or the MediaPlayer framework's
+      remote-command centre". The tap needs the ACCESSIBILITY TCC gate - the one that lets an app
+      read every keystroke system-wide - which is a heavy thing to ask for a play button, and it
+      intercepts the keys from every other app. `MPRemoteCommandCenter` needs NO permission and
+      is the sanctioned API. Firefox uses it for exactly this, and reading their
+      `MediaHardwareKeysEventSourceMacMediaCenter.mm` is what confirmed the shape.
+      IT IS THE SAME BARGAIN AS MPRIS UNDER A DIFFERENT NAME: macOS delivers media keys only to
+      the app it considers "now playing", and an app becomes that by setting
+      `MPNowPlayingInfoCenter.playbackState`. So registering puts the app in Control Center and
+      the Now Playing widget, exactly as claiming a bus name puts it in GNOME's media applet.
+      WITHOUT the playbackState line the commands never fire at all - it is not decoration.
+      SO THE FLAG WAS RENAMED: `expose_mpris_media_controls` -> `expose_system_media_controls`.
+      One concept ("publish this app to the OS as a media player") with two implementations, and
+      the old name was Linux-specific. It landed earlier in this same session and had not
+      shipped, so renaming it now is free; leaving it would have meant a second flag for the same
+      decision.
+      Handlers are ObjC BLOCKS via `RcBlock`, the mechanism the camera-authorisation and
+      audio-sink backends already use. Each block is deliberately LEAKED: the command centre
+      holds it and calls it later, so it must outlive the registering scope - there is one per
+      command for the life of the process and this backend never unregisters.
+      The handler PARKS into the same channel the MPRIS backend uses rather than acting: it runs
+      on whatever thread the media daemon calls on, and the engine's key pass belongs to the main
+      thread.
+      MediaPlayer.framework is dlopen'd, like ScreenCaptureKit and IOKit beside it.
+      EVIDENCE: macOS is the HOST, so this is a real build of the real path - all three seams
+      (registration, handler body, playbackState) proven COMPILED by deliberate type errors, zero
+      warnings from the new module. Linux, Windows, 8/8 mobile, azul-core 2760, azul-layout 7581,
+      azul-dll 1973, autofix converged and `codegen all` re-ran for the renamed field.
+      ⚠ Not RUN: registering would put this machine's build in Control Center, and there is no
+      way to assert a media key arrived.
 - [x] 9h-i-a DONE — Linux MPRIS over D-Bus, opt-in.
       9h-i's keysym table is the whole answer only WHEN NOTHING GRABBED the keys, and every
       mainstream desktop grabs them: GNOME and KDE bind the media row globally and route it to

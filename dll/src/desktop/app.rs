@@ -160,7 +160,7 @@ impl App {
         azul_layout::window::set_global_synthesize_pinch_from_ctrl_wheel(
             app_config.synthesize_pinch_from_ctrl_wheel,
         );
-        azul_layout::window::set_global_expose_mpris(app_config.expose_mpris_media_controls);
+        azul_layout::window::set_global_expose_system_media_controls(app_config.expose_system_media_controls);
 
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
         app_config

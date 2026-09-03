@@ -896,7 +896,7 @@ pub struct AppConfig {
     /// Ignored on every platform but Windows: macOS and Wayland report real
     /// pinch gestures, so nothing has to be inferred there.
     pub synthesize_pinch_from_ctrl_wheel: bool,
-    /// Whether the app publishes an MPRIS media-player interface on Linux.
+    /// Whether the app publishes itself to the OS as a media player.
     /// Default `false`.
     ///
     /// On Linux the desktop environment usually GRABS the media keys, so
@@ -912,10 +912,14 @@ pub struct AppConfig {
     /// for a text editor, and no engine-side signal distinguishes them - so
     /// the app says which it is.
     ///
-    /// Ignored on every platform but Linux. Windows delivers media keys as
-    /// `WM_APPCOMMAND` and macOS needs an event tap; neither publishes
-    /// anything.
-    pub expose_mpris_media_controls: bool,
+    /// macOS is the same bargain under a different name: `MPRemoteCommandCenter`
+    /// delivers the media keys, but only to the app the system considers "now
+    /// playing", so registering puts the app in Control Center and the Now
+    /// Playing widget.
+    ///
+    /// Ignored on Windows, which delivers media keys as `WM_APPCOMMAND` to the
+    /// focused window and publishes nothing.
+    pub expose_system_media_controls: bool,
     /// Determines what happens when all windows are closed.
     /// Default: `EndProcess` (terminate when last window closes).
     pub termination_behavior: AppTerminationBehavior,
@@ -1012,7 +1016,7 @@ impl AppConfig {
             // pinch, and without this they cannot pinch at all.
             synthesize_pinch_from_ctrl_wheel: true,
             // OFF: publishing a media player is visible in the desktop UI.
-            expose_mpris_media_controls: false,
+            expose_system_media_controls: false,
             custom_e2e_op: crate::events::CustomE2eOpCallback::default(),
             updates: UpdateSettings::default(),
             changelog_md: azul_css::OptionString::None,

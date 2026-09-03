@@ -17,7 +17,7 @@
 //! Registering has a VISIBLE consequence: the app shows up in the desktop's
 //! media controls as a player. Correct for a music app, wrong for a text
 //! editor, and there is no engine-side signal that distinguishes them - so
-//! `AppConfig::expose_mpris_media_controls` says which, and defaults to off.
+//! `AppConfig::expose_system_media_controls` says which, and defaults to off.
 //!
 //! # What the method calls become
 //!
@@ -182,7 +182,7 @@ impl MprisRoot {
 /// Idempotent and quiet: no session bus (a headless build, a CI container) is
 /// the normal case, not an error.
 pub fn start() {
-    if !azul_layout::window::expose_mpris_media_controls() {
+    if !azul_layout::window::expose_system_media_controls() {
         return;
     }
     static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
