@@ -174,6 +174,36 @@ pub struct InputSample {
     pub touch_radius: LogicalSize,
 }
 
+/// Rotary-encoder units to RADIANS, given the device's own resolution
+/// (9c-i-a).
+///
+/// `InputDevice.MotionRange.getResolution()` is documented as "the number of
+/// units per millimeter, or per RADIAN for rotational axes", and Android's
+/// `AXIS_SCROLL` on a `SOURCE_ROTARY_ENCODER` is a rotational axis - so the
+/// conversion constant comes from the hardware rather than from a guess. That
+/// matters because watch crowns differ by detent count and gearing, so no
+/// single constant could be right for more than one of them.
+///
+/// # Unknown stays unknown
+///
+/// `getResolution` reports `0` when the driver gave none, which many do.
+/// Dividing by it yields an infinity, and substituting a plausible number puts
+/// a FABRICATED angle in a field whose entire value is being trustworthy - so
+/// this answers `0.0`, which is what `DialState::delta_rad` already means on a
+/// platform that does not measure an angle.
+///
+/// Lives here, beside `DialState`, rather than in the Android shell: that file
+/// is `cfg`-gated to a target this machine never runs tests on, and a division
+/// with a zero and a NaN case is exactly what wants a test.
+#[must_use]
+pub fn rotary_units_to_radians(scroll: f32, resolution: f32) -> f32 {
+    if resolution.is_finite() && resolution > 0.0 && scroll.is_finite() {
+        scroll / resolution
+    } else {
+        0.0
+    }
+}
+
 impl_option!(
     InputSample,
     OptionInputSample,
@@ -4211,5 +4241,46 @@ mod dial_event_tests {
         m.clear_pending_dial();
         m.update_dial_state(dial(0.0, true));
         assert_eq!(kinds(&m), vec![EventType::DialClick]);
+    }
+}
+
+
+#[cfg(test)]
+mod rotary_units_tests {
+    use super::rotary_units_to_radians;
+
+    /// A device reporting 20 units per radian, turned by a quarter turn.
+    #[test]
+    fn a_reported_resolution_converts_units_to_radians() {
+        let quarter_turn = core::f32::consts::FRAC_PI_2;
+        let scroll = quarter_turn * 20.0;
+        let got = rotary_units_to_radians(scroll, 20.0);
+        assert!((got - quarter_turn).abs() < 1e-5, "got {got}");
+
+        // Direction survives: a crown turns both ways.
+        assert!(rotary_units_to_radians(-10.0, 20.0) < 0.0);
+    }
+
+    /// THE TRAP. `getResolution` returns 0 when the driver reported none, and
+    /// many do; dividing gives an infinity that would travel all the way into
+    /// an app's rotation maths.
+    #[test]
+    fn an_unknown_resolution_answers_zero_rather_than_infinity() {
+        for bad in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            let got = rotary_units_to_radians(10.0, bad);
+            assert_eq!(
+                got, 0.0,
+                "resolution {bad} must answer 0.0, the value that means \"not measured\", got {got}"
+            );
+            assert!(got.is_finite());
+        }
+    }
+
+    /// A nonsense SAMPLE is guarded too: an infinity here would come straight
+    /// from the platform, and it must not become an infinite angle.
+    #[test]
+    fn a_nonfinite_sample_answers_zero() {
+        assert_eq!(rotary_units_to_radians(f32::NAN, 20.0), 0.0);
+        assert_eq!(rotary_units_to_radians(f32::INFINITY, 20.0), 0.0);
     }
 }

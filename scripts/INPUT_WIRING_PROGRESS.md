@@ -1572,13 +1572,45 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `--target aarch64-linux-android` with `_internal_deps` (the 8-target gate does not enable
       `jni`, so it alone would prove nothing). Host, 8/8 mobile, 45 dial tests still green.
 
-- [ ] 9c-i-a Can `delta_rad` be derived on Android? Only with a radians-per-detent constant that
-      Android does not document, and which differs per device. Logged rather than guessed: a
-      fabricated angle would be worse than the 0.0 that honestly says "this platform does not
-      measure that".
-- [ ] 9c-i-b The crown PRESS. `DialState::pressed` stays false on Android because a crown click
-      arrives as a KeyEvent (`KEYCODE_STEM_PRIMARY` on Wear), not on the motion axis - so it needs
-      a key-side producer feeding the same `DialState`, not another motion arm.
+- [x] 9c-i-a DONE - YES, AND MY OWN NOTE WAS WRONG. It said "a radians-per-detent constant that
+      Android does not document". Android documents exactly that, just not where a rotary-input
+      guide would send you: `InputDevice.MotionRange.getResolution()` is "the number of units per
+      millimeter, or per RADIAN for rotational axes", and `AXIS_SCROLL` on a
+      `SOURCE_ROTARY_ENCODER` is a rotational axis. The rotary guide only ever mentions
+      `getScaledScrollFactor` - units to PIXELS, for scrolling - which is why the angular one was
+      missed.
+      THE CONSTANT COMES FROM THE DEVICE, which is the part that makes it honest on hardware
+      nobody here owns: watch crowns differ by detent count and gearing, so no single constant
+      could be right for more than one of them, and the note was right to refuse to invent one.
+      Asking the device is a third option neither of us had considered.
+      THE SOURCE-QUALIFIED `getMotionRange(axis, source)` OVERLOAD, not the one-argument form: a
+      device can report the same axis on several sources, and the unqualified call answers for
+      whichever the platform picks - which on a watch that also has a touchscreen is not the
+      crown.
+      UNKNOWN STAYS UNKNOWN. `getResolution` returns 0 when the driver reported none, and many
+      do; dividing gives an INFINITY that would travel into an app's rotation maths. `0.0` still
+      means "this platform did not measure that" - it is now the fallback rather than the rule.
+      Cached per device id: the resolution is a property of the hardware, and a JNI round trip
+      per sample at crown-spin rates would cost more than the value.
+      The conversion lives in `managers::gesture` beside `DialState`, not in the Android shell,
+      so its zero and NaN cases are TESTED - the shell file is cfg-gated to a target this machine
+      never runs tests on.
+      EVIDENCE: 3 tests with a NEGATIVE CONTROL - removing the guards fails with "resolution 0
+      must answer 0.0 ... got inf". Both new seams proven COMPILED under aarch64-linux-android
+      with `_internal_deps`. Host, 8/8 mobile, azul-layout 7634. ⚠ No watch - compile-only.
+- [x] 9c-i-b CLOSED as NOT DELIVERABLE, and the note named the wrong keycode. It said a crown
+      click arrives as `KEYCODE_STEM_PRIMARY`. Google's own physical-buttons guide documents
+      `KEYCODE_STEM_1/2/3` as the buttons an app receives, and describes the PRIMARY stem as the
+      power button, which every Wear device has and which is NOT assigned to app actions - the
+      system owns it. So the crown's click is not something an app can be told about.
+      `KEYCODE_STEM_1/2/3` ARE deliverable, but they are separate multifunction buttons rather
+      than the dial's press. Feeding one into `DialState::pressed` would report a side shortcut
+      button as a crown click, which is precisely the "looks done while doing nothing" shape -
+      worse than the honest `false`.
+      `DialState::pressed` is not an unemitted field: Wayland's pad dial and the Surface Dial
+      both fill it. Only Android cannot, and now says so with a citation rather than a TODO.
+      A future item could map `KEYCODE_STEM_1/2/3` to new `VirtualKeyCode` variants - they have
+      NO producer at all today - but that is a keyboard feature, not this one.
 - [x] 9c-i-c DONE — Surface Dial, completing the dial on every platform that has one.
       It is the most CAPABLE dial backend, not just another one. `RotationDeltaInDegrees` is a
       real angular delta, so this is the one place `DialState::delta_rad` is honest - the Wayland

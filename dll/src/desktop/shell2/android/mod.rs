@@ -1178,8 +1178,9 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         barrel_button_pressed: bool,
     }
     let mut pen_updates: Vec<PenSample> = Vec::new();
-    /// Wear-crown rotation samples, in `AXIS_SCROLL` units (detents).
-    let mut rotary_deltas: Vec<f32> = Vec::new();
+    /// Wear-crown rotation samples, in `AXIS_SCROLL` units (detents), with
+    /// the device that produced them - the resolution is per DEVICE.
+    let mut rotary_deltas: Vec<(i32, f32)> = Vec::new();
 
     while iter.next(|event| {
         match event {
@@ -1200,7 +1201,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                         .next()
                         .map_or(0.0, |p| p.axis_value(Axis::Scroll));
                     if scroll != 0.0 {
-                        rotary_deltas.push(scroll);
+                        rotary_deltas.push((m.device_id(), scroll));
                     }
                     // Collected, not applied: this closure only gathers, and
                     // the window is mutated after the loop like every other
@@ -1510,27 +1511,36 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     // Samples are SUMMED rather than applied one at a time: several arrive per
     // frame on a fast spin, and `update_dial_state` arms one `DialRotate` per
     // call, so applying each would fire a burst of events for one gesture.
-    let rotary_total: f32 = rotary_deltas.iter().sum();
+    let rotary_total: f32 = rotary_deltas.iter().map(|(_, d)| *d).sum();
+    // The device is the same for every sample in one frame; the last one's is
+    // as good as any and avoids a lookup per sample.
+    let rotary_device = rotary_deltas.last().map_or(0, |(id, _)| *id);
     if rotary_total != 0.0 {
         if let Some(lw) = window.common.layout_window.as_mut() {
             lw.gesture_drag_manager.update_dial_state(
                 azul_layout::managers::gesture::DialState {
                     // Wear has one crown, and Android gives it no id.
                     device_id: 0,
-                    // Android reports DETENTS, not an angle: `AXIS_SCROLL` on
-                    // a rotary encoder is a scroll-like magnitude the docs
-                    // never relate to a physical rotation, so there is no
-                    // honest radians conversion and `delta_rad` stays 0.0.
-                    // That mirrors the Wayland producer, which fills
-                    // `delta_rad` and leaves `detent_count` at 0.0: each
-                    // backend fills the axis its platform actually measures.
-                    // Deriving one from the other is 9c-i-a.
-                    delta_rad: 0.0,
+                    // RADIANS, WHEN THE DEVICE SAYS SO (9c-i-a). The old
+                    // note here claimed Android documents no
+                    // radians-per-detent constant. It documents exactly that,
+                    // just not where a rotary-input guide would look:
+                    // `InputDevice.MotionRange.getResolution()` is "units per
+                    // millimeter, or units per RADIAN for rotational axes",
+                    // and `AXIS_SCROLL` on a rotary encoder is rotational.
+                    //
+                    // So the constant comes from the DEVICE rather than from a
+                    // guess, which is what makes it honest on hardware nobody
+                    // here has. A device that does not report one returns 0
+                    // and `delta_rad` stays 0.0 - the previous behaviour, now
+                    // the fallback rather than the rule.
+                    delta_rad: rotary_scroll_to_radians(rotary_device, rotary_total),
                     // Fractional on a high-resolution crown, which is exactly
                     // what the field documents.
                     detent_count: rotary_total,
-                    // A crown PRESS arrives as a key event, not on this axis -
-                    // 9c-i-b.
+                    // A crown PRESS is not deliverable to an app on Wear -
+                    // see 9c-i-b, which settles that with Google's own docs
+                    // rather than leaving it looking unfinished.
                     pressed: false,
                     // Never on-screen; that is a Surface Studio property.
                     contact_position: azul_core::geom::OptionLogicalPosition::None,
@@ -2440,6 +2450,130 @@ fn play_via_vibrator(
 /// A rumble is a sustained buzz of a given strength, which is
 /// `createOneShot(ms, amplitude)` - and that call is API 26, so unlike the
 /// primitives it needs no version fallback.
+/// `AXIS_SCROLL` units to RADIANS for one rotary device (9c-i-a).
+///
+/// # Where the constant comes from
+///
+/// `InputDevice.MotionRange.getResolution()` is documented as "the number of
+/// units per millimeter, or per RADIAN for rotational axes", and `AXIS_SCROLL`
+/// on a `SOURCE_ROTARY_ENCODER` is a rotational axis. So the conversion is the
+/// DEVICE's own, not a constant invented here - which is what makes it right on
+/// watches nobody in this project owns, where crowns differ by detent count and
+/// gearing.
+///
+/// It is not in the rotary-input guide, which is why this was logged as
+/// "Android does not document it": the guide talks about `getScaledScrollFactor`
+/// (units to PIXELS, for scrolling) and never mentions the angular one.
+///
+/// # Zero means unknown, and unknown means 0.0
+///
+/// `getResolution` returns 0 when the driver did not report one, and a great
+/// many devices do not. Dividing by it would give an infinity; guessing a
+/// substitute would put a fabricated angle in a field whose whole value is
+/// being trustworthy. `0.0` continues to say "this platform did not measure
+/// that", exactly as before - it is now the fallback rather than the rule.
+///
+/// Cached per device: the resolution is a property of the hardware, and a JNI
+/// round trip per sample at crown-spin rates would cost more than the value.
+#[cfg(all(target_os = "android", feature = "jni"))]
+fn rotary_scroll_to_radians(device_id: i32, scroll: f32) -> f32 {
+    azul_layout::managers::gesture::rotary_units_to_radians(scroll, rotary_resolution(device_id))
+}
+
+/// Without `jni` there is no way to ask the device, so the honest answer is
+/// the one this had before.
+#[cfg(all(target_os = "android", not(feature = "jni")))]
+fn rotary_scroll_to_radians(_device_id: i32, _scroll: f32) -> f32 {
+    0.0
+}
+
+/// `InputDevice.getDevice(id).getMotionRange(AXIS_SCROLL, SOURCE_ROTARY_ENCODER)
+/// .getResolution()`, cached. `0.0` when unknown.
+#[cfg(all(target_os = "android", feature = "jni"))]
+fn rotary_resolution(device_id: i32) -> f32 {
+    use jni::{objects::JValue, JavaVM};
+
+    static CACHE: std::sync::Mutex<Option<std::collections::BTreeMap<i32, f32>>> =
+        std::sync::Mutex::new(None);
+    if let Ok(guard) = CACHE.lock() {
+        if let Some(hit) = guard.as_ref().and_then(|m| m.get(&device_id)) {
+            return *hit;
+        }
+    }
+
+    /// `MotionEvent.AXIS_SCROLL`.
+    const AXIS_SCROLL: i32 = 26;
+    /// `InputDevice.SOURCE_ROTARY_ENCODER`.
+    const SOURCE_ROTARY_ENCODER: i32 = 0x0040_0000;
+
+    let vm_ptr = java_vm_ptr();
+    if vm_ptr.is_null() {
+        return 0.0;
+    }
+    let resolved = (|| -> Result<f32, String> {
+        let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }
+            .map_err(|e| format!("JavaVM::from_raw: {e:?}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        // `android.view.InputDevice` is on the BOOT classpath, so a bare
+        // `find_class` resolves it from a Rust thread with no Java frame.
+        let device = env
+            .call_static_method(
+                "android/view/InputDevice",
+                "getDevice",
+                "(I)Landroid/view/InputDevice;",
+                &[JValue::Int(device_id)],
+            )
+            .and_then(|v| v.l())
+            .map_err(|e| {
+                let _ = env.exception_clear();
+                format!("getDevice({device_id}): {e:?}")
+            })?;
+        if device.is_null() {
+            return Ok(0.0);
+        }
+        // THE SOURCE-QUALIFIED overload, not `getMotionRange(int)`: a device
+        // can report the same axis on several sources, and the unqualified
+        // form answers for whichever the platform picks - which on a watch
+        // that also has a touchscreen is not the crown.
+        let range = env
+            .call_method(
+                &device,
+                "getMotionRange",
+                "(II)Landroid/view/InputDevice$MotionRange;",
+                &[JValue::Int(AXIS_SCROLL), JValue::Int(SOURCE_ROTARY_ENCODER)],
+            )
+            .and_then(|v| v.l())
+            .map_err(|e| {
+                let _ = env.exception_clear();
+                format!("getMotionRange: {e:?}")
+            })?;
+        if range.is_null() {
+            return Ok(0.0);
+        }
+        env.call_method(&range, "getResolution", "()F", &[])
+            .and_then(|v| v.f())
+            .map_err(|e| {
+                let _ = env.exception_clear();
+                format!("getResolution: {e:?}")
+            })
+    })();
+
+    let value = match resolved {
+        Ok(v) if v.is_finite() && v > 0.0 => v,
+        Ok(_) => 0.0,
+        Err(e) => {
+            log_debug!(LogCategory::Input, "[Android] rotary resolution: {e}");
+            0.0
+        }
+    };
+    if let Ok(mut guard) = CACHE.lock() {
+        guard.get_or_insert_with(Default::default).insert(device_id, value);
+    }
+    value
+}
+
 #[cfg(all(target_os = "android", feature = "jni"))]
 fn play_gamepad_rumble(
     env: &mut jni::JNIEnv,
