@@ -120971,6 +120971,12 @@
                                 },
                                 "name": {
                                     "type": "String"
+                                },
+                                "serial": {
+                                    "type": "String"
+                                },
+                                "instance": {
+                                    "type": "u64"
                                 }
                             }
                         ],
