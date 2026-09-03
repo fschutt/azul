@@ -925,6 +925,12 @@ fn init_xinput2(
             defines::XI_TouchBegin,
             defines::XI_TouchUpdate,
             defines::XI_TouchEnd,
+            // A second MPX seat's KEYBOARD (9b-ii-a-i-a): only XI2 key events
+            // say which master keyboard pressed. The virtual core keyboard's
+            // are ignored on arrival - the core KeyPress path keeps serving
+            // the primary, with its IME and compose - so nothing doubles.
+            defines::XI_KeyPress,
+            defines::XI_KeyRelease,
         ] {
             mask[(e >> 3) as usize] |= 1 << (e & 7);
         }
@@ -1536,6 +1542,37 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
                 // device. Dropping the whole map is right: it is at most a
                 // handful of entries and refills on the next motion event.
                 win.pointer_source_cache.clear();
+                win.master_keyboards = query_master_keyboards(win);
+            }
+            (free_event_data)(display, cookie);
+            return;
+        }
+
+        // XI2 KEY EVENTS (9b-ii-a-i-a): a second MPX seat's keyboard. The
+        // virtual core keyboard's keys are the primary's and already arrive
+        // as core KeyPress / KeyRelease (with IME and compose), so they are
+        // dropped here rather than delivered twice; any other master keyboard
+        // routes to the seat of its paired master pointer.
+        if cookie.evtype == defines::XI_KeyPress || cookie.evtype == defines::XI_KeyRelease {
+            let ev = &*(cookie.data as *const defines::XIDeviceEvent);
+            let seat_id = win.seat_of_master_keyboard(ev.deviceid);
+            if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+                let mut routed: Option<&mut X11Window> = None;
+                if ev.event as u64 != own_window {
+                    if let Some(wptr) = super::registry::get_window(ev.event as u64) {
+                        if let super::LinuxWindow::X11(child) = &mut *wptr {
+                            routed = Some(child);
+                        }
+                    }
+                }
+                let target: &mut X11Window = match routed {
+                    Some(child) => child,
+                    None => win,
+                };
+                let result = target.handle_seat_key_event(seat_id, ev);
+                (free_event_data)(display, cookie);
+                target.apply_event_result(result);
+                return;
             }
             (free_event_data)(display, cookie);
             return;
@@ -1605,6 +1642,131 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
 /// whole of this call (`ev` is borrowed from the cookie payload) and is also
 /// the only place that decides which window an XI2 event belongs to.
 /// Cached lookup of an XI2 slave device's kind, one round trip per device.
+/// Every master keyboard and the master pointer it is paired with
+/// (9b-ii-a-i-a), from `XIQueryDevice(XIAllMasterDevices)`.
+unsafe fn query_master_keyboards(win: &X11Window) -> std::collections::HashMap<c_int, c_int> {
+    let mut map = std::collections::HashMap::new();
+    let Some(xi) = win.xi.clone() else {
+        return map;
+    };
+    let mut n: c_int = 0;
+    let info = (xi.XIQueryDevice)(win.display, defines::XIAllMasterDevices, &mut n);
+    if info.is_null() {
+        return map;
+    }
+    for i in 0..n.max(0) as isize {
+        let d = &*info.offset(i);
+        if d.use_ == defines::XIMasterKeyboard {
+            map.insert(d.deviceid, d.attachment);
+        }
+    }
+    (xi.XIFreeDeviceInfo)(info);
+    map
+}
+
+impl X11Window {
+    /// The seat a master KEYBOARD belongs to: its paired master pointer's
+    /// id, which is what the pointer path keys seats by. The virtual core
+    /// keyboard - and any keyboard paired with the virtual core pointer - is
+    /// the primary. An unknown master (the map is stale until the next
+    /// hierarchy event) is treated as the primary rather than as a phantom.
+    fn seat_of_master_keyboard(&self, deviceid: c_int) -> u64 {
+        if deviceid == defines::XI_VIRTUAL_CORE_KEYBOARD {
+            return azul_core::window::PRIMARY_POINTER_SEAT;
+        }
+        match self.master_keyboards.get(&deviceid) {
+            Some(&pointer) if pointer != defines::XI_VIRTUAL_CORE_POINTER => pointer as u64,
+            _ => azul_core::window::PRIMARY_POINTER_SEAT,
+        }
+    }
+
+    /// A key of a second seat's keyboard (9b-ii-a-i-a): the per-seat twin
+    /// of `handle_keyboard`, minus what is the primary's alone - the input
+    /// method, compose sequences and key repeat (one of each per window).
+    /// The keysym comes from the keycode at group 0 (`unmodified_keysym`)
+    /// for the virtual keycode, the text from a core `XLookupString` over a
+    /// synthesised `XKeyEvent` carrying the event's effective modifiers;
+    /// both land on the seat's own keyboard state, the text at the SHARED
+    /// focus (9b-ii-a-i-d).
+    fn handle_seat_key_event(
+        &mut self,
+        seat_id: u64,
+        ev: &defines::XIDeviceEvent,
+    ) -> ProcessEventResult {
+        let is_down = ev.evtype == defines::XI_KeyPress;
+        let keycode = ev.detail as u32;
+        let state = ev.mods.effective as std::ffi::c_uint;
+
+        let vk = self
+            .unmodified_keysym(keycode)
+            .and_then(events::keysym_to_virtual_keycode);
+
+        let text = if is_down {
+            let mut key_event = defines::XKeyEvent {
+                type_: defines::KeyPress,
+                serial: ev.serial,
+                send_event: 0,
+                display: self.display,
+                window: ev.event,
+                root: ev.root,
+                subwindow: 0,
+                time: ev.time,
+                x: ev.event_x as c_int,
+                y: ev.event_y as c_int,
+                x_root: ev.root_x as c_int,
+                y_root: ev.root_y as c_int,
+                state,
+                keycode,
+                same_screen: 1,
+            };
+            let mut keysym: defines::KeySym = 0;
+            let mut buffer = [0i8; 32];
+            let count = unsafe {
+                (self.xlib.XLookupString)(
+                    &mut key_event,
+                    buffer.as_mut_ptr(),
+                    buffer.len() as i32,
+                    &mut keysym,
+                    std::ptr::null_mut(),
+                )
+            };
+            if count > 0 {
+                let bytes: Vec<u8> = buffer[..count as usize].iter().map(|b| *b as u8).collect();
+                Some(String::from_utf8_lossy(&bytes).into_owned())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let prev_snapshot = self.common.current_window_state().clone();
+        self.set_previous_window_state(prev_snapshot);
+
+        let masks = self.modifier_masks;
+        events::apply_modifier_mask_state(self.common.keyboard_seat_mut(seat_id), masks, state);
+
+        if let Some(ref text) = text {
+            if !text.is_empty() && !text.chars().all(char::is_control) {
+                if let Some(ref mut layout_window) = self.common.layout_window {
+                    layout_window.record_text_input(text);
+                }
+            }
+        }
+
+        let seat_map = self.seat_pressed_key_vks.entry(seat_id).or_default();
+        events::apply_key_state_change(
+            self.common.keyboard_seat_mut(seat_id),
+            seat_map,
+            keycode,
+            vk,
+            is_down,
+        );
+
+        self.process_window_events(0)
+    }
+}
+
 unsafe fn classify_xi_device(
     win: &mut X11Window,
     sourceid: c_int,
@@ -2249,6 +2411,15 @@ pub struct X11Window {
     xi_opcode: c_int,
     /// deviceid -> (pressure#, tiltX#, tiltY#, pressure_max); -1 = absent valuator.
     pen_valuators: std::collections::HashMap<c_int, PenAxes>,
+    /// Master KEYBOARD id -> the master POINTER it is paired with, from
+    /// `XIQueryDevice` (9b-ii-a-i-a). The paired pointer's id is the seat id
+    /// the pointer path uses, so a second person's keys and clicks match.
+    /// Refreshed on `XI_HierarchyChanged`.
+    master_keyboards: std::collections::HashMap<c_int, c_int>,
+    /// Per-seat scancode -> keycode maps for the non-primary seats
+    /// (`pressed_key_vks` is the primary's).
+    seat_pressed_key_vks:
+        std::collections::HashMap<u64, std::collections::BTreeMap<u32, azul_core::window::VirtualKeyCode>>,
     /// deviceid -> smooth-scroll (XI2.1) axes of that device.
     scroll_valuators: std::collections::HashMap<c_int, ScrollAxes>,
     /// Slave device ids that are the ERASER end of a stylus, by device name.
@@ -3490,6 +3661,8 @@ impl X11Window {
             scroll_last_values: std::collections::HashMap::new(),
             modifier_masks,
             pressed_key_vks: std::collections::BTreeMap::new(),
+            master_keyboards: std::collections::HashMap::new(),
+            seat_pressed_key_vks: std::collections::HashMap::new(),
             pointer_source_cache: std::collections::BTreeMap::new(),
             pending_motion: None,
             ime_sync_key: ImeSyncKey::default(),
@@ -3528,6 +3701,9 @@ impl X11Window {
             #[cfg(feature = "a11y")]
             accessibility_adapter: accessibility::LinuxAccessibilityAdapter::new(),
         };
+        // The master keyboards' seats (9b-ii-a-i-a), from the same device
+        // hierarchy the pen and scroll classes came from.
+        window.master_keyboards = unsafe { query_master_keyboards(&window) };
 
         // Initialize accessibility adapter
         #[cfg(feature = "a11y")]

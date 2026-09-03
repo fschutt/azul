@@ -763,6 +763,16 @@ pub const XIAllMasterDevices: c_int = 1;
 /// other master pointer - an MPX second cursor - gets an id past those. It is
 /// the PRIMARY pointer seat; any other master is a seat of its own (9b-ii).
 pub const XI_VIRTUAL_CORE_POINTER: c_int = 2;
+/// The primary seat's master KEYBOARD (9b-ii-a-i-a); paired with the
+/// virtual core pointer. Its keys arrive through the core `KeyPress` path.
+pub const XI_VIRTUAL_CORE_KEYBOARD: c_int = 3;
+/// `XI_KeyPress` / `XI_KeyRelease`: XI2 key events, which - unlike core
+/// `KeyPress` - carry the master keyboard that produced them.
+pub const XI_KeyPress: c_int = 2;
+pub const XI_KeyRelease: c_int = 3;
+/// `XIDeviceInfo::use_` for a master keyboard; its `attachment` is the
+/// master pointer it is paired with, i.e. the seat.
+pub const XIMasterKeyboard: c_int = 2;
 pub const XIButtonClass: c_int = 1;
 pub const XIValuatorClass: c_int = 2;
 pub const XIScrollClass: c_int = 3;

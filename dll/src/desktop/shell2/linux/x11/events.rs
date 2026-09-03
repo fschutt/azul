@@ -1588,7 +1588,7 @@ impl X11Window {
 /// Inserting it unconditionally left a phantom `LShift`/`LControl` behind
 /// whenever the user actually held the RIGHT key and released it: the keysym
 /// path removed `RShift`, and this one had just re-added `LShift`.
-fn apply_modifier_mask_state(
+pub(super) fn apply_modifier_mask_state(
     keyboard_state: &mut azul_core::window::KeyboardState,
     masks: super::ModifierMasks,
     state: std::ffi::c_uint,

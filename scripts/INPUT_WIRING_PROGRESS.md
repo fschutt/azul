@@ -2097,29 +2097,34 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       NEGATIVE CONTROL: answering "primary" for every pointer fails the lookup test. Host check
       (the table + tests), 8/8 mobile (the Wayland shell compiled on linux-gnu). ⚠ No multi-seat
       compositor here (Sway/wlroots with `seat seat1 attach ...` is the way to see it).
-- [~] 9b-ii-a-i The ENGINE half DONE: per-seat keyboard state exists. `KeyboardSeat { seat_id,
-      state: KeyboardState }` / `KeyboardSeatVec` (core), `FullWindowState.keyboard_seats` with
-      `keyboard_seat` / `keyboard_seat_mut` (creates, sorted) / `remove_keyboard_seat` /
-      `keyboard_seats_with_primary` - the exact twin of the pointer seats, keyed by the SAME
-      seat id so one person's keystroke and click match. `KeyboardEventData.seat_id` (0 = the
-      primary keyboard). The event pass diffs every seat's keyboard on its own - `ModifiersChanged`,
-      `KeyDown` (+ the context-menu key), `KeyUp`, a vanished seat releasing its key - so a second
-      keyboard can no longer be merged into the primary's bitset. The shell diffs and applies
-      `keyboard_seats` like `pointer_seats`; the headless `key_down` / `key_up` ops take `"seat": N`.
-      Two tests pin the stamp, the primary's isolation and the vanish-release. What is NOT
-      modelled, on purpose: FOCUS is shared - every seat's keys reach the one focused node
-      (9b-ii-a-i-d). The PRODUCERS are the open half, each logged with its blocker below.
-      ✅ COMPILED AND RUN in the fifth batch pass of 2026-09-04: sources compiled first try, the twenty
-      host errors were the generated shim's stale `FullWindowState`; api.json converged over six
-      autofix rounds (`keyboard_seats`, `KeyboardSeat`, `KeyboardSeatVec` + destructor / slice
-      types); codegen green; core 2809 (after one misplaced test field), layout lib 7681 and
-      `--test all` 999, the e2e corpus, dll 2035 tests green; the 8-target gate 8/8.
-- [ ] 9b-ii-a-i-a X11 producer: keys arrive as CORE `KeyPress` / `KeyRelease`, which carry no
-      device, so a second MPX keyboard's presses are indistinguishable from the first's. Attributing
-      a seat needs XI2 `XI_KeyPress` / `XI_KeyRelease` selected on the window (`deviceid` = the
-      master keyboard, whose `attachment` is its paired master pointer = the seat id) and the core
-      key path retired or de-duplicated against it - a keyboard-input rewrite of the X11 backend,
-      not a line. Xkb state per master keyboard (each can have its own layout) comes with it.
+- [x] 9b-ii-a-i DONE end to end: the engine half (per-seat `KeyboardState`, the stamped events,
+      the diff, the shell's application, the headless ops) and both producers - Wayland
+      (9b-ii-a-i-b, a `wl_keyboard` + xkb state per seat) and X11 (9b-ii-a-i-a, XI2 key events
+      routed to the master keyboard's paired-pointer seat). What stays shared by design is FOCUS
+      (9b-ii-a-i-d, now ruled wanted per seat - the next arc) and, per producer, the input method,
+      compose and key repeat. Touch per seat is 9b-ii-a-i-c.
+- [x] 9b-ii-a-i-a DONE, and not the rewrite the note feared: the core key path is UNTOUCHED. XI2
+      `XI_KeyPress` / `XI_KeyRelease` are selected on `XIAllMasterDevices` beside the pointer
+      events; on arrival the virtual core keyboard's are dropped (its keys already come as core
+      `KeyPress` / `KeyRelease`, with the input method and compose sequences, so nothing doubles)
+      and any OTHER master keyboard routes to the seat of its paired master pointer -
+      `master_keyboards`, master keyboard id -> `attachment`, read off `XIQueryDevice` at
+      creation and refreshed on `XI_HierarchyChanged`; a keyboard paired with the virtual core
+      pointer, or an unknown master, counts as the primary rather than a phantom seat.
+      `handle_seat_key_event` is the per-seat twin of `handle_keyboard`: virtual keycode from
+      `unmodified_keysym` (the keycode at group 0), text from a core `XLookupString` over a
+      synthesised `XKeyEvent` carrying the event's effective modifiers, modifier masks and key
+      state onto `keyboard_seat_mut(seat)` through the same `apply_*` helpers, the text at the
+      SHARED focus. Not the seat's: the input method, compose and key repeat (one of each per
+      window). Per-layout xkb state per master keyboard is not modelled - the keycode's group-0
+      symbol is read from the display's map; a second seat with a different layout gets its
+      symbols from the primary's map (9b-ii-a-i-a-i). No X server on this machine: implemented
+      blindly per the user's ruling, the Linux target in the gate is the check.
+      ⏳ SEVENTH BATCH: uncompiled until its end pass.
+- [ ] 9b-ii-a-i-a-i A second MPX seat with its OWN keyboard layout: XI2 key events carry the
+      master's `group` state, but the keysym is looked up in the display's one core keymap, so a
+      seat on a different layout is translated through the primary's. Needs an xkb keymap per
+      master keyboard (`xkb_x11_keymap_new_from_device`) - the same shape the Wayland seats have.
 - [x] 9b-ii-a-i-b DONE. The seat table carries a `wl_keyboard` per seat (`keyboard_of` /
       `set_keyboard` / `seat_id_for_keyboard`, keyed by the PROXY like the pointers); the
       capabilities handler binds a non-primary seat's keyboard the moment it is advertised and
