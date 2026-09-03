@@ -2694,10 +2694,38 @@ pub(super) extern "C" fn seat_capabilities_handler(
             }
             _ => {}
         }
-        if capabilities & (WL_SEAT_CAPABILITY_KEYBOARD | WL_SEAT_CAPABILITY_TOUCH) != 0 {
+        // A second seat's KEYBOARD (9b-ii-a-i-b): its own `wl_keyboard`, its
+        // own xkb keymap / state, its keys on the seat's own keyboard state.
+        let has_keyboard = capabilities & WL_SEAT_CAPABILITY_KEYBOARD != 0;
+        match (has_keyboard, window.seats.keyboard_of(seat.cast())) {
+            (true, None) => {
+                let keyboard = unsafe { (window.wayland.wl_seat_get_keyboard)(seat) };
+                unsafe {
+                    (window.wayland.wl_keyboard_add_listener)(
+                        keyboard,
+                        &WL_KEYBOARD_LISTENER,
+                        data,
+                    )
+                };
+                window.track_listener(keyboard);
+                window.seats.set_keyboard(seat.cast(), Some(keyboard.cast()));
+                if let Some(ref mut lw) = window.common.layout_window {
+                    lw.device_event_manager.note_device(true);
+                }
+            }
+            (false, Some(_)) => {
+                window.seats.set_keyboard(seat.cast(), None);
+                window.handle_seat_keyboard_gone(seat_id);
+                if let Some(ref mut lw) = window.common.layout_window {
+                    lw.device_event_manager.note_device(false);
+                }
+            }
+            _ => {}
+        }
+        if capabilities & WL_SEAT_CAPABILITY_TOUCH != 0 {
             log_debug!(
                 LogCategory::Input,
-                "[Wayland] seat {} has keyboard/touch capability; not bound (9b-ii-a-i)",
+                "[Wayland] seat {} has touch capability; not bound (9b-ii-a-i-c)",
                 seat_id
             );
         }
@@ -2765,15 +2793,51 @@ pub(super) extern "C" fn seat_name_handler(
 // wl_keyboard listener
 pub(super) extern "C" fn keyboard_keymap_handler(
     data: *mut c_void,
-    _keyboard: *mut wl_keyboard,
+    keyboard: *mut wl_keyboard,
     format: u32,
     fd: i32,
     size: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // Which seat's keyboard this keymap is for (9b-ii-a-i-b): the keymap
+    // event is PER KEYBOARD, so a second seat gets its own xkb objects.
+    let seat_id = window.seats.seat_id_for_keyboard(keyboard.cast());
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        if let Some((context, keymap, state)) = parse_xkb_keymap(window, format, fd, size) {
+            let seat_kb = window.seat_keyboard_mut(seat_id);
+            seat_kb.xkb.context = context;
+            seat_kb.xkb.keymap = keymap;
+            seat_kb.xkb.state = state;
+        }
+        return;
+    }
+    let Some((context, keymap, state)) = parse_xkb_keymap(window, format, fd, size) else {
+        return;
+    };
+    window.keyboard_state.context = context;
+    window.keyboard_state.keymap = keymap;
+    window.keyboard_state.state = state;
+    // Compose sequences live on the LOCALE, not on the compositor's keymap, so
+    // the sequencer owns its own xkb_context and survives the layout switches
+    // that replace the one above. Built once: a second keymap event must not
+    // throw away a sequence in flight.
+    if window.keyboard_state.compose.is_none() {
+        window.keyboard_state.compose = window.xkb.compose_fns().and_then(ComposeSequencer::new);
+    }
+}
+
+/// mmap the compositor's keymap, compile it, build a state; `None` (with
+/// the fd closed) on any failure. Shared by every seat's keyboard
+/// (9b-ii-a-i-b) - the keymap event is per keyboard.
+fn parse_xkb_keymap(
+    window: &WaylandWindow,
+    format: u32,
+    fd: i32,
+    size: u32,
+) -> Option<(*mut xkb_context, *mut xkb_keymap, *mut xkb_state)> {
     if format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 || size == 0 {
         unsafe { libc::close(fd) };
-        return;
+        return None;
     }
 
     // The keymap is delivered as a (read-only, NUL-terminated) shared-memory fd of
@@ -2793,7 +2857,7 @@ pub(super) extern "C" fn keyboard_keymap_handler(
     };
     if map == libc::MAP_FAILED {
         unsafe { libc::close(fd) };
-        return;
+        return None;
     }
     let bytes = unsafe { std::slice::from_raw_parts(map as *const u8, size as usize) };
     let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
@@ -2804,12 +2868,12 @@ pub(super) extern "C" fn keyboard_keymap_handler(
     }
     let c_string = match c_string {
         Some(c) => c,
-        None => return,
+        None => return None,
     };
 
     let context = unsafe { (window.xkb.xkb_context_new)(XKB_CONTEXT_NO_FLAGS) };
     if context.is_null() {
-        return;
+        return None;
     }
     let keymap = unsafe {
         (window.xkb.xkb_keymap_new_from_string)(
@@ -2827,27 +2891,18 @@ pub(super) extern "C" fn keyboard_keymap_handler(
             LogCategory::Platform,
             "[Wayland] xkb_keymap_new_from_string failed to parse the keymap; keyboard input disabled"
         );
-        return;
+        return None;
     }
     let state = unsafe { (window.xkb.xkb_state_new)(keymap) };
     if state.is_null() {
-        return;
+        return None;
     }
-    window.keyboard_state.context = context;
-    window.keyboard_state.keymap = keymap;
-    window.keyboard_state.state = state;
-    // Compose sequences live on the LOCALE, not on the compositor's keymap, so
-    // the sequencer owns its own xkb_context and survives the layout switches
-    // that replace the one above. Built once: a second keymap event must not
-    // throw away a sequence in flight.
-    if window.keyboard_state.compose.is_none() {
-        window.keyboard_state.compose = window.xkb.compose_fns().and_then(ComposeSequencer::new);
-    }
+    Some((context, keymap, state))
 }
 
 pub(super) extern "C" fn keyboard_key_handler(
     data: *mut c_void,
-    _keyboard: *mut wl_keyboard,
+    keyboard: *mut wl_keyboard,
     serial: u32,
     _time: u32,
     key: u32,
@@ -2857,6 +2912,12 @@ pub(super) extern "C" fn keyboard_key_handler(
     // MWA-B3: key serials are valid input serials for set_selection — store
     // BEFORE the keymap guard so Ctrl+C works even without prior clicks.
     window.last_input_serial = serial;
+    let seat_id = window.seats.seat_id_for_keyboard(keyboard.cast());
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        // A second seat's key (9b-ii-a-i-b).
+        window.handle_seat_key(seat_id, key, state);
+        return;
+    }
     // No usable keymap/state (compositor sent an unparseable keymap) -> skip rather
     // than deref a NULL xkb_state in the translation path.
     if window.keyboard_state.state.is_null() {
@@ -2867,7 +2928,7 @@ pub(super) extern "C" fn keyboard_key_handler(
 
 pub(super) extern "C" fn keyboard_modifiers_handler(
     data: *mut c_void,
-    _keyboard: *mut wl_keyboard,
+    keyboard: *mut wl_keyboard,
     _serial: u32,
     mods_depressed: u32,
     mods_latched: u32,
@@ -2875,6 +2936,40 @@ pub(super) extern "C" fn keyboard_modifiers_handler(
     group: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let seat_id = window.seats.seat_id_for_keyboard(keyboard.cast());
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        // The seat's own xkb state and lock flags (9b-ii-a-i-b).
+        let xkb_state = window
+            .seat_keyboards
+            .get(&seat_id)
+            .map_or(std::ptr::null_mut(), |k| k.xkb.state);
+        if xkb_state.is_null() {
+            return;
+        }
+        unsafe {
+            (window.xkb.xkb_state_update_mask)(
+                xkb_state,
+                mods_depressed,
+                mods_latched,
+                mods_locked,
+                0,
+                0,
+                group,
+            )
+        };
+        if let Some(is_active) = window.xkb.xkb_state_mod_name_is_active {
+            const LOCKED: u32 = 1 << 2;
+            let query = |name: &[u8]| -> bool {
+                unsafe { is_active(xkb_state, name.as_ptr().cast(), LOCKED) == 1 }
+            };
+            let caps = query(b"Lock\0");
+            let num = query(b"Mod2\0");
+            let ks = window.common.keyboard_seat_mut(seat_id);
+            ks.locks.caps_lock = caps;
+            ks.locks.num_lock = num;
+        }
+        return;
+    }
     if window.keyboard_state.state.is_null() {
         return;
     }
@@ -3416,7 +3511,7 @@ extern "C" fn pointer_axis_discrete_handler(
 
 extern "C" fn keyboard_enter_handler(
     data: *mut c_void,
-    _keyboard: *mut wl_keyboard,
+    keyboard: *mut wl_keyboard,
     _serial: u32,
     _surface: *mut wl_surface,
     keys: *mut c_void,
@@ -3424,6 +3519,11 @@ extern "C" fn keyboard_enter_handler(
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
 
     let held = unsafe { held_keycodes_from_wl_array(keys) };
+    let seat_id = window.seats.seat_id_for_keyboard(keyboard.cast());
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        window.handle_seat_keyboard_enter(seat_id, &held);
+        return;
+    }
     window.handle_keyboard_enter(&held);
 }
 
@@ -3452,22 +3552,33 @@ pub(super) unsafe fn held_keycodes_from_wl_array(keys: *mut c_void) -> Vec<u32> 
 }
 extern "C" fn keyboard_leave_handler(
     data: *mut c_void,
-    _keyboard: *mut wl_keyboard,
+    keyboard: *mut wl_keyboard,
     _serial: u32,
     _surface: *mut wl_surface,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let seat_id = window.seats.seat_id_for_keyboard(keyboard.cast());
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        window.handle_seat_keyboard_leave(seat_id);
+        return;
+    }
     window.handle_keyboard_leave();
 }
 extern "C" fn keyboard_repeat_info_handler(
     data: *mut c_void,
-    _keyboard: *mut wl_keyboard,
+    keyboard: *mut wl_keyboard,
     rate: i32,
     delay: i32,
 ) {
     // rate = characters per second (0 = repeat disabled), delay = ms before
     // the first repeat. Was an empty stub → no key repeat at all on Wayland.
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // One repeat timer, the primary's (9b-ii-a-i-b-i): a second seat's
+    // repeat rate has nowhere to go yet.
+    if window.seats.seat_id_for_keyboard(keyboard.cast()) != azul_core::window::PRIMARY_POINTER_SEAT
+    {
+        return;
+    }
     window.key_repeat_rate_ms = if rate > 0 {
         (1000 / rate.max(1)) as u32
     } else {

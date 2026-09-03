@@ -408,6 +408,21 @@ pub(super) struct SeatAxisFrame {
     pub(super) inverted: (bool, bool),
 }
 
+/// One non-primary seat's keyboard (9b-ii-a-i-b).
+pub(super) struct SeatKeyboard {
+    pub(super) xkb: events::WaylandKeyboardState,
+    pub(super) pressed_key_vks: std::collections::BTreeMap<u32, azul_core::window::VirtualKeyCode>,
+}
+
+impl SeatKeyboard {
+    fn new() -> Self {
+        Self {
+            xkb: events::WaylandKeyboardState::new(),
+            pressed_key_vks: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
 pub struct WaylandWindow {
     wayland: Rc<Wayland>,
     xkb: Rc<Xkb>,
@@ -462,6 +477,12 @@ pub struct WaylandWindow {
     // wl_keyboard / wl_touch proxies (created in seat_capabilities_handler). Stored so
     // rebind_listeners() can re-point their listener user-data to the stable boxed `self`.
     keyboard: *mut defines::wl_keyboard,
+    /// The NON-primary seats' keyboards (9b-ii-a-i-b): each bound seat that
+    /// advertises a keyboard gets its own `wl_keyboard` (held in `seats`),
+    /// its own xkb keymap / state (the keymap event is per keyboard) and its
+    /// own scancode -> keycode map. The primary keeps `keyboard` and
+    /// `keyboard_state`.
+    seat_keyboards: std::collections::BTreeMap<u64, SeatKeyboard>,
     touch: *mut defines::wl_touch,
     tablet_manager: *mut defines::zwp_tablet_manager_v2,
     tablet_seat: *mut defines::zwp_tablet_seat_v2,
@@ -1919,6 +1940,7 @@ impl WaylandWindow {
             keyboard_state: events::WaylandKeyboardState::new(),
             pointer_state: events::PointerState::new(),
             keyboard: std::ptr::null_mut(),
+            seat_keyboards: std::collections::BTreeMap::new(),
             touch: std::ptr::null_mut(),
             listeners_rebound: false,
             listener_proxies: Vec::new(),
@@ -4641,6 +4663,131 @@ impl WaylandWindow {
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
         self.request_redraw();
+    }
+
+    // --- A second seat's keyboard (9b-ii-a-i-b) ---
+    //
+    // The per-seat twin of `handle_key` / `handle_keyboard_enter` /
+    // `handle_keyboard_leave`, minus what is the primary's alone: the popup
+    // route (menus follow the seat that opened them), compose sequences and
+    // the IME (one composition per window), and key repeat (one timer -
+    // 9b-ii-a-i-b-i). A seat's keys land on the SAME focused node, since
+    // azul's focus is shared (9b-ii-a-i-d).
+
+    pub(super) fn seat_keyboard_mut(&mut self, seat_id: u64) -> &mut SeatKeyboard {
+        self.seat_keyboards
+            .entry(seat_id)
+            .or_insert_with(SeatKeyboard::new)
+    }
+
+    pub(super) fn handle_seat_key(&mut self, seat_id: u64, key: u32, state: u32) {
+        let is_pressed = state == WL_KEYBOARD_KEY_STATE_PRESSED;
+        let xkb_keycode = key + 8;
+        let xkb_state = self
+            .seat_keyboards
+            .get(&seat_id)
+            .map_or(std::ptr::null_mut(), |k| k.xkb.state);
+        if xkb_state.is_null() {
+            return;
+        }
+        let keysym = unsafe { (self.xkb.xkb_state_key_get_one_sym)(xkb_state, xkb_keycode) };
+        let virtual_keycode = events::keysym_to_virtual_keycode(keysym);
+
+        self.snapshot_window_state_baseline("wayland.seat.key");
+        {
+            let Some(seat_kb) = self.seat_keyboards.get_mut(&seat_id) else {
+                return;
+            };
+            apply_key_state_change(
+                self.common.keyboard_seat_mut(seat_id),
+                &mut seat_kb.pressed_key_vks,
+                key,
+                virtual_keycode,
+                is_pressed,
+            );
+        }
+
+        if is_pressed {
+            let mut buffer = [0i8; 32];
+            let len = unsafe {
+                (self.xkb.xkb_state_key_get_utf8)(
+                    xkb_state,
+                    xkb_keycode,
+                    buffer.as_mut_ptr(),
+                    buffer.len(),
+                )
+            };
+            if len > 0 && len < buffer.len() as i32 {
+                let raw = unsafe {
+                    std::slice::from_raw_parts(buffer.as_ptr() as *const u8, len as usize)
+                };
+                if let Ok(text) = std::str::from_utf8(raw) {
+                    if !text.is_empty() && !text.chars().all(char::is_control) {
+                        if let Some(ref mut layout_window) = self.common.layout_window {
+                            layout_window.record_text_input(text);
+                        }
+                    }
+                }
+            }
+        }
+
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+    }
+
+    pub(super) fn handle_seat_keyboard_enter(&mut self, seat_id: u64, held_scancodes: &[u32]) {
+        self.snapshot_window_state_baseline("wayland.seat.keyboard_enter");
+        let xkb_state = self
+            .seat_keyboards
+            .get(&seat_id)
+            .map_or(std::ptr::null_mut(), |k| k.xkb.state);
+        for &scancode in held_scancodes {
+            self.common
+                .keyboard_seat_mut(seat_id)
+                .pressed_scancodes
+                .insert_hm_item(scancode);
+            if xkb_state.is_null() {
+                continue;
+            }
+            let keysym = unsafe { (self.xkb.xkb_state_key_get_one_sym)(xkb_state, scancode + 8) };
+            if let Some(vk) = events::keysym_to_virtual_keycode(keysym) {
+                self.common
+                    .keyboard_seat_mut(seat_id)
+                    .pressed_virtual_keycodes
+                    .insert_hm_item(vk);
+                self.seat_keyboard_mut(seat_id)
+                    .pressed_key_vks
+                    .insert(scancode, vk);
+            }
+        }
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+    }
+
+    /// The seat's keyboard left the surface: every key it held is released
+    /// somewhere we will never hear about, so drop them all (the primary's
+    /// `handle_keyboard_leave` rule).
+    pub(super) fn handle_seat_keyboard_leave(&mut self, seat_id: u64) {
+        self.snapshot_window_state_baseline("wayland.seat.keyboard_leave");
+        if let Some(seat_kb) = self.seat_keyboards.get_mut(&seat_id) {
+            seat_kb.pressed_key_vks.clear();
+        }
+        self.common.update_unsynced_state(|ws| {
+            *ws.keyboard_seat_mut(seat_id) = azul_core::window::KeyboardState::default();
+        });
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+    }
+
+    /// The seat no longer advertises a keyboard: its state goes with it.
+    pub(super) fn handle_seat_keyboard_gone(&mut self, seat_id: u64) {
+        self.snapshot_window_state_baseline("wayland.seat.keyboard_gone");
+        self.seat_keyboards.remove(&seat_id);
+        self.common.update_unsynced_state(|ws| {
+            ws.remove_keyboard_seat(seat_id);
+        });
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
     }
 
     /// Handle keyboard leave event (window lost focus)

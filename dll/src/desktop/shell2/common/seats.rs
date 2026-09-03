@@ -26,6 +26,8 @@ pub struct SeatEntry<P> {
     pub seat: P,
     /// The seat's `wl_pointer`, once its capabilities said it has one.
     pub pointer: Option<P>,
+    /// The seat's `wl_keyboard` while it advertises one (9b-ii-a-i-b).
+    pub keyboard: Option<P>,
     /// The bound interface version.
     pub version: u32,
 }
@@ -59,6 +61,7 @@ impl<P: Copy + PartialEq> SeatTable<P> {
             global_name,
             seat,
             pointer: None,
+            keyboard: None,
             version,
         });
         self.seat_id_at(self.entries.len() - 1)
@@ -114,6 +117,28 @@ impl<P: Copy + PartialEq> SeatTable<P> {
     pub fn set_pointer(&mut self, seat: P, pointer: Option<P>) {
         if let Some(i) = self.index_of_seat(seat) {
             self.entries[i].pointer = pointer;
+        }
+    }
+
+    /// The seat a `wl_keyboard` belongs to, by the keyboard PROXY (the same
+    /// rule as the pointers - listener user data is the window and gets
+    /// re-pointed wholesale). Unknown keyboards are the primary's.
+    #[must_use]
+    pub fn seat_id_for_keyboard(&self, keyboard: P) -> u64 {
+        self.entries
+            .iter()
+            .position(|e| e.keyboard == Some(keyboard))
+            .map_or(PRIMARY_POINTER_SEAT, |i| self.seat_id_at(i))
+    }
+
+    #[must_use]
+    pub fn keyboard_of(&self, seat: P) -> Option<P> {
+        self.index_of_seat(seat).and_then(|i| self.entries[i].keyboard)
+    }
+
+    pub fn set_keyboard(&mut self, seat: P, keyboard: Option<P>) {
+        if let Some(i) = self.index_of_seat(seat) {
+            self.entries[i].keyboard = keyboard;
         }
     }
 

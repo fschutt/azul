@@ -2867,6 +2867,11 @@ impl CommonWindowState {
         self.current_window_state.pointer_seat_mut(seat_id)
     }
 
+    /// One seat's live keyboard state (9b-ii-a-i); the primary's for seat 0.
+    pub fn keyboard_seat_mut(&mut self, seat_id: u64) -> &mut azul_core::window::KeyboardState {
+        self.current_window_state.keyboard_seat_mut(seat_id)
+    }
+
     /// The live keyboard state — see [`Self::mouse_state_mut`].
     pub fn keyboard_state_mut(&mut self) -> &mut azul_core::window::KeyboardState {
         &mut self.current_window_state.keyboard_state

@@ -2120,10 +2120,23 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       master keyboard, whose `attachment` is its paired master pointer = the seat id) and the core
       key path retired or de-duplicated against it - a keyboard-input rewrite of the X11 backend,
       not a line. Xkb state per master keyboard (each can have its own layout) comes with it.
-- [ ] 9b-ii-a-i-b Wayland producer: `wl_keyboard` is bound for the primary seat only. A second seat's
-      keyboard needs its own `wl_keyboard` with seat-keyed listener data AND its own `xkb_keymap` /
-      `xkb_state` (the keymap event is per keyboard), then `keyboard_seat_mut(seat)` in the key
-      handler. The seat table of 9b-ii-a carries the `wl_seat` proxies already.
+- [x] 9b-ii-a-i-b DONE. The seat table carries a `wl_keyboard` per seat (`keyboard_of` /
+      `set_keyboard` / `seat_id_for_keyboard`, keyed by the PROXY like the pointers); the
+      capabilities handler binds a non-primary seat's keyboard the moment it is advertised and
+      drops it (`handle_seat_keyboard_gone`, which removes the keyboard seat from the window
+      state) when it goes. Each such seat owns its xkb objects - the keymap event is per
+      keyboard, so `parse_xkb_keymap` (the primary's mmap + compile + state, factored out) fills
+      the seat's `WaylandKeyboardState` - and its own scancode -> keycode map. The six
+      handlers route by `seat_id_for_keyboard`: keymap, key (`handle_seat_key`: keysym from
+      the seat's state, `apply_key_state_change` on `keyboard_seat_mut(seat)`, the typed text
+      through `record_text_input` at the SHARED focus), modifiers (the seat's mask + lock
+      flags), enter (held keys onto the seat), leave (everything released). Deliberately the
+      primary's alone: the popup route, compose sequences and the IME (one composition per
+      window), and key repeat (9b-ii-a-i-b-i). No Wayland session on this machine, so the
+      Linux target in the gate is the check. ⏳ SIXTH BATCH: uncompiled until its end pass.
+- [ ] 9b-ii-a-i-b-i Key REPEAT for a second seat: `key_repeat_fd` / `key_repeat_keycode` are one
+      timer, the primary's, so a second seat's held key types once. Needs a timerfd per seat
+      (or one timer with a seat tag) fed from that seat's `repeat_info`.
 - [ ] 9b-ii-a-i-c TOUCH per seat: `TouchState` is one list; a second seat's touchscreen would mix
       its ids into the primary's. Same shape as the keyboard seats (`TouchSeatVec`), gated on a
       producer that has one - X11 XI2 touch events carry the master, Wayland `wl_touch` is per seat.
