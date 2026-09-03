@@ -11,7 +11,15 @@
 //! | iOS / macOS | `CMMotionManager` start*Updates (objc2-core-motion) | update handler block → `push_sensor_reading` |
 //! | Android | `SensorManager.registerListener` (JNI via `AzulSensors`) | `onSensorChanged` → `nativeOnSensorReading` → `push_sensor_reading` |
 //! | Linux | iio sysfs (`/sys/bus/iio/devices`, pull) | `poll` reads raw*scale → `push_sensor_reading` |
-//! | Windows | — (no motion sensors wired yet) | — |
+//! | Windows | `Windows.Devices.Sensors` `GetDefault()` | `poll` reads `GetCurrentReading()` → `push_sensor_reading` |
+//!
+//! All ELEVEN `SensorKind`s are now produced on Android, and the fused ones
+//! (rotation vector, gravity, linear acceleration) on all four platforms.
+//! The remaining gaps are per-platform and deliberate - see 8e-i-a-i/ii in
+//! `scripts/INPUT_WIRING_PROGRESS.md`. Two backends are no longer purely
+//! polled: the WinRT hinge sensor and the two iOS push-only sensors deliver
+//! through callbacks into the same channel, which is exactly why the channel
+//! exists.
 //!
 //! [`ensure_started`] kicks the subscription exactly once per process from
 //! the layout pass (OnceLock-guarded — registering is a native call, so we
@@ -25,6 +33,10 @@
 //! `AzulSensors.java` helper itself is a deferred (non-Rust) batch — until it
 //! ships, `find_class` fails and no Android samples flow, but the Rust path
 //! is complete.
+
+/// Unit conversions, compiled on every platform so the arithmetic each
+/// backend depends on is covered by tests that actually run here.
+pub mod units;
 
 #[cfg(target_os = "android")]
 pub mod android;

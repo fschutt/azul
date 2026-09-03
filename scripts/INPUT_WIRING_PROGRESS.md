@@ -1470,11 +1470,70 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       level. Android target compiles with `_internal_deps` (the gate does not enable `jni`).
       Host, 8/8 mobile, azul-core 2760 (+1).
 
-- [ ] IN SCOPE (implement blindly). 8e-i-a The same eight kinds on apple/linux/windows. iOS has direct equivalents for most
-      (`CMDeviceMotion.gravity`/`userAcceleration`/`attitude.quaternion`, `CMAltimeter` for
-      pressure, `CMPedometer` for steps) but they come from a DIFFERENT CoreMotion object than
-      the raw three, so it is a new registration path rather than more cases in a switch. Linux
-      and Windows have no fused-sensor concept at all outside of tablets.
+- [x] 8e-i-a DONE on all three. THE NOTE'S PREMISE WAS HALF WRONG in the part that decided the
+      priority: "Linux and Windows have no fused-sensor concept at all outside of tablets" is true
+      about the HARDWARE and false about the APIs. iio has had dedicated `in_gravity_*`,
+      `in_accel_linear_*` and `in_rot_quaternion_raw` channels for years, and
+      `Windows.Devices.Sensors` ships a full fused set. A machine without the hardware simply has
+      no such file and no such default - which is the same no-op the raw three already got. So
+      this was three more cases per backend, not a new concept.
+      APPLE: `CMDeviceMotion` joins the existing PULL API, so the fused three are one extra
+      `deviceMotion()` read per frame with no new plumbing - `gravity`, `userAcceleration` and
+      `attitude.quaternion`. Both platforms.
+      LINUX: the five scalar channels plus the three fused ones, with the channel names taken
+      FROM THE KERNEL'S OWN ABI DOCUMENT rather than from memory, because they are spelled
+      inconsistently enough that guessing produces files that never exist - which is
+      indistinguishable from a machine without the sensor. `in_gravity_x_raw` but
+      `in_accel_linear_x_raw` (a MODIFIER on the accelerometer, not its own channel);
+      `in_steps_input` with no `_raw` sibling; `in_angl_raw` for the hinge.
+      `_input` is tried BEFORE `_raw`: both spellings exist, drivers ship one or the other, and
+      reading `_raw` when an `_input` is present would apply the scale to an already-converted
+      value. The offset is applied BEFORE the scale, per the ABI's own formula - it carries a
+      barometer's calibration.
+      THE QUATERNION IS ONE FILE HOLDING FOUR NUMBERS (the driver implements `read_raw_multi`),
+      so a plain `str::parse` fails on it and reads as "no rotation sensor". That is what
+      `parse_multi_value` exists for.
+      WINDOWS: `OrientationSensor` for the quaternion, and - the part that is easy to miss -
+      gravity and linear acceleration are the SAME `Accelerometer` class opened with a different
+      `AccelerometerReadingType`, not separate classes. Plus `LightSensor` and `Barometer`.
+      TWO WINDOWS SENSORS HAVE NO `GetDefault()` AT ALL, only `GetDefaultAsync()`, and blocking
+      the layout thread on a WinRT async call once per frame is not an option. Both are resolved
+      ONCE on a background thread; after that `Pedometer::GetCurrentReadings()` is synchronous and
+      joins the poll, while `HingeAngleSensor` has no synchronous read and is driven by its
+      `ReadingChanged` event - which suits it, since a hinge angle changes when someone folds the
+      machine and not at 60 Hz. The pedometer's total is the SUM over step kinds: a device that
+      distinguishes walking from running reports two counters and neither alone is "steps".
+      iOS ALSO GETS the two push-only sensors. `CMAltimeter` and `CMPedometer` have no pull API,
+      so they take handler blocks; they are gated to iOS even though both classes turned out to be
+      PRESENT on this macOS (checked with `objc_getClass`, not assumed) - a Mac has neither
+      sensor, and linking a class the docs mark iOS-only would make an older macOS fail to LAUNCH
+      rather than quietly report nothing. NOTE the iOS step counter counts from APP START, not
+      from boot as Android's does: iOS counts from a date you give it. Still monotonic, which is
+      what `SensorKind::StepCounter` actually asks for.
+      THE UNITS ARE THE REAL HAZARD and they disagree per platform: iio pressure is KILOpascals
+      and WinRT's is already hectopascals; iio proximity is METRES and WinRT's is MILLIMETRES;
+      iio angles are RADIANS and both Android and WinRT are degrees. A missed factor of ten
+      produces a number that still looks like a reading and nothing downstream can tell. So every
+      conversion moved into `sensors/units.rs`, which is compiled on EVERY platform - the
+      backends are cfg-gated and their tests would never run on this host.
+      EVIDENCE: 5 unit tests that RUN HERE, with a NEGATIVE CONTROL - flattening the pressure and
+      angle conversions to identities makes exactly those two FAIL on asserts. All seven new
+      seams proven COMPILED by deliberate type errors, on their own targets: iio scalar + iio
+      quaternion under linux-gnu, three WinRT seams under windows-gnu, the iOS push-only path
+      under aarch64-apple-ios, and device motion on BOTH ios and the macOS host. Host, 8/8
+      mobile, azul-dll 1980. No device with any of these sensors here - compile-only.
+- [ ] 8e-i-a-i `AmbientLight` and `Proximity` stay unfilled on APPLE, and neither is a wiring
+      gap. iOS has no public ambient-light API at all (the only route is reading exposure off an
+      `AVCaptureDevice`, i.e. holding the camera open). Proximity is `UIDevice.proximityState`, a
+      BOOLEAN, while `SensorKind::Proximity` is a distance in cm: near is 0.0, but there is no
+      value for far. Android's binary sensors report `getMaximumRange()` and iOS exposes no
+      range, so the far value would have to be invented.
+- [ ] 8e-i-a-ii `Proximity` on WINDOWS, for two reasons that stack. `ProximitySensor` has no
+      `GetDefault()` - it needs `DeviceInformation` enumeration over `GetDeviceSelector()`, which
+      means a new `Devices_Enumeration` cargo feature and another async resolve. And its
+      `DistanceInMillimeters` is an `IReference`, i.e. OPTIONAL: a binary sensor reports only
+      `IsDetected`, which lands back on the same missing "far" value as 8e-i-a-i. Worth doing
+      once that has an answer, since a sensor that DOES report a distance would work fully.
 
 ### Follow-ups opened by 8c/8d
 

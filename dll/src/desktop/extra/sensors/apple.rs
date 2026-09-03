@@ -14,6 +14,30 @@
 //! frame by [`poll`] on the layout thread — CoreMotion's pull API is designed
 //! for exactly this polling use.
 //!
+//! # The FUSED kinds (8e-i-a) come from a different object
+//!
+//! `CMDeviceMotion` is not a fourth sensor: it is the OS's SENSOR FUSION, and
+//! its `gravity`, `userAcceleration` and `attitude` are what an app cannot
+//! reproduce from the raw three - the drift correction is the whole point.
+//! It joins the same pull API, so it is one more `deviceMotion()` read per
+//! frame and no new plumbing.
+//!
+//! `gravity` and `userAcceleration` always sum back to the raw accelerometer;
+//! they are separate kinds precisely because the SPLIT is what the fusion buys.
+//!
+//! # The barometer and the step counter are iOS-only, and push-only
+//!
+//! `CMAltimeter` and `CMPedometer` have no pull API at all, so unlike
+//! everything else here they take handler blocks. They are also gated to iOS:
+//! both classes are in fact PRESENT on this macOS (checked with
+//! `objc_getClass`, not assumed), but a Mac has neither sensor, and linking a
+//! class the docs mark iOS-only would make an older macOS fail to LAUNCH
+//! rather than quietly report nothing.
+//!
+//! Neither `AmbientLight` nor `Proximity` nor `HingeAngle` is filled on Apple -
+//! see 8e-i-a-i/ii in the ledger for why each one is a decision rather than an
+//! omission.
+//!
 //! Units: CoreMotion reports acceleration in **G**, so we scale to azul-core's
 //! m/s² ([`G_TO_MS2`]); gyroscope (rad/s) and magnetometer (µT) already match
 //! Android's units (research/03 §2) and pass through. Axis *sign* conventions
@@ -31,8 +55,7 @@ use objc2_core_motion::CMMotionManager;
 use azul_core::sensors::{SensorKind, SensorReading};
 use azul_layout::managers::sensors::push_sensor_reading;
 
-/// Standard gravity — CoreMotion accelerometer is in G; azul-core is m/s².
-const G_TO_MS2: f32 = 9.806_65;
+use super::units::G_TO_MS2;
 /// Target sample interval (s). CoreMotion clamps to the hardware max rate.
 const UPDATE_INTERVAL_S: f64 = 1.0 / 60.0;
 
@@ -57,10 +80,111 @@ pub fn start() {
             mgr.setMagnetometerUpdateInterval(UPDATE_INTERVAL_S);
             mgr.startMagnetometerUpdates();
         }
+        // The FUSED stream. Available separately from the raw three: a device
+        // can have an accelerometer and no fusion, and asking for device
+        // motion on one that cannot fuse simply never produces a sample.
+        if mgr.isDeviceMotionAvailable() {
+            mgr.setDeviceMotionUpdateInterval(UPDATE_INTERVAL_S);
+            mgr.startDeviceMotionUpdates();
+        }
         // Leak a +1 retain so the manager keeps sampling for the process
         // lifetime; `poll` reads it through this pointer.
         MANAGER.store(Retained::into_raw(mgr), Ordering::Release);
     }
+
+    #[cfg(target_os = "ios")]
+    start_push_only_sensors();
+}
+
+/// `CMAltimeter` (pressure) and `CMPedometer` (steps).
+///
+/// These are the two sensors with NO pull API, so they take handler blocks and
+/// park their samples in the same channel the polled ones use - which is what
+/// makes the difference invisible to the layout pass.
+///
+/// Both are also PERMISSIONED on iOS: they need `NSMotionUsageDescription` in
+/// the app's Info.plist, and without it the handler is called once with an
+/// error and never again. That degrades to "no readings", which is the same
+/// outcome as absent hardware and needs no separate handling.
+#[cfg(target_os = "ios")]
+fn start_push_only_sensors() {
+    use block2::RcBlock;
+    use objc2_core_motion::{CMAltimeter, CMPedometer};
+    use objc2_foundation::{NSDate, NSOperationQueue};
+
+    unsafe {
+        if CMAltimeter::isRelativeAltitudeAvailable() {
+            let altimeter = CMAltimeter::new();
+            let queue = NSOperationQueue::new();
+            let handler = RcBlock::new(
+                move |data: *mut objc2_core_motion::CMAltitudeData,
+                      _err: *mut objc2_foundation::NSError| {
+                    let Some(data) = data.as_ref() else {
+                        return;
+                    };
+                    // KILOPASCALS, like iio and unlike the WinRT barometer.
+                    let kpa = data.pressure().doubleValue() as f32;
+                    push_sensor_reading(SensorReading {
+                        kind: SensorKind::Barometer,
+                        x: super::units::kpa_to_hpa(kpa),
+                        y: 0.0,
+                        z: 0.0,
+                        timestamp_ms: (data.timestamp() * 1000.0) as u64,
+                    });
+                },
+            );
+            altimeter.startRelativeAltitudeUpdatesToQueue_withHandler(
+                &queue,
+                RcBlock::as_ptr(&handler),
+            );
+            // The altimeter, the queue and the block must all OUTLIVE this
+            // scope - CoreMotion holds the block and calls it later - so all
+            // three are leaked deliberately, once, for the process lifetime.
+            core::mem::forget(handler);
+            core::mem::forget(queue);
+            core::mem::forget(altimeter);
+        }
+
+        if CMPedometer::isStepCountingAvailable() {
+            let pedometer = CMPedometer::new();
+            // FROM NOW, not from boot. iOS counts from a date you give it,
+            // where Android's `TYPE_STEP_COUNTER` counts from boot - so this
+            // reports steps since the app started. Still monotonic, which is
+            // what `SensorKind::StepCounter` actually asks for: it tells apps
+            // to take differences against their own baseline rather than to
+            // expect an absolute origin.
+            let from = NSDate::dateWithTimeIntervalSinceNow(0.0);
+            let handler = RcBlock::new(
+                move |data: *mut objc2_core_motion::CMPedometerData,
+                      _err: *mut objc2_foundation::NSError| {
+                    let Some(data) = data.as_ref() else {
+                        return;
+                    };
+                    push_sensor_reading(SensorReading {
+                        kind: SensorKind::StepCounter,
+                        x: data.numberOfSteps().floatValue(),
+                        y: 0.0,
+                        z: 0.0,
+                        timestamp_ms: now_ms(),
+                    });
+                },
+            );
+            pedometer
+                .startPedometerUpdatesFromDate_withHandler(&from, RcBlock::as_ptr(&handler));
+            core::mem::forget(handler);
+            core::mem::forget(pedometer);
+        }
+    }
+}
+
+/// Wall-clock milliseconds, for the push-only sensors whose sample carries no
+/// `CMLogItem` timestamp.
+#[cfg(target_os = "ios")]
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// MWA-C-sensors: non-destructive IMU presence probe for AzCapability —
@@ -121,6 +245,38 @@ pub fn poll() {
                 y: m.y as f32,
                 z: m.z as f32,
                 timestamp_ms: (d.timestamp() * 1000.0) as u64,
+            });
+        }
+        // ONE object, THREE kinds - the fused stream is a single read and the
+        // reason `CMDeviceMotion` is worth having at all.
+        if let Some(d) = mgr.deviceMotion() {
+            let ts = (d.timestamp() * 1000.0) as u64;
+            let g = d.gravity();
+            push_sensor_reading(SensorReading {
+                kind: SensorKind::Gravity,
+                x: g.x as f32 * G_TO_MS2,
+                y: g.y as f32 * G_TO_MS2,
+                z: g.z as f32 * G_TO_MS2,
+                timestamp_ms: ts,
+            });
+            let u = d.userAcceleration();
+            push_sensor_reading(SensorReading {
+                kind: SensorKind::LinearAcceleration,
+                x: u.x as f32 * G_TO_MS2,
+                y: u.y as f32 * G_TO_MS2,
+                z: u.z as f32 * G_TO_MS2,
+                timestamp_ms: ts,
+            });
+            // The VECTOR PART only, matching Android's `TYPE_ROTATION_VECTOR`
+            // and the WinRT `SensorQuaternion` reads beside it. `w` is
+            // recoverable for a unit quaternion, which an attitude always is.
+            let q = d.attitude().quaternion();
+            push_sensor_reading(SensorReading {
+                kind: SensorKind::RotationVector,
+                x: q.x as f32,
+                y: q.y as f32,
+                z: q.z as f32,
+                timestamp_ms: ts,
             });
         }
     }

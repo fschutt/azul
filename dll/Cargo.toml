@@ -243,6 +243,12 @@ objc2-foundation = { version = "0.3.0", default-features = true, optional = true
     "std",
     "NSString",
     "NSError",
+    # 8e-i-a: the altimeter delivers to an NSOperationQueue, the pedometer
+    # counts from an NSDate, and both hand back their value as an NSNumber
+    # (which lives under the NSValue feature).
+    "NSOperation",
+    "NSDate",
+    "NSValue",
 ] }
 objc2-local-authentication = { version = "0.3.2", default-features = true, optional = true, features = [
     "std",
@@ -263,6 +269,21 @@ objc2-core-motion = { version = "0.3.2", default-features = true, optional = tru
     "CMGyro",
     "CMMagnetometer",
     "CMLogItem",
+    # 8e-i-a. CMDeviceMotion is a DIFFERENT object from the raw three above:
+    # it carries the OS's fused gravity / user-acceleration / attitude, which
+    # an app cannot reproduce from the raw channels (the drift correction is
+    # the whole point). CMAttitude gates the quaternion accessor.
+    "CMDeviceMotion",
+    "CMAttitude",
+    # Barometer and step counter. iOS-only on purpose: the classes are also
+    # present on macOS (checked at runtime with objc_getClass, not assumed),
+    # but a Mac has neither sensor and relying on a class the docs mark
+    # iOS-only would make an older macOS fail to LAUNCH rather than degrade.
+    # Both are push-only, hence block2.
+    "CMAltimeter",
+    "CMAltitude",
+    "CMPedometer",
+    "block2",
 ] }
 # Camera capture (AVFoundation) for the iOS camera backend — shares
 # camera/avfoundation.rs with macOS (same AVFoundation API). Minimal features.
@@ -492,6 +513,10 @@ objc2-core-motion = { version = "0.3.2", default-features = true, optional = tru
     "CMGyro",
     "CMMagnetometer",
     "CMLogItem",
+    # 8e-i-a. The fused kinds; see the iOS block for why the altimeter and
+    # the pedometer are NOT here.
+    "CMDeviceMotion",
+    "CMAttitude",
 ] }
 # Camera capture (AVFoundation) for the macОS camera backend
 # (camera/avfoundation.rs). objc2 framework crates gate each class behind a
