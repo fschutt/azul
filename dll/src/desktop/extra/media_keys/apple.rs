@@ -123,9 +123,21 @@ fn ensure_loaded() -> bool {
 /// a future macOS renaming one constant should cost a subtitle, not the widget.
 unsafe fn info_key(symbol: &[u8]) -> Option<*mut objc2::runtime::AnyObject> {
     let lib = library()?;
-    let sym: libloading::Symbol<'_, *mut objc2::runtime::AnyObject> =
+    // `Symbol<T>` derefs to the symbol's ADDRESS typed as `T` (libloading's
+    // own example is `**awesome_variable = 42.0`), so for a variable holding
+    // an `NSString *` that is `*mut *mut AnyObject`, and the string is one
+    // more dereference away. This used to be `Symbol<*mut AnyObject>` with a
+    // single `*`, which handed the framework the ADDRESS OF THE VARIABLE as
+    // the dictionary key - a pointer into MediaPlayer's data segment posing
+    // as an object. Found while writing the CoreHaptics constants lookup
+    // (9g-i-d-a-i), which is the same shape.
+    let sym: libloading::Symbol<'_, *mut *mut objc2::runtime::AnyObject> =
         unsafe { lib.get(symbol) }.ok()?;
-    let ptr: *mut objc2::runtime::AnyObject = *sym;
+    let slot: *mut *mut objc2::runtime::AnyObject = *sym;
+    if slot.is_null() {
+        return None;
+    }
+    let ptr: *mut objc2::runtime::AnyObject = unsafe { *slot };
     if ptr.is_null() {
         None
     } else {

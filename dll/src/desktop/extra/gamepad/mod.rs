@@ -90,6 +90,8 @@ fn start() {
 pub fn stop_all_rumble() {
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     desktop::stop_all_rumble();
+    #[cfg(target_os = "ios")]
+    apple::stop_all_rumble();
 }
 
 /// Pull the current state of every connected pad into the async channel.
@@ -155,6 +157,94 @@ impl PadAccumulator {
     /// a stale gyro reading that never moves again.
     pub(crate) fn forget(&mut self, id: u32) {
         self.pads.remove(&id);
+    }
+}
+
+/// Which of a controller's actuators a rumble goes to (9g-i-d-a-i).
+///
+/// The Game Controller framework names actuators by LOCALITY rather than by
+/// motor weight. A DualShock/DualSense - the controllers that carry two
+/// different motors - puts the large low-frequency motor in the LEFT grip
+/// and the small high-frequency one in the RIGHT, which is also the order
+/// Apple's own discussion uses ("the left handle actuator as a woofer and
+/// the right actuator as a tweeter"). So the "which motor" the gilrs backend
+/// answers with `BaseEffectType::Strong` / `Weak` is answered here with a
+/// handle. `Default` is the fallback for a pad that reports neither handle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RumbleLocality {
+    LeftHandle,
+    RightHandle,
+    Default,
+}
+
+/// One rumble, resolved from a request into what CoreHaptics is told.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RumblePlan {
+    pub locality: RumbleLocality,
+    /// CoreHaptics `HapticIntensity`, 0..=1.
+    pub intensity: f32,
+    /// CoreHaptics `HapticSharpness`, 0..=1: a thud is dull, a buzz is sharp.
+    pub sharpness: f32,
+    /// Event duration in seconds - CoreHaptics counts in `NSTimeInterval`.
+    pub seconds: f64,
+}
+
+/// Turn a rumble request into a [`RumblePlan`], or `None` for one that must
+/// not play. Pure so it is tested on the host; the iOS backend applies it.
+///
+/// - Intensity at or below zero is "do not play", not "play at zero": a
+///   zero-intensity continuous event still occupies the actuator and STOPS
+///   whatever was playing, which is not what a caller sending 0 meant.
+/// - `strong` picks the MOTOR, not the loudness: the low-frequency one thuds
+///   (sharpness 0), the high-frequency one buzzes (sharpness 1). Driving both
+///   at once is a muddier sensation, not a louder one - the gilrs rule.
+/// - `duration_ms` is the ALREADY-RESOLVED duration (`rumble_duration_ms`
+///   turned 0 into the 150 ms default); this only converts units.
+#[must_use]
+pub fn rumble_plan(intensity: f32, duration_ms: u32, strong: bool) -> Option<RumblePlan> {
+    if intensity.is_nan() || intensity <= 0.0 {
+        return None;
+    }
+    Some(RumblePlan {
+        locality: if strong {
+            RumbleLocality::LeftHandle
+        } else {
+            RumbleLocality::RightHandle
+        },
+        intensity: intensity.min(1.0),
+        sharpness: if strong { 0.0 } else { 1.0 },
+        seconds: f64::from(duration_ms) / 1000.0,
+    })
+}
+
+#[cfg(test)]
+mod rumble_plan_tests {
+    use super::*;
+
+    #[test]
+    fn strong_is_the_left_grip_and_dull_weak_is_the_right_grip_and_sharp() {
+        let strong = rumble_plan(0.8, 150, true).expect("plays");
+        assert_eq!(strong.locality, RumbleLocality::LeftHandle);
+        assert_eq!(strong.sharpness, 0.0);
+        assert_eq!(strong.intensity, 0.8);
+        assert_eq!(strong.seconds, 0.15);
+        let weak = rumble_plan(0.8, 150, false).expect("plays");
+        assert_eq!(weak.locality, RumbleLocality::RightHandle);
+        assert_eq!(weak.sharpness, 1.0);
+    }
+
+    #[test]
+    fn zero_or_negative_or_nan_intensity_does_not_play() {
+        assert!(rumble_plan(0.0, 150, true).is_none());
+        assert!(rumble_plan(-1.0, 150, true).is_none());
+        assert!(rumble_plan(f32::NAN, 150, true).is_none());
+    }
+
+    #[test]
+    fn intensity_is_capped_and_duration_is_seconds() {
+        let plan = rumble_plan(7.0, 2500, false).expect("plays");
+        assert_eq!(plan.intensity, 1.0);
+        assert_eq!(plan.seconds, 2.5);
     }
 }
 

@@ -2064,9 +2064,22 @@ extern "C" fn ui_delete_backward(_this: &Object, _cmd: Sel) {
 pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
     use azul_core::haptics::{HapticPattern, HapticTarget};
 
-    // iOS exposes no per-controller actuator through UIKit and the phone body
-    // is not a stand-in for a gamepad's motors, so anything but the system
-    // target is skipped - the documented contract on `HapticTarget`.
+    // A GAMEPAD is a different device entirely (9g-i-d-a-i): its motors are
+    // reached through `GCController.haptics` and CoreHaptics, and the phone
+    // body is not a stand-in for them. `wants_strong_motor` picks the grip;
+    // `rumble_duration_ms` resolves the 0 = "natural" default.
+    if let HapticTarget::Gamepad(pad) = request.target {
+        crate::desktop::extra::gamepad::apple::rumble(
+            pad,
+            request.intensity_clamped(),
+            request.rumble_duration_ms(),
+            request.wants_strong_motor(),
+        );
+        return;
+    }
+    // The pen has no public actuator API on iOS (Apple Pencil Pro's is not
+    // exposed), so anything else that is not the system target is skipped -
+    // the documented contract on `HapticTarget`.
     if request.target != HapticTarget::System {
         return;
     }

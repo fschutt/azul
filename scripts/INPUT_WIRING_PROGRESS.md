@@ -1290,15 +1290,50 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       Both new seams proven COMPILED under `--target aarch64-linux-android` with `_internal_deps`.
       VIBRATE is already in the manifest (line 26). Host, 8/8 mobile, azul-core 2773, azul-dll
       1992, autofix 0 patches. ⚠ No controller here - compile-only.
-- [ ] 9g-i-d-a-i iOS/tvOS gamepad rumble. `GCController.haptics` hands back a `GCDeviceHaptics`
-      whose `createEngine(withLocality:)` is a CoreHaptics ENGINE - not a fire-and-forget call
-      like every other backend on this path. Playing one buzz means building a `CHHapticEvent`
-      with intensity/sharpness `CHHapticEventParameter`s, wrapping it in a `CHHapticPattern`,
-      making a player, starting the engine and starting the player: five Objective-C classes with
-      error out-parameters, plus a per-pad engine CACHE, because starting an engine per request
-      would stutter. That is a new subsystem rather than a few lines on the existing drain, and
-      nothing here can run it - the locality choice alone (`.default` vs `.handles` vs
-      `.triggers`) wants a real controller to judge.
+- [x] 9g-i-d-a-i DONE under ruling 1 ("implement blindly, everything, but research the web
+      again"). Researched against Apple's current documentation (the JSON behind the developer
+      pages, since the HTML is script-rendered): `GCController.haptics` is
+      `@property (readonly, nullable) GCDeviceHaptics *` (iOS 14+), `- (CHHapticEngine *)
+      createEngineWithLocality:(GCHapticsLocality)` where `GCHapticsLocality` is `typedef
+      NSString *` with `Default / All / Handles / LeftHandle / RightHandle / Triggers /
+      LeftTrigger / RightTrigger` constants, `supportedLocalities` an `NSSet`; CoreHaptics (iOS
+      13+): `CHHapticEventParameter initWithParameterID:value:` (float),
+      `CHHapticEvent initWithEventType:parameters:relativeTime:duration:` (NSTimeInterval),
+      `CHHapticPattern initWithEvents:parameters:error:`, `CHHapticEngine startAndReturnError:` /
+      `createPlayerWithPattern:error:` (`id<CHHapticPatternPlayer>`), the player's
+      `startAtTime:error:` / `stopAtTime:error:` (BOOL), the `CHHapticEventTypeHapticContinuous`
+      and `CHHapticEventParameterIDHapticIntensity` / `...Sharpness` string constants, and
+      `CHHapticTimeImmediate` as a `#define` (0.0, spelled out because a macro has no symbol).
+      SHAPE: `gamepad::apple::rumble(pad, intensity, duration_ms, strong)` mirrors the gilrs
+      entry point. The PLAN is pure and lives in `gamepad/mod.rs` so it is tested on the host:
+      strong = the LEFT grip at sharpness 0 (the large low-frequency motor of a
+      DualShock/DualSense - the woofer in Apple's own left/right discussion), weak = the RIGHT grip
+      at sharpness 1, intensity capped, zero/negative/NaN = do not play (a zero-intensity
+      continuous event would still occupy the actuator) but DO stop what was playing - the
+      documented early-stop on every backend. The iOS half: CoreHaptics and GameController are
+      DLOPEN'D, their `NSString * const` constants read by `dlsym` (values undocumented, like the
+      MediaPlayer keys); one engine per (pad, locality) is created, `autoShutdownEnabled`,
+      started ONCE and cached (a start per request is the stutter); a locality the pad does not
+      list in `supportedLocalities` falls back to `Default`, which the framework guarantees; the
+      previous player on an engine is STOPPED and released before the next starts (two patterns
+      sum in the driver - the gilrs rule); `stop_all_rumble` now covers iOS at termination. The
+      pad id is the address-derived id `poll` reports, looked up on `GCController.controllers`.
+      ⚠ ALSO FIXED, found by writing the same helper: `media_keys/apple.rs::info_key` read
+      MediaPlayer's `NSString * const` keys with `Symbol<*mut AnyObject>` and ONE dereference,
+      which is the ADDRESS OF THE VARIABLE (what `dlsym` returns) handed to the framework as if
+      it were the string - libloading's own example is `**awesome_variable`, two. Every
+      now-playing dictionary key on macOS was a pointer into MediaPlayer's data segment posing as
+      an object; unseen because 9h-i-b was compile-only too. Both helpers now dereference twice.
+      EVIDENCE: 3 host tests on the plan; NEGATIVE CONTROL: swapping the grips fails the first.
+      The iOS path is proven COMPILED on the three iOS targets (8/8 mobile) and nothing more -
+      no controller here. Host check green.
+- [ ] 9g-i-d-a-i-a The one assumption a device settles in a minute: that a DualShock/DualSense
+      reports the strong motor as `GCHapticsLocalityLeftHandle` and the weak as `RightHandle`
+      through the Game Controller framework (Sony's own layout, and the woofer/tweeter order in
+      Apple's discussion). If a real pad has them the other way round, swap the two arms of
+      `rumble_plan` - the mapping is in exactly one place for that reason. Also unverified:
+      whether `startAndReturnError:` once per engine survives the app backgrounding with
+      `autoShutdownEnabled` (the documented design), or needs a restart on failure.
 - [x] 9g-ii-a DONE, per the ruling ("make new structs if needed"). Both accessors returned
       non-empty tuples, which have no C representation, so neither could be exposed and no
       binding could read an IME caret or a raw motion delta.

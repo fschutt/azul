@@ -28,6 +28,7 @@
 
 use azul_core::gamepad::{GamepadButton, GamepadId, GamepadState};
 use azul_layout::managers::gamepad::push_gamepad_state;
+use core::ptr;
 use objc::runtime::Object;
 use objc::{class, msg_send, sel, sel_impl};
 
@@ -367,5 +368,329 @@ pub fn poll() {
                 accel_z: accel.z as f32 * G_TO_MS2,
             });
         }
+    }
+}
+
+
+// ─── Rumble through CoreHaptics (9g-i-d-a-i) ───────────────────────────
+//
+// A controller's motors are reached through `GCController.haptics`, a
+// `GCDeviceHaptics` (iOS 14+) that hands out a CoreHaptics ENGINE per
+// locality (`createEngineWithLocality:`) - not a fire-and-forget call like
+// every other backend on this path. Playing one buzz is: a
+// `CHHapticEventParameter` for intensity and one for sharpness, a
+// `CHHapticEvent` of type `CHHapticEventTypeHapticContinuous` over them, a
+// `CHHapticPattern` over the event, `createPlayerWithPattern:error:` on the
+// engine, and `startAtTime:error:` on the player. Five classes with error
+// out-parameters, which is why this is its own section with its own cache.
+//
+// THE ENGINE IS CACHED PER PAD AND LOCALITY: `startAndReturnError:` is the
+// expensive part, and starting an engine per request would stutter every
+// pulse. THE PLAYER IS STOPPED BEFORE THE NEXT ONE STARTS on the same
+// engine, for the reason the gilrs backend gives - two overlapping patterns
+// sum in the driver, so a repeated tap climbs to full amplitude and stays.
+//
+// CoreHaptics is DLOPEN'D, not linked: it is a separate framework from
+// GameController, and a device without it (tvOS 13, the simulator's older
+// runtimes) must fail the probe rather than the dynamic link. Its `NSString
+// * const` event-type and parameter-id constants are exported symbols whose
+// string values are not documented, so each is read through `dlsym` the way
+// `media_keys/apple.rs` reads MediaPlayer's keys. The `GCHapticsLocality*`
+// constants come from GameController the same way.
+//
+// Everything here is proven COMPILED on the three iOS targets and nothing
+// more: there is no controller on this machine. The locality choice (left
+// grip = strong motor) is the one assumption a device would settle in a
+// minute - see 9g-i-d-a-i-a.
+
+use super::{rumble_plan, RumbleLocality, RumblePlan};
+
+/// One engine per (pad, locality), plus the player last started on it.
+struct PadEngine {
+    pad: u32,
+    locality: RumbleLocality,
+    engine: *mut Object,
+    /// The last player, kept so the next rumble can stop it. Retained by us
+    /// (`createPlayerWithPattern:` returns an autoreleased object that is
+    /// `retain`ed here) and released when replaced.
+    player: *mut Object,
+}
+
+// The raw pointers are Objective-C objects owned by this cache and only ever
+// touched from the main thread the shell pumps on; the mutex exists so the
+// cache is a plain static rather than a `static mut`.
+unsafe impl Send for PadEngine {}
+
+static ENGINES: std::sync::Mutex<Vec<PadEngine>> = std::sync::Mutex::new(Vec::new());
+
+/// CoreHaptics.framework, dlopen'd once. `None` where it does not exist.
+fn core_haptics() -> Option<&'static libloading::Library> {
+    static LIB: std::sync::OnceLock<Option<libloading::Library>> = std::sync::OnceLock::new();
+    LIB.get_or_init(|| unsafe {
+        libloading::Library::new("/System/Library/Frameworks/CoreHaptics.framework/CoreHaptics")
+            .ok()
+    })
+    .as_ref()
+}
+
+/// GameController.framework, for its `GCHapticsLocality*` constants. The
+/// classes are reachable already (`class!(GCController)` above works), but
+/// the constants are data symbols and need a handle to look them up on.
+fn game_controller() -> Option<&'static libloading::Library> {
+    static LIB: std::sync::OnceLock<Option<libloading::Library>> = std::sync::OnceLock::new();
+    LIB.get_or_init(|| unsafe {
+        libloading::Library::new(
+            "/System/Library/Frameworks/GameController.framework/GameController",
+        )
+        .ok()
+    })
+    .as_ref()
+}
+
+/// An exported `NSString * const`: `dlsym` gives the address of the variable,
+/// the variable holds the object.
+unsafe fn string_constant(lib: &libloading::Library, symbol: &[u8]) -> Option<*mut Object> {
+    // `Symbol<T>` derefs to the symbol's ADDRESS typed as `T`, so for a
+    // variable holding an `NSString *` that is `*mut *mut Object`, and the
+    // object is one more dereference away - libloading's own
+    // `**awesome_variable` example. `Symbol<*mut Object>` + one `*` would
+    // hand the framework the address of the variable as if it were the
+    // string.
+    let sym: libloading::Symbol<'_, *mut *mut Object> = lib.get(symbol).ok()?;
+    let slot: *mut *mut Object = *sym;
+    if slot.is_null() {
+        return None;
+    }
+    let value: *mut Object = *slot;
+    (!value.is_null()).then_some(value)
+}
+
+unsafe fn locality_constant(locality: RumbleLocality) -> Option<*mut Object> {
+    let lib = game_controller()?;
+    let symbol: &[u8] = match locality {
+        RumbleLocality::LeftHandle => b"GCHapticsLocalityLeftHandle\0",
+        RumbleLocality::RightHandle => b"GCHapticsLocalityRightHandle\0",
+        RumbleLocality::Default => b"GCHapticsLocalityDefault\0",
+    };
+    string_constant(lib, symbol)
+}
+
+/// The `GCController` whose address-derived id (see `poll`) is `pad`.
+unsafe fn controller_for_pad(pad: u32) -> Option<*mut Object> {
+    let cls = class!(GCController);
+    let controllers: *mut Object = msg_send![cls, controllers];
+    if controllers.is_null() {
+        return None;
+    }
+    let count: usize = msg_send![controllers, count];
+    (0..count)
+        .map(|i| {
+            let c: *mut Object = msg_send![controllers, objectAtIndex: i];
+            c
+        })
+        .find(|c| !c.is_null() && (*c as usize as u64 >> 4) as u32 == pad)
+}
+
+/// The engine for `(pad, locality)`, created and STARTED on first use. A pad
+/// whose `haptics` is nil (no actuator - a Siri Remote, an MFi pad from
+/// before iOS 14) yields `None`, as does a locality the pad does not report
+/// in `supportedLocalities` - the caller then retries with `Default`, which
+/// the framework guarantees.
+unsafe fn engine_for(pad: u32, locality: RumbleLocality) -> Option<*mut Object> {
+    if let Ok(cache) = ENGINES.lock() {
+        if let Some(e) = cache.iter().find(|e| e.pad == pad && e.locality == locality) {
+            return Some(e.engine);
+        }
+    }
+    let controller = controller_for_pad(pad)?;
+    let responds: bool = msg_send![controller, respondsToSelector: sel!(haptics)];
+    if !responds {
+        return None;
+    }
+    let haptics: *mut Object = msg_send![controller, haptics];
+    if haptics.is_null() {
+        return None;
+    }
+    let locality_obj = locality_constant(locality)?;
+    if locality != RumbleLocality::Default {
+        let supported: *mut Object = msg_send![haptics, supportedLocalities];
+        if supported.is_null() {
+            return None;
+        }
+        let has: bool = msg_send![supported, containsObject: locality_obj];
+        if !has {
+            return None;
+        }
+    }
+    let engine: *mut Object = msg_send![haptics, createEngineWithLocality: locality_obj];
+    if engine.is_null() {
+        return None;
+    }
+    let _: () = msg_send![engine, retain];
+    // Start now, once: "you need the engine to play that pattern", and a
+    // start per request is the stutter the cache exists to avoid. Auto
+    // shutdown lets the framework idle the engine and restart it on the next
+    // player, so a backgrounded app does not hold a running engine.
+    let _: () = msg_send![engine, setAutoShutdownEnabled: true];
+    let mut error: *mut Object = ptr::null_mut();
+    let started: bool = msg_send![engine, startAndReturnError: &mut error];
+    if !started {
+        crate::log_warn!(
+            crate::desktop::shell2::common::debug_server::LogCategory::Input,
+            "[iOS] CHHapticEngine start failed for pad {pad} ({locality:?})"
+        );
+        let _: () = msg_send![engine, release];
+        return None;
+    }
+    if let Ok(mut cache) = ENGINES.lock() {
+        cache.push(PadEngine {
+            pad,
+            locality,
+            engine,
+            player: ptr::null_mut(),
+        });
+    }
+    Some(engine)
+}
+
+/// Stop and release whatever player the engine last started, then remember
+/// the new one (retained). Passing null just stops.
+unsafe fn swap_player(engine: *mut Object, new_player: *mut Object) {
+    let Ok(mut cache) = ENGINES.lock() else {
+        return;
+    };
+    let Some(entry) = cache.iter_mut().find(|e| e.engine == engine) else {
+        return;
+    };
+    if !entry.player.is_null() {
+        let mut error: *mut Object = ptr::null_mut();
+        let _: bool = msg_send![entry.player, stopAtTime: 0.0f64 error: &mut error];
+        let _: () = msg_send![entry.player, release];
+    }
+    entry.player = new_player;
+}
+
+/// Build the one-event pattern the plan describes and play it on `engine`.
+unsafe fn play_on(engine: *mut Object, plan: RumblePlan) -> bool {
+    let Some(lib) = core_haptics() else {
+        return false;
+    };
+    let (Some(ty_continuous), Some(id_intensity), Some(id_sharpness)) = (
+        string_constant(lib, b"CHHapticEventTypeHapticContinuous\0"),
+        string_constant(lib, b"CHHapticEventParameterIDHapticIntensity\0"),
+        string_constant(lib, b"CHHapticEventParameterIDHapticSharpness\0"),
+    ) else {
+        return false;
+    };
+    let (Some(param_cls), Some(event_cls), Some(pattern_cls), Some(array_cls)) = (
+        objc::runtime::Class::get("CHHapticEventParameter"),
+        objc::runtime::Class::get("CHHapticEvent"),
+        objc::runtime::Class::get("CHHapticPattern"),
+        objc::runtime::Class::get("NSArray"),
+    ) else {
+        return false;
+    };
+
+    let intensity: *mut Object = msg_send![param_cls, alloc];
+    let intensity: *mut Object =
+        msg_send![intensity, initWithParameterID: id_intensity value: plan.intensity];
+    let sharpness: *mut Object = msg_send![param_cls, alloc];
+    let sharpness: *mut Object =
+        msg_send![sharpness, initWithParameterID: id_sharpness value: plan.sharpness];
+    if intensity.is_null() || sharpness.is_null() {
+        return false;
+    }
+    let params_raw: [*mut Object; 2] = [intensity, sharpness];
+    let params: *mut Object =
+        msg_send![array_cls, arrayWithObjects: params_raw.as_ptr() count: 2usize];
+
+    let event: *mut Object = msg_send![event_cls, alloc];
+    let event: *mut Object = msg_send![
+        event,
+        initWithEventType: ty_continuous
+        parameters: params
+        relativeTime: 0.0f64
+        duration: plan.seconds
+    ];
+    if event.is_null() {
+        return false;
+    }
+    let events_raw: [*mut Object; 1] = [event];
+    let events: *mut Object =
+        msg_send![array_cls, arrayWithObjects: events_raw.as_ptr() count: 1usize];
+    let empty: *mut Object = msg_send![array_cls, array];
+
+    let mut error: *mut Object = ptr::null_mut();
+    let pattern: *mut Object = msg_send![pattern_cls, alloc];
+    let pattern: *mut Object = msg_send![
+        pattern,
+        initWithEvents: events
+        parameters: empty
+        error: &mut error
+    ];
+    if pattern.is_null() {
+        return false;
+    }
+    let player: *mut Object =
+        msg_send![engine, createPlayerWithPattern: pattern error: &mut error];
+    if player.is_null() {
+        return false;
+    }
+    let _: () = msg_send![player, retain];
+    swap_player(engine, player);
+    // 0.0 is `CHHapticTimeImmediate`: the macro's value in CHHapticEngine.h,
+    // spelled out because a macro has no symbol to dlsym.
+    let started: bool =
+        msg_send![player, startAtTime: 0.0f64 error: &mut error];
+    started
+}
+
+/// Rumble `pad` - the id `poll` reports on `GamepadState` - with the given
+/// intensity for `duration_ms` (already resolved, see `rumble_duration_ms`),
+/// on the strong (left grip) or weak (right grip) actuator. Returns whether a
+/// player actually started. A locality the pad does not have falls back to
+/// `GCHapticsLocalityDefault`, which every haptics-capable pad reports.
+pub fn rumble(pad: u32, intensity: f32, duration_ms: u32, strong: bool) -> bool {
+    let Some(plan) = rumble_plan(intensity, duration_ms, strong) else {
+        // Not playing is also "stop what was playing": intensity 0 is the
+        // documented way to end a rumble early on every backend.
+        stop_pad(pad);
+        return false;
+    };
+    unsafe {
+        let engine = engine_for(pad, plan.locality).or_else(|| {
+            engine_for(
+                pad,
+                RumbleLocality::Default,
+            )
+        });
+        let Some(engine) = engine else {
+            return false;
+        };
+        play_on(engine, plan)
+    }
+}
+
+fn stop_pad(pad: u32) {
+    let engines: Vec<*mut Object> = ENGINES
+        .lock()
+        .map(|c| c.iter().filter(|e| e.pad == pad).map(|e| e.engine).collect())
+        .unwrap_or_default();
+    for engine in engines {
+        unsafe { swap_player(engine, ptr::null_mut()) };
+    }
+}
+
+/// Stop every player on every pad. Run at termination for the reason the
+/// gilrs backend runs its twin: the process exits without destructors, and a
+/// motor that was mid-pattern keeps going until the pattern ends on its own -
+/// which for a long rumble is after the app is gone.
+pub fn stop_all_rumble() {
+    let engines: Vec<*mut Object> = ENGINES
+        .lock()
+        .map(|c| c.iter().map(|e| e.engine).collect())
+        .unwrap_or_default();
+    for engine in engines {
+        unsafe { swap_player(engine, ptr::null_mut()) };
     }
 }

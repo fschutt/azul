@@ -630,8 +630,9 @@ fn play_haptic_native(request: &azul_core::haptics::HapticRequest) {
     // ANDROID handles `HapticTarget::Gamepad` inside its own `play_haptic`
     // (9g-i-d-a), because there the pad's actuator is reached through the same
     // JNI `Vibrator` interface as the phone's - a different device, one API.
-    // iOS is still unfilled: `GCController.haptics` is a CoreHaptics ENGINE
-    // per controller rather than a fire-and-forget call. See 9g-i-d-a-i.
+    // iOS handles it inside its own `play_haptic` too (9g-i-d-a-i):
+    // `GCController.haptics` is a CoreHaptics ENGINE per controller, cached in
+    // `gamepad::apple`, rather than a fire-and-forget call.
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     if let azul_core::haptics::HapticTarget::Gamepad(pad) = request.target {
         // Which MOTOR, not how hard - see `wants_strong_motor`. It lives in
