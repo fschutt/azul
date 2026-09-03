@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 // ============================================================================
-// Callback signature architecture (per user direction 2026-05-18)
+// Callback signature architecture (per user direction)
 // ============================================================================
 //
 // Goal: per-typedef wrapper synthesis. Every callback type defined in
@@ -374,7 +374,7 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             args: vec![wreg_arg(0), wreg_arg(1)],
             ret: None,
         }),
-        // 2026-06-10 per-EventFilter dispatch: registerCbNode + the EVT_* kind.
+        // per-EventFilter dispatch: registerCbNode + the EVT_* kind.
         "AzStartup_registerCbNodeKind" => Some(CallbackSignature {
             kind: "AzStartup_registerCbNodeKind".to_string(),
             // (state: u32, node_idx: u32, kind: u32) -> ()
@@ -408,12 +408,7 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
         | "AzStartup_getStyledDomPtr"
         | "AzStartup_isLayoutSolved"
         | "AzStartup_getPositionedRectsLen"
-        | "AzStartup_getPositionedRectsPtr"
-        // M12.7 debug: peek(addr: u32) -> u32 — same 1-arg ABI.
-        | "AzStartup_peekU32"
-        // [AZ-DIAG REVERT] repro probes — same (u32) -> u32 ABI.
-        | "AzStartup_probeFontDir"
-        | "AzStartup_probeFmt" => Some(CallbackSignature {
+        | "AzStartup_getPositionedRectsPtr" => Some(CallbackSignature {
             kind: name.to_string(),
             // (state_or_addr: u32) -> u32
             args: vec![wreg_arg(0)],
@@ -1498,7 +1493,7 @@ impl RemillTranspiler {
                 fn_name,
             )?;
 
-            // [WEB-LIFT FIX 2026-06-11, DEFAULT; AZ_KEEP_ALIAS_SCOPE=1 to disable]
+            // [WEB-LIFT FIX, DEFAULT; AZ_KEEP_ALIAS_SCOPE=1 to disable]
             // Strip remill's `!alias.scope`/`!noalias` from the linked IR before
             // opt. remill tags State-register accesses and guest-memory accesses
             // into mutually-noalias scopes (registers don't alias memory) — sound
@@ -1750,15 +1745,7 @@ impl RemillTranspiler {
                 }
             }
 
-            // [AZ-DIAG REVERT] AZ_LLC_O1 forces the wasm BACKEND to -O1 (RegStackify on
-            // so wasm locals still fit — -O0 blows the local limit) while keeping the
-            // opt -O2 IR. Splits an -O2-only wasm-backend miscompile (solve RETURNS at
-            // -O1) from a deeper -O1-level/isel/semantic cause (solve still OOB).
-            let llc_opt: &str = if std::env::var_os("AZ_LLC_O1").is_some() {
-                "-O1"
-            } else {
-                opt_flag_for(fn_name)
-            };
+            let llc_opt: &str = opt_flag_for(fn_name);
             run_tool(
                 tools.llc,
                 &[
@@ -1945,19 +1932,8 @@ impl RemillTranspiler {
             // crosses .o boundaries also gets DCE'd.
             "--gc-sections".to_string(),
         ];
-        // [AZ-DIAG REVERT] AZ_MINI_KEEP_NAMES keeps the function-names custom section in
-        // the OPTIMIZED (--lto-O3) mini wasm so V8 stack traces show `sub_<addr>` names
-        // instead of `wasm-function[N]` — lets us identify the trapping fn without the
-        // (lost) index→name tooling. Unlike AZ_WASM_DEBUG (--lto-O0 → local-count-too-large
-        // → won't instantiate), this stays at --lto-O3 and only skips --strip-all + wasm-opt.
-        let keep_names = std::env::var_os("AZ_MINI_KEEP_NAMES").is_some();
         if !debug_link {
-            // keep_names: just OMIT --strip-all (wasm-ld keeps the name section by
-            // default). Do NOT pass --keep-section=name — this wasm-ld rejects it as
-            // an unknown argument → empty 8-byte wasm.
-            if !keep_names {
-                args.push("--strip-all".to_string());
-            }
+            args.push("--strip-all".to_string());
             // M10-F2: --lto-O3 enables LTO with size-aware codegen.
             // wasm-ld passes the LTO opt level to LLVM; -O3 (not -Oz)
             // gives the best size in our measurements because LTO
@@ -2012,8 +1988,8 @@ impl RemillTranspiler {
         // locals, merge-blocks, ...) shave another 10-20% on lifted
         // wasm. Best-effort: if wasm-opt isn't installed or fails,
         // serve the un-opt'd wasm.
-        let opt_bytes = if debug_link || keep_names {
-            None // keep_names: wasm-opt strips the name section — skip it to preserve names
+        let opt_bytes = if debug_link {
+            None
         } else {
             postprocess_wasm_opt(&wasm_path, output_stem)
         };
@@ -2223,7 +2199,7 @@ impl RemillTranspiler {
             extra_exports.extend(r.extra_exports.iter().cloned());
         }
 
-        // WEB-LIFT FIX (2026-06-03): only the mini runtime (AzStartup_* roots) runs the cascade +
+        // WEB-LIFT FIX : only the mini runtime (AzStartup_* roots) runs the cascade +
         // allsorts shaping that hits the indirect-br outlined-epilogue MISSING_BLOCK.
         let is_mini_runtime = roots.iter().any(|r| r.fn_name.starts_with("AzStartup_"));
 
@@ -2231,7 +2207,7 @@ impl RemillTranspiler {
             queue.push_back(TransitiveLiftTarget::Root(root));
         }
 
-        // WEB-LIFT FIX (2026-06-03): force-enqueue ONLY the SP-RESTORING machine-outliner epilogues.
+        // WEB-LIFT FIX : force-enqueue ONLY the SP-RESTORING machine-outliner epilogues.
         // These shared `add sp,#N; ret` / `ldp ...,[sp],#N; ret` tails are reached via INDIRECT
         // `br Xn` tail-jumps (register target) that the static scan can't resolve → never lifted →
         // dispatcher MISSING_BLOCK → the `br` SKIPS the epilogue → SP not restored → `unreachable`.
@@ -2244,7 +2220,7 @@ impl RemillTranspiler {
                 let mut enq = 0usize;
                 let mut bump = 0usize;
                 for (_a, e) in table.iter() {
-                    // FACET 2 (2026-06-03): BumpAlloc-class fns (e.g. __rust_dealloc, a noop on the
+                    // FACET 2 : BumpAlloc-class fns (e.g. __rust_dealloc, a noop on the
                     // bump heap) are reached via INDIRECT calls/tail-jumps (Drop glue / outlined
                     // chains) but excluded from the dispatcher csynths → __remill_MISSING_BLOCK at
                     // their synth PC → the fatal `unreachable` (trap PC = __rust_dealloc). Force-
@@ -2259,7 +2235,7 @@ impl RemillTranspiler {
                         bump += 1;
                         continue;
                     }
-                    // FACET 3 (2026-06-03): real fns reached ONLY via a JUMP TABLE (indirect blr,
+                    // FACET 3 : real fns reached ONLY via a JUMP TABLE (indirect blr,
                     // the table fn-ptrs ARE synth-rebased so the dispatcher gets their SYNTH PC) but
                     // never via a direct `bl` → the direct-call discovery misses them → no csynth →
                     // MISSING_BLOCK → the fn returns garbage → downstream `unreachable`. These (from
@@ -2269,7 +2245,7 @@ impl RemillTranspiler {
                         "get_ua_property",
                         "determine_formatting_context_for_display",
                         "4Once4call",
-                        // 2026-06-10 (fn-ptr targets): azul_core::task time callbacks are
+                        // (fn-ptr targets): azul_core::task time callbacks are
                         // reached ONLY through fn POINTERS stored in callback structs
                         // (GetSystemTimeCallback etc.) — invisible to the BL/B scan, so the
                         // dispatcher unk-dropped every call (the persistent Instant::now /
@@ -2314,17 +2290,6 @@ impl RemillTranspiler {
                         o += 4;
                     }
                     if restores_sp {
-                        // DIAG (2026-06-03, REVERT): trace _OUTLINED_FUNCTION_2 instances — the
-                        // fatal missing_block. Print canonical_addr + synthetic_addr so we can
-                        // compare against the harness missing_block synth (same build).
-                        if e.canonical_name.contains("OUTLINED_FUNCTION_2")
-                            && !e.canonical_name.contains("OUTLINED_FUNCTION_2_")
-                        {
-                            eprintln!(
-                                "[az-diag] ENQ _2 name={} canon=0x{:x} synth=0x{:x} size={}",
-                                e.canonical_name, e.canonical_addr, e.synthetic_addr, e.size
-                            );
-                        }
                         queue.push_back(TransitiveLiftTarget::Dep {
                             name: e.canonical_name.clone(),
                             addr: e.canonical_addr,
@@ -2388,7 +2353,7 @@ impl RemillTranspiler {
                 accessed_ranges.insert(r);
             }
 
-            // WEB-LIFT FIX (2026-06-02): enqueue CROSS-FUNCTION TAIL-CALL targets.
+            // WEB-LIFT FIX : enqueue CROSS-FUNCTION TAIL-CALL targets.
             // A `b <addr>` (arm64) / `jmp <rel>` (x86-64) into a DISTINCT function's entry
             // is a TAIL CALL (e.g. `<String as Display>::fmt` = 15 bytes of argument
             // shuffling then `jmp core::fmt::Formatter::pad`, or a shared outlined
@@ -2398,7 +2363,7 @@ impl RemillTranspiler {
             // rather than traps, so the caller silently receives GARBAGE in RAX (the
             // systemic "small-fn missing_blocks" root). Lift these targets.
             //
-            // 2026-08-14: this scan used to hard-code the AArch64 `b` encoding
+            // this scan used to hard-code the AArch64 `b` encoding
             // (bits[31:26]==0b000101, fixed 4-byte stride), so on the Windows x86-64 port
             // it matched nothing and NO tail-call target was ever enqueued. That is why
             // `core::fmt::Formatter::pad` was absent from the entire lift: it is reached
@@ -2734,7 +2699,7 @@ impl RemillTranspiler {
                     },
                 });
             }
-            // [FIX 2026-08-13] The IR-walk above only sees `sub_<hex>` externs =
+            // [FIX] The IR-walk above only sees `sub_<hex>` externs =
             // STATIC call targets. INDIRECT-dispatch targets (vtable / trait-object /
             // core::fmt::Arguments fn-pointers) are RUNTIME values, so they never
             // appear as externs and stay unlifted → the `__az_indirect_dispatch`
@@ -2934,14 +2899,14 @@ impl RemillTranspiler {
         ir.push_str("declare ptr @__remill_write_memory_32(ptr, i64, i32)\n");
         ir.push_str("declare i32 @__remill_read_memory_32(ptr, i64)\n");
         ir.push_str("declare i64 @__remill_read_memory_64(ptr, i64)\n");
-        // [WEB-LIFT FIX 2026-06-11] wasm-side TLS base for the TLV case
+        // [WEB-LIFT FIX] wasm-side TLS base for the TLV case
         // below: the SYNTH address of __thread_data (descriptor offsets
         // are relative to it; mirror + lifted adrp both live in synth
         // space). None ⇒ the image has no thread-locals and no TLV case
         // is emitted.
         let tlv_tls_base: Option<u32> =
             symbol_table::get().and_then(|t| t.tlv_tls_base_synth());
-        // WEB-LIFT FIX (2026-06-03, DEFINITIVE): the dispatcher must call the remill-ABI BODY
+        // WEB-LIFT FIX (DEFINITIVE): the dispatcher must call the remill-ABI BODY
         // `@sub_<csynth>(ptr state, i64 pc, ptr memory)` — NOT the `@__az_dep_<addr>` export, which
         // is the EXTERNAL callback-ABI wrapper with a DIFFERENT signature `(i64 lo, i64 hi, i32)`
         // (split-128-bit args for JS/loader). Declaring `@__az_dep_<addr>(ptr,i64,ptr)` triggered a
@@ -2997,7 +2962,7 @@ impl RemillTranspiler {
                 ir.push_str(&format!("declare float @llvm.{intrin}.f32(float)\n"));
             }
         }
-        // WEB-LIFT FIX (2026-06-02): mask %pc to low 32 bits before the switch. Tail-jump
+        // WEB-LIFT FIX : mask %pc to low 32 bits before the switch. Tail-jump
         // (`br`) PCs arrive TAGGED in the high bits (e.g. 0x8_00f70ebc / 0x9_00f6dfc4 — a
         // missing-block/region marker the lift OR's in), but the csynth case labels are the
         // CLEAN synth (0xf70ebc, < 0x10000000 since libazul is ~250 MiB). Without masking the
@@ -3217,7 +3182,7 @@ impl RemillTranspiler {
                     cs.push((label, c));
                 }
             }
-            // 2026-06-10: ALSO match the NATIVE address truncated to 32 bits. Function
+            // ALSO match the NATIVE address truncated to 32 bits. Function
             // pointers stored in MIRRORED DATA (vtables, fn-ptr struct fields baked into
             // __DATA_CONST) carry the callee's NATIVE address; the wasm-side blr then
             // dispatches with that value, which the synth-keyed switch missed (silent
@@ -3309,10 +3274,10 @@ impl RemillTranspiler {
             };
             queue.push_back((r.fn_name, canonical_addr, canonical_size, r.sig, r.export_as));
         }
-        // (2026-06-03: see the sequential path — force-enqueuing ALL ~8048 _OUTLINED_FUNCTION_*
+        // (see the sequential path — force-enqueuing ALL ~8048 _OUTLINED_FUNCTION_*
         // blows the runaway limit; reverted. Fix needs a narrowed set / raised limits / dispatcher
         // epilogue emulation.)
-        // 2026-06-10 (fn-ptr roots): seed targets that are reached ONLY through function
+        // (fn-ptr roots): seed targets that are reached ONLY through function
         // POINTERS whose values live in mirrored DATA (callback-struct fields like
         // azul_core::task::GetSystemTimeCallback) — invisible to both the BL/B scan and the
         // adrp+add scan, so they were never lifted and the indirect dispatcher unk-dropped
@@ -3354,7 +3319,7 @@ impl RemillTranspiler {
             // Scan this fn's bytes for BL/B targets.
             let bytes_slice = unsafe { std::slice::from_raw_parts(addr as *const u8, size) };
             let mut bl_targets = scan_guest_branch_targets(bytes_slice, addr);
-            // 2026-06-10: ALSO scan `adrp+add` code-address materializations (function
+            // ALSO scan `adrp+add` code-address materializations (function
             // POINTERS taken for vtables / callback structs, e.g. azul_core::task::
             // Instant::now stored in GetSystemTimeCallback). Those targets are reached
             // only via blr at runtime — the BL/B scan never sees them, they stay
@@ -3528,7 +3493,7 @@ impl RemillTranspiler {
                 .zip(bytes_vec.iter())
                 .filter_map(|(&i, b)| {
                     // Gated to big fns (>12 KB): the big CssProperty match fns need the exact
-                    // jump-table decode. (2026-06-02: ungating for small fns had ZERO effect on
+                    // jump-table decode. (ungating for small fns had ZERO effect on
                     // the missing_block ring — the small-fn missing_blocks are NOT devirt
                     // failures; see memory web_flexbox_lift_2026_06_01.)
                     if b.len() <= 12288 {
@@ -3802,7 +3767,7 @@ static NEXT_NON_MINI_STACK_SLOT: std::sync::atomic::AtomicU32 =
 
 const STACK_BASE_FIRST: u32 = 192 * 1024;   // 192 KiB
 const STACK_BASE_STRIDE: u32 = 128 * 1024;  // 128 KiB / wasm
-// NOTE (2026-06-02): tried 2MiB/2MiB to fix the direct-prop layout-cb OOB —
+// NOTE : tried 2MiB/2MiB to fix the direct-prop layout-cb OOB —
 // it did NOT help (the cb still OOBs with 2 MiB stacks), so the cb crash is
 // NOT a stack overflow; it's a struct-by-value-arg mis-lift (the m12_7 HFA class:
 // padding/border struct literals + AzColorU passed by value to AzCssProperty_*).
@@ -3880,7 +3845,7 @@ fn inject_user_binary_data_segments(
         Some(t) => t,
         None => return,
     };
-    // WEB-LIFT FIX (2026-06-02): force-mirror the FULL embedded fallback font. It is read by
+    // WEB-LIFT FIX : force-mirror the FULL embedded fallback font. It is read by
     // DYNAMIC index, so the adrp scanner only captures its header (~28 bytes) — every table
     // read past the header (e.g. head@file 0x16f9c) lands in a page never in accessed_pages and
     // reads 0 → allsorts font parse fails → text measures height 0. Add every page the font
@@ -3945,7 +3910,7 @@ fn inject_user_binary_data_segments(
             eprintln!("[azul-web] AZ_FORCE_MIRROR: no libazul image rebase found");
         }
     }
-    // [WEB-LIFT FIX 2026-06-11] Seed TLV ranges at THE mirror chokepoint
+    // [WEB-LIFT FIX] Seed TLV ranges at THE mirror chokepoint
     // (every module's data mirror flows through here, and `table` is in
     // hand — the earlier per-lift seeding could silently no-op when the
     // global symbol table wasn't initialized yet).
@@ -3953,7 +3918,7 @@ fn inject_user_binary_data_segments(
     seed_tlv_mirror_ranges(table, &mut accessed_pages_owned, &mut accessed_ranges_owned);
     let mut segments =
         collect_synth_data_pages(table, &accessed_pages_owned, &accessed_ranges_owned);
-    // [WEB-LIFT FIX 2026-06-06] Permanently mirror hashbrown's EMPTY_GROUP
+    // [WEB-LIFT FIX] Permanently mirror hashbrown's EMPTY_GROUP
     // static(s) as PRECISE all-0xFF segments appended LAST (active data segments
     // are applied in order; last write wins, so this is idempotent over any
     // whole-page mirror that already covers these bytes and never flips a page
@@ -3999,7 +3964,7 @@ fn inject_user_binary_data_segments(
         );
         return;
     }
-    // [FIX 2026-08-14] Rewrite embedded CODE POINTERS in mirrored const data from
+    // [FIX] Rewrite embedded CODE POINTERS in mirrored const data from
     // NATIVE → SYNTH. Vtables / trait objects / `fmt::Arguments` store ABSOLUTE NATIVE
     // function addresses. The lifted code loads one and calls
     // `__remill_function_call(target_pc = <that value>)`, but `__az_indirect_dispatch`
@@ -4009,7 +3974,7 @@ fn inject_user_binary_data_segments(
     // `.expect` → `core::result::unwrap_failed` = the solveLayoutReal trap. Lifting the
     // formatters (the fn-ptr discovery fix) is necessary but NOT sufficient: the pointer
     // the guest actually dispatches on must be in the same address space as the switch.
-    // [FIX 2026-08-14] TRANSITIVE DATA MIRROR (one level). A `mov rax,[rip+X]` records
+    // [FIX] TRANSITIVE DATA MIRROR (one level). A `mov rax,[rip+X]` records
     // only the 8 bytes at X, but the VALUE there points at ANOTHER const table whose
     // slots the guest then indexes — e.g. `fmt::Arguments` holds a pointer to a slice of
     // `rt::Argument{value_ptr, formatter_fn}`. That pointed-to table was never mirrored,
@@ -4083,7 +4048,7 @@ fn inject_user_binary_data_segments(
                             }
                         }
                     } else if let Some(s) = table.native_to_synth(v) {
-                        // 2026-08-17: ALSO translate DATA pointers (values inside a
+                        // ALSO translate DATA pointers (values inside a
                         // tracked image that resolve to no symbol) — .rdata is full of
                         // const structs pointing at neighbouring .rdata: &str slices,
                         // nested const records, and hashbrown's RawTable template whose
@@ -4141,7 +4106,7 @@ fn inject_user_binary_data_segments(
 /// caused mini.wasm to balloon to 27 MiB even for hello-world.
 /// Per-page is bounded by what the cb actually touches — typically
 /// a few dozen pages = a few hundred KiB.
-/// [WEB-LIFT FIX 2026-06-11] The synthetic PC every mirrored macOS TLV
+/// [WEB-LIFT FIX] The synthetic PC every mirrored macOS TLV
 /// descriptor's `thunk` field is rewritten to. The lifted thread-local
 /// access (`adrp x0,<desc>; ldr x8,[x0]; blr x8`) then reaches the
 /// indirect dispatcher with this PC; its dedicated case computes
@@ -4639,7 +4604,7 @@ fn collect_synth_data_pages(
                 let mut run = raw_page[start..end].to_vec();
                 let mut translated_in_run = 0usize;
                 let run_off_in_page = start;
-                // Translate at 8-byte-aligned PAGE offsets. 2026-08-17: this used to
+                // Translate at 8-byte-aligned PAGE offsets. this used to
                 // step `chunk_start` by 8 from 0 and then skip when
                 // `(run_off_in_page + chunk_start) % 8 != 0` — for a run starting at an
                 // unaligned page offset those two conditions can NEVER both hold
@@ -4681,10 +4646,10 @@ fn collect_synth_data_pages(
                     } else if std::env::var_os("AZ_TRACE_STALE_PTR").is_some()
                         && value >= 0x1_0000_0000 && value < 0x2_0000_0000_0000
                     {
-                        // 2026-06-02 cb-OOB DIAG (REVERT): a pointer-like value NOT in any
-                        // tracked image = a runtime heap/stack/shared-cache ptr baked into a
-                        // mirrored static at lift time → cb derefs it → OOB. Log synth+native
-                        // so the symbol can be identified (atos/nm) and re-init'd in wasm.
+                        // A pointer-like value NOT in any tracked image = a runtime
+                        // heap/stack ptr baked into a mirrored static at lift time; a
+                        // cb that derefs it goes OOB. Log synth+native so the symbol
+                        // can be identified and re-initialized in wasm.
                         eprintln!(
                             "[azul-web] STALE-PTR(precise): synth=0x{:x} native=0x{:x} value=0x{:x}",
                             synth_page + start + chunk_start,
@@ -4937,7 +4902,7 @@ fn collect_synth_data_segments_legacy(
     const PER_SECTION_LIMIT: usize = 32 * 1024 * 1024;
     // Synth-offset upper bound: just below the bump-heap base the
     // loader passes to AzStartup_resetBumpHeap (160 MiB as of
-    // 2026-06-11 — keep in lockstep with loader_js.rs). Sections
+    // — keep in lockstep with loader_js.rs). Sections
     // landing past this would overlap with the heap.
     const SYNTH_OFFSET_LIMIT: u64 = 160 * 1024 * 1024;
     for rebase in table.image_rebases() {
@@ -5577,7 +5542,7 @@ mod x86_scan {
             .map(|i| {
                 let sz = i.memory_size().size();
                 if i.mnemonic() == Mnemonic::Lea {
-                    // [FIX 2026-08-14] `lea` doesn't access memory, so memory_size()==0
+                    // [FIX] `lea` doesn't access memory, so memory_size()==0
                     // and this used to mirror just 8 bytes at the target. But a `lea`
                     // materializes the BASE of a struct / vtable / fn-ptr table that
                     // LATER instructions index into — e.g. `core::fmt::write` does
@@ -5601,7 +5566,7 @@ mod x86_scan {
     /// JUMP TABLES). These ranges are deduped and only cover addresses the lifted
     /// code actually references.
     ///
-    /// 2026-08-14: was 128 B, which covers a Rust vtable but only **32 entries**
+    /// was 128 B, which covers a Rust vtable but only **32 entries**
     /// of an i32 jump table. Rust `match` lowers to tables far larger than that
     /// (`build_compact_cache_with_inheritance` has one guarded by `cmp $0x74` =
     /// 117 entries = 468 B), so the tail of every big table was truncated. That
@@ -6043,7 +6008,7 @@ impl Default for LiftOpts {
             extra_objects: Vec::new(),
             extra_exports_passthrough: Vec::new(),
             memory_mode: MemoryMode::ImportMemory,
-            // [FIX 2026-08-14] Was 256 — too low once fn-pointer discovery (vtable /
+            // [FIX] Was 256 — too low once fn-pointer discovery (vtable /
             // trait-object / fmt::Arguments targets, see `data_referenced_code_ptrs`)
             // legitimately widens the closure: the per-cb lifts (`on_click`, `layout`)
             // blew the cap and fell back to NO-OP STUBS, so calling the layout cb trapped
@@ -7284,7 +7249,7 @@ pub fn preflight_report() {
     }
 }
 
-/// S0 cache-v2a (2026-06-11): content-keyed cache for produced wasm32
+/// S0 cache-v2a : content-keyed cache for produced wasm32
 /// OBJECTS. The per-bundle transitive walks (mini + layout + one per cb)
 /// re-compile byte-identical lifted IR for every shared dependency — with
 /// N callbacks that's up to N+2 redundant `llvm-link|opt|llc` subprocess
@@ -7335,7 +7300,7 @@ fn obj_cache_path(
     h = fold(h, patched_ir.as_bytes());
     h = fold(h, helper_ir.as_bytes());
     h = fold(h, opt_flag_for(fn_name).as_bytes());
-    // [az-diag] per-fn opt-bisect: the bisect limit changes this fn's opt output
+    // Per-fn opt-bisect: the bisect limit changes this fn's opt output
     // → key it so each AZ_BISECT_LIMIT re-lifts the matched fn (others stay cached).
     if let Some(b) = opt_bisect_arg(fn_name) {
         h = fold(h, b.as_bytes());
@@ -7973,14 +7938,10 @@ fn opt_flag_for(fn_name: &str) -> &'static str {
     }
 }
 
-/// [az-diag 2026-06-11] Per-function opt-bisect harness for heisenbug-class
-/// mis-transforms (e.g. class-B mechanism B). When `AZ_BISECT_FN=<substr>`
-/// matches `fn_name`, return `Some("-opt-bisect-limit=<N>")` where N is
-/// `AZ_BISECT_LIMIT` (default huge = all passes). The opt pass for ONLY that
-/// function is then bisected, so a binary search over N — relift (only the
-/// matched fn re-lifts; obj cache keys on the limit) + CDP-peek a correctness
-/// marker — pinpoints the exact corrupting pass, like opt-bisect cracked
-/// mechanism A. Returns None (no extra arg) when the fn doesn't match.
+/// Per-function opt-bisect: when `AZ_BISECT_FN=<substr>` matches `fn_name`,
+/// return `-opt-bisect-limit=<AZ_BISECT_LIMIT>` for that function only. A
+/// binary search over the limit (the obj cache keys on it, so only the
+/// matched fn re-lifts) pinpoints the exact corrupting opt pass.
 fn opt_bisect_arg(fn_name: &str) -> Option<String> {
     let pat = std::env::var("AZ_BISECT_FN").ok()?;
     if pat.is_empty() || !fn_name.contains(&pat) {
@@ -8022,40 +7983,6 @@ fn sanitize_filename(name: &str) -> String {
     format!("{}_{:016x}", prefix, h)
 }
 
-/// M12.5y — Heisenbug-proof store-address tracer.
-///
-/// Injects, before every `store <ty> <val>, ptr %X, ...` in the POST-OPT IR
-/// of a target dep, a `ptrtoint`+`call @__az_logst(addr, id)` that records the
-/// runtime store address + a per-store id into a ring buffer at wasm linear
-/// address 0x41000 when the address is in the guest-stack window
-/// [0x20000, 0x40000) (excludes the heap 0x6000000+ and the ~4 MiB mirror
-/// pages).
-///
-/// Why this beats every runtime probe we tried: the corrupting `push_to`
-/// element-copy slot store SHOULD target the heap (excluded by the window) but
-/// at runtime lands on `self`(~0x2ee10, in-window). It therefore shows up in
-/// the log *because* it is corrupt. The store addresses are fixed SSA values
-/// after `opt`; only `llc` register allocation runs afterwards, and that cannot
-/// change a computed address — so this observes the real (corrupting) store
-/// without perturbing the AArch64 lift (the source of the Heisenbug in every
-/// Rust-source-level probe). The emitted id maps each in-window store back to
-/// its exact `.opt.ll` line (saved as `<stem>.instr.ll`), which traces through
-/// SSA to the offending register (`%X27`/`%X8`/...).
-/// M12.7 loop-fuel hang-finder: insert `call void @__az_fuel()` before
-/// every terminator in the post-opt IR, and append an internal
-/// `__az_fuel` that bumps a global tick (at 0x40068) and traps
-/// (`unreachable`) once it exceeds the fuel limit (default 200M, override
-/// with AZ_FUEL_LIMIT). An infinite loop runs its block's terminator
-/// unboundedly → the tick overflows → trap; with AZ_WASM_DEBUG the trap's
-/// named stack pinpoints the looping fn. Inserted before (never after) a
-/// terminator and after any block-leading PHIs, so it is CFG/SSA-safe.
-/// Rewrite empty infinite self-loops (`LABEL:` immediately followed by only
-/// `br label %LABEL`) into `unreachable`. remill lifts `b .` / abort-spin
-/// instructions — and opt can fold a real loop's exit away — into a block that
-/// branches only to itself, which HANGS the wasm. In the lifted layout/cascade
-/// those are abort / unreachable paths, so trapping is correct and far faster to
-/// debug than a 120 s hang. Only empty self-loops are touched (a real loop has a
-/// body between its label and its back-edge). Returns (rewritten_ir, count).
 /// M12.7 diagnostic: for each conditional branch into an empty self-loop
 /// (`br i1 %c, .., %SELFLOOP` where %c = `icmp eq i64 %v, 0`), insert
 /// `store volatile i64 %v, 0x40078` before the branch. Only the LIVE branch's
@@ -8126,6 +8053,12 @@ fn inject_selfloop_value_log(opt_ir: &str) -> (String, u32) {
     (out, n)
 }
 
+/// Rewrite empty infinite self-loops (`LABEL:` followed only by
+/// `br label %LABEL`) into `unreachable`. remill lifts `b .` / abort-spins —
+/// and opt can fold a real loop's exit away — into a block branching only to
+/// itself, which HANGS the wasm; those are abort paths, so trapping is
+/// correct and far faster to debug. Only empty self-loops are touched.
+/// Returns (rewritten_ir, count).
 fn rewrite_empty_self_loops(opt_ir: &str) -> (String, u32) {
     let lines: Vec<&str> = opt_ir.lines().collect();
     let mut out = String::with_capacity(opt_ir.len());
@@ -8160,6 +8093,11 @@ fn rewrite_empty_self_loops(opt_ir: &str) -> (String, u32) {
     (out, n)
 }
 
+/// Loop-fuel hang-finder: insert `call void @__az_fuel()` before every
+/// terminator; `__az_fuel` bumps a tick at 0x40068 and traps once it exceeds
+/// the fuel limit (default 200M, `AZ_FUEL_LIMIT` overrides), so an infinite
+/// loop becomes a named trap instead of a hang. Inserted before terminators
+/// and after block-leading PHIs, so it is CFG/SSA-safe.
 fn inject_fuel(opt_ir: &str) -> (String, u32) {
     // GLOBAL terminator id, unique across ALL fueled fns (AZ_FUEL=ALL). The
     // trap records this gid at 0x40070; grep the saved `*.fuel.ll` files for
@@ -8230,6 +8168,12 @@ fn inject_unreachable_tagging(opt_ir: &str) -> (String, u32) {
     (out, id)
 }
 
+/// Store-address tracer (`AZ_LOG_STORES`): before every `store` in the
+/// post-opt IR of a target dep, record the runtime address + a per-store id
+/// into a ring at 0x41000 when the address falls in the guest-stack window
+/// [0x20000, 0x40000). Post-opt injection observes the real store without
+/// perturbing the lift itself; the id maps back to the exact `.instr.ll`
+/// line for SSA tracing.
 fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
     let mut out = String::with_capacity(opt_ir.len() + (1 << 17));
     let mut id: u32 = 0;
@@ -8244,7 +8188,7 @@ fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
                 .or_else(|| s.parse().ok())
         })
         .unwrap_or(196608);
-    // 2026-06-11: optional LOW bound — lets a trace target ONE region (e.g.
+    // optional LOW bound — lets a trace target ONE region (e.g.
     // a caller frame at 0x2exxx) without per-loop SP-region (0xffxx) or heap
     // writes flooding the 3500-entry ring.
     let win_lo: u32 = std::env::var("AZ_LSWIN_LO")
@@ -8255,7 +8199,7 @@ fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
                 .or_else(|| s.parse().ok())
         })
         .unwrap_or(0);
-    // 2026-06-11: optional id floor — instrumentation ids follow static
+    // optional id floor — instrumentation ids follow static
     // program order, so `AZ_LSID_LO=N` traces only a function's TAIL (e.g.
     // an sret return-copy) regardless of target address, without the body's
     // thousands of loop stores flooding the ring.
@@ -8562,7 +8506,7 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
             // no longer be a tail call. (Previously only `tail call ptr @sub_` was de-tailed.)
             out.push_str(&line.replacen("tail call ptr @", "call ptr @", 1));
             out.push('\n');
-            // LEAK-GATED restore (class-B root-cause fix, 2026-06-10). The original
+            // LEAK-GATED restore (class-B root-cause fix). The original
             // UNCONDITIONAL restore enforced AAPCS callee-saved preservation across every
             // wrapped call — but `parse_sub_call` also matches lifted TAIL-JUMPS
             // (`b <target>` → missing_block/__az_indirect_dispatch → call): those are
@@ -8579,7 +8523,7 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
             // epilogue DROPS the `add sp,#N` restore, returning with SP *below* entry)
             // is detected precisely by `SP_after < SP_before`. Restore the snapshot ONLY
             // in that case; otherwise keep the callee's (correct) register state.
-            // [x86 SP ret-delta, 2026-06-20] The snapshot %azv_k_11 is SP as seen
+            // [x86 SP ret-delta] The snapshot %azv_k_11 is SP as seen
             // right before `call @sub_X`. On x86-64 the guest `call` has ALREADY
             // pushed the 8-byte return address at that point, so a correctly
             // returning callee (whose `ret` pops it) leaves SP at snapshot+8. A
@@ -8619,7 +8563,7 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
                 // loop never terminates, walking off the heap → OOB). Continuations
                 // (tail-jumps that legitimately pop the frame, SP_after > snapshot+DELTA)
                 // do NOT trip the gate, so their intentional register state is kept.
-                // [az-diag 2026-06-11] AZ_FULL_CS_RESTORE=1 ALSO restores the
+                // AZ_FULL_CS_RESTORE=1 ALSO restores the
                 // callee-saved GPRs (indices 0..=9) UNCONDITIONALLY (snapshot), not
                 // leak-gated — a stronger diagnostic for clobbers that don't even leak
                 // SP; default off, may re-break shape_text's tail-jump path.
@@ -8952,7 +8896,7 @@ fn parse_reg_store(line: &str) -> Option<(u32, String)> {
 /// (or `@__remill_function_call(ptr %S, ...)`), returning `(result_ssa, state_arg_ssa)`.
 /// `None` for other calls.
 ///
-/// WEB-LIFT FIX (2026-06-05, M12 SP class): also match `@__remill_function_call` — remill's
+/// WEB-LIFT FIX (M12 SP class): also match `@__remill_function_call` — remill's
 /// indirect/computed-call dispatcher. Those LEAK guest SP exactly like `sub_<hex>` calls (the
 /// dispatched target may drop its epilogue `add sp,#N`), but `enforce_sp_preservation` was only
 /// wrapping `@sub_`. A `__remill_function_call` in `layout_document`'s post-reconcile window
@@ -8974,7 +8918,7 @@ fn parse_sub_call(line: &str) -> Option<(String, String)> {
     // Accept `sub_<hex>(...)` OR `__remill_function_call(...)` OR `__az_indirect_dispatch(...)`;
     // reject everything else.
     //
-    // WEB-LIFT FIX (2026-06-06, g129 — THE sret Vec-return-len root cause): also wrap
+    // WEB-LIFT FIX (g129 — THE sret Vec-return-len root cause): also wrap
     // `@__az_indirect_dispatch`. Indirect calls (trait methods / closures / fn-pointers — e.g.
     // ParsedFontTrait::shape_text, the allsorts GSUB/GPOS shaping, iterator closures) are dispatched
     // through `@__az_indirect_dispatch` (the M12.7 PC-switch), NOT `@sub_`. enforce_sp was NOT
@@ -9104,47 +9048,6 @@ fn inject_alwaysinline_all_subs(ir: &str) -> String {
     out
 }
 
-/// Emit the M6 helper module. Contains:
-///
-///   1. `__remill_*` definitions with real bodies — memory ops
-///      become actual `load`/`store`, control intrinsics (function
-///      return, jump, missing block, error) thread the memory token
-///      through unchanged, barriers are noops. All marked
-///      `alwaysinline` so opt -O2 inlines them at every call site.
-///
-///   2. A `callback` wrapper that allocates a separate buffer for
-///      the State struct AND a separate stack-scratch buffer. The
-///      split lets SROA promote State (no `ptrtoint` ever taken of
-///      it) while the stack-scratch buffer absorbs the lifted body's
-///      SP-relative spills.
-///
-/// Wrapper signature: `(i64, i64, i32) -> i32` per the AArch64 PCS
-/// for `extern "C" fn(AzRefAny, AzCallbackInfo) -> AzUpdate`:
-///
-///   X0/X1 = AzRefAny `(refcount_ptr, instance_id)` — 16-byte
-///           struct passed in two 64-bit regs.
-///   X2    = `*const AzCallbackInfo` — the struct itself is huge
-///           (~kilobytes), so the AArch64 PCS passes it by pointer
-///           in X2. On wasm32 the pointer is `i32`; the wrapper
-///           zero-extends to `i64` when storing into State's X2
-///           slot so the lifted body's `i64`-typed register reads
-///           see the right bit pattern.
-///   W0    = AzUpdate (4-byte enum, low half of X0).
-///
-/// Note: this wrapper signature is callback-shape-specific. Other
-/// callback types (`LayoutCallback` returning a struct,
-/// `CheckBoxOnToggleCallback` taking an extra bool arg, …) need
-/// their own signatures synthesized from `api.json`. That
-/// generalization is M7 work.
-///
-/// Panic/unwind: the lifted body may contain code paths reaching
-/// `core::panicking::panic_*` which the lift sees as another
-/// `sub_<hex>` extern. The JS-side proxy noops these, so a "panic"
-/// silently returns memory unchanged and control falls through to
-/// whatever comes next in the lifted body. For correctness, panic
-/// call sites should trap the WASM (M7+ would route a typed
-/// `__az_panic` import to `() => throw new Error(...)` in JS); for
-/// the demo path the noop fallback is acceptable.
 // M10-B1.a metadata-ID slots. Numbers are arbitrary within each
 // module — they MUST NOT collide with metadata IDs the lifted IR or
 // llvm-link's own emission uses, so pick high IDs unlikely to clash.
@@ -9158,6 +9061,13 @@ const AZ_HOST_SCOPE_MD_ID: u32 = 90003;
 const AZ_GUEST_LIST_MD_ID: u32 = 90004;
 const AZ_HOST_LIST_MD_ID: u32 = 90005;
 
+/// Emit the per-fn helper module: `__remill_*` intrinsics with real bodies
+/// (memory ops become load/store, control intrinsics thread the memory token,
+/// barriers are noops — all `alwaysinline`), plus the callback wrapper that
+/// allocates a State buffer and a separate stack-scratch buffer so SROA can
+/// promote State while SP-relative spills land in the scratch. The wrapper
+/// signature is synthesized per callback shape from `sig` (see
+/// `signature_for_callback_kind`); panic externs are nooped by the JS proxy.
 fn emit_helper_ir(
     lift_addr: u64,
     sig: &CallbackSignature,
@@ -9898,7 +9808,7 @@ fn emit_helper_ir(
                     // dispatches to garbage. aarch64 `rewrite_recursive_bl` uses
                     // +0x4000000; x86-64 `x86_scan::rewrite_recursive_call` sets
                     // `new_rel = 0x1000_0000` (+0x10000000). (THE x86 browser
-                    // text-shaping OOB, 2026-06-23: allsorts' recursive parsers
+                    // text-shaping OOB: allsorts' recursive parsers
                     // hit this — the aarch64-hardcoded 0x4000000 never matched on
                     // x86, so every self-recursive call stubbed to garbage.) The
                     // call's PC is in [lift_addr, lift_addr + fn_size); functions
@@ -9913,7 +9823,7 @@ fn emit_helper_ir(
                     delta >= lift_addr && delta < lift_addr.saturating_add(0x0100_0000)
                 });
                 if is_recursive_marker {
-                    // [x86 recursive-pc fix, 2026-06-24] Pass the recursive fn's
+                    // [x86 recursive-pc fix] Pass the recursive fn's
                     // ENTRY pc (lift_addr) as the callee %pc, NOT the incoming %pc.
                     // The lifted body computes the recursive target as
                     // `next_pc + REC_MARKER` (the rewriter's 0x1000_0000 sentinel,
@@ -9925,7 +9835,7 @@ fn emit_helper_ir(
                     // sentinel) → after ~3 levels %pc ≈ 768 MB and the jump-table
                     // load blows past linear memory → trap (the hydrate
                     // StyledDom::create cascade OOB: func698 `i64.load32_s
-                    // [%pc+0x9FB888+idx*4]`, root-caused 2026-06-24). Forcing
+                    // [%pc+0x9FB888+idx*4]`, root-caused). Forcing
                     // %pc == lift_addr makes every recursion frame's pc identical to
                     // the first (non-recursive) call's pc (= the entry), so
                     // PC-relative data + PC-dispatch both resolve correctly. aarch64
@@ -9977,7 +9887,7 @@ fn emit_helper_ir(
             }
         }
     }
-    // [x86 ret-pop, 2026-06-20] On x86-64 a guest `call` PUSHES the return
+    // [x86 ret-pop] On x86-64 a guest `call` PUSHES the return
     // address (RSP -= 8; modeled by remill — see the CallIndirectLayout4
     // `[SP+40]` read above) and the callee's `ret` POPS it (RSP += 8). The
     // synthetic helper bodies above model the callee but have NO lifted `ret`,
@@ -9987,7 +9897,7 @@ fn emit_helper_ir(
     // __rust_alloc); after ~6 iters RSP is 152 B (19×8) low, so the loop
     // index's SP-relative reload (`mov rdi,[rsp+0x58]`) reads a pushed return
     // address instead of the index → `mov [rax+rdi<<7],8` indexes ~2.4 GB →
-    // OOB (the full-hello-world trap, root-caused 2026-06-15). enforce_sp_*
+    // OOB (the full-hello-world trap, root-caused). enforce_sp_*
     // can't fix it: these bodies are `alwaysinline` and GONE (inlined into the
     // caller) by the time enforce_sp runs on opt.ll, so there's no `@sub_` call
     // left to wrap. Model the missing `ret`-pop directly in the body instead.
@@ -10082,7 +9992,7 @@ define linkonce_odr ptr @__remill_function_call(ptr %state, i64 %pc, ptr %memory
   ret ptr %fcr
 }}
 define linkonce_odr ptr @__remill_jump(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
-  ; [FIX 2026-08-17] Dispatch the indirect JUMP — this was `ret ptr %memory`,
+  ; [FIX] Dispatch the indirect JUMP — this was `ret ptr %memory`,
   ; i.e. a SILENT no-op, and it swallowed every register-indirect TAIL-CALL.
   ; Rust at -O lowers dyn-trait tail positions to exactly that shape:
   ;   mov rdx,[rdx+8]      ; Formatter.buf.vtable
@@ -10134,7 +10044,7 @@ define linkonce_odr ptr @__remill_error(ptr %state, i64 %pc, ptr %memory) always
   %erc = call i32 @__remill_read_memory_32(ptr %erm1, i64 262388)
   %erc1 = add i32 %erc, 1
   %erm2 = call ptr @__remill_write_memory_32(ptr %erm1, i64 262388, i32 %erc1)
-  ; 2026-06-02: also record each unlifted-instr PC into a 16-slot ring @0x401A0
+  ; Also record each unlifted-instr PC into a 16-slot ring @0x401A0
   ; (262560)+i*4 (i = count & 15), mirroring the missing_block ring @0x40160, so
   ; the gate can otool ALL unlifted-instruction sites (not just the last) in one pass.
   %eridx = and i32 %erc, 15
@@ -10599,7 +10509,7 @@ fn strip_noalias_from_sub_args(ir: &str) -> String {
     out
 }
 
-/// [WEB-LIFT FIX 2026-06-11] Remove ALL `!alias.scope`/`!noalias` metadata
+/// [WEB-LIFT FIX] Remove ALL `!alias.scope`/`!noalias` metadata
 /// from a linked module. remill emits `!alias.scope !0, !noalias !3` on every
 /// State-register access and guest-memory intrinsic to declare registers and
 /// guest memory mutually-non-aliasing — TRUE on hardware (disjoint address
@@ -10662,7 +10572,7 @@ fn tag_state_accesses(ir: &str) -> String {
         ", !alias.scope !{}, !noalias !{}",
         AZ_HOST_LIST_MD_ID, AZ_GUEST_LIST_MD_ID,
     );
-    // [2026-06-08 az-web-lift] AZ_NO_HOST_SCOPE=1 disables the host/guest alias-scope SEPARATION
+    // [ az-web-lift] AZ_NO_HOST_SCOPE=1 disables the host/guest alias-scope SEPARATION
     // (State/local accesses stay untagged → conservative AA). Kept as a diagnostic toggle, default OFF.
     // ⚠ g188/g189 LESSON: AZ_NO_HOST_SCOPE appeared to fix the hashbrown hang, but that was CONFOUNDED by
     // AZ_FUEL — every "fixed" run (g186/g187/g188) also had AZ_FUEL=ALL, whose per-terminator fuel-tick
@@ -11354,66 +11264,6 @@ fn parse_sub_hex_as_addr(sym_name: &str) -> Option<usize> {
     usize::from_str_radix(hex, 16).ok()
 }
 
-/// Post-lift IR rewriter — Stage 1's load-bearing change.
-///
-/// Walks every `@sub_<hex>[.N]` token in the lifted IR and rewrites
-/// it to `@sub_<canonical_addr_hex>` based on the SymbolTable's
-/// chain map. This single pass dissolves four pre-M8.8 problems:
-///
-///   1. **`.N` suffix dedup** — remill emits `sub_<addr>.2`,
-///      `sub_<addr>.3`, … for repeat call sites of the same `bl`
-///      target. The pre-M8.8 path emitted a separate helper-IR
-///      body per `.N` to keep wasm-ld from leaving them as imports.
-///      Post-rewrite, every `.N` collapses to the same canonical
-///      name — wasm-ld dedupes naturally.
-///
-///   2. **PLT-stub thunk mismatch** — caller's IR previously said
-///      `sub_<stub_addr>` while the dep's lifted body was defined
-///      as `sub_<real_addr>`. The pre-M8.8 path emitted a
-///      `linkonce_odr` thunk `sub_<stub_addr> → musttail
-///      sub_<real_addr>` to bridge. Post-rewrite, the chain map
-///      pre-canonicalizes the caller's reference to `sub_<real_addr>`
-///      and wasm-ld matches the dep's defn directly.
-///
-///   3. **Bare-`b imm26` tail-call shims** — same as PLT stubs but
-///      detected at the byte level. SymbolTable's
-///      `detect_arm64_tail_shims` populates the chain map for
-///      these; the rewriter applies it.
-///
-///   4. **`lift_addr` arithmetic** — `branch_target_to_host_addr`
-///      computed `host_target = fn_addr + (lift_target - lift_addr)`
-///      at every callsite. The rewriter centralizes this so
-///      downstream helpers operate in canonical-address space only.
-///
-/// Reference form:
-///
-///   `@sub_<hex>`     — entry defn, branch declare/call, etc.
-///   `@sub_<hex>.<N>` — remill's per-call-site dedup variant
-///
-/// where `<hex>` is hexadecimal and `<N>` is decimal. The rewriter
-/// matches both shapes and emits `@sub_<canonical_addr_hex>` (no
-/// `.N`). Tokens with non-hex bodies are left intact (rare; some
-/// helper-IR names like `@__remill_*` start with `@` but the
-/// `sub_` prefix discriminator keeps them out of the match).
-/// Demote x87 80-bit floats to `double` in lifted IR.
-///
-/// wasm has no 80-bit float type, and LLVM's wasm backend asserts in
-/// `WebAssemblySetP2AlignOperands` ("Default p2align value should be
-/// natural") the moment an `x86_fp80` load/store reaches it — a hard llc
-/// crash that costs the whole function a Leaf stub (returns 0, silent
-/// corruption). Guest code reaches x87 through compiler-outlined int->float
-/// helpers and old CRT paths (`sitofp iN to x86_fp80` = FILD, `store
-/// x86_fp80` = FSTP m80).
-///
-/// `double` is the widest float wasm has, so demoting is the closest
-/// faithful lowering available. It IS an approximation: the 64-bit mantissa
-/// and extended exponent range are lost, and an 80-bit store now writes 8
-/// bytes instead of 10 (a later FLD m80 of that slot reads 2 stale bytes).
-/// Both are strictly better than a stub that returns 0.
-///
-/// Only forms that stay type-consistent under a uniform token swap are
-/// rewritten; anything else returns `None`, leaving the IR untouched so the
-/// crash-stub path and the startup audit's F2 finding still fire loudly.
 /// Re-encode LLVM `0xK…` (x87 extended) float literals as f64 bit patterns.
 /// Zero maps to zero; normals re-bias 16383 -> 1023 and drop the explicit
 /// integer bit. Anything malformed is left alone so the caller's own guards
@@ -11455,6 +11305,16 @@ fn rewrite_fp80_literals(ir: &str) -> String {
     out
 }
 
+/// Demote x87 80-bit floats to `double` in lifted IR.
+///
+/// wasm has no 80-bit float type, and an `x86_fp80` load/store reaching the
+/// LLVM wasm backend is a hard llc assert that would cost the whole function
+/// a Leaf stub. `double` is the closest faithful lowering; the extended
+/// mantissa/exponent are lost and an 80-bit store writes 8 bytes, both
+/// strictly better than a stub returning 0. Only forms that stay
+/// type-consistent under a uniform token swap are rewritten; anything else
+/// returns `None` so the crash-stub path and the audit's F2 finding still
+/// fire loudly.
 fn demote_x86_fp80(ir: &str) -> Option<String> {
     if !ir.contains("x86_fp80") {
         return None;
@@ -11485,6 +11345,15 @@ fn demote_x86_fp80(ir: &str) -> Option<String> {
     Some(out.replace("x86_fp80", "double").replace(".f80", ".f64"))
 }
 
+/// Post-lift IR rewriter: every `@sub_<hex>[.N]` token becomes
+/// `@sub_<canonical_addr_hex>` via the SymbolTable chain map. This one pass
+/// dissolves four problems at once: remill's `.N` per-call-site duplicates
+/// (wasm-ld now dedupes naturally), PLT-stub vs real-address name mismatches
+/// (no bridging thunks needed), bare-`b imm26` tail-call shims (chain map
+/// entries from `detect_arm64_tail_shims`), and per-callsite
+/// `lift_addr` arithmetic (all downstream helpers operate in
+/// canonical-address space). Tokens without a hex body after `sub_` are
+/// left intact.
 fn rewrite_sub_names_to_canonical(
     ir: &str,
     table: &symbol_table::SymbolTable,

@@ -179,7 +179,7 @@ pub enum FnClass {
     /// THE SRET BUFFER, so the caller reads an uninitialised `Option<OsString>`
     /// off the guest stack: a garbage `Some(ptr,cap,len)`. The first consumer
     /// (`OsStr::to_str` → `core::str::from_utf8`) then walks a wild slice and
-    /// traps `memory access out of bounds`. Observed 2026-08-14 as the REAL
+    /// traps `memory access out of bounds`. Observed as the REAL
     /// solveLayoutReal OOB via `ScrollManager::new`'s `AZ_NATURAL_SCROLL`
     /// override. Helper IR gives it a body that writes `None` (`Option<OsString>`
     /// uses the null-pointer niche, so all-zero IS `None`) — semantically the
@@ -195,7 +195,7 @@ pub enum FnClass {
     /// As a plain `Leaf` its stub RETURNS 0, so `sub rsp, rax` becomes
     /// `sub rsp, 0` and **the frame is never allocated**: the function's
     /// locals then overlap every callee's frame, and each call scribbles
-    /// over them. Observed 2026-08-14 as the real `solveLayoutReal` OOB —
+    /// over them. Observed as the real `solveLayoutReal` OOB —
     /// its `StyledDom` local (0x200(%rsp), frame 0x3698) read back as
     /// ASCII fragments of font/CSS strings left by `with_memory_fonts` /
     /// `LayoutWindow::new`, and the FNV loop over `prev_font_hashes` then
@@ -293,7 +293,7 @@ pub struct SymbolEntry {
     /// image `bl`/`adrp` lifts at `--address=synthetic_addr` produce
     /// correct cross-call / cross-page targets without IR rewriting).
     ///
-    /// **Why it exists (M9-review fix, 2026-05-18)**: passing the
+    /// **Why it exists (M9-review fix)**: passing the
     /// post-ASLR runtime `canonical_addr` to `remill-lift --address=…`
     /// bakes that high value as the PC for every lifted instruction.
     /// ARM64 `adrp x<n>, …` lifts to `(PC & ~0xFFF) | (imm << 12)`,
@@ -730,7 +730,7 @@ impl SymbolTable {
         Ok(table)
     }
 
-    /// M9-review (2026-05-18): walk every loaded image, group
+    /// M9-review : walk every loaded image, group
     /// `SymbolEntry`s by their `canonical_addr`'s containing image,
     /// assign each image a unique `synth_base` in monotonically
     /// increasing order, then fill in `entry.synthetic_addr` =
@@ -802,7 +802,7 @@ impl SymbolTable {
         // The first image must start ABOVE the runtime's fixed low region:
         // the bump cursor (0x40020), its size/count slots, the dispatcher
         // and missing-block recorders (0x400FC/0x40158/0x40160/0x40900),
-        // NeverLift + probe markers (0x40048, 0x40910+) and the C stack all
+        // the NeverLift recorder (0x40048) and the C stack all
         // live at hardcoded addresses below 1 MiB. A base of 64 KiB put the
         // FIRST image's mirrored data straight over them: for a
         // statically-linked host exe (~18 MiB span starting at 0x10000) the
@@ -1080,7 +1080,7 @@ impl SymbolTable {
         false
     }
 
-    /// [WEB-LIFT 2026-06-11] TLV geometry of every loaded image that has
+    /// [WEB-LIFT] TLV geometry of every loaded image that has
     /// thread-locals (see [`TlvRegion`]). Live addresses.
     pub fn tlv_regions(&self) -> &[TlvRegion] {
         &self.tlv_regions
@@ -1872,7 +1872,7 @@ fn ingest_macho(
             }
         };
         let mut classification = classify_for_name(&canonical_name, api);
-        // WEB-LIFT FIX (2026-06-03): SP-restoring machine-outliner epilogues
+        // WEB-LIFT FIX : SP-restoring machine-outliner epilogues
         // (`add sp,sp,#N; ret` or `ldp ...,[sp],#N; ret`) are tail-jumped via INDIRECT `br Xn`
         // in the allsorts shaping path. classify_for_name marks the tiny ones Leaf → they lift as
         // a STUB that returns WITHOUT the `add sp` → SP never restored → downstream `unreachable`
@@ -2445,7 +2445,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // Windows x64 stack probe (compendium A2): MSVC emits a `__chkstk` /
     // `_alloca_probe` call in the prologue of every fn with a frame > 4 KiB.
     //
-    // 2026-08-14: this used to `return FnClass::Leaf` here, on the reasoning
+    // this used to `return FnClass::Leaf` here, on the reasoning
     // that "the probe does NOT adjust RSP, and wasm needs no guard probing, so
     // a no-op Leaf IS 'SP as if the probe ran'". That is HALF RIGHT AND FATAL:
     // the probe doesn't move RSP, but it DOES return RAX unchanged, and the
@@ -2583,30 +2583,14 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // gradients, borders, tables, images, …) — a large lift-surface +
     // lift-time reduction.
     //
-    // Historical note: this rule was `name.contains("display_list")`, which is
-    // FOUR distinct bugs in one substring:
-    //   1. `set_skip_display_list` — the SETTER of the very gate that makes
-    //      this cut sound — matched and was stubbed, so the gate byte
-    //      (0x…e84290) was never written, `layout_document` "correctly"
-    //      called the stubbed `generate_display_list`, and its unwritten
-    //      sret was consumed as a DisplayList (stale hasher seeds became
-    //      vec lens → `alloc::raw_vec` capacity_overflow panic). This was
-    //      also the true cause of the "static store/load is unreliable in
-    //      the lifted wasm" lore (window.rs `skip_gpu_sync`) — the store
-    //      never EXECUTED; the mechanism was fine.
-    //   2. `alloc::vec` clone/drop and `alloc::raw_vec::grow_one`
-    //      instantiations on `DisplayListItem` — std generics matched via
-    //      their type PARAMETER and were stubbed (clone leaves its sret
-    //      unwritten → garbage vec headers on a LIVE path).
-    //   3. `core::slice::sort::*` instantiations on
-    //      `(DomId, Arc<DisplayList>)` — used by headless `render_frame`'s
-    //      results-map sort, reachable regardless of the skip flag.
-    //   4. Only luck (empty vecs, 1-element sorts) kept 2/3 from trapping.
-    // Cut ONLY the module path `display_list::` (the `::` excludes
-    // `set_skip_display_list`), and exempt std/alloc/core generics that
-    // merely mention display-list TYPES as parameters. Trait impls on
-    // display-list types (`<azul_layout::…::display_list::T as …>::…`)
-    // still match and stay cut — they are painter surface.
+    // The match must stay a MODULE-PATH cut (`display_list::`), never a bare
+    // substring: a substring match once stubbed `set_skip_display_list` (the
+    // setter of the very gate that makes this cut sound) and std/alloc/core
+    // generics that merely mention display-list TYPES as parameters
+    // (`Vec<DisplayListItem>` clone/drop, slice sorts on
+    // `(DomId, Arc<DisplayList>)`) — all of which run on LIVE paths and
+    // trapped or corrupted memory when stubbed. Trait impls on display-list
+    // types still match and stay cut — they are painter surface.
     {
         let is_std_generic = name.starts_with("alloc::")
             || name.starts_with("core::")
@@ -2829,7 +2813,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         {
                             return FnClass::NeverLift;
                         }
-                        // MECH-B ROOT-CAUSE FIX (2026-06-12): `alloc` + `core` default to
+                        // MECH-B ROOT-CAUSE FIX : `alloc` + `core` default to
                         // RECURSABLE, not Leaf. Both are no-syscall crates by construction
                         // (no_std): their only external edges are the allocator shims
                         // (matched to BumpAlloc/BumpRealloc/BumpDealloc by name above) and
@@ -2858,7 +2842,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         if crate_name == "alloc" || crate_name == "core" {
                             return FnClass::Recursable;
                         }
-                        // COLLECT-CHAIN ROOT-CAUSE (2026-06-10): `Vec::from_iter`/`collect()` lowers
+                        // COLLECT-CHAIN ROOT-CAUSE : `Vec::from_iter`/`collect()` lowers
                         // to `alloc::vec::spec_from_iter*::from_iter`, `alloc::vec::in_place_collect::
                         // from_iter_in_place`, and `spec_extend`/`extend_trusted`/`extend_desugared` —
                         // ALL real-work Vec builders that the runtime-crates filter stubbed to Leaf.
@@ -2893,7 +2877,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                             // the node-free + advance logic.
                             return FnClass::Recursable;
                         }
-                        // CSS-apply ROOT-CAUSE (2026-06-01): Vec::resize and the slice
+                        // CSS-apply ROOT-CAUSE : Vec::resize and the slice
                         // sorts do REAL WORK but defaulted to a no-op Leaf stub — same
                         // class as raw_vec/btree above. `Vec::resize` fills/grows per-node
                         // prop Vecs in the cascade (computed_values @prop_cache.rs:5135,
@@ -2909,7 +2893,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                             || (crate_name == "core"
                                 && name.contains("5slice")
                                 && name.contains("4sort"))
-                            // CSS-apply ROOT-CAUSE (2026-06-01, cont.): `core::slice::binary_search*`
+                            // CSS-apply ROOT-CAUSE (cont.): `core::slice::binary_search*`
                             // does REAL WORK (it compares + halves to find an index) but defaulted to a
                             // no-op Leaf stub returning X0=0 = `Ok(0)`. The layout font-size resolver
                             // `resolve_font_size_slow` (getters.rs:233) does
@@ -2926,7 +2910,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         {
                             return FnClass::Recursable;
                         }
-                        // WEB-LIFT TEXT ROOT-CAUSE (2026-06-03): UTF-8 conversion/validation
+                        // WEB-LIFT TEXT ROOT-CAUSE : UTF-8 conversion/validation
                         // (`String::from_utf8_lossy`, `str::from_utf8`, `run_utf8_validation`,
                         // `from_utf8_unchecked`) do REAL WORK but defaulted to a no-op Leaf stub
                         // returning garbage. `AzString::copy_from_bytes` (the C-API string ctor,
@@ -2985,37 +2969,14 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         // lifts to an `unreachable` trap, breaking the cascade (hydrate).
                         return FnClass::Leaf;
                     }
-                    // WEB FONT BOUNDARY (2026-06-01): the web backend NEVER
-                    // parses or shapes fonts in-wasm. Fonts are fetched from
-                    // the browser as resources (the PART 2 RequestResources
-                    // design) and the `FcFontCache` is built natively,
-                    // server-side, then handed to the lifted layout callback.
-                    // `allsorts_azul` (glyph outlines, cmap, GSUB/GPOS shaping,
-                    // woff2 / variable-font table parsing) is therefore DEAD in
-                    // the lifted callback: for a box layout with no text,
-                    // `font_hash_to_families` is empty, so
-                    // `collect_and_resolve_font_chains_with_registration`
-                    // resolves zero chains and never enters allsorts. Lifting it
-                    // anyway dragged 627 transitive deps into the module (1680
-                    // total → bloat + slow lift) AND its large table-parsing
-                    // match/jump-table functions are a runtime-trap surface that
-                    // poisons the whole wasm. Treat the entire font parser as a
-                    // lift boundary (Leaf no-op stub). NOTE: CSS font-SIZE math
-                    // (em/rem/% → px, `compute_all_font_sizes_px`) lives in
-                    // `azul_core`, NOT allsorts, so layout geometry is unaffected.
-                    // PART 2 will swap these stubs for a resource-request emitter.
-                    // 2026-06-02: REMOVED the allsorts Leaf boundary so TEXT can be
-                    // shaped/measured in-wasm (hello-world's label/counter measured to
-                    // height 0 because allsorts was stubbed → no glyphs/metrics). The
-                    // original concern was that allsorts' large table-parsing jump-table
-                    // fns are a runtime-trap surface — but this session's static jump-table
-                    // devirt (azul_remill.cpp exact-decode + extra_data) now resolves those
-                    // jump tables, so lifting allsorts should no longer poison the wasm.
-                    // Cost: ~+627 transitive deps (bigger/slower lift). Re-add the boundary
-                    // (return Leaf) if allsorts traps return.
-                    // if crate_name == "allsorts_azul" {
-                    //     return FnClass::Leaf;
-                    // }
+                    // `allsorts_azul` (glyph outlines, cmap, shaping, font
+                    // table parsing) lifts as Recursable so text can be
+                    // shaped/measured in-wasm. It was once a Leaf boundary —
+                    // its big table-parsing jump tables were a trap surface —
+                    // but the lifter's exact jump-table devirt resolves those
+                    // now. Cost is ~600 extra transitive deps; re-add a
+                    // `crate_name == "allsorts_azul" => Leaf` cut only if
+                    // allsorts traps return.
                     // Our own crates + 3rd party crates we want to lift
                     // into (azul_*, webrender_*, serde_*) → Recursable.
                     return FnClass::Recursable;
@@ -3154,7 +3115,7 @@ pub(crate) fn collect_macho_low32_sections(
     out
 }
 
-/// [WEB-LIFT FIX 2026-06-11] macOS thread-local geometry of one image:
+/// [WEB-LIFT FIX] macOS thread-local geometry of one image:
 /// `__DATA.__thread_vars` (the 24-byte `{thunk, key, offset}` descriptor
 /// array) + `__DATA.__thread_data` (the TLS initial image; descriptor
 /// offsets are relative to its start, with `__thread_bss` contiguous
@@ -3237,7 +3198,7 @@ fn collect_macho_tlv_regions(
     }
 }
 
-/// [WEB-LIFT FIX 2026-06-06] Find hashbrown's `EMPTY_GROUP` static(s) in the
+/// [WEB-LIFT FIX] Find hashbrown's `EMPTY_GROUP` static(s) in the
 /// loaded `libazul` image, returned as NATIVE `(addr, len)` ranges to mirror.
 ///
 /// hashbrown encodes an EMPTY control byte as `0xFF`; an empty `RawTable`'s
@@ -3511,7 +3472,7 @@ mod tests {
             FnClass::NeverLift
         );
         // MECH-B regression: out-of-line alloc/core monomorphizations are
-        // real compute and must be lifted, never no-op stubbed (2026-06-12).
+        // real compute and must be lifted, never no-op stubbed .
         assert_eq!(
             classify_for_name(
                 "_ZN5alloc3str17join_generic_copy17h9c9d2f7abfe94f50E",

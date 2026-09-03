@@ -6,7 +6,7 @@
 //! event loop. See `scripts/M8_ARCHITECTURE_2026_05_19.md` and the
 //! M8.4b reset captured in `memory/m8_4_lift_runtime_gap_2026_05_16.md`.
 //!
-//! # Model (M8.4b reset, per user correction 2026-05-16)
+//! # Model (M8.4b reset, per user correction)
 //!
 //! `AzStartup_init` creates the global App in WASM (RefAny +
 //! current StyledDom + layout-callback fn-ptr). Native equivalent:
@@ -58,7 +58,7 @@ use azul_core::styled_dom::StyledDom;
 use azul_css::AzString;
 use azul_css::css::Css;
 
-/// WEB-LIFT FIX (2026-06-02): the embedded fallback font, exposed at MODULE level so the
+/// WEB-LIFT FIX : the embedded fallback font, exposed at MODULE level so the
 /// transpiler can force-mirror its FULL byte range into the wasm. The lift otherwise only
 /// mirrors statically-accessed pages (`collect_synth_data_pages`), and this 226 KiB const is
 /// read by DYNAMIC index — so only its ~first 28 bytes get mirrored and every table read past
@@ -77,7 +77,7 @@ pub(crate) fn az_web_fallback_font_native() -> (usize, usize) {
     )
 }
 
-// WEB-FONT-VIA-JS (2026-06-02): the embedded font const can't be reliably mirrored into the
+// WEB-FONT-VIA-JS : the embedded font const can't be reliably mirrored into the
 // lifted wasm — it's read by dynamic index so only its header lands, and force-mirroring it
 // lands at a synth base that differs from where the lifted code reads (a deep lift-internals
 // mismatch). The robust fix (how a real web app loads fonts): the JS harness allocates a wasm
@@ -135,7 +135,7 @@ pub mod event_kind {
     pub const FOCUSOUT:   u32 = 9;
     pub const RESIZE:     u32 = 10;
     pub const SCROLL:     u32 = 11;
-    // S1 (2026-06-11) — non-bubbling pointer events routed by DOM target,
+    // S1 — non-bubbling pointer events routed by DOM target,
     // plus right-click. Mirrors azul HoverEventFilter::MouseEnter /
     // MouseLeave / RightMouseUp.
     pub const MOUSEENTER:  u32 = 12;
@@ -216,7 +216,7 @@ pub struct EventloopState {
     /// `3` (the `data-az-cb="3"` value). Real bbox-based hit-test
     /// arrives with M9-3b's LayoutWindow embed.
     pub last_registered_cb_node_idx: u32,
-    /// 2026-06-10 (per-EventFilter dispatch): event KIND each cb node is
+    /// (per-EventFilter dispatch): event KIND each cb node is
     /// registered for, indexed by node_idx (the loader derives the kind from
     /// the emitted `data-az-ev` attribute via AzStartup_registerCbNodeKind).
     /// 0xFF = no registration → dispatchEvent keeps the legacy
@@ -305,7 +305,7 @@ pub struct EventloopState {
     /// this to invoke the cb on layout + scroll-edge events.
     pub virtual_view_provider_table_idx: u32,
 
-    // S1 input-event fields (2026-06-11) ──────────────────────────
+    // S1 input-event fields ──────────────────────────
 
     /// node_idx of the currently focused node (`u32::MAX` = none).
     /// Updated by FOCUSIN/FOCUSOUT dispatches; KEYDOWN/KEYUP route
@@ -502,30 +502,6 @@ pub unsafe extern "C" fn AzStartup_init(_json_ptr: u32, _json_len: u32) -> u32 {
 /// constructible — this is that address.
 extern "C" fn hydrate_noop_destructor(_ptr: *mut c_void) {}
 
-/// Build a wasm-side `RefAny` from a raw type_id + data buffer.
-///
-/// Called by loader.js at bootstrap (after `AzStartup_init`):
-///   1. JS allocates `data_size` bytes via [`AzStartup_alloc`].
-///   2. JS writes the user's data bytes (e.g. the `MyDataModel`
-///      counter int) into that buffer.
-///   3. JS calls `AzStartup_hydrate(type_id_lo, type_id_hi, data_ptr,
-///      data_size)` and gets back a wasm offset pointing to a fully
-///      constructed `AzRefAny` (sharing_info → RefCountInner →
-///      user data).
-///
-/// All allocations route through `__rust_alloc` (the M8.4c bump
-/// allocator), so the returned pointer is a valid wasm32 offset and
-/// every deref the lifted callback does lands in linear memory at
-/// AArch64-layout positions (Box::new writes the struct using the
-/// real Rust types, so the field offsets automatically match what
-/// the lifted body expects).
-///
-/// `run_destructor` is `false` because the wasm instance never tears
-/// down the hydrated RefAny — there's nothing to drop.
-///
-/// type_id is split into two u32 halves so JS doesn't have to BigInt
-/// the arg (and the lift wrapper doesn't need a 64-bit param slot,
-/// which the current `Pcs::Wreg`-only sig table can't represent).
 /// Rebuild the app state from its JSON reflection instead of a raw byte
 /// image, for models whose bytes are meaningless in the guest.
 ///
@@ -555,40 +531,36 @@ pub unsafe extern "C" fn AzStartup_hydrateJson(
     if state == 0 || json_ptr == 0 || json_len == 0 {
         return 0;
     }
-    // [AZ-DIAG REVERT] step markers at 0x40980 — a trap anywhere in this
-    // chain otherwise only says "unreachable" somewhere under hydrateJson.
-    // 1 entered, 2 deserializer registered, 3 JSON parsed, 4 about to call
-    // the app fn, 5 it returned Ok, 6 RefAny stored.
-    let mark = |v: u32| core::ptr::write_volatile(0x40980 as *mut u32, v);
-    mark(1);
     let s = &mut *(state as usize as *mut EventloopState);
     let deser_fn = s.state_deserializer as usize;
     if deser_fn == 0 {
         return 0;
     }
-    mark(2);
     let text = core::slice::from_raw_parts(json_ptr as usize as *const u8, json_len as usize);
     let json = match azul_core::json::Json::parse_bytes(text) {
         Ok(j) => j,
         Err(_) => return 0,
     };
-    mark(3);
-    mark(4);
     let refany = match azul_layout::json::json_deserialize_to_refany(json, deser_fn) {
         azul_layout::json::ResultRefAnyString::Ok(r) => r,
-        azul_layout::json::ResultRefAnyString::Err(_) => {
-            mark(0xE0);
-            return 0;
-        }
+        azul_layout::json::ResultRefAnyString::Err(_) => return 0,
     };
-    mark(5);
     let boxed = Box::new(refany);
     let ptr = Box::into_raw(boxed) as usize as u32;
     s.refany_ptr = ptr;
-    mark(6);
     ptr
 }
 
+/// Build a wasm-side `RefAny` from a raw type_id + data buffer.
+///
+/// Called by loader.js at bootstrap (after `AzStartup_init`): JS allocates
+/// `data_size` bytes via [`AzStartup_alloc`], writes the model's bytes, and
+/// gets back the wasm offset of a fully constructed `AzRefAny`. All
+/// allocations route through the bump allocator, so every deref the lifted
+/// callback does lands in linear memory at native-layout positions.
+/// `run_destructor` is `false`: the wasm instance never tears the hydrated
+/// RefAny down. `type_id` is split into two u32 halves so JS avoids BigInt
+/// args (and the lift wrapper needs no 64-bit param slot).
 #[no_mangle]
 pub unsafe extern "C" fn AzStartup_hydrate(
     type_id_lo: u32,
@@ -894,7 +866,7 @@ pub unsafe extern "C" fn AzStartup_registerCbNode(state: u32, node_idx: u32) {
     s.cb_fn_cache.insert(node_idx, node_idx as u64);
 }
 
-/// 2026-06-10 (per-EventFilter dispatch): like [`AzStartup_registerCbNode`]
+/// (per-EventFilter dispatch): like [`AzStartup_registerCbNode`]
 /// but also records the EVENT KIND (the loader's EVT_* int, derived from the
 /// `data-az-ev` attribute that mirrors the callback's registered EventFilter).
 /// [`AzStartup_dispatchEvent`] only invokes the hit node's callback when the
@@ -997,7 +969,7 @@ pub unsafe extern "C" fn AzStartup_hitTest(
             return i;
         }
     }
-    // 2026-06-10: NO rect matched → return MAX (genuine miss). The old
+    // NO rect matched → return MAX (genuine miss). The old
     // `last_registered_cb_node_idx` fallback made EVERY click in empty space
     // dispatch to the most-recently-registered callback (the button) — i.e.
     // "click anywhere increments the counter". A real bbox miss must be a miss;
@@ -1079,14 +1051,6 @@ unsafe fn count_az_dom_nodes(root: *const u8) -> u32 {
         // of stack first, but be defensive.
         count = count.saturating_add(1);
 
-        // WEB-LIFT PROBE (REVERT): the cb's Dom node_type discs BEFORE cascade.
-        // node_type is at offset 0 of Dom (root NodeData first). 0x406E4 = root(body)
-        // disc, 0x406E8 = first child(text) disc. If child disc=177 here → createText
-        // wrote it OK → the drop is in the CASCADE; if 0 → AzDom_createText dropped it.
-        if count == 1 {
-            core::ptr::write_volatile(0x406E4 as *mut u32, core::ptr::read(node) as u32);
-        }
-
         // DomVec is `#[repr(C)]`: { ptr, len, cap, destructor }.
         // We only need ptr@0 and len@8. The destructor enum past
         // offset 16 we ignore.
@@ -1094,9 +1058,6 @@ unsafe fn count_az_dom_nodes(root: *const u8) -> u32 {
         let child_ptr_raw =
             core::ptr::read_unaligned(dvec as *const usize) as *const u8;
         let child_len = core::ptr::read_unaligned(dvec.add(8) as *const usize);
-        if count == 1 && !child_ptr_raw.is_null() && child_len > 0 {
-            core::ptr::write_volatile(0x406E8 as *mut u32, core::ptr::read(child_ptr_raw) as u32);
-        }
         if child_ptr_raw.is_null() || child_len == 0 {
             continue;
         }
@@ -1170,96 +1131,11 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     // here; we reinterpret the bytes via the host's #[repr(C)]
     // layout, which matches the AArch64 ABI the lift simulated.
     let dom_ref: &mut Dom = &mut *(s.current_dom_ptr as usize as *mut Dom);
-    // Run the cascade. Same fn the desktop App.run uses; its
-    // transitive deps lift via S1.A's transitive pipeline. With
-    // an empty Css, the selector-matching pass is a no-op; UA
-    // CSS + inheritance still run so widget defaults
-    // (font-size, padding) apply.
-    // Run the cascade. Same fn the desktop App.run uses; its
-    // transitive deps lift via S1.A's transitive pipeline. With
-    // an empty Css, the selector-matching pass is a no-op; UA
-    // CSS + inheritance still run so widget defaults
-    // (font-size, padding) apply.
-    //
-    // **Known limitation (see memory note
-    // m11-complex-struct-box-new-lift)**: the returned StyledDom's
-    // internal Vec fields (node_data, node_hierarchy, ...) are
-    // currently zero-init when read back through the boxed pointer.
-    // Box::new for complex by-value structs doesn't fully lift the
-    // value's bytes. The pointer + heap allocation are valid; only
-    // the in-place initialization of internal Vecs is dropped on
-    // the floor. Sprint 2 / 3 will address by either (a) tracing
-    // the lifted IR to find the broken helper, or (b) constructing
-    // a minimal StyledDom-equivalent via field-by-field writes.
-    // M12.8 fix: remill fork now has STP_Q PRE/POST in addition to
-    // OFF, plus FCVTZS_64S and the Lift use-after-free fix. The
-    // missing PRE/POST variants were silently dropping Q-reg pair
-    // stores used by Rust struct constructors to write fields
-    // through X8 (sret). Without those writes, struct fields read
-    // back uninitialised — surfacing as the OOB trap at
-    // wrap_i64(loaded_field) + 56.
-    // Pre-set hydrated marker + node count so JS observes them even
-    // if a downstream cascade helper traps silently and unwinds back
-    // to the wasm caller without throwing. (We've burned many cron
-    // iterations on a phantom "hydrate returned 0 but hydrated=0"
-    // symptom — by pre-setting the marker, the next iter can verify
-    // whether the cascade DOES reach the post-cascade assignments.)
-    // Multi-stage diagnostic probes — captured in EventloopState
-    // slots that JS can read back via getters.
-    //
-    //   marker1 (last_layout_status):     pre-cascade probe value
-    //   marker2 (display_text_node_idx):  cascade-arg byte 0..3
-    //   marker3 (auto_virtualize_threshold): cascade-arg byte 4..7
-    //   marker4 (positioned_rects_len):   post-cascade probe value
-    //   marker5 (positioned_rects_ptr):   final Box::into_raw(boxed)
-    //
-    // If marker4 reads back the post-cascade probe value, we know
-    // execution reached past the cascade. If marker5 reads back the
-    // boxed pointer, the StyledDom box was allocated. If either
-    // stays 0, we know the failure stage.
-
     s.current_dom_node_count = count;
     s.current_dom_hydrated = 1;
 
-    // M12 milestone: remill SIGKILL on recursive bl was the
-    // blocking lifting bug — without it, mini.wasm fell to an
-    // 8-byte fallback and any cascade post-call code was dead.
-    // The Rust-side `rewrite_recursive_bl` byte rewriter neutralizes
-    // bl-targets-inside-buffer before TraceLifter unbounded-grows.
-    //
-    // With that closed, `StyledDom::create(dom_ref, Css::empty())`
-    // actually runs and returns a value. Capture the heap pointer
-    // so JS can observe + read the internal Vec lengths.
-    //
-    // DIAG (2026-06-02, REVERT): localize the AzButton extra-box cascade OOB to BUILD
-    // (lifted cb) vs CONVERSION vs RESTYLE. Safe here — the native server renders via
-    // render_initial_page→create_from_dom, NEVER this wrapper (same reason eventloop's
-    // 0x40578 markers don't crash the server's native pre-render).
-    //   0x40620 = 0x4042_0000 | body.children.len           (probe reached)
-    //   0x40624 = body.root.style.rules().count
-    //   0x40628 = 0xBEEF_0000 (pre-read) → 0x4200_00rr after (rr = button.style rules → build OK)
-    //   0x4062C = button.children.len
-    //   0x40634 = 0xC0DE_0000 (pre) → converted node_data.len after (clone+convert survived)
-    //   0x40630 = converted node_data[1].style rules
-    unsafe {
-        let bc = dom_ref.children.as_ref().len() as u32;
-        core::ptr::write_volatile(0x40620 as *mut u32, 0x4042_0000u32 | (bc & 0xFFFF));
-        core::ptr::write_volatile(0x40624 as *mut u32, dom_ref.root.style.rules().count() as u32);
-        if bc > 0 {
-            core::ptr::write_volatile(0x40628 as *mut u32, 0xBEEF_0000u32);
-            let button = &dom_ref.children.as_ref()[0];
-            let br = button.root.style.rules().count() as u32;
-            core::ptr::write_volatile(0x40628 as *mut u32, 0x4200_0000u32 | (br & 0xFFFF));
-            core::ptr::write_volatile(0x4062C as *mut u32, button.children.as_ref().len() as u32);
-        }
-        // REMOVED the convert_dom_into_compact_dom(dom_ref.clone()) probe: its fragile Dom
-        // deep-clone traps. The JS harness does its own Dom walk (getCurrentDomPtr) so this
-        // diagnostic is not needed. hydrate is now the minimal path: just StyledDom::create.
-        core::ptr::write_volatile(0x40634 as *mut u32, 0xC0DE_0000u32);
-    }
-
     // Run the cascade on the layout-cb's real Dom (`dom_ref`, the AzDom
-    // the lifted layout fn deposited via X8 hidden-return). Same
+    // the lifted layout fn deposited via the hidden sret return). Same
     // `StyledDom::create` the desktop App.run uses; with an empty Css the
     // selector pass is a no-op, but UA CSS + inheritance still run so
     // widget defaults (font-size, padding) apply.
@@ -1577,44 +1453,6 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         return 3;
     }
 
-    // DEBUG (2026-06-02 CSS→taffy): is the compact cache populated with the
-    // inline-string CSS that taffy's fast-path reads? Dump width/height/display
-    // per node @0x40580+i*16 (0x40578 = present/none flag). REVERT before commit.
-    // eventloop.rs fixed-addr markers DO lift (unlike layout-crate ones).
-    unsafe {
-        match styled.css_property_cache.ptr.compact_cache.as_ref() {
-            Some(cc) => {
-                core::ptr::write_volatile(0x40578 as *mut u32, 0xCC5E_0000u32);
-                // [AZ-DIAG 2026-08-14 REVERT] layout_dom_recursive_impl OOBs in the
-                // FNV loop over `cc.prev_font_hashes` (window.rs ~1013). `cc` itself
-                // is valid here (get_width_raw below works), so dump the Vec's len +
-                // ptr to see WHICH half is garbage: a wild ptr vs a garbage-huge len
-                // are different bugs. tier2b_text is the slice it is collected from.
-                core::ptr::write_volatile(0x405F0 as *mut u32, cc.prev_font_hashes.len() as u32);
-                core::ptr::write_volatile(
-                    0x405F4 as *mut u32,
-                    cc.prev_font_hashes.as_ptr() as usize as u32,
-                );
-                core::ptr::write_volatile(0x405F8 as *mut u32, cc.tier2b_text.len() as u32);
-                core::ptr::write_volatile(0x405FC as *mut u32, node_count);
-                let n = if node_count < 5 { node_count as usize } else { 5usize };
-                for i in 0..n {
-                    let b = 0x40580 + i * 16;
-                    core::ptr::write_volatile(b as *mut u32, cc.get_width_raw(i));
-                    core::ptr::write_volatile((b + 4) as *mut u32, cc.get_height_raw(i));
-                    core::ptr::write_volatile(
-                        (b + 8) as *mut u32,
-                        0xD000_0000u32
-                            | (azul_css::compact_cache::layout_display_to_u8(cc.get_display(i)) as u32),
-                    );
-                }
-            }
-            None => {
-                core::ptr::write_volatile(0x40578 as *mut u32, 0xC000_ABEDu32);
-            }
-        }
-    }
-
     // Headless layout window. There is no filesystem in wasm, so the disk
     // font loaders (`PathLoader::load_from_path` → `std::fs::read`) all fail —
     // and the solver HARD-ERRORS `LayoutError::Text(FontNotFound)` even for a
@@ -1635,25 +1473,6 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // StyleFontFamily::System("serif") (azul_css DEFAULT_FONT_ID), which may
     // populate FcPattern.name OR .family. One string with all generics covers
     // serif/sans-serif/monospace on either field.
-    // DIAG (2026-06-02, REVERT): parse-check BEFORE with_memory_fonts (which traps at a
-    // jump-table MISSING_BLOCK) so it runs first — confirms the JS-provided font PARSES for
-    // metrics (the real goal), independent of the with_memory_fonts trap. Read by the gate's
-    // catch block. 0x40670=tag (600D0001 ok / 600DDEAD None), 74=upem, 78=ascender, 7C=descender.
-    {
-        let mut w2 = Vec::new();
-        match azul_layout::font::parsed::ParsedFont::from_bytes(az_web_fallback_font, 0, &mut w2) {
-            Some(pf) => unsafe {
-                core::ptr::write_volatile(0x40670 as *mut u32, 0x600D0001u32);
-                core::ptr::write_volatile(0x40674 as *mut u32, pf.pdf_font_metrics.units_per_em as u32);
-                core::ptr::write_volatile(0x40678 as *mut u32, pf.pdf_font_metrics.ascender as i32 as u32);
-                core::ptr::write_volatile(0x4067C as *mut u32, pf.pdf_font_metrics.descender as i32 as u32);
-            },
-            None => unsafe {
-                core::ptr::write_volatile(0x40670 as *mut u32, 0x600DDEADu32);
-                core::ptr::write_volatile(0x40674 as *mut u32, w2.len() as u32);
-            },
-        }
-    }
     // WEB-LIFT: register the embedded fallback. unicode_ranges MUST be non-empty —
     // `resolve_char` skips fonts whose metadata `unicode_ranges.is_empty()`, so full
     // coverage here makes the last-resort fallback resolve for any char. Build the
@@ -1676,33 +1495,10 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     let mut fc_fonts = Vec::new();
     fc_fonts.push((fc_pattern, fc_font));
     fc_cache.with_memory_fonts(fc_fonts);
-    // [AZ-DIAG 2026-08-14 REVERT] Bisect A: `styled` is intact at the top of this fn
-    // (0x405F4 = 0xa03d300) but ASCII garbage just before layout_dom_recursive, so a
-    // callee IN BETWEEN scribbles over this frame. Sample after with_memory_fonts.
-    unsafe {
-        let v = match styled.css_property_cache.ptr.compact_cache.as_ref() {
-            Some(cc) => cc.prev_font_hashes.as_ptr() as usize as u32,
-            None => 0xC000_ABEDu32,
-        };
-        core::ptr::write_volatile(0x40640 as *mut u32, v);
-    }
-    // (2026-08-14) Removed the 2026-06 wasm bring-up DIAG/PROBE scaffolding that lived
-    // here (all marked REVERT): HashMap/BTreeMap/SSE sanity, font-parse probe, ISOLATION,
-    // PROBE0-PROBE8, VERIFY-ROOT-CAUSE. They were minimal repros for bugs since fixed
-    // (fn-ptr/vtable discovery + native->synth ptr rewrite + the loader intrinsics), and
-    // the shipped solver must contain no diagnostic code.
     let mut lw = match LayoutWindow::new(fc_cache) {
         Ok(lw) => lw,
         Err(_) => return 4,
     };
-    // [AZ-DIAG 2026-08-14 REVERT] Bisect B: after LayoutWindow::new.
-    unsafe {
-        let v = match styled.css_property_cache.ptr.compact_cache.as_ref() {
-            Some(cc) => cc.prev_font_hashes.as_ptr() as usize as u32,
-            None => 0xC000_ABEDu32,
-        };
-        core::ptr::write_volatile(0x40644 as *mut u32, v);
-    }
     // Web/headless: skip the GPU transform/opacity sync in layout_dom_recursive
     // (display-list-only, no GPU here, and GpuValueCache::synchronize mis-lifts
     // to wasm → OOB). Heap field, not the SKIP_DISPLAY_LIST static (whose
@@ -1726,25 +1522,6 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // `layout_and_generate_display_list`, whose tail does virtual-view
     // scanning + scrollbar GPU registration we don't need on web).
     // Positions land in `layout_cache.calculated_positions`.
-    // [AZ-DIAG 2026-08-14 REVERT] Third sample point. The SAME Vec reads
-    // len=5/ptr=0xa03d300 at the top of this fn but ASCII garbage ("Scro"/"lled")
-    // inside layout_dom_recursive — which receives a POINTER to this very stack
-    // slot (no second copy: the call passes `lea 0x200(%rsp),%r8`). So either
-    // something overwrites this frame between the two points, or the callee
-    // mis-addresses it. Sampling here splits those cases.
-    unsafe {
-        match styled.css_property_cache.ptr.compact_cache.as_ref() {
-            Some(cc) => {
-                core::ptr::write_volatile(0x40630 as *mut u32, 1);
-                core::ptr::write_volatile(0x40634 as *mut u32, cc.prev_font_hashes.len() as u32);
-                core::ptr::write_volatile(
-                    0x40638 as *mut u32,
-                    cc.prev_font_hashes.as_ptr() as usize as u32,
-                );
-            }
-            None => core::ptr::write_volatile(0x40630 as *mut u32, 0xC000_ABEDu32),
-        }
-    }
     if let Err(_e) = lw.layout_dom_recursive(styled, &ws, &rr, &sc, &mut dbg) {
         // The layout error is EARLY (before block geometry — rects come back
         // all-zero when we fall through), so there's no partial geometry to
@@ -1774,10 +1551,9 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         // self.layout_results[dom] (get_node_layout_rect returned None → empty cache).
         // Use get_node_position + get_node_size, which read layout_results via the
         // dom_to_layout mapping (the correct, populated location).
-        // DEBUG (2026-06-01, sizing triage): decouple position-None from
-        // size-None so the gate can tell "node not in tree/results" (None →
-        // sentinel 0xFFFFFFFF) from "in tree but sized 0" (Some(0,0)). REVERT
-        // to the `(Some,Some) | _ => fill(0)` form once the sizing bug is fixed.
+        // Position/size are reported per-axis: a node absent from the layout
+        // results writes the 0xFFFFFFFF sentinel (the loader's SENTINEL_NO_NODE)
+        // so "not in tree" stays distinguishable from "in tree, sized 0".
         match lw.get_node_position(node_id) {
             Some(p) => {
                 lane[0] = p.x.max(0.0).round() as u32;
@@ -1999,177 +1775,6 @@ pub unsafe extern "C" fn AzStartup_buildPatch(
     total
 }
 
-/// **M12.7 debug** — peek a `u32` from wasm linear memory at `addr`
-/// (reads the diagnostic markers the layout solver writes via
-/// `core::ptr::write_volatile`, e.g. `0x400EC` get_node_size,
-/// address. Exported so the e2e gates can read markers directly.
-#[no_mangle]
-pub unsafe extern "C" fn AzStartup_peekU32(addr: u32) -> u32 {
-    if addr == 0 {
-        return 0;
-    }
-    core::ptr::read_volatile(addr as usize as *const u32)
-}
-
-/// **[AZ-DIAG REVERT]** Minimal in-wasm repro of allsorts' sfnt table-directory
-/// walk (`OffsetTableFontProvider::table_data`). Returns the `head` table's
-/// offset read straight out of the directory, `0xFFFF_FFFF` if the tag is not
-/// found, or `0xFFFF_FFF0` if the font is too short. Native azul returns the
-/// real offset; if the LIFTED build returns 0 we have reproduced — in our own
-/// code, independent of allsorts — the mis-lift that made `table_data(HEAD)`
-/// hand back a slice at the font BASE (diag `"BHO00000000"`), which is why
-/// `ParsedFont::from_bytes` returns None in wasm.
-#[no_mangle]
-pub unsafe extern "C" fn AzStartup_probeFontDir(sel: u32) -> u32 {
-    let fb = web_fallback_font_bytes();
-    if fb.len() < 200 {
-        return 0xFFFF_FFF0;
-    }
-    #[inline(never)]
-    fn be32(d: &[u8], o: usize) -> u32 {
-        (u32::from(d[o]) << 24) | (u32::from(d[o + 1]) << 16) | (u32::from(d[o + 2]) << 8)
-            | u32::from(d[o + 3])
-    }
-    // Manual 4-byte assembly that does NOT go through `be32` — isolates a bad
-    // call/tail-call/arg-setup from a bad load.
-    #[inline(never)]
-    fn raw32(d: &[u8], o: usize) -> u32 {
-        let a = d[o] as u32;
-        let b = d[o + 1] as u32;
-        let c = d[o + 2] as u32;
-        let e = d[o + 3] as u32;
-        (a << 24) | (b << 16) | (c << 8) | e
-    }
-    let num = ((fb[4] as usize) << 8) | (fb[5] as usize);
-    match sel {
-        0 => fb.as_ptr() as usize as u32,       // where does the guest think the font is?
-        1 => fb.len() as u32,                   // slice length survived?
-        2 => num as u32,                        // numTables (2 raw byte loads)
-        3 => {
-            // The LOOP: which record index matched 'head'? (0xFFFF_FFFF = none)
-            let mut i = 0usize;
-            while i < num {
-                let r = 12 + i * 16;
-                if r + 16 > fb.len() {
-                    break;
-                }
-                if be32(fb, r) == 0x6865_6164 {
-                    return r as u32;
-                }
-                i += 1;
-            }
-            0xFFFF_FFFF
-        }
-        4 => be32(fb, 124),   // CONSTANT offset: the 'head' tag itself
-        5 => be32(fb, 132),   // CONSTANT offset: the 'head' offset field (expect 0x16f9c)
-        6 => raw32(fb, 132),  // same bytes, WITHOUT be32 (no tail-call in the caller)
-        7 => fb[132] as u32,  // single byte load
-        8 => fb[135] as u32,  // single byte load (low byte of the offset)
-        _ => {
-            // Original behaviour: scan, then TAIL-CALL be32 for the offset field.
-            let mut i = 0usize;
-            while i < num {
-                let r = 12 + i * 16;
-                if r + 16 > fb.len() {
-                    break;
-                }
-                if be32(fb, r) == 0x6865_6164 {
-                    return be32(fb, r + 8);
-                }
-                i += 1;
-            }
-            0xFFFF_FFFF
-        }
-    }
-}
-
-/// **[AZ-DIAG REVERT]** Staged, NON-PANICKING decomposition of the failing
-/// `format!` path. `core::fmt::write` returns `Err` even for
-/// `format!("a{}", n)` (making `format_inner`'s `.expect` panic — the current
-/// solveLayoutReal trap via `calculate_layout_for_subtree`), with indirect
-/// dispatch measurably clean (unk=0, weak_noop=0). This isolates WHICH stage
-/// first goes wrong, using `Result` checks instead of panics so every marker
-/// survives:
-///   0x40910  stage 1: `String::write_str("a")` DIRECT method call
-///             (no dyn, no args)                       A1_0000|len / A1_DEAD
-///   0x40914  stage 2: `fmt::write(&mut s, format_args!("b"))` — pieces-only,
-///             exercises the `&mut dyn Write` vtable dispatch of write_str
-///                                                     A2_0000|len / A2_DEAD
-///   0x40918  stage 3: `fmt::write(&mut s, format_args!("{}", n))` — the
-///             failing shape: rt::Argument fn-ptr dispatch + u32 Display
-///             (`num::imp::_fmt` → `pad_integral`)     A3_0000|len / A3_DEAD
-///   0x4091C  stage 4: the original panicking `format!("a{}", n)` LAST
-///                                                     A4_0000|len
-/// A trap mid-stage leaves later slots 0. `len` in the low 16 bits is the
-/// cumulative String length — stage 3 should append the decimal digits of
-/// `seed` (seed=255 → +3).
-#[no_mangle]
-pub unsafe extern "C" fn AzStartup_probeFmt(seed: u32) -> u32 {
-    use core::fmt::Write as _;
-    // `seed` is a runtime value so nothing here can be const-folded away.
-    let n = seed;
-    let mark = |slot: u32, val: u32| unsafe {
-        core::ptr::write_volatile((0x40910 + slot * 4) as usize as *mut u32, val);
-    };
-    let mut s = alloc::string::String::new();
-
-    // v3 matrix (v2 result: 1 Ok, 2 Ok, {u32} ERR ⇒ vtable dispatch + AL
-    // plumbing + dyn write_str all fine at depth 1; the failure is inside the
-    // ARG chain). Stages 3-4 take the Formatter::pad path (char/str Display,
-    // depth-2 write_str WITHOUT pad_integral); 5-7 vary the pad_integral
-    // path by impl and width. Which subset errs names the broken layer:
-    //   3&4 Ok, 5-7 Err  → _fmt/pad_integral family
-    //   3&4 Err too      → depth-2 write_str / Formatter fat-ptr readback
-    //   only 7 Err       → u32-width-specific in _fmt
-    let r = s.write_str("a");
-    mark(0, if r.is_ok() { 0xA100_0000 | s.len() as u32 } else { 0xA1AA_DEAD });
-
-    let r = core::fmt::write(&mut s, format_args!("b"));
-    mark(1, if r.is_ok() { 0xA200_0000 | s.len() as u32 } else { 0xA2AA_DEAD });
-
-    let r = core::fmt::write(&mut s, format_args!("{}", 'x'));
-    mark(2, if r.is_ok() { 0xA300_0000 | s.len() as u32 } else { 0xA3AA_DEAD });
-
-    let r = core::fmt::write(&mut s, format_args!("{}", "zz"));
-    mark(3, if r.is_ok() { 0xA400_0000 | s.len() as u32 } else { 0xA4AA_DEAD });
-
-    let r = core::fmt::write(&mut s, format_args!("{}", (n & 0xFF) as u8));
-    mark(4, if r.is_ok() { 0xA500_0000 | s.len() as u32 } else { 0xA5AA_DEAD });
-
-    let r = core::fmt::write(&mut s, format_args!("{:x}", n));
-    mark(5, if r.is_ok() { 0xA600_0000 | s.len() as u32 } else { 0xA6AA_DEAD });
-
-    let r = core::fmt::write(&mut s, format_args!("{}", n));
-    mark(6, if r.is_ok() { 0xA700_0000 | s.len() as u32 } else { 0xA7AA_DEAD });
-
-    let a = alloc::format!("a{}", n);
-    mark(7, 0xA800_0000 | a.len() as u32);
-
-    // v4 additions: the solve still dies in calculate_layout_for_subtree's
-    // format! after v3 passed — its shapes are `{:.2}` (float PRECISION) and
-    // `{:?}` (derived enum Debug), which v3 never exercised. Cover each family.
-    let r = core::fmt::write(&mut s, format_args!("{}", (n as f32) + 0.5));
-    mark(8, if r.is_ok() { 0xA900_0000 | s.len() as u32 } else { 0xA9AA_DEAD });
-
-    let r = core::fmt::write(&mut s, format_args!("{:.2}", (n as f32) + 0.25));
-    mark(9, if r.is_ok() { 0xAA00_0000 | s.len() as u32 } else { 0xAAAA_DEAD });
-
-    let r = core::fmt::write(&mut s, format_args!("{:?}", Some(n as u8)));
-    mark(10, if r.is_ok() { 0xAB00_0000 | s.len() as u32 } else { 0xABAA_DEAD });
-
-    let r = core::fmt::write(&mut s, format_args!("{:>5}", n));
-    mark(11, if r.is_ok() { 0xAC00_0000 | s.len() as u32 } else { 0xACAA_DEAD });
-
-    // The exact composite shape from solver3/cache.rs's CONTENT BOX message.
-    let r = core::fmt::write(
-        &mut s,
-        format_args!("[{}] pos=({:.2}, {:.2})", n, (n as f32) * 0.5, (n as f32) * 0.25),
-    );
-    mark(12, if r.is_ok() { 0xAD00_0000 | s.len() as u32 } else { 0xADAA_DEAD });
-
-    (s.len() + a.len()) as u32
-}
-
 /// Re-run the layout callback against the current refany, writing
 /// the new AzDom blob into a fresh wasm-allocated buffer. The old
 /// buffer's wasm offset moves to `state.prev_dom_ptr`; the new
@@ -2309,7 +1914,7 @@ pub unsafe extern "C" fn AzStartup_dispatchEvent(
     let x_bits_ptr = (event_bytes_ptr as usize + event_offset::X as usize) as *const u32;
     let y_bits_ptr = (event_bytes_ptr as usize + event_offset::Y as usize) as *const u32;
 
-    // S1 (2026-06-11): RESIZE carries (w, h) in the x/y slots — record the
+    // S1 : RESIZE carries (w, h) in the x/y slots — record the
     // viewport so later slices can surface it through CallbackInfo. Window
     // kinds are never hit-tested.
     if _kind == event_kind::RESIZE {
@@ -2345,7 +1950,7 @@ pub unsafe extern "C" fn AzStartup_dispatchEvent(
 
     let mut update = 0u32;
     if node_idx != u32::MAX {
-        // Single-target path. Per-EventFilter kind check (2026-06-10):
+        // Single-target path. Per-EventFilter kind check :
         // a node registered for a specific kind only fires on that kind;
         // unregistered nodes (0xFF) keep legacy invoke-on-any-kind.
         let mut kind_ok = true;

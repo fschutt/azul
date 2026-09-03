@@ -120,7 +120,7 @@ pub fn render_initial_page(
     };
     #[cfg(not(feature = "web-transpiler"))]
     let hydrate_deser_fn = native_deser_fn as u64;
-    // S1 (2026-06-11) generic hydration: embed the model's exact byte image
+    // S1 generic hydration: embed the model's exact byte image
     // so the JS bootstrap can rebuild ANY plain-old-data model (the legacy
     // "json" int only covered hello-world's 4-byte counter — a larger model
     // got a 4-byte allocation and every field past offset 4 corrupted the
@@ -1030,7 +1030,7 @@ fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static s
             FocusEventFilter::VirtualKeyUp => "keyup",
             _ => "click",
         },
-        // S1 (2026-06-11): Window-filter callbacks previously fell through
+        // S1 : Window-filter callbacks previously fell through
         // to "click" — a resize cb registered as a click handler. Window
         // kinds dispatch by BROADCAST in AzStartup_dispatchEvent (no bbox
         // target), keyed off these names.

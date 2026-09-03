@@ -219,7 +219,7 @@ fn handle_connection(
             "application/javascript",
             loader_js.as_bytes(),
         ),
-        // 2026-06-10: the dylib's embedded fallback TTF, fetched by the loader and fed to
+        // the dylib's embedded fallback TTF, fetched by the loader and fed to
         // AzStartup_setFallbackFont so the wasm-side solver shapes text with REAL bytes
         // (the lifted const mirror only covers statically-accessed pages of the font).
         ("GET", "/az/fallback.ttf") => send_response_cached(

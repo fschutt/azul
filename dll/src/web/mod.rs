@@ -109,7 +109,7 @@ eventloop_symbols![
     AzStartup_pokeLastLayout,
     // M9-4: WASM-side hit-test (stub, returns last registered cb node).
     AzStartup_registerCbNode,
-    // 2026-06-10: per-EventFilter dispatch — registerCbNode + the event kind.
+    // per-EventFilter dispatch — registerCbNode + the event kind.
     AzStartup_registerCbNodeKind,
     AzStartup_hitTest,
     // M9-5: TLV patch emission.
@@ -130,10 +130,6 @@ eventloop_symbols![
     // M11 Sprint 1.C / Sprint 2: layout solver + positioned-rect
     // cache. AzStartup_hitTest now consumes the cache for real
     // bbox-walk dispatch.
-    // [AZ-DIAG REVERT] in-wasm repro probes (sfnt table-directory walk +
-    // formatter matrix) used to localise the remaining solveLayoutReal trap.
-    AzStartup_probeFontDir,
-    AzStartup_probeFmt,
     AzStartup_solveLayout,
     // M12.7: real layout solver (LayoutWindow::layout_and_generate_display_list
     // → taffy block/flex/grid). Same signature as solveLayout.
@@ -141,9 +137,6 @@ eventloop_symbols![
     AzStartup_isLayoutSolved,
     AzStartup_getPositionedRectsLen,
     AzStartup_getPositionedRectsPtr,
-    // M12.7 debug: peek a u32 from wasm linear memory (reads the diag
-    // markers the layout solver writes via write_volatile).
-    AzStartup_peekU32,
     // M11 Sprint 3: relayout + generalized patch builder for
     // SetText / SetAttr / SetInlineStyle / RemoveNode / InsertNode.
     // The JS decoder switches on kind.
@@ -1272,7 +1265,7 @@ pub fn run_web(
         shards_enabled(),
     );
 
-    // Phase D-cache (2026-06-10): turn the cb/layout wasm URL hashes into REAL
+    // Phase D-cache : turn the cb/layout wasm URL hashes into REAL
     // content hashes. The HTML is pre-rendered BEFORE the lifts, so the URLs are
     // emitted with `fnv1a64(name)` placeholders — which are CONSTANT across
     // builds. Served with `Cache-Control: immutable, max-age=1yr`, a browser

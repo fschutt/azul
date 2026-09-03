@@ -77,7 +77,7 @@ var EVT_FOCUSIN   = 8;
 var EVT_FOCUSOUT  = 9;
 var EVT_RESIZE    = 10;
 var EVT_SCROLL    = 11;
-// S1 (2026-06-11): non-bubbling target events + right-click.
+// S1 : non-bubbling target events + right-click.
 var EVT_MOUSEENTER  = 12;
 var EVT_MOUSELEAVE  = 13;
 var EVT_CONTEXTMENU = 14;
@@ -138,7 +138,7 @@ function azMulti3(sret, aLo, aHi, bLo, bHi) {
 // freshly-allocated memory stays garbage (e.g. a Vec::clone's memcpy'd dest,
 // hashbrown ctrl bytes, Box::new struct moves) → the consumer derefs garbage
 // → `memory access out of bounds` (the browser text-shaping/Css::from OOB,
-// root-caused 2026-06-23 — full-cycle.js worked ONLY because it supplied real
+// root-caused — full-cycle.js worked ONLY because it supplied real
 // impls). C ABI: all three return `dest`. `copyWithin` is overlap-safe, so it
 // is correct for memcpy AND memmove. A fresh Uint8Array per call avoids a
 // detached-buffer hazard after `memory.grow`.
@@ -169,7 +169,7 @@ function azUdivti3(sret, aLo, aHi, bLo, bHi) {
 //      returns the Memory TOKEN, not a value). Handing wasm a BigInt where i32 is
 //      declared throws `TypeError: Cannot convert a BigInt value to a number` at
 //      the JS→wasm boundary, which aborted azBootstrap before the click listeners
-//      were installed (found 2026-08-14 by wrapping imports over CDP).
+// were installed.
 // `mem` is remill's opaque Memory token: return it unchanged to keep the
 // memory-ordering chain intact. Addresses are guest = wasm linear offsets.
 // (full-cycle.js always supplied these to BOTH its mini and cb envs — which is
@@ -458,7 +458,7 @@ async function azBootstrap() {
     //      boundaries array).
     await azLoadBoundaryShards();
 
-    // 2./3. (2026-06-10 BOOTSTRAP-ORDER FIX) init + hydrate MOVED BELOW the cb/layout wasm
+    // 2./3. ( BOOTSTRAP-ORDER FIX) init + hydrate MOVED BELOW the cb/layout wasm
     //    instantiations. Every module instantiation re-runs its DATA SEGMENTS over the
     //    shared memory; the layout wasm carries the multi-MiB lifted-data mirror whose
     //    segments span the same band the bump heap allocates from (0x110000..~0x8664000 ∋
@@ -534,12 +534,12 @@ async function azBootstrap() {
         }
     }
 
-    // 4.6. (2026-06-10 BOOTSTRAP-ORDER FIX) Every wasm is instantiated — the shared
+    // 4.6. ( BOOTSTRAP-ORDER FIX) Every wasm is instantiated — the shared
     //      memory's data segments are final. NOW seed the bump heap (each module's
     //      segments can clobber @__az_bump_ptr's linear-memory copy), build the state,
     //      hydrate the RefAny/model, and only then run the layout pipeline.
     if (typeof azMini.AzStartup_resetBumpHeap === 'function') {
-        // [2026-06-11] 96 MiB → 160 MiB: libazul's synth band GREW past
+        // [] 96 MiB → 160 MiB: libazul's synth band GREW past
         // 96 MiB (the rebased dylib's __DATA tail — incl. the TLV
         // descriptor mirror at ~0x6043xxxx — now ends ~101 MiB), so a
         // 96 MiB bump base let allocations STOMP the mirrored data
@@ -601,7 +601,7 @@ async function azBootstrap() {
             // M11 Sprint 1: hydrate the wasm-side StyledDom + run the layout
             // solver. Failures log but don't abort — hit-test falls back to
             // the last registered cb node when the rects cache is empty.
-            // [RE-ENABLED 2026-06-24 — the func698 hydrate OOB is FIXED]
+            // [RE-ENABLED — the func698 hydrate OOB is FIXED]
             // The trap was NOT an internal-sret field drop. Root cause: the
             // recursive-bl forwarder (transpiler_remill.rs `is_recursive_marker`)
             // passed the incoming %pc straight through to the recursive fn. But
@@ -626,7 +626,7 @@ async function azBootstrap() {
                 // stated policy above) — the StyledDom cascade walks the AzDom
                 // the layout cb wrote via hidden-ptr/sret return, and the x86
                 // internal-sret lift leaves a garbage field that the recursive
-                // node walk derefs → OOB (the func698 trap, 2026-06-23). The
+                // node walk derefs → OOB (the func698 trap). The
                 // solver below was already guarded; the hydrate call was not, so
                 // its trap escaped uncaught and killed the page. Catch it: the
                 // click still works because azDispatch routes the button's
@@ -652,8 +652,7 @@ async function azBootstrap() {
                 if (hydrateRc === 0 && typeof solveFn === 'function') {
                     // A wasm trap here must not abort bootstrap (the stated
                     // policy above): listeners + the __azProbe diagnostics
-                    // hook below still need to install so the failure can be
-                    // probed (peekU32 markers) instead of leaving a dead page.
+                    // hook below still need to install.
                     try {
                         var solveRc = solveFn(azState, viewportW, viewportH);
                         var solved = (typeof azMini.AzStartup_isLayoutSolved === 'function')
@@ -753,7 +752,7 @@ function azHydrate() {
     var typeIdHi = Number((typeIdBigInt >> 32n) & 0xFFFFFFFFn);
     var counter = (typeof payload.json === 'number') ? payload.json : 0;
 
-    // S1 (2026-06-11) generic hydration: the server embeds the model's
+    // S1 generic hydration: the server embeds the model's
     // exact byte image ("size" + "bytes" hex). Allocate the REAL model
     // size and restore every byte — any plain-old-data model now
     // round-trips (the legacy path alloc'd 4 bytes and only restored
@@ -771,17 +770,6 @@ function azHydrate() {
     // the app registered a deserializer, the server ships its synth
     // address and the state travels as JSON instead.
     // See doc/web-json-hydrate-plan.md.
-    // [AZ-DIAG REVERT] read the wasm-side hydrateJson step markers (0x40980)
-    // so a trap inside the chain names its step instead of just "unreachable".
-    function azHydrateJsonMarkers() {
-        try {
-            var dv = new DataView(azMemory.buffer);
-            console.error('[azul-web] hydrateJson step=' + dv.getUint32(0x40980, true)
-                + '  [1 entered, 2 deser registered, 3 parsed, 4 calling app fn,'
-                + ' 5 app fn Ok, 6 stored, 0xE0 app fn Err]');
-            azUnmatchedDispatches();
-        } catch (e) { /* memory detached */ }
-    }
     var deserFn = (typeof payload.deserialize_fn === 'number') ? payload.deserialize_fn : 0;
     var usedJsonHydrate = false;
     if (deserFn !== 0 && payload.json !== null && typeof payload.json === 'object'
@@ -803,7 +791,7 @@ function azHydrate() {
                 // that is exactly the corruption this exists to avoid.
                 console.error('[azul-web] AzStartup_hydrateJson failed (deserializer 0x'
                     + deserFn.toString(16) + ') — app state will be missing');
-                azHydrateJsonMarkers();
+                azUnmatchedDispatches();
             }
         }
     }
@@ -867,7 +855,7 @@ function azModifierBits(e) {
     return bits;
 }
 
-// (2026-06-10) data-az-ev attribute value → EVT_* kind int, for
+// data-az-ev attribute value → EVT_* kind int, for
 // AzStartup_registerCbNodeKind. Unknown names register as EVT_CLICK.
 function azEvNameToKind(name) {
     switch (name) {
@@ -881,7 +869,7 @@ function azEvNameToKind(name) {
         case 'focus':       return EVT_FOCUSIN;
         case 'blur':        return EVT_FOCUSOUT;
         case 'scroll':      return EVT_SCROLL;
-        // S1 (2026-06-11): the rest of the html_render.rs vocabulary.
+        // S1 : the rest of the html_render.rs vocabulary.
         case 'mousemove':   return EVT_MOUSEMOVE;
         case 'mouseover':   return EVT_MOUSEOVER;
         case 'mouseenter':  return EVT_MOUSEENTER;
@@ -897,7 +885,7 @@ function azEvNameToKind(name) {
     }
 }
 
-// S1 (2026-06-11): derive the az_N node_idx from a DOM event's target.
+// S1 : derive the az_N node_idx from a DOM event's target.
 // Needed for events whose semantics are target-based, not position-based:
 // focusin/out, mouseenter, and especially mouseleave (whose coordinates lie
 // OUTSIDE the node — bbox hit-testing them would resolve the wrong node).
@@ -1236,7 +1224,7 @@ function azWireListeners() {
         azCollectSamples(e);
         azDispatch(EVT_MOUSEUP, e, undefined, azTakeSamples());
     });
-    // S1 (2026-06-11): keyboard routes wasm-side to the focused node (or
+    // S1: keyboard routes wasm-side to the focused node (or
     // broadcasts to kind-registered nodes); pass the DOM target as a hint
     // when the browser knows it (input fields).
     document.body.addEventListener('keydown',   function(e) { azDispatchTargeted(EVT_KEYDOWN,   e); });
@@ -1540,8 +1528,6 @@ function azBootstrapTracked() {
             // function (wasm-function[N]:0x... → wfunc.mjs → symbol).
             console.error('[azul-web] bootstrap FAILED:', (e && (e.stack || e.message)) || e);
             try {
-                var dv = new DataView(azMemory.buffer);
-                console.error('[azul-web] hydrateJson step marker=' + dv.getUint32(0x40980, true));
                 azUnmatchedDispatches();
             } catch (e2) { /* no memory yet */ }
         })
