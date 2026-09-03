@@ -152,6 +152,21 @@ pub struct AndroidWindow {
     /// Android delivers absolute positions; the scroll funnel wants deltas, so
     /// the previous sample has to be kept somewhere. `None` between gestures.
     touch_pan_last: Option<azul_core::geom::LogicalPosition>,
+    /// The pointer ID of the PRIMARY finger (U2-a-iii): the one whose position
+    /// and press the mouse pipe mirrors. Android's pointer INDEX 0 is not an
+    /// identity - when the first finger lifts the remaining one becomes index
+    /// 0, and a fresh finger reuses the lowest free ID - so mirroring index 0
+    /// handed the mouse, and with it a held selection handle, to whichever
+    /// finger was left. The W3C pointer rule: the first pointer down is
+    /// primary, no later pointer inherits that, and the next primary is born
+    /// only once every finger has lifted (`ACTION_DOWN`).
+    primary_pointer_id: Option<i32>,
+    /// The finger driving the one-finger PAN, which unlike the mouse pipe DOES
+    /// transfer: Android's own `ScrollView` re-picks an active pointer in
+    /// `onSecondaryPointerUp`, and browsers keep scrolling with the finger
+    /// that remains. `touch_pan_last` is re-seeded on a transfer so the
+    /// hand-over is not read as a jump.
+    pan_pointer_id: Option<i32>,
 }
 
 impl AndroidWindow {
@@ -223,6 +238,8 @@ impl AndroidWindow {
             selection_toolbar_shown: false,
             needs_rerender: false,
             touch_pan_last: None,
+            primary_pointer_id: None,
+            pan_pointer_id: None,
         })
     }
 
@@ -1171,12 +1188,19 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     // process_window_events outside the iterator's closure because the
     // closure borrows `app` for the input queue and we need &mut window.
     //
-    // `mouse_pos` mirrors what the framework's mouse pipe sees: the
-    // primary (index 0) pointer position. Multi-finger state lives on
-    // `touch_points` below.
+    // Which finger the mouse pipe mirrors is decided in the apply loop below
+    // from `primary_pointer_id` (U2-a-iii), not here: `first_pos` is only the
+    // index-0 position, which is all a HOVER (a mouse, a hovering stylus)
+    // carries. Multi-finger state lives on `touch_points`.
     struct MotionUpdate {
         action: MotionAction,
-        mouse_pos: LogicalPosition,
+        first_pos: LogicalPosition,
+        /// The pointer ID the action is ABOUT (`getActionIndex`): the finger
+        /// that landed or lifted, for the Down / Up family. `-1` otherwise.
+        action_pointer_id: i32,
+        /// Every pointer in the event BY ID, the lifting one included - the
+        /// mouse pipe and the pan look their own finger up here.
+        positions: Vec<(i32, LogicalPosition)>,
         touch_points: Vec<azul_core::window::TouchPoint>,
         /// `MotionEvent.getDeviceId()`: which physical device produced this,
         /// for `MouseState::pointer_device_id` (9b-ii). Android has ONE
@@ -1243,9 +1267,11 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                     return InputStatus::Handled;
                 }
 
-                let mut mouse_pos = LogicalPosition::new(0.0, 0.0);
+                let mut first_pos = LogicalPosition::new(0.0, 0.0);
                 let mut touch_points: Vec<azul_core::window::TouchPoint> = Vec::new();
                 let mut first_pointer = true;
+                let mut action_pointer_id: i32 = -1;
+                let mut positions: Vec<(i32, LogicalPosition)> = Vec::new();
 
                 // ACTION_POINTER_UP still lists the LIFTING finger in
                 // pointers() — the classic index-vs-id trap's sibling. Keep it
@@ -1269,8 +1295,12 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                     // window sits at the display origin).
                     let pos = LogicalPosition::new(p.x() / dpi, p.y() / dpi);
                     if first_pointer {
-                        mouse_pos = pos;
+                        first_pos = pos;
                         first_pointer = false;
+                    }
+                    positions.push((p.pointer_id(), pos));
+                    if p.pointer_index() == m.pointer_index() {
+                        action_pointer_id = p.pointer_id();
                     }
 
                     // The finger this PointerUp is about is lifting — it still
@@ -1319,7 +1349,9 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 if !first_pointer {
                     motion_updates.push(MotionUpdate {
                         action: m.action(),
-                        mouse_pos,
+                        first_pos,
+                        action_pointer_id,
+                        positions,
                         touch_points,
                         device_id: u64::from(m.device_id().unsigned_abs()),
                     });
@@ -1357,28 +1389,79 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         // Snapshot previous state — required by the state-diffing event system.
         window.snapshot_window_state_baseline("android.drain_input.motion");
 
-        {
+        // WHICH FINGER IS THE MOUSE (U2-a-iii). The primary is the finger the
+        // group started with, looked up BY ID in this event; it is never
+        // inherited by a later finger, and it is released - as a mouse
+        // release, which is what ends a held selection handle - the moment
+        // it lifts, even while other fingers stay down. Before this the
+        // mirror read pointer index 0, so lifting the finger that held a
+        // handle handed the handle to the finger that remained.
+        if matches!(update.action, MotionAction::Down) {
+            window.primary_pointer_id = Some(update.action_pointer_id);
+        }
+        let primary_id = window.primary_pointer_id;
+        let position_of = |id: i32| -> Option<LogicalPosition> {
+            update
+                .positions
+                .iter()
+                .find(|(pid, _)| *pid == id)
+                .map(|(_, p)| *p)
+        };
+        let primary_pos = primary_id.and_then(position_of);
+        let primary_lifting = matches!(update.action, MotionAction::PointerUp)
+            && Some(update.action_pointer_id) == primary_id;
+        // A hover (mouse / hovering stylus) is one pointer with no finger
+        // group behind it; everything else is the primary's, or nothing.
+        let mouse_pos = if matches!(update.action, MotionAction::HoverMove) {
+            Some(update.first_pos)
+        } else {
+            primary_pos
+        };
+
+        let hit_pos = {
             let ms = window.common.mouse_state_mut();
             // The field existed with no writer on any platform, so
             // `get_pointer_device_id()` answered 0 everywhere (9b-ii).
             ms.pointer_device_id = update.device_id;
             match update.action {
-                MotionAction::Down | MotionAction::PointerDown => {
-                    ms.cursor_position = CursorPosition::InWindow(update.mouse_pos);
+                MotionAction::Down => {
+                    if let Some(p) = mouse_pos {
+                        ms.cursor_position = CursorPosition::InWindow(p);
+                    }
                     ms.left_down = true;
                 }
+                MotionAction::PointerDown => {
+                    // A second finger landed: the mouse stays on the primary,
+                    // wherever this event says the primary now is.
+                    if let Some(p) = primary_pos {
+                        ms.cursor_position = CursorPosition::InWindow(p);
+                    }
+                }
                 MotionAction::Move | MotionAction::HoverMove => {
-                    ms.cursor_position = CursorPosition::InWindow(update.mouse_pos);
+                    // `None` = the primary already lifted and only other
+                    // fingers are moving: the mouse does not follow them.
+                    if let Some(p) = mouse_pos {
+                        ms.cursor_position = CursorPosition::InWindow(p);
+                    }
                 }
                 MotionAction::Up | MotionAction::Cancel => {
                     ms.left_down = false;
                 }
                 MotionAction::PointerUp => {
-                    // A secondary finger lifted; primary is still down.
-                    // Leave left_down alone.
+                    // The PRIMARY lifting while others stay is a mouse
+                    // release; a secondary lifting is nothing to the mouse.
+                    if primary_lifting {
+                        ms.left_down = false;
+                    }
                 }
                 _ => {}
             }
+            // The hit test runs where the MOUSE is, which after the primary
+            // lifted is where it was left, not where the other fingers are.
+            let hit_pos = match ms.cursor_position {
+                CursorPosition::InWindow(p) => p,
+                _ => update.first_pos,
+            };
 
             // Refresh TouchState. Android delivers all currently-active
             // pointers on every MotionEvent, so the rebuild is
@@ -1395,10 +1478,14 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 }
             }
             ts.num_touches = ts.touch_points.len();
+            hit_pos
+        };
+        if primary_lifting || matches!(update.action, MotionAction::Up | MotionAction::Cancel) {
+            window.primary_pointer_id = None;
         }
 
         // Update CPU hit-tester at the new cursor; dispatch callbacks.
-        window.update_hit_test_at(update.mouse_pos);
+        window.update_hit_test_at(hit_pos);
 
         // ONE-FINGER PAN -> SCROLL.
         //
@@ -1425,27 +1512,57 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             use azul_layout::managers::hover::InputPointId;
             use azul_layout::managers::scroll_state::{ScrollInputDevice, ScrollInputSource};
 
+            // The pan has its OWN active finger (U2-a-iii), and unlike the
+            // mouse pipe it transfers: when the panning finger lifts while
+            // another is down, the remaining one takes over, re-seeded so the
+            // hand-over is not a jump - `ScrollView.onSecondaryPointerUp`.
             let (delta, source) = match update.action {
-                MotionAction::Down | MotionAction::PointerDown => {
-                    window.touch_pan_last = Some(update.mouse_pos);
+                MotionAction::Down => {
+                    window.pan_pointer_id = Some(update.action_pointer_id);
+                    window.touch_pan_last = position_of(update.action_pointer_id);
+                    (None, ScrollInputSource::TrackpadContinuous)
+                }
+                MotionAction::PointerDown => {
+                    // A second finger does not restart or steal the pan.
                     (None, ScrollInputSource::TrackpadContinuous)
                 }
                 MotionAction::Move => {
-                    let d = window.touch_pan_last.map(|last| {
-                        // Finger delta, NOT the inverse. Dragging UP must move
-                        // the content up (revealing what is below), i.e. the
-                        // scroll offset INCREASES — and `record_scroll_input`
-                        // already applies the natural-scroll sign centrally, so
-                        // inverting here too cancels out: measured on device,
-                        // `last - current` drove the offset negative and
-                        // rubber-banded against the top edge instead of
-                        // scrolling.
-                        (update.mouse_pos.x - last.x, update.mouse_pos.y - last.y)
-                    });
-                    window.touch_pan_last = Some(update.mouse_pos);
-                    (d, ScrollInputSource::TrackpadContinuous)
+                    let current = window.pan_pointer_id.and_then(position_of);
+                    match current {
+                        Some(current) => {
+                            let d = window.touch_pan_last.map(|last| {
+                                // Finger delta, NOT the inverse. Dragging UP
+                                // must move the content up (revealing what is
+                                // below), i.e. the scroll offset INCREASES —
+                                // and `record_scroll_input` already applies
+                                // the natural-scroll sign centrally, so
+                                // inverting here too cancels out: measured on
+                                // device, `last - current` drove the offset
+                                // negative and rubber-banded against the top
+                                // edge instead of scrolling.
+                                (current.x - last.x, current.y - last.y)
+                            });
+                            window.touch_pan_last = Some(current);
+                            (d, ScrollInputSource::TrackpadContinuous)
+                        }
+                        None => (None, ScrollInputSource::TrackpadContinuous),
+                    }
+                }
+                MotionAction::PointerUp => {
+                    if Some(update.action_pointer_id) == window.pan_pointer_id {
+                        // The panning finger lifted with others still down:
+                        // the first remaining one carries on, from where it is.
+                        let next = update
+                            .touch_points
+                            .first()
+                            .map(|tp| (tp.id as i32, tp.position));
+                        window.pan_pointer_id = next.map(|(id, _)| id);
+                        window.touch_pan_last = next.map(|(_, p)| p);
+                    }
+                    (None, ScrollInputSource::TrackpadContinuous)
                 }
                 MotionAction::Up | MotionAction::Cancel => {
+                    window.pan_pointer_id = None;
                     window.touch_pan_last = None;
                     // Zero delta, but the END phase still matters: it is what
                     // releases a rubber-banded axis back to its bounds.
@@ -1478,7 +1595,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             LogCategory::Input,
             "[Android] motion {:?} at {:?} -> {:?}",
             update.action,
-            update.mouse_pos,
+            hit_pos,
             r,
         );
         // HONOUR THE ESCALATION LADDER. Collapsing every non-DoNothing result

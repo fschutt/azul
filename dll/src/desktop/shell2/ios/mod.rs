@@ -343,7 +343,6 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
     // main walk rather than in a second pass.
     let mut coalesced: Vec<TouchPoint> = Vec::new();
     let mut predicted: Vec<TouchPoint> = Vec::new();
-    let mut pos: Option<LogicalPosition> = None;
     let mut pencil: Option<PencilSample> = None;
     let this_ptr = this as *const Object as *mut Object;
 
@@ -393,10 +392,6 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
                     orientation_rad: 0.0,
                     tool_type: azul_core::window::TouchToolType::Unknown,
                 });
-
-                if pos.is_none() {
-                    pos = Some(touch_pos);
-                }
 
                 // Coalesced and predicted samples for THIS touch.
                 //
@@ -484,6 +479,19 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
         }
     }
 
+    // WHICH FINGER IS THE MOUSE (U2-a-iii, the iOS half). The mouse pipe
+    // follows the PRIMARY touch by `UITouch` identity: born on the began
+    // phase that starts a group, never inherited by a later finger, released
+    // when it lifts whatever else stays down. `pos` - what the cursor and the
+    // hit test use - is the primary's position when this phase carries it,
+    // and nothing otherwise: other fingers' moves do not move the mouse.
+    let position_of = |id: u64| points.iter().find(|p| p.id == id).map(|p| p.position);
+    if phase == 0 && window.primary_touch_id.is_none() {
+        window.primary_touch_id = points.first().map(|p| p.id);
+    }
+    let primary_in_set = window.primary_touch_id.is_some_and(|id| position_of(id).is_some());
+    let pos: Option<LogicalPosition> = window.primary_touch_id.and_then(position_of);
+
     // Snapshot previous state for the diff pipeline; mirrors Android.
     window.snapshot_window_state_baseline("ios.handle_touch");
 
@@ -540,16 +548,20 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
             ms.cursor_position = CursorPosition::InWindow(p);
         }
         match phase {
-            0 => ms.left_down = true,
-            // Only the LAST finger lifting releases the emulated left
-            // button. UIKit reports each ended finger in its own
-            // touchesEnded:/touchesCancelled: set, so clearing left_down
-            // unconditionally cut the remaining fingers' press short
-            // halfway through every multi-finger interaction (Android's
-            // PointerUp arm already gets this right by leaving left_down
-            // alone while the primary is still down).
-            2 | 3 if remaining == 0 => ms.left_down = false,
+            // Only the began phase that BIRTHS the primary presses; a second
+            // finger's began is nothing to the mouse.
+            0 if primary_in_set => ms.left_down = true,
+            // The PRIMARY lifting releases, whatever remains; a secondary
+            // lifting is nothing to the mouse. UIKit reports each ended
+            // finger in its own touchesEnded:/touchesCancelled: set, so
+            // this is decided by identity, not by count: "only the last
+            // finger releases" left the button down after the primary had
+            // gone, and the next finger's moves then drove a phantom drag.
+            2 | 3 if primary_in_set => ms.left_down = false,
             _ => {}
+        }
+        if (matches!(phase, 2 | 3) && primary_in_set) || remaining == 0 {
+            window.primary_touch_id = None;
         }
     }
 
@@ -576,14 +588,22 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
         // count fresh rather than widening that binding's scope.
         let fingers_left = window.common.touch_state_mut().num_touches;
 
+        // The pan has its OWN active finger (U2-a-iii), and unlike the mouse
+        // pipe it transfers: when the panning finger lifts while another is
+        // down, the remaining one carries on from where it is.
         let (delta, source) = match phase {
-            // Began: anchor only. There is no delta on the first sample.
+            // Began: anchor only. There is no delta on the first sample, and
+            // a second finger neither restarts nor steals the pan.
             0 => {
-                window.touch_pan_last = pos;
+                if window.pan_touch_id.is_none() {
+                    window.pan_touch_id = points.first().map(|p| p.id);
+                    window.touch_pan_last = window.pan_touch_id.and_then(position_of);
+                }
                 (None, ScrollInputSource::TrackpadContinuous)
             }
             1 => {
-                let d = match (window.touch_pan_last, pos) {
+                let cur = window.pan_touch_id.and_then(position_of);
+                let d = match (window.touch_pan_last, cur) {
                     // Finger delta, NOT its inverse: `record_scroll_input`
                     // already applies the natural-scroll sign centrally, so
                     // inverting here as well cancels out. Android measured
@@ -592,19 +612,40 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
                     (Some(last), Some(cur)) => Some((cur.x - last.x, cur.y - last.y)),
                     _ => None,
                 };
-                if pos.is_some() {
-                    window.touch_pan_last = pos;
+                if cur.is_some() {
+                    window.touch_pan_last = cur;
                 }
                 (d, ScrollInputSource::TrackpadContinuous)
             }
             // Ended or cancelled. The delta is zero, but the END phase still
             // matters: it is what releases a rubber-banded axis back to its
-            // bounds. Only the LAST finger ends the pan, matching the
-            // `left_down` rule above - otherwise lifting one finger of a
-            // two-finger gesture snaps the content back mid-scroll.
+            // bounds. Only the LAST finger ends the pan - otherwise lifting
+            // one finger of a two-finger gesture snaps the content back
+            // mid-scroll.
             2 | 3 if fingers_left == 0 => {
+                window.pan_touch_id = None;
                 window.touch_pan_last = None;
                 (Some((0.0, 0.0)), ScrollInputSource::TrackpadEnd)
+            }
+            2 | 3 => {
+                let pan_lifted = window
+                    .pan_touch_id
+                    .is_some_and(|id| position_of(id).is_some());
+                if pan_lifted {
+                    // The panning finger lifted with others still down: the
+                    // first remaining one takes over, re-seeded at its own
+                    // position so the hand-over is not a jump.
+                    let next = window
+                        .common
+                        .touch_state_mut()
+                        .touch_points
+                        .iter()
+                        .next()
+                        .map(|tp| (tp.id, tp.position));
+                    window.pan_touch_id = next.map(|(id, _)| id);
+                    window.touch_pan_last = next.map(|(_, p)| p);
+                }
+                (None, ScrollInputSource::TrackpadContinuous)
             }
             _ => (None, ScrollInputSource::TrackpadContinuous),
         };
@@ -1501,6 +1542,19 @@ pub struct IOSWindow {
     /// previous point, and it has to be per-window rather than a global
     /// because two windows can be panned on an iPad at once.
     pub touch_pan_last: Option<azul_core::geom::LogicalPosition>,
+    /// The `UITouch` identity of the PRIMARY finger (U2-a-iii): the one the
+    /// emulated mouse follows. `touches` is an NSSet, whose order is arbitrary
+    /// between calls, so "the first touch" alternated between two moving
+    /// fingers and the cursor jumped finger to finger. The W3C pointer rule
+    /// instead: the first finger of a group is primary, no later finger
+    /// inherits that, its lift is a mouse release even while others stay
+    /// down, and the next primary is born only once every finger has lifted.
+    pub primary_touch_id: Option<u64>,
+    /// The finger driving the one-finger PAN, which unlike the mouse pipe
+    /// transfers to a remaining finger when it lifts (`UIScrollView` keeps
+    /// panning with the finger that is left). Re-seeded on hand-over so the
+    /// transfer is not read as a jump.
+    pub pan_touch_id: Option<u64>,
 }
 
 impl IOSWindow {
@@ -1680,6 +1734,8 @@ impl IOSWindow {
             font_registry,
             accessibility_adapter: accessibility::IOSAccessibilityAdapter::new(),
             touch_pan_last: None,
+            primary_touch_id: None,
+            pan_touch_id: None,
         })
     }
 

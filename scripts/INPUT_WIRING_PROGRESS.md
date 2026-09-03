@@ -2272,10 +2272,25 @@ session needs. Recorded verbatim so the framing is not lost.
       selection being resized under the finger.
       ⚠ NOT COMPILED OR RUN (the batch compiles once at the end, per the user); the hook is a
       one-expression change on a path that is already exercised by U2.
-- [ ] U2-a-iii The touch path is the MOUSE PIPE: the Android shell mirrors the primary finger
-      into `mouse_state`, which is what makes `TextSelectionClick` / `TextSelectionDrag` reach the
-      handle. A second finger while a handle is held (pinch) is not modelled - the handle keeps
-      following pointer 0.
+- [x] U2-a-iii DONE, and "pointer 0" was the whole defect: Android's pointer INDEX 0 is not an
+      identity. When the finger holding a handle lifted with a second finger down, the second
+      became index 0 and inherited the mouse - cursor position AND the still-down button - so the
+      handle jumped to it; a fresh third finger reuses the lowest free ID and would have become
+      "the mouse" mid-gesture the same way. The mouse pipe now follows the PRIMARY pointer by ID
+      (`primary_pointer_id`, the finger `ACTION_DOWN` starts the group with): no later finger
+      inherits it, its `ACTION_POINTER_UP` is a mouse release even while others stay down (which
+      is what ends the held handle through the existing `!left_down` seam), other fingers' moves
+      do not move the cursor, and the next primary is born only on the next `ACTION_DOWN` - the
+      W3C pointer-events rule. The one-finger PAN got its OWN active finger (`pan_pointer_id`)
+      because scrolling has the opposite rule: `ScrollView.onSecondaryPointerUp` hands the pan
+      to the remaining finger, re-seeded so the hand-over is not a jump. Hovers (a mouse, a
+      hovering stylus) have no finger group and keep using the one pointer they carry.
+      iOS had the same class one step worse - `touches` is an NSSet whose order is arbitrary
+      between calls, so with two fingers moving "the first touch" alternated and the emulated
+      cursor jumped finger to finger, and the button released only when the LAST finger lifted -
+      and got the same rule by `UITouch` identity (`primary_touch_id` / `pan_touch_id`). The
+      handles there are UIKit's own, so what this fixes on iOS is the mouse pipe itself.
+      ⚠ NOT COMPILED OR RUN (batch compiles at the end).
 - [x] U3 ANSWERED, and the answer turned out to need code: a selection is identified by an
       OWNER-SCOPED id, `(SelectionOwner, SelectionId)`, and the engine acts on the LOCAL owner's
       set and on nothing else. The PRIMARY is always local; the platform's idea of "the
