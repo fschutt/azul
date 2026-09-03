@@ -406,6 +406,14 @@ pub struct WaylandWindow {
     compositor: *mut defines::wl_compositor,
     shm: *mut defines::wl_shm,
     seat: *mut defines::wl_seat,
+    /// EVERY seat this window bound, primary first (9b-ii-a). `seat` above
+    /// stays the primary - the one every pre-existing consumer (text input,
+    /// the data device, the tablet seat, gestures, xdg move/resize) means -
+    /// and each later `wl_seat` global is a pointer seat of its own, keyed by
+    /// its registry name. The pointer handlers look their seat up by the
+    /// `wl_pointer` proxy an event names, because listener user-data is
+    /// re-pointed wholesale by `rebind_listeners` and cannot carry a seat.
+    seats: crate::desktop::shell2::common::seats::SeatTable<*mut std::ffi::c_void>,
     xdg_wm_base: *mut defines::xdg_wm_base,
     pub(crate) surface: *mut defines::wl_surface,
     xdg_surface: *mut defines::xdg_surface,
@@ -1842,6 +1850,7 @@ impl WaylandWindow {
             compositor: std::ptr::null_mut(),
             shm: std::ptr::null_mut(),
             seat: std::ptr::null_mut(),
+            seats: crate::desktop::shell2::common::seats::SeatTable::new(),
             xdg_wm_base: std::ptr::null_mut(),
             surface: std::ptr::null_mut(),
             xdg_surface: std::ptr::null_mut(),
@@ -4955,6 +4964,110 @@ impl WaylandWindow {
             layout_window
                 .hover_manager
                 .push_hit_test(InputPointId::Mouse, FullHitTest::empty(None));
+        }
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+        self.request_redraw();
+    }
+
+    // ─── Additional seats (9b-ii-a) ─────────────────────────────────────
+
+    /// Which pointer SEAT a `wl_pointer` event came from: the primary for the
+    /// seat bound first - and for a pointer the table does not know, which
+    /// keeps every pre-existing path exactly as it was - otherwise the seat's
+    /// registry name.
+    pub(super) fn seat_id_for_pointer(&self, pointer: *mut defines::wl_pointer) -> u64 {
+        self.seats.seat_id_for_pointer(pointer.cast())
+    }
+
+    /// A second cursor entered the surface. Its own seat state, its own hover
+    /// history, the ordinary diff pass - and NOT the popup routing, the
+    /// scrollbar drag, the gesture samples or the cursor-shape sync, which are
+    /// all the primary cursor's (see 9b-ii-b and 9b-ii-a-ii).
+    pub(super) fn handle_seat_pointer_enter(&mut self, seat_id: u64, x: f64, y: f64) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        let pos = LogicalPosition::new(x as f32, y as f32);
+        self.snapshot_window_state_baseline("wayland.seat.pointer_enter");
+        self.common.pointer_seat_mut(seat_id).cursor_position = CursorPosition::InWindow(pos);
+        self.update_seat_hit_test_at(seat_id, pos);
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+        self.request_redraw();
+    }
+
+    pub(super) fn handle_seat_pointer_leave(&mut self, seat_id: u64) {
+        let last = self
+            .common
+            .current_window_state()
+            .pointer_seat(seat_id)
+            .and_then(|s| s.cursor_position.get_position())
+            .unwrap_or_else(LogicalPosition::zero);
+        self.snapshot_window_state_baseline("wayland.seat.pointer_leave");
+        self.common.pointer_seat_mut(seat_id).cursor_position = CursorPosition::OutOfWindow(last);
+        if let Some(ref mut layout_window) = self.common.layout_window {
+            layout_window
+                .hover_manager
+                .push_hit_test(InputPointId::for_seat(seat_id), FullHitTest::empty(None));
+        }
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+        self.request_redraw();
+    }
+
+    pub(super) fn handle_seat_pointer_motion(&mut self, seat_id: u64, x: f64, y: f64) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        let pos = LogicalPosition::new(x as f32, y as f32);
+        self.snapshot_window_state_baseline("wayland.seat.pointer_motion");
+        self.common.pointer_seat_mut(seat_id).cursor_position = CursorPosition::InWindow(pos);
+        self.update_seat_hit_test_at(seat_id, pos);
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+        self.request_redraw();
+    }
+
+    /// Same button decoding as the primary (`BTN_LEFT` / `BTN_RIGHT` /
+    /// `BTN_MIDDLE`), applied to the seat's own state. The serial is NOT
+    /// recorded as `last_input_serial`: that one authorises the PRIMARY seat's
+    /// data device, and a serial from another seat would be rejected there.
+    pub(super) fn handle_seat_pointer_button(&mut self, seat_id: u64, button: u32, state: u32) {
+        use crate::desktop::shell2::common::event::{apply_pointer_button_state, PlatformWindow};
+        let mouse_button = match button {
+            0x110 => MouseButton::Left,
+            0x111 => MouseButton::Right,
+            0x112 => MouseButton::Middle,
+            _ => return,
+        };
+        let position = self
+            .common
+            .current_window_state()
+            .pointer_seat(seat_id)
+            .and_then(|s| s.cursor_position.get_position())
+            .unwrap_or_else(LogicalPosition::zero);
+        self.snapshot_window_state_baseline("wayland.seat.pointer_button");
+        apply_pointer_button_state(
+            self.common.pointer_seat_mut(seat_id),
+            position,
+            mouse_button,
+            state == 1,
+        );
+        self.update_seat_hit_test_at(seat_id, position);
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+        self.request_redraw();
+    }
+
+    /// A second seat lost its pointer, or its global went away: the cursor
+    /// leaves with it, and the diff pass (a seat present before and absent
+    /// now is diffed against a default state) releases whatever it held.
+    pub(super) fn handle_seat_gone(&mut self, seat_id: u64) {
+        self.snapshot_window_state_baseline("wayland.seat.gone");
+        self.common.update_unsynced_state(|ws| {
+            let _ = ws.remove_pointer_seat(seat_id);
+        });
+        if let Some(ref mut layout_window) = self.common.layout_window {
+            layout_window
+                .hover_manager
+                .remove_input_point(&InputPointId::for_seat(seat_id));
         }
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);

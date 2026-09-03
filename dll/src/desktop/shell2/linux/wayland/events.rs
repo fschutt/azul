@@ -547,13 +547,30 @@ pub(super) extern "C" fn registry_global_handler(
                     seat_version,
                 ) as *mut wl_seat
             };
-            window.seat = seat;
-            window.seat_version = seat_version;
             unsafe { (window.wayland.wl_seat_add_listener)(seat, &WL_SEAT_LISTENER, data) };
             window.track_listener(seat);
-            unsafe { try_init_tablet(window, data) };
-            unsafe { try_init_data_device(window, data) };
-            unsafe { try_init_primary_selection(window, data) };
+            // THE FIRST SEAT IS THE PRIMARY (9b-ii-a). This used to assign
+            // `window.seat` for EVERY wl_seat global, so on a two-seat
+            // compositor the second seat silently REPLACED the first as "the"
+            // seat (text input, clipboard, tablet, xdg move all followed it)
+            // while both seats' pointers kept writing the one global mouse
+            // state - cursor A's buttons at cursor B's position. Every later
+            // seat is now a pointer seat of its own.
+            let seat_id = window.seats.insert(name, seat.cast(), seat_version);
+            if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+                window.seat = seat;
+                window.seat_version = seat_version;
+                unsafe { try_init_tablet(window, data) };
+                unsafe { try_init_data_device(window, data) };
+                unsafe { try_init_primary_selection(window, data) };
+            } else {
+                log_info!(
+                    LogCategory::Input,
+                    "[Wayland] wl_seat global {} bound as an additional pointer seat (id {})",
+                    name,
+                    seat_id
+                );
+            }
         }
         "zwp_relative_pointer_manager_v1" => {
             window.relative_pointer_manager = unsafe {
@@ -914,6 +931,28 @@ pub(super) extern "C" fn registry_global_remove_handler(
     name: u32,
 ) {
     let window = unsafe { &mut *(data as *mut super::WaylandWindow) };
+
+    // A SECOND SEAT went away (9b-ii-a): its cursor leaves with it and the
+    // diff pass releases whatever it held. The primary seat's global is not
+    // handled here - `remove_by_name` refuses it - because every consumer of
+    // `window.seat` would dangle; a compositor revoking its only seat is not
+    // a case this shell survives either way.
+    if let Some(gone) = window.seats.remove_by_name(name) {
+        let seat_id = u64::from(gone.global_name);
+        for proxy in [gone.pointer, Some(gone.seat)].into_iter().flatten() {
+            let dead = proxy.cast::<super::defines::wl_proxy>();
+            window.listener_proxies.retain(|p| *p != dead);
+            unsafe { (window.wayland.wl_proxy_destroy)(dead.cast()) };
+        }
+        window.handle_seat_gone(seat_id);
+        log_info!(
+            LogCategory::Input,
+            "[Wayland] additional pointer seat {} removed; {} seat(s) left",
+            seat_id,
+            window.seats.len()
+        );
+        return;
+    }
 
     let Some(idx) = window
         .known_outputs
@@ -2623,6 +2662,48 @@ pub(super) extern "C" fn seat_capabilities_handler(
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
 
+    // A NON-PRIMARY seat (9b-ii-a) contributes a POINTER and nothing else:
+    // the engine has one keyboard state and one touch state, so a second
+    // seat's keyboard or touchscreen would have to be merged into the
+    // primary's - which is the very confusion this table exists to end
+    // (9b-ii-a-i). Its pointer gets the same listener as the primary's; the
+    // handlers tell the seats apart by the proxy.
+    if !window.seats.is_primary(seat.cast()) {
+        let Some(seat_id) = window.seats.seat_id_of(seat.cast()) else {
+            return;
+        };
+        let has_pointer = capabilities & WL_SEAT_CAPABILITY_POINTER != 0;
+        match (has_pointer, window.seats.pointer_of(seat.cast())) {
+            (true, None) => {
+                let pointer = unsafe { (window.wayland.wl_seat_get_pointer)(seat) };
+                unsafe {
+                    (window.wayland.wl_pointer_add_listener)(pointer, &WL_POINTER_LISTENER, data)
+                };
+                window.track_listener(pointer);
+                window.seats.set_pointer(seat.cast(), Some(pointer.cast()));
+                if let Some(ref mut lw) = window.common.layout_window {
+                    lw.device_event_manager.note_device(true);
+                }
+            }
+            (false, Some(_)) => {
+                window.seats.set_pointer(seat.cast(), None);
+                window.handle_seat_gone(seat_id);
+                if let Some(ref mut lw) = window.common.layout_window {
+                    lw.device_event_manager.note_device(false);
+                }
+            }
+            _ => {}
+        }
+        if capabilities & (WL_SEAT_CAPABILITY_KEYBOARD | WL_SEAT_CAPABILITY_TOUCH) != 0 {
+            log_debug!(
+                LogCategory::Input,
+                "[Wayland] seat {} has keyboard/touch capability; not bound (9b-ii-a-i)",
+                seat_id
+            );
+        }
+        return;
+    }
+
     // Seat capabilities are a LEVEL, not an edge: the compositor re-sends the
     // whole bitmask whenever anything about the seat changes. The already-bound
     // proxies are the previous state, so comparing against them is what turns
@@ -3119,13 +3200,19 @@ pub(super) extern "C" fn xdg_toplevel_wm_capabilities_handler(
 // wl_pointer listeners
 pub(super) extern "C" fn pointer_enter_handler(
     data: *mut c_void,
-    _pointer: *mut wl_pointer,
+    pointer: *mut wl_pointer,
     serial: u32,
     surface: *mut wl_surface,
     surface_x: i32,
     surface_y: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // A second cursor (9b-ii-a) takes its own path; see `seat_id_for_pointer`.
+    let seat_id = window.seat_id_for_pointer(pointer);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        window.handle_seat_pointer_enter(seat_id, surface_x as f64 / 256.0, surface_y as f64 / 256.0);
+        return;
+    }
     // wl_fixed_t (24.8 fixed-point) -> logical f64.
     let (x, y) = (surface_x as f64 / 256.0, surface_y as f64 / 256.0);
     // Resolve whether the pointer entered an open menu popup's surface (vs. the
@@ -3141,46 +3228,67 @@ pub(super) extern "C" fn pointer_enter_handler(
 
 pub(super) extern "C" fn pointer_leave_handler(
     data: *mut c_void,
-    _pointer: *mut wl_pointer,
+    pointer: *mut wl_pointer,
     serial: u32,
     _surface: *mut wl_surface,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let seat_id = window.seat_id_for_pointer(pointer);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        window.handle_seat_pointer_leave(seat_id);
+        return;
+    }
     window.handle_pointer_leave(serial);
 }
 
 pub(super) extern "C" fn pointer_motion_handler(
     data: *mut c_void,
-    _pointer: *mut wl_pointer,
+    pointer: *mut wl_pointer,
     _time: u32,
     surface_x: i32,
     surface_y: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let seat_id = window.seat_id_for_pointer(pointer);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        window.handle_seat_pointer_motion(seat_id, surface_x as f64 / 256.0, surface_y as f64 / 256.0);
+        return;
+    }
     let (x, y) = (surface_x as f64 / 256.0, surface_y as f64 / 256.0);
     window.handle_pointer_motion(x, y);
 }
 
 pub(super) extern "C" fn pointer_button_handler(
     data: *mut c_void,
-    _pointer: *mut wl_pointer,
+    pointer: *mut wl_pointer,
     serial: u32,
     _time: u32,
     button: u32,
     state: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let seat_id = window.seat_id_for_pointer(pointer);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        window.handle_seat_pointer_button(seat_id, button, state);
+        return;
+    }
     window.handle_pointer_button(serial, button, state);
 }
 
 pub(super) extern "C" fn pointer_axis_handler(
     data: *mut c_void,
-    _pointer: *mut wl_pointer,
+    pointer: *mut wl_pointer,
     _time: u32,
     axis: u32,
     value: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
+    // accumulate on the window, and a second seat's would be mixed into the
+    // first's frame and scrolled under the first cursor. Dropped, as on X11.
+    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
+        return;
+    }
     window.handle_pointer_axis(axis, value as f64 / 256.0);
 }
 
@@ -3188,8 +3296,14 @@ pub(super) extern "C" fn pointer_axis_handler(
 /// of a frame are accumulated, not dispatched, so this is where a scroll
 /// actually happens — one dispatch for a diagonal scroll instead of two — and
 /// where the frame-scoped `axis_source` is dropped.
-extern "C" fn pointer_frame_handler(data: *mut c_void, _pointer: *mut wl_pointer) {
+extern "C" fn pointer_frame_handler(data: *mut c_void, pointer: *mut wl_pointer) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
+    // accumulate on the window, and a second seat's would be mixed into the
+    // first's frame and scrolled under the first cursor. Dropped, as on X11.
+    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
+        return;
+    }
     window.handle_pointer_frame();
 }
 // MWA-C-scroll: axis_source/axis_stop were empty stubs, so every Wayland
@@ -3198,19 +3312,31 @@ extern "C" fn pointer_frame_handler(data: *mut c_void, _pointer: *mut wl_pointer
 // axis events of its frame — store it; axis_stop = fingers lifted.
 extern "C" fn pointer_axis_source_handler(
     data: *mut c_void,
-    _pointer: *mut wl_pointer,
+    pointer: *mut wl_pointer,
     axis_source: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
+    // accumulate on the window, and a second seat's would be mixed into the
+    // first's frame and scrolled under the first cursor. Dropped, as on X11.
+    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
+        return;
+    }
     window.current_axis_source = axis_source;
 }
 extern "C" fn pointer_axis_stop_handler(
     data: *mut c_void,
-    _pointer: *mut wl_pointer,
+    pointer: *mut wl_pointer,
     _time: u32,
     _axis: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
+    // accumulate on the window, and a second seat's would be mixed into the
+    // first's frame and scrolled under the first cursor. Dropped, as on X11.
+    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
+        return;
+    }
     window.handle_pointer_axis_stop();
 }
 /// `wl_pointer.axis_discrete` — the detent count behind the frame's axis value.
@@ -3219,7 +3345,7 @@ extern "C" fn pointer_axis_stop_handler(
 /// `wl_pointer.axis_value120` — v8+ high-resolution wheel.
 extern "C" fn pointer_axis_value120_handler(
     data: *mut c_void,
-    _pointer: *mut wl_pointer,
+    pointer: *mut wl_pointer,
     axis: u32,
     value120: i32,
 ) {
@@ -3230,7 +3356,7 @@ extern "C" fn pointer_axis_value120_handler(
 /// `wl_pointer.axis_relative_direction` — v9+ natural-scroll flag.
 extern "C" fn pointer_axis_relative_direction_handler(
     data: *mut c_void,
-    _pointer: *mut wl_pointer,
+    pointer: *mut wl_pointer,
     axis: u32,
     direction: u32,
 ) {
@@ -3240,11 +3366,29 @@ extern "C" fn pointer_axis_relative_direction_handler(
 
 extern "C" fn pointer_axis_discrete_handler(
     data: *mut c_void,
-    _pointer: *mut wl_pointer,
+    pointer: *mut wl_pointer,
     axis: u32,
     discrete: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
+    // accumulate on the window, and a second seat's would be mixed into the
+    // first's frame and scrolled under the first cursor. Dropped, as on X11.
+    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
+        return;
+    }
+    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
+    // accumulate on the window, and a second seat's would be mixed into the
+    // first's frame and scrolled under the first cursor. Dropped, as on X11.
+    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
+        return;
+    }
+    // The wheel is the PRIMARY seat's (9b-ii-b): the axis events of a frame
+    // accumulate on the window, and a second seat's would be mixed into the
+    // first's frame and scrolled under the first cursor. Dropped, as on X11.
+    if window.seat_id_for_pointer(pointer) != azul_core::window::PRIMARY_POINTER_SEAT {
+        return;
+    }
     window.handle_pointer_axis_discrete(axis, discrete);
 }
 

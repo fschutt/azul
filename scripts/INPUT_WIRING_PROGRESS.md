@@ -1842,12 +1842,50 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       8/8 mobile, autofix converged at EXIT=0, `codegen all`, C header carries
       `AzPointerSeatVec pointer_seats` and `AzCallbackInfo_getPointerSeatState`. ⚠ No MPX setup
       here: the X11 path is compiled (linux-gnu is in the gate), not seen.
-- [ ] 9b-ii-a Wayland multi-seat. The shell binds ONE `wl_seat`; a second seat needs one
-      binding per `wl_seat` global with per-listener user data naming it (seat id = the
-      global's name), and its own `wl_pointer`. Larger than a line - it is the listener plumbing
-      of the whole pointer path - and not blocked on anything. Wayland also exposes no physical
-      device identity (libinput is behind the compositor), so `pointer_device_id` stays 0 there
-      by design.
+- [x] 9b-ii-a DONE - and the single-seat shell was WORSE than "one cursor for two seats". The
+      registry arm assigned `window.seat` for EVERY `wl_seat` global, so on a two-seat
+      compositor the second seat silently REPLACED the first as "the" seat (text input, the
+      clipboard data device, the tablet seat and xdg move/resize all followed it), while both
+      seats' pointers - each with the same listener and the same user data - kept writing the
+      one global mouse state: cursor A's buttons at cursor B's position.
+      DESIGN: the seat id is the registry global's NAME, the first seat bound is the primary
+      (`FullWindowState::mouse_state`, everything pre-existing), and the pointer handlers tell
+      seats apart by the `wl_pointer` PROXY an event names - NOT by per-listener user data as
+      the item proposed, because `rebind_listeners` re-points every tracked proxy's user data
+      wholesale to the window once it is boxed, and a per-seat payload would have been
+      overwritten on the first pump. "Unknown pointer means primary" keeps every path the
+      single-seat shell had exactly as it was: a second seat can be recognised, never invented.
+      The bookkeeping (`SeatTable<P>`: first = primary, id by name, pointer capability
+      set/cleared, removal refuses the primary) lives in `shell2/common/seats.rs`, generic over
+      the proxy type, so its 4 tests RUN HERE rather than sitting behind `cfg(linux)` - the
+      `sensors/units.rs` lesson again.
+      PRODUCER: a non-primary seat binds its POINTER only; enter / leave / motion / button go to
+      `handle_seat_pointer_*`, which write the seat's own `MouseState`, hit-test into its own
+      hover history and run the ordinary diff pass (which is what makes the click arrive with
+      the seat id on the event); the axis family is dropped for a second seat, as on X11
+      (9b-ii-b: the frame accumulator is the window's, and mixing a second seat's axis events in
+      would scroll under the first cursor). A seat losing its pointer capability, or its global
+      being removed, removes the seat's state and its hover point, destroys its proxies, and
+      runs the pass so held buttons release. `last_input_serial` stays the primary's: it
+      authorises the primary's data device, and another seat's serial would be rejected there.
+      `pointer_device_id` stays 0 on Wayland by design (libinput is behind the compositor).
+      EVIDENCE: 4 host tests on the table (primary-by-order not by name; pointer lookup with
+      unknown = primary; capability loss; removal refuses the primary and keeps ids by name).
+      NEGATIVE CONTROL: answering "primary" for every pointer fails the lookup test. Host check
+      (the table + tests), 8/8 mobile (the Wayland shell compiled on linux-gnu). ⚠ No multi-seat
+      compositor here (Sway/wlroots with `seat seat1 attach ...` is the way to see it).
+- [ ] 9b-ii-a-i A second seat's KEYBOARD and TOUCH are advertised and deliberately not bound:
+      the engine has one `KeyboardState` and one `TouchState`, so a second keyboard would have
+      to be merged into the primary's (two people's modifiers in one bitset) and a second
+      touchscreen's ids into one point list. Needs per-seat keyboard state first.
+- [ ] 9b-ii-a-ii A second cursor's IMAGE. `wl_pointer.set_cursor` is called for the primary's
+      pointer only, with the primary's enter serial; the compositor shows whatever it shows for
+      an unset cursor on the second pointer. Needs the per-seat enter serial (now on the
+      handler's doorstep) and a `set_cursor` per pointer whenever the CSS cursor changes.
+- [ ] 9b-ii-a-iii A second cursor over a menu POPUP. The popup routing (`pointer_over_popup`,
+      the xdg_popup grab) is the primary seat's; a second seat's enter on the popup surface is
+      treated as the main surface. The grab is per seat in xdg-shell, so this is a real
+      per-seat question and not a line.
 - [ ] 9b-ii-b Per-seat gestures, wheel and pointer capture. `GestureAndDragManager` tracks ONE
       pointer and is fed from the primary cursor, so drag / double-click / long-press / pen stay
       primary-only; a second seat's wheel is DROPPED on X11 rather than scrolling the node under
