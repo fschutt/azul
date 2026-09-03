@@ -135,6 +135,7 @@ mod autotest_generated {
             fonts,
             images,
             WindowTheme::LightMode,
+            crate::window::WindowFrame::Normal,
             bounds,
             // materialized: a window at y=2 covering 100x200 of the document
             LogicalRect::new(
@@ -345,6 +346,7 @@ mod autotest_generated {
             &fonts,
             &images,
             WindowTheme::DarkMode,
+            crate::window::WindowFrame::Normal,
             HidpiAdjustedBounds::from_bounds(
                 LayoutSize::new(isize::MAX, isize::MIN),
                 DpiScaleFactor::new(f32::NAN),

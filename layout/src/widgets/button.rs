@@ -4,7 +4,7 @@ use std::vec::Vec;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
-    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeType, TabIndex},
+    dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeType, OptionDom, TabIndex},
     refany::RefAny,
     resources::{ImageRef, OptionImageRef},
 };
@@ -82,6 +82,16 @@ pub struct Button {
     /// provider (e.g. the builtin Material Icons pack: "`content_copy`").
     /// An empty string means "no icon".
     pub icon: AzString,
+    /// A ready-made DOM to use AS the leading icon, instead of resolving
+    /// [`icon`](Self::icon) into one.
+    ///
+    /// The escape hatch for an icon that is not a fixed picture: a control
+    /// whose glyph depends on live state (the window control that draws
+    /// "maximize" or "restore") wraps itself in a `VirtualView` so it can
+    /// re-render in place, and hands the view here. `icon` is still read for
+    /// the ACCESSIBLE NAME, so set both: the name is what a screen reader
+    /// announces and a view cannot supply it.
+    pub icon_dom: OptionDom,
     /// Optional trailing icon name (e.g. "`arrow_drop_down`" for menu/split
     /// buttons). An empty string means "no trailing icon".
     pub trailing_icon: AzString,
@@ -485,6 +495,7 @@ impl Button {
             label,
             image: None.into(),
             icon: AzString::from_const_str(""),
+            icon_dom: None.into(),
             trailing_icon: AzString::from_const_str(""),
             button_type,
             on_click: None.into(),
@@ -619,7 +630,7 @@ impl Button {
         // ids/classes) is kept: builder-order is semantically neutral natively.)
         let mut button = Dom::create_node(NodeType::Button);
 
-        let has_icon = !self.icon.as_str().is_empty();
+        let has_icon = !self.icon.as_str().is_empty() || self.icon_dom.is_some();
         let has_image = self.image.is_some();
         let has_trailing_icon = !self.trailing_icon.as_str().is_empty();
 
@@ -641,7 +652,12 @@ impl Button {
         // row container that reads left-to-right; a column container (large
         // ribbon-style buttons) stacks icon over label over arrow.
         if has_icon {
-            button = button.with_child(Dom::create_icon(self.icon).with_css_props(self.icon_style));
+            // A caller-supplied icon DOM wins over resolving `icon`, which is
+            // then only the accessible name (snapshotted above).
+            button = button.with_child(match self.icon_dom.into_option() {
+                Some(dom) => dom,
+                None => Dom::create_icon(self.icon).with_css_props(self.icon_style),
+            });
         }
 
         // If an image was set via `set_image`, render it as the first child

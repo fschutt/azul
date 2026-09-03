@@ -928,6 +928,7 @@ mod autotest_generated {
             &fonts,
             &images,
             WindowTheme::LightMode,
+            azul_core::window::WindowFrame::Normal,
             HidpiAdjustedBounds {
                 logical_size: size,
                 hidpi_factor: DpiScaleFactor::new(1.0),

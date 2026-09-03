@@ -527,10 +527,21 @@ fn rendered_icons(theme: &str, tint: ColorU) -> (Vec<PreparedIcon>, bool) {
         }
     }
 
-    let mut out: Vec<PreparedIcon> = vec![(
-        "titlebar-close".to_string(),
-        titlebar_close_glyph(tint),
-    )];
+    // THROUGH THE SAME RESOLUTION as every theme icon, not raw.
+    //
+    // This glyph is written here rather than read from the theme, and it was
+    // pushed straight into the pack while the loop below resolved everything
+    // else - so its `.ColorScheme-Text { color: … }` rule was never turned
+    // into a `fill`, and its `fill:currentColor` never resolved. It parsed, it
+    // laid out, it had a viewBox and a size, and it painted NOTHING: the close
+    // button was simply missing from the title bar while minimize and maximize
+    // were there.
+    let close_glyph = String::from_utf8(resolve_svg_references(
+        titlebar_close_glyph(tint).as_bytes(),
+        tint,
+    ))
+    .unwrap_or_else(|_| titlebar_close_glyph(tint));
+    let mut out: Vec<PreparedIcon> = vec![("titlebar-close".to_string(), close_glyph)];
     for name in WANTED {
         let Some((svg, _nominal_px)) = read_icon_svg(theme, name) else {
             continue;
@@ -780,10 +791,28 @@ mod tests {
             "it is classed like every theme icon, so the same tinting and the \
              same :hover restyling reach it: {glyph}"
         );
-        // ... and it is a real, parseable icon.
-        let resolved = resolve_svg_references(glyph.as_bytes(), TINT);
-        let markup = String::from_utf8(resolved).expect("utf8");
-        assert!(icon_dom(&markup).is_some(), "the glyph must parse");
+        // ... and the icon that is actually REGISTERED paints.
+        //
+        // This used to resolve `glyph` by hand and assert the result parsed -
+        // which is not what the pack contained. The pack got the RAW glyph,
+        // `currentColor` never resolved, and the close button painted nothing
+        // while this test stayed green. Read the registered markup instead, so
+        // the premise is the shipped one.
+        let (icons, _) = rendered_icons("definitely-not-a-real-theme", TINT);
+        let (_, registered) = icons
+            .iter()
+            .find(|(name, _)| name == "titlebar-close")
+            .expect("the glyph is registered");
+        assert!(
+            !registered.contains("currentColor"),
+            "the registered glyph must carry a resolved fill, not an unresolved \
+             `currentColor` that paints nothing: {registered}"
+        );
+        assert!(
+            registered.contains("fill:#123456") || registered.contains("fill=\"#123456\""),
+            "and that fill is the palette tint: {registered}"
+        );
+        assert!(icon_dom(registered).is_some(), "the glyph must parse");
     }
 
     /// It is REGISTERED, under a name of its own - the theme's action icon

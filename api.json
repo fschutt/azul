@@ -7957,6 +7957,19 @@
                                 "window_theme": {
                                     "type": "WindowTheme"
                                 },
+                                "window_frame": {
+                                    "type": "WindowFrame",
+                                    "doc": [
+                                        "The window's CURRENT frame: normal, minimized, maximized, fullscreen.",
+                                        "",
+                                        "Here for the same reason window_theme is: a view whose content depends",
+                                        "on a window-level fact should READ that fact rather than be handed a",
+                                        "copy at build time and then kept in sync. The window control that has",
+                                        "to draw maximize-or-restore is the case - a seeded copy is wrong the",
+                                        "moment the window manager maximizes the window itself (super+up, edge",
+                                        "snap, a tiling rule), which never reaches the button's own callback."
+                                    ]
+                                },
                                 "bounds": {
                                     "type": "HidpiAdjustedBounds"
                                 },
@@ -47749,6 +47762,20 @@
                                 },
                                 "icon": {
                                     "type": "String"
+                                },
+                                "icon_dom": {
+                                    "type": "OptionDom",
+                                    "doc": [
+                                        "A ready-made DOM to use AS the leading icon, instead of resolving",
+                                        "`icon` into one.",
+                                        "",
+                                        "The escape hatch for an icon that is not a fixed picture: a control",
+                                        "whose glyph depends on live state (the window control that draws",
+                                        "maximize or restore) wraps itself in a VirtualView so it can re-render",
+                                        "in place, and hands the view here. `icon` is still read for the",
+                                        "ACCESSIBLE NAME, so set both - the name is what a screen reader",
+                                        "announces and a view cannot supply it."
+                                    ]
                                 },
                                 "trailing_icon": {
                                     "type": "String"

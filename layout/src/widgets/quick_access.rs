@@ -31,7 +31,7 @@
 //! band has no self-driven chrome interactions.
 
 use azul_core::{
-    dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec},
+    dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, OptionDom},
     refany::RefAny,
 };
 #[allow(clippy::wildcard_imports)]
@@ -55,6 +55,7 @@ use azul_css::system::SystemStyle;
 use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut};
 
 use super::button::{Button, OptionButtonOnClick};
+use super::titlebar;
 
 // -- Font --
 
@@ -765,28 +766,48 @@ impl QuickAccessBar {
         // the session's real windows is the one detail that gives client-side
         // decoration away; the same chain the CSD titlebar widget uses
         // (`super::titlebar`) keeps them identical.
+        // A control with no app callback still has to WORK. These three do one
+        // window-state thing each, identically in every app, and a bar that
+        // draws them and then does nothing when they are clicked is worse than
+        // one that draws none - which is what this band was: `on_minimize` and
+        // friends default to `None`, so AzWriter's window buttons were
+        // decorative. The default is the titlebar widget's own callback, so
+        // the two bars behave identically as well as looking identical.
         if show_minimize {
             children.push(window_button(
                 AzString::from_const_str("system:window-minimize,minimize"),
+                OptionDom::None,
                 style.window_button_style.clone(),
                 &style,
-                on_minimize,
+                or_default(on_minimize, titlebar::callbacks::csd_minimize),
             ));
         }
         if show_maximize {
             children.push(window_button(
                 AzString::from_const_str("system:window-maximize,crop_square"),
+                // The glyph depends on the LIVE window frame, so it is a view
+                // that re-renders in place rather than a fixed picture - see
+                // `titlebar::maximize_icon_view`. The `icon` above stays as the
+                // accessible name; the click stays on the BUTTON, which is the
+                // only box that covers the whole control (the view cannot be
+                // made to - see the sizing note in `maximize_icon_view`).
+                OptionDom::Some(titlebar::maximize_icon_view(
+                    AzString::from_const_str("system:window-maximize,crop_square"),
+                    AzString::from_const_str("system:window-restore,filter_none"),
+                    style.window_icon_style.clone(),
+                )),
                 style.window_button_style.clone(),
                 &style,
-                on_maximize,
+                or_default(on_maximize, titlebar::callbacks::csd_maximize),
             ));
         }
         if show_close {
             children.push(window_button(
                 AzString::from_const_str("system:titlebar-close,system:window-close,close"),
+                OptionDom::None,
                 merged_style(&style.window_button_style, &style.close_button_style),
                 &style,
-                on_close,
+                or_default(on_close, titlebar::callbacks::csd_close),
             ));
         }
 
@@ -840,16 +861,34 @@ fn action_button(
 
 fn window_button(
     icon: AzString,
+    icon_dom: OptionDom,
     container: CssPropertyWithConditionsVec,
     style: &QuickAccessStyle,
     on_click: OptionButtonOnClick,
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
     b.icon = icon;
+    b.icon_dom = icon_dom;
     b.container_style = container;
     b.icon_style = style.window_icon_style.clone();
     b.on_click = on_click;
     b.dom()
+}
+
+/// The app's callback if it set one, otherwise the shared window-control
+/// default. Takes the default as a plain `fn` so a control needs no `RefAny`
+/// of its own: these callbacks read the window state and write it back.
+fn or_default(
+    supplied: OptionButtonOnClick,
+    fallback: super::button::ButtonOnClickCallbackType,
+) -> OptionButtonOnClick {
+    if supplied.is_some() {
+        return supplied;
+    }
+    OptionButtonOnClick::Some(super::button::ButtonOnClick {
+        refany: RefAny::new(()),
+        callback: fallback.into(),
+    })
 }
 
 #[cfg(test)]
@@ -868,7 +907,19 @@ mod tests {
     #[test]
     fn the_window_controls_ask_the_desktop_icon_theme_first() {
         let dom = QuickAccessBar::new(AzString::from("t")).dom();
-        let icons: Vec<String> = collect_icon_names(&dom);
+        let mut icons: Vec<String> = collect_icon_names(&dom);
+        // The maximize control's glyph is a VIEW, because it depends on the
+        // live window frame - so its chain is what the view DRAWS, not what
+        // the tree contains. Both states are asserted in
+        // `the_maximize_control_draws_restore_when_the_window_is_maximized`;
+        // here it joins the chain check like the other two.
+        icons.push(
+            super::super::titlebar::glyph_drawn_by_view(
+                maximize_view(&dom),
+                azul_core::window::WindowFrame::Normal,
+            )
+            .expect("the maximize control draws an icon"),
+        );
         for (system, fallback) in [
             ("system:window-minimize", "minimize"),
             ("system:window-maximize", "crop_square"),
@@ -889,6 +940,64 @@ mod tests {
                 "{chain} must fall back to the bundled {fallback} glyph"
             );
         }
+    }
+
+    /// The maximize control's icon view inside a rendered band.
+    fn maximize_view(dom: &Dom) -> &Dom {
+        fn walk<'a>(node: &'a Dom, out: &mut Option<&'a Dom>) {
+            if matches!(
+                node.root.get_node_type(),
+                azul_core::dom::NodeType::VirtualView
+            ) && out.is_none()
+            {
+                *out = Some(node);
+            }
+            for c in node.children.as_ref() {
+                walk(c, out);
+            }
+        }
+        let mut found = None;
+        walk(dom, &mut found);
+        found.expect("the band renders a maximize icon view")
+    }
+
+    #[test]
+    fn the_maximize_control_draws_restore_when_the_window_is_maximized() {
+        use azul_core::window::WindowFrame;
+        let dom = QuickAccessBar::new(AzString::from("t")).dom();
+        let view = maximize_view(&dom);
+        assert_eq!(
+            super::super::titlebar::glyph_drawn_by_view(view, WindowFrame::Normal).as_deref(),
+            Some("system:window-maximize,crop_square")
+        );
+        assert_eq!(
+            super::super::titlebar::glyph_drawn_by_view(view, WindowFrame::Maximized).as_deref(),
+            Some("system:window-restore,filter_none")
+        );
+    }
+
+    #[test]
+    fn the_window_controls_work_without_the_app_wiring_them() {
+        // They did nothing at all before: `on_minimize`/`on_maximize`/
+        // `on_close` default to None, and AzWriter never set them, so the
+        // band's window buttons were decorative. Each now falls back to the
+        // titlebar widget's own callback, which is the same behaviour the
+        // auto-injected bar has.
+        let dom = QuickAccessBar::new(AzString::from("t")).dom();
+        let mut with_callbacks = 0usize;
+        fn walk(node: &Dom, n: &mut usize) {
+            if !node.root.get_callbacks().as_ref().is_empty() {
+                *n += 1;
+            }
+            for c in node.children.as_ref() {
+                walk(c, n);
+            }
+        }
+        walk(&dom, &mut with_callbacks);
+        assert!(
+            with_callbacks >= 3,
+            "minimize, maximize and close must each carry a callback, found {with_callbacks}"
+        );
     }
 
     /// Every icon name in a DOM tree, in document order.

@@ -66,7 +66,7 @@ use crate::{
     },
     window::{
         AzStringPair, KeyboardState, MouseState, OptionChar, RawWindowHandle, UpdateFocusWarning,
-        WindowFlags, WindowSize, WindowTheme,
+        WindowFlags, WindowFrame, WindowSize, WindowTheme,
     },
     FastBTreeSet, OrderedMap,
 };
@@ -441,6 +441,16 @@ pub struct VirtualViewCallbackInfo {
     pub system_fonts: *const FcFontCache,
     pub image_cache: *const ImageCache,
     pub window_theme: WindowTheme,
+    /// The window's CURRENT frame: normal, minimized, maximized, fullscreen.
+    ///
+    /// Here for the same reason `window_theme` is: a view whose content
+    /// depends on a window-level fact should read that fact, not be handed a
+    /// copy of it at build time and then kept in sync. The window control that
+    /// has to draw "maximize" or "restore" is the case - a seeded copy is
+    /// wrong the moment the window manager maximizes the window itself
+    /// (super+up, edge snap, a tiling rule), which never goes through the
+    /// button's own callback.
+    pub window_frame: WindowFrame,
     /// RECT 1 - THE CONTAINER: the `VirtualView`'s on-screen box, computed by
     /// the framework from the outer DOM. You do not set this; you render into
     /// it.
@@ -487,6 +497,7 @@ impl Clone for VirtualViewCallbackInfo {
             system_fonts: self.system_fonts,
             image_cache: self.image_cache,
             window_theme: self.window_theme,
+            window_frame: self.window_frame,
             bounds: self.bounds,
             materialized: self.materialized,
             virtual_rect: self.virtual_rect,
@@ -506,6 +517,7 @@ impl VirtualViewCallbackInfo {
         system_fonts: &'a FcFontCache,
         image_cache: &'a ImageCache,
         window_theme: WindowTheme,
+        window_frame: WindowFrame,
         bounds: HidpiAdjustedBounds,
         materialized: LogicalRect,
         virtual_rect: LogicalRect,
@@ -516,6 +528,7 @@ impl VirtualViewCallbackInfo {
             system_fonts: core::ptr::from_ref::<FcFontCache>(system_fonts),
             image_cache: core::ptr::from_ref::<ImageCache>(image_cache),
             window_theme,
+            window_frame,
             bounds,
             materialized,
             virtual_rect,

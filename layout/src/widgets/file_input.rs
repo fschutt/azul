@@ -193,6 +193,7 @@ impl FileInput {
             label: button_label,
             image: self.image,
             icon: AzString::from_const_str(""),
+            icon_dom: None.into(),
             trailing_icon: AzString::from_const_str(""),
             button_type: crate::widgets::button::ButtonType::Default,
             container_style: self.container_style,

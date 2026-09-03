@@ -788,13 +788,17 @@ pub(crate) fn icon_view(spec: impl Into<AzString>) -> Dom {
     // the same data, so rewriting the spec here is what the callback reads
     // there. (The progress bar's fast path is built the same way.)
     .with_dataset(OptionRefAny::Some(dataset))
-    // An icon never scrolls. The view reports the icon's MEASURED size, which
-    // is what makes `auto` work, and that report can exceed a box the caller
-    // sized itself (a 40px icon asked to sit in a 24px button) - without this
-    // the view machinery would answer that with a scrollbar. A caller's own
-    // `with_css` still wins on anything it states; this only fills in what the
-    // caller has no reason to think about.
-    .with_css("overflow: hidden;")
+    // Lays out like the icon node it stands in for. A `VirtualView` defaults
+    // to `display: block` (it exists to virtualize scrollable content) and to
+    // `overflow: auto` with it - but an icon is INLINE content, and one that
+    // grows a scrollbar is absurd. The view also reports the icon's MEASURED
+    // size, which can exceed a box the caller sized itself (a 40px icon asked
+    // to sit in a 24px button), and `auto` would answer that with a bar.
+    //
+    // A caller's own `with_css` is appended after this and so wins on anything
+    // it states; this only fills in what the caller has no reason to think
+    // about.
+    .with_css("display: inline-block; overflow: hidden;")
 }
 
 /// [`icon_view`]'s callback: render the spec the dataset currently holds.

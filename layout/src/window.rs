@@ -863,6 +863,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // shares. Its bytes belong to the app's report, once, not to each
         // window that can reach it.
         icon_provider: _,
+        last_laid_out_frame: _,
         system_animations_override: _,
         monitors: _,
         input_interpreter: _,
@@ -1442,6 +1443,15 @@ pub struct LayoutWindow {
     /// `None` in a window whose app registered no icons at all, and in the
     /// headless windows the tests build directly; both then cascade unchanged.
     pub icon_provider: Option<azul_core::icon::SharedIconProvider>,
+    /// The window frame the last layout pass ran under.
+    ///
+    /// A `VirtualView` callback can READ the live frame
+    /// (`VirtualViewCallbackInfo::window_frame`) - the window control that
+    /// draws "maximize" or "restore" does - and nothing else would re-invoke
+    /// it when that changes: a maximize resizes the WINDOW but leaves a
+    /// fixed-size control's box exactly where it was, so `check_reinvoke` sees
+    /// no reason. This is that reason.
+    pub last_laid_out_frame: azul_core::window::WindowFrame,
     /// Per-window override of the app-global system-animation configuration
     /// (`set_global_system_animations`). `None` = use the global. Mostly for
     /// tests, which must not race the process-wide slot.
@@ -1893,6 +1903,7 @@ impl LayoutWindow {
             pending_unmount_invocations: Vec::new(),
             system_style: None,
             icon_provider: None,
+            last_laid_out_frame: azul_core::window::WindowFrame::Normal,
             monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
             preedit_shaped_node: None,
@@ -2004,6 +2015,19 @@ impl LayoutWindow {
         // of which scheduler decided it should.
         self.sync_frame_report();
         self.frame_report.layout_passes = self.frame_report.layout_passes.saturating_add(1);
+
+        // A frame transition re-invokes every view, BEFORE this pass scans for
+        // them, so a view that renders from the frame is right in the same
+        // frame the window is maximized in. Without it the only path back is a
+        // full DOM rebuild, which a window-manager maximize (super+up, an edge
+        // snap, a tiling rule) does not necessarily cause - and then a
+        // maximized window keeps offering "maximize".
+        if self.last_laid_out_frame != window_state.flags.frame {
+            self.last_laid_out_frame = window_state.flags.frame;
+            for (dom_id, node_id) in self.virtual_view_manager.all_view_keys() {
+                self.virtual_view_manager.force_reinvoke(dom_id, node_id);
+            }
+        }
 
         // Honor the documented rejection path: the app was NOTIFIED of the
         // pending structural edit (its `DocumentEdit` callback ran on an
@@ -6716,6 +6740,10 @@ impl LayoutWindow {
             &self.font_manager.fc_cache,
             &self.image_cache,
             window_state.theme,
+            // The live frame, not a copy the widget was built with: a control
+            // that draws "maximize" vs "restore" must be right after a window
+            // manager maximize too, which never reaches the button's callback.
+            window_state.flags.frame,
             HidpiAdjustedBounds {
                 logical_size: bounds.size,
                 hidpi_factor,
@@ -17837,6 +17865,7 @@ impl LayoutWindow {
             system_style: _,
             // App-level icon storage keyed by NAME, not by node id.
             icon_provider: _,
+            last_laid_out_frame: _,
             monitors: _,
             font_stacks_hash: _,
             preedit_shaped_node: _,

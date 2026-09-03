@@ -3,6 +3,7 @@
 //! Key type: [`Titlebar`]
 
 use azul_core::{
+    callbacks::CoreCallbackDataVec,
     dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClass::Id, IdOrClassVec},
     refany::RefAny,
 };
@@ -580,6 +581,165 @@ impl Titlebar {
     }
 }
 
+/// The size a window-control glyph is drawn at - freedesktop's nominal for a
+/// control icon (`actions/16`), which is the directory the system icon pack
+/// loads from.
+pub(crate) const CONTROL_GLYPH_PX: isize = 16;
+
+/// The private dataset of the maximize control's icon view.
+///
+/// PRIVATE on purpose. The window frame is a window fact, not a widget input:
+/// putting it in `TitlebarButtons` (an FFI type in the system style) or in a
+/// `Titlebar` field would have made every caller responsible for passing it in
+/// and keeping it current. Here the view reads the live frame from its
+/// callback info instead, and this dataset only carries what the WIDGET knows:
+/// which two icons to choose between, and how the glyph is styled.
+#[derive(Debug, Clone)]
+struct MaximizeIconDataset {
+    /// Spec chain drawn when the window is not maximized.
+    maximize: AzString,
+    /// Spec chain drawn when it is.
+    restore: AzString,
+    /// The style the icon node used to get from the surrounding sheet. A
+    /// view's child DOM is its own document, so a rule in the outer stylesheet
+    /// cannot reach the glyph any more - it travels here instead.
+    icon_style: CssPropertyWithConditionsVec,
+}
+
+/// The maximize/restore control's icon, as a `VirtualView`.
+///
+/// The glyph has to change when the window is maximized, and the tree it lives
+/// in has already been built by the time any callback runs - so the icon lives
+/// in a view whose callback re-renders in place, exactly like the progress
+/// bar's. What the callback returns is a plain `<icon>` node, which the engine
+/// resolves on its way into the view's child DOM like any other user DOM.
+///
+/// The frame comes from `VirtualViewCallbackInfo::window_frame`, i.e. the LIVE
+/// window state, not from anything seeded here. That is what makes it right
+/// after a window-manager maximize (super+up, an edge snap, a tiling rule),
+/// none of which reaches this button's click callback.
+pub(crate) fn maximize_icon_view(
+    maximize: AzString,
+    restore: AzString,
+    icon_style: CssPropertyWithConditionsVec,
+) -> Dom {
+    let dataset = RefAny::new(MaximizeIconDataset {
+        maximize,
+        restore,
+        icon_style,
+    });
+    Dom::create_virtual_view(
+        dataset.clone(),
+        azul_core::callbacks::VirtualViewCallback::create(render_maximize_icon),
+    )
+    .with_dataset(azul_core::refany::OptionRefAny::Some(dataset))
+    .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+        // THE GLYPH'S BOX, and the click stays on the button around it.
+        //
+        // The behaviour belongs with the rendering, and it was written that
+        // way first - the view carried the callback and was to fill the
+        // button, so one place produced both. Two REPLACED-ELEMENT SIZING BUGS
+        // make that unsafe, and both were measured rather than guessed:
+        //
+        //   * as a flex item, a replaced element takes its INTRINSIC main-axis
+        //     size whatever the CSS says. `width: 34px`, `flex-basis: 0` and
+        //     `flex-grow: 1` were each tried; the view laid out 12px wide.
+        //   * a PERCENTAGE on a replaced element falls back to intrinsic too:
+        //     `width: 100%` in a 34x28 button also gave 12x16.
+        //
+        // With an explicit pixel size it takes the size but is PLACED from the
+        // intrinsic one - measured at (1215,22)+32x26 inside a button at
+        // (1204,16)+34x28, i.e. overhanging it. A view that cannot be made to
+        // cover the control cannot carry the control's click without shrinking
+        // the target, so the click stays where the whole control is: on the
+        // button. Both bugs hit `<img>` in a flex row exactly as hard and are
+        // worth fixing on their own; when they are, this moves.
+        //
+        // 16px is freedesktop's nominal for a control icon (`actions/16`, the
+        // directory the system pack loads from) and what `.csd-button`'s
+        // font-size asks of the Material fallback - the box the icon node this
+        // replaces already had.
+        CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+            LayoutDisplay::InlineBlock,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
+            LayoutWidth::Px(PixelValue::const_px(CONTROL_GLYPH_PX)),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
+            LayoutHeight::Px(PixelValue::const_px(CONTROL_GLYPH_PX)),
+        ))),
+        // A VirtualView defaults to `overflow: auto` because it exists to
+        // virtualize SCROLLABLE content. A glyph is not that, and an icon that
+        // grows a scrollbar is absurd.
+        CssPropertyWithConditions::simple(CssProperty::OverflowX(LayoutOverflowValue::Exact(
+            LayoutOverflow::Hidden,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::OverflowY(LayoutOverflowValue::Exact(
+            LayoutOverflow::Hidden,
+        ))),
+    ]))
+}
+
+/// [`maximize_icon_view`]'s callback: draw whichever of the two icons the
+/// window's CURRENT frame calls for.
+extern "C" fn render_maximize_icon(
+    mut data: RefAny,
+    info: azul_core::callbacks::VirtualViewCallbackInfo,
+) -> azul_core::callbacks::VirtualViewReturn {
+    use azul_core::{
+        callbacks::VirtualViewReturn,
+        geom::{LogicalPosition, LogicalRect},
+        window::WindowFrame,
+    };
+
+    let Some(state) = data.downcast_ref::<MaximizeIconDataset>() else {
+        // Foreign payload: draw nothing rather than lie about bounds.
+        return VirtualViewReturn::default();
+    };
+    // Only Maximized reads as "restore". Fullscreen deliberately does not: the
+    // button toggles Maximized <-> Normal, so from fullscreen the next click
+    // maximizes, and the glyph should say so.
+    let maximized = info.window_frame == WindowFrame::Maximized;
+    let spec = if maximized {
+        state.restore.clone()
+    } else {
+        state.maximize.clone()
+    };
+    let icon = Dom::create_icon(spec).with_css_props(state.icon_style.clone());
+    // The control's interior: the glyph, centred, under the control's own
+    // click callback. Centring is stated here because the button's
+    // `text-align: center` lives in the OUTER stylesheet, which cannot reach a
+    // view's child DOM - it is a document of its own.
+    // The glyph, centred in the view. Centring is stated here because the
+    // button's `text-align: center` lives in the OUTER stylesheet, which
+    // cannot reach a view's child DOM - it is a document of its own.
+    //
+    // It also announces what the control DOES, and that depends on the frame -
+    // the same fact the glyph depends on, so the view is the only place that
+    // can keep the two in step. The button carries the click; this carries the
+    // name a screen reader reads, which used to be the raw icon-spec string.
+    let interior = Dom::create_div()
+        .with_css(
+            "display: flex; align-items: center; justify-content: center; width: 100%; height: \
+             100%;",
+        )
+        .with_accessibility_assign(azul_core::a11y::AccessibilityInfo {
+            accessibility_name: Some(AzString::from_const_str(if maximized {
+                "Restore"
+            } else {
+                "Maximize"
+            }))
+            .into(),
+            role: azul_core::a11y::AccessibilityRole::PushButton,
+            ..azul_core::a11y::AccessibilityInfo::default()
+        })
+        .with_child(icon);
+
+    let rect = LogicalRect::new(LogicalPosition::zero(), info.bounds.get_logical_size());
+    // A control does not scroll: all three rects are the button's box.
+    VirtualViewReturn::with_dom(interior, rect, rect)
+}
+
 /// Build the `.csd-buttons` container with close/min/max button DOM nodes.
 #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
 fn build_button_container(
@@ -647,7 +807,11 @@ fn build_button_container(
             Dom::create_div()
                 .with_ids_and_classes(classes)
                 .with_css_props(hover_style(hover))
-                .with_child(Dom::create_icon("system:window-maximize,maximize"))
+                .with_child(maximize_icon_view(
+                    AzString::from_const_str("system:window-maximize,maximize"),
+                    AzString::from_const_str("system:window-restore,restore"),
+                    CssPropertyWithConditionsVec::from_const_slice(&[]),
+                ))
                 .with_callbacks(
                     vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseDown),
@@ -703,6 +867,58 @@ impl Default for Titlebar {
     fn default() -> Self {
         Self::new(AzString::from_const_str(""))
     }
+}
+
+/// TEST HELPER: run a window-control icon view's callback under `frame` and
+/// report the icon spec it drew.
+///
+/// Lives here rather than in a test module because BOTH bars that carry window
+/// controls assert against it - this widget and the quick-access band - and the
+/// dataset the view reads is private to this module.
+#[cfg(test)]
+pub(crate) fn glyph_drawn_by_view(
+    view: &Dom,
+    frame: azul_core::window::WindowFrame,
+) -> Option<String> {
+    use azul_core::{
+        callbacks::{HidpiAdjustedBounds, VirtualViewCallbackInfo, VirtualViewCallbackReason},
+        dom::{NodeType, OptionDom},
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        resources::{DpiScaleFactor, ImageCache},
+        window::WindowTheme,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    let node = view.root.get_virtual_view_node_ref()?;
+    let fonts = FcFontCache::default();
+    let images = ImageCache::default();
+    let size = LogicalSize::new(32.0, 24.0);
+    let info = VirtualViewCallbackInfo::new(
+        VirtualViewCallbackReason::InitialRender,
+        &fonts,
+        &images,
+        WindowTheme::LightMode,
+        frame,
+        HidpiAdjustedBounds {
+            logical_size: size,
+            hidpi_factor: DpiScaleFactor::new(1.0),
+        },
+        LogicalRect::new(LogicalPosition::zero(), size),
+        LogicalRect::new(LogicalPosition::zero(), size),
+        LogicalPosition::zero(),
+    );
+    let OptionDom::Some(dom) = (node.callback.cb)(node.refany.clone(), info).dom else {
+        return None;
+    };
+    // The view renders the control's INTERIOR - the glyph under the control's
+    // click callback - so the icon is one level in.
+    fn first_icon(node: &Dom) -> Option<String> {
+        if let NodeType::Icon(name) = node.root.get_node_type() {
+            return Some(name.as_str().to_string());
+        }
+        node.children.as_ref().iter().find_map(first_icon)
+    }
+    first_icon(&dom)
 }
 
 // ── Titlebar callbacks ───────────────────────────────────────────────────
@@ -819,7 +1035,7 @@ pub mod callbacks {
     }
 
     /// Close button - `close_requested = true`.
-    pub(super) extern "C" fn csd_close(_data: RefAny, mut info: CallbackInfo) -> Update {
+    pub(crate) extern "C" fn csd_close(_data: RefAny, mut info: CallbackInfo) -> Update {
         let mut s = info.get_current_window_state().clone();
         s.flags.close_requested = true;
         info.modify_window_state(s);
@@ -827,7 +1043,7 @@ pub mod callbacks {
     }
 
     /// Minimize button - `frame = Minimized`.
-    pub(super) extern "C" fn csd_minimize(_data: RefAny, mut info: CallbackInfo) -> Update {
+    pub(crate) extern "C" fn csd_minimize(_data: RefAny, mut info: CallbackInfo) -> Update {
         use azul_core::window::WindowFrame;
         let mut s = info.get_current_window_state().clone();
         s.flags.frame = WindowFrame::Minimized;
@@ -836,7 +1052,7 @@ pub mod callbacks {
     }
 
     /// Maximize button - toggle Maximized ↔ Normal.
-    pub(super) extern "C" fn csd_maximize(_data: RefAny, mut info: CallbackInfo) -> Update {
+    pub(crate) extern "C" fn csd_maximize(_data: RefAny, mut info: CallbackInfo) -> Update {
         use azul_core::window::WindowFrame;
         let mut s = info.get_current_window_state().clone();
         s.flags.frame = if s.flags.frame == WindowFrame::Maximized {
@@ -845,6 +1061,11 @@ pub mod callbacks {
             WindowFrame::Maximized
         };
         info.modify_window_state(s);
+        // Nothing else to do: the frame change itself re-invokes every view
+        // before the next pass scans for them (see
+        // `LayoutWindow::last_laid_out_frame`), so the glyph flips in the same
+        // pass the window resizes in - and by the SAME path a window-manager
+        // maximize takes, which never reaches this callback at all.
         Update::DoNothing
     }
 }
@@ -2542,14 +2763,71 @@ mod autotest_generated {
                 "{id} must carry exactly one MouseDown callback",
             );
             assert_eq!(node.children.as_ref().len(), 1);
-            let spec = icon_of(&node.children.as_ref()[0])
-                .unwrap_or_else(|| panic!("{id} rendered no icon at all"));
+            let child = &node.children.as_ref()[0];
+            if id == "csd-button-maximize" {
+                // This control's glyph depends on the live window frame, so it
+                // is a VIEW rather than a fixed icon node. The spec pair it
+                // chooses between is asserted by
+                // `the_maximize_control_draws_restore_only_when_maximized`.
+                assert!(
+                    matches!(child.root.get_node_type(), NodeType::VirtualView),
+                    "the maximize control's glyph has to be a view it can re-render",
+                );
+                continue;
+            }
+            let spec =
+                icon_of(child).unwrap_or_else(|| panic!("{id} rendered no icon at all"));
             assert_eq!(
                 spec,
                 alloc::format!("{native},{fallback}"),
                 "{id} rendered the wrong icon",
             );
         }
+    }
+
+    /// Runs the titlebar's maximize view under `frame` and returns the spec.
+    fn maximize_glyph_under(frame: azul_core::window::WindowFrame) -> String {
+        let container = build_button_container(
+            &TitlebarButtons::default(),
+            OptionColorU::None,
+            OptionColorU::None,
+        );
+        let button = container
+            .children
+            .as_ref()
+            .iter()
+            .find(|n| ids(n) == vec!["csd-button-maximize".to_string()])
+            .expect("the maximize button");
+        super::glyph_drawn_by_view(&button.children.as_ref()[0], frame)
+            .expect("the maximize control's glyph is a view that draws an icon")
+    }
+
+    #[test]
+    fn the_maximize_control_draws_restore_only_when_maximized() {
+        use azul_core::window::WindowFrame;
+
+        // The bug this closes: the button kept offering "maximize" while the
+        // window already was maximized, because the glyph was baked into the
+        // tree at build time and the frame changes without a rebuild.
+        assert_eq!(
+            maximize_glyph_under(WindowFrame::Normal),
+            "system:window-maximize,maximize"
+        );
+        assert_eq!(
+            maximize_glyph_under(WindowFrame::Maximized),
+            "system:window-restore,restore"
+        );
+        // Minimized is not maximized, and fullscreen deliberately is not
+        // either: the button toggles Maximized <-> Normal, so from fullscreen
+        // the next click maximizes and the glyph should say so.
+        assert_eq!(
+            maximize_glyph_under(WindowFrame::Minimized),
+            "system:window-maximize,maximize"
+        );
+        assert_eq!(
+            maximize_glyph_under(WindowFrame::Fullscreen),
+            "system:window-maximize,maximize"
+        );
     }
 
     #[test]
@@ -2585,8 +2863,14 @@ mod autotest_generated {
                     + usize::from(buttons.has_minimize)
                     + usize::from(buttons.has_maximize);
                 // title + label <p> + text + button container
-                // + 3 nodes per enabled button (button, icon, its glyph slot)
-                assert_eq!(dom.estimated_total_children, 4 + 3 * enabled);
+                // + 3 nodes per enabled button (button, icon, its glyph slot),
+                // except MAXIMIZE, whose glyph is a single VirtualView node:
+                // its child DOM is a document of its own and contributes
+                // nothing to this tree.
+                assert_eq!(
+                    dom.estimated_total_children,
+                    4 + 3 * enabled - usize::from(buttons.has_maximize)
+                );
             }
         }
     }

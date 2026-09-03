@@ -2071,29 +2071,47 @@ mod autotest_generated {
         const BLOCKS: usize = 128;
         const TOTAL: u64 = (BLOCK * BLOCKS) as u64;
 
-        let before = malloc_heap_bytes();
-        assert!(before > 0, "a live process holds a non-zero heap");
+        // BEST OF SEVERAL, not one reading. The counter is PROCESS-GLOBAL and
+        // this runs inside a test binary whose several thousand other tests
+        // allocate and free megabytes on other threads throughout — so a
+        // single before/during/after triple is signal plus whatever they did
+        // in the same microseconds, and which dominates is luck. It failed
+        // both ways within one afternoon: once with `during` BELOW `before`
+        // (another thread freed more than this allocated), once with `after`
+        // above `during - TOTAL/2`.
+        //
+        // Retrying does not weaken the assertion. A quiet window arrives
+        // quickly, and a probe that genuinely does not track the heap - the
+        // thing this test exists to catch - fails EVERY attempt.
+        const ATTEMPTS: usize = 32;
+        let mut last = (0_u64, 0_u64, 0_u64);
+        for _ in 0..ATTEMPTS {
+            let before = malloc_heap_bytes();
+            assert!(before > 0, "a live process holds a non-zero heap");
 
-        let mut ballast: Vec<Vec<u8>> = Vec::with_capacity(BLOCKS);
-        for _ in 0..BLOCKS {
-            // Touch it: a Vec that is never written may not be committed.
-            ballast.push(vec![0xAB_u8; BLOCK]);
+            let mut ballast: Vec<Vec<u8>> = Vec::with_capacity(BLOCKS);
+            for _ in 0..BLOCKS {
+                // Touch it: a Vec that is never written may not be committed.
+                ballast.push(vec![0xAB_u8; BLOCK]);
+            }
+            let during = malloc_heap_bytes();
+
+            drop(ballast);
+            let after = malloc_heap_bytes();
+
+            let grew = during >= before + TOTAL / 2;
+            let shrank = after < during - TOTAL / 2;
+            if grew && shrank {
+                return;
+            }
+            last = (before, during, after);
         }
-        let during = malloc_heap_bytes();
 
-        drop(ballast);
-        let after = malloc_heap_bytes();
-
-        assert!(
-            during >= before + TOTAL / 2,
-            "allocating {TOTAL} B moved the probe by only {} B \
-             (before={before}, during={during}) — it is not measuring the heap",
-            during.saturating_sub(before),
-        );
-        assert!(
-            after < during - TOTAL / 2,
-            "freeing {TOTAL} B left the probe at {after} B (during={during}) — \
-             it does not see frees, so it cannot distinguish a leak from churn",
+        let (before, during, after) = last;
+        panic!(
+            "in {ATTEMPTS} attempts the probe never tracked a {TOTAL} B allocate-and-free \
+             (last: before={before}, during={during}, after={after}) — it is not measuring the \
+             heap"
         );
     }
 

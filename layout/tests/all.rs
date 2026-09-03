@@ -382,6 +382,8 @@ mod web_lift_nested_text_repro;
 mod whitespace_processing;
 #[path = "widget_lint_manifest_is_exhaustive.rs"]
 mod widget_lint_manifest_is_exhaustive;
+#[path = "window_control_click.rs"]
+mod window_control_click;
 #[path = "window_tests.rs"]
 mod window_tests;
 #[path = "xml_dom_embed.rs"]
