@@ -25,6 +25,7 @@ mod backstage_ui;
 mod document;
 mod editor_ui;
 mod fonts;
+pub mod ir;
 mod palette;
 mod perf;
 mod ribbon_ui;
