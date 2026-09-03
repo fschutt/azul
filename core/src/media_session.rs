@@ -267,6 +267,46 @@ impl_option!(
     [Debug, Clone, PartialEq]
 );
 
+/// What the system did with the audio the app took over (9h-i-a-i-d-i).
+///
+/// Delivered as a `SystemAudioChange` event and readable through
+/// `CallbackInfo::get_system_audio_change`. The vocabulary is the union of
+/// iOS's interruption notification and Android's audio-focus changes, each
+/// variant naming what the APP should do.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SystemAudioChange {
+    /// The takeover is in place: the app owns the system audio. iOS session
+    /// activated, Android focus granted (possibly after a delay), or a
+    /// platform where nothing needed taking (desktop mixers share).
+    Granted,
+    /// Something took it for a while - a call, an alarm, another player:
+    /// PAUSE. iOS interruption began; Android `AUDIOFOCUS_LOSS_TRANSIENT`.
+    Interrupted,
+    /// Something short wants to be heard over the app - a navigation prompt,
+    /// a notification: LOWER the volume and keep playing. Android
+    /// `AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK`; iOS has no ducking signal, it
+    /// interrupts instead.
+    Ducked,
+    /// The interruption or ducking ended and the app SHOULD RESUME where it
+    /// was: iOS ended with the "should resume" hint, Android regained
+    /// `AUDIOFOCUS_GAIN` after a transient loss.
+    Resumed,
+    /// The interruption ended WITHOUT a resume hint (iOS): the session is the
+    /// app's again, but it must wait for the user to press play.
+    Ended,
+    /// The takeover was refused or is gone for good: iOS could not activate
+    /// the session, Android refused the request or reported
+    /// `AUDIOFOCUS_LOSS`. STOP, and take over again only on the user's ask.
+    Lost,
+}
+
+impl_option!(
+    SystemAudioChange,
+    OptionSystemAudioChange,
+    [Debug, Clone, Copy, PartialEq, Eq]
+);
+
 /// A position jump larger than this, on the same track, is a SEEK the app
 /// made on its own (a click on its own progress bar) and is announced back to
 /// the desktop (`Seeked`) so a scrubber re-syncs. A player reports its
@@ -289,6 +329,16 @@ pub struct MediaSessionManager {
     /// A position jump the APP reported; the platform side announces it
     /// (MPRIS `Seeked`) once, then this is cleared.
     seeked_to_us: Option<i64>,
+    /// Whether the app currently ASKS to own the system audio
+    /// (`CallbackInfo::set_system_audio_takeover`), 9h-i-a-i-d-i. What the
+    /// platform did about it arrives as [`SystemAudioChange`]s.
+    system_audio_active: bool,
+    /// System audio changes received since the last pass, delivered as
+    /// `SystemAudioChange` events and cleared with the requests.
+    pending_audio_changes: Vec<SystemAudioChange>,
+    /// The most recent change, kept after delivery for
+    /// `CallbackInfo::get_system_audio_change`.
+    last_audio_change: Option<SystemAudioChange>,
 }
 
 impl MediaSessionManager {
@@ -364,11 +414,46 @@ impl MediaSessionManager {
             self.last_request = Some(last);
         }
         self.pending_requests.clear();
+        if let Some(last) = self.pending_audio_changes.pop() {
+            self.last_audio_change = Some(last);
+        }
+        self.pending_audio_changes.clear();
     }
 
     #[must_use]
     pub fn has_pending_requests(&self) -> bool {
-        !self.pending_requests.is_empty()
+        !self.pending_requests.is_empty() || !self.pending_audio_changes.is_empty()
+    }
+
+    /// Record what the app asked for (9h-i-a-i-d-i): `true` while it wants
+    /// to own the system audio.
+    pub fn set_system_audio_active(&mut self, active: bool) {
+        self.system_audio_active = active;
+    }
+
+    #[must_use]
+    pub fn is_system_audio_active(&self) -> bool {
+        self.system_audio_active
+    }
+
+    /// Queue what the system did with the audio; delivered as a
+    /// `SystemAudioChange` event at the root on the next pass. `Lost` also
+    /// ends the app's claim, so `is_system_audio_active` reads false after it
+    /// without the app having to clean up.
+    pub fn push_system_audio_change(&mut self, change: SystemAudioChange) {
+        if change == SystemAudioChange::Lost {
+            self.system_audio_active = false;
+        }
+        self.pending_audio_changes.push(change);
+    }
+
+    /// The change being delivered on this pass, or the last one delivered.
+    #[must_use]
+    pub fn current_system_audio_change(&self) -> Option<SystemAudioChange> {
+        self.pending_audio_changes
+            .first()
+            .copied()
+            .or(self.last_audio_change)
     }
 
     /// The position jump to announce (MPRIS `Seeked`), if any; cleared by
@@ -385,29 +470,40 @@ impl crate::events::EventProvider for MediaSessionManager {
         &self,
         timestamp: crate::task::Instant,
     ) -> Vec<crate::events::SyntheticEvent> {
-        use crate::events::{EventData, EventSource, EventType, MediaControlEventData, SyntheticEvent};
-        self.pending_requests
-            .iter()
-            .map(|req| {
-                SyntheticEvent::new(
-                    EventType::MediaControl,
-                    EventSource::User,
-                    crate::dom::DomNodeId::ROOT,
-                    timestamp.clone(),
-                    EventData::MediaControl(MediaControlEventData {
-                        volume: req.volume,
-                        kind: req.kind,
-                        position_us: req.position_us,
-                    }),
-                )
-            })
-            .collect()
+        use crate::events::{
+            EventData, EventSource, EventType, MediaControlEventData, SyntheticEvent,
+            SystemAudioEventData,
+        };
+        let controls = self.pending_requests.iter().map(|req| {
+            SyntheticEvent::new(
+                EventType::MediaControl,
+                EventSource::User,
+                crate::dom::DomNodeId::ROOT,
+                timestamp.clone(),
+                EventData::MediaControl(MediaControlEventData {
+                    volume: req.volume,
+                    kind: req.kind,
+                    position_us: req.position_us,
+                }),
+            )
+        });
+        let audio = self.pending_audio_changes.iter().map(|change| {
+            SyntheticEvent::new(
+                EventType::SystemAudioChange,
+                EventSource::User,
+                crate::dom::DomNodeId::ROOT,
+                timestamp.clone(),
+                EventData::SystemAudio(SystemAudioEventData { change: *change }),
+            )
+        });
+        controls.chain(audio).collect()
     }
 }
 
 #[cfg(test)]
 mod seek_tests {
     use super::*;
+    use crate::events::SystemAudioEventData;
 
     fn at(position_us: i64) -> NowPlayingInfo {
         let mut i = NowPlayingInfo::empty();
@@ -466,6 +562,35 @@ mod seek_tests {
             }
             other => panic!("not a media control event: {:?}", other),
         }
+    }
+
+    /// 9h-i-a-i-d-i: a system audio change is delivered once, stays readable,
+    /// and `Lost` ends the app's claim by itself.
+    #[test]
+    fn a_system_audio_change_is_delivered_once_and_lost_ends_the_claim() {
+        use crate::events::{EventData, EventProvider};
+        let mut m = MediaSessionManager::new();
+        m.set_system_audio_active(true);
+        m.push_system_audio_change(SystemAudioChange::Interrupted);
+        let events = m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0)));
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, crate::events::EventType::SystemAudioChange);
+        assert!(matches!(
+            events[0].data,
+            EventData::SystemAudio(SystemAudioEventData {
+                change: SystemAudioChange::Interrupted
+            })
+        ));
+        assert!(m.is_system_audio_active(), "an interruption does not end the claim");
+        m.clear_pending_requests();
+        assert!(m.get_pending_events(crate::task::Instant::Tick(crate::task::SystemTick::new(0))).is_empty());
+        assert_eq!(
+            m.current_system_audio_change(),
+            Some(SystemAudioChange::Interrupted),
+            "still readable"
+        );
+        m.push_system_audio_change(SystemAudioChange::Lost);
+        assert!(!m.is_system_audio_active(), "Lost ends the claim");
     }
 
     #[test]

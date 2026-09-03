@@ -85,6 +85,28 @@ pub fn drain_media_controls() -> Vec<azul_core::media_session::MediaControlReque
         .unwrap_or_default()
 }
 
+/// System audio changes (9h-i-a-i-d-i) - an iOS interruption notification,
+/// an Android focus change - arriving on their own threads, queued like the
+/// requests above and drained at the top of the pass. NOT de-duplicated:
+/// `Interrupted` then `Resumed` in one batch is two things the app must do.
+static PENDING_AUDIO_CHANGES: std::sync::Mutex<Vec<azul_core::media_session::SystemAudioChange>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Queue one system audio change.
+pub fn push_system_audio_change(change: azul_core::media_session::SystemAudioChange) {
+    if let Ok(mut q) = PENDING_AUDIO_CHANGES.lock() {
+        q.push(change);
+    }
+}
+
+/// Take every queued change, oldest first.
+pub fn drain_system_audio_changes() -> Vec<azul_core::media_session::SystemAudioChange> {
+    PENDING_AUDIO_CHANGES
+        .lock()
+        .map(|mut q| core::mem::take(&mut *q))
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

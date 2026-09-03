@@ -229,3 +229,24 @@ pub fn announce_seeked(position_us: i64) {
     #[cfg(target_os = "linux")]
     linux::announce_seeked(position_us);
 }
+
+/// Take over (or release) the system audio (9h-i-a-i-d-i).
+///
+/// `Some(true)` = the app owns it now, `Some(false)` = refused, `None` =
+/// the platform will answer later through `push_system_audio_change`
+/// (Android's delayed focus grant). Desktop mixers share, so there is
+/// nothing to take and the answer is `Some(true)`; the SMTC and MPRIS
+/// controls work without any of this.
+#[allow(unused_variables)]
+pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
+    #[cfg(target_os = "ios")]
+    {
+        return apple::set_system_audio_takeover(active);
+    }
+    #[cfg(target_os = "android")]
+    {
+        return android::set_system_audio_takeover(active);
+    }
+    #[allow(unreachable_code)]
+    Some(true)
+}

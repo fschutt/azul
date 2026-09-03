@@ -22,12 +22,74 @@ import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.view.KeyEvent;
+import android.content.Context;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 
 public final class AzulMediaSession {
 
     private AzulMediaSession() {}
 
     private static MediaSession session;
+    /** Audio focus (9h-i-a-i-d-i): the platform's "take over the system audio". */
+    private static AudioManager audioManager;
+    private static AudioFocusRequest focusRequest;
+
+    /**
+     * Request audio focus for media playback. Returns 1 when granted now,
+     * 2 when the system will grant it later (the listener reports the grant
+     * as AUDIOFOCUS_GAIN), 0 when refused or unavailable.
+     */
+    public static int requestAudioFocus(Activity activity) {
+        if (activity == null) {
+            return 0;
+        }
+        try {
+            if (audioManager == null) {
+                audioManager = (AudioManager) activity.getSystemService(Context.AUDIO_SERVICE);
+            }
+            if (audioManager == null) {
+                return 0;
+            }
+            if (focusRequest == null) {
+                AudioAttributes attrs = new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build();
+                focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                        .setAudioAttributes(attrs)
+                        .setAcceptsDelayedFocusGain(true)
+                        .setOnAudioFocusChangeListener(new AudioManager.OnAudioFocusChangeListener() {
+                            @Override
+                            public void onAudioFocusChange(int focusChange) {
+                                nativeOnAudioFocusChange(focusChange);
+                            }
+                        })
+                        .build();
+            }
+            int result = audioManager.requestAudioFocus(focusRequest);
+            if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                return 1;
+            }
+            if (result == AudioManager.AUDIOFOCUS_REQUEST_DELAYED) {
+                return 2;
+            }
+            return 0;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    /** Give the audio back. Safe to call when none was ever requested. */
+    public static void abandonAudioFocus() {
+        try {
+            if (audioManager != null && focusRequest != null) {
+                audioManager.abandonAudioFocusRequest(focusRequest);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
 
     /**
      * Claim a media session. Idempotent.
@@ -171,4 +233,5 @@ public final class AzulMediaSession {
 
     private static native void nativeOnMediaButton(int keycode);
     private static native void nativeOnMediaSeek(long positionMs);
+    private static native void nativeOnAudioFocusChange(int focusChange);
 }

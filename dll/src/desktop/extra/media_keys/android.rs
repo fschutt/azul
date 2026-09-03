@@ -171,3 +171,85 @@ pub fn start() {}
 /// Without `jni` there is no Java side to call.
 #[cfg(not(feature = "jni"))]
 pub fn publish(_info: &NowPlayingInfo) {}
+
+/// Request (or abandon) Android AUDIO FOCUS for media (9h-i-a-i-d-i) - the
+/// platform's own "take over the system audio". Immediate answers come
+/// back here; a DELAYED grant (`setAcceptsDelayedFocusGain`) and every later
+/// change arrive through `nativeOnAudioFocusChange`.
+#[cfg(feature = "jni")]
+pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
+    let mut answer: Option<bool> = Some(false);
+    with_helper(|env, activity, class| {
+        if active {
+            let granted = env
+                .call_static_method(
+                    class,
+                    "requestAudioFocus",
+                    "(Landroid/app/Activity;)I",
+                    &[jni::objects::JValue::Object(activity)],
+                )?
+                .i()?;
+            // 1 = granted now, 2 = delayed (the listener will say), else refused.
+            answer = match granted {
+                1 => Some(true),
+                2 => None,
+                _ => Some(false),
+            };
+        } else {
+            env.call_static_method(class, "abandonAudioFocus", "()V", &[])?;
+            answer = Some(true);
+        }
+        Ok(())
+    });
+    answer
+}
+
+#[cfg(not(feature = "jni"))]
+pub fn set_system_audio_takeover(_active: bool) -> Option<bool> {
+    Some(false)
+}
+
+/// Whether a loss has been reported since the last grant: `AUDIOFOCUS_GAIN`
+/// after one is a RESUME, not a fresh grant.
+static FOCUS_LOST_SEEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// `OnAudioFocusChangeListener.onAudioFocusChange` (the Java half is
+/// `AzulMediaSession.java`). The constants are Android's own:
+/// `AUDIOFOCUS_GAIN` 1, `LOSS` -1, `LOSS_TRANSIENT` -2,
+/// `LOSS_TRANSIENT_CAN_DUCK` -3.
+#[cfg(feature = "jni")]
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_azul_media_AzulMediaSession_nativeOnAudioFocusChange(
+    _env: *mut jni::sys::JNIEnv,
+    _class: jni::sys::jclass,
+    focus_change: jni::sys::jint,
+) {
+    use std::sync::atomic::Ordering;
+
+    use azul_core::media_session::SystemAudioChange;
+    use azul_layout::managers::media_keys::push_system_audio_change;
+
+    let change = match focus_change {
+        1 => {
+            if FOCUS_LOST_SEEN.swap(false, Ordering::Relaxed) {
+                SystemAudioChange::Resumed
+            } else {
+                SystemAudioChange::Granted
+            }
+        }
+        -1 => {
+            FOCUS_LOST_SEEN.store(false, Ordering::Relaxed);
+            SystemAudioChange::Lost
+        }
+        -2 => {
+            FOCUS_LOST_SEEN.store(true, Ordering::Relaxed);
+            SystemAudioChange::Interrupted
+        }
+        -3 => {
+            FOCUS_LOST_SEEN.store(true, Ordering::Relaxed);
+            SystemAudioChange::Ducked
+        }
+        _ => return,
+    };
+    push_system_audio_change(change);
+}

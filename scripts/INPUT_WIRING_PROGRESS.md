@@ -990,20 +990,33 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `_internal_deps`, and the JAVA COMPILED against android-34 - all six helpers together,
       since `AzulActivity` now starts and stops the session. Host, 8/8 mobile, azul-core 2775,
       azul-layout 7612, azul-dll 1994, autofix 0 patches. ⚠ No device - compile-only.
-- [ ] 9h-i-a-i-d-i iOS needs an ACTIVE `AVAudioSession` with a playback-capable category before
-      the remote command centre delivers anything, and azul deliberately does not set one: the
-      session is the app's own audio policy and activating it interrupts other apps' audio. The
-      open question is whether azul should offer an OPT-IN for it (a second `AppConfig` flag, or
-      an explicit `CallbackInfo` call) or simply document that a media app must activate its own
-      session. A product decision, not plumbing.
-      USER RULING 2026-09-03: neither a flag nor documentation - a RUNTIME API. The session has
-      to be toggled when playback starts and released after ("take over system audio"), because
-      activating it is what interrupts other apps' audio and an app wants that exactly while it
-      plays. Design: `CallbackInfo` call that activates / releases the system audio session:
-      iOS `AVAudioSession` playback category + `setActive`, Android audio focus
-      (`requestAudioFocus` / `abandonAudioFocus`), no-op elsewhere; and an EVENT back when the
-      system takes it away (`AVAudioSessionInterruptionNotification`, `onAudioFocusChange` loss)
-      so the app pauses. Research the current API shape on the web first, then implement.
+- [x] 9h-i-a-i-d-i DONE per the USER RULING (2026-09-03): a RUNTIME call, not a flag.
+      `CallbackInfo::set_system_audio_takeover(active)` -> `CallbackChange::SetSystemAudioTakeover`:
+      iOS activates the shared `AVAudioSession` with `AVAudioSessionCategoryPlayback`
+      (AVFAudio dlopen'd like MediaPlayer, constants read with the double dereference) and on
+      release deactivates with `NotifyOthersOnDeactivation` so the apps it interrupted resume;
+      Android requests audio focus (`AudioFocusRequest`, `AUDIOFOCUS_GAIN`, media attributes,
+      delayed grants accepted) through `AzulMediaSession.requestAudioFocus(Activity)` /
+      `abandonAudioFocus()`; desktop mixers share, so the call is a no-op that answers
+      `Granted`. The answer and every later change arrive as `EventType::SystemAudioChange` /
+      `ApplicationEventFilter::SystemAudioChange` with `SystemAudioChange { Granted,
+      Interrupted, Ducked, Resumed, Ended, Lost }` (the union of iOS's interruption
+      notification - began, ended with / without the should-resume hint - and Android's focus
+      changes - GAIN after a loss = Resumed, LOSS = Lost, LOSS_TRANSIENT = Interrupted,
+      LOSS_TRANSIENT_CAN_DUCK = Ducked), readable through `get_system_audio_change`, with
+      `is_system_audio_active` for the claim (`Lost` clears it by itself). Plumbing mirrors the
+      seeks: a thread-safe queue in `managers::media_keys`, drained at the top of the pass into
+      `MediaSessionManager`, whose `EventProvider` impl emits both kinds. API shapes confirmed
+      on the web before writing (Apple's interruption-handling guide and `SetActiveOptions`;
+      Android's audio-focus guide and `AudioFocusRequest.Builder`). Core test pins delivery,
+      readability and the `Lost` rule. ⏳ SECOND BATCH: uncompiled until its end pass;
+      api.json then gets `SystemAudioChange`, `OptionSystemAudioChange`, the three
+      `CallbackInfo` methods and the filter variant through autofix.
+- [ ] 9h-i-a-i-d-i-a macOS has `AVAudioSession` too since macOS 11, but a Mac's remote command
+      centre works without an active session and a Mac does not interrupt other apps' audio the
+      way a phone does, so the takeover is a no-op there by design. If a macOS app is found that
+      needs `MPNowPlayingInfoCenter` gated on a session, add the same dlopen path under
+      `target_os = "macos"`; nothing in hand shows one.
 - [x] 9h-i-a-i-e DONE for LOCAL artwork on both Apple platforms; the remote half is
       9h-i-a-i-e-i and is genuinely a feature.
       The note treated "fetch a URL and decode an image" as one problem. It is two, and only one

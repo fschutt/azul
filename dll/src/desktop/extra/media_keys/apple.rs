@@ -550,6 +550,191 @@ unsafe fn artwork_for_url(url: &str) -> *mut objc2::runtime::AnyObject {
 
 /// An autoreleased `NSString` from a Rust string, or null if it contains an
 /// interior NUL.
+/// AVFAudio, dlopen'd like MediaPlayer above: `AVAudioSession` lives there
+/// (iOS 14.5+, re-exported by AVFoundation), and the constants this needs
+/// are exported NSString globals - read with the same double dereference as
+/// [`info_key`], because `dlsym` hands back the address OF the global.
+#[cfg(target_os = "ios")]
+fn avfaudio() -> Option<&'static libloading::Library> {
+    static LIB: std::sync::OnceLock<Option<libloading::Library>> = std::sync::OnceLock::new();
+    LIB.get_or_init(|| {
+        unsafe {
+            libloading::Library::new("/System/Library/Frameworks/AVFAudio.framework/AVFAudio")
+                .or_else(|_| {
+                    libloading::Library::new(
+                        "/System/Library/Frameworks/AVFoundation.framework/AVFoundation",
+                    )
+                })
+        }
+        .ok()
+    })
+    .as_ref()
+}
+
+#[cfg(target_os = "ios")]
+unsafe fn avf_constant(symbol: &[u8]) -> Option<*mut objc2::runtime::AnyObject> {
+    let lib = avfaudio()?;
+    let sym: libloading::Symbol<'_, *mut *mut objc2::runtime::AnyObject> =
+        unsafe { lib.get(symbol) }.ok()?;
+    let slot: *mut *mut objc2::runtime::AnyObject = *sym;
+    if slot.is_null() {
+        return None;
+    }
+    let ptr: *mut objc2::runtime::AnyObject = unsafe { *slot };
+    if ptr.is_null() {
+        None
+    } else {
+        Some(ptr)
+    }
+}
+
+/// `AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation`: on release,
+/// tell the apps we interrupted that they may resume.
+#[cfg(target_os = "ios")]
+const SET_ACTIVE_NOTIFY_OTHERS: usize = 1;
+/// `AVAudioSessionInterruptionTypeBegan`; `Ended` is 0.
+#[cfg(target_os = "ios")]
+const INTERRUPTION_BEGAN: usize = 1;
+/// `AVAudioSessionInterruptionOptionShouldResume`.
+#[cfg(target_os = "ios")]
+const INTERRUPTION_SHOULD_RESUME: usize = 1;
+
+/// Activate (or deactivate) the shared `AVAudioSession` with the playback
+/// category (9h-i-a-i-d-i). Activation is what makes the remote command
+/// centre deliver anything - and what interrupts other apps' audio, which is
+/// why it is a runtime call around playback rather than a config flag.
+#[cfg(target_os = "ios")]
+pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
+    use objc2::{msg_send, rc::Retained, runtime::AnyObject};
+
+    if avfaudio().is_none() {
+        crate::plog_info!("[media-session] AVFAudio unavailable");
+        return Some(false);
+    }
+    unsafe {
+        let Ok(name) = std::ffi::CString::new("AVAudioSession") else {
+            return Some(false);
+        };
+        let Some(cls) = objc2::runtime::AnyClass::get(&name) else {
+            return Some(false);
+        };
+        let session: *mut AnyObject = msg_send![cls, sharedInstance];
+        if session.is_null() {
+            return Some(false);
+        }
+        if active {
+            let Some(category) = avf_constant(b"AVAudioSessionCategoryPlayback\0") else {
+                return Some(false);
+            };
+            let set: Result<(), Retained<AnyObject>> =
+                msg_send![session, setCategory: category, error: _];
+            if set.is_err() {
+                crate::plog_info!("[media-session] AVAudioSession setCategory failed");
+                return Some(false);
+            }
+            let activated: Result<(), Retained<AnyObject>> =
+                msg_send![session, setActive: true, error: _];
+            if activated.is_err() {
+                crate::plog_info!("[media-session] AVAudioSession setActive failed");
+                return Some(false);
+            }
+            install_interruption_observer();
+            Some(true)
+        } else {
+            let released: Result<(), Retained<AnyObject>> = msg_send![
+                session,
+                setActive: false,
+                withOptions: SET_ACTIVE_NOTIFY_OTHERS,
+                error: _
+            ];
+            Some(released.is_ok())
+        }
+    }
+}
+
+/// Observe `AVAudioSessionInterruptionNotification` once, for the lifetime
+/// of the process, and turn each one into a [`SystemAudioChange`]: began =
+/// `Interrupted`; ended = `Resumed` with the should-resume hint, `Ended`
+/// without it (Apple: do not resume on your own then).
+#[cfg(target_os = "ios")]
+fn install_interruption_observer() {
+    use azul_core::media_session::SystemAudioChange;
+    use azul_layout::managers::media_keys::push_system_audio_change;
+    use block2::RcBlock;
+    use objc2::{msg_send, runtime::AnyObject};
+
+    static INSTALLED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if INSTALLED.set(()).is_err() {
+        return;
+    }
+    unsafe {
+        let (Some(note_name), Some(type_key), Some(option_key)) = (
+            avf_constant(b"AVAudioSessionInterruptionNotification\0"),
+            avf_constant(b"AVAudioSessionInterruptionTypeKey\0"),
+            avf_constant(b"AVAudioSessionInterruptionOptionKey\0"),
+        ) else {
+            crate::plog_info!("[media-session] interruption constants missing");
+            return;
+        };
+        let Ok(center_name) = std::ffi::CString::new("NSNotificationCenter") else {
+            return;
+        };
+        let Some(center_cls) = objc2::runtime::AnyClass::get(&center_name) else {
+            return;
+        };
+        let center: *mut AnyObject = msg_send![center_cls, defaultCenter];
+        if center.is_null() {
+            return;
+        }
+        // The keys are process-lifetime constants, so the raw pointers the
+        // block captures never dangle.
+        let type_key = type_key as usize;
+        let option_key = option_key as usize;
+        let handler = RcBlock::new(move |note: *mut AnyObject| {
+            if note.is_null() {
+                return;
+            }
+            let info: *mut AnyObject = msg_send![note, userInfo];
+            if info.is_null() {
+                return;
+            }
+            let type_key = type_key as *mut AnyObject;
+            let option_key = option_key as *mut AnyObject;
+            let ty: *mut AnyObject = msg_send![info, objectForKey: type_key];
+            let ty: usize = if ty.is_null() {
+                0
+            } else {
+                msg_send![ty, unsignedIntegerValue]
+            };
+            let change = if ty == INTERRUPTION_BEGAN {
+                SystemAudioChange::Interrupted
+            } else {
+                let opts: *mut AnyObject = msg_send![info, objectForKey: option_key];
+                let opts: usize = if opts.is_null() {
+                    0
+                } else {
+                    msg_send![opts, unsignedIntegerValue]
+                };
+                if opts & INTERRUPTION_SHOULD_RESUME != 0 {
+                    SystemAudioChange::Resumed
+                } else {
+                    SystemAudioChange::Ended
+                }
+            };
+            push_system_audio_change(change);
+        });
+        let nil: *mut AnyObject = core::ptr::null_mut();
+        let _: *mut AnyObject = msg_send![
+            center,
+            addObserverForName: note_name,
+            object: nil,
+            queue: nil,
+            usingBlock: &*handler
+        ];
+        core::mem::forget(handler);
+    }
+}
+
 unsafe fn nsstring(s: &str) -> *mut objc2::runtime::AnyObject {
     use objc2::{msg_send, runtime::AnyObject};
 

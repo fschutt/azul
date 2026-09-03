@@ -2905,6 +2905,9 @@ impl Runner {
             CallbackChange::CreateNewWindow { .. } => {
                 self.unsupported("CreateNewWindow", "single-window host")
             }
+            CallbackChange::SetSystemAudioTakeover { .. } => {
+                self.unsupported("SetSystemAudioTakeover", "no system audio")
+            }
             CallbackChange::SetPointerLock { locked } => {
                 // No pointer to grab headlessly, but the FLAG is the thing
                 // `RawMouseMotion` is gated on, so honouring it here is what

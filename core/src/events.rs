@@ -633,6 +633,15 @@ pub struct MediaControlEventData {
     pub volume: f32,
 }
 
+/// Data carried by a `SystemAudioChange` event (9h-i-a-i-d-i): what the
+/// system did with the audio the app took over. Also readable through
+/// `CallbackInfo::get_system_audio_change`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct SystemAudioEventData {
+    pub change: crate::media_session::SystemAudioChange,
+}
+
 /// Data carried by the three IME composition events.
 ///
 /// Every desktop shell already runs a real IME client — Win32 `WM_IME_*` with
@@ -718,6 +727,7 @@ pub enum EventData {
     RawMotion(RawMotionEventData),
     /// A media seek (9h-i-a-i-a). APPENDED for ABI stability.
     MediaControl(MediaControlEventData),
+    SystemAudio(SystemAudioEventData),
 }
 
 /// High-level event type classification.
@@ -1084,6 +1094,11 @@ pub enum EventType {
     /// 2026-09-03): an app that wants it back asks again from
     /// `WindowFocusReceived`.
     PointerLockChange,
+    /// The system did something with the audio the app took over
+    /// (9h-i-a-i-d-i): an interruption began or ended, focus was ducked,
+    /// granted, or lost. Application-level, at the root; the payload is
+    /// `EventData::SystemAudio` and `CallbackInfo::get_system_audio_change`.
+    SystemAudioChange,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1948,10 +1963,12 @@ fn matches_application_filter(
 ) -> bool {
     use ApplicationEventFilter::{
         DeviceConnected, DeviceDisconnected, MediaControl, MonitorConnected, MonitorDisconnected,
+        SystemAudioChange,
     };
 
     match (filter, &event.event_type) {
         (MediaControl, EventType::MediaControl) => true,
+        (SystemAudioChange, EventType::SystemAudioChange) => true,
         (DeviceConnected, EventType::DeviceConnected) => true,
         (DeviceDisconnected, EventType::DeviceDisconnected) => true,
         (MonitorConnected, EventType::MonitorConnected) => true,
@@ -3212,6 +3229,8 @@ pub enum ApplicationEventFilter {
     /// The platform's media controls asked for a seek (9h-i-a-i-a). APPENDED
     /// at the end for ABI stability.
     MediaControl,
+    /// The system changed the app's hold on the audio (9h-i-a-i-d-i).
+    SystemAudioChange,
 }
 
 /// Sets the target for what events can reach the callbacks specifically.
@@ -3704,6 +3723,7 @@ static ALL_APPLICATION: &[ApplicationEventFilter] = &[
     ApplicationEventFilter::MonitorConnected,
     ApplicationEventFilter::MonitorDisconnected,
     ApplicationEventFilter::MediaControl,
+    ApplicationEventFilter::SystemAudioChange,
 ];
 
 pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter> {
@@ -4057,6 +4077,7 @@ fn event_type_to_filters_legacy_hint(
             vec![EF::Application(ApplicationEventFilter::DeviceDisconnected)]
         }
         E::MediaControl => vec![EF::Application(ApplicationEventFilter::MediaControl)],
+        E::SystemAudioChange => vec![EF::Application(ApplicationEventFilter::SystemAudioChange)],
         E::MonitorConnected => vec![EF::Application(ApplicationEventFilter::MonitorConnected)],
         E::MonitorDisconnected => {
             vec![EF::Application(ApplicationEventFilter::MonitorDisconnected)]

@@ -6043,6 +6043,30 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
+            CallbackChange::SetSystemAudioTakeover { active } => {
+                // The platform answers NOW when it can (iOS `setActive`,
+                // Android's immediate grant/refusal, desktop's nothing-to-do)
+                // and later through its own channel when it cannot (Android's
+                // delayed grant): both land as `SystemAudioChange` events.
+                use azul_core::media_session::SystemAudioChange;
+                let answer = crate::desktop::extra::media_keys::set_system_audio_takeover(*active);
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.media_session_manager.set_system_audio_active(*active);
+                    if *active {
+                        match answer {
+                            Some(true) => lw
+                                .media_session_manager
+                                .push_system_audio_change(SystemAudioChange::Granted),
+                            Some(false) => lw
+                                .media_session_manager
+                                .push_system_audio_change(SystemAudioChange::Lost),
+                            None => {}
+                        }
+                    }
+                }
+                ProcessEventResult::DoNothing
+            }
+
             // === Drag & Drop ===
             CallbackChange::SetDragData { mime_type, data } => {
                 if let Some(lw) = self.get_layout_window_mut() {
@@ -9275,6 +9299,14 @@ pub trait PlatformWindow {
             for request in azul_layout::managers::media_keys::drain_media_controls() {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.media_session_manager.push_request(request);
+                }
+            }
+            // SYSTEM AUDIO CHANGES (9h-i-a-i-d-i) ride the same drain: an iOS
+            // interruption or an Android focus change becomes a
+            // `SystemAudioChange` event on this pass.
+            for change in azul_layout::managers::media_keys::drain_system_audio_changes() {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.media_session_manager.push_system_audio_change(change);
                 }
             }
             if let Some(position_us) = self

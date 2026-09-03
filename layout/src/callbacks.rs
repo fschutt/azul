@@ -822,6 +822,15 @@ pub enum CallbackChange {
         locked: bool,
     },
 
+    // System audio
+    /// Take over (or release) the SYSTEM AUDIO around playback
+    /// (9h-i-a-i-d-i): activate the iOS `AVAudioSession` with a playback
+    /// category, request Android audio focus. What the platform did comes
+    /// back as `SystemAudioChange` events.
+    SetSystemAudioTakeover {
+        active: bool,
+    },
+
     // Drag-and-Drop Data Transfer
     /// Set drag data for a MIME type (W3C: dataTransfer.setData)
     /// Should be called in a `DragStart` callback to populate the drag data.
@@ -1723,6 +1732,25 @@ impl CallbackInfo {
     /// asked for.
     pub fn set_pointer_lock(&mut self, locked: bool) {
         self.push_change(CallbackChange::SetPointerLock { locked });
+    }
+
+    /// TAKE OVER THE SYSTEM AUDIO, or give it back (9h-i-a-i-d-i; USER RULING
+    /// 2026-09-03: a runtime call around playback, not a config flag).
+    ///
+    /// On iOS this activates the shared `AVAudioSession` with the playback
+    /// category, which is what makes the lock-screen and remote controls
+    /// deliver anything - and what interrupts other apps' audio, which is
+    /// why it is done when playback STARTS and undone (`false`, notifying
+    /// others so their audio resumes) when it stops. On Android it requests
+    /// audio focus for media. Desktop mixers share, so there the call is a
+    /// no-op that reports `Granted`.
+    ///
+    /// The answer, and every later change - a call interrupting, a prompt
+    /// ducking, focus regained or lost for good - arrives as a
+    /// `SystemAudioChange` event (`ApplicationEventFilter::SystemAudioChange`)
+    /// and stays readable through `get_system_audio_change`.
+    pub fn set_system_audio_takeover(&mut self, active: bool) {
+        self.push_change(CallbackChange::SetSystemAudioTakeover { active });
     }
 
     /// Queue multiple window state changes to be applied in sequence.
@@ -5032,6 +5060,27 @@ impl CallbackInfo {
             .current_request()
             .cloned()
             .into()
+    }
+
+    /// What the system last did with the audio the app took over
+    /// (9h-i-a-i-d-i) - the payload of a `SystemAudioChange` event, or the
+    /// last one delivered. `None` before any takeover.
+    #[must_use]
+    pub fn get_system_audio_change(&self) -> azul_core::media_session::OptionSystemAudioChange {
+        self.get_layout_window()
+            .media_session_manager
+            .current_system_audio_change()
+            .into()
+    }
+
+    /// Whether the app currently holds (asked for and was not told it lost)
+    /// the system audio. `Lost` clears it; `Interrupted` and `Ducked` do
+    /// not - the takeover is still the app's, only paused by the system.
+    #[must_use]
+    pub fn is_system_audio_active(&self) -> bool {
+        self.get_layout_window()
+            .media_session_manager
+            .is_system_audio_active()
     }
 
     pub fn get_raw_mouse_motion(&self) -> azul_core::events::OptionRawMotionEventData {
