@@ -100,6 +100,11 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
         lw.hid_manager.set_devices(devices);
         changed = true;
     }
+    // PER-PASS: the manager holds THIS pass's reports for every reader
+    // (`get_hid_reports` copies, the pad parser of 8f-i-a-i-b reads the same
+    // slice). Nothing ever cleared it before, so `get_hid_reports` answered
+    // the whole process history and the buffer grew without bound.
+    drop(lw.hid_manager.take_reports());
     for report in azul_layout::managers::hid::drain_hid_reports() {
         lw.hid_manager.push_report(report);
         changed = true;

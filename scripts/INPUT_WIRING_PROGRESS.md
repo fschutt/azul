@@ -2667,29 +2667,42 @@ session needs. Recorded verbatim so the framing is not lost.
       `InputDevice.getSensorManager()` or the API-31 guard. Host, 8/8 mobile, azul-core 2767,
       azul-dll 1984, autofix still 0 patches and `azul-doc check` PASSED. No controller with an
       IMU here - compile-only.
-- [ ] 8f-i-a-i DESKTOP (the gilrs backend, so Linux + Windows + macOS) still has no pad IMU or
-      touchpad, and the blockers are now specific rather than "needs SDL or raw HID":
-        1. gilrs surfaces neither, and has no raw-report escape hatch.
-        2. 9f-i DID land raw HID on all three desktop platforms, so the DualSense/DualShock
-           reports are now reachable - but `HidReport` carries only vendor/product ids, NO
-           per-instance handle. Two identical pads are indistinguishable in that stream, so
-           "which gilrs pad does this report belong to" has no answer for the second one.
-        3. The HID report queue is SINGLE-CONSUMER (`take_reports`). A gamepad reader draining it
-           would steal reports from `CallbackInfo::get_hid_reports`, which is a public API.
-      Any of the three is fixable; wiring it before they are would produce a backend that works
-      for exactly one pad on one machine and silently mixes up two. On macOS there is a fourth
-      option that does not exist on the others - GameController.framework works there and would
-      give `GCMotion` directly - but pad IDENTITY still comes from gilrs, so it needs the same
-      correlation answer.
-      USER RULING 2026-09-03: give each pad an IDENTITY on connect - a per-instance id (the
-      device's serial number where it reports one, a DualSense does; a session-unique id
-      otherwise) - so two identical pads stay distinct and two controllers on one PC work for
-      multiplayer. Plan, in order: (1) per-instance identity on the HID layer and stamped on
-      every `HidReport`; (2) a non-stealing tap so the engine's own readers do not drain
-      `get_hid_reports`; (3) the DualSense / DualShock IMU + touchpad parser keyed by that id;
-      (4) correlation with the gilrs pad: Linux by evdev `uniq` (= the serial), any platform by
-      VID/PID when only one such pad is present, otherwise the motion stays its own device under
-      its serial rather than being guessed onto a pad.
+- [x] 8f-i-a-i STEPS (1) AND (2) of the USER RULING (2026-09-03) DONE; the parser (3) and the
+      gilrs correlation (4) are logged below as their own items, because each is a real piece.
+      (1) `HidDevice` carries `serial` (the device's own: USB `iSerial`, a DualSense's Bluetooth
+      address) and `instance: u64`, a per-instance identity that is never 0 for a real device -
+      `HidDevice::serial_instance` (FNV-1a over vendor, product, serial; reconnect-stable) when
+      a serial is reported, `handle_instance` over the platform's own handle otherwise. Linux
+      reads `HIDIOCGRAWUNIQ` (5.13+, empty on older kernels) and falls back to the hidraw path;
+      macOS reads `kIOHIDSerialNumberKey` and falls back to the `IOHIDDeviceRef`; Windows hashes
+      the raw-input device path, which Windows builds from the USB serial when the device has one
+      (so twins stay apart across reconnects) - the serial STRING there needs hid.dll (8f-i-a-i-a).
+      Every `HidReport` carries the device, so each pad's stream is keyed apart from its twin's.
+      (2) The "single consumer" worry was about the static queue, and it is answered by the
+      manager: the capability pump is the queue's ONE drainer, and `HidManager::reports()` holds
+      the pass's reports for every reader (`get_hid_reports` copies) - the pad parser of step 3
+      reads the same slice after the fold and steals nothing. FOUND AND FIXED on the way:
+      nothing ever cleared that buffer (`take_reports` had no caller), so `get_hid_reports`
+      answered the whole process history and the buffer grew without bound; the pump now clears
+      it at the top of each fold, so a callback sees this pass's reports. Two core tests pin
+      distinct-twins, stability, the non-zero rule and serial-over-handle. ⏳ THIRD BATCH:
+      uncompiled until its end pass (api.json: `HidDevice` gains `serial` and `instance`).
+- [ ] 8f-i-a-i-a Windows: the serial STRING. The instance id is already reconnect-stable there
+      (the path carries the serial), but `HidDevice.serial` is empty: reading it needs
+      `HidD_GetSerialNumberString` on a handle opened with `CreateFile` on the device path, i.e.
+      loading hid.dll and opening each device - which the raw-input backend deliberately avoids.
+      Worth doing when an app needs the string itself rather than the identity.
+- [ ] 8f-i-a-i-b Step (3): the DualSense / DualShock 4 input-report parser (IMU: gyro + accel;
+      touchpad: two fingers with ids) keyed by `HidDevice.instance`, reading
+      `HidManager::reports()` in the capability pump after the fold. USB report 0x01 and the
+      Bluetooth 0x31 layout differ (the BT one is offset by one and CRC-tailed); both are public
+      (Linux hid-playstation is the reference). Publishes into the gamepad manager's motion /
+      touch surface slots (8f-i-a landed those on Apple / Android) under the pad identity below.
+- [ ] 8f-i-a-i-c Step (4): correlating the HID instance with the gilrs pad. Linux: gilrs exposes
+      `devpath()` and evdev's `uniq` IS the serial - match by serial. Any platform: when exactly
+      one pad of that vendor/product is present the match is unambiguous. Otherwise the motion is
+      published as its own device keyed by `instance` rather than guessed onto a pad; the app
+      that needs the pairing can match `HidDevice.serial` itself.
 - [ ] 8f-i-a-ii The pad TOUCHPAD on Android, which the platform does not expose: Android turns a
       DualShock touch surface into an on-screen MOUSE POINTER rather than reporting the surface,
       so there is nothing to read. Filling it would mean claiming the pointer is a finger, which

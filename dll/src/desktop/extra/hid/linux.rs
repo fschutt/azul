@@ -154,6 +154,14 @@ impl Drop for OpenDevice {
 ///
 /// `None` on any failure, which includes the COMMON case of `EACCES` on a
 /// device the running user has no udev rule for.
+/// `HIDIOCGRAWUNIQ` = `_IOR('H', 0x08, len)`: the device's unique id - the
+/// USB serial, a Bluetooth address - as a string. Kernel 5.13+; on an older
+/// kernel the ioctl fails and the serial stays empty, which the instance id
+/// falls back from.
+const fn hidiocgrawuniq(len: u32) -> u32 {
+    ioc(IOC_READ, HID_TYPE, 0x08, len)
+}
+
 fn open_device(path: &std::path::Path) -> Option<OpenDevice> {
     use std::os::unix::ffi::OsStrExt;
 
@@ -176,6 +184,8 @@ fn open_device(path: &std::path::Path) -> Option<OpenDevice> {
             usage_page: 0,
             usage: 0,
             name: azul_css::AzString::from_const_str(""),
+            serial: azul_css::AzString::from_const_str(""),
+            instance: 0,
         },
     };
 
@@ -211,17 +221,41 @@ fn open_device(path: &std::path::Path) -> Option<OpenDevice> {
     // not fatal - the vid/pid still identify the model.
     let (usage_page, usage) = read_top_level_usage(fd).unwrap_or((0, 0));
 
+    // The serial (8f-i-a-i): what tells two identical pads apart. Kernel
+    // 5.13+ answers `HIDIOCGRAWUNIQ`; an older one fails the ioctl and the
+    // instance id falls back to the hidraw path.
+    let mut uniq_buf = [0u8; NAME_BUF];
+    let serial = if unsafe {
+        libc::ioctl(
+            fd,
+            hidiocgrawuniq(NAME_BUF as u32) as libc::c_ulong,
+            uniq_buf.as_mut_ptr(),
+        )
+    } >= 0
+    {
+        let end = uniq_buf.iter().position(|b| *b == 0).unwrap_or(NAME_BUF);
+        String::from_utf8_lossy(&uniq_buf[..end]).trim().to_owned()
+    } else {
+        String::new()
+    };
+    // The kernel types these as SIGNED 16-bit, but a USB id is an
+    // unsigned 16-bit number: a vendor above 0x7FFF (Logitech's 0xC000
+    // range, say) arrives negative and would print as a huge u16 if
+    // widened rather than reinterpreted.
+    let vendor_id = devinfo.vendor as u16;
+    let product_id = devinfo.product as u16;
+    let instance =
+        HidDevice::instance_for(vendor_id, product_id, &serial, path.as_os_str().as_bytes());
+
     let mut dev = dev;
     dev.info = HidDevice {
-        // The kernel types these as SIGNED 16-bit, but a USB id is an
-        // unsigned 16-bit number: a vendor above 0x7FFF (Logitech's 0xC000
-        // range, say) arrives negative and would print as a huge u16 if
-        // widened rather than reinterpreted.
-        vendor_id: devinfo.vendor as u16,
-        product_id: devinfo.product as u16,
+        vendor_id,
+        product_id,
         usage_page,
         usage,
         name: name.into(),
+        serial: serial.into(),
+        instance,
     };
     Some(dev)
 }

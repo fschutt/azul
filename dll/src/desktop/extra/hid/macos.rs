@@ -296,6 +296,8 @@ extern "C" fn input_report_callback(
         usage_page: 0,
         usage: 0,
         name: azul_css::AzString::from_const_str(""),
+        serial: azul_css::AzString::from_const_str(""),
+        instance: 0,
     });
     azul_layout::managers::hid::push_hid_report(HidReport {
         device,
@@ -393,12 +395,26 @@ pub fn enumerate() {
                         if dref.is_null() {
                             continue;
                         }
+                        let vendor_id = int_property(k, dref, b"VendorID") as u16;
+                        let product_id = int_property(k, dref, b"ProductID") as u16;
+                        // `kIOHIDSerialNumberKey` (8f-i-a-i); a device without
+                        // one is told apart by its own IOHIDDeviceRef, which
+                        // is unique among the devices present.
+                        let serial = string_property(k, dref, b"SerialNumber");
+                        let instance = HidDevice::instance_for(
+                            vendor_id,
+                            product_id,
+                            &serial,
+                            &(dref as usize).to_le_bytes(),
+                        );
                         let dev = HidDevice {
-                            vendor_id: int_property(k, dref, b"VendorID") as u16,
-                            product_id: int_property(k, dref, b"ProductID") as u16,
+                            vendor_id,
+                            product_id,
                             usage_page: int_property(k, dref, b"PrimaryUsagePage") as u16,
                             usage: int_property(k, dref, b"PrimaryUsage") as u16,
                             name: string_property(k, dref, b"Product").into(),
+                            serial: serial.into(),
+                            instance,
                         };
                         by_ref.push((dref as usize, dev.clone()));
                         devices.push(dev);

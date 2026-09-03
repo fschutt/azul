@@ -88,6 +88,8 @@ mod tests {
                 usage_page: 1,
                 usage: 4,
                 name: "test".into(),
+                serial: "".into(),
+                instance: 1,
             },
             report_id: id,
             bytes: Vec::new().into(),

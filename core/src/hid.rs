@@ -44,6 +44,64 @@ pub struct HidDevice {
     pub usage: u16,
     /// Human-readable product string, empty when the device reports none.
     pub name: AzString,
+    /// The device's SERIAL NUMBER as it reports it (USB `iSerial`; a
+    /// DualSense reports its Bluetooth address), empty when it reports none
+    /// or the platform does not expose it (Windows, see the backend).
+    pub serial: AzString,
+    /// PER-INSTANCE identity (8f-i-a-i, user ruling: two identical pads must
+    /// stay distinct for multiplayer). Stable for the device's connected
+    /// lifetime and never `0` for a real device. Derived from vendor,
+    /// product and serial when a serial is reported - so it survives a
+    /// reconnect - and from the platform's own handle for the device
+    /// otherwise, which is unique among the devices present but may change
+    /// when the device is re-plugged. Reports carry it, so an app keyed on
+    /// this field reads each pad's stream apart from its twin's.
+    pub instance: u64,
+}
+
+impl HidDevice {
+    /// The reconnect-stable instance id of a device with a serial number:
+    /// an FNV-1a hash over vendor, product and serial. `None` when the
+    /// device reports no serial - the caller falls back to its platform
+    /// handle through [`Self::handle_instance`].
+    #[must_use]
+    pub fn serial_instance(vendor_id: u16, product_id: u16, serial: &str) -> Option<u64> {
+        if serial.is_empty() {
+            return None;
+        }
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for b in vendor_id
+            .to_le_bytes()
+            .iter()
+            .chain(product_id.to_le_bytes().iter())
+            .chain(serial.as_bytes())
+        {
+            h ^= u64::from(*b);
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+        Some(h | 1)
+    }
+
+    /// An instance id from a platform handle (a device path, a kernel
+    /// object address, a hidraw number) for a device with no serial. Never
+    /// `0`, so "no identity" stays distinguishable from a real one.
+    #[must_use]
+    pub fn handle_instance(handle: &[u8]) -> u64 {
+        let mut h: u64 = 0x84222325_cbf29ce4;
+        for b in handle {
+            h ^= u64::from(*b);
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+        h | 1
+    }
+
+    /// The instance id for this device's identity: the serial-derived one
+    /// when a serial is present, else the handle-derived one.
+    #[must_use]
+    pub fn instance_for(vendor_id: u16, product_id: u16, serial: &str, handle: &[u8]) -> u64 {
+        Self::serial_instance(vendor_id, product_id, serial)
+            .unwrap_or_else(|| Self::handle_instance(handle))
+    }
 }
 
 /// One input report from a HID device.
@@ -146,5 +204,42 @@ impl HidManager {
     /// Drain the queue.
     pub fn take_reports(&mut self) -> Vec<HidReport> {
         core::mem::take(&mut self.pending)
+    }
+}
+
+#[cfg(test)]
+mod instance_tests {
+    use super::*;
+
+    /// Two identical pads (same vendor and product) with different serials
+    /// get different, reconnect-stable ids; the same pad gets the same id
+    /// every time.
+    #[test]
+    fn identical_pads_with_different_serials_stay_distinct() {
+        let a = HidDevice::serial_instance(0x054c, 0x0ce6, "AA:BB:CC:DD:EE:01").unwrap();
+        let b = HidDevice::serial_instance(0x054c, 0x0ce6, "AA:BB:CC:DD:EE:02").unwrap();
+        assert_ne!(a, b);
+        assert_eq!(
+            a,
+            HidDevice::serial_instance(0x054c, 0x0ce6, "AA:BB:CC:DD:EE:01").unwrap(),
+            "stable across reconnects"
+        );
+        assert_ne!(a, 0);
+    }
+
+    /// No serial: the platform handle decides, and it is never zero.
+    #[test]
+    fn a_device_without_a_serial_falls_back_to_its_handle() {
+        assert_eq!(HidDevice::serial_instance(1, 2, ""), None);
+        let x = HidDevice::instance_for(1, 2, "", b"/dev/hidraw3");
+        let y = HidDevice::instance_for(1, 2, "", b"/dev/hidraw4");
+        assert_ne!(x, y);
+        assert_ne!(x, 0);
+        assert_eq!(x, HidDevice::handle_instance(b"/dev/hidraw3"));
+        // A serial outranks the handle.
+        assert_eq!(
+            HidDevice::instance_for(1, 2, "S1", b"/dev/hidraw3"),
+            HidDevice::serial_instance(1, 2, "S1").unwrap()
+        );
     }
 }

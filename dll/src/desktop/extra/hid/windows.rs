@@ -97,6 +97,14 @@ fn describe(user32: &dlopen::User32Functions, handle: isize) -> Option<HidDevice
             String::new()
         };
 
+        // The raw-input device NAME is the device's interface path, unique
+        // per connected instance, and for a device that reports a USB serial
+        // Windows builds the path from that serial - so hashing it tells two
+        // identical pads apart and survives their reconnection (8f-i-a-i).
+        // The serial STRING itself needs hid.dll (`HidD_GetSerialNumberString`
+        // on an opened handle), which this backend does not load; logged as
+        // 8f-i-a-i-a.
+        let instance = HidDevice::handle_instance(name.as_bytes());
         Some(HidDevice {
             // The OS reports these as DWORDs but a USB id is 16-bit; the high
             // half is always zero and truncating is the correct narrowing.
@@ -105,6 +113,8 @@ fn describe(user32: &dlopen::User32Functions, handle: isize) -> Option<HidDevice
             usage_page: info.hid.usUsagePage,
             usage: info.hid.usUsage,
             name: name.into(),
+            serial: azul_css::AzString::from_const_str(""),
+            instance,
         })
     }
 }
@@ -214,6 +224,8 @@ pub fn handle_wm_input(user32: &dlopen::User32Functions, lparam: isize) {
             usage_page: 0,
             usage: 0,
             name: azul_css::AzString::from_const_str(""),
+            serial: azul_css::AzString::from_const_str(""),
+            instance: 0,
         });
 
         // `bRawData` is a flexible array: the reports start at its offset, and
