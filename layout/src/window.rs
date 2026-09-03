@@ -4452,6 +4452,7 @@ impl LayoutWindow {
             false,
             Vec::new(),
             Default::default(), // owner_colors (U1): geometry pass paints nothing
+            false,              // paint_selection_handles (U2-a): likewise
             None,
             &self.image_cache,
             Some(&self.content_overlay),
@@ -5729,6 +5730,7 @@ impl LayoutWindow {
                     // call here is a geometry or headless pass that paints no
                     // caret, which is why they pass an empty map.
                     owner_colors,
+                    self.text_edit_manager.selection_handles,
                     preedit,
                     image_cache,
                     Some(content_overlay),
@@ -11805,17 +11807,190 @@ impl LayoutWindow {
     /// coordinate rebasing were missing.
     #[must_use]
     pub fn focused_byte_offset_for_point(&self, point: LogicalPosition) -> Option<usize> {
-        use crate::text3::edit::cursor_byte_offset_in_run;
+        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        let cursor = self.focused_cursor_for_point(point)?;
+        self.byte_offset_of_cursor(session_node, &cursor)
+    }
 
+    /// The cursor nearest a point in absolute window coordinates, in the
+    /// focused editable. The cursor-typed half of
+    /// [`Self::focused_byte_offset_for_point`], shared with the handle drag.
+    #[must_use]
+    pub fn focused_cursor_for_point(&self, point: LogicalPosition) -> Option<TextCursor> {
         let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
         let (inline_layout, origin) = self.session_inline_geometry(session_node)?;
         // The hit test works in NODE-relative coordinates; the shells hand in
         // window ones, and mixing them puts the answer off by the node's
         // position on screen - which on a scrolled page is the whole error.
         let local = LogicalPosition::new(point.x - origin.x, point.y - origin.y);
-        let cursor = inline_layout.hittest_cursor(local)?;
+        inline_layout.hittest_cursor(local)
+    }
 
-        self.byte_offset_of_cursor(session_node, &cursor)
+    /// A cursor's caret rect in the focused editable, in absolute window
+    /// coordinates.
+    #[must_use]
+    fn focused_rect_for_cursor(&self, cursor: &TextCursor) -> Option<LogicalRect> {
+        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        let (inline_layout, origin) = self.session_inline_geometry(session_node)?;
+        let mut rect = inline_layout.get_cursor_rect(cursor)?;
+        rect.origin.x += origin.x;
+        rect.origin.y += origin.y;
+        Some(rect)
+    }
+
+    // ─── Selection handles (U2-a) ────────────────────────────────────────
+
+    /// The two draggable handles of the LOCAL primary selection, in window
+    /// coordinates: `[start, end]` in document order. `None` when there is
+    /// no range (a caret has no handles), no session, or the selection spans
+    /// blocks (see U2-a-i in the ledger).
+    ///
+    /// Geometry only - it does not consult `selection_handles`, so a shell
+    /// that draws its own handles can still ask where the engine would put
+    /// them.
+    #[must_use]
+    pub fn selection_handle_geometry(
+        &self,
+    ) -> Option<[crate::managers::text_edit::SelectionHandleGeometry; 2]> {
+        use crate::managers::text_edit::{SelectionHandleEnd, SelectionHandleGeometry};
+        use azul_core::selection::Selection;
+
+        if self.text_edit_manager.cross_block.is_some() {
+            return None;
+        }
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+        let Selection::Range(range) = mc.get_primary()?.selection else {
+            return None;
+        };
+        if range.start == range.end {
+            return None;
+        }
+        let (lo, hi) = if range.start <= range.end {
+            (range.start, range.end)
+        } else {
+            (range.end, range.start)
+        };
+        let first = self.focused_rect_for_cursor(&lo)?;
+        let last = self.focused_rect_for_cursor(&hi)?;
+        Some([
+            SelectionHandleGeometry::under(
+                SelectionHandleEnd::Start,
+                first.origin.x,
+                first.origin.y + first.size.height,
+            ),
+            SelectionHandleGeometry::under(
+                SelectionHandleEnd::End,
+                last.origin.x,
+                last.origin.y + last.size.height,
+            ),
+        ])
+    }
+
+    /// The handle under `point`, if the engine's handles are enabled and one
+    /// is there. The `End` handle wins a tie on a selection so short that the
+    /// two overlap: it is the one the user just dragged out.
+    #[must_use]
+    pub fn selection_handle_at(
+        &self,
+        point: LogicalPosition,
+    ) -> Option<crate::managers::text_edit::SelectionHandleGeometry> {
+        if !self.text_edit_manager.selection_handles {
+            return None;
+        }
+        let [start, end] = self.selection_handle_geometry()?;
+        if end.contains(point) {
+            Some(end)
+        } else if start.contains(point) {
+            Some(start)
+        } else {
+            None
+        }
+    }
+
+    /// A press at `point`: if it lands on a handle, start dragging that
+    /// handle and return `true`. Called BEFORE the press is treated as a
+    /// click, because a click collapses the selection - which would remove
+    /// the handles the user is reaching for.
+    pub fn begin_selection_handle_drag(&mut self, point: LogicalPosition) -> bool {
+        use crate::managers::text_edit::{SelectionHandleDrag, SelectionHandleEnd};
+        use azul_core::selection::Selection;
+
+        let Some(handle) = self.selection_handle_at(point) else {
+            return false;
+        };
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+            return false;
+        };
+        let Some(Selection::Range(range)) = mc.get_primary().map(|p| p.selection) else {
+            return false;
+        };
+        let (lo, hi) = if range.start <= range.end {
+            (range.start, range.end)
+        } else {
+            (range.end, range.start)
+        };
+        // The anchor is the OTHER end, in document order: dragging the start
+        // handle keeps the end where it is, and vice versa.
+        let anchor = match handle.end {
+            SelectionHandleEnd::Start => hi,
+            SelectionHandleEnd::End => lo,
+        };
+        self.text_edit_manager.handle_drag = Some(SelectionHandleDrag {
+            end: handle.end,
+            anchor,
+        });
+        true
+    }
+
+    /// The finger moved while a handle is held: the dragged end follows it,
+    /// the anchor stays. Returns whether the selection changed.
+    ///
+    /// Crossing the anchor is allowed and simply makes the range backward -
+    /// the same representation a backward mouse drag produces - so the user
+    /// can pull the start handle past the end and keep selecting; the
+    /// geometry re-labels the handles by document order on the next paint.
+    /// A drag that lands exactly ON the anchor is ignored rather than
+    /// collapsing the selection: a collapsed selection has no handles, and
+    /// the one under the finger would vanish mid-drag.
+    pub fn process_selection_handle_drag(&mut self, point: LogicalPosition) -> bool {
+        use azul_core::selection::SelectionRange;
+
+        let Some(drag) = self.text_edit_manager.handle_drag else {
+            return false;
+        };
+        let Some(focus) = self.focused_cursor_for_point(point) else {
+            return false;
+        };
+        if focus == drag.anchor {
+            return false;
+        }
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
+            return false;
+        };
+        let new_range = SelectionRange {
+            start: drag.anchor,
+            end: focus,
+        };
+        if let Some(azul_core::selection::Selection::Range(current)) =
+            mc.get_primary().map(|p| p.selection)
+        {
+            if current == new_range {
+                return false;
+            }
+        }
+        mc.set_single_range(new_range);
+        self.text_edit_manager.mark_dirty();
+        true
+    }
+
+    /// The finger lifted. Returns whether a handle drag was in progress.
+    pub fn end_selection_handle_drag(&mut self) -> bool {
+        self.text_edit_manager.handle_drag.take().is_some()
+    }
+
+    #[must_use]
+    pub fn selection_handle_drag_active(&self) -> bool {
+        self.text_edit_manager.handle_drag.is_some()
     }
 
     /// A `TextCursor`'s offset into the node's whole string (10b-i-b).
@@ -12945,6 +13120,7 @@ impl LayoutWindow {
                         false,
                         Vec::new(),
                         Default::default(), // owner_colors (U1)
+                        false,              // paint_selection_handles (U2-a)
                         None,
                         &self.image_cache,
                         Some(&self.content_overlay),
@@ -16436,6 +16612,7 @@ impl LayoutWindow {
             &cursor_locations,
             &text_selections_map,
             self.text_edit_manager.preedit_text.as_deref(),
+            self.text_edit_manager.selection_handles,
         );
 
         // Build a temporary LayoutContext with all the state we need
@@ -16458,6 +16635,7 @@ impl LayoutWindow {
             cursor_is_visible,
             cursor_locations,
             owner_colors: self.text_edit_manager.owner_colors.clone(),
+            paint_selection_handles: self.text_edit_manager.selection_handles,
             preedit_text: self.text_edit_manager.preedit_text.clone(),
             cache_map,
             image_cache: &self.image_cache,

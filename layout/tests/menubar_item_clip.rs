@@ -249,6 +249,7 @@ fn test_app_path_menubar_not_clipped() {
         true,
         Vec::new(),
         Default::default(), // owner_colors (U1)
+        false,              // paint_selection_handles (U2-a)
         None,
         &azul_core::resources::ImageCache::default(),
         None,
@@ -410,6 +411,7 @@ fn test_probe_words_glyph_counts() {
         true,
         Vec::new(),
         Default::default(), // owner_colors (U1)
+        false,              // paint_selection_handles (U2-a)
         None,
         &azul_core::resources::ImageCache::default(),
         None,

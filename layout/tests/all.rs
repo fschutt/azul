@@ -266,6 +266,8 @@ mod ribbon_group_overlap;
 mod ribbon_tab_whitespace;
 #[path = "root_box_sizing_regression.rs"]
 mod root_box_sizing_regression;
+#[path = "selection_handles.rs"]
+mod selection_handles;
 #[path = "session_regression.rs"]
 mod session_regression;
 #[path = "statusbar_live_label.rs"]

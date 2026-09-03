@@ -6494,6 +6494,13 @@ pub trait PlatformWindow {
                 // no_std.
                 let current_time_ms = duration_since_event.as_millis_u64();
                 if let Some(layout_window) = self.get_layout_window_mut() {
+                    // A SELECTION HANDLE under the press (U2-a) starts a handle
+                    // drag INSTEAD of a click: the click would collapse the
+                    // selection, which removes the very handle the user is
+                    // reaching for. No-op unless the engine paints handles.
+                    if layout_window.begin_selection_handle_drag(*position) {
+                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                    }
                     if layout_window
                         .process_mouse_click_for_selection(*position, current_time_ms)
                         .is_some()
@@ -6525,6 +6532,17 @@ pub trait PlatformWindow {
                     return ProcessEventResult::DoNothing;
                 }
                 if let Some(layout_window) = self.get_layout_window_mut() {
+                    // A held handle follows the finger (U2-a); the ordinary
+                    // anchor-to-pointer drag would re-anchor at the press
+                    // point, which is the handle, not the selection's other
+                    // end.
+                    if layout_window.selection_handle_drag_active() {
+                        return if layout_window.process_selection_handle_drag(*current_position) {
+                            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                        } else {
+                            ProcessEventResult::DoNothing
+                        };
+                    }
                     if layout_window
                         .process_mouse_drag_for_selection(*start_position, *current_position)
                         .is_some()
@@ -9954,9 +9972,22 @@ pub trait PlatformWindow {
             if let Some(lw) = self.get_layout_window_mut() {
                 if left_down && !lw.prev_left_down {
                     // Press edge: this is the only moment an anchor is born.
-                    lw.text_selection_drag_anchor = if press_on_editable { pos } else { None };
+                    // A press on a SELECTION HANDLE arms it too (U2-a): the
+                    // handle hangs below the line, often outside the text
+                    // the "press on editable" rule looks for, and without an
+                    // anchor no `TextSelectionDrag` is ever built - the held
+                    // handle would never receive a move.
+                    let press_on_handle =
+                        pos.is_some_and(|p| lw.selection_handle_at(p).is_some());
+                    lw.text_selection_drag_anchor = if press_on_editable || press_on_handle {
+                        pos
+                    } else {
+                        None
+                    };
                 } else if !left_down {
                     lw.text_selection_drag_anchor = None;
+                    // The finger lifted: whatever handle was held is released.
+                    lw.end_selection_handle_drag();
                 }
                 lw.prev_left_down = left_down;
             }

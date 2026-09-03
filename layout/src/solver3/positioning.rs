@@ -2225,6 +2225,7 @@ mod autotest_generated {
             fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
                 LayoutContext {
                     owner_colors: Default::default(),
+                    paint_selection_handles: false,
                     reflowed_ifcs: std::collections::BTreeSet::new(),
                     style_cache: Default::default(),
                     virtual_view_sizes: None,

@@ -1920,11 +1920,58 @@ session needs. Recorded verbatim so the framing is not lost.
       both Android seams under `_internal_deps`, and the JAVA re-compiled against android-34.
       Host, 8/8 mobile, azul-layout 7638, autofix 0 patches. ⚠ No device or simulator - neither
       toolbar has actually been seen.
-- [ ] U2-a The draggable SELECTION HANDLES (the teardrops) are still the engine's to draw on both
-      platforms, and it does not. No platform API hands them to a custom view - every app that has
-      them draws its own - and the Java comment already says so. The geometry is available
-      (`focused_rect_for_byte_range` from 10b-i-a gives each end), so this is a paint job rather
-      than a platform one, but it is a paint job with hit-testing and drag behaviour of its own.
+- [x] U2-a DONE, on both platforms, by two different routes - and the premise was half wrong.
+      ⚠ iOS DOES HAND A CUSTOM VIEW ITS HANDLES. The note above ("no platform API hands them to
+      a custom view") is true of Android and false of iOS: `UITextInteraction` (iOS 13+) exists
+      for exactly this - the grab handles, the loupe and the tap / long-press gestures for a
+      custom `UITextInput` view - and it drives them through the very seams 10b-i wired
+      (`closestPositionToPoint:`, `setSelectedTextRange:`, `firstRectForRange:`). Nothing had
+      created one, so a range made by `select:` had no handles to drag. Now
+      `+[UITextInteraction textInteractionForMode:]` (editable = 0) with `textInput = view` is
+      added next to the pencil interaction, gated on the class existing. The engine paints NO
+      handles there: two sets for one selection is worse than none.
+      ANDROID IS THE ENGINE'S. `TextView`'s `Editor` draws the teardrops for itself and nobody
+      else, so the engine does the whole job: `SelectionHandleGeometry` (a circle of radius 11 -
+      Android's own 22dp asset - hanging UNDER the caret rect at each end of the LOCAL primary
+      range, with an 8px hit slop because a finger is not a pointer), painted in
+      `paint_selections` right after the highlight as two fully-rounded `SelectionRect`s in the
+      `::selection` colour at full alpha; `LayoutWindow::selection_handle_geometry` computes the
+      SAME rule in window coordinates for the hit test, so what is seen is what a press finds.
+      DRAG: `begin_selection_handle_drag` runs BEFORE the press is treated as a click (a click
+      collapses the selection, removing the handle being reached for); the anchor is the OTHER
+      end in document order, so the start handle keeps the end and vice versa; crossing the
+      anchor makes the range backward - the representation a backward mouse drag already uses -
+      and the next paint re-labels the handles by document order; landing exactly on the anchor
+      is IGNORED rather than collapsing, since a collapsed selection has no handle for the finger
+      to be on. The dll routes `TextSelectionDrag` to the handle while one is held, and a press
+      on a handle ARMS the drag anchor even though the handle hangs below the text (the "press on
+      editable" rule would otherwise never build a `TextSelectionDrag` for it); the finger lifting
+      ends it. `selection_handles` is a `TextEditManager` flag the Android shell sets at window
+      creation; iOS and desktop leave it off, so nothing changes there.
+      ALSO FIXED: the layout path of `layout_document` built its context with
+      `owner_colors: Default::default()` - the U1 parameter was accepted and never read, so a
+      peer's caret colour reached the paint only through `regenerate_display_list_for_dom` and
+      every relayout painted it in the CSS colour. Found because the new flag went through the
+      same eight sites. Also `dl_input_fingerprint` keys on the flag.
+      EVIDENCE: 7 integration tests on a real laid-out paragraph (a caret has no handles, a range
+      two, under the line, labelled by document order; the end handle drags the end and keeps
+      the start; the start handle keeps the end and the labels follow document order; onto the
+      anchor does not collapse; off the handles is not a handle drag; handles off means nothing
+      to grab; the display list has exactly two more `SelectionRect`s with handles on and none
+      for a caret). NEGATIVE CONTROL: anchoring on the wrong end fails 3 of them. Host, 8/8
+      mobile (iOS path compiled on the three Apple targets). ⚠ No device: the Android handles are
+      painted and dragged in the engine, not seen under a finger; the iOS interaction is compiled,
+      not seen.
+- [ ] U2-a-i Handles for a CROSS-BLOCK selection. `selection_handle_geometry` answers `None`
+      while `cross_block` is set: the two ends live in different IFCs and the caret-rect seam is
+      the session node's. Needs the far end resolved through the cross-block map.
+- [ ] U2-a-ii Android hides its toolbar while a handle is dragged and re-shows it on release;
+      azul's bar (U2) follows the selection through `onGetContentRect` but stays up during the
+      drag. Cosmetic, and it needs the drag transition surfaced to the Java side.
+- [ ] U2-a-iii The touch path is the MOUSE PIPE: the Android shell mirrors the primary finger
+      into `mouse_state`, which is what makes `TextSelectionClick` / `TextSelectionDrag` reach the
+      handle. A second finger while a handle is held (pinch) is not modelled - the handle keeps
+      following pointer 0.
 - [x] U3 ANSWERED, and the answer turned out to need code: a selection is identified by an
       OWNER-SCOPED id, `(SelectionOwner, SelectionId)`, and the engine acts on the LOCAL owner's
       set and on nothing else. The PRIMARY is always local; the platform's idea of "the

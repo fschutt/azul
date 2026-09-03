@@ -18,7 +18,7 @@ use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use azul_core::{
     dom::{DomId, DomNodeId, NodeId},
     events::SyntheticEvent,
-    geom::LogicalRect,
+    geom::{LogicalPosition, LogicalRect},
     selection::{MultiCursorState, Selection, SelectionRange, TextCursor},
     styled_dom::NodeHierarchyItemId,
     task::{Duration, Instant},
@@ -428,6 +428,16 @@ pub struct TextEditManager {
     /// Per-participant caret/selection colours (U1). Empty for a single-user
     /// app, which is every app until one injects a remote owner.
     pub owner_colors: BTreeMap<azul_core::selection::SelectionOwner, ColorU>,
+    /// Whether the ENGINE paints draggable selection handles - the teardrops
+    /// under each end of a touch selection (U2-a). ON where the platform has
+    /// no handles of its own to lend a custom view (Android: `TextView`'s
+    /// `Editor` draws them, nothing draws them for anyone else); OFF where it
+    /// does (iOS: `UITextInteraction` draws and drags them and calls the
+    /// `UITextInput` seams) and on desktop, which has no handles at all.
+    /// Set by the shell at window creation.
+    pub selection_handles: bool,
+    /// The handle the user is currently dragging, if any (U2-a).
+    pub handle_drag: Option<SelectionHandleDrag>,
     /// Set to true by any mutation that changes visual output.
     pub display_list_dirty: bool,
     /// Caret / selection tween bookkeeping (see [`TextTweenState`]).
@@ -469,6 +479,80 @@ impl Default for TextEditManager {
     }
 }
 
+/// Which end of the selection a handle sits under (U2-a). `Start` is the
+/// document-first end whatever direction the selection was made in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectionHandleEnd {
+    Start,
+    End,
+}
+
+/// A selection handle being dragged (U2-a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectionHandleDrag {
+    /// The handle under the finger.
+    pub end: SelectionHandleEnd,
+    /// The OTHER end of the selection, fixed for the whole drag - the anchor
+    /// in the anchor/focus model the mouse drag already uses.
+    pub anchor: TextCursor,
+}
+
+/// One painted / hit-testable selection handle (U2-a), in WINDOW
+/// coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SelectionHandleGeometry {
+    pub end: SelectionHandleEnd,
+    /// The centre of the teardrop's circle.
+    pub center: LogicalPosition,
+    /// What a press has to land in to grab it: the circle's bounds inflated
+    /// by [`SELECTION_HANDLE_SLOP`] on every side. A finger is not a pointer.
+    pub hit: LogicalRect,
+}
+
+/// Radius of a selection handle's circle, in logical px (U2-a). Android's
+/// `text_select_handle` assets are 22dp wide, so the same size a user of the
+/// platform's own text fields is used to.
+pub const SELECTION_HANDLE_RADIUS: f32 = 11.0;
+/// Extra hit slop around a handle on every side, in logical px.
+pub const SELECTION_HANDLE_SLOP: f32 = 8.0;
+
+impl SelectionHandleGeometry {
+    /// The handle hanging under the bottom-`x` corner of a caret rect: the
+    /// circle sits entirely below the line, touching it, so it never covers
+    /// the character it marks.
+    #[must_use]
+    pub fn under(end: SelectionHandleEnd, x: f32, line_bottom: f32) -> Self {
+        let center = LogicalPosition::new(x, line_bottom + SELECTION_HANDLE_RADIUS);
+        let reach = SELECTION_HANDLE_RADIUS + SELECTION_HANDLE_SLOP;
+        Self {
+            end,
+            center,
+            hit: LogicalRect::new(
+                LogicalPosition::new(center.x - reach, center.y - reach),
+                azul_core::geom::LogicalSize::new(2.0 * reach, 2.0 * reach),
+            ),
+        }
+    }
+
+    /// The circle's own bounds - what is painted.
+    #[must_use]
+    pub fn circle(&self) -> LogicalRect {
+        let r = SELECTION_HANDLE_RADIUS;
+        LogicalRect::new(
+            LogicalPosition::new(self.center.x - r, self.center.y - r),
+            azul_core::geom::LogicalSize::new(2.0 * r, 2.0 * r),
+        )
+    }
+
+    #[must_use]
+    pub fn contains(&self, p: LogicalPosition) -> bool {
+        p.x >= self.hit.origin.x
+            && p.y >= self.hit.origin.y
+            && p.x <= self.hit.origin.x + self.hit.size.width
+            && p.y <= self.hit.origin.y + self.hit.size.height
+    }
+}
+
 /// Only compares `multi_cursor` — blink state, preedit, and dirty flag are
 /// transient visual state that should not affect logical equality of the
 /// editing session.
@@ -493,6 +577,8 @@ impl TextEditManager {
             composition_text: String::new(),
             pending_soft_keyboard: None,
             owner_colors: BTreeMap::new(),
+            selection_handles: false,
+            handle_drag: None,
             display_list_dirty: false,
             tween: TextTweenState::default(),
             pending_edit_notifications: Vec::new(),

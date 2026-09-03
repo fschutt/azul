@@ -3848,6 +3848,23 @@ where
                             rect.origin.y += content_box_offset_y;
                             builder.push_selection_rect(rect, style.bg_color, border_radius);
                         }
+
+                        // THE HANDLES (U2-a): one teardrop under each end of
+                        // the PRIMARY range - the one `anchor`/`focus` name,
+                        // which is the one the platform seams and the handle
+                        // drag address. Painted after the highlight so they
+                        // sit on top of it. Only where the platform lends a
+                        // custom view no handles of its own.
+                        if self.ctx.paint_selection_handles {
+                            paint_selection_handles(
+                                builder,
+                                &layout,
+                                text_selection,
+                                content_box_offset_x,
+                                content_box_offset_y,
+                                style.bg_color,
+                            );
+                        }
                     }
                 }
 
@@ -8798,6 +8815,65 @@ fn rect_intersects(bounds: &LogicalRect, page_top: f32, page_bottom: f32) -> boo
     let item_top = bounds.origin.y;
     let item_bottom = bounds.origin.y + bounds.size.height;
     item_bottom > page_top && item_top < page_bottom
+}
+
+/// Paint the two draggable selection handles of the primary range (U2-a).
+///
+/// The geometry is the same rule `LayoutWindow::selection_handle_geometry`
+/// hit-tests against - a circle of `SELECTION_HANDLE_RADIUS` hanging under
+/// the bottom corner of the caret rect at each end - so the thing the user
+/// sees is the thing the press finds. The rects come from
+/// `get_selection_rects`, whose first rect starts at the range's first
+/// character and whose last rect ends at its last, in document order
+/// whichever way the range was dragged.
+///
+/// The colour is the `::selection` background at full alpha: the handle is
+/// a solid object the finger targets, and a translucent one over text reads
+/// as more highlight.
+fn paint_selection_handles(
+    builder: &mut DisplayListBuilder,
+    layout: &UnifiedLayout,
+    text_selection: &azul_core::selection::TextSelection,
+    content_box_offset_x: f32,
+    content_box_offset_y: f32,
+    selection_color: ColorU,
+) {
+    use crate::managers::text_edit::{SelectionHandleEnd, SelectionHandleGeometry};
+    use azul_core::selection::SelectionRange;
+
+    let primary = SelectionRange {
+        start: text_selection.anchor.cursor,
+        end: text_selection.focus.cursor,
+    };
+    let rects = layout.get_selection_rects(&primary);
+    let (Some(first), Some(last)) = (rects.first(), rects.last()) else {
+        return;
+    };
+    let color = ColorU {
+        a: 255,
+        ..selection_color
+    };
+    let radius = crate::managers::text_edit::SELECTION_HANDLE_RADIUS;
+    let border_radius = BorderRadius {
+        top_left: radius,
+        top_right: radius,
+        bottom_left: radius,
+        bottom_right: radius,
+    };
+    for handle in [
+        SelectionHandleGeometry::under(
+            SelectionHandleEnd::Start,
+            first.origin.x + content_box_offset_x,
+            first.origin.y + first.size.height + content_box_offset_y,
+        ),
+        SelectionHandleGeometry::under(
+            SelectionHandleEnd::End,
+            last.origin.x + last.size.width + content_box_offset_x,
+            last.origin.y + last.size.height + content_box_offset_y,
+        ),
+    ] {
+        builder.push_selection_rect(handle.circle(), color, border_radius);
+    }
 }
 
 /// The alpha a remote participant's selection fill is drawn at.

@@ -1589,6 +1589,34 @@ impl IOSWindow {
                 }
             }
 
+            // THE PLATFORM'S OWN SELECTION UI (U2-a). Contrary to the note U2
+            // left in the ledger, iOS DOES hand a custom `UITextInput` view
+            // its handles: `UITextInteraction` (iOS 13+) is exactly that - the
+            // grab handles, the loupe and the tap/long-press gestures that
+            // place a caret and select a word - and it drives them through the
+            // same `UITextInput` seams 10b-i wired (`closestPositionToPoint:`,
+            // `setSelectedTextRange:`, `firstRectForRange:`). Without an
+            // interaction object nothing ever asked for them, so a range made
+            // by `select:` had no handles to drag. The engine therefore does
+            // NOT paint its own here (`selection_handles` stays false): two
+            // sets of handles for one selection is worse than none.
+            //
+            // `UITextInteractionModeEditable` is 0. Gated on the class
+            // existing, like the pencil interaction above.
+            if let Some(interaction_cls) = Class::get("UITextInteraction") {
+                let mode_editable: isize = 0;
+                let interaction: *mut Object =
+                    msg_send![interaction_cls, textInteractionForMode: mode_editable];
+                if !interaction.is_null() {
+                    let _: () = msg_send![interaction, setTextInput: view];
+                    let _: () = msg_send![view, addInteraction: interaction];
+                    log_info!(
+                        LogCategory::Input,
+                        "[iOS] UITextInteraction attached (selection handles + loupe)"
+                    );
+                }
+            }
+
             // Subscribe to the keyboard's frame changes. Nothing on iOS wrote
             // `SafeAreaInsets::keyboard` before this: the field existed and
             // `get_keyboard_inset()` read it, but on iOS it was permanently
