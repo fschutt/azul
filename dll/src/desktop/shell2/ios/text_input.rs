@@ -858,6 +858,108 @@ extern "C" fn tokenizer(this: &Object, _cmd: Sel) -> *mut Object {
     }
 }
 
+// ─── UIResponderStandardEditActions - the edit menu (U2) ──────────────
+//
+// UIKit's selection toolbar ("Cut | Copy | Paste | Select All") is not a
+// widget an app builds. It is UIKit asking the FIRST RESPONDER, by selector,
+// which of the standard editing actions it can perform, and then sending the
+// ones it said yes to. A responder that implements none of them gets no menu -
+// which is why a long-press on azul text on iOS offered nothing at all.
+//
+// Android had the MIRROR-IMAGE gap: its `ActionMode.Callback2` was complete
+// in Java and `startSelectionToolbar` had NO CALLER, so its bar never
+// appeared either. Both halves are wired in the same change, and both route
+// to the SAME `SystemChange` variants rather than growing a second clipboard
+// path that could drift.
+
+/// `canPerformAction:withSender:` - which menu items UIKit should show.
+///
+/// The answer decides the MENU, so a blanket `true` would offer Copy on an
+/// empty document and Paste with an empty pasteboard. Each action is answered
+/// from real state: copy and cut need a selection, paste needs something on
+/// the pasteboard, select-all needs text that is not already all selected.
+extern "C" fn can_perform_action(
+    _this: &Object,
+    _cmd: Sel,
+    action: Sel,
+    _sender: *mut Object,
+) -> bool {
+    let Some(window) = (unsafe { azul_ios_window() }) else {
+        return false;
+    };
+    let has_selection = window
+        .common
+        .layout_window
+        .as_ref()
+        .and_then(azul_layout::window::LayoutWindow::focused_selection_byte_range)
+        .is_some_and(|(start, end)| start != end);
+    let doc_len = document_len(window);
+
+    let name = action.name();
+    match name {
+        "copy:" | "cut:" => has_selection,
+        // The pasteboard is the OS's, so this asks it rather than guessing.
+        "paste:" => crate::desktop::shell2::ios::clipboard::has_text(),
+        "select:" => doc_len > 0 && !has_selection,
+        "selectAll:" => doc_len > 0,
+        _ => false,
+    }
+}
+
+/// Route one standard edit action through the shared `SystemChange` path.
+fn perform_edit_action(change: azul_core::events::SystemChange) {
+    let Some(window) = (unsafe { azul_ios_window() }) else {
+        return;
+    };
+    window.snapshot_window_state_baseline("ios.edit_action");
+    let result = window.apply_system_change(&change);
+    settle(window, result);
+}
+
+extern "C" fn edit_copy(_this: &Object, _cmd: Sel, _sender: *mut Object) {
+    perform_edit_action(azul_core::events::SystemChange::CopyToClipboard);
+}
+
+extern "C" fn edit_cut(_this: &Object, _cmd: Sel, _sender: *mut Object) {
+    // CUT NAMES ITS TARGET, unlike the others: it deletes, and the engine has
+    // to know from which node. Without a focused node there is nothing to cut,
+    // so this does nothing rather than inventing a target.
+    let target = unsafe { azul_ios_window() }
+        .and_then(|w| w.common.layout_window.as_ref())
+        .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+    if let Some(target) = target {
+        perform_edit_action(azul_core::events::SystemChange::CutToClipboard { target });
+    }
+}
+
+extern "C" fn edit_paste(_this: &Object, _cmd: Sel, _sender: *mut Object) {
+    perform_edit_action(azul_core::events::SystemChange::PasteFromClipboard);
+}
+
+extern "C" fn edit_select_all(_this: &Object, _cmd: Sel, _sender: *mut Object) {
+    perform_edit_action(azul_core::events::SystemChange::SelectAllText);
+}
+
+/// `select:` is "select the word under the caret", not "select everything".
+///
+/// UIKit sends it for the first long-press on unselected text, and answering
+/// it with select-all is the wrong gesture entirely - the user asked for a
+/// word and would get the document. Routed to the same word-selection the
+/// double-click path uses.
+extern "C" fn edit_select(_this: &Object, _cmd: Sel, _sender: *mut Object) {
+    let Some(window) = (unsafe { azul_ios_window() }) else {
+        return;
+    };
+    let Some(lw) = window.common.layout_window.as_mut() else {
+        return;
+    };
+    if !lw.select_word_at_caret() {
+        return;
+    }
+    let result = window.process_window_events(0);
+    settle(window, result);
+}
+
 // ─── Registration ─────────────────────────────────────────────────────
 
 /// Add every `UITextInput` member to the view class.
@@ -867,6 +969,33 @@ extern "C" fn tokenizer(this: &Object, _cmd: Sel) -> *mut Object {
 /// method can never be advertised as conforming.
 pub(super) fn register(decl: &mut ClassDecl) {
     unsafe {
+        // The edit menu (U2). Registered on the same class as the
+        // `UITextInput` members because UIKit sends both to the FIRST
+        // RESPONDER, and that is this view.
+        decl.add_method(
+            sel!(canPerformAction:withSender:),
+            can_perform_action as extern "C" fn(&Object, Sel, Sel, *mut Object) -> bool,
+        );
+        decl.add_method(
+            sel!(copy:),
+            edit_copy as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(cut:),
+            edit_cut as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(paste:),
+            edit_paste as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(select:),
+            edit_select as extern "C" fn(&Object, Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(selectAll:),
+            edit_select_all as extern "C" fn(&Object, Sel, *mut Object),
+        );
         decl.add_method(
             sel!(textInRange:),
             text_in_range as extern "C" fn(&Object, Sel, *mut Object) -> *mut Object,

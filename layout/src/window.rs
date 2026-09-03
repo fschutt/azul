@@ -11998,6 +11998,43 @@ impl LayoutWindow {
     /// Then search forward in the text for the next occurrence and add it as a
     /// new multi-cursor selection.
     ///
+    /// Select the WORD under the caret (U2).
+    ///
+    /// What UIKit's `select:` means and what a long-press on unselected text
+    /// asks for - "select the word here", not "select everything". Answering
+    /// it with select-all would be the wrong gesture entirely: the user asked
+    /// for a word and would get the document.
+    ///
+    /// `false` when there is no caret, no layout, or no word at that position
+    /// (a caret in whitespace), in which case the caller leaves the selection
+    /// alone rather than collapsing it.
+    pub fn select_word_at_caret(&mut self) -> bool {
+        use crate::text3::selection::select_word_at_cursor;
+
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+            return false;
+        };
+        let node_id = mc.node_id;
+        let Some(dom_node_id) = node_id.node.into_crate_internal() else {
+            return false;
+        };
+        let Some(cursor) = self.text_edit_manager.get_primary_cursor() else {
+            return false;
+        };
+        let Some(inline_layout) = self.get_node_inline_layout(node_id.dom, dom_node_id) else {
+            return false;
+        };
+        let Some(range) = select_word_at_cursor(&cursor, &inline_layout) else {
+            return false;
+        };
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() else {
+            return false;
+        };
+        mc.set_single_range(range);
+        self.text_edit_manager.mark_dirty();
+        true
+    }
+
     /// Returns true if a new selection was added.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)

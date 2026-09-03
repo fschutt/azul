@@ -1798,14 +1798,43 @@ session needs. Recorded verbatim so the framing is not lost.
       `::selection` background. The rects come from a different path (`text_selections`, a
       `BTreeMap<DomId, TextSelection>` built before the owner existed) which has no owner on it at
       all - so it is the same shape of work again rather than a line in the same place.
-- [ ] U2 NATIVE SELECTION INTEGRATION. User: "please make sure our selection model integrates
-      with the native selections on ios and android, so that copy-in / copy-out works".
-      The iOS half now has the offset bridge from 10b-i-a/b, so `selectedTextRange` and
-      `setSelectedTextRange:` are honest - but the SELECTION TOOLBAR (UIKit's edit menu, Android's
-      ActionMode) and the clipboard round trip are what "copy-in / copy-out" means, and those are
-      only partly wired: Android already routes ActionMode cut/copy/paste/select-all through
-      `SystemChange`, iOS has no equivalent path. Check both directions against a real selection
-      before claiming it.
+- [x] U2 DONE on both platforms, and BOTH had a gap - the mirror image of each other.
+      ⚠ ANDROID'S TOOLBAR HAS NEVER APPEARED. `NativeTextBridge.startSelectionToolbar` is
+      complete Java - an `ActionMode.Callback2`, the menu items, a content rect that follows a
+      moving selection - with NO CALLER anywhere in Rust. My own note for this item said Android
+      "already routes ActionMode cut/copy/paste/select-all through `SystemChange`", which is true
+      of the ACTIONS and false of the bar that sends them: nothing ever started it. Classic "live
+      in Java, dead in the product".
+      iOS had the opposite half missing. UIKit's selection toolbar is not a widget an app builds -
+      it is UIKit asking the FIRST RESPONDER by selector which standard edit actions it can
+      perform - and a responder implementing none of them gets no menu at all. So a long-press on
+      azul text on iOS offered nothing.
+      Both now route to the SAME `SystemChange` variants rather than growing a second clipboard
+      path that could drift.
+      `canPerformAction:` ANSWERS FROM REAL STATE, not `true`: copy and cut need a selection,
+      paste asks the PASTEBOARD (another app can put something there while this one is
+      backgrounded, so a cached answer is stale exactly when the user comes back to paste), and
+      select-all needs text that is not already all selected. A blanket yes would offer Copy on an
+      empty document and Paste with an empty clipboard.
+      `select:` IS NOT `selectAll:`. UIKit sends it for the first long-press on unselected text
+      and it means "select the word here"; answering it with select-all gives the user the
+      document when they asked for a word. `LayoutWindow::select_word_at_caret` is the new seam,
+      built on the `select_word_at_cursor` the double-click path already used.
+      CUT NAMES ITS TARGET where the others do not - it deletes, so the engine has to know from
+      which node - and does nothing without a focused one rather than inventing a target.
+      The Android bar is driven off the ENGINE's selection rather than off a gesture, and on the
+      TRANSITION only: `startActionMode` is a UI-thread hop, and the bar refreshes its own
+      position through `onGetContentRect`. Driving it from the engine also means a selection made
+      by Select All, or by a remote participant under U1, raises the same bar as a double-tap.
+      EVIDENCE: all three iOS seams proven COMPILED on aarch64-apple-ios AND x86_64-apple-ios,
+      both Android seams under `_internal_deps`, and the JAVA re-compiled against android-34.
+      Host, 8/8 mobile, azul-layout 7638, autofix 0 patches. ⚠ No device or simulator - neither
+      toolbar has actually been seen.
+- [ ] U2-a The draggable SELECTION HANDLES (the teardrops) are still the engine's to draw on both
+      platforms, and it does not. No platform API hands them to a custom view - every app that has
+      them draws its own - and the Java comment already says so. The geometry is available
+      (`focused_rect_for_byte_range` from 10b-i-a gives each end), so this is a paint job rather
+      than a platform one, but it is a paint job with hit-testing and drag behaviour of its own.
 - [ ] U3 Both of the above want the SAME question answered first: is a selection identified by
       `(node, range)` or by an owner-scoped id? U1 needs owners on every selection and U2 needs
       the platform's idea of "the selection" to map onto exactly one of them. Doing U1 first

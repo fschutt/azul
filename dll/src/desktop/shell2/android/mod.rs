@@ -128,6 +128,9 @@ pub struct AndroidWindow {
 
     /// Selection-toolbar actions (cut/copy/paste/select-all) from the UI thread.
     pending_selection_actions: std::sync::Mutex<Vec<i32>>,
+    /// Whether the floating selection toolbar is up (U2), so it is started and
+    /// stopped on the TRANSITION rather than asked for every frame.
+    selection_toolbar_shown: bool,
 
     /// IME text committed on the Java UI thread, waiting for the loop thread.
     ///
@@ -211,6 +214,7 @@ impl AndroidWindow {
             damage_history: std::collections::VecDeque::new(),
             pending_ime_commits: std::sync::Mutex::new(Vec::new()),
             pending_selection_actions: std::sync::Mutex::new(Vec::new()),
+            selection_toolbar_shown: false,
             needs_rerender: false,
             touch_pan_last: None,
         })
@@ -739,6 +743,29 @@ pub fn android_main(app: AndroidApp) {
         // Drain the Java-thread theme queue on the loop thread: snapshot →
         // mutate → pass, like every other OS-state change.
         drain_pending_theme(&mut window);
+
+        // NATIVE SELECTION TOOLBAR (U2). Android owns the floating
+        // Cut/Copy/Paste bar; the engine owns the selection. This is the join,
+        // and it did not exist - `startSelectionToolbar` had no caller at all,
+        // so the bar has never appeared however complete the Java looked.
+        //
+        // Driven off the ENGINE's selection rather than a gesture, because
+        // that is the thing that is actually true: a selection made by a
+        // double-tap, by Select All, or by a remote participant's edit all
+        // deserve the same bar.
+        {
+            let has_selection = window
+                .common
+                .layout_window
+                .as_ref()
+                .and_then(azul_layout::window::LayoutWindow::focused_selection_byte_range)
+                .is_some_and(|(start, end)| start != end);
+            if has_selection != window.selection_toolbar_shown {
+                let native_ptr = core::ptr::from_mut(&mut window) as i64;
+                set_selection_toolbar_visible(has_selection, native_ptr);
+                window.selection_toolbar_shown = has_selection;
+            }
+        }
 
         // The soft-keyboard drain moved to `process_window_events` (10a-iv),
         // where it now serves BOTH the app's explicit request and the
@@ -2153,6 +2180,71 @@ pub fn set_soft_keyboard_visible(visible: bool) {
         log_debug!(LogCategory::Input, "[Android] soft keyboard: {e}");
     }
 }
+
+/// Show or hide Android's floating Cut/Copy/Paste toolbar (U2).
+///
+/// ⚠ `NativeTextBridge.startSelectionToolbar` HAD NO CALLER. The Java side -
+/// the `ActionMode.Callback2`, the menu items, the content rect that follows a
+/// moving selection - has been complete for a while, and nothing on the Rust
+/// side ever started it, so Android's selection toolbar has never once
+/// appeared. That is the "live in Java, dead in the product" shape: the code
+/// reads as finished and does nothing.
+///
+/// Called on the TRANSITION only, not per frame: `startActionMode` is a UI
+/// thread hop and the bar is already self-refreshing through
+/// `onGetContentRect`.
+#[cfg(all(target_os = "android", feature = "jni"))]
+pub fn set_selection_toolbar_visible(visible: bool, native_ptr: i64) {
+    use jni::{objects::JValue, JavaVM};
+
+    let vm_ptr = java_vm_ptr();
+    let activity_ptr = activity_ptr();
+    if vm_ptr.is_null() || activity_ptr.is_null() {
+        return;
+    }
+    let result = (|| -> Result<(), String> {
+        let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }
+            .map_err(|e| format!("JavaVM::from_raw: {e:?}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        let activity =
+            unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
+        let class = crate::desktop::extra::find_app_class(
+            &mut env,
+            &activity,
+            "com/azul/text/NativeTextBridge",
+        )
+        .ok_or_else(|| "NativeTextBridge not in this APK".to_string())?;
+        if visible {
+            env.call_static_method(
+                &class,
+                "startSelectionToolbar",
+                "(Landroid/app/Activity;J)V",
+                &[JValue::Object(&activity), JValue::Long(native_ptr)],
+            )
+        } else {
+            env.call_static_method(
+                &class,
+                "stopSelectionToolbar",
+                "(Landroid/app/Activity;)V",
+                &[JValue::Object(&activity)],
+            )
+        }
+        .map(|_| ())
+        .map_err(|e| {
+            let _ = env.exception_clear();
+            format!("selection toolbar: {e:?}")
+        })
+    })();
+    if let Err(e) = result {
+        log_debug!(LogCategory::Input, "[Android] selection toolbar: {e}");
+    }
+}
+
+/// Without `jni` there is no Java side to call.
+#[cfg(all(target_os = "android", not(feature = "jni")))]
+pub fn set_selection_toolbar_visible(_visible: bool, _native_ptr: i64) {}
 
 /// No-op when the `jni` feature is out: the keyboard simply never appears,
 /// which is what happened before this function existed at all.

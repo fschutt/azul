@@ -210,6 +210,20 @@ pub fn write_payload(payload: &ClipboardPayload) -> bool {
 }
 
 /// Plain-text convenience read, for callers that only want a string.
+/// Is there anything on the pasteboard worth offering a Paste item for (U2)?
+///
+/// Asked by `canPerformAction:` before UIKit draws the edit menu, so a wrong
+/// answer here is a Paste button that does nothing - or a missing one when
+/// there IS something to paste.
+///
+/// Reads the pasteboard rather than caching: another app can put something
+/// there while this one is in the background, and a cached answer would be
+/// stale exactly when the user came back to paste it.
+#[must_use]
+pub fn has_text() -> bool {
+    get_clipboard_content().is_some_and(|t| !t.is_empty())
+}
+
 pub fn get_clipboard_content() -> Option<String> {
     unsafe {
         let pb = general();
