@@ -2788,6 +2788,7 @@ mod autotest_generated {
             ended: true,
             session_id,
             window_position_at_start: WindowPosition::Uninitialized,
+            seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
         }
     }
 
@@ -2961,6 +2962,7 @@ mod autotest_generated {
             ended: false,
             session_id: 0,
             window_position_at_start: WindowPosition::Uninitialized,
+            seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
         };
         assert!(s.first_sample().is_none());
         assert!(s.last_sample().is_none());
@@ -2977,6 +2979,7 @@ mod autotest_generated {
             ended: false,
             session_id: 1,
             window_position_at_start: WindowPosition::Uninitialized,
+            seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
         };
         assert_eq!(s.duration_ms(), Some(0));
     }
@@ -2998,6 +3001,7 @@ mod autotest_generated {
             ended: false,
             session_id: 1,
             window_position_at_start: WindowPosition::Uninitialized,
+            seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
         };
         assert_eq!(s.duration_ms(), Some(0));
     }
@@ -3013,6 +3017,7 @@ mod autotest_generated {
             ended: false,
             session_id: 1,
             window_position_at_start: WindowPosition::Uninitialized,
+            seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
         };
         assert_eq!(s.total_distance(), 7.0);
         assert_eq!(s.direct_distance(), Some(5.0));
@@ -3025,6 +3030,7 @@ mod autotest_generated {
             ended: false,
             session_id: 1,
             window_position_at_start: WindowPosition::Uninitialized,
+            seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
         };
         assert!(s.total_distance().is_nan());
         assert!(s.direct_distance().is_some_and(f32::is_nan));
@@ -3040,6 +3046,7 @@ mod autotest_generated {
             ended: false,
             session_id: 1,
             window_position_at_start: WindowPosition::Uninitialized,
+            seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
         };
         assert!(s.total_distance().is_infinite());
         assert!(s.direct_distance().is_some_and(f32::is_infinite));
@@ -3439,6 +3446,7 @@ mod autotest_generated {
             ended: false,
             session_id: 99,
             window_position_at_start: WindowPosition::Uninitialized,
+            seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
         });
         m.clear_old_sessions(ts(0));
         assert_eq!(m.session_count(), 0);
