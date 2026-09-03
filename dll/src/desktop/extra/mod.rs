@@ -30,6 +30,7 @@ pub mod file_picker;
 /// pass folds into the per-`App` `GamepadManager`.
 pub mod gamepad;
 pub mod hid;
+pub mod media_keys;
 pub mod geolocation;
 pub mod keyring;
 /// MVT tile decode + projection math for the `MapWidget` content

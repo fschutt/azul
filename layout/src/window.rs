@@ -288,6 +288,22 @@ pub fn synthesize_pinch_from_ctrl_wheel() -> bool {
     SYNTHESIZE_PINCH_FROM_CTRL_WHEEL.load(core::sync::atomic::Ordering::Relaxed)
 }
 
+/// App-global `AppConfig::expose_mpris_media_controls`, published the same way
+/// and for the same reason: the Linux media-key backend starts from a place
+/// with no path back to the `AppConfig` the app was built with.
+static EXPOSE_MPRIS: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// Install the app-global MPRIS setting.
+pub fn set_global_expose_mpris(enabled: bool) {
+    EXPOSE_MPRIS.store(enabled, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether to publish an MPRIS player. Read by the Linux media-key backend.
+#[must_use]
+pub fn expose_mpris_media_controls() -> bool {
+    EXPOSE_MPRIS.load(core::sync::atomic::Ordering::Relaxed)
+}
+
 /// Data for the tween timer: the shared "in flight" flag published by
 /// `TextTweenState::publish_active`, so the timer can self-terminate.
 #[derive(Debug)]

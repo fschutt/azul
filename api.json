@@ -114869,6 +114869,9 @@
                                 "synthesize_pinch_from_ctrl_wheel": {
                                     "type": "bool"
                                 },
+                                "expose_mpris_media_controls": {
+                                    "type": "bool"
+                                },
                                 "termination_behavior": {
                                     "type": "AppTerminationBehavior"
                                 },

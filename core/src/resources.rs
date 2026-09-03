@@ -896,6 +896,26 @@ pub struct AppConfig {
     /// Ignored on every platform but Windows: macOS and Wayland report real
     /// pinch gestures, so nothing has to be inferred there.
     pub synthesize_pinch_from_ctrl_wheel: bool,
+    /// Whether the app publishes an MPRIS media-player interface on Linux.
+    /// Default `false`.
+    ///
+    /// On Linux the desktop environment usually GRABS the media keys, so
+    /// `XF86AudioPlay` and friends never reach the application as keysyms at
+    /// all (the 9h-i table only sees them when nothing grabbed them). The
+    /// transport in that case is MPRIS over D-Bus: the desktop calls
+    /// `Play`/`Pause`/`Next` on whatever players are registered, and azul
+    /// turns those calls back into ordinary `VirtualKeyCode` presses.
+    ///
+    /// OFF by default because registering has a VISIBLE side effect: the app
+    /// appears in the desktop's media controls (GNOME's system menu, KDE's
+    /// media applet) as a player. That is correct for a music app and wrong
+    /// for a text editor, and no engine-side signal distinguishes them - so
+    /// the app says which it is.
+    ///
+    /// Ignored on every platform but Linux. Windows delivers media keys as
+    /// `WM_APPCOMMAND` and macOS needs an event tap; neither publishes
+    /// anything.
+    pub expose_mpris_media_controls: bool,
     /// Determines what happens when all windows are closed.
     /// Default: `EndProcess` (terminate when last window closes).
     pub termination_behavior: AppTerminationBehavior,
@@ -991,6 +1011,8 @@ impl AppConfig {
             // ON by default: a precision touchpad is how most Windows laptops
             // pinch, and without this they cannot pinch at all.
             synthesize_pinch_from_ctrl_wheel: true,
+            // OFF: publishing a media player is visible in the desktop UI.
+            expose_mpris_media_controls: false,
             custom_e2e_op: crate::events::CustomE2eOpCallback::default(),
             updates: UpdateSettings::default(),
             changelog_md: azul_css::OptionString::None,

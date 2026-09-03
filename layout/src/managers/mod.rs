@@ -42,6 +42,7 @@ pub mod gamepad;
 pub mod geolocation;
 pub mod gesture;
 pub mod hid;
+pub mod media_keys;
 pub mod gpu_state;
 pub mod hover;
 pub mod keyring;

@@ -492,12 +492,49 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       needs a CGEventTap (and therefore the accessibility permission) or the `MediaPlayer`
       framework's remote-command centre. Neither is a keysym table; both are a separate transport
       with a permission prompt attached, which is why the Linux half landed alone.
-- [ ] IN SCOPE, and the user notes D-Bus APIs already exist here: "we implement and dlopen blindly". 9h-i-a Linux MPRIS: where the desktop environment HAS grabbed the media keys, they never
-      reach the application as keysyms at all and the transport is MPRIS over D-Bus. The keysym
-      table above is correct and complete for the ungrabbed case; this is the other case.
+- [x] 9h-i-a DONE — Linux MPRIS over D-Bus, opt-in.
+      9h-i's keysym table is the whole answer only WHEN NOTHING GRABBED the keys, and every
+      mainstream desktop grabs them: GNOME and KDE bind the media row globally and route it to
+      registered players, so `XF86AudioPlay` never reaches the focused window as a keysym at all.
+      The transport in that case is MPRIS, and it arrives on a D-Bus thread rather than in a
+      window's event stream.
+      Built on `zbus 5`, which is already a NON-OPTIONAL Linux dependency (the GeoClue2
+      geolocation client uses it) - so nothing new is linked and it cross-compiles. The blocking
+      API on a dedicated thread mirrors that backend exactly.
+      OPT-IN via `AppConfig::expose_mpris_media_controls`, default FALSE, and that is a product
+      decision rather than caution: registering makes the app APPEAR IN THE DESKTOP'S MEDIA
+      CONTROLS as a player. Correct for a music app, wrong for a text editor, and no engine-side
+      signal distinguishes them - so the app says which it is. Same AppConfig mechanism the user
+      blessed for the pinch flag; the default differs because a pinch is invisible and a media
+      widget entry is not.
+      METHOD CALLS BECOME ORDINARY KEY PRESSES, matching the contract every other producer
+      follows (`WM_APPCOMMAND` and the keysym table both deliver `PlayPause` as a normal key), so
+      an app binding it works whether the key arrived raw or over D-Bus. Press AND release
+      together, for the same reason `WM_APPCOMMAND` does it: neither transport has a release and a
+      latched key looks held forever.
+      Drained in `process_window_events` beside the haptic drain, NOT in the capability pump -
+      emitting a key needs a PASS, and `pump()` only has the `LayoutWindow`. Found by trying the
+      pump first and reading its signature.
+      THE PROPERTIES ARE STUBBED AND THAT IS LOAD-BEARING, not laziness: `PlaybackStatus` is
+      required by the spec and read by every desktop, and omitting it makes some of them treat
+      the player as broken and hide it - taking the transport buttons with it. So the stub is
+      what makes the KEYS work. `CanSeek` is the one flag reported FALSE: seeking needs a
+      position azul does not have, and claiming it would put a dead scrubber in the desktop UI.
+      `Quit`/`Raise` are inert with `CanQuit`/`CanRaise` false - a media widget's close button
+      terminating the app would be a surprise, and raising is a window-manager action the shell
+      owns.
+      EVIDENCE: all three seams (serve, PlayPause handler, drain) proven COMPILED under
+      `--target x86_64-unknown-linux-gnu`. 2 channel tests. Host, Windows, 8/8 mobile,
+      azul-layout 7581, azul-dll 1973, autofix converged and `codegen all` re-ran for the new
+      `AppConfig` field. ⚠ No Linux desktop here - compile-only, never registered on a real bus.
 
-### Follow-ups opened by 9f/9g
-
+- [ ] 9h-i-a-i MPRIS metadata: `PlaybackStatus`, `Metadata` and `Position` are stubbed at
+      "stopped, no track" because azul has no playback state machine - the same thing 11c is
+      blocked on. An app that IS a media player has the state and no way to publish it; exposing
+      it needs an API for the app to push status/metadata into the MPRIS interface.
+- [ ] 9h-i-a-ii MPRIS `Raise` is inert. Focusing a window from the desktop's media widget is a
+      window-manager action the shell owns, and there is no seam from a D-Bus thread to "raise
+      window N" - it needs the same cross-thread request path the media keys now have.
 - [x] 9f-i LINUX DONE (`/dev/hidraw*`); macOS is 9f-i-a and Windows 9f-i-b.
       The consumer side had been complete for a while - `HidManager`, `get_hid_devices()`,
       `get_hid_reports()`, and since 9g-ii-c the `HidDeviceVec`/`HidReportVec` types that let a

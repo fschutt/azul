@@ -9078,6 +9078,35 @@ pub trait PlatformWindow {
         // scroll_to_animated) that no platform wheel handler will drain.
         self.arm_animation_drivers_if_needed();
 
+        // OUT-OF-BAND MEDIA KEYS (Linux MPRIS). The desktop grabs the media
+        // row on every mainstream Linux desktop, so `XF86AudioPlay` never
+        // reaches the window as a keysym and arrives on a D-Bus thread
+        // instead. Drained HERE rather than in the capability pump because
+        // emitting a key needs a PASS, and the pump only has the
+        // `LayoutWindow`.
+        //
+        // Delivered as an ordinary key press AND release together, exactly as
+        // the Win32 `WM_APPCOMMAND` arm does: neither transport has a release,
+        // and leaving the key latched would make it look held forever.
+        if depth == 0 {
+            crate::desktop::extra::media_keys::ensure_started();
+            let keys = azul_layout::managers::media_keys::drain_media_keys();
+            for key in keys {
+                use azul_core::window::OptionVirtualKeyCode;
+                self.get_common_mut()
+                    .update_window_state(WindowStateSource::App, |ws| {
+                        ws.keyboard_state.current_virtual_keycode =
+                            OptionVirtualKeyCode::Some(key);
+                    });
+                result = result.max(self.process_window_events_inner(depth + 1));
+                self.get_common_mut()
+                    .update_window_state(WindowStateSource::App, |ws| {
+                        ws.keyboard_state.current_virtual_keycode = OptionVirtualKeyCode::None;
+                    });
+                result = result.max(self.process_window_events_inner(depth + 1));
+            }
+        }
+
         // HAPTICS. `CallbackInfo::play_haptic()` -> `CallbackChange::PlayHaptic`
         // -> `HapticManager::play()` was a complete chain with NO drain on any
         // platform, so every request ever made just accumulated in a Vec that
