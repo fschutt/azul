@@ -3528,22 +3528,63 @@ unsafe fn ime_set_marked_text(
         selected_range.length
     );
     let (doc, marked) = ime_document_of(window);
-    if let Some(explicit) = ime_explicit_replacement(&doc, replacement_range) {
-        if Some(explicit) != marked {
-            // Composing OVER a range that is not the current composition
-            // (reconversion of committed text). The engine can select it, but
-            // a preedit shaped at the caret next to a live selection is not
-            // "replacing" it - see 10b-i-b-i-a. Reported, not guessed.
-            log_warn!(
-                LogCategory::Input,
-                "[IME setMarkedText] replacementRange {}..{} (bytes) is not the marked text; \
-                 composing at the caret instead (10b-i-b-i-a)",
-                explicit.0,
-                explicit.1
+    let macos_window = &mut *window;
+    // COMPOSING OVER COMMITTED TEXT (10b-i-b-i-a). The header: the receiver
+    // inserts the marked string "replacing the content specified by
+    // replacementRange", and "if there is no marked text, the current
+    // selection is replaced". The engine shapes a preedit AT THE CARET and
+    // leaves committed text alone, so "replacing" is spelled out as: select
+    // the range, delete it (the caret lands at its start), then compose
+    // there - the same three steps a reconversion is made of in every
+    // reference client. On a cancel the IME re-inserts the original through
+    // `insertText:`, and on `unmarkText` the composition is accepted (below),
+    // so the deleted text is never simply lost.
+    if !preedit.is_empty() {
+        if let Some(ref mut lw) = macos_window.common.layout_window {
+            let selection = lw.focused_selection_byte_range();
+            let action = azul_layout::window::ime_replacement_action(
+                ime_explicit_replacement(&doc, replacement_range),
+                marked,
+                selection,
             );
+            let to_delete = match action {
+                azul_layout::window::ImeReplacement::ReplaceCommitted { start, end } => {
+                    Some((start, end))
+                }
+                // No composition open and a live selection: the composition
+                // replaces it, whether the IME named it or not.
+                azul_layout::window::ImeReplacement::Implicit => selection
+                    .filter(|(a, b)| a != b && marked.is_none()),
+                azul_layout::window::ImeReplacement::NotHonoured { start, end } => {
+                    log_warn!(
+                        LogCategory::Input,
+                        "[IME setMarkedText] replacementRange {}..{} (bytes) during a \
+                         composition is not the marked text; composing at the caret instead \
+                         (10b-i-b-i-a: the offsets index a document whose preedit is about to \
+                         be un-shaped)",
+                        start,
+                        end
+                    );
+                    None
+                }
+            };
+            if let Some((start, end)) = to_delete {
+                if lw.set_focused_selection_from_byte_range(start, end) {
+                    if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
+                        lw.delete_selection(focused, false);
+                    }
+                } else {
+                    log_debug!(
+                        LogCategory::Input,
+                        "[IME setMarkedText] replacementRange {}..{}: no focused editable to \
+                         select in",
+                        start,
+                        end
+                    );
+                }
+            }
         }
     }
-    let macos_window = &mut *window;
     if preedit.is_empty() {
         // AppKit clears marked text by marking the empty string. That is a
         // cancel, not a composition of nothing: the composed glyphs have to
@@ -3587,15 +3628,38 @@ unsafe fn ime_set_marked_text(
 
 unsafe fn ime_unmark_text(window: *mut MacOSWindow) {
     let macos_window = &mut *window;
+    // ACCEPT, NOT DISCARD (10b-i-b-i-a). AppKit's contract: "the text view
+    // should accept the marked text as if it had been inserted normally" -
+    // and Flutter's embedder, WebKit and Chromium all commit here. This used
+    // to treat `unmarkText` as a cancel and drop the composition, which is
+    // what AppKit sends when FOCUS LEAVES mid-composition (a click into
+    // another field, Cmd-Tab): the half-typed word vanished. A real cancel
+    // arrives as `setMarkedText:` with the empty string, handled there.
+    //
+    // With a composition that replaced committed text (reconversion, above),
+    // accepting is also what keeps the document from losing that text.
+    let preedit = macos_window
+        .common
+        .layout_window
+        .as_ref()
+        .and_then(|lw| lw.text_edit_manager.preedit_text.clone())
+        .unwrap_or_default();
+    if preedit.is_empty() {
+        if let Some(ref mut lw) = macos_window.common.layout_window {
+            lw.text_edit_manager.clear_preedit();
+            lw.end_preedit_shaping();
+        }
+        macos_window.request_redraw();
+        return;
+    }
     if let Some(ref mut lw) = macos_window.common.layout_window {
-        // Cancelling drops the composition ENTIRELY. Clearing the preedit
-        // string alone left the composed glyphs shaped into the node's inline
-        // layout, so a cancelled composition stayed on screen until something
-        // else happened to re-shape that node.
-        lw.text_edit_manager.clear_preedit();
+        // The same two steps `insertText:` takes before inserting: un-shape
+        // the composed glyphs (or the commit lands beside them) and end the
+        // composition with the committed string on the `CompositionEnd`.
+        lw.text_edit_manager.commit_composition(preedit.clone());
         lw.end_preedit_shaping();
     }
-    macos_window.request_redraw();
+    macos_window.handle_text_input(&preedit);
 }
 
 /// The document's text for a proposed range - what a Japanese IME reads for
@@ -3640,24 +3704,16 @@ unsafe fn ime_insert_text(window: *mut MacOSWindow, string: &NSObject, replaceme
         // Now it is the iOS rule: select the range, delete, insert - in that
         // order, since inserting first would put the new text beside the old
         // and then delete the wrong span.
-        if let Some((start, end)) = ime_explicit_replacement(&doc, replacement_range) {
-            let is_composition = marked == Some((start, end));
-            let is_selection =
-                marked.is_none() && lw.focused_selection_byte_range() == Some((start, end));
-            if !is_composition && !is_selection && start != end {
-                if marked.is_some() {
-                    // The offsets index a document with a preedit in it, and
-                    // the shaped layout the selection seam resolves against
-                    // is about to lose that preedit. Not guessed - see
-                    // 10b-i-b-i-a.
-                    log_warn!(
-                        LogCategory::Input,
-                        "[IME insertText] replacementRange {}..{} (bytes) during a composition \
-                         is applied at the caret instead (10b-i-b-i-a)",
-                        start,
-                        end
-                    );
-                } else if lw.set_focused_selection_from_byte_range(start, end) {
+        // ONE rule with `setMarkedText:` (10b-i-b-i-a):
+        // `azul_layout::window::ime_replacement_action`.
+        match azul_layout::window::ime_replacement_action(
+            ime_explicit_replacement(&doc, replacement_range),
+            marked,
+            lw.focused_selection_byte_range(),
+        ) {
+            azul_layout::window::ImeReplacement::Implicit => {}
+            azul_layout::window::ImeReplacement::ReplaceCommitted { start, end } => {
+                if lw.set_focused_selection_from_byte_range(start, end) {
                     if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
                         lw.delete_selection(focused, false);
                     }
@@ -3669,6 +3725,18 @@ unsafe fn ime_insert_text(window: *mut MacOSWindow, string: &NSObject, replaceme
                         end
                     );
                 }
+            }
+            azul_layout::window::ImeReplacement::NotHonoured { start, end } => {
+                // The offsets index a document with a preedit in it, and the
+                // shaped layout the selection seam resolves against is about
+                // to lose that preedit. Reported, not guessed.
+                log_warn!(
+                    LogCategory::Input,
+                    "[IME insertText] replacementRange {}..{} (bytes) during a composition \
+                     is applied at the caret instead (10b-i-b-i-a)",
+                    start,
+                    end
+                );
             }
         }
         // END the composition before inserting: the composed string is glyphs

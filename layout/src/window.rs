@@ -24428,6 +24428,114 @@ pub fn ime_selected_byte_range(
     (document_len, document_len)
 }
 
+/// What a text-input client does with an `insertText:` / `setMarkedText:`
+/// `replacementRange` (10b-i-b-i-a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImeReplacement {
+    /// Act at the caret / on the current composition, exactly as an implicit
+    /// (`NSNotFound`) range would: the range names the composition itself,
+    /// the current selection, or nothing (an empty range).
+    Implicit,
+    /// Delete this byte range of the COMMITTED text first (the caret lands at
+    /// its start), then act there: a reconversion of committed text, an
+    /// autocorrect swapping a committed word, a dictation edit.
+    ReplaceCommitted { start: usize, end: usize },
+    /// An explicit range that indexes a document WITH a preedit in it and is
+    /// not that preedit: the shaped layout the selection seam resolves
+    /// against is about to lose the preedit, so the offsets cannot be
+    /// applied. Reported by the caller, acted on at the caret.
+    NotHonoured { start: usize, end: usize },
+}
+
+/// Resolve a `replacementRange` (already in bytes of the IME document, or
+/// `None` for `NSNotFound`) against the composition and the committed
+/// selection.
+///
+/// The header's contract: "the receiver inserts aString replacing the
+/// content specified by replacementRange"; "if there is no marked text, the
+/// current selection is replaced". Every reference client (WebKit, Chromium,
+/// Flutter's embedder) reads the range as DOCUMENT content and selects it
+/// before acting, which is what `ReplaceCommitted` asks the caller to do.
+#[must_use]
+pub fn ime_replacement_action(
+    explicit: Option<(usize, usize)>,
+    marked: Option<(usize, usize)>,
+    committed_selection: Option<(usize, usize)>,
+) -> ImeReplacement {
+    let Some((start, end)) = explicit else {
+        return ImeReplacement::Implicit;
+    };
+    let (start, end) = if start <= end { (start, end) } else { (end, start) };
+    if start == end {
+        // An empty range is an insertion point, and the only insertion point
+        // this client has is its caret.
+        return ImeReplacement::Implicit;
+    }
+    if marked == Some((start, end)) {
+        return ImeReplacement::Implicit;
+    }
+    if marked.is_some() {
+        return ImeReplacement::NotHonoured { start, end };
+    }
+    let ordered_selection = committed_selection.map(|(a, b)| if a <= b { (a, b) } else { (b, a) });
+    if ordered_selection == Some((start, end)) {
+        // Already selected: an insert replaces the selection on its own, and
+        // a composition over it is the caller's "selection is replaced" rule.
+        return ImeReplacement::Implicit;
+    }
+    ImeReplacement::ReplaceCommitted { start, end }
+}
+
+#[cfg(test)]
+mod ime_replacement_tests {
+    use super::*;
+
+    #[test]
+    fn an_implicit_or_empty_range_acts_at_the_caret() {
+        assert_eq!(ime_replacement_action(None, None, None), ImeReplacement::Implicit);
+        assert_eq!(
+            ime_replacement_action(Some((3, 3)), None, Some((1, 5))),
+            ImeReplacement::Implicit
+        );
+    }
+
+    #[test]
+    fn the_composition_itself_and_the_current_selection_are_implicit() {
+        assert_eq!(
+            ime_replacement_action(Some((2, 8)), Some((2, 8)), None),
+            ImeReplacement::Implicit,
+            "replacing the marked text is what every commit does"
+        );
+        assert_eq!(
+            ime_replacement_action(Some((1, 5)), None, Some((5, 1))),
+            ImeReplacement::Implicit,
+            "the selection, whichever way it was dragged"
+        );
+    }
+
+    #[test]
+    fn a_committed_range_is_replaced_and_a_reversed_one_is_ordered() {
+        // Reconversion: no composition, the IME names committed text.
+        assert_eq!(
+            ime_replacement_action(Some((4, 9)), None, None),
+            ImeReplacement::ReplaceCommitted { start: 4, end: 9 }
+        );
+        assert_eq!(
+            ime_replacement_action(Some((9, 4)), None, Some((0, 2))),
+            ImeReplacement::ReplaceCommitted { start: 4, end: 9 },
+            "not the selection: replaced, not merged with it"
+        );
+    }
+
+    #[test]
+    fn a_foreign_range_during_a_composition_is_reported_not_guessed() {
+        assert_eq!(
+            ime_replacement_action(Some((0, 3)), Some((5, 9)), None),
+            ImeReplacement::NotHonoured { start: 0, end: 3 }
+        );
+    }
+}
+
 #[cfg(test)]
 mod ime_offset_tests {
     use super::*;

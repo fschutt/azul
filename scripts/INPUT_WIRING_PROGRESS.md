@@ -556,13 +556,40 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       targets). ⚠ NOT DRIVEN BY A REAL IME HERE - the user said to check at the end; the
       Japanese/Chinese composition path on macOS is the first thing to try then, and the traces
       (`[IME markedRange]` etc.) are in place to read.
-- [ ] 10b-i-b-i-a Composing OVER committed text (reconversion: `setMarkedText:` with an
-      explicit `replacementRange` that is not the current composition) and an explicit
-      `insertText:` range DURING a composition are reported and applied at the caret instead. The
-      engine can select the range, but a preedit shaped at the caret next to a live selection
-      is not "replacing" it, and the offsets index a document whose preedit is about to be
-      un-shaped. Needs a "replace this range with a composition" seam; guessing it would put
-      reconverted text in the wrong place.
+- [x] 10b-i-b-i-a DONE for the half that has a contract, and the contract was re-read rather
+      than remembered: the 10.6 `NSTextInputClient.h` says the receiver inserts the marked
+      string "replacing the content specified by replacementRange", Apple's current page adds
+      "if there is no marked text, the current selection is replaced", and every reference
+      client (WebKit, Chromium, Flutter's macOS embedder) reads the range as DOCUMENT content and
+      selects it before acting. So the "replace this range with a composition" seam is the three
+      steps a reconversion is made of: select the range, delete it (the caret lands at its
+      start), compose there - the same select/delete the interior `insertText:` already did.
+      ONE RULE for both members, `azul_layout::window::ime_replacement_action` (host-tested):
+      `NSNotFound`, an empty range, the composition itself, or the current selection = act at
+      the caret; a committed range with no composition open = `ReplaceCommitted`; a foreign
+      range DURING a composition = `NotHonoured`, reported. `setMarkedText:` additionally deletes
+      a live selection even with an implicit range - "the current selection is replaced" - which
+      it never did: composing with text selected used to shape the preedit beside the selection.
+      ⚠ `unmarkText` WAS A DISCARD AND IS NOW AN ACCEPT. AppKit: "the text view should accept the
+      marked text as if it had been inserted normally"; Flutter's embedder commits
+      (`CommitComposing`), WebKit and Chromium likewise. Our implementation treated it as a
+      cancel and dropped the composition - and `unmarkText` is what AppKit sends when FOCUS
+      LEAVES mid-composition (a click into another field, Cmd-Tab), so the half-typed word
+      vanished. A real cancel arrives as `setMarkedText:` with the empty string, which is still
+      handled as one. This is also what keeps a reconversion from losing the committed text it
+      replaced. The old comment's reason ("composed glyphs stayed on screen") is preserved: the
+      accept path un-shapes the preedit exactly as `insertText:` does before inserting.
+      EVIDENCE: 4 host tests on the rule (implicit/empty; the composition itself and the
+      selection either way round; a committed range replaced with a reversed one ordered; a
+      foreign range during a composition reported). NEGATIVE CONTROL: answering `Implicit` for a
+      committed range fails the reconversion test. Host check (the macOS shell is the host),
+      8/8 mobile. ⚠ Not driven by a real IME - reconversion (select committed text, Kotoeri's
+      "reconvert") is the second thing to try at the end-check, after ordinary composition.
+- [ ] 10b-i-b-i-b An explicit `replacementRange` DURING a composition that is not the marked
+      text (`NotHonoured`) is still applied at the caret. The offsets index the document WITH the
+      preedit spliced in, and honouring them means un-shaping the preedit, re-basing the range
+      onto the committed text, and re-composing - three steps whose ordering no reference client
+      spells out, and no IME on hand sends this shape. Logged, not guessed.
 - [x] 10b-ii DONE. On iOS the keyboard is not something you show - it is a CONSEQUENCE of a view
       becoming first responder while conforming to `UIKeyInput`. The view had conformed and
       answered `canBecomeFirstResponder = true` since 10b, and implemented `insertText:` /
