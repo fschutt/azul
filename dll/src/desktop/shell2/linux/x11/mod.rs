@@ -1854,8 +1854,17 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
                     },
                     _ => {}
                 }
+                // The stylus is a SLAVE of one master pointer, and the master
+                // is the seat (9b-ii-b-i-b): a second seat's stylus is its own
+                // pen, not an overwrite of the first's.
+                let pen_seat = if ev.deviceid == defines::XI_VIRTUAL_CORE_POINTER {
+                    azul_core::window::PRIMARY_POINTER_SEAT
+                } else {
+                    ev.deviceid as u64
+                };
                 if let Some(lw) = win.common.layout_window.as_mut() {
-                    lw.gesture_drag_manager.update_pen_state_full(
+                    lw.gesture_drag_manager.update_pen_state_full_for(
+                        pen_seat,
                         pos,
                         pressure,
                         (tilt_x, tilt_y),
@@ -1884,8 +1893,9 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
                     // event). Without this the X11 value was decoded and
                     // dropped.
                     lw.gesture_drag_manager
-                        .set_pen_hover_distance(hover_distance);
-                    lw.gesture_drag_manager.set_pen_tool_kind(
+                        .set_pen_hover_distance_for(pen_seat, hover_distance);
+                    lw.gesture_drag_manager.set_pen_tool_kind_for(
+                        pen_seat,
                         if win.eraser_devices.contains(&ev.sourceid) {
                             azul_layout::managers::gesture::TabletToolKind::Eraser
                         } else {

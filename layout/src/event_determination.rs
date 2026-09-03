@@ -1256,6 +1256,59 @@ pub fn determine_all_events(
     // surfaces them through UIPencilInteraction, so there is no motion or
     // pressure change to diff. They also fire while the pen is HOVERING, not
     // only while it is in contact, which is the point of a barrel control.
+    // A SECOND SEAT'S PEN (9b-ii-b-i-b): the same enter / leave / down / up /
+    // move / hover diff over that seat's own slot, on the node under that
+    // seat's cursor, stamped with the seat.
+    if let Some(manager) = gesture_manager {
+        for (seat_id, pen) in manager.seat_pen_diffs() {
+            if !pen.event_pending {
+                continue;
+            }
+            let input_id = crate::managers::hover::InputPointId::for_seat(seat_id);
+            let seat_target = hover_manager
+                .hover_node_full_for(&input_id)
+                .unwrap_or(root_node);
+            let seat_state = current_state.pointer_seat(seat_id);
+            let latest = pen.state.or(pen.previous);
+            let pen_data = EventData::Mouse(MouseEventData {
+                position: latest.map_or(LogicalPosition { x: 0.0, y: 0.0 }, |p| p.position),
+                button: MouseButton::Left,
+                buttons: seat_state.map_or(0, |s| u8::from(s.left_down)),
+                modifiers,
+                source: azul_core::events::PointerSource::Pen,
+                device_id: latest.map_or(0, |p| p.device_id),
+                seat_id,
+            });
+            let mut push = |ty: EventType| {
+                events.push(SyntheticEvent::new(
+                    ty,
+                    EventSource::User,
+                    seat_target,
+                    timestamp.clone(),
+                    pen_data.clone(),
+                ));
+            };
+            match (pen.previous, pen.state) {
+                (None, Some(_)) => push(EventType::PenEnter),
+                (Some(_), None) => push(EventType::PenLeave),
+                (Some(p), Some(c)) => {
+                    if !p.in_contact && c.in_contact {
+                        push(EventType::PenDown);
+                    } else if p.in_contact && !c.in_contact {
+                        push(EventType::PenUp);
+                    }
+                    if p.position != c.position {
+                        push(EventType::PenMove);
+                        if !c.in_contact {
+                            push(EventType::PenHover);
+                        }
+                    }
+                }
+                (None, None) => {}
+            }
+        }
+    }
+
     if let Some(manager) = gesture_manager {
         let (squeeze, double_tap) = manager.peek_pen_barrel_gestures();
         if squeeze {

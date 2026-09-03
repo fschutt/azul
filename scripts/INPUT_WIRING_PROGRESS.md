@@ -2192,10 +2192,23 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       configured direction and `record_scroll_input` applies the engine's natural-scroll sign
       centrally, so this is either redundant or a double inversion waiting to happen; needs a
       device check on a v9 compositor before it is wired to anything.
-- [ ] 9b-ii-b-i-b PEN per seat: `pen_state` is one slot. Wayland tablets are per seat
-      (`zwp_tablet_seat_v2`), so a second seat's stylus would overwrite the first's state.
-      A `BTreeMap<u64, PenState>` keyed like the sessions, with the primary in slot 0; the
-      producers (X11 XI2 valuators, Wayland tablet events) already know their seat.
+- [x] 9b-ii-b-i-b DONE. `seat_pens: BTreeMap<u64, SeatPen>` holds the non-primary seats' pens
+      (state, previous, pending flag, own report-rate estimate); the primary keeps its three
+      fields. `update_pen_state_full_for` / `clear_pen_state_for` / `set_pen_hover_distance_for`
+      / `set_pen_tool_kind_for` / `pen_state_for` route seat 0 to the primary path unchanged
+      and everything else to its slot; `clear_pen_event_pending` clears the seats' flags with
+      the primary's, one clear per pass. The event pass diffs each seat's slot into
+      `PenEnter` / `PenLeave` / `PenDown` / `PenUp` / `PenMove` / `PenHover` on the node under
+      THAT seat's cursor, source `Pen`, stamped with the seat. Producer: X11 - the stylus is a
+      slave of one master pointer and the master IS the seat (`ev.deviceid`, virtual core
+      pointer = 0), so a second MPX seat's stylus is its own pen now. Wayland's producer stays
+      on seat 0 (9b-ii-b-i-b-i); Windows, macOS, iOS and Android are single-seat.
+      ⏳ FOURTH BATCH: uncompiled until its end pass.
+- [ ] 9b-ii-b-i-b-i Wayland binds ONE `zwp_tablet_seat_v2` - the primary `wl_seat`'s - so a
+      second seat's tablet never reports at all. A tablet seat per bound seat (the seat table
+      of 9b-ii-a already carries the `wl_seat` proxies) with the tablet listeners' user data
+      naming the seat, then `update_pen_state_full_for(seat_id, ..)` in `handle_tablet_frame`.
+      The engine side is ready; this is the protocol binding.
 - [x] 9b-ii-c DONE - as a FIELD, not a new op: `mouse_move` / `mouse_down` / `mouse_up` take
       `"seat": N` (default 0, the ordinary mouse), applied through `FullWindowState::pointer_seat_mut`,
       whose seat 0 IS `mouse_state` - so the three appliers have ONE code path and a seat op is

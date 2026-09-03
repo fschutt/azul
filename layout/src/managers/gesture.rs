@@ -215,6 +215,17 @@ impl_option!(
 );
 
 /// A sequence of input samples forming one button press session
+/// One non-primary seat's pen (9b-ii-b-i-b): the same three fields the
+/// primary keeps on the manager, plus its own report-rate estimate.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SeatPen {
+    pub state: Option<PenState>,
+    pub previous: Option<PenState>,
+    pub event_pending: bool,
+    pub last_sample_nanos: Option<u64>,
+    pub rate_ema_hz: f32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct InputSession {
     /// All recorded samples for this session
@@ -726,6 +737,11 @@ pub struct GestureAndDragManager {
     pub previous_pen_state: Option<PenState>,
     /// Set when pen state changed; gates one pen-event diff (cleared by the event loop).
     pub pen_event_pending: bool,
+    /// Pen slots of the NON-primary seats (9b-ii-b-i-b): a Wayland tablet is
+    /// per `wl_seat` and an X11 stylus is a slave of one master pointer, so
+    /// a second seat's stylus is a second pen, not an overwrite of the
+    /// first. The primary seat keeps the three fields above.
+    pub seat_pens: alloc::collections::btree_map::BTreeMap<u64, SeatPen>,
     /// Force Touch stage from the last `pressureChangeWithEvent:`. 0 none,
     /// 1 a normal click, 2 a force click. macOS-only; 0 elsewhere.
     pub trackpad_pressure_stage: i32,
@@ -856,6 +872,7 @@ impl GestureAndDragManager {
             native_gesture: None,
             touch_sessions: alloc::collections::btree_map::BTreeMap::new(),
             seat_sessions: alloc::collections::btree_map::BTreeMap::new(),
+            seat_pens: alloc::collections::btree_map::BTreeMap::new(),
         }
     }
 
@@ -1417,8 +1434,138 @@ impl GestureAndDragManager {
     }
 
     /// Clear the pen-event-pending flag (called by the event loop after a pass).
-    pub const fn clear_pen_event_pending(&mut self) {
+    pub fn clear_pen_event_pending(&mut self) {
         self.pen_event_pending = false;
+        // The seats' flags share the primary's lifecycle: one clear per
+        // event pass (9b-ii-b-i-b).
+        for pen in self.seat_pens.values_mut() {
+            pen.event_pending = false;
+        }
+    }
+
+    // --- Per-SEAT pens (9b-ii-b-i-b) ---
+    //
+    // `*_for(seat_id, ..)` route to the primary's own fields for seat 0 and
+    // to `seat_pens` otherwise, so a producer that knows its seat calls one
+    // API and the primary path is unchanged.
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_pen_state_full_for(
+        &mut self,
+        seat_id: u64,
+        position: LogicalPosition,
+        pressure: f32,
+        tilt: (f32, f32),
+        in_contact: bool,
+        is_eraser: bool,
+        barrel_button_pressed: bool,
+        device_id: u64,
+        tangential_pressure: f32,
+        barrel_roll_rad: f32,
+        tool_id: u32,
+    ) {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.update_pen_state_full(
+                position,
+                pressure,
+                tilt,
+                in_contact,
+                is_eraser,
+                barrel_button_pressed,
+                device_id,
+                tangential_pressure,
+                barrel_roll_rad,
+                tool_id,
+            );
+            return;
+        }
+        let now = crate::probe::monotonic_now_nanos();
+        let pen = self.seat_pens.entry(seat_id).or_default();
+        if let Some(prev) = pen.last_sample_nanos {
+            let dt_s = now.saturating_sub(prev) as f32 / 1e9;
+            if dt_s > 0.0 && dt_s < 1.0 {
+                let inst = 1.0 / dt_s.max(1e-4);
+                pen.rate_ema_hz = if pen.rate_ema_hz > 0.0 {
+                    pen.rate_ema_hz * 0.9 + inst * 0.1
+                } else {
+                    inst
+                };
+            } else {
+                pen.rate_ema_hz = 0.0;
+            }
+        }
+        pen.last_sample_nanos = Some(now);
+        pen.previous = pen.state;
+        pen.state = Some(PenState {
+            position,
+            pressure,
+            tilt: crate::callbacks::PenTilt {
+                x_tilt: tilt.0,
+                y_tilt: tilt.1,
+            },
+            in_contact,
+            is_eraser,
+            barrel_button_pressed,
+            device_id,
+            tangential_pressure,
+            barrel_roll_rad,
+            tool_id,
+            report_rate_hz: pen.rate_ema_hz,
+            hover_distance: pen.state.map_or(0.0, |p| p.hover_distance),
+            tool_kind: pen.state.map_or(TabletToolKind::Unknown, |p| p.tool_kind),
+        });
+        pen.event_pending = true;
+    }
+
+    pub fn clear_pen_state_for(&mut self, seat_id: u64) {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.clear_pen_state();
+            return;
+        }
+        if let Some(pen) = self.seat_pens.get_mut(&seat_id) {
+            if pen.state.is_some() {
+                pen.previous = pen.state;
+                pen.state = None;
+                pen.event_pending = true;
+            }
+            pen.last_sample_nanos = None;
+            pen.rate_ema_hz = 0.0;
+        }
+    }
+
+    pub fn set_pen_hover_distance_for(&mut self, seat_id: u64, distance: f32) {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.set_pen_hover_distance(distance);
+            return;
+        }
+        if let Some(p) = self.seat_pens.get_mut(&seat_id).and_then(|pen| pen.state.as_mut()) {
+            p.hover_distance = distance;
+        }
+    }
+
+    pub fn set_pen_tool_kind_for(&mut self, seat_id: u64, kind: TabletToolKind) {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.set_pen_tool_kind(kind);
+            return;
+        }
+        if let Some(p) = self.seat_pens.get_mut(&seat_id).and_then(|pen| pen.state.as_mut()) {
+            p.tool_kind = kind;
+        }
+    }
+
+    /// One seat's current pen, the primary's for seat 0.
+    #[must_use]
+    pub fn pen_state_for(&self, seat_id: u64) -> Option<&PenState> {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.pen_state.as_ref()
+        } else {
+            self.seat_pens.get(&seat_id).and_then(|pen| pen.state.as_ref())
+        }
+    }
+
+    /// The non-primary seats' pen slots - what the event pass diffs.
+    pub fn seat_pen_diffs(&self) -> impl Iterator<Item = (u64, &SeatPen)> {
+        self.seat_pens.iter().map(|(id, pen)| (*id, pen))
     }
 
     /// Set the latest Wacom tablet-pad state (called by the pad backend).
