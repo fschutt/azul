@@ -1254,7 +1254,7 @@ impl X11Window {
     ///
     /// `None` when XKB is unavailable or the keycode is unbound, so callers
     /// fall back to the looked-up keysym.
-    fn unmodified_keysym(&self, keycode: u32) -> Option<KeySym> {
+    pub(super) fn unmodified_keysym(&self, keycode: u32) -> Option<KeySym> {
         let to_keysym = self.xlib.XkbKeycodeToKeysym?;
         // X11 keycodes are 8-bit; the c_uint field is protocol padding.
         let keysym = unsafe { (to_keysym)(self.display, keycode as KeyCode, 0, 0) };

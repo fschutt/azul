@@ -370,8 +370,11 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       from `get_safe_area_insets().keyboard`); desktops report zero insets, so nothing moves
       there. Four tests (`layout/tests/safe_area_inset.rs`): inset by default, cover fills the
       surface, the desktop no-op, and the clamp. AzWriter is not in this repository, so its title
-      band is its own change. ⏳ SIXTH BATCH: uncompiled until its end pass (api.json:
-      `WindowFlags.extend_into_safe_area` through autofix then).
+      band is its own change. ✅ COMPILED AND RUN in the sixth batch pass of 2026-09-04: host check EXIT=0 after the api.json
+      pass (`WindowFlags.extend_into_safe_area`, one modification, codegen green); core 2809,
+      layout lib 7681 and `--test all` (the inset and registry tests among them, after three test
+      fixes), dll 2035 tests green; the 8-target gate green - the Linux target after the seventh
+      batch's one visibility fix, the other seven first time.
 
 - [x] 10c-v-b DONE. `PixelValue` had 7 CONSTRUCTORS and ZERO functions in api.json: a binding
       could build one and never read it back. So an app handed the `OptionPixelValue` that
@@ -2120,7 +2123,9 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       symbol is read from the display's map; a second seat with a different layout gets its
       symbols from the primary's map (9b-ii-a-i-a-i). No X server on this machine: implemented
       blindly per the user's ruling, the Linux target in the gate is the check.
-      ⏳ SEVENTH BATCH: uncompiled until its end pass.
+      ✅ COMPILED in the seventh batch pass of 2026-09-04: the Linux target checks green after one
+      visibility fix (`unmodified_keysym` was private to its module); the other seven gate targets
+      do not compile the X11 backend. Blind by design - no X server here.
 - [ ] 9b-ii-a-i-a-i A second MPX seat with its OWN keyboard layout: XI2 key events carry the
       master's `group` state, but the keysym is looked up in the display's one core keymap, so a
       seat on a different layout is translated through the primary's. Needs an xkb keymap per
@@ -2138,7 +2143,11 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       flags), enter (held keys onto the seat), leave (everything released). Deliberately the
       primary's alone: the popup route, compose sequences and the IME (one composition per
       window), and key repeat (9b-ii-a-i-b-i). No Wayland session on this machine, so the
-      Linux target in the gate is the check. ⏳ SIXTH BATCH: uncompiled until its end pass.
+      Linux target in the gate is the check. ✅ COMPILED AND RUN in the sixth batch pass of 2026-09-04: host check EXIT=0 after the api.json
+      pass (`WindowFlags.extend_into_safe_area`, one modification, codegen green); core 2809,
+      layout lib 7681 and `--test all` (the inset and registry tests among them, after three test
+      fixes), dll 2035 tests green; the 8-target gate green - the Linux target after the seventh
+      batch's one visibility fix, the other seven first time.
 - [ ] 9b-ii-a-i-b-i Key REPEAT for a second seat: `key_repeat_fd` / `key_repeat_keycode` are one
       timer, the primary's, so a second seat's held key types once. Needs a timerfd per seat
       (or one timer with a seat tag) fed from that seat's `repeat_info`.
