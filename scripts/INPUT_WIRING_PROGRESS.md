@@ -2740,7 +2740,7 @@ session needs. Recorded verbatim so the framing is not lost.
       `sysfs_uniq_path(pad.devpath().to_str()?)` + `read_to_string` on Linux. macOS would need the
       fork to hand out the `IOHIDDeviceRef` it holds (or read `kIOHIDSerialNumberKey` itself) the
       same way; Windows needs nothing - XInput never sees a DualSense, so the HID device IS the pad.
-- [ ] 8f-i-a-i-c-i macOS: pairing several identical pads needs a gilrs-side serial. gilrs's IOKit
+- [ ] 8f-i-a-i-c-ii macOS: pairing several identical pads needs a gilrs-side serial. gilrs's IOKit
       backend exposes only the SDL GUID; the IOHIDDeviceRef it holds is the same object the raw
       HID layer enumerated (`kIOHIDSerialNumberKey` is readable from it), but gilrs does not hand
       the ref out. A fork-side accessor (`gilrs-azul` is already a fork) would close it.
