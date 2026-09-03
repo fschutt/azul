@@ -2170,6 +2170,18 @@ impl Runner {
                     // Recalculate scrollbar geometry so CPU-side hit testing has
                     // up-to-date thumb positions.
                     lw.scroll_manager.calculate_scrollbar_states();
+
+                    // Mirror of the DLL arm: a VirtualView on this node decides
+                    // from the new offset whether it has to re-materialize (an
+                    // edge approach, a jump past its window) — queued for the
+                    // drain at the top of the next frame — and its host item
+                    // is re-pointed at the new offset either way, because a
+                    // VirtualView has no scroll frame to move it.
+                    let queued = lw.check_and_queue_virtual_view_reinvoke(*dom_id, internal_node_id);
+                    lw.patch_virtual_view_content_offset(*dom_id, internal_node_id);
+                    if queued {
+                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                    }
                 }
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
@@ -2897,6 +2909,48 @@ impl Runner {
             // `On::Input` callback observes the pre-edit text exactly as it
             // does in the DLL. Applying only the first half would edit the text
             // while no callback ever fired.
+            CallbackChange::WheelInput { delta_x, delta_y } => {
+                // Port of the DLL arm: the platform wheel ingress against the
+                // hover hit test, then the physics timer applies the queued
+                // input. This runner has no shell to arm the timer at a pass
+                // tail, so it is armed here when the queue was idle.
+                use azul_core::task::SCROLL_MOMENTUM_TIMER_ID;
+                use crate::managers::hover::InputPointId;
+                use crate::managers::scroll_state::{ScrollInputDevice, ScrollInputSource};
+                let now = self.now();
+                let lw = &mut self.layout_window;
+                let recorded = lw.scroll_manager.record_scroll_from_hit_test(
+                    *delta_x,
+                    *delta_y,
+                    ScrollInputSource::WheelDiscrete,
+                    ScrollInputDevice::MouseWheel,
+                    &lw.hover_manager,
+                    &InputPointId::Mouse,
+                    now,
+                );
+                if recorded.is_some() && !lw.timers.contains_key(&SCROLL_MOMENTUM_TIMER_ID) {
+                    use crate::scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState};
+                    use crate::timer::{Timer, TimerCallbackType};
+                    let physics = lw
+                        .system_style
+                        .as_ref()
+                        .map(|s| s.scroll_physics.clone())
+                        .unwrap_or_default();
+                    let interval_ms = physics.timer_interval_ms.max(1);
+                    let state =
+                        ScrollPhysicsState::new(lw.scroll_manager.get_input_queue(), physics);
+                    let timer = Timer::create(
+                        azul_core::refany::RefAny::new(state),
+                        scroll_physics_timer_callback as TimerCallbackType,
+                        self.system_callbacks.get_system_time_fn,
+                    )
+                    .with_interval(azul_core::task::Duration::System(
+                        azul_core::task::SystemTimeDiff::from_millis(u64::from(interval_ms)),
+                    ));
+                    self.layout_window.add_timer(SCROLL_MOMENTUM_TIMER_ID, timer);
+                }
+                self.process_window_events(0)
+            }
             CallbackChange::CreateTextInput { text } => {
                 let affected_nodes = self.layout_window.process_text_input(text.as_str());
                 if affected_nodes.is_empty() {
@@ -3172,6 +3226,21 @@ impl Runner {
     /// `LayoutWindow`, where `CallbackInfo::get_layout_window()` — and therefore
     /// an E2E assertion — can see it.
     fn render_and_record(&mut self) {
+        // The shells drain the queued VirtualView re-invocations right before
+        // every frame (`drain_virtual_view_updates`, dll/.../common/layout.rs):
+        // an edge approach seen by the ScrollTo arm, a `trigger_virtual_view_rerender`
+        // from a callback. This host never did — a `wheel` past a view's edge
+        // queued a re-materialization that no frame ran, so the pages stayed
+        // frozen on their first window in E2E while the shells moved on.
+        // (The re-materialized child's list is built by the invoke itself and
+        // the parent's item is re-pointed by the drain; the hit tester is
+        // re-derived at the end of `service()`.)
+        self.layout_window.process_pending_virtual_view_updates(
+            &self.window_state,
+            &self.renderer_resources,
+            &self.system_callbacks,
+        );
+
         // The scrollbar thumb transform and fade opacity live in the GPU value
         // cache, which the WebRender builders refresh every frame and the CPU
         // path has to refresh by hand. `LayoutWindow::refresh_scrollbar_gpu_cache_for_cpu_frame`

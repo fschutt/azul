@@ -4674,11 +4674,11 @@ pub trait PlatformWindow {
                         // and the lightweight path below rebuilds no display
                         // list. Without this, scrolling a VirtualView moved the
                         // scrollbar and left the page frozen underneath it.
-                        // Re-invocation (above) rebuilds the list anyway, so
-                        // only the no-re-invoke case needs the patch.
-                        if !needs_virtual_view_update {
-                            lw.patch_virtual_view_content_offset(*dom_id, internal_node_id);
-                        }
+                        // Always, not only when no re-invoke was queued: the
+                        // queued re-materialization runs at the NEXT frame's
+                        // drain, and until then the item must place the
+                        // current window at the current offset.
+                        lw.patch_virtual_view_content_offset(*dom_id, internal_node_id);
                     }
                 }
 
@@ -5440,6 +5440,46 @@ pub trait PlatformWindow {
             }
 
             // === Text Input ===
+            CallbackChange::WheelInput { delta_x, delta_y } => {
+                // The platform wheel ingress, minus the platform: the same
+                // call the X11 / Wayland / macOS / Windows handlers make with
+                // the hardware delta. It queues the input against the
+                // innermost scrollable node under the hover hit test and the
+                // physics timer (armed at the end of this pass) applies it.
+                use azul_layout::managers::hover::InputPointId;
+                use azul_layout::managers::scroll_state::{ScrollInputDevice, ScrollInputSource};
+                let now = azul_core::task::Instant::from(std::time::Instant::now());
+                let recorded = self
+                    .get_layout_window_mut()
+                    .and_then(|lw| {
+                        lw.scroll_manager.record_scroll_from_hit_test(
+                            *delta_x,
+                            *delta_y,
+                            ScrollInputSource::WheelDiscrete,
+                            // A physical wheel click: the physics glides to
+                            // an ABSOLUTE target of delta * wheel_multiplier,
+                            // so the end position is exact and repeatable.
+                            ScrollInputDevice::MouseWheel,
+                            &lw.hover_manager,
+                            &InputPointId::Mouse,
+                            now,
+                        )
+                    })
+                    .is_some();
+                if !recorded {
+                    crate::log_debug!(
+                        crate::desktop::shell2::common::debug_server::LogCategory::EventLoop,
+                        "[wheel] no scrollable node under the pointer — delta ({}, {}) dropped",
+                        delta_x,
+                        delta_y
+                    );
+                }
+                // The state-diff pass synthesizes the `Scroll` event from the
+                // recorded delta (wheel-as-zoom widgets) and its tail arms the
+                // physics timer for the queued input.
+                self.process_window_events(0)
+            }
+
             CallbackChange::CreateTextInput { text } => {
                 // Process text input
                 let affected_nodes = if let Some(lw) = self.get_layout_window_mut() {

@@ -18029,6 +18029,17 @@ impl LayoutWindow {
             }
         }
 
+        // The parent's display-list item places the materialized window at
+        // `materialized_origin - scroll_offset`. A re-materialization that
+        // moved the window's origin (an edge approach answered with the next
+        // page stride) leaves that item pointing at the OLD origin until the
+        // parent's list is rebuilt — and no frame path rebuilds it after this
+        // drain. Re-point it now, in the same frame: otherwise the page shows
+        // a stride too far for one frame and snaps back on the next scroll.
+        for (parent_dom, node_id) in &updated {
+            self.patch_virtual_view_content_offset(*parent_dom, *node_id);
+        }
+
         // An ACKED structural edit's caret restore normally lands at the tail
         // of `layout_and_generate_display_list` — but when the app's
         // RefreshDom takes the pre-cascade skip (the ROOT dom is fingerprint-

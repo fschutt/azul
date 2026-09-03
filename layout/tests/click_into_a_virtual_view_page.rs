@@ -29,7 +29,10 @@
 //! shell uses — `create(dom, Css::empty())` skips the per-subtree inline-CSS
 //! scoping and the page canvas never resolves its flex size.
 
-use azul_core::callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn};
+use azul_core::callbacks::{
+    EdgeType, VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewCallbackReason,
+    VirtualViewReturn,
+};
 use azul_core::dom::{Dom, DomId, DomNodeId, NodeId, NodeType, OptionDom};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::refany::RefAny;
@@ -71,6 +74,8 @@ struct Probe {
     first: usize,
     count: usize,
     scroll_y: f32,
+    /// How many times the callback ran, and the reason each time.
+    invocations: Vec<VirtualViewCallbackReason>,
     /// When set, the next materialisation prepends a banner subtree before
     /// the pages — every page/paragraph NodeId shifts, the way inserting a
     /// block above the viewport shifts a real document's arena.
@@ -115,6 +120,7 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
     probe.first = first;
     probe.count = count;
     probe.scroll_y = info.scroll_offset.y;
+    probe.invocations.push(info.reason);
 
     let mut col =
         Dom::create_div().with_css("display: flex; flex-direction: column; align-items: center;");
@@ -154,6 +160,7 @@ impl Harness {
             first: 0,
             count: 0,
             scroll_y: 0.0,
+            invocations: Vec::new(),
             prepend_banner: false,
         }));
         let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
@@ -264,6 +271,59 @@ impl Harness {
             .hover_manager
             .push_hit_test(InputPointId::Mouse, hit);
         self.lw.process_mouse_click_for_selection(position, 0);
+    }
+
+    /// One committed wheel/physics offset for the pages host, exactly as the
+    /// shells and the headless runner handle a `ScrollTo` (`common/event.rs`,
+    /// `e2e/runner.rs`): set the offset, let the view decide whether the new
+    /// offset demands a re-materialization, re-point the host item, then run
+    /// the pre-frame drain. Returns whether the callback was re-invoked.
+    fn scroll_tick(&mut self, y: f32) -> bool {
+        let (_nested, host) = self.virtual_view();
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+        let now = (system_callbacks.get_system_time_fn.cb)();
+        self.lw.scroll_manager.set_scroll_position_unclamped(
+            DomId::ROOT_ID,
+            host,
+            LogicalPosition::new(0.0, y),
+            now,
+        );
+        self.lw.scroll_manager.calculate_scrollbar_states();
+        self.lw
+            .check_and_queue_virtual_view_reinvoke(DomId::ROOT_ID, host);
+        self.lw
+            .patch_virtual_view_content_offset(DomId::ROOT_ID, host);
+
+        let window_state = self.lw.current_window_state.clone();
+        let renderer_resources = RendererResources::default();
+        let updated = self.lw.process_pending_virtual_view_updates(
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+        );
+        !updated.is_empty()
+    }
+
+    /// The host display list's `VirtualView` item for the pages: where the
+    /// renderer composites the nested dom (`bounds`, `content_offset`).
+    fn host_item(&self) -> (LogicalRect, LogicalPosition) {
+        let (nested, _host) = self.virtual_view();
+        self.lw
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("root layout")
+            .display_list
+            .items
+            .iter()
+            .find_map(|item| match item {
+                DisplayListItem::VirtualView {
+                    child_dom_id,
+                    bounds,
+                    content_offset,
+                    ..
+                } if *child_dom_id == nested => Some((*bounds.inner(), *content_offset)),
+                _ => None,
+            })
+            .expect("the host display list mounts the nested dom")
     }
 
     /// Window-space rect of a node in a (possibly nested) dom, where the
@@ -701,4 +761,174 @@ fn the_blank_pages_first_line_respects_the_sheet_padding() {
          VirtualView child layout",
         line_origin.y - sheet_origin.y,
     );
+}
+
+/// Wheel-scrolling the whole 12-page document and back, 20 px per tick (a
+/// Wayland wheel notch), through the same steps the shells run per committed
+/// offset. Three laws, all of which were broken on device:
+///
+/// 1. The callback runs ONCE per window advance — nine times down (the
+///    3-page window walks page 0 → page 9) and nine times back up — never
+///    once per tick. The physics timer used to force a `DomRecreated`
+///    re-materialization on EVERY tick (60/s), which is the "VV scroll lag".
+/// 2. Each of those runs carries the documented reason, `EdgeScrolled(Bottom)`
+///    going down and `EdgeScrolled(Top)` coming back — and it fires again on
+///    the next approach, which the old per-edge latch (never released by
+///    scrolling) made impossible after the first page.
+/// 3. After every tick the host item composites the materialized window at
+///    `materialized_origin - scroll_offset`, and that window covers the whole
+///    viewport: no frame shows a page a stride too far, none shows bare
+///    background.
+#[test]
+fn wheel_scrolling_rematerializes_once_per_window_advance_and_never_per_tick() {
+    let mut h = Harness::new(Doc::Paragraphs);
+    let (nested, host) = h.virtual_view();
+    let viewport_h = h.host_item().0.size.height;
+    assert!(
+        viewport_h > 500.0 && viewport_h < STRIDE,
+        "premise: the canvas shows less than one page ({viewport_h} px)"
+    );
+    let end = TOTAL_PAGES as f32 * STRIDE - viewport_h;
+    let baseline = h.probe.lock().unwrap().invocations.len();
+
+    let check_frame = |h: &Harness, y: f32| {
+        let (bounds, content_offset) = h.host_item();
+        let materialized = h
+            .lw
+            .virtual_view_manager
+            .materialized_window_origin(DomId::ROOT_ID, host)
+            .expect("materialized");
+        assert!(
+            (content_offset.y - (materialized.y - y)).abs() < 0.01,
+            "at offset {y}: the host item composites the window at content_offset \
+             {content_offset:?}, but the window starts at {materialized:?} — the \
+             page would show {}px off for this frame",
+            content_offset.y - (materialized.y - y)
+        );
+        let (first, count) = {
+            let p = h.probe.lock().unwrap();
+            (p.first, p.count)
+        };
+        let win_top = first as f32 * STRIDE;
+        let win_bottom = (first + count) as f32 * STRIDE;
+        assert!(
+            win_top <= y && win_bottom >= y + viewport_h,
+            "at offset {y}: viewport {y}..{} is not covered by the materialized \
+             pages {first}..{} ({win_top}..{win_bottom}) — bare background",
+            y + viewport_h,
+            first + count
+        );
+        assert!(bounds.size.height > 0.0);
+    };
+
+    // Down.
+    let mut y = 0.0;
+    let mut down = Vec::new();
+    while y < end {
+        y = (y + 20.0).min(end);
+        if h.scroll_tick(y) {
+            down.push((y, h.probe.lock().unwrap().first));
+        }
+        check_frame(&h, y);
+    }
+    let after_down = h.probe.lock().unwrap().invocations.len();
+    assert_eq!(
+        after_down - baseline,
+        down.len(),
+        "every drain that re-materialized ran the callback exactly once"
+    );
+    assert_eq!(
+        down.len(),
+        TOTAL_PAGES - 3,
+        "one re-materialization per page advance, none per tick: {down:?}"
+    );
+    for w in down.windows(2) {
+        assert_eq!(w[1].1, w[0].1 + 1, "the window advances one page per fire: {down:?}");
+    }
+    assert_eq!(h.probe.lock().unwrap().first, TOTAL_PAGES - 3);
+    {
+        let p = h.probe.lock().unwrap();
+        assert!(
+            p.invocations[baseline..]
+                .iter()
+                .all(|r| *r == VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom)),
+            "going down every re-materialization is an EdgeScrolled(Bottom): {:?}",
+            &p.invocations[baseline..]
+        );
+    }
+
+    // And back up.
+    let mut up = Vec::new();
+    while y > 0.0 {
+        y = (y - 20.0).max(0.0);
+        if h.scroll_tick(y) {
+            up.push((y, h.probe.lock().unwrap().first));
+        }
+        check_frame(&h, y);
+    }
+    assert_eq!(
+        up.len(),
+        TOTAL_PAGES - 3,
+        "one re-materialization per page retreat: {up:?}"
+    );
+    for w in up.windows(2) {
+        assert_eq!(w[1].1 + 1, w[0].1, "the window retreats one page per fire: {up:?}");
+    }
+    assert_eq!(h.probe.lock().unwrap().first, 0);
+    {
+        let p = h.probe.lock().unwrap();
+        assert!(
+            p.invocations[after_down..]
+                .iter()
+                .all(|r| *r == VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top)),
+            "coming back every re-materialization is an EdgeScrolled(Top): {:?}",
+            &p.invocations[after_down..]
+        );
+    }
+
+    // The nested dom is the same mount throughout — the host item was
+    // re-pointed, not replaced.
+    assert_eq!(h.virtual_view().0, nested);
+
+    // Parked at the top again, the view is quiet: ten more ticks of nothing.
+    for _ in 0..10 {
+        assert!(!h.scroll_tick(0.0), "a stationary offset must not re-materialize");
+    }
+}
+
+/// A programmatic jump past everything materialized ("go to page 10") is the
+/// documented `ScrollBeyondContent`, which had no producer at all: the view
+/// re-materializes around the new offset in ONE drain, and the host item
+/// composites it there in the same frame.
+#[test]
+fn a_jump_past_the_materialized_pages_rematerializes_around_the_new_offset() {
+    let mut h = Harness::new(Doc::Paragraphs);
+    let (_nested, host) = h.virtual_view();
+    let baseline = h.probe.lock().unwrap().invocations.len();
+
+    let target = 10.0 * STRIDE;
+    assert!(h.scroll_tick(target), "the jump must re-materialize");
+    {
+        let p = h.probe.lock().unwrap();
+        assert_eq!(p.invocations.len(), baseline + 1);
+        assert_eq!(
+            p.invocations[baseline],
+            VirtualViewCallbackReason::ScrollBeyondContent
+        );
+        assert_eq!(p.first, 9, "the window is rebuilt around page 10");
+    }
+    let (_bounds, content_offset) = h.host_item();
+    let materialized = h
+        .lw
+        .virtual_view_manager
+        .materialized_window_origin(DomId::ROOT_ID, host)
+        .expect("materialized");
+    assert!(
+        (content_offset.y - (materialized.y - target)).abs() < 0.01,
+        "the host item composites the new window at the new offset in the same frame"
+    );
+
+    // Sitting there is quiet.
+    assert!(!h.scroll_tick(target));
+    assert_eq!(h.probe.lock().unwrap().invocations.len(), baseline + 1);
 }

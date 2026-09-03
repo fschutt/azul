@@ -86,7 +86,7 @@ curl -s -X POST http://localhost:8765/ \
 
 Each command's `op` field selects one debug event variant. Categories overlap with the in-browser inspector's panels.
 
-- **Mouse.** `mouse_move`, `mouse_down`, `mouse_up`, `click`, `double_click`, `scroll`.
+- **Mouse.** `mouse_move`, `mouse_down`, `mouse_up`, `click`, `double_click`, `scroll` (programmatic `scroll_to` on the node under the point), `wheel` (a hardware wheel notch through the shells' hit-test + scroll-physics path).
 - **Keyboard.** `key_down`, `key_up`, `text_input`.
 - **Window.** `resize`, `move`, `focus`, `blur`, `close`, `dpi_changed`.
 - **Queries.** `get_state`, `get_dom_tree`, `get_node_hierarchy`, `get_layout_tree`, `get_display_list`, `get_html_string`, `hit_test`, `get_logs`.

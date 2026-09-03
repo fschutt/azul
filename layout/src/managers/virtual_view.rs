@@ -62,12 +62,29 @@ struct VirtualViewState {
     virtual_rect: Option<LogicalRect>,
     /// Whether the `VirtualView` has ever been invoked
     virtual_view_was_invoked: bool,
-    /// Whether invoked for current container expansion
+    /// Whether the callback has been invoked since the container last grew.
+    /// Set by EVERY invocation (each one is shown the current bounds),
+    /// cleared when [`VirtualViewManager::check_reinvoke`] sees a larger
+    /// container than the one recorded — that, and only that, is a
+    /// `BoundsExpanded`.
     invoked_for_current_expansion: bool,
-    /// Whether invoked for current edge scroll event
-    invoked_for_current_edge: bool,
-    /// Which edges have already triggered callbacks
-    last_edge_triggered: EdgeFlags,
+    /// The scroll-driven demand (`EdgeScrolled` / `ScrollBeyondContent`) the
+    /// CURRENT materialized window has already been asked to answer.
+    ///
+    /// This is the documented "fires once per edge approach; the flag clears
+    /// once the scroll moves away" latch, and it is keyed on the ANSWER, not
+    /// on the edge: it is set when the callback is invoked for a scroll
+    /// demand, dropped by [`VirtualViewState::check_reinvoke_condition`] as
+    /// soon as the geometry no longer demands anything, and dropped by
+    /// [`VirtualViewManager::update_virtual_view_info`] when the callback
+    /// materializes a different window (a new window is a new question). So a
+    /// callback that answers an edge by materializing the same window again
+    /// is asked exactly once per approach, and one that materializes too
+    /// little is asked again until the edge is out of reach — while the old
+    /// per-edge memory (`last_edge_triggered`) was never cleared by scrolling
+    /// at all, so every edge fired at most ONCE per full relayout and a
+    /// document scrolled past its second page showed bare background.
+    served_scroll_demand: Option<VirtualViewCallbackReason>,
     /// Unique DOM ID assigned to this `VirtualView`'s content
     nested_dom_id: DomId,
     /// The `VirtualView`'s own on-screen box (the viewport), window coords.
@@ -80,10 +97,8 @@ struct VirtualViewState {
     initial_scroll_offset: LogicalPosition,
 }
 
-/// Flags indicating which scroll edges have been triggered
-///
-/// Used to prevent repeated edge-scroll callbacks for the same edge
-/// until the user scrolls away and back.
+/// Which edges of the materialized window the visible window is near
+/// (within `EDGE_THRESHOLD`) AND has document left to load past.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[allow(clippy::struct_excessive_bools)] // one independent bool per box edge (top/bottom/left/right)
 struct EdgeFlags {
@@ -165,9 +180,9 @@ impl VirtualViewManager {
 
     /// Updates the `VirtualView`'s content size information
     ///
-    /// Called after the `VirtualView` callback returns to record the actual content
-    /// dimensions. If the new size is larger than previously recorded, clears
-    /// the expansion flag to allow `BoundsExpanded` re-invocation.
+    /// Called after the `VirtualView` callback returns to record the actual
+    /// content dimensions. The sizes are the callback's ANSWER, so they never
+    /// re-arm `BoundsExpanded` — only a container that grows does that.
     /// The sizes the view's LAST invoke declared (`scroll_size`,
     /// `virtual_scroll_size`) — the reinvoke signal feeds these back so the
     /// callback's page math sees its own declared virtual extent (#16).
@@ -217,13 +232,14 @@ impl VirtualViewManager {
     ) -> Option<()> {
         let state = self.states.get_mut(&(dom_id, node_id))?;
 
-        // Reset expansion flag if the materialized window grew
-        if let Some(old) = state.materialized {
-            if scroll_size.width > old.size.width || scroll_size.height > old.size.height {
-                state.invoked_for_current_expansion = false;
-            }
+        let materialized = LogicalRect::new(window_origin, scroll_size);
+        // A different window is a different question: whatever scroll demand
+        // the previous window had been asked about is void, and the next
+        // check re-evaluates the geometry against this one.
+        if state.materialized != Some(materialized) {
+            state.served_scroll_demand = None;
         }
-        state.materialized = Some(LogicalRect::new(window_origin, scroll_size));
+        state.materialized = Some(materialized);
         // The document estimate lives at the virtual origin; only its SIZE is
         // the app's (refinable) claim. Changing it must move the scrollbar and
         // nothing else — placement reads `materialized`, never this.
@@ -263,13 +279,22 @@ impl VirtualViewManager {
         let state = self.states.get_mut(&(dom_id, node_id))?;
 
         state.virtual_view_was_invoked = true;
-        match reason {
-            VirtualViewCallbackReason::BoundsExpanded => state.invoked_for_current_expansion = true,
-            VirtualViewCallbackReason::EdgeScrolled(edge) => {
-                state.invoked_for_current_edge = true;
-                state.last_edge_triggered = edge.into();
-            }
-            _ => {}
+        // Every invocation presents `info.bounds`, so every invocation answers
+        // the current container — `BoundsExpanded` is "the window GREW since
+        // the callback last saw it" (the documented once-per-expansion), not
+        // "the container is bigger than what the callback chose to
+        // materialize". The latter re-fired on every check for a view whose
+        // window is narrower than its viewport.
+        state.invoked_for_current_expansion = true;
+        // Latched against the window that is materialized RIGHT NOW (the one
+        // the demand was computed from); `update_virtual_view_info` runs after
+        // the callback and drops the latch again if the callback answered
+        // with a different window.
+        if matches!(
+            reason,
+            VirtualViewCallbackReason::EdgeScrolled(_) | VirtualViewCallbackReason::ScrollBeyondContent
+        ) {
+            state.served_scroll_demand = Some(reason);
         }
 
         Some(())
@@ -286,8 +311,7 @@ impl VirtualViewManager {
         for state in self.states.values_mut() {
             state.virtual_view_was_invoked = false;
             state.invoked_for_current_expansion = false;
-            state.invoked_for_current_edge = false;
-            state.last_edge_triggered = EdgeFlags::default();
+            state.served_scroll_demand = None;
         }
     }
 
@@ -300,7 +324,7 @@ impl VirtualViewManager {
 
         state.virtual_view_was_invoked = false;
         state.invoked_for_current_expansion = false;
-        state.invoked_for_current_edge = false;
+        state.served_scroll_demand = None;
 
         Some(())
     }
@@ -335,10 +359,15 @@ impl VirtualViewManager {
     ///
     /// Returns `Some(reason)` if the `VirtualView` callback should be invoked:
     /// - `InitialRender`: `VirtualView` has never been invoked
-    /// - `BoundsExpanded`: Container grew larger than content
+    /// - `BoundsExpanded`: the container grew since the callback last saw it,
+    ///   and is now larger than the materialized content
+    /// - `ScrollBeyondContent`: the visible window left the materialized one
+    ///   entirely (a jump past everything that is rendered)
     /// - `EdgeScrolled`: User scrolled near an edge (for lazy loading)
     ///
-    /// Returns `None` if no re-invocation is needed.
+    /// Returns `None` if no re-invocation is needed — including when the
+    /// current window has already been invoked for exactly the demand that
+    /// is standing (see `VirtualViewState::served_scroll_demand`).
     pub fn check_reinvoke(
         &mut self,
         dom_id: DomId,
@@ -375,6 +404,12 @@ impl VirtualViewManager {
             state.initial_scroll_offset = scroll_manager
                 .get_current_offset(dom_id, node_id)
                 .unwrap_or_default();
+            // The initial render is shown these bounds too. Without recording
+            // them, the first check after it compared the real container
+            // against a zero one and fired `BoundsExpanded` on the first
+            // scroll tick of every view whose window is narrower than its
+            // viewport (a paginated document in a wide canvas, always).
+            state.container = layout_bounds;
             return Some(VirtualViewCallbackReason::InitialRender);
         }
 
@@ -444,8 +479,7 @@ impl VirtualViewState {
             virtual_rect: None,
             virtual_view_was_invoked: false,
             invoked_for_current_expansion: false,
-            invoked_for_current_edge: false,
-            last_edge_triggered: EdgeFlags::default(),
+            served_scroll_demand: None,
             nested_dom_id,
             container: LogicalRect::zero(),
             initial_scroll_offset: LogicalPosition::zero(),
@@ -455,20 +489,24 @@ impl VirtualViewState {
     /// Determines if the `VirtualView` callback should be re-invoked based on
     /// scroll position
     ///
-    /// Checks two conditions:
-    /// 1. Container bounds expanded beyond content size
-    /// 2. User scrolled within `EDGE_THRESHOLD` pixels of an edge (for lazy loading)
+    /// Checks, in this order:
+    /// 1. Container bounds expanded beyond the materialized content
+    ///    (`BoundsExpanded`, once per container growth — armed by
+    ///    [`VirtualViewManager::check_reinvoke`], served by any invocation).
+    /// 2. What the scroll position demands of the materialized window
+    ///    ([`Self::scroll_demand`]: `ScrollBeyondContent` / `EdgeScrolled`),
+    ///    minus the demand this window has already been invoked for.
+    ///
+    /// This is where the "fires once per edge approach" latch is CLEARED: a
+    /// scroll position that demands nothing releases `served_scroll_demand`,
+    /// so the next approach to the same edge fires again.
     fn check_reinvoke_condition(
-        &self,
+        &mut self,
         current_offset: LogicalPosition,
         container_size: LogicalSize,
     ) -> Option<VirtualViewCallbackReason> {
         // Nothing is materialized yet — nothing to be near the edge OF.
         let materialized = self.materialized?;
-        // The document estimate; falls back to the materialized window when
-        // the app reports no virtual extent (a VirtualView used as a plain
-        // windowed view: then materialized IS the document).
-        let virtual_rect = self.virtual_rect.unwrap_or(materialized);
 
         // Check 1: Container grew larger than the materialized content — the
         // window no longer fills the viewport, so ask for more.
@@ -479,19 +517,70 @@ impl VirtualViewState {
             return Some(VirtualViewCallbackReason::BoundsExpanded);
         }
 
-        // Check 2: the user scrolled near an edge of WHAT IS MATERIALIZED.
-        //
-        // This is the rule that makes a VirtualView scrollable rather than
-        // merely lazy-loadable. The old test compared a VIRTUAL-space offset
-        // against the MATERIALIZED window's size — two different spaces — so
-        // it only ever fired at the absolute top/bottom of the document, and
-        // a document scrolled in the middle never re-materialized at all.
-        //
-        // Both rects are in virtual space, so the comparison is honest: the
-        // visible window is `[current_offset, current_offset + container]`,
-        // and we re-invoke when it comes within EDGE_THRESHOLD of the edge of
-        // `materialized` — but only when the document actually extends past
-        // that edge, otherwise we would spin at the ends forever.
+        // Check 2: the scroll position against WHAT IS MATERIALIZED.
+        let Some(demand) = self.scroll_demand(current_offset, container_size) else {
+            // The scroll moved away from every edge: the latch releases, and
+            // the next approach is a new event.
+            self.served_scroll_demand = None;
+            return None;
+        };
+
+        // Already asked this window exactly this question, and it answered
+        // with this same window (a different answer would have dropped the
+        // latch in `update_virtual_view_info`): asking again would spin.
+        if self.served_scroll_demand == Some(demand) {
+            return None;
+        }
+
+        Some(demand)
+    }
+
+    /// What the scroll position demands of the materialized window, from the
+    /// geometry alone — no memory of previous invocations.
+    ///
+    /// The visible window is `[current_offset, current_offset + container]`,
+    /// in the same virtual space as `materialized` and the document estimate.
+    ///
+    /// * `ScrollBeyondContent`: the visible window does not overlap the
+    ///   materialized one at all (a scrollbar drag or a programmatic jump
+    ///   landed on pages that were never materialized) while the document
+    ///   does extend there. Everything on screen would be bare background.
+    /// * `EdgeScrolled(edge)`: the visible window is within `EDGE_THRESHOLD`
+    ///   of an edge of the materialized window that the document extends past
+    ///   (so there is something to load — otherwise the ends of every
+    ///   document would demand a re-materialization forever). Priority
+    ///   bottom / right / top / left, the common infinite-scroll directions
+    ///   first; a callback that materializes around the offset clears all of
+    ///   them at once, one that only extends the reported edge is asked about
+    ///   the next one on the next check.
+    ///
+    /// Both require the user to have actually moved from the resting position
+    /// captured at `InitialRender`: the callback was just invoked for THAT
+    /// offset and materialized what it wanted for it, so sitting there is not
+    /// a scroll event.
+    ///
+    /// The old rule compared a VIRTUAL-space offset against the MATERIALIZED
+    /// window's size — two different spaces — so it only ever fired at the
+    /// absolute top/bottom of the document, and a document scrolled in the
+    /// middle never re-materialized at all.
+    fn scroll_demand(
+        &self,
+        current_offset: LogicalPosition,
+        container_size: LogicalSize,
+    ) -> Option<VirtualViewCallbackReason> {
+        let materialized = self.materialized?;
+        // The document estimate; falls back to the materialized window when
+        // the app reports no virtual extent (a VirtualView used as a plain
+        // windowed view: then materialized IS the document).
+        let virtual_rect = self.virtual_rect.unwrap_or(materialized);
+
+        // Only treat an edge as "scrolled to" once the user has actually moved
+        // from the resting position captured at InitialRender — sitting at the
+        // initial top/left edge from the start is not an edge-scroll event.
+        if current_offset == self.initial_scroll_offset {
+            return None;
+        }
+
         let vis_min_x = current_offset.x;
         let vis_min_y = current_offset.y;
         let vis_max_x = current_offset.x + container_size.width;
@@ -507,68 +596,44 @@ impl VirtualViewState {
         let doc_max_x = virtual_rect.origin.x + virtual_rect.size.width;
         let doc_max_y = virtual_rect.origin.y + virtual_rect.size.height;
 
-        let current_edges = EdgeFlags {
-            // More document above what we materialized, and the view is near
-            // the materialized window's top.
-            top: mat_min_y > doc_min_y && (vis_min_y - mat_min_y) <= EDGE_THRESHOLD,
-            bottom: mat_max_y < doc_max_y && (mat_max_y - vis_max_y) <= EDGE_THRESHOLD,
-            left: mat_min_x > doc_min_x && (vis_min_x - mat_min_x) <= EDGE_THRESHOLD,
-            right: mat_max_x < doc_max_x && (mat_max_x - vis_max_x) <= EDGE_THRESHOLD,
-        };
+        // Is there document past each edge of the materialized window?
+        let doc_above = mat_min_y > doc_min_y;
+        let doc_below = mat_max_y < doc_max_y;
+        let doc_left = mat_min_x > doc_min_x;
+        let doc_right = mat_max_x < doc_max_x;
 
-        // Only treat an edge as "scrolled to" once the user has actually moved
-        // from the resting position captured at InitialRender — sitting at the
-        // initial top/left edge from the start is not an edge-scroll event.
-        let has_scrolled = current_offset != self.initial_scroll_offset;
-
-        // Trigger edge callback if near an edge that hasn't been triggered yet
-        // Prioritize bottom/right edges (common infinite scroll directions)
-        if has_scrolled && !self.invoked_for_current_edge && current_edges.any() {
-            if current_edges.bottom && !self.last_edge_triggered.bottom {
-                return Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom));
-            }
-            if current_edges.right && !self.last_edge_triggered.right {
-                return Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Right));
-            }
-            if current_edges.top && !self.last_edge_triggered.top {
-                return Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top));
-            }
-            if current_edges.left && !self.last_edge_triggered.left {
-                return Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Left));
-            }
+        // The visible window lies entirely past an edge of the materialized
+        // window, on the side the document continues on. Strict: a visible
+        // window flush against the materialized edge still shows nothing of
+        // it, and a viewport of zero height can never be "beyond" (`<=`/`>=`
+        // on equal bounds would have made it so).
+        let beyond = (doc_below && vis_min_y >= mat_max_y && vis_min_y < doc_max_y)
+            || (doc_above && vis_max_y <= mat_min_y && vis_max_y > doc_min_y)
+            || (doc_right && vis_min_x >= mat_max_x && vis_min_x < doc_max_x)
+            || (doc_left && vis_max_x <= mat_min_x && vis_max_x > doc_min_x);
+        if beyond {
+            return Some(VirtualViewCallbackReason::ScrollBeyondContent);
         }
 
-        None
-    }
-}
+        let near = EdgeFlags {
+            // More document above what we materialized, and the view is near
+            // the materialized window's top.
+            top: doc_above && (vis_min_y - mat_min_y) <= EDGE_THRESHOLD,
+            bottom: doc_below && (mat_max_y - vis_max_y) <= EDGE_THRESHOLD,
+            left: doc_left && (vis_min_x - mat_min_x) <= EDGE_THRESHOLD,
+            right: doc_right && (mat_max_x - vis_max_x) <= EDGE_THRESHOLD,
+        };
 
-impl EdgeFlags {
-    /// Returns true if any edge flag is set
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
-    const fn any(&self) -> bool {
-        self.top || self.bottom || self.left || self.right
-    }
-}
-
-impl From<EdgeType> for EdgeFlags {
-    fn from(edge: EdgeType) -> Self {
-        match edge {
-            EdgeType::Top => Self {
-                top: true,
-                ..Default::default()
-            },
-            EdgeType::Bottom => Self {
-                bottom: true,
-                ..Default::default()
-            },
-            EdgeType::Left => Self {
-                left: true,
-                ..Default::default()
-            },
-            EdgeType::Right => Self {
-                right: true,
-                ..Default::default()
-            },
+        if near.bottom {
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
+        } else if near.right {
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Right))
+        } else if near.top {
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top))
+        } else if near.left {
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Left))
+        } else {
+            None
         }
     }
 }
@@ -610,10 +675,14 @@ impl crate::managers::NodeIdRemap for VirtualViewManager {
 // invariants are asserted directly rather than inferred.
 //
 // Every assertion documents the *actual* behavior — nothing is weakened to
-// make it pass. Where the actual behavior looks wrong (stale `last_edge_triggered`
-// suppressing repeat bottom-edge loads; NaN poisoning the growth check;
-// `Default` handing out DomId 0), the test pins the current behavior and says so
-// in a comment.
+// make it pass. Where the actual behavior looks wrong (NaN poisoning the
+// growth check; `Default` handing out DomId 0), the test pins the current
+// behavior and says so in a comment. The one bug this module used to pin
+// instead of fixing — a per-edge memory that scrolling never cleared, so every
+// edge fired at most once per full relayout — is fixed, and the tests below
+// state the law that replaced it: an edge approach fires once, the latch
+// releases when the scroll moves away or the window changes, and a repeat
+// approach fires again.
 // ============================================================================
 #[cfg(all(test, feature = "std"))]
 mod autotest_generated {
@@ -828,14 +897,13 @@ mod autotest_generated {
         assert!(s.virtual_rect.is_none());
         assert!(!s.virtual_view_was_invoked);
         assert!(!s.invoked_for_current_expansion);
-        assert!(!s.invoked_for_current_edge);
-        assert_eq!(s.last_edge_triggered, EdgeFlags::default());
-        assert!(!s.last_edge_triggered.any());
+        assert!(s.served_scroll_demand.is_none());
         assert_eq!(s.container, LogicalRect::zero());
         assert_eq!(s.initial_scroll_offset, LogicalPosition::zero());
 
         // A brand-new state has no content size, so it can never ask to be
         // re-invoked, however absurd the container.
+        let mut s = s;
         assert_eq!(
             s.check_reinvoke_condition(pos(0.0, 0.0), sz(f32::INFINITY, f32::INFINITY)),
             None
@@ -1060,64 +1128,33 @@ mod autotest_generated {
     }
 
     #[test]
-    fn update_virtual_view_info_clears_expansion_flag_only_when_content_grows() {
+    fn update_virtual_view_info_never_touches_the_expansion_latch() {
+        // What the callback materializes is its ANSWER to the bounds it was
+        // shown, not a new question: content growth, shrinkage, infinite or
+        // NaN sizes all leave `invoked_for_current_expansion` alone. (The old
+        // rule cleared it on content growth, so a view that answered an
+        // expansion by growing was immediately asked again.)
         let mut m = ready_view(sz(100.0, 100.0));
         mark(&mut m, DOM, n(1), VirtualViewCallbackReason::BoundsExpanded);
         assert!(st(&m, DOM, n(1)).invoked_for_current_expansion);
 
-        // Shrink: not a growth, flag survives.
-        set_sizes(&mut m, DOM, n(1), sz(50.0, 50.0), sz(50.0, 50.0));
-        assert!(st(&m, DOM, n(1)).invoked_for_current_expansion);
-
-        // Same size: still not a growth (strict `>`).
-        set_sizes(&mut m, DOM, n(1), sz(50.0, 50.0), sz(50.0, 50.0));
-        assert!(st(&m, DOM, n(1)).invoked_for_current_expansion);
-
-        // One axis grows by an epsilon: flag cleared, BoundsExpanded can re-fire.
-        set_sizes(&mut m, DOM, n(1), sz(50.000_01, 50.0), sz(50.0, 50.0));
-        assert!(!st(&m, DOM, n(1)).invoked_for_current_expansion);
-    }
-
-    #[test]
-    fn update_virtual_view_info_infinite_growth_clears_the_flag() {
-        let mut m = ready_view(sz(100.0, 100.0));
-        mark(&mut m, DOM, n(1), VirtualViewCallbackReason::BoundsExpanded);
-
-        set_sizes(
-            &mut m,
-            DOM,
-            n(1),
+        for size in [
+            sz(50.0, 50.0),
+            sz(50.0, 50.0),
+            sz(50.000_01, 50.0),
+            sz(1.0e9, 1.0e9),
             sz(f32::INFINITY, 100.0),
-            sz(f32::INFINITY, 100.0),
-        );
-        assert!(!st(&m, DOM, n(1)).invoked_for_current_expansion);
-    }
-
-    #[test]
-    fn update_virtual_view_info_nan_size_poisons_the_growth_check() {
-        // PINNED QUIRK: growth is `new > old`, and every comparison against NaN
-        // is false. Once a NaN content size is recorded, *no* later size — not
-        // even 1e9 — is seen as growth, so `invoked_for_current_expansion` can
-        // never be cleared here again. Only force_reinvoke/reset_all recover.
-        let mut m = ready_view(sz(100.0, 100.0));
-        mark(&mut m, DOM, n(1), VirtualViewCallbackReason::BoundsExpanded);
-        assert!(st(&m, DOM, n(1)).invoked_for_current_expansion);
-
-        // NaN is not > 100.0 → no clear (and no panic).
-        set_sizes(
-            &mut m,
-            DOM,
-            n(1),
             sz(f32::NAN, f32::NAN),
-            sz(f32::NAN, f32::NAN),
-        );
-        assert!(st(&m, DOM, n(1)).invoked_for_current_expansion);
+            sz(1.0e9, 1.0e9),
+        ] {
+            set_sizes(&mut m, DOM, n(1), size, size);
+            assert!(
+                st(&m, DOM, n(1)).invoked_for_current_expansion,
+                "size {size:?} must not re-arm BoundsExpanded"
+            );
+        }
 
-        // 1e9 is not > NaN either → still no clear.
-        set_sizes(&mut m, DOM, n(1), sz(1.0e9, 1.0e9), sz(1.0e9, 1.0e9));
-        assert!(st(&m, DOM, n(1)).invoked_for_current_expansion);
-
-        // The recovery path still works.
+        // Only a container that GREW (check_reinvoke) or a reset re-arms it.
         m.force_reinvoke(DOM, n(1)).expect("view exists");
         assert!(!st(&m, DOM, n(1)).invoked_for_current_expansion);
     }
@@ -1125,11 +1162,16 @@ mod autotest_generated {
     // ----------------------------------------------------------- mark_invoked
 
     #[test]
-    fn mark_invoked_sets_only_the_flags_the_reason_owns() {
+    fn mark_invoked_serves_the_container_and_latches_only_scroll_demands() {
+        // Every invocation is shown `info.bounds`, so every reason answers the
+        // current expansion. Only the scroll-driven reasons latch THEMSELVES
+        // — the exact demand that was served, so the same demand is
+        // suppressed and a different one (another edge, or a jump beyond the
+        // content) is not.
         for reason in [
             VirtualViewCallbackReason::InitialRender,
             VirtualViewCallbackReason::DomRecreated,
-            VirtualViewCallbackReason::ScrollBeyondContent,
+            VirtualViewCallbackReason::BoundsExpanded,
         ] {
             let mut m = VirtualViewManager::new();
             m.get_or_create_nested_dom_id(DOM, n(1));
@@ -1137,54 +1179,26 @@ mod autotest_generated {
 
             let s = st(&m, DOM, n(1));
             assert!(s.virtual_view_was_invoked, "{reason:?} must mark invoked");
-            assert!(!s.invoked_for_current_expansion, "{reason:?}");
-            assert!(!s.invoked_for_current_edge, "{reason:?}");
-            assert_eq!(s.last_edge_triggered, EdgeFlags::default(), "{reason:?}");
+            assert!(s.invoked_for_current_expansion, "{reason:?}");
+            assert!(s.served_scroll_demand.is_none(), "{reason:?}");
             assert!(m.was_virtual_view_invoked(DOM, n(1)));
         }
 
-        let mut m = VirtualViewManager::new();
-        m.get_or_create_nested_dom_id(DOM, n(1));
-        mark(&mut m, DOM, n(1), VirtualViewCallbackReason::BoundsExpanded);
-        let s = st(&m, DOM, n(1));
-        assert!(s.virtual_view_was_invoked);
-        assert!(s.invoked_for_current_expansion);
-        assert!(!s.invoked_for_current_edge);
-        assert_eq!(s.last_edge_triggered, EdgeFlags::default());
-    }
-
-    #[test]
-    fn edge_type_round_trips_through_mark_invoked_into_edge_flags() {
-        for edge in [
-            EdgeType::Top,
-            EdgeType::Bottom,
-            EdgeType::Left,
-            EdgeType::Right,
+        for reason in [
+            VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top),
+            VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom),
+            VirtualViewCallbackReason::EdgeScrolled(EdgeType::Left),
+            VirtualViewCallbackReason::EdgeScrolled(EdgeType::Right),
+            VirtualViewCallbackReason::ScrollBeyondContent,
         ] {
             let mut m = VirtualViewManager::new();
             m.get_or_create_nested_dom_id(DOM, n(1));
-            mark(
-                &mut m,
-                DOM,
-                n(1),
-                VirtualViewCallbackReason::EdgeScrolled(edge),
-            );
+            mark(&mut m, DOM, n(1), reason);
 
             let s = st(&m, DOM, n(1));
             assert!(s.virtual_view_was_invoked);
-            assert!(s.invoked_for_current_edge);
-            // encode(edge) == decode: the stored flags are exactly EdgeFlags::from(edge).
-            assert_eq!(s.last_edge_triggered, EdgeFlags::from(edge), "{edge:?}");
-            assert!(s.last_edge_triggered.any(), "{edge:?}");
-
-            let f = s.last_edge_triggered;
-            let set = usize::from(f.top)
-                + usize::from(f.bottom)
-                + usize::from(f.left)
-                + usize::from(f.right);
-            assert_eq!(set, 1, "{edge:?} must set exactly one flag");
-            // Expansion is a different trigger and must stay untouched.
-            assert!(!s.invoked_for_current_expansion, "{edge:?}");
+            assert!(s.invoked_for_current_expansion, "{reason:?}");
+            assert_eq!(s.served_scroll_demand, Some(reason), "{reason:?}");
         }
     }
 
@@ -1229,8 +1243,7 @@ mod autotest_generated {
             let s = st(&m, dom, node);
             assert!(!s.virtual_view_was_invoked);
             assert!(!s.invoked_for_current_expansion);
-            assert!(!s.invoked_for_current_edge);
-            assert_eq!(s.last_edge_triggered, EdgeFlags::default());
+            assert!(s.served_scroll_demand.is_none());
             assert!(!m.was_virtual_view_invoked(dom, node));
         }
 
@@ -1244,7 +1257,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn force_reinvoke_yields_initial_render_but_leaves_last_edge_triggered_set() {
+    fn force_reinvoke_yields_initial_render_and_releases_the_scroll_latch() {
         let mut m = ready_view(sz(100.0, 1000.0));
         mark(
             &mut m,
@@ -1252,16 +1265,17 @@ mod autotest_generated {
             n(1),
             VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom),
         );
+        assert!(st(&m, DOM, n(1)).served_scroll_demand.is_some());
 
         assert_eq!(m.force_reinvoke(DOM, n(1)), Some(()));
         let s = st(&m, DOM, n(1));
         assert!(!s.virtual_view_was_invoked);
         assert!(!s.invoked_for_current_expansion);
-        assert!(!s.invoked_for_current_edge);
-        // ASYMMETRY (pinned): unlike reset_all_invocation_flags, force_reinvoke
-        // does NOT clear last_edge_triggered — see the bottom-edge suppression
-        // test below for the consequence.
-        assert_eq!(s.last_edge_triggered, EdgeFlags::from(EdgeType::Bottom));
+        // A forced re-invoke starts the view over: it must not carry a memory
+        // of an edge the NEXT materialization has never been asked about.
+        // (This used to be asymmetric with reset_all_invocation_flags, which
+        // is how an infinite-scroll list stopped loading after its first page.)
+        assert!(s.served_scroll_demand.is_none());
 
         // The documented effect still holds: the next check is an InitialRender.
         let sm = scrolled(DOM, n(1), 0.0, 900.0);
@@ -1368,6 +1382,42 @@ mod autotest_generated {
     }
 
     #[test]
+    fn an_initial_render_serves_the_bounds_it_was_shown() {
+        // A paginated document: the callback materializes pages 796 px wide
+        // inside a 1400 px canvas, so the container is wider than the window
+        // for the whole life of the view. That is the callback's layout
+        // choice, not an expansion — the first scroll tick must NOT
+        // re-materialize everything as `BoundsExpanded`. (It did: the
+        // InitialRender branch returned before recording the container, so
+        // the first real check saw a growth from a zero container.)
+        let canvas = rect(1400.0, 900.0);
+        let mut m = VirtualViewManager::new();
+        let sm = scrolled(DOM, n(1), 0.0, 0.0);
+        assert_eq!(
+            m.check_reinvoke(DOM, n(1), &sm, canvas),
+            Some(VirtualViewCallbackReason::InitialRender)
+        );
+        assert_eq!(st(&m, DOM, n(1)).container, canvas);
+        mark(&mut m, DOM, n(1), VirtualViewCallbackReason::InitialRender);
+        set_sizes(&mut m, DOM, n(1), sz(796.0, 3000.0), sz(796.0, 13_000.0));
+
+        // First wheel tick: same canvas, 20 px in — nothing to ask.
+        let sm = scrolled(DOM, n(1), 0.0, 20.0);
+        assert_eq!(m.check_reinvoke(DOM, n(1), &sm, canvas), None);
+
+        // The canvas itself growing is the documented BoundsExpanded, once.
+        let wider = rect(1600.0, 900.0);
+        assert_eq!(
+            m.check_reinvoke(DOM, n(1), &sm, wider),
+            Some(VirtualViewCallbackReason::BoundsExpanded)
+        );
+        mark(&mut m, DOM, n(1), VirtualViewCallbackReason::BoundsExpanded);
+        assert_eq!(m.check_reinvoke(DOM, n(1), &sm, wider), None);
+        // Shrinking back is not an expansion either.
+        assert_eq!(m.check_reinvoke(DOM, n(1), &sm, canvas), None);
+    }
+
+    #[test]
     fn check_reinvoke_edge_scrolled_bottom_then_stays_quiet() {
         let mut m = ready_view(sz(100.0, 1000.0));
         let sm = scrolled(DOM, n(1), 0.0, 900.0);
@@ -1383,30 +1433,27 @@ mod autotest_generated {
             VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom),
         );
 
-        // invoked_for_current_edge gates the whole edge block → no duplicate.
+        // Same window, same question, already answered → no duplicate. This
+        // is what keeps a callback that CHOOSES not to grow (a list at its
+        // real end, say) from being hammered every frame while the user sits
+        // at the edge.
+        assert_eq!(m.check_reinvoke(DOM, n(1), &sm, rect(100.0, 100.0)), None);
         assert_eq!(m.check_reinvoke(DOM, n(1), &sm, rect(100.0, 100.0)), None);
     }
 
     #[test]
-    fn bottom_edge_is_suppressed_after_a_force_reinvoke_but_not_after_a_reset() {
-        // PINNED BUG-SHAPED BEHAVIOR: force_reinvoke clears invoked_for_current_edge
-        // but NOT last_edge_triggered, so a second genuine scroll-to-bottom produces
-        // no EdgeScrolled(Bottom) — an infinite-scroll list stops lazy-loading after
-        // the first page. reset_all_invocation_flags (which does clear the edge
-        // memory) re-arms it; the two halves below are identical except for that
-        // one call, which isolates the stale flag as the cause.
-        //
-        // Geometry (`ready_view`): the 100x1000 window is materialized at the
-        // document's ORIGIN, and the document is 2000 px tall — so offsets here
-        // are already virtual-space offsets and `vpos` (which is for the
-        // 1000-px-down `invoked_state` window) must NOT be applied to them.
-        // Scrolling to y=900 puts the viewport's bottom flush against the
-        // window's bottom edge, with 1000 px of document still to load below.
+    fn an_edge_approach_fires_once_and_rearms_when_the_scroll_moves_away() {
+        // The documented contract: "Fires once per edge approach. The flag
+        // clears once the scroll moves away." Geometry (`ready_view`): the
+        // 100x1000 window is materialized at the document's ORIGIN and the
+        // document is 2000 px tall, so y=900 puts the viewport's bottom flush
+        // against the window's bottom edge with 1000 px still to load below;
+        // y=400 is comfortably inside.
         let bottom = scrolled(DOM, n(1), 0.0, 900.0);
         let middle = scrolled(DOM, n(1), 0.0, 400.0);
         let bounds = rect(100.0, 100.0);
-
         let mut m = ready_view(sz(100.0, 1000.0));
+
         assert_eq!(
             m.check_reinvoke(DOM, n(1), &bottom, bounds),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
@@ -1417,38 +1464,280 @@ mod autotest_generated {
             n(1),
             VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom),
         );
+        // The callback answered with the SAME window (nothing more to show).
+        set_sizes(&mut m, DOM, n(1), sz(100.0, 1000.0), sz(100.0, 2000.0));
+        assert_eq!(m.check_reinvoke(DOM, n(1), &bottom, bounds), None);
 
-        // --- half 1: the trigger_virtual_view_rerender() path -----------------
-        m.force_reinvoke(DOM, n(1)).expect("view exists");
-        // Re-invoked while the user sits mid-list, so the resting position is 400.
-        assert_eq!(
-            m.check_reinvoke(DOM, n(1), &middle, bounds),
-            Some(VirtualViewCallbackReason::InitialRender)
-        );
-        mark(&mut m, DOM, n(1), VirtualViewCallbackReason::InitialRender);
-        assert_eq!(st(&m, DOM, n(1)).initial_scroll_offset, pos(0.0, 400.0));
+        // Scrolling away releases the latch ...
+        assert_eq!(m.check_reinvoke(DOM, n(1), &middle, bounds), None);
+        assert!(st(&m, DOM, n(1)).served_scroll_demand.is_none());
 
-        // The user now really scrolls 400 → 900 (a scroll-to-edge, and the
-        // invoked_for_current_edge gate is open), yet nothing fires.
+        // ... so the next approach is a new approach and fires again.
         assert_eq!(
             m.check_reinvoke(DOM, n(1), &bottom, bounds),
-            None,
-            "stale last_edge_triggered.bottom suppresses the second bottom-edge load"
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
         );
-        assert!(st(&m, DOM, n(1)).last_edge_triggered.bottom);
+    }
 
-        // --- half 2: the same sequence, but through reset_all -----------------
-        m.reset_all_invocation_flags();
+    #[test]
+    fn a_second_scroll_to_the_bottom_edge_fires_again_after_any_reinvoke() {
+        // Regression law for the bug this module used to PIN: the old per-edge
+        // memory (`last_edge_triggered`) was cleared by reset_all but not by
+        // force_reinvoke, so after the first lazy-load an infinite-scroll list
+        // never loaded another page until a full relayout. Both re-invoke paths
+        // now start the view over; the two halves are identical and both fire.
+        let bottom = scrolled(DOM, n(1), 0.0, 900.0);
+        let middle = scrolled(DOM, n(1), 0.0, 400.0);
+        let bounds = rect(100.0, 100.0);
+
+        for reset_via_force in [true, false] {
+            let mut m = ready_view(sz(100.0, 1000.0));
+            assert_eq!(
+                m.check_reinvoke(DOM, n(1), &bottom, bounds),
+                Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
+            );
+            mark(
+                &mut m,
+                DOM,
+                n(1),
+                VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom),
+            );
+
+            if reset_via_force {
+                m.force_reinvoke(DOM, n(1)).expect("view exists");
+            } else {
+                m.reset_all_invocation_flags();
+            }
+            // Re-invoked while the user sits mid-list: the resting position is 400.
+            assert_eq!(
+                m.check_reinvoke(DOM, n(1), &middle, bounds),
+                Some(VirtualViewCallbackReason::InitialRender)
+            );
+            mark(&mut m, DOM, n(1), VirtualViewCallbackReason::InitialRender);
+            assert_eq!(st(&m, DOM, n(1)).initial_scroll_offset, pos(0.0, 400.0));
+
+            // The user really scrolls 400 → 900: a genuine second approach.
+            assert_eq!(
+                m.check_reinvoke(DOM, n(1), &bottom, bounds),
+                Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom)),
+                "force={reset_via_force}: the second bottom-edge load must fire"
+            );
+        }
+    }
+
+    #[test]
+    fn a_callback_that_materializes_a_new_window_is_re_evaluated_against_it() {
+        // The latch remembers the ANSWER (demand + window), not the edge. When
+        // the callback answers EdgeScrolled(Bottom) by materializing a window
+        // further down, the latch is dropped and the standing offset is judged
+        // against the NEW window: not near its edges → quiet; and when the user
+        // reaches the new window's bottom edge, that is a fresh approach.
+        let bounds = rect(100.0, 100.0);
+        let mut m = ready_view(sz(100.0, 1000.0));
+        // Document: 3000 px, window 0..1000.
+        set_sizes(&mut m, DOM, n(1), sz(100.0, 1000.0), sz(100.0, 3000.0));
+
+        let at_900 = scrolled(DOM, n(1), 0.0, 900.0);
         assert_eq!(
-            m.check_reinvoke(DOM, n(1), &middle, bounds),
-            Some(VirtualViewCallbackReason::InitialRender)
+            m.check_reinvoke(DOM, n(1), &at_900, bounds),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
         );
+        mark(
+            &mut m,
+            DOM,
+            n(1),
+            VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom),
+        );
+        // The callback re-materializes 500..1500 (a page stride down).
+        m.update_virtual_view_info(
+            DOM,
+            n(1),
+            pos(0.0, 500.0),
+            sz(100.0, 1000.0),
+            sz(100.0, 3000.0),
+        )
+        .expect("view exists");
+        assert!(
+            st(&m, DOM, n(1)).served_scroll_demand.is_none(),
+            "a different window is a different question"
+        );
+
+        // Same offset 900: viewport 900..1000 sits 500 px above the new
+        // window's bottom (1500) and 400 px below its top (500) → nothing.
+        assert_eq!(m.check_reinvoke(DOM, n(1), &at_900, bounds), None);
+
+        // 1350: viewport 1350..1450, 50 px from the new bottom → fires again.
+        let at_1350 = scrolled(DOM, n(1), 0.0, 1350.0);
+        assert_eq!(
+            m.check_reinvoke(DOM, n(1), &at_1350, bounds),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
+        );
+        mark(
+            &mut m,
+            DOM,
+            n(1),
+            VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom),
+        );
+
+        // A callback that UNDER-DELIVERS (moves the window, but not far enough
+        // to take the edge out of reach) is asked again — the demand persists
+        // and the window changed, so the latch does not apply.
+        m.update_virtual_view_info(
+            DOM,
+            n(1),
+            pos(0.0, 550.0),
+            sz(100.0, 1000.0),
+            sz(100.0, 3000.0),
+        )
+        .expect("view exists");
+        assert_eq!(
+            m.check_reinvoke(DOM, n(1), &at_1350, bounds),
+            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
+        );
+    }
+
+    #[test]
+    fn a_smooth_scroll_through_a_paginated_document_fires_once_per_window_advance() {
+        // AzWriter's page host, driven the way the wheel physics drives it:
+        // 20 px per tick, one check per tick. stride = page height + gap,
+        // viewport 847 px, the callback materializes `first-1 .. first+count`
+        // pages around the offset (its real math). The law under test is the
+        // whole point of the refactor: the callback runs ONCE per window
+        // advance — never once per tick, and never twice for the same window.
+        const STRIDE: f32 = 1155.0;
+        const VIEWPORT: f32 = 847.0;
+        const TOTAL_PAGES: f32 = 12.0;
+        let bounds = rect(600.0, VIEWPORT);
+        let doc = sz(600.0, TOTAL_PAGES * STRIDE);
+
+        // The callback's answer for a given offset (AzWriter's `pages_virtual_view`).
+        let materialize = |offset: f32| -> (LogicalPosition, LogicalSize) {
+            let first = ((offset / STRIDE).floor() as i64 - 1).max(0) as f32;
+            let visible = (VIEWPORT / STRIDE).ceil() + 2.0;
+            let count = visible.max(3.0).min(TOTAL_PAGES - first);
+            (pos(0.0, first * STRIDE), sz(600.0, count * STRIDE))
+        };
+
+        let mut m = VirtualViewManager::new();
+        m.get_or_create_nested_dom_id(DOM, n(1));
         mark(&mut m, DOM, n(1), VirtualViewCallbackReason::InitialRender);
+        let (o, s) = materialize(0.0);
+        m.update_virtual_view_info(DOM, n(1), o, s, doc).expect("view exists");
+
+        let mut invocations = Vec::new();
+        let mut offset = 0.0;
+        let end = TOTAL_PAGES * STRIDE - VIEWPORT;
+        while offset < end {
+            offset = (offset + 20.0).min(end);
+            let sm = scrolled(DOM, n(1), 0.0, offset);
+            if let Some(reason) = m.check_reinvoke(DOM, n(1), &sm, bounds) {
+                assert_eq!(
+                    reason,
+                    VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom),
+                    "at offset {offset}"
+                );
+                mark(&mut m, DOM, n(1), reason);
+                let (o, s) = materialize(offset);
+                m.update_virtual_view_info(DOM, n(1), o, s, doc).expect("view exists");
+                invocations.push((offset, o.y));
+            }
+        }
+
+        // Every invocation moved the window (no two answers with the same
+        // origin back to back), and the count is one per advance: the window
+        // starts at page 0 and ends at page TOTAL-3 (the last 3-page window),
+        // advancing one page per fire.
+        for w in invocations.windows(2) {
+            assert!(w[1].1 > w[0].1, "window must advance on every fire: {invocations:?}");
+        }
+        let last_first = TOTAL_PAGES - 3.0;
         assert_eq!(
-            m.check_reinvoke(DOM, n(1), &bottom, bounds),
-            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom)),
-            "reset_all clears the edge memory, so the identical scroll does fire"
+            invocations.len(),
+            last_first as usize,
+            "one re-materialization per page advance, none per tick: {invocations:?}"
         );
+        assert_eq!(invocations.last().map(|i| i.1), Some(last_first * STRIDE));
+
+        // Scrolling back up through the whole document is the mirror image.
+        let mut ups = 0usize;
+        while offset > 0.0 {
+            offset = (offset - 20.0).max(0.0);
+            let sm = scrolled(DOM, n(1), 0.0, offset);
+            if let Some(reason) = m.check_reinvoke(DOM, n(1), &sm, bounds) {
+                assert_eq!(
+                    reason,
+                    VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top),
+                    "at offset {offset}"
+                );
+                mark(&mut m, DOM, n(1), reason);
+                let (o, s) = materialize(offset);
+                m.update_virtual_view_info(DOM, n(1), o, s, doc).expect("view exists");
+                ups += 1;
+            }
+        }
+        assert_eq!(ups, last_first as usize, "one re-materialization per page retreat");
+        assert_eq!(st(&m, DOM, n(1)).materialized.map(|r| r.origin.y), Some(0.0));
+    }
+
+    #[test]
+    fn a_jump_past_everything_materialized_is_scroll_beyond_content() {
+        // "A programmatic scroll jumped the offset past the rendered
+        // scroll_size" — the documented reason that had no producer. Window
+        // 0..1000 of a 3000-px document; a jump to 2500 shows nothing that is
+        // materialized, so the callback is asked to re-materialize there.
+        let bounds = rect(100.0, 100.0);
+        let mut m = ready_view(sz(100.0, 1000.0));
+        set_sizes(&mut m, DOM, n(1), sz(100.0, 1000.0), sz(100.0, 3000.0));
+
+        let far = scrolled(DOM, n(1), 0.0, 2500.0);
+        assert_eq!(
+            m.check_reinvoke(DOM, n(1), &far, bounds),
+            Some(VirtualViewCallbackReason::ScrollBeyondContent)
+        );
+        mark(&mut m, DOM, n(1), VirtualViewCallbackReason::ScrollBeyondContent);
+
+        // Until the callback answers, the same jump is not asked twice.
+        assert_eq!(m.check_reinvoke(DOM, n(1), &far, bounds), None);
+
+        // The callback materializes 2000..3000 around the new offset: viewport
+        // 2500..2600 is 500 px from either edge → quiet.
+        m.update_virtual_view_info(
+            DOM,
+            n(1),
+            pos(0.0, 2000.0),
+            sz(100.0, 1000.0),
+            sz(100.0, 3000.0),
+        )
+        .expect("view exists");
+        assert_eq!(m.check_reinvoke(DOM, n(1), &far, bounds), None);
+
+        // And a jump back to the top is the same demand in the other direction.
+        let top = scrolled(DOM, n(1), 0.0, 100.0);
+        assert_eq!(
+            m.check_reinvoke(DOM, n(1), &top, bounds),
+            Some(VirtualViewCallbackReason::ScrollBeyondContent)
+        );
+    }
+
+    #[test]
+    fn overscroll_past_the_document_end_is_not_scroll_beyond_content() {
+        // Rubber-banding past the document's real end shows no unmaterialized
+        // content, so it is not a jump beyond the content — and the window is
+        // flush with the document end, so it is not an edge approach either.
+        let bounds = rect(100.0, 100.0);
+        let mut m = ready_view(sz(100.0, 1000.0));
+        // Window 2000..3000 == the document's tail.
+        m.update_virtual_view_info(
+            DOM,
+            n(1),
+            pos(0.0, 2000.0),
+            sz(100.0, 1000.0),
+            sz(100.0, 3000.0),
+        )
+        .expect("view exists");
+
+        let overscrolled = scrolled(DOM, n(1), 0.0, 3200.0);
+        assert_eq!(m.check_reinvoke(DOM, n(1), &overscrolled, bounds), None);
     }
 
     #[test]
@@ -1488,7 +1777,7 @@ mod autotest_generated {
         // (`[offset, offset + container]`) and the MATERIALIZED window's edge —
         // never the document's. The document only decides whether an edge is
         // allowed to fire at all (is there anything left to load past it?).
-        let s = invoked_state(sz(100.0, 1000.0)); // window y 1000..2000 of a 0..3000 doc
+        let mut s = invoked_state(sz(100.0, 1000.0)); // window y 1000..2000 of a 0..3000 doc
         let container = sz(100.0, 100.0);
 
         // Bottom edge: mat_max_y - vis_max_y == 2000 - 1800 == 200 → inclusive hit.
@@ -1511,7 +1800,7 @@ mod autotest_generated {
         // inclusivity. It needs the both-axes fixture: on `invoked_state` the
         // window spans the document's full width, so left/right have nothing to
         // load and correctly never fire whatever the distance.
-        let s2 = invoked_state_2d(sz(1000.0, 1000.0)); // window 1000..2000 of a 0..3000 doc, both axes
+        let mut s2 = invoked_state_2d(sz(1000.0, 1000.0)); // window 1000..2000 of a 0..3000 doc, both axes
                                                        // y is parked dead centre of the window (450 px from either vertical
                                                        // edge) so that only the x axis can speak.
         let quiet_y = FIXTURE_WINDOW_ORIGIN_Y + 450.0;
@@ -1538,7 +1827,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn edge_priority_is_bottom_right_top_left_and_drains() {
+    fn edge_priority_is_bottom_right_top_left_and_one_answer_per_window() {
         // Several edges have to be near AT ONCE for priority to mean anything,
         // which takes a small viewport inside a window that has document past
         // it on all four sides — hence the both-axes fixture. A 900 px viewport
@@ -1548,33 +1837,58 @@ mod autotest_generated {
         let mut s = invoked_state_2d(sz(1000.0, 1000.0));
         let container = sz(900.0, 900.0);
         let offset = pos(FIXTURE_WINDOW_ORIGIN_X, FIXTURE_WINDOW_ORIGIN_Y);
+        let doc = s.virtual_rect.expect("fixture sets the document");
 
         assert_eq!(
             s.check_reinvoke_condition(offset, container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
         );
 
-        s.last_edge_triggered.bottom = true;
+        // The callback answered Bottom and kept the SAME window: it has said
+        // what it wants to show for this position, and asking it about the
+        // other three edges could only get the same answer — so nothing more
+        // fires. (The old per-edge memory "drained" Right, Top, Left here: three
+        // full re-materializations for no new content.)
+        s.served_scroll_demand = Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom));
+        assert_eq!(s.check_reinvoke_condition(offset, container), None);
+
+        // Priority becomes observable once the callback answers each edge with
+        // a window that takes THAT edge out of reach: the rect change releases
+        // the latch, and the next edge in priority order is reported.
+        let mut answer = |s: &mut VirtualViewState, mat: LogicalRect| {
+            // What `update_virtual_view_info` does for a changed window.
+            s.materialized = Some(mat);
+            s.served_scroll_demand = None;
+        };
+
+        // Grow down: bottom is 600 px away → Right is next.
+        answer(&mut s, LogicalRect::new(pos(1000.0, 1000.0), sz(1000.0, 1500.0)));
         assert_eq!(
             s.check_reinvoke_condition(offset, container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Right))
         );
+        s.served_scroll_demand = Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Right));
+        assert_eq!(s.check_reinvoke_condition(offset, container), None);
 
-        s.last_edge_triggered.right = true;
+        // Grow right → Top.
+        answer(&mut s, LogicalRect::new(pos(1000.0, 1000.0), sz(1500.0, 1500.0)));
         assert_eq!(
             s.check_reinvoke_condition(offset, container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top))
         );
 
-        s.last_edge_triggered.top = true;
+        // Grow up → Left.
+        answer(&mut s, LogicalRect::new(pos(1000.0, 500.0), sz(1500.0, 2000.0)));
         assert_eq!(
             s.check_reinvoke_condition(offset, container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Left))
         );
 
-        // All four drained: near an edge, but nothing left to report.
-        s.last_edge_triggered.left = true;
+        // Grow left: every edge is out of reach → quiet, and the document is
+        // the same one throughout.
+        answer(&mut s, LogicalRect::new(pos(500.0, 500.0), sz(2000.0, 2000.0)));
         assert_eq!(s.check_reinvoke_condition(offset, container), None);
+        assert_eq!(s.virtual_rect, Some(doc));
     }
 
     #[test]
@@ -1582,7 +1896,7 @@ mod autotest_generated {
         // Zero content, zero container, zero offset: `0 > 0` is false so there
         // is no expansion, and the offset is exactly the resting
         // `initial_scroll_offset`, so no edge may fire either.
-        let s = invoked_state(sz(0.0, 0.0));
+        let mut s = invoked_state(sz(0.0, 0.0));
         assert_eq!(
             s.check_reinvoke_condition(pos(0.0, 0.0), sz(0.0, 0.0)),
             None
@@ -1611,7 +1925,7 @@ mod autotest_generated {
         // from those sizes → NaN → false. `top`/`left` are derived from ORIGINS
         // only, so they are NaN-free: parked on the window's top edge with
         // 1000 px of document above it, Top still fires.
-        let s = invoked_state(sz(nan, nan));
+        let mut s = invoked_state(sz(nan, nan));
         assert_eq!(
             s.check_reinvoke_condition(vpos(0.0), sz(100.0, 100.0)),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top)),
@@ -1632,7 +1946,7 @@ mod autotest_generated {
 
         // (3) NaN CONTAINER size against real content. The container size only
         // enters the bottom/right distances, so Top survives again...
-        let s = invoked_state(sz(100.0, 1000.0));
+        let mut s = invoked_state(sz(100.0, 1000.0));
         assert_eq!(
             s.check_reinvoke_condition(vpos(0.0), sz(nan, nan)),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top))
@@ -1658,19 +1972,24 @@ mod autotest_generated {
 
     #[test]
     fn check_reinvoke_condition_handles_negative_overscroll_offsets() {
-        let s = invoked_state(sz(100.0, 1000.0));
+        let mut s = invoked_state(sz(100.0, 1000.0));
         let container = sz(100.0, 100.0);
 
         // Rubber-band overscroll far above the materialized top: the top edge
         // fires, because this window has 1000 px of document above it. (The
-        // bottom is ~1e9 px away, and the fixture is not windowed on x.)
+        // bottom is ~1e9 px away, and the fixture is not windowed on x.) It is
+        // NOT a jump beyond the content: the viewport lies entirely above the
+        // document's own top, where there is nothing to materialize.
         assert_eq!(
             s.check_reinvoke_condition(vpos(-1.0e9), container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top))
         );
+        // Whereas a viewport parked at y -1..99 shows document (0..99) that
+        // the 1000..2000 window does not cover at all — nothing materialized is
+        // on screen, which is the jump-beyond-content case, not an approach.
         assert_eq!(
             s.check_reinvoke_condition(pos(-50.0, -1.0), container),
-            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Top))
+            Some(VirtualViewCallbackReason::ScrollBeyondContent)
         );
 
         // JUDGEMENT: a negative offset is not a top-edge event by ITSELF — the
@@ -1680,7 +1999,7 @@ mod autotest_generated {
         // very same rubber-band overscroll is silence, not a reload loop
         // (which is precisely what a rubber-band bounce would otherwise cause,
         // once per frame, for the whole duration of the bounce).
-        let at_doc_top = windowed_state(
+        let mut at_doc_top = windowed_state(
             LogicalRect::new(LogicalPosition::zero(), sz(100.0, 1000.0)),
             LogicalRect::new(LogicalPosition::zero(), sz(100.0, 3000.0)),
         );
@@ -1703,15 +2022,18 @@ mod autotest_generated {
         // INVERTED rect, whose max lies below its min. The rule stays total on
         // them (no panic, no NaN, a deterministic answer), but it cannot be
         // *meaningful*, and pinning `None` here would pretend the inversion is
-        // detected when it is not. What actually happens: the inverted window's
-        // "bottom" (y=900) sits 100 px short of the inverted document's
-        // (y=1900), so the bottom edge reports. Totality is the guarantee; the
-        // particular edge is an artefact of the garbage, recorded so a future
-        // change to it is noticed rather than silently absorbed.
-        let s = invoked_state(sz(-100.0, -100.0));
+        // detected when it is not. Totality is the guarantee; the particular
+        // answer is an artefact of the garbage, recorded so a future change to
+        // it is noticed rather than silently absorbed.
+        //
+        // What actually happens with the inverted rects: the visible window
+        // (1000 down to 800) starts at or past the inverted materialized
+        // "bottom" (y=900) and short of the inverted document's (y=1900), which
+        // reads as "scrolled beyond the materialized content".
+        let mut s = invoked_state(sz(-100.0, -100.0));
         assert_eq!(
             s.check_reinvoke_condition(vpos(0.0), sz(-200.0, -200.0)),
-            Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
+            Some(VirtualViewCallbackReason::ScrollBeyondContent)
         );
     }
 
@@ -1729,7 +2051,7 @@ mod autotest_generated {
         // covers everything there is. Scrolled to the far end the bottom
         // distance is MAX - MAX == 0 — inside the threshold — yet nothing
         // fires, because there is nothing beyond the window to load.
-        let s = invoked_state(sz(f32::MAX, f32::MAX));
+        let mut s = invoked_state(sz(f32::MAX, f32::MAX));
         assert_eq!(
             s.check_reinvoke_condition(pos(f32::MAX, f32::MAX), sz(0.0, 0.0)),
             None,
@@ -1757,7 +2079,7 @@ mod autotest_generated {
         // The bottom distance underflows to -MAX/2 (the viewport is absurdly
         // far past the window) — still <= EDGE_THRESHOLD, so the bottom edge
         // reports instead of overflowing.
-        let huge = windowed_state(
+        let mut huge = windowed_state(
             LogicalRect::new(LogicalPosition::zero(), sz(f32::MAX / 2.0, f32::MAX / 2.0)),
             LogicalRect::new(LogicalPosition::zero(), sz(f32::MAX, f32::MAX)),
         );
@@ -1775,7 +2097,7 @@ mod autotest_generated {
         );
 
         // Infinite container over finite content is an expansion...
-        let s = invoked_state(sz(100.0, 100.0));
+        let mut s = invoked_state(sz(100.0, 100.0));
         assert_eq!(
             s.check_reinvoke_condition(vpos(0.0), sz(f32::INFINITY, f32::INFINITY)),
             Some(VirtualViewCallbackReason::BoundsExpanded)
@@ -1825,8 +2147,8 @@ mod autotest_generated {
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))
         );
 
-        // Already invoked for this edge event → quiet regardless of movement.
-        s.invoked_for_current_edge = true;
+        // Already answered for this window → quiet while the same demand stands.
+        s.served_scroll_demand = Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom));
         assert_eq!(s.check_reinvoke_condition(vpos(899.0), container), None);
     }
 
@@ -1840,7 +2162,7 @@ mod autotest_generated {
         // scroll. The edges that matter belong to the materialized WINDOW, and
         // they sit in the middle of the document, which is exactly what this
         // pins.
-        let s = invoked_state(sz(100.0, 1000.0)); // window y 1000..2000 of a 0..3000 doc
+        let mut s = invoked_state(sz(100.0, 1000.0)); // window y 1000..2000 of a 0..3000 doc
         let container = sz(100.0, 100.0);
 
         // Dead centre of the window — 450 px from either of its edges, and also
@@ -1876,7 +2198,7 @@ mod autotest_generated {
         // very same window, which does have document behind it, still fires.
         // (Same fixture, same offsets: the only difference is which side has
         // content left.)
-        let head = windowed_state(
+        let mut head = windowed_state(
             LogicalRect::new(LogicalPosition::zero(), sz(100.0, 1000.0)),
             LogicalRect::new(LogicalPosition::zero(), sz(100.0, 3000.0)),
         );
@@ -1892,7 +2214,7 @@ mod autotest_generated {
         // Fully materialized (window == document): nothing is left to load on
         // ANY side, so no offset can produce an edge — including the corners,
         // where all four distances are 0 and every edge "looks" reachable.
-        let whole = windowed_state(
+        let mut whole = windowed_state(
             LogicalRect::new(LogicalPosition::zero(), sz(1000.0, 1000.0)),
             LogicalRect::new(LogicalPosition::zero(), sz(1000.0, 1000.0)),
         );
@@ -1996,84 +2318,6 @@ mod autotest_generated {
         }
     }
 
-    #[test]
-    fn edge_flags_any_is_the_or_of_all_four_edges() {
-        assert!(!EdgeFlags::default().any());
-
-        let mut all = EdgeFlags::default();
-        for edge in [
-            EdgeType::Top,
-            EdgeType::Bottom,
-            EdgeType::Left,
-            EdgeType::Right,
-        ] {
-            let f = EdgeFlags::from(edge);
-            assert!(f.any(), "{edge:?} alone must satisfy any()");
-            all.top |= f.top;
-            all.bottom |= f.bottom;
-            all.left |= f.left;
-            all.right |= f.right;
-        }
-
-        assert_eq!(
-            all,
-            EdgeFlags {
-                top: true,
-                bottom: true,
-                left: true,
-                right: true,
-            }
-        );
-        assert!(all.any());
-    }
-
-    #[test]
-    fn edge_flags_from_edge_type_sets_exactly_that_edge() {
-        assert_eq!(
-            EdgeFlags::from(EdgeType::Top),
-            EdgeFlags {
-                top: true,
-                ..Default::default()
-            }
-        );
-        assert_eq!(
-            EdgeFlags::from(EdgeType::Bottom),
-            EdgeFlags {
-                bottom: true,
-                ..Default::default()
-            }
-        );
-        assert_eq!(
-            EdgeFlags::from(EdgeType::Left),
-            EdgeFlags {
-                left: true,
-                ..Default::default()
-            }
-        );
-        assert_eq!(
-            EdgeFlags::from(EdgeType::Right),
-            EdgeFlags {
-                right: true,
-                ..Default::default()
-            }
-        );
-    }
-}
-
-#[cfg(test)]
-mod materialized_size_tests {
-    use azul_core::{
-        dom::{DomId, NodeId},
-        geom::{LogicalPosition, LogicalRect, LogicalSize},
-    };
-
-    use super::VirtualViewManager;
-
-    /// A `VirtualView` is a replaced element, and `width: auto` on one should
-    /// mean what it means on an `<img>`: as big as the content. The callback
-    /// already reports exactly that (`VirtualViewReturn::materialized`) - the
-    /// report just never reached SIZING, only placement and scrollbar
-    /// geometry, so every caller had to state a size up front.
     #[test]
     fn a_view_reports_the_size_it_materialized() {
         let mut m = VirtualViewManager::new();

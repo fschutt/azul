@@ -1956,6 +1956,24 @@ pub enum DebugEvent {
         delta_x: f32,
         delta_y: f32,
     },
+    /// A hardware wheel notch at (x, y): moves the pointer there (refreshing
+    /// the hover hit test) and feeds the RAW delta through
+    /// `CallbackChange::WheelInput` — the shells' `record_scroll_from_hit_test`
+    /// + scroll-physics-timer path, target chosen by the hit test (innermost
+    /// scrollable node, boundary handoff). `scroll` above is the PROGRAMMATIC
+    /// `scroll_to` on a node found by rect containment; it never exercises
+    /// the wheel path, which is where a VirtualView's edge-scroll
+    /// re-materialization actually happens. The physics glides to an ABSOLUTE
+    /// target of `delta * wheel_multiplier` (a mouse-wheel click, default
+    /// multiplier 1.0: raw `delta_y: -100` ends 100px further down with the
+    /// traditional direction), and the timer is real-time: follow a wheel
+    /// with `wait_frame`s before asserting.
+    Wheel {
+        x: f32,
+        y: f32,
+        delta_x: f32,
+        delta_y: f32,
+    },
 
     // Keyboard Events
     KeyDown {
@@ -4420,7 +4438,11 @@ fn eval_assert_text(
 
     // Get text content: try callback_info first, fall back to raw NodeType::Text
     use azul_core::dom::{DomId, DomNodeId};
-    let dom_id = ROOT_DOM_ID;
+    // The node was RESOLVED in the request's dom; the text must be read from
+    // that same dom. Hardcoding ROOT here read node N of the ROOT dom for a
+    // selector matched in a nested (VirtualView) dom — the assert compared
+    // against a random ribbon label instead of the document text.
+    let dom_id = params_dom(params);
     let dom_node_id = DomNodeId {
         dom: dom_id,
         node: Some(node_id).into(),
@@ -13358,6 +13380,35 @@ pub fn process_debug_event(
             // Setting needs_update would cause Update::RefreshDom → full DOM rebuild
             // (~1s for 500 rows), during which the scrollbar opacity fades to 0.
 
+            send_ok(request, None, None);
+        }
+
+        DebugEvent::Wheel {
+            x,
+            y,
+            delta_x,
+            delta_y,
+        } => {
+            log(
+                LogLevel::Debug,
+                LogCategory::EventLoop,
+                format!("Debug wheel at ({x}, {y}) raw delta ({delta_x}, {delta_y})"),
+                None,
+            );
+            // The pointer first: the ModifyWindowState arm refreshes the hover
+            // hit test at the new position synchronously, which is what the
+            // WheelInput arm targets — the same order a platform delivers
+            // motion + axis events in.
+            let mut new_state = callback_info.get_current_window_state().clone();
+            new_state.mouse_state.cursor_position =
+                azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
+            callback_info.modify_window_state(new_state);
+            callback_info.push_change(azul_layout::callbacks::CallbackChange::WheelInput {
+                delta_x: *delta_x,
+                delta_y: *delta_y,
+            });
+            // No needs_update: the physics timer's ScrollTo changes repaint on
+            // their own, exactly like a real wheel notch.
             send_ok(request, None, None);
         }
 

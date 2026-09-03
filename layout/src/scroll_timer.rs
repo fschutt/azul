@@ -1160,27 +1160,16 @@ pub extern "C" fn scroll_physics_timer_callback(
     }
 
     // Apply velocity-based position changes (uses unclamped: physics already handles rubber-band clamping)
+    //
+    // A ScrollTo is the whole of what a physics tick says. Whether the new
+    // offset means a VirtualView on that node has to re-materialize is the
+    // ScrollTo handler's decision (check_and_queue_virtual_view_reinvoke: an
+    // edge approach fires once, a jump past the materialized window fires
+    // once, everything else is a pure offset change) — the tick does not get
+    // to force a re-materialization per frame.
     for ((dom_id, node_id), position) in velocity_updates {
         let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
         timer_info.scroll_to_unclamped(dom_id, hierarchy_id, position);
-
-        // A VirtualView materialises only the rows around the CURRENT offset,
-        // so moving that offset must re-invoke its callback. The discrete
-        // ScrollTo path does this (check_and_queue_virtual_view_reinvoke in
-        // common/event.rs), but SMOOTH scrolling never did — and smooth is what
-        // a wheel or trackpad actually produces. The result: the pages scrolled
-        // while the VirtualView stayed frozen on its first window, so scrolling
-        // past the materialised rows showed empty background and the view never
-        // "caught up".
-        //
-        // Targeted rather than trigger_all_virtual_view_rerender(): this runs on
-        // every physics tick of every scrolling node, and re-materialising every
-        // VirtualView in the window 60 times a second is not the same cost.
-        // Nodes that are not VirtualViews are ignored downstream.
-        timer_info
-            .callback_info
-            .trigger_virtual_view_rerender(dom_id, node_id);
-
         any_changes = true;
     }
 
@@ -1465,16 +1454,8 @@ mod autotest_generated {
         /// Drain the change log, asserting every entry is a `ScrollTo`, and
         /// return `(node index, position, unclamped)` for each.
         fn take_scroll_tos(&self) -> Vec<(usize, LogicalPosition, bool)> {
-            // Every committed offset is now accompanied by an
-            // UpdateVirtualView for the same node: a VirtualView materialises
-            // only the rows around the current offset, so moving the offset
-            // without re-invoking it leaves the view frozen on its first
-            // window — pages scroll past and show empty background. Skip those
-            // here; `scroll_commits_pair_with_a_virtual_view_retrigger` below
-            // asserts the pairing itself.
             self.take_changes()
                 .iter()
-                .filter(|c| !matches!(c, CallbackChange::UpdateVirtualView { .. }))
                 .map(|change| {
                     let CallbackChange::ScrollTo {
                         node_id,
@@ -3066,9 +3047,6 @@ mod autotest_generated {
             .lock()
             .map(|c| {
                 c.iter()
-                    // Companion of every commit — see the note on the other
-                    // drain helper above.
-                    .filter(|ch| !matches!(ch, CallbackChange::UpdateVirtualView { .. }))
                     .map(|change| {
                         let CallbackChange::ScrollTo {
                             node_id,
@@ -3120,18 +3098,19 @@ mod autotest_generated {
             .unwrap_or_default()
     }
 
-    /// A committed scroll offset must be accompanied by a VirtualView
-    /// re-trigger for the same node.
+    /// A physics tick says ONE thing per scrolled node: `ScrollTo`.
     ///
-    /// A VirtualView materialises only the rows around the CURRENT offset. The
-    /// discrete ScrollTo path re-invokes it (check_and_queue_virtual_view_reinvoke
-    /// in dll/.../common/event.rs), but the SMOOTH physics path never did — and
-    /// smooth is what a wheel or trackpad actually produces. AzWriter showed the
-    /// result: the pages scrolled, the VirtualView stayed frozen on its first
-    /// window, and scrolling past the materialised pages showed bare background
-    /// that never filled in.
+    /// It used to pair every committed offset with an `UpdateVirtualView` for
+    /// the same node — a full re-materialization of any VirtualView there on
+    /// every 16 ms tick, filed under the reason `DomRecreated` (a lie: nothing
+    /// was recreated). That was a band-aid for a VirtualView edge latch that
+    /// scrolling never released, so `EdgeScrolled` fired at most once per
+    /// edge per relayout and the pages "froze" after the first load. The latch
+    /// is fixed; the ScrollTo handler (`check_and_queue_virtual_view_reinvoke`)
+    /// now decides re-materialization from the offset alone, once per edge
+    /// approach — so the tick must NOT ask for one itself.
     #[test]
-    fn a_committed_scroll_offset_retriggers_that_nodes_virtual_view() {
+    fn a_physics_tick_emits_only_scroll_to_changes() {
         let (data, queue) = state_with(ScrollPhysics::default());
         queue.push(input(3, (0.0, 120.0), ScrollInputSource::WheelDiscrete));
 
@@ -3141,33 +3120,21 @@ mod autotest_generated {
                 let _ = env.tick(&data);
                 let changes = env.take_changes();
 
-                let scrolled: Vec<usize> = changes
+                let scrolled = changes
                     .iter()
-                    .filter_map(|c| match c {
-                        CallbackChange::ScrollTo { node_id, .. } => {
-                            node_id.into_crate_internal().map(|n| n.index())
-                        }
-                        _ => None,
-                    })
-                    .collect();
+                    .filter(|c| matches!(c, CallbackChange::ScrollTo { .. }))
+                    .count();
                 assert!(
-                    !scrolled.is_empty(),
+                    scrolled > 0,
                     "the wheel delta committed no offset, so this test proves nothing"
                 );
-
-                for idx in scrolled {
-                    assert!(
-                        changes.iter().any(|c| matches!(
-                            c,
-                            CallbackChange::UpdateVirtualView { node_id, .. }
-                                if node_id.index() == idx
-                        )),
-                        "node {idx} committed a new scroll offset with no \
-                         UpdateVirtualView beside it — a VirtualView on that node \
-                         would stay frozen on its first window while the content \
-                         scrolled past it. changes={changes:?}"
-                    );
-                }
+                assert_eq!(
+                    scrolled,
+                    changes.len(),
+                    "a physics tick must emit nothing but ScrollTo — in particular no \
+                     UpdateVirtualView, which would re-materialize the view every \
+                     frame. changes={changes:?}"
+                );
             },
         );
     }

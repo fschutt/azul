@@ -69,6 +69,8 @@ curl -X POST http://localhost:8765/ -d '{"op": "mouse_up", "x": 100, "y": 200, "
 curl -X POST http://localhost:8765/ -d '{"op": "double_click", "x": 100, "y": 200}'
 # scroll
 curl -X POST http://localhost:8765/ -d '{"op": "scroll", "x": 100, "y": 200, "delta_x": 0, "delta_y": -50}'
+# wheel - a hardware wheel notch at (x, y): raw device delta through the hit-test + scroll-physics path (follow with wait_frame)
+curl -X POST http://localhost:8765/ -d '{"op": "wheel", "x": 100, "y": 200, "delta_x": 0, "delta_y": -20}'
 ```
 
 ### Sending clicks

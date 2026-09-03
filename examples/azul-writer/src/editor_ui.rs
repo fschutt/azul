@@ -175,6 +175,9 @@ fn canvas(
             // when the published `virtual_scroll_size` overflows the viewport.
             // (A VV that must not wheel-scroll opts out with `overflow: hidden`,
             // as the map and video widgets do.)
+            .with_ids_and_classes(azul::vec::IdOrClassVec::from(vec![IdOrClass::Class(
+                "mw-pages".into(),
+            )]))
             .with_css("flex-grow: 1; min-height: 0px; width: 100%;"),
     );
     area

@@ -772,6 +772,30 @@ pub enum CallbackChange {
         text: AzString,
     },
 
+    // Wheel Input (for Debug API / E2E scenarios)
+    /// Feed a raw wheel / axis delta at the current cursor position through
+    /// the SAME ingress every desktop shell uses for a hardware wheel event:
+    /// `ScrollManager::record_scroll_from_hit_test` (target = the innermost
+    /// scrollable node under the hover hit test, boundary handoff, axis
+    /// mapping) followed by the scroll physics timer, which applies the
+    /// offset over its ticks via `CallbackChange::ScrollTo`.
+    ///
+    /// `delta_x` / `delta_y` are RAW device deltas — the direction sign
+    /// (natural-scroll preference) is applied centrally by the
+    /// `ScrollManager`, exactly as for a platform event. The hover hit test
+    /// must already be over the target (a preceding cursor move), otherwise
+    /// this is a no-op — just like wheeling over a non-scrollable area.
+    ///
+    /// `ScrollTo` / `scroll_to_animated` are PROGRAMMATIC scrolls; only this
+    /// change exercises the wheel path (physics timer, `Scroll` event
+    /// synthesis, `pending_wheel_event` for wheel-as-zoom widgets).
+    WheelInput {
+        /// Raw horizontal device delta
+        delta_x: f32,
+        /// Raw vertical device delta
+        delta_y: f32,
+    },
+
     // Window Move (Compositor-Managed)
     /// Request the compositor to begin an interactive window move.
     /// On Wayland: calls `xdg_toplevel_move(toplevel`, seat, serial).
