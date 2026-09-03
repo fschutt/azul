@@ -1,4 +1,20 @@
-//! macOS media keys via `MPRemoteCommandCenter`.
+//! Apple media keys and media session via `MPRemoteCommandCenter` +
+//! `MPNowPlayingInfoCenter`. ONE FILE FOR macOS AND iOS, because it is one
+//! API: both classes, every selector used here, and the framework path are
+//! identical, and `playbackState` is iOS 13 / macOS 10.12.
+//!
+//! # The iOS-only prerequisite this does NOT do
+//!
+//! On iOS the remote command centre only delivers to an app with an ACTIVE
+//! AUDIO SESSION whose category allows playback, and the now-playing info only
+//! reaches the lock screen for the app the system considers to be playing.
+//! Neither the category nor the activation is set here, and that is deliberate
+//! rather than missing: the audio session is the APP's own policy - it decides
+//! whether the app ducks other audio, respects the silent switch, or records -
+//! and a UI toolkit silently setting `.playback` and activating it would
+//! interrupt whatever the user was listening to before the app ever played a
+//! note. An app that plays audio activates its own session, at which point
+//! everything here starts working. See 9h-i-a-i-d-i.
 //!
 //! # Why not a CGEventTap
 //!

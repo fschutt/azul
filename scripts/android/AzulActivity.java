@@ -35,6 +35,7 @@ import com.azul.picker.AzulFilePicker;
 import com.azul.text.NativeTextBridge;
 import com.azul.gamepad.AzulGamepad;
 import com.azul.permission.AzulPermissions;
+import com.azul.media.AzulMediaSession;
 import com.azul.sensors.AzulSensors;
 
 public class AzulActivity extends NativeActivity {
@@ -119,6 +120,7 @@ public class AzulActivity extends NativeActivity {
         // buttons and axes; what it cannot deliver is "a pad appeared", which
         // only InputManager.InputDeviceListener reports.
         AzulGamepad.attach(this);
+        AzulMediaSession.start(this);
     }
 
     /**
@@ -168,6 +170,7 @@ public class AzulActivity extends NativeActivity {
     protected void onDestroy() {
         AzulGamepad.detach(this);
         AzulSensors.stop(this);
+        AzulMediaSession.stop(this);
         super.onDestroy();
     }
 

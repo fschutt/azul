@@ -754,10 +754,49 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       SERIALISING - `PENDING` is a process-global and the harness runs them in parallel, so one
       test was draining another's keys. Host, 8/8 mobile, azul-core 2774, azul-layout 7612,
       azul-dll 1992, autofix 0 patches. ⚠ No Windows machine here - compile-only.
-- [ ] 9h-i-a-i-d iOS and Android both have an equivalent and neither has a backend: iOS is the
-      SAME `MPNowPlayingInfoCenter` the macOS half now uses (plus an `AVAudioSession` category
-      before it will accept anything), Android is `MediaSession`/`MediaMetadata` through a
-      service. Both are also where a phone's lock-screen controls come from.
+- [x] 9h-i-a-i-d DONE on both. Every shell now has a media session.
+      iOS COST ALMOST NOTHING, and that is the finding: it is the SAME API as macOS - both
+      classes, every selector used, the framework path, and `playbackState` (iOS 13 / macOS
+      10.12). So `media_keys/macos.rs` became `apple.rs` and compiles for both, rather than a
+      second copy that would drift. Checked against the real SDK headers, not assumed.
+      ANDROID IS BOTH HALVES AT ONCE, unlike every other platform: on Linux and macOS the media
+      KEYS and the media SESSION are separate objects that happen to share a flag, but a
+      `MediaSession` receives the transport buttons through its callback AND carries the
+      metadata, so one registration does both.
+      THE TWO DIRECTIONS HAVE OPPOSITE DRIFT HAZARDS, which is what decided where each mapping
+      lives. Buttons come back as ANDROID's own `KEYCODE_MEDIA_*` values, so both sides name the
+      same platform constants and nothing can drift - but the table still moved into the shared
+      `mod.rs`, because `android.rs` is cfg-gated to a target this machine never runs tests on
+      and a mapping table is exactly what fails silently. The playback state goes OUT as
+      `MediaPlaybackState`'s own discriminants, which IS an azul numbering crossing a boundary,
+      so it gets the sensor-code treatment: a test pins all three.
+      Java-side details that would each have silently produced nothing: a `MediaSession` with no
+      CALLBACK swallows media keys rather than passing them on; a `PlaybackState` that advertises
+      no ACTIONS draws a notification with no transport buttons however many callbacks exist; and
+      the state's SPEED must be 1.0 while playing or the system freezes the progress bar between
+      updates. A headset button arrives as a raw `KeyEvent` through `onMediaButtonEvent` rather
+      than the typed callbacks, and only the DOWN is forwarded - the pair would report one press
+      twice.
+      Android is also the ONE platform whose time unit already matches: milliseconds both sides,
+      where MPRIS wants microseconds, WinRT 100ns ticks and macOS seconds.
+      ⚠ WHAT iOS DELIBERATELY DOES NOT DO: set or activate an `AVAudioSession`. The remote
+      command centre only delivers to an app with an active playback session, so this is a real
+      prerequisite - but the audio session is the APP's own policy (ducking, the silent switch,
+      recording), and a toolkit silently activating `.playback` would interrupt whatever the user
+      was listening to before the app played a note. Logged as 9h-i-a-i-d-i.
+      EVIDENCE: 2 keycode tests that RUN ON THE HOST (they did not, until the table moved - the
+      dll count was unchanged at 1992, which is how the gap showed) plus a NEGATIVE CONTROL on
+      the state codes: renumbering `Stopped` fails with "left: 7, right: 0". Both Apple seams
+      proven COMPILED on aarch64-apple-ios AND x86_64-apple-ios, both Android seams under
+      `_internal_deps`, and the JAVA COMPILED against android-34 - all six helpers together,
+      since `AzulActivity` now starts and stops the session. Host, 8/8 mobile, azul-core 2775,
+      azul-layout 7612, azul-dll 1994, autofix 0 patches. ⚠ No device - compile-only.
+- [ ] 9h-i-a-i-d-i iOS needs an ACTIVE `AVAudioSession` with a playback-capable category before
+      the remote command centre delivers anything, and azul deliberately does not set one: the
+      session is the app's own audio policy and activating it interrupts other apps' audio. The
+      open question is whether azul should offer an OPT-IN for it (a second `AppConfig` flag, or
+      an explicit `CallbackInfo` call) or simply document that a media app must activate its own
+      session. A product decision, not plumbing.
 - [ ] 9h-i-a-i-e macOS drops `artwork_url`. `MPMediaItemPropertyArtwork` wants an
       `MPMediaItemArtwork` wrapping a decoded `NSImage`, and the field is a URI because that is
       what MPRIS takes - so filling it means fetching a URL and decoding an image from inside the

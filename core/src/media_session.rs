@@ -382,6 +382,20 @@ mod tests {
         assert!(ms_to_winrt_ticks(u64::MAX) > 0, "must never wrap negative");
     }
 
+    /// THE DISCRIMINANTS CROSS A JNI BOUNDARY. `AzulMediaSession.publish`
+    /// switches on these exact integers to pick an Android `PlaybackState`
+    /// constant, and renumbering the enum would make a playing track report as
+    /// stopped with nothing failing to compile - the same hazard as the sensor
+    /// kind codes, and the same guard.
+    ///
+    /// APPEND, never renumber, if a state is ever added.
+    #[test]
+    fn the_playback_state_discriminants_are_the_jni_wire_codes() {
+        assert_eq!(MediaPlaybackState::Stopped as i32, 0);
+        assert_eq!(MediaPlaybackState::Playing as i32, 1);
+        assert_eq!(MediaPlaybackState::Paused as i32, 2);
+    }
+
     /// `mpris:trackid` is what a desktop keys its progress bar on, so a pause
     /// must not look like a new track.
     #[test]
