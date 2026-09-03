@@ -2204,9 +2204,16 @@ session needs. Recorded verbatim so the framing is not lost.
       with the end kept at byte 5 and `is_forward` false; dragging back into the anchor block
       collapses to a single-block range that still has handles). NEGATIVE CONTROL: dropping the
       re-anchor fails those three drag tests. All 11 handle tests pass; host, 8/8 mobile.
-- [ ] U2-a-ii Android hides its toolbar while a handle is dragged and re-shows it on release;
-      azul's bar (U2) follows the selection through `onGetContentRect` but stays up during the
-      drag. Cosmetic, and it needs the drag transition surfaced to the Java side.
+- [x] U2-a-ii DONE, and the premise ("needs the drag transition surfaced to the Java side") was
+      wrong: the bar is driven by a per-frame TRANSITION hook on one bool (`has_selection` vs
+      `selection_toolbar_shown`), so folding the drag into the "wanted" bit is the whole change.
+      `has_selection && !selection_handle_drag_active()`: the press on a handle flips it off
+      (`stopSelectionToolbar`), the release flips it back on (`startSelectionToolbar`, which
+      positions itself against the NEW range through `onGetContentRect`). No Java change.
+      Same behaviour as Android's own fields, for the same reason - the bar floats over the
+      selection being resized under the finger.
+      ⚠ NOT COMPILED OR RUN (the batch compiles once at the end, per the user); the hook is a
+      one-expression change on a path that is already exercised by U2.
 - [ ] U2-a-iii The touch path is the MOUSE PIPE: the Android shell mirrors the primary finger
       into `mouse_state`, which is what makes `TextSelectionClick` / `TextSelectionDrag` reach the
       handle. A second finger while a handle is held (pinch) is not modelled - the handle keeps

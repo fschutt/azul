@@ -760,12 +760,22 @@ pub fn android_main(app: AndroidApp) {
         // double-tap, by Select All, or by a remote participant's edit all
         // deserve the same bar.
         {
-            let has_selection = window
-                .common
-                .layout_window
-                .as_ref()
+            let lw = window.common.layout_window.as_ref();
+            let has_selection = lw
                 .and_then(azul_layout::window::LayoutWindow::focused_selection_byte_range)
                 .is_some_and(|(start, end)| start != end);
+            // HIDDEN WHILE A HANDLE IS DRAGGED (U2-a-ii), shown again on release
+            // - what Android's own text fields do, and for the same reason: the
+            // bar floats over the selection, and a selection being resized under
+            // a finger has a bar in the way. This is a TRANSITION hook, so
+            // folding the drag into the "wanted" bit is the whole change: the
+            // press flips it off (stopSelectionToolbar), the release flips it
+            // back on (startSelectionToolbar, positioned by `onGetContentRect`
+            // against the new range). No Java change - the drag never has to
+            // be surfaced to the Java side after all.
+            let handle_dragging =
+                lw.is_some_and(azul_layout::window::LayoutWindow::selection_handle_drag_active);
+            let has_selection = has_selection && !handle_dragging;
             if has_selection != window.selection_toolbar_shown {
                 let native_ptr = core::ptr::from_mut(&mut window) as i64;
                 set_selection_toolbar_visible(has_selection, native_ptr);
