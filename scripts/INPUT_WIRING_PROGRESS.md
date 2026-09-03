@@ -2186,7 +2186,10 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `axis_stop` records `TrackpadEnd` under the seat's own input point (its momentum phase
       releases its own rubber band) and `axis_relative_direction` lands on the seat's frame -
       recorded like the primary's, which turned out to be unconsumed too (see 9b-ii-b-i-a).
-      Pen stays primary-only (9b-ii-b-i-b). ⏳ FOURTH BATCH: uncompiled until its end pass.
+      Pen stays primary-only (9b-ii-b-i-b). ✅ COMPILED AND RUN in the fourth batch pass of 2026-09-03: host check EXIT=0 first try;
+      api.json untouched (autofix: 0 modifications); layout lib 7679 and `--test all` 999 tests
+      green after the one break - eight test literals of `InputSession` without `seat_id` -
+      was fixed (d42e0d757); dll lib tests green; the 8-target gate 8/8.
 - [ ] 9b-ii-b-i-a Wayland `axis_relative_direction` is RECORDED for every seat and CONSUMED for
       none: `axis_inverted` has no reader. The compositor already delivers deltas in the user's
       configured direction and `record_scroll_input` applies the engine's natural-scroll sign
@@ -2203,7 +2206,10 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       slave of one master pointer and the master IS the seat (`ev.deviceid`, virtual core
       pointer = 0), so a second MPX seat's stylus is its own pen now. Wayland's producer stays
       on seat 0 (9b-ii-b-i-b-i); Windows, macOS, iOS and Android are single-seat.
-      ⏳ FOURTH BATCH: uncompiled until its end pass.
+      ✅ COMPILED AND RUN in the fourth batch pass of 2026-09-03: host check EXIT=0 first try;
+      api.json untouched (autofix: 0 modifications); layout lib 7679 and `--test all` 999 tests
+      green after the one break - eight test literals of `InputSession` without `seat_id` -
+      was fixed (d42e0d757); dll lib tests green; the 8-target gate 8/8.
 - [ ] 9b-ii-b-i-b-i Wayland binds ONE `zwp_tablet_seat_v2` - the primary `wl_seat`'s - so a
       second seat's tablet never reports at all. A tablet seat per bound seat (the seat table
       of 9b-ii-a already carries the `wl_seat` proxies) with the tablet listeners' user data
