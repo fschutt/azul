@@ -4558,6 +4558,9 @@
                                 },
                                 "fullscreen_mode": {
                                     "type": "FullScreenMode"
+                                },
+                                "extend_into_safe_area": {
+                                    "type": "bool"
                                 }
                             }
                         ],
