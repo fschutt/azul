@@ -7460,34 +7460,23 @@ fn reloc_canonicalize(
         if let Some(tab) = table {
             let native = t.wrapping_add(bias) as usize;
             if let Some(e) = tab.resolve(native) {
+                // A name carried by several canonical addresses (duplicate
+                // monomorphizations) cannot identify this target: two
+                // callers, byte-identical after reloc masking, calling
+                // DIFFERENT same-named copies would collide on the cache
+                // key, and the stored template would splice the first
+                // copy's callee into the second's callers. A content
+                // fingerprint cannot arbitrate either — same-source copies
+                // share their first hundreds of bytes and differ only in
+                // reloc fields (verified: three write_str→do_reserve
+                // triplets, byte-identical through +32). $raw keys the
+                // caller per-exact-layout instead: a cross-build miss,
+                // never a wrong splice.
+                if tab.name_is_ambiguous(&e.canonical_name) {
+                    return format!("$raw:{t:x}");
+                }
                 let off = native.wrapping_sub(e.canonical_addr);
                 if off < 0x1000 {
-                    // The name alone under-keys: duplicate monomorphizations
-                    // share a canonical_name while their BODIES differ (each
-                    // embeds its own helpers' displacements). Two callers,
-                    // byte-identical after reloc masking, calling different
-                    // same-named copies then collide on the cache key, and
-                    // the stored template splices the first copy's callee
-                    // into the second's callers — verify-mode showed the
-                    // healed template re-poisoned by the twin every run,
-                    // a ping-pong that never converges. A 16-byte pointee
-                    // fingerprint separates different-content copies while
-                    // ICF'd byte-identical ones still share (that dedup is
-                    // the cache's whole point).
-                    if let Some((lo, hi)) = img {
-                        let n64 = native as u64;
-                        if n64 >= lo && n64.saturating_add(16) <= hi {
-                            let pointee = unsafe {
-                                std::slice::from_raw_parts(native as *const u8, 16)
-                            };
-                            return format!(
-                                "{}+0x{:x}:{}",
-                                e.canonical_name,
-                                off,
-                                super::fnv1a64_hex(pointee),
-                            );
-                        }
-                    }
                     return format!("{}+0x{:x}", e.canonical_name, off);
                 }
             }
@@ -7499,7 +7488,13 @@ fn reloc_canonicalize(
             if let (Some(e), Some((lo, hi))) = (tab.nearest_below(native), img) {
                 let off = native.wrapping_sub(e.canonical_addr);
                 let n64 = native as u64;
-                if off < 0x100000 && n64 >= lo && n64.saturating_add(16) <= hi {
+                if off < 0x100000
+                    && n64 >= lo
+                    && n64.saturating_add(16) <= hi
+                    // An ambiguous neighbor name poisons the whole
+                    // neighbor+offset identity — same reasoning as above.
+                    && !tab.name_is_ambiguous(&e.canonical_name)
+                {
                     let pointee =
                         unsafe { std::slice::from_raw_parts(native as *const u8, 16) };
                     return format!(
@@ -7733,13 +7728,25 @@ fn reloc_templateize(
             return None;
         }
         let fp = super::fnv1a64_hex(pointee);
+        // Duplicate-named copies defeat BOTH halves of this identity:
+        // `by_name` at translate answers with an arbitrary copy, and the
+        // 16-byte fingerprint false-matches because same-source copies
+        // share their prologues (they differ only in reloc fields deep in
+        // the body). Untemplatable is the only sound answer — the
+        // exact-bytes cache still serves these callers.
         if let Some(e) = tab.resolve(native) {
+            if tab.name_is_ambiguous(&e.canonical_name) {
+                return None;
+            }
             let off = native.wrapping_sub(e.canonical_addr);
             if off < 0x1000 {
                 return Some(format!("near:{}+0x{:x}:{}", e.canonical_name, off, fp));
             }
         }
         let e = tab.nearest_below(native)?;
+        if tab.name_is_ambiguous(&e.canonical_name) {
+            return None;
+        }
         let off = native.wrapping_sub(e.canonical_addr);
         if off < 0x100000 {
             return Some(format!("near:{}+0x{:x}:{}", e.canonical_name, off, fp));

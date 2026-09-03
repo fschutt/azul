@@ -357,6 +357,9 @@ pub struct SymbolTable {
     /// (single-threaded wasm ⇒ TLS is just statics). See
     /// `transpiler_remill.rs` `AZ_TLV_MAGIC_PC`.
     tlv_regions: Vec<TlvRegion>,
+    /// Canonical names carried by more than one canonical address
+    /// (duplicate monomorphizations) — see [`Self::name_is_ambiguous`].
+    ambiguous_names: HashSet<String>,
 }
 
 /// One image's `__DATA.__thread_vars` + TLS-image geometry (live, slid
@@ -455,6 +458,13 @@ impl SymbolTable {
     pub fn by_name(&self, name: &str) -> Option<&SymbolEntry> {
         let addr = *self.by_name.get(name)?;
         self.by_addr.get(&addr)
+    }
+
+    /// Whether `name` is carried by more than one canonical address
+    /// (duplicate monomorphizations). `by_name` answers arbitrarily for
+    /// these, so name-based identities must not be minted for them.
+    pub fn name_is_ambiguous(&self, name: &str) -> bool {
+        self.ambiguous_names.contains(name)
     }
 
     /// Nearest symbol at-or-below `addr`. Used by the relocation-canonical
@@ -678,6 +688,29 @@ impl SymbolTable {
             chain.entry(addr).or_insert(addr);
         }
 
+        // Names carried by MORE THAN ONE canonical address (duplicate
+        // monomorphizations the linker did not ICF). A name-based identity
+        // for such a target is ambiguous: `by_name` can only answer with one
+        // of the copies, and same-source copies share their first hundreds
+        // of bytes, so a short content fingerprint cannot arbitrate either —
+        // the reloc cache uses this set to refuse name identities outright
+        // for these targets.
+        let mut first_addr: HashMap<&str, usize> = HashMap::new();
+        let mut ambiguous_names: HashSet<String> = HashSet::new();
+        for e in by_addr.values() {
+            match first_addr.entry(e.canonical_name.as_str()) {
+                std::collections::hash_map::Entry::Occupied(o) => {
+                    if *o.get() != e.canonical_addr {
+                        ambiguous_names.insert(e.canonical_name.clone());
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert(e.canonical_addr);
+                }
+            }
+        }
+        drop(first_addr);
+
         let mut table = SymbolTable {
             by_addr,
             by_name,
@@ -686,6 +719,7 @@ impl SymbolTable {
             synth_chain: HashMap::new(),
             image_bytes,
             tlv_regions,
+            ambiguous_names,
         };
 
         // M9-review: assign per-image synthetic bases so lifted code
