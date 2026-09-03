@@ -234,14 +234,18 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       trigger) plus the negative control. azul-layout 7600, azul-core 2760, azul-dll 1973, host,
       8/8 mobile, autofix converged.
 
-- [ ] 11b-i-b `Pattern` is the one constraint NOT validated: it needs a regex engine and this
-      workspace has no regex dependency. Adding one is a dependency decision rather than a wiring
-      one, and a hand-rolled matcher would accept and reject the wrong strings - worse than not
-      checking, because an app would trust it.
-      USER RULING 2026-09-03: add `regex-lite` (well-maintained, minimal), with the minimal
-      feature set only. HTML semantics: the pattern must match the WHOLE value (anchored), and a
-      pattern that does not compile is ignored rather than failing the field, exactly as browsers
-      treat an invalid `pattern` attribute.
+- [x] 11b-i-b DONE per the USER RULING (2026-09-03): `regex-lite` 0.1.9, minimal configuration -
+      `default-features = false, features = ["string"]`, its `std` only under the crate's own
+      `std` feature, no dependencies of its own. `ValidityReason::PatternMismatch = 5` appended
+      (a pure enum append, as the bitset was designed for). HTML semantics: the whole value
+      must match (`^(?:p)$`, so `[0-9]{3}` rejects `1234`), an empty value is exempt, and a
+      pattern that does not compile is IGNORED like a browser ignores an invalid `pattern`
+      attribute - `pattern_matches` answers `None` for it. Known deviation documented in the
+      module: no `v`-flag Unicode sets / `\p{..}`; such patterns fail to compile and are
+      therefore ignored, never mis-matched. Four tests pin anchoring, the empty exemption, the
+      ignore rule and Unicode-aware `.`. ⏳ SECOND BATCH: uncompiled until its end pass
+      (api.json gets the `ValidityReason` variant through autofix then; Cargo.lock updated by
+      `cargo fetch`).
 - [x] 11b-i-c DONE, and THE NOTE'S PROPOSED DESIGN WOULD NOT HAVE WORKED. It said exposing the
       reason "means a new `EventData` variant (an ABI addition) plus api.json". `CallbackInfo`
       never sees the `SyntheticEvent`: it carries the hit node and read-only access to the

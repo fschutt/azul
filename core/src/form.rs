@@ -37,6 +37,9 @@ pub enum ValidityReason {
     RangeUnderflow = 3,
     /// Above `max`.
     RangeOverflow = 4,
+    /// Does not match `pattern` (11b-i-b). The whole value must match, and an
+    /// empty value is exempt - both exactly as HTML's `patternMismatch`.
+    PatternMismatch = 5,
 }
 
 impl ValidityReason {
@@ -54,7 +57,7 @@ impl ValidityReason {
 /// first would make the second appear only after the first was fixed.
 ///
 /// A bitset rather than a struct of bools so that appending a reason - the
-/// `PatternMismatch` that 11b-i-b will add - stays a pure enum append with no
+/// `PatternMismatch` 11b-i-b added - stays a pure enum append with no
 /// change to this type's layout. The same trade `GamepadState::buttons` makes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]

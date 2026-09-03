@@ -11,13 +11,23 @@
 //! validation needed "a `required` / `pattern` attribute or a validator
 //! callback", and the attributes turned out to be in the DOM already.
 //!
-//! # What is deliberately not validated
+//! # `pattern` (11b-i-b)
 //!
-//! `Pattern` needs a regex engine and this workspace has no regex dependency.
-//! Adding one for form validation is a dependency decision, not a wiring one,
-//! so `Pattern` is skipped rather than approximated - a hand-rolled matcher
-//! would accept and reject the wrong strings, which is worse than not
-//! checking, because an app would trust it. See 11b-i-b.
+//! Needs a regex engine, and the user chose `regex-lite` for it (minimal
+//! configuration: the string API only) over a hand-rolled matcher that would
+//! accept and reject the wrong strings. HTML's rules, applied here:
+//!
+//! * the WHOLE value must match - the pattern is compiled as `^(?:p)$`, so
+//!   `pattern="[0-9]{3}"` rejects `1234` even though it contains three digits;
+//! * an empty value is exempt (that is `required`'s job);
+//! * a pattern that does not compile is IGNORED, not treated as a mismatch - a
+//!   browser does the same, and failing every submit over a typo in an
+//!   attribute would be the worse behaviour.
+//!
+//! Known deviation: HTML compiles patterns with the `v` (unicode sets) flag.
+//! `regex-lite` is Unicode-aware for `.`, `\w` and classes but has no `\p{..}`
+//! properties or set operations; such a pattern fails to compile and is
+//! therefore ignored rather than mis-matched.
 
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 
@@ -142,6 +152,13 @@ pub fn validate_form(
                         }
                     }
                 }
+                // `pattern` applies only to a NON-EMPTY value, like `minlength`:
+                // an empty optional field is unfilled, not mismatched.
+                AttributeType::Pattern(pattern) if !value.is_empty() => {
+                    if pattern_matches(pattern.as_str(), &value) == Some(false) {
+                        push(ValidityReason::PatternMismatch);
+                    }
+                }
                 _ => {}
             }
         }
@@ -151,6 +168,21 @@ pub fn validate_form(
         }
     }
     failures
+}
+
+/// Does `value` match the HTML `pattern` `pattern` as a whole?
+///
+/// `None` when the pattern does not compile, which the caller treats as "no
+/// constraint" - HTML ignores an invalid `pattern` attribute rather than
+/// failing the field. The anchoring is HTML's own recipe (`^(?:p)$`), which
+/// also means an unbalanced `)` in the pattern cannot escape the group: it
+/// makes the whole expression invalid, and so ignored.
+#[must_use]
+pub fn pattern_matches(pattern: &str, value: &str) -> Option<bool> {
+    let anchored = alloc::format!("^(?:{pattern})$");
+    regex_lite::Regex::new(&anchored)
+        .ok()
+        .map(|re| re.is_match(value))
 }
 
 /// What a control is FOR, so a soft keyboard can show the right layout.
@@ -613,5 +645,46 @@ mod tests {
     fn a_form_with_no_constraints_is_valid() {
         let layouts = form_with(vec![vec![], vec![]]);
         assert!(validate_form(node(FORM), &layouts, &|_| None).is_empty());
+    }
+
+    /// THE WHOLE VALUE MUST MATCH (HTML anchors the pattern): three digits
+    /// means exactly three, not "contains three".
+    #[test]
+    fn pattern_must_match_the_whole_value() {
+        let layouts = form_with(vec![vec![AttributeType::Pattern("[0-9]{3}".into())]]);
+        assert!(validate_form(node(FORM), &layouts, &|_| Some("123".into())).is_empty());
+        for bad in ["1234", "12", "x123", "123x"] {
+            let got = validate_form(node(FORM), &layouts, &|_| Some(bad.into()));
+            assert_eq!(got.len(), 1, "{bad:?} must not match an anchored [0-9]{{3}}");
+            assert!(got[0].state.has(ValidityReason::PatternMismatch));
+        }
+    }
+
+    /// An empty value is `required`'s business, not `pattern`'s.
+    #[test]
+    fn pattern_ignores_an_empty_value() {
+        let layouts = form_with(vec![vec![AttributeType::Pattern("[0-9]+".into())]]);
+        assert!(validate_form(node(FORM), &layouts, &|_| Some(String::new())).is_empty());
+    }
+
+    /// A pattern that does not compile is IGNORED, as a browser ignores an
+    /// invalid `pattern` attribute - not treated as "nothing matches".
+    #[test]
+    fn an_uncompilable_pattern_is_ignored_like_html() {
+        for broken in ["(", "[0-9", "a)b"] {
+            let layouts = form_with(vec![vec![AttributeType::Pattern(broken.into())]]);
+            assert!(
+                validate_form(node(FORM), &layouts, &|_| Some("anything".into())).is_empty(),
+                "{broken:?} must be ignored, not fail the field"
+            );
+        }
+        assert_eq!(pattern_matches("(", "x"), None);
+    }
+
+    /// `.` is a CHARACTER, not a byte - "\u{e9}a" is two characters.
+    #[test]
+    fn pattern_matching_is_unicode_aware() {
+        assert_eq!(pattern_matches(".{2}", "\u{e9}a"), Some(true));
+        assert_eq!(pattern_matches(".{3}", "\u{e9}a"), Some(false));
     }
 }

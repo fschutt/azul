@@ -57,6 +57,9 @@ autotests = false
 [dependencies]
 azul-css                = { version = "0.0.14", path = "../css", default-features = false, features = ["parser"] }
 azul-core               = { version = "0.0.14", path = "../core", default-features = false }
+# `pattern` form validation (11b-i-b). MINIMAL on purpose (user ruling): only the
+# string API, no std unless the crate has it; no dependencies of its own.
+regex-lite              = { version = "0.1.9", default-features = false, features = ["string"] }
 image                   = { version = "0.25", default-features = false, optional = true }
 # Explicit override to disable SIMD features that were broken in older versions
 # See: https://github.com/image-rs/image/issues/2705
@@ -216,7 +219,7 @@ allocator_mimalloc = ["dep:libmimalloc-sys"]
 allocator_jemalloc = ["dep:tikv-jemalloc-sys"]
 
 # Standard library support
-std = ["azul-core/std"]
+std = ["azul-core/std", "regex-lite/std"]
 
 # String formatting utilities (strfmt crate)
 strfmt = ["dep:strfmt", "std"]
