@@ -2057,11 +2057,17 @@ pub enum DebugEvent {
         /// dispatched in that window at all.
         #[serde(default)]
         text: Option<String>,
+        /// Which KEYBOARD SEAT pressed (9b-ii-a-i); 0 = the primary.
+        #[serde(default)]
+        seat: u64,
     },
     KeyUp {
         key: String,
         #[serde(default)]
         modifiers: Modifiers,
+        /// See `KeyDown::seat`.
+        #[serde(default)]
+        seat: u64,
     },
     TextInput {
         text: String,
@@ -16379,6 +16385,7 @@ pub fn process_debug_event(
             key,
             modifiers,
             text,
+            seat,
         } => {
             use azul_core::window::{VirtualKeyCode, VirtualKeyCodeVec};
 
@@ -16438,7 +16445,7 @@ pub fn process_debug_event(
 
             // Collect current keys into a Vec
             let mut pressed_keys: alloc::vec::Vec<VirtualKeyCode> = new_state
-                .keyboard_state
+                .keyboard_seat_mut(*seat)
                 .pressed_virtual_keycodes
                 .iter()
                 .copied()
@@ -16450,7 +16457,7 @@ pub fn process_debug_event(
                 if !pressed_keys.contains(&keycode) {
                     pressed_keys.push(keycode);
                 }
-                new_state.keyboard_state.current_virtual_keycode = Some(keycode).into();
+                new_state.keyboard_seat_mut(*seat).current_virtual_keycode = Some(keycode).into();
             }
 
             // Set modifier keys based on modifiers struct
@@ -16467,7 +16474,7 @@ pub fn process_debug_event(
                 pressed_keys.push(VirtualKeyCode::LWin);
             }
 
-            new_state.keyboard_state.pressed_virtual_keycodes =
+            new_state.keyboard_seat_mut(*seat).pressed_virtual_keycodes =
                 VirtualKeyCodeVec::from_vec(pressed_keys);
             callback_info.modify_window_state(new_state);
             // NOTE: Do NOT set needs_update = true here!
@@ -16496,7 +16503,11 @@ pub fn process_debug_event(
             send_ok(request, None, None);
         }
 
-        DebugEvent::KeyUp { key, modifiers } => {
+        DebugEvent::KeyUp {
+            key,
+            modifiers,
+            seat,
+        } => {
             use azul_core::window::{VirtualKeyCode, VirtualKeyCodeVec};
 
             log(
@@ -16513,7 +16524,7 @@ pub fn process_debug_event(
 
             // Collect current keys into a Vec
             let mut pressed_keys: alloc::vec::Vec<VirtualKeyCode> = new_state
-                .keyboard_state
+                .keyboard_seat_mut(*seat)
                 .pressed_virtual_keycodes
                 .iter()
                 .copied()
@@ -16522,7 +16533,7 @@ pub fn process_debug_event(
             // Parse the key string to VirtualKeyCode and remove it
             if let Some(keycode) = parse_virtual_keycode(key) {
                 pressed_keys.retain(|k| *k != keycode);
-                new_state.keyboard_state.current_virtual_keycode = None.into();
+                new_state.keyboard_seat_mut(*seat).current_virtual_keycode = None.into();
             }
 
             // Remove modifier keys if modifiers struct says they should be released
@@ -16541,7 +16552,7 @@ pub fn process_debug_event(
                 pressed_keys.retain(|k| *k != VirtualKeyCode::LWin && *k != VirtualKeyCode::RWin);
             }
 
-            new_state.keyboard_state.pressed_virtual_keycodes =
+            new_state.keyboard_seat_mut(*seat).pressed_virtual_keycodes =
                 VirtualKeyCodeVec::from_vec(pressed_keys);
             callback_info.modify_window_state(new_state);
             // NOTE: Do NOT set needs_update = true here!

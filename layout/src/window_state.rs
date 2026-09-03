@@ -149,6 +149,10 @@ pub struct FullWindowState {
     /// device. Read and write through [`Self::pointer_seat`] /
     /// [`Self::pointer_seat_mut`], which fold the primary in.
     pub pointer_seats: azul_core::window::PointerSeatVec,
+    /// The NON-primary seats' keyboards (9b-ii-a-i), the per-seat twin of
+    /// `pointer_seats`; `keyboard_state` is the primary seat's and is never
+    /// duplicated here. Read through [`Self::keyboard_seat`].
+    pub keyboard_seats: azul_core::window::KeyboardSeatVec,
 }
 
 impl FullWindowState {
@@ -229,6 +233,74 @@ impl FullWindowState {
                 .map(|s| (s.seat_id, &s.state)),
         )
     }
+
+    /// One seat's keyboard (9b-ii-a-i): the primary's own for seat 0.
+    #[must_use]
+    pub fn keyboard_seat(&self, seat_id: u64) -> Option<&azul_core::window::KeyboardState> {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            return Some(&self.keyboard_state);
+        }
+        self.keyboard_seats
+            .as_ref()
+            .iter()
+            .find(|s| s.seat_id == seat_id)
+            .map(|s| &s.state)
+    }
+
+    /// One seat's keyboard for writing, created (sorted by id) on first use.
+    pub fn keyboard_seat_mut(&mut self, seat_id: u64) -> &mut azul_core::window::KeyboardState {
+        use azul_core::window::{KeyboardSeat, KeyboardSeatVec, KeyboardState};
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            return &mut self.keyboard_state;
+        }
+        let idx = match self
+            .keyboard_seats
+            .as_ref()
+            .binary_search_by_key(&seat_id, |s| s.seat_id)
+        {
+            Ok(i) => i,
+            Err(i) => {
+                let mut v = self.keyboard_seats.clone().into_library_owned_vec();
+                v.insert(
+                    i,
+                    KeyboardSeat {
+                        seat_id,
+                        state: KeyboardState::default(),
+                    },
+                );
+                self.keyboard_seats = KeyboardSeatVec::from_vec(v);
+                i
+            }
+        };
+        &mut self.keyboard_seats.as_mut()[idx].state
+    }
+
+    /// Drop a seat's keyboard (the seat went away). Never the primary's.
+    pub fn remove_keyboard_seat(&mut self, seat_id: u64) -> bool {
+        use azul_core::window::KeyboardSeatVec;
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            return false;
+        }
+        if !self.keyboard_seats.as_ref().iter().any(|s| s.seat_id == seat_id) {
+            return false;
+        }
+        let mut v = self.keyboard_seats.clone().into_library_owned_vec();
+        v.retain(|s| s.seat_id != seat_id);
+        self.keyboard_seats = KeyboardSeatVec::from_vec(v);
+        true
+    }
+
+    /// Every keyboard, the primary's first.
+    pub fn keyboard_seats_with_primary(
+        &self,
+    ) -> impl Iterator<Item = (u64, &azul_core::window::KeyboardState)> {
+        core::iter::once((azul_core::window::PRIMARY_POINTER_SEAT, &self.keyboard_state)).chain(
+            self.keyboard_seats
+                .as_ref()
+                .iter()
+                .map(|s| (s.seat_id, &s.state)),
+        )
+    }
 }
 
 impl_option!(
@@ -271,6 +343,7 @@ impl Default for FullWindowState {
             flags: WindowFlags::default(),
             mouse_state: MouseState::default(),
             pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
+            keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
             theme: WindowTheme::default(),
             ime_position: ImePosition::default(),
             renderer_options: RendererOptions::default(),

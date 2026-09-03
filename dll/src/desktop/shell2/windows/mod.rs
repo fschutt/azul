@@ -640,6 +640,7 @@ impl Win32Window {
             window_focused: true,
             active_route: azul_core::resources::OptionRouteMatch::None,
             pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
+            keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
         };
 
         // Set document_id and id_namespace for this window

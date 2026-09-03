@@ -2086,10 +2086,36 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       NEGATIVE CONTROL: answering "primary" for every pointer fails the lookup test. Host check
       (the table + tests), 8/8 mobile (the Wayland shell compiled on linux-gnu). ⚠ No multi-seat
       compositor here (Sway/wlroots with `seat seat1 attach ...` is the way to see it).
-- [ ] 9b-ii-a-i A second seat's KEYBOARD and TOUCH are advertised and deliberately not bound:
-      the engine has one `KeyboardState` and one `TouchState`, so a second keyboard would have
-      to be merged into the primary's (two people's modifiers in one bitset) and a second
-      touchscreen's ids into one point list. Needs per-seat keyboard state first.
+- [~] 9b-ii-a-i The ENGINE half DONE: per-seat keyboard state exists. `KeyboardSeat { seat_id,
+      state: KeyboardState }` / `KeyboardSeatVec` (core), `FullWindowState.keyboard_seats` with
+      `keyboard_seat` / `keyboard_seat_mut` (creates, sorted) / `remove_keyboard_seat` /
+      `keyboard_seats_with_primary` - the exact twin of the pointer seats, keyed by the SAME
+      seat id so one person's keystroke and click match. `KeyboardEventData.seat_id` (0 = the
+      primary keyboard). The event pass diffs every seat's keyboard on its own - `ModifiersChanged`,
+      `KeyDown` (+ the context-menu key), `KeyUp`, a vanished seat releasing its key - so a second
+      keyboard can no longer be merged into the primary's bitset. The shell diffs and applies
+      `keyboard_seats` like `pointer_seats`; the headless `key_down` / `key_up` ops take `"seat": N`.
+      Two tests pin the stamp, the primary's isolation and the vanish-release. What is NOT
+      modelled, on purpose: FOCUS is shared - every seat's keys reach the one focused node
+      (9b-ii-a-i-d). The PRODUCERS are the open half, each logged with its blocker below.
+      ⏳ FIFTH BATCH: uncompiled until its end pass (api.json: `KeyboardSeat`, `KeyboardSeatVec`,
+      `FullWindowState.keyboard_seats` through autofix then).
+- [ ] 9b-ii-a-i-a X11 producer: keys arrive as CORE `KeyPress` / `KeyRelease`, which carry no
+      device, so a second MPX keyboard's presses are indistinguishable from the first's. Attributing
+      a seat needs XI2 `XI_KeyPress` / `XI_KeyRelease` selected on the window (`deviceid` = the
+      master keyboard, whose `attachment` is its paired master pointer = the seat id) and the core
+      key path retired or de-duplicated against it - a keyboard-input rewrite of the X11 backend,
+      not a line. Xkb state per master keyboard (each can have its own layout) comes with it.
+- [ ] 9b-ii-a-i-b Wayland producer: `wl_keyboard` is bound for the primary seat only. A second seat's
+      keyboard needs its own `wl_keyboard` with seat-keyed listener data AND its own `xkb_keymap` /
+      `xkb_state` (the keymap event is per keyboard), then `keyboard_seat_mut(seat)` in the key
+      handler. The seat table of 9b-ii-a carries the `wl_seat` proxies already.
+- [ ] 9b-ii-a-i-c TOUCH per seat: `TouchState` is one list; a second seat's touchscreen would mix
+      its ids into the primary's. Same shape as the keyboard seats (`TouchSeatVec`), gated on a
+      producer that has one - X11 XI2 touch events carry the master, Wayland `wl_touch` is per seat.
+- [ ] 9b-ii-a-i-d Per-seat FOCUS. X11 MPX gives every master keyboard its own focus; azul has one
+      focused node, so today every seat types into the same field. A per-seat focus is a product
+      question (two people editing two fields of one window), not a wiring gap; logged, not guessed.
 - [x] 9b-ii-a-ii DONE. "Whatever the compositor shows for an unset cursor" is NOTHING: a
       Wayland pointer has no cursor over a surface until the client answers its `enter` with
       `set_cursor`, so a second seat was an invisible cursor. `set_cursor` is now a wrapper over

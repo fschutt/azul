@@ -1861,6 +1861,7 @@ impl WaylandWindow {
                 window_focused: false,
                 active_route: azul_core::resources::OptionRouteMatch::None,
                 pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
+                keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
             },
             resources.fc_cache.clone(),
             resources.system_style.clone(),
@@ -8589,6 +8590,7 @@ impl WaylandPopup {
             window_focused: true,
             active_route: azul_core::resources::OptionRouteMatch::None,
             pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
+            keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
         };
         // A popup is a CHILD: share the PARENT's already-warmed manager, which
         // is both the warmest option and the one whose embedded (icon) faces the

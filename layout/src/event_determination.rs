@@ -516,6 +516,81 @@ fn pointer_seat_events(
     }
 }
 
+/// The key-event diff of ONE non-primary keyboard seat (9b-ii-a-i):
+/// `ModifiersChanged`, `KeyDown` (+ the context-menu key), `KeyUp`, every
+/// one carrying the seat in its `KeyboardEventData`.
+fn keyboard_seat_events(
+    seat_id: u64,
+    current: &azul_core::window::KeyboardState,
+    previous: &azul_core::window::KeyboardState,
+    focus_target: DomNodeId,
+    root_node: DomNodeId,
+    timestamp: &Instant,
+    events: &mut Vec<SyntheticEvent>,
+) {
+    let modifiers = KeyModifiers {
+        shift: current.shift_down(),
+        ctrl: current.ctrl_down(),
+        alt: current.alt_down(),
+        meta: current.super_down(),
+    };
+    let current_key = current.current_virtual_keycode.into_option();
+    let previous_key = previous.current_virtual_keycode.into_option();
+    if current.modifiers != previous.modifiers || current.locks != previous.locks {
+        events.push(SyntheticEvent::new(
+            EventType::ModifiersChanged,
+            EventSource::User,
+            root_node,
+            timestamp.clone(),
+            EventData::Keyboard(KeyboardEventData {
+                modifiers: current.modifiers,
+                seat_id,
+                ..Default::default()
+            }),
+        ));
+    }
+    if current_key.is_some() && current_key != previous_key {
+        events.push(SyntheticEvent::new(
+            EventType::KeyDown,
+            EventSource::User,
+            focus_target,
+            timestamp.clone(),
+            EventData::Keyboard(KeyboardEventData {
+                key_code: current_key.map_or(0, |k| k as u32),
+                modifiers,
+                repeat: current.is_repeat,
+                seat_id,
+                ..Default::default()
+            }),
+        ));
+        let is_menu_key = current_key == Some(VirtualKeyCode::Apps);
+        let is_shift_f10 = current_key == Some(VirtualKeyCode::F10) && modifiers.shift;
+        if is_menu_key || is_shift_f10 {
+            events.push(SyntheticEvent::new(
+                EventType::ContextMenu,
+                EventSource::User,
+                focus_target,
+                timestamp.clone(),
+                EventData::None,
+            ));
+        }
+    }
+    if previous_key.is_some() && current_key.is_none() {
+        events.push(SyntheticEvent::new(
+            EventType::KeyUp,
+            EventSource::User,
+            focus_target,
+            timestamp.clone(),
+            EventData::Keyboard(KeyboardEventData {
+                key_code: previous_key.map_or(0, |k| k as u32),
+                modifiers,
+                seat_id,
+                ..Default::default()
+            }),
+        ));
+    }
+}
+
 pub fn determine_all_events(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,
@@ -991,6 +1066,44 @@ pub fn determine_all_events(
             timestamp.clone(),
             key_up_data,
         ));
+    }
+
+    // KEYBOARDS OF THE OTHER SEATS (9b-ii-a-i): the same modifiers / key
+    // down / key up diff over each seat's own keyboard, stamped with the
+    // seat, at the ONE focused node - azul's focus is shared (9b-ii-a-i-d).
+    // A seat that vanished with a key down releases it.
+    {
+        let empty = azul_core::window::KeyboardState::default();
+        let mut seen: Vec<u64> = Vec::new();
+        for seat in current_state.keyboard_seats.as_ref() {
+            seen.push(seat.seat_id);
+            let previous = previous_state
+                .keyboard_seat(seat.seat_id)
+                .unwrap_or(&empty);
+            keyboard_seat_events(
+                seat.seat_id,
+                &seat.state,
+                previous,
+                focus_target,
+                root_node,
+                &timestamp,
+                &mut events,
+            );
+        }
+        for gone in previous_state.keyboard_seats.as_ref() {
+            if seen.contains(&gone.seat_id) {
+                continue;
+            }
+            keyboard_seat_events(
+                gone.seat_id,
+                &empty,
+                &gone.state,
+                focus_target,
+                root_node,
+                &timestamp,
+                &mut events,
+            );
+        }
     }
 
     // Window State Events
@@ -3261,6 +3374,55 @@ mod autotest_generated {
 
         let events = run_plain(&state(), &unfocused);
         assert_eq!(count(&events, EventType::WindowFocusIn), 1);
+    }
+
+    /// 9b-ii-a-i: a second keyboard seat's key is its own event, stamped
+    /// with the seat, and the primary's diff sees nothing.
+    #[test]
+    fn a_second_keyboard_seats_key_is_stamped_and_leaves_the_primary_alone() {
+        use azul_core::window::{OptionVirtualKeyCode, VirtualKeyCode};
+        let mut current = state();
+        current.keyboard_seat_mut(7).current_virtual_keycode =
+            OptionVirtualKeyCode::Some(VirtualKeyCode::A);
+        let events = run_plain(&current, &state());
+        let downs: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == EventType::KeyDown)
+            .collect();
+        assert_eq!(downs.len(), 1, "one KeyDown, the seat's");
+        match downs[0].data {
+            EventData::Keyboard(d) => {
+                assert_eq!(d.seat_id, 7);
+                assert_eq!(d.key_code, VirtualKeyCode::A as u32);
+            }
+            ref other => panic!("not keyboard data: {other:?}"),
+        }
+        assert_eq!(
+            current.keyboard_state.current_virtual_keycode,
+            OptionVirtualKeyCode::None,
+            "the primary keyboard is untouched"
+        );
+        let events = run_plain(&state(), &current);
+        let ups: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == EventType::KeyUp)
+            .collect();
+        assert_eq!(ups.len(), 1);
+        assert!(matches!(ups[0].data, EventData::Keyboard(d) if d.seat_id == 7));
+    }
+
+    /// A keyboard seat that vanishes while a key is down releases it.
+    #[test]
+    fn a_vanished_keyboard_seat_releases_its_key() {
+        use azul_core::window::{OptionVirtualKeyCode, VirtualKeyCode};
+        let mut previous = state();
+        previous.keyboard_seat_mut(9).current_virtual_keycode =
+            OptionVirtualKeyCode::Some(VirtualKeyCode::B);
+        let events = run_plain(&state(), &previous);
+        assert_eq!(count(&events, EventType::KeyUp), 1);
+        assert!(events
+            .iter()
+            .any(|e| matches!(e.data, EventData::Keyboard(d) if d.seat_id == 9)));
     }
 
     #[test]

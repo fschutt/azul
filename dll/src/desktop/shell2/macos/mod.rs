@@ -5455,6 +5455,7 @@ impl MacOSWindow {
             window_focused: true,
             active_route: azul_core::resources::OptionRouteMatch::None,
             pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
+            keyboard_seats: azul_core::window::KeyboardSeatVec::from_const_slice(&[]),
         };
 
         // Initialize resource caches

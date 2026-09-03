@@ -494,6 +494,10 @@ pub struct KeyboardEventData {
     /// attached — a laptop's built-in and an external, or a barcode scanner
     /// presenting as a keyboard — nothing could tell their input apart.
     pub device_id: u64,
+    /// Which KEYBOARD SEAT pressed (9b-ii-a-i): `PRIMARY_POINTER_SEAT` for
+    /// the ordinary keyboard, a seat id for a second person's - the same
+    /// number their pointer events carry.
+    pub seat_id: u64,
 }
 
 impl Default for KeyboardEventData {
@@ -504,6 +508,7 @@ impl Default for KeyboardEventData {
             modifiers: KeyModifiers::default(),
             repeat: false,
             device_id: 0,
+            seat_id: crate::window::PRIMARY_POINTER_SEAT,
         }
     }
 }

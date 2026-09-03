@@ -1081,6 +1081,7 @@ fn first_differing_state_field(a: &FullWindowState, b: &FullWindowState) -> Opti
         mouse_state,
         pointer_seats,
         keyboard_state,
+        keyboard_seats,
         touch_state,
         // Not event-bearing — see the doc above. Never compared.
         platform_specific_options: _,
@@ -1128,6 +1129,9 @@ fn first_differing_state_field(a: &FullWindowState, b: &FullWindowState) -> Opti
     }
     if *keyboard_state != b.keyboard_state {
         return Some("keyboard_state");
+    }
+    if *keyboard_seats != b.keyboard_seats {
+        return Some("keyboard_seats");
     }
     if *touch_state != b.touch_state {
         return Some("touch_state");
@@ -4368,7 +4372,8 @@ pub trait PlatformWindow {
                 // The other cursors (9b-ii): same treatment as the primary,
                 // or an app-pushed seat change would neither copy nor diff.
                 let seats_changed = old_state.pointer_seats != state.pointer_seats;
-                let keyboard_state_changed = old_state.keyboard_state != state.keyboard_state;
+                let keyboard_state_changed = old_state.keyboard_state != state.keyboard_state
+                    || old_state.keyboard_seats != state.keyboard_seats;
                 // WINDOW-LEVEL transitions. `event_determination` derives
                 // WindowFocusIn / WindowFocusOut / WindowMove / WindowResize
                 // purely from current-vs-previous FullWindowState — which is
@@ -4419,6 +4424,7 @@ pub trait PlatformWindow {
                         current.mouse_state = state.mouse_state;
                         current.pointer_seats = state.pointer_seats.clone();
                         current.keyboard_state = state.keyboard_state.clone();
+                        current.keyboard_seats = state.keyboard_seats.clone();
                         current.touch_state = state.touch_state.clone();
                         current.window_focused = state.window_focused;
                     });
@@ -4541,6 +4547,7 @@ pub trait PlatformWindow {
                             current.mouse_state = queued_state.mouse_state;
                             current.pointer_seats = queued_state.pointer_seats.clone();
                             current.keyboard_state = queued_state.keyboard_state.clone();
+                            current.keyboard_seats = queued_state.keyboard_seats.clone();
                             current.title = queued_state.title.clone();
                             current.size = queued_state.size;
                             current.position = queued_state.position;

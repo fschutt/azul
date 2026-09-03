@@ -732,6 +732,45 @@ impl_vec_clone!(PointerSeat, PointerSeatVec, PointerSeatVecDestructor);
 impl_vec_partialeq!(PointerSeat, PointerSeatVec);
 impl_vec_mut!(PointerSeat, PointerSeatVec);
 
+/// One NON-primary keyboard seat's state (9b-ii-a-i): the per-seat twin of
+/// [`PointerSeat`]. X11 MPX pairs each master keyboard with a master
+/// pointer, and a Wayland `wl_seat` carries both; the seat id is the same
+/// number [`PointerSeat::seat_id`] uses for that pairing, so a keystroke and
+/// a click from the same person carry the same seat. The primary seat's
+/// keyboard is `FullWindowState::keyboard_state`, never listed here.
+///
+/// FOCUS IS SHARED: azul has one focused node, so every seat's keys reach
+/// it (MPX's per-keyboard focus is not modelled - 9b-ii-a-i-d).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct KeyboardSeat {
+    /// The seat's identity - the same id as the seat's pointer. Never
+    /// [`PRIMARY_POINTER_SEAT`].
+    pub seat_id: u64,
+    /// The seat's own keyboard state.
+    pub state: KeyboardState,
+}
+
+impl_option!(
+    KeyboardSeat,
+    OptionKeyboardSeat,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
+
+impl_vec!(
+    KeyboardSeat,
+    KeyboardSeatVec,
+    KeyboardSeatVecDestructor,
+    KeyboardSeatVecDestructorType,
+    KeyboardSeatVecSlice,
+    OptionKeyboardSeat
+);
+impl_vec_debug!(KeyboardSeat, KeyboardSeatVec);
+impl_vec_clone!(KeyboardSeat, KeyboardSeatVec, KeyboardSeatVecDestructor);
+impl_vec_partialeq!(KeyboardSeat, KeyboardSeatVec);
+impl_vec_mut!(KeyboardSeat, KeyboardSeatVec);
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct VirtualKeyCodeCombo {

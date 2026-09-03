@@ -251,6 +251,7 @@ mod tests {
                     shift: false,
                     alt: false,
                     meta: cfg!(target_os = "macos"),
+                seat_id: crate::window::PRIMARY_POINTER_SEAT,
                 },
                 repeat: false,
                 ..Default::default()
