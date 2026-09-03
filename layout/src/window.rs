@@ -12055,8 +12055,10 @@ impl LayoutWindow {
             return false;
         };
 
-        // Get primary selection text (or word at cursor)
-        let primary = match mc.selections.first() {
+        // Get primary selection text (or word at cursor). The LOCAL primary
+        // (U3): `first()` happened to be local only because the list is
+        // owner-sorted, and the primary is what Ctrl+D extends.
+        let primary = match mc.get_primary() {
             Some(s) => *s,
             None => return false,
         };
@@ -12114,7 +12116,10 @@ impl LayoutWindow {
 
         // Search forward from the end of the last selection
         let mc = self.text_edit_manager.multi_cursor.as_ref().unwrap();
-        let last_end_byte = mc.selections.last().map_or(0, |s| match &s.selection {
+        // The last LOCAL selection (U3): a plain `last()` is a peer's entry
+        // whenever one exists, and Ctrl+D would have searched on from the
+        // peer's caret.
+        let last_end_byte = mc.local_selections().last().map_or(0, |s| match &s.selection {
             Selection::Range(r) => r.end.cluster_id.start_byte_in_run as usize,
             Selection::Cursor(c) => c.cluster_id.start_byte_in_run as usize,
         });
@@ -12149,7 +12154,7 @@ impl LayoutWindow {
                 // If primary was a cursor, convert it to a word selection first
                 let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
                 if need_word_expand {
-                    if let Some(first) = mc.selections.first_mut() {
+                    if let Some(first) = mc.local_selections_mut().next() {
                         first.selection = Selection::Range(word_range);
                     }
                 }
@@ -12181,7 +12186,7 @@ impl LayoutWindow {
 
                     let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
                     if need_word_expand {
-                        if let Some(first) = mc.selections.first_mut() {
+                        if let Some(first) = mc.local_selections_mut().next() {
                             first.selection = Selection::Range(word_range);
                         }
                     }
@@ -12196,7 +12201,7 @@ impl LayoutWindow {
         // still mark the word selection
         if need_word_expand {
             let mc = self.text_edit_manager.multi_cursor.as_mut().unwrap();
-            if let Some(first) = mc.selections.first_mut() {
+            if let Some(first) = mc.local_selections_mut().next() {
                 first.selection = Selection::Range(word_range);
             }
             self.text_edit_manager.mark_dirty();
@@ -18429,10 +18434,10 @@ impl LayoutWindow {
             return None;
         };
 
-        // Collect range selections (collapsed cursors contribute nothing to a copy).
+        // Collect the LOCAL range selections (collapsed cursors contribute
+        // nothing to a copy; a peer's range is not the local user's to copy).
         let ranges: Vec<_> = mc
-            .selections
-            .iter()
+            .local_selections()
             .filter_map(|s| match &s.selection {
                 Selection::Range(r) => Some(*r),
                 Selection::Cursor(_) => None,

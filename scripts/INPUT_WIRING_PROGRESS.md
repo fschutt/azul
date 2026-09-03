@@ -1925,10 +1925,48 @@ session needs. Recorded verbatim so the framing is not lost.
       them draws its own - and the Java comment already says so. The geometry is available
       (`focused_rect_for_byte_range` from 10b-i-a gives each end), so this is a paint job rather
       than a platform one, but it is a paint job with hit-testing and drag behaviour of its own.
-- [ ] U3 Both of the above want the SAME question answered first: is a selection identified by
-      `(node, range)` or by an owner-scoped id? U1 needs owners on every selection and U2 needs
-      the platform's idea of "the selection" to map onto exactly one of them. Doing U1 first
-      fixes the shape U2 has to talk to.
+- [x] U3 ANSWERED, and the answer turned out to need code: a selection is identified by an
+      OWNER-SCOPED id, `(SelectionOwner, SelectionId)`, and the engine acts on the LOCAL owner's
+      set and on nothing else. The PRIMARY is always local; the platform's idea of "the
+      selection" (`selectedTextRange`, the IME's marked range, the Android selection bridge,
+      copy) is the local primary; peers' selections are DISPLAY-ONLY SNAPSHOTS that enter through
+      `set_owner_selections`, leave through `remove_owner`, and are not shifted by a local edit -
+      the sync layer that carried the snapshot is the one that knows how the edit moved the
+      peer's caret, and it replaces the snapshot. Written on `MultiCursorState`'s invariants.
+      ⚠ WHAT THE QUESTION WAS HIDING. Every engine operation still walked EVERY owner's entry,
+      so with one peer's caret injected: `to_selections` handed the peer's caret to `edit_text`,
+      which inserts at each selection it is given - a local keystroke was TYPED AT THE PEER'S
+      CARET; `update_from_edit_result` then rebuilt the whole list as LOCAL, absorbing the peer
+      after one keystroke; a plain click (`set_single_cursor` / `set_single_range`) cleared the
+      peer out of view; `move_all_cursors` moved the peer's caret with the local arrow keys;
+      `get_primary` / `ensure_primary_valid` fell back to `selections.last()`, which on the
+      owner-sorted list IS the peer whenever one exists - so losing the local primary would have
+      made the peer's caret "the selection" for the IME, the platform and copy; the smart-paste
+      `len()` counted the peer's caret as a line target; Ctrl+D searched on from the peer's caret
+      (`last()`); Cut was armed by a peer's range; copy extracted a peer's range.
+      NOW: `local_selections()` / `local_selections_mut()` / `local_len()`; `to_selections` is
+      the LOCAL edit set; `update_from_edit_result` writes back to the local entries only and
+      carries the peers over with owner and id intact; the collapse-to-one calls retain the
+      peers; movement is local-only; the primary fallback is the last LOCAL entry, and with no
+      local entry left `get_primary` answers `None` rather than a peer. Every consumer that means
+      "what is the user doing" (Ctrl+D, copy, Cut arming, smart paste, `get_selection`) reads
+      the local set; painting still walks everything. `focused_selection_byte_range` and
+      `set_focused_selection_from_byte_range` (the iOS/Android seams) go through `get_primary`
+      and the collapse calls, so they inherit all of it. This is the shape U2-a's handles talk
+      to: a handle drag moves the LOCAL primary through `set_focused_selection_from_byte_range`.
+      EVIDENCE: 5 core tests (typing never lands on a peer's caret and the peer survives an edit
+      with id and place; a click keeps the peers in view; the primary is never a peer - `None`
+      with no local left, the other local otherwise; arrows move local carets only; `local_len`
+      vs `len`). NEGATIVE CONTROL: restoring the all-owners `to_selections` fails the typing
+      test. The 6 U1 owner tests still pass. Host check, 8/8 mobile. ⚠ Still no two-machine
+      session here; the invariants are pinned at the model, not seen in a session.
+- [ ] U3-a Peers' carets are NOT shifted by a local edit (see above): after the local user
+      types before a peer's caret, the peer's caret is one character stale until the next
+      snapshot. Correct as a model (the sync layer owns the transform), but an app WITHOUT a
+      CRDT/OT layer would want the engine to apply the trivial "insert before me shifts me" rule
+      locally. Not done here because it is exactly the kind of guess that looks done while
+      being wrong for every non-trivial edit (a replace across the peer's caret, a paste of N
+      lines).
 
 ### Follow-ups opened by 9a
 

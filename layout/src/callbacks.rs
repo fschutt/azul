@@ -6020,7 +6020,8 @@ impl CallbackInfo {
             .multi_cursor
             .as_ref()
             .and_then(|mc| {
-                mc.selections.iter().find_map(|s| match &s.selection {
+                // The LOCAL user's range (U3), not a peer's.
+                mc.local_selections().find_map(|s| match &s.selection {
                     Selection::Range(r) => Some(*r),
                     Selection::Cursor(_) => None,
                 })
@@ -6092,7 +6093,7 @@ impl CallbackInfo {
 
         // Get current selection state from multi_cursor
         let selection = if let Some(mc) = layout_window.text_edit_manager.multi_cursor.as_ref() {
-            if let Some(range) = mc.selections.iter().find_map(|s| match &s.selection {
+            if let Some(range) = mc.local_selections().find_map(|s| match &s.selection {
                 Selection::Range(r) => Some(*r),
                 Selection::Cursor(_) => None,
             }) {

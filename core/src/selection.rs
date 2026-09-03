@@ -327,11 +327,37 @@ impl SelectionOwner {
 ///
 /// ## Invariants
 ///
-/// - `selections` is sorted by position and non-overlapping.
+/// - `selections` is sorted by owner, then by position, and non-overlapping
+///   within one owner.
 /// - The **primary** selection is identified by the stable `primary_id`, NOT by
 ///   vector position: `merge_overlapping()` re-sorts `selections` by position,
 ///   so "last index" is not the most-recently-added cursor.
 /// - After any mutation, `merge_overlapping()` is called to maintain invariants.
+///
+/// ## Who a selection belongs to (U3)
+///
+/// A selection is identified by an OWNER-SCOPED id: `(owner, id)`. The engine
+/// acts on the [`SelectionOwner::LOCAL`] set and on nothing else:
+///
+/// - the PRIMARY is always local - `get_primary` never answers with a peer's
+///   selection, and `primary_id` is re-pointed only at a local one;
+/// - the EDIT SET (`to_selections`, what typing / Backspace / paste apply
+///   to) is the local set, and `update_from_edit_result` writes back to it
+///   alone, leaving every peer's entry untouched;
+/// - a plain click (`set_single_cursor` / `set_single_range`) collapses the
+///   LOCAL set to one and keeps the peers in view;
+/// - cursor movement (`move_all_cursors*`) moves local carets only;
+/// - the platform's idea of "the selection" (`selectedTextRange`, the IME's
+///   marked range, the Android selection bridge) is the local primary.
+///
+/// Peers' selections are DISPLAY-ONLY SNAPSHOTS: they enter through
+/// `set_owner_selections`, leave through `remove_owner`, and are painted in
+/// their owner's colour. They are not shifted by a local edit either - the
+/// sync layer that carried the snapshot here is the one that knows how the
+/// edit moved the peer's caret, and it replaces the snapshot. Anything that
+/// walks `selections` directly and means "what is the user doing" must go
+/// through [`Self::local_selections`]; walking the whole list is right only
+/// for painting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiCursorState {
     /// Sorted by position, non-overlapping. Primary is tracked via `primary_id`.
@@ -410,34 +436,63 @@ impl MultiCursorState {
         removed
     }
 
+    /// The LOCAL participant's selections - the ones the engine edits, moves
+    /// and reports (U3). Peers' snapshots are excluded.
+    pub fn local_selections(&self) -> impl Iterator<Item = &IdentifiedSelection> {
+        self.selections.iter().filter(|s| s.owner.is_local())
+    }
+
+    /// Mutable [`Self::local_selections`].
+    pub fn local_selections_mut(&mut self) -> impl Iterator<Item = &mut IdentifiedSelection> {
+        self.selections.iter_mut().filter(|s| s.owner.is_local())
+    }
+
+    /// How many carets the LOCAL user is typing into. This - not [`Self::len`]
+    /// - is the count a "one line per cursor" paste or a "multi-cursor mode"
+    /// decision wants; a peer's caret is not somewhere the local user types.
+    #[must_use]
+    pub fn local_len(&self) -> usize {
+        self.local_selections().count()
+    }
+
     /// Get the primary selection (the most recently added/set, tracked by
     /// `primary_id` — NOT the vector's last element, which position-sorting
-    /// reorders). Falls back to the last element if `primary_id` was somehow
-    /// lost.
+    /// reorders). Falls back to the last LOCAL selection if `primary_id` was
+    /// somehow lost - never to a peer's: the list is owner-sorted, so a plain
+    /// `last()` was a peer's entry whenever one existed, and everything that
+    /// reads "the selection" (IME, the platform selection, copy) would have
+    /// been answering with someone else's.
     #[must_use]
     pub fn get_primary(&self) -> Option<&IdentifiedSelection> {
         let pid = self.primary_id;
         self.selections
             .iter()
-            .find(|s| s.id == pid)
-            .or_else(|| self.selections.last())
+            .find(|s| s.id == pid && s.owner.is_local())
+            .or_else(|| self.local_selections().last())
     }
 
     /// Get a mutable reference to the primary selection (see `get_primary`).
     pub fn get_primary_mut(&mut self) -> Option<&mut IdentifiedSelection> {
         let pid = self.primary_id;
-        if let Some(pos) = self.selections.iter().position(|s| s.id == pid) {
+        if let Some(pos) = self
+            .selections
+            .iter()
+            .position(|s| s.id == pid && s.owner.is_local())
+        {
             return self.selections.get_mut(pos);
         }
-        self.selections.last_mut()
+        self.local_selections_mut().last()
     }
 
-    /// Ensure `primary_id` names a selection that still exists; if not, adopt the
-    /// last selection's id (best effort) so `get_primary` stays meaningful.
+    /// Ensure `primary_id` names a LOCAL selection that still exists; if not,
+    /// adopt the last local one (best effort) so `get_primary` stays
+    /// meaningful. With no local selection left, `primary_id` is left dangling
+    /// on purpose and `get_primary` answers `None` - a peer's caret must not
+    /// become "the selection" because the local one went away.
     fn ensure_primary_valid(&mut self) {
         let pid = self.primary_id;
-        if !self.selections.iter().any(|s| s.id == pid) {
-            if let Some(last) = self.selections.last() {
+        if !self.selections.iter().any(|s| s.id == pid && s.owner.is_local()) {
+            if let Some(last) = self.local_selections().last() {
                 self.primary_id = last.id;
             }
         }
@@ -452,17 +507,30 @@ impl MultiCursorState {
         })
     }
 
-    /// Convert to a Vec<Selection> for passing to `edit_text()`.
+    /// The EDIT SET: the LOCAL selections, as a `Vec<Selection>` for
+    /// `edit_text()`. Peers' carets are excluded (U3) - with them included, a
+    /// local keystroke was applied at every peer's caret as well, because
+    /// multi-cursor editing inserts at every selection it is handed.
     #[must_use]
     pub fn to_selections(&self) -> Vec<Selection> {
-        self.selections.iter().map(|s| s.selection).collect()
+        self.local_selections().map(|s| s.selection).collect()
     }
 
-    /// Update selections from the result of `edit_text()`.
+    /// Update the LOCAL selections from the result of `edit_text()`.
     ///
-    /// Preserves existing IDs where possible (by index), assigns new IDs for extras.
+    /// Preserves existing local IDs where possible (by index among the local
+    /// entries), assigns new IDs for extras. Peers' entries are carried over
+    /// UNTOUCHED, owner and id included: rebuilding the whole list as local
+    /// used to absorb every peer into the local user after the first
+    /// keystroke.
     pub fn update_from_edit_result(&mut self, new_selections: &[Selection]) {
-        let old_ids: Vec<SelectionId> = self.selections.iter().map(|s| s.id).collect();
+        let old_ids: Vec<SelectionId> = self.local_selections().map(|s| s.id).collect();
+        let peers: Vec<IdentifiedSelection> = self
+            .selections
+            .iter()
+            .filter(|s| !s.owner.is_local())
+            .copied()
+            .collect();
         self.selections.clear();
         for (i, sel) in new_selections.iter().enumerate() {
             let id = old_ids.get(i).copied().unwrap_or_else(SelectionId::new);
@@ -472,42 +540,53 @@ impl MultiCursorState {
                 owner: SelectionOwner::LOCAL,
             });
         }
+        // Owner-sorted order: LOCAL is all-zero and sorts first, so the peers
+        // go back behind the rebuilt local set.
+        self.selections.extend(peers);
         // IDs are reassigned by index; make sure primary_id still resolves.
         self.ensure_primary_valid();
         // Don't merge here — edit_text already returns correct positions
     }
 
-    /// Set all selections to a single cursor (e.g., on plain click without Ctrl).
+    /// The id a collapsed local set keeps: the local primary's when there is
+    /// one, so a caller tracking it sees the same selection continue.
+    fn surviving_local_id(&self) -> SelectionId {
+        self.get_primary().map_or_else(SelectionId::new, |primary| primary.id)
+    }
+
+    /// Collapse the LOCAL selections to a single cursor (a plain click without
+    /// Ctrl). Peers' selections stay: a click is not a message to them.
     pub fn set_single_cursor(&mut self, cursor: TextCursor) {
-        let id = self
-            .selections
-            .last()
-            .map_or_else(SelectionId::new, |primary| primary.id);
-        self.selections.clear();
-        self.selections.push(IdentifiedSelection {
-            id,
-            selection: Selection::Cursor(cursor),
-            owner: SelectionOwner::LOCAL,
-        });
+        let id = self.surviving_local_id();
+        self.selections.retain(|s| !s.owner.is_local());
+        self.selections.insert(
+            0,
+            IdentifiedSelection {
+                id,
+                selection: Selection::Cursor(cursor),
+                owner: SelectionOwner::LOCAL,
+            },
+        );
         self.primary_id = id;
     }
 
-    /// Set all selections to a single range.
+    /// Collapse the LOCAL selections to a single range. Peers stay, as above.
     pub fn set_single_range(&mut self, range: SelectionRange) {
-        let id = self
-            .selections
-            .last()
-            .map_or_else(SelectionId::new, |primary| primary.id);
-        self.selections.clear();
-        self.selections.push(IdentifiedSelection {
-            id,
-            selection: Selection::Range(range),
-            owner: SelectionOwner::LOCAL,
-        });
+        let id = self.surviving_local_id();
+        self.selections.retain(|s| !s.owner.is_local());
+        self.selections.insert(
+            0,
+            IdentifiedSelection {
+                id,
+                selection: Selection::Range(range),
+                owner: SelectionOwner::LOCAL,
+            },
+        );
         self.primary_id = id;
     }
 
-    /// Number of active cursors/selections.
+    /// Number of selections of EVERY owner - what is painted. For how many
+    /// carets the local user types into, see [`Self::local_len`].
     #[must_use]
     pub const fn len(&self) -> usize {
         self.selections.len()
@@ -685,7 +764,9 @@ impl MultiCursorState {
         collapse_range_to_boundary: bool,
         move_fn: impl Fn(&TextCursor) -> TextCursor,
     ) {
-        for sel in &mut self.selections {
+        // LOCAL carets only (U3): an arrow key is the local user's, and moving
+        // a peer's caret with it would show the peer somewhere they are not.
+        for sel in self.selections.iter_mut().filter(|s| s.owner.is_local()) {
             match &sel.selection {
                 Selection::Cursor(c) => {
                     let new_cursor = move_fn(c);

@@ -6655,7 +6655,9 @@ pub trait PlatformWindow {
                             .text_edit_manager
                             .multi_cursor
                             .as_ref()
-                            .map(|mc| mc.len())
+                            // Carets the LOCAL user types into (U3): a peer's
+                            // caret must not receive a line of the paste.
+                            .map(|mc| mc.local_len())
                             .unwrap_or(0);
                         let lines: Vec<&str> = clipboard_text.lines().collect();
 
@@ -7524,7 +7526,9 @@ pub trait PlatformWindow {
                                 .multi_cursor
                                 .as_ref()
                                 .map(|mc| {
-                                    mc.selections.iter().any(|s| {
+                                    // The LOCAL user's range (U3): a peer's
+                                    // selection must not arm Cut for this user.
+                                    mc.local_selections().any(|s| {
                                         matches!(
                                             &s.selection,
                                             azul_core::selection::Selection::Range(_)
@@ -10001,7 +10005,7 @@ pub trait PlatformWindow {
                         .multi_cursor
                         .as_ref()
                         .map(|mc| {
-                            mc.selections.iter().any(|s| {
+                            mc.local_selections().any(|s| {
                                 matches!(&s.selection, azul_core::selection::Selection::Range(_))
                             })
                         })

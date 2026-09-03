@@ -1491,6 +1491,100 @@ mod owner_tests {
         MultiCursorState::new_with_cursor(cursor(0), node(), 0)
     }
 
+    // ------------------------------------------------------------------
+    // U3: a selection is `(owner, id)`; the engine acts on LOCAL only
+    // ------------------------------------------------------------------
+
+    fn with_peer(mut mc: MultiCursorState, peer: SelectionOwner, at: u32) -> MultiCursorState {
+        assert!(mc.set_owner_selections(peer, &[Selection::Cursor(cursor(at))]));
+        mc
+    }
+
+    #[test]
+    fn typing_never_lands_on_a_peers_caret() {
+        // THE DEFECT: `to_selections` handed every owner's caret to
+        // `edit_text`, which inserts at each one - so a local keystroke was
+        // typed at the peer's caret too. And `update_from_edit_result` then
+        // rebuilt the list as LOCAL, absorbing the peer after one keystroke.
+        let bob = SelectionOwner::new(2, 2);
+        let mut mc = with_peer(state(), bob, 7);
+        let edit_set = mc.to_selections();
+        assert_eq!(edit_set, vec![Selection::Cursor(cursor(0))], "local only");
+
+        let bob_id = mc.selections.iter().find(|s| s.owner == bob).unwrap().id;
+        let local_id = mc.primary_id;
+        // The edit moved the local caret to 1; Bob is not in the result.
+        mc.update_from_edit_result(&[Selection::Cursor(cursor(1))]);
+        assert_eq!(mc.len(), 2, "Bob is still in the session");
+        let bob_after = mc.selections.iter().find(|s| s.owner == bob).unwrap();
+        assert_eq!(bob_after.id, bob_id, "and keeps his id");
+        assert_eq!(bob_after.selection, Selection::Cursor(cursor(7)), "and his place");
+        assert_eq!(mc.get_primary().map(|p| p.id), Some(local_id));
+        assert_eq!(mc.get_primary_cursor(), Some(cursor(1)));
+    }
+
+    #[test]
+    fn a_plain_click_keeps_the_peers_in_view() {
+        let alice = SelectionOwner::new(1, 1);
+        let mut mc = with_peer(state(), alice, 3);
+        let _ = mc.add_cursor(cursor(5)); // local multi-cursor
+        assert_eq!(mc.local_len(), 2);
+
+        mc.set_single_cursor(cursor(9));
+        assert_eq!(mc.local_len(), 1, "the local set collapsed");
+        assert!(mc.owners().contains(&alice), "the click did not erase Alice");
+        assert!(mc.get_primary().unwrap().owner.is_local());
+
+        mc.set_single_range(SelectionRange {
+            start: cursor(1),
+            end: cursor(4),
+        });
+        assert_eq!(mc.local_len(), 1);
+        assert!(mc.owners().contains(&alice));
+    }
+
+    #[test]
+    fn the_primary_is_never_a_peer() {
+        // The list is owner-sorted, so a `last()` fallback WAS the peer
+        // whenever one existed: removing the local primary would have made
+        // Bob "the selection" - for the IME, the platform selection, copy.
+        let bob = SelectionOwner::new(2, 2);
+        let mut mc = with_peer(state(), bob, 7);
+        let local_id = mc.primary_id;
+        assert!(mc.remove_selection(local_id));
+        assert!(mc.get_primary().is_none(), "no local selection: no primary");
+        assert!(mc.get_primary_cursor().is_none());
+        assert_eq!(mc.local_len(), 0);
+        assert_eq!(mc.len(), 1, "Bob is still painted");
+
+        // With a second local caret, the primary falls back onto IT.
+        let mut mc = with_peer(state(), bob, 7);
+        let second = mc.add_cursor(cursor(4));
+        let first_local = mc.local_selections().map(|s| s.id).find(|id| *id != second).unwrap();
+        assert!(mc.remove_selection(second));
+        assert_eq!(mc.get_primary().map(|p| p.id), Some(first_local));
+        assert!(mc.get_primary().unwrap().owner.is_local());
+    }
+
+    #[test]
+    fn arrow_keys_move_only_the_local_carets() {
+        let alice = SelectionOwner::new(1, 1);
+        let mut mc = with_peer(state(), alice, 3);
+        mc.move_all_cursors(false, |c| cursor(c.cluster_id.start_byte_in_run + 1));
+        assert_eq!(mc.get_primary_cursor(), Some(cursor(1)));
+        let alice_sel = mc.selections.iter().find(|s| s.owner == alice).unwrap();
+        assert_eq!(alice_sel.selection, Selection::Cursor(cursor(3)), "Alice did not move");
+    }
+
+    #[test]
+    fn local_len_counts_the_carets_typed_into() {
+        let alice = SelectionOwner::new(1, 1);
+        let mut mc = with_peer(state(), alice, 3);
+        let _ = mc.add_cursor(cursor(5));
+        assert_eq!(mc.len(), 3, "painted");
+        assert_eq!(mc.local_len(), 2, "typed into");
+    }
+
     #[test]
     fn the_engines_own_selections_are_local() {
         let mc = state();
