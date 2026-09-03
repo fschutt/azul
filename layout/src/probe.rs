@@ -2674,27 +2674,43 @@ mod allocator_stats_tests {
     fn arena_and_mmap_allocations_move_the_right_counters() {
         // ARENA allocations are tracked, and that is what this feature needs:
         // the live-vs-freed-but-held split for churn. Verified, pinned.
-        // ARENA allocations move `live_bytes`. 32 MiB of 16 KiB blocks, so
-        // the delta dominates whatever other tests are doing concurrently.
-        let Some(before_small) = allocator_stats() else {
-            return;
-        };
-        let small: Vec<Vec<u8>> = (0..2048).map(|_| vec![7u8; 16 * 1024]).collect();
-        let small = core::hint::black_box(small);
-        let Some(after_small) = allocator_stats() else {
-            return;
-        };
-        let grew = after_small
-            .live_bytes
-            .saturating_sub(before_small.live_bytes);
+        //
+        // BEST OF SEVERAL. 32 MiB of 16 KiB blocks was chosen so the delta
+        // would dominate whatever else the suite is doing concurrently, and
+        // that turned out not to be enough: `mallinfo2` is PROCESS-GLOBAL, the
+        // harness runs thousands of tests on other threads, and one run saw
+        // only 4 MiB of the 32 because those threads freed ~28 MiB inside the
+        // same window. A quiet window arrives quickly; a counter that does not
+        // track arena allocations at all fails every attempt, which is the
+        // property this pins.
+        const ATTEMPTS: usize = 32;
+        let mut last = (0_u64, 0_u64);
+        let mut arena_ok = false;
+        for _ in 0..ATTEMPTS {
+            let Some(before_small) = allocator_stats() else {
+                return;
+            };
+            let small: Vec<Vec<u8>> = (0..2048).map(|_| vec![7u8; 16 * 1024]).collect();
+            let small = core::hint::black_box(small);
+            let Some(after_small) = allocator_stats() else {
+                return;
+            };
+            let grew = after_small
+                .live_bytes
+                .saturating_sub(before_small.live_bytes);
+            drop(small);
+            if grew > 16 * 1024 * 1024 {
+                arena_ok = true;
+                break;
+            }
+            last = (before_small.live_bytes, after_small.live_bytes);
+        }
         assert!(
-            grew > 16 * 1024 * 1024,
-            "32 MiB of arena allocations must raise live_bytes by well over \
-             16 MiB; saw {grew} ({} -> {})",
-            before_small.live_bytes,
-            after_small.live_bytes
+            arena_ok,
+            "in {ATTEMPTS} attempts, 32 MiB of arena allocations never raised \
+             live_bytes by well over 16 MiB (last: {} -> {})",
+            last.0, last.1
         );
-        drop(small);
 
         // A LARGE allocation goes to mmap instead, moving `mmapped_bytes`
         // while leaving the arena counters alone.

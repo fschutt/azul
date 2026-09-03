@@ -23,7 +23,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize, OptionLogicalPosition},
     gl::OptionGlContextPtr,
     hit_test::ScrollPosition,
-    icon::{IconProviderHandle, IconViewState, SharedIconProvider},
+    icon::{IconProviderHandle, SharedIconProvider},
     refany::{OptionRefAny, RefAny},
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},

@@ -48,9 +48,18 @@ mod tests {
     }
 
     /// Directory for reference PNGs (relative to the layout crate root).
+    ///
+    /// `env!`, not `std::env::var`: the manifest dir is baked in at COMPILE
+    /// time, so it is right however the binary is started. Read at RUNTIME it
+    /// is only set when cargo is the one starting the test - run the binary
+    /// directly (which is how a big test binary gets run when a `cargo test`
+    /// invocation is too slow to survive) and it fell back to `"."`, so the
+    /// baselines were looked for under the CURRENT directory, not found, and
+    /// silently BOOTSTRAPPED there. Every pixel test then passed by writing
+    /// the very image it was meant to check, and left a copy of the reference
+    /// set in whatever directory the run happened to start from.
     fn reference_dir() -> PathBuf {
-        let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(manifest)
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests")
             .join("reference_images")
     }

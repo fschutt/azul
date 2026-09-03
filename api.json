@@ -59676,7 +59676,24 @@
                         "struct_fields": [
                             {
                                 "chrome_bg": {
-                                    "type": "ColorU"
+                                    "type": "ColorU",
+                                    "doc": [
+                                        "Chrome background: the ribbon's own surfaces (root, tab bar,",
+                                        "tabs) and the control fills that match them."
+                                    ]
+                                },
+                                "content_bg": {
+                                    "type": "ColorU",
+                                    "doc": [
+                                        "The tab-content band behind the groups, separately from chrome_bg",
+                                        "so an app can paint the two differently: a window whose background",
+                                        "is a gradient wants the chrome TRANSPARENT, so the gradient runs",
+                                        "unbroken from the title bar down, and the content band as a",
+                                        "translucent overlay on it rather than an opaque slab that cuts it.",
+                                        "",
+                                        "Defaults to chrome_bg in every constructor, so a theme that says",
+                                        "nothing looks exactly as it did."
+                                    ]
                                 },
                                 "accent": {
                                     "type": "ColorU"

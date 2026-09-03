@@ -345,6 +345,51 @@ impl Palette {
     pub fn hex(c: ColorU) -> String {
         format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
     }
+
+    /// The CSS spelling of a colour WITH its alpha - `hex` drops it, which is
+    /// wrong for anything meant to let what is behind it through.
+    #[must_use]
+    pub fn rgba(c: ColorU) -> String {
+        format!(
+            "rgba({}, {}, {}, {:.3})",
+            c.r,
+            c.g,
+            c.b,
+            f32::from(c.a) / 255.0
+        )
+    }
+
+    /// Fully transparent - the value a surface takes when the WINDOW paints
+    /// what should show there instead of the widget.
+    pub const TRANSPARENT: ColorU = ColorU {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    };
+
+    /// The translucent film the ribbon's tab-content band takes over the
+    /// window gradient: a lift on a dark window, a shade on a light one, in
+    /// both cases faint enough to read as the SAME surface at a different
+    /// depth rather than as a slab laid on top.
+    #[must_use]
+    pub const fn content_film(&self) -> ColorU {
+        if self.dark {
+            ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 18,
+            }
+        } else {
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 12,
+            }
+        }
+    }
 }
 
 impl Default for Palette {
@@ -362,7 +407,7 @@ impl Default for Palette {
 /// re-asserts the brand, in ONE place, so no call site has to remember which
 /// of a dozen fields is brand and which is chrome.
 pub mod widgets {
-    use azul::css::SystemStyle;
+    use azul::css::{ColorU, SystemStyle};
     use azul::widgets::{
         BackstageStyle, BackstageTheme, RibbonStyle, RibbonTheme, StatusBarStyle, StatusBarTheme,
     };
@@ -382,7 +427,22 @@ pub mod widgets {
         // hover readable when the desktop accent is far from the brand.
         t.hover_border = pal.brand;
         t.border = pal.chrome_edge;
+        // The window paints the chrome, not the ribbon: `editor_screen` runs a
+        // gradient behind the title band AND the ribbon so the two read as one
+        // surface, which only works if the ribbon lets it through. The content
+        // band keeps a fill, but a translucent one - see `content_film`.
+        t.chrome_bg = Palette::TRANSPARENT;
+        t.content_bg = pal.content_film();
         RibbonStyle::from_theme(t)
+    }
+
+    /// The desktop's TITLE BAR fill - the colour the window gradient starts
+    /// from at the very top, and the colour the band would paint if it painted
+    /// one. Read from the same place the band reads it, so the gradient and
+    /// the band cannot disagree about where the window begins.
+    #[must_use]
+    pub fn header_bg(sys: &SystemStyle) -> ColorU {
+        azul::widgets::QuickAccessTheme::from_system(SystemStyle::clone(sys)).bg
     }
 
     /// The status strip is a BRAND-filled band, not an accent-filled one.

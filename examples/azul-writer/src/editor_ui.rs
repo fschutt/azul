@@ -13,12 +13,13 @@ use azul::str::String as AzString;
 use azul::svg::LogicalRect;
 use azul::css::SystemStyle;
 use azul::widgets::{
-    ButtonOnClick, QuickAccessAction, QuickAccessBar, QuickAccessStyle, SliderOnValueChange,
+    ButtonOnClick, QuickAccessAction, QuickAccessBar, QuickAccessStyle, QuickAccessTheme,
+    SliderOnValueChange,
     StatusBar, StatusBarSegment, StatusBarViewSwitcher, StatusBarZoom,
 };
 
 use crate::document::{self, FontCacheSnapshot};
-use crate::palette::Palette;
+use crate::palette::{self, Palette};
 use crate::AppState;
 
 /// #28 (b): sheet geometry derives from the ONE `document::A4_*` source —
@@ -67,8 +68,13 @@ pub fn title_band(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemSt
         QuickAccessBar::office_2013(AzString::from(title)).with_leading(word_logo(pal));
     // The band IS this window's titlebar, so it takes the DESKTOP's titlebar
     // colours (header fill, its own close-button hover) rather than the
-    // Office white - see `QuickAccessStyle::from_system`.
-    band.style = QuickAccessStyle::from_system(SystemStyle::clone(sys));
+    // The band draws NO fill of its own: `editor_screen` runs one gradient
+    // behind it and the ribbon, so the window reads as a single surface from
+    // the title bar down instead of two bands butted together. Everything else
+    // about the band still comes from the desktop.
+    let mut band_theme = QuickAccessTheme::from_system(SystemStyle::clone(sys));
+    band_theme.bg = Palette::TRANSPARENT;
+    band.style = QuickAccessStyle::from_theme(band_theme);
     band.actions = vec![
         QuickAccessAction::new(s("save")).with_on_click(
             data.clone(),
@@ -441,6 +447,27 @@ pub fn editor_screen(
         status_bar(state, data, page_count, pal, sys)
     };
 
+    // ONE surface from the title bar to the bottom of the ribbon.
+    //
+    // The band and the ribbon paint no fill of their own (see `title_band` and
+    // `palette::widgets::ribbon`); this gradient behind both is what they show,
+    // running from the desktop's title-bar colour into the app's chrome so the
+    // two flow into each other instead of meeting at a hard edge. On the
+    // WRAPPER rather than on the body: the stops then span exactly the chrome,
+    // where a percentage of the body would slide with the window's height.
+    let chrome = Dom::create_div()
+        .with_css(
+            format!(
+                "display: flex; flex-direction: column; flex-shrink: 0; \
+                 background: linear-gradient(to bottom, {}, {});",
+                Palette::rgba(palette::widgets::header_bg(sys)),
+                Palette::hex(pal.chrome),
+            )
+            .as_str(),
+        )
+        .with_child(title)
+        .with_child(ribbon);
+
     Dom::create_div()
         .with_css(
             format!(
@@ -451,8 +478,7 @@ pub fn editor_screen(
             )
             .as_str(),
         )
-        .with_child(title)
-        .with_child(ribbon)
+        .with_child(chrome)
         .with_child(canvas_dom)
         .with_child(status)
 }

@@ -247,8 +247,18 @@ const W13_FIELD_BORDER: ColorU = ColorU {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct RibbonTheme {
-    /// Chrome background: tab bar and ribbon content.
+    /// Chrome background: the ribbon's own surfaces (root, tab bar, tabs) and
+    /// the control fills that match them (gallery frame, combo field).
     pub chrome_bg: ColorU,
+    /// The tab-content band behind the groups, separately from
+    /// [`Self::chrome_bg`] so an app can paint the two differently: a window
+    /// whose background is a gradient wants the chrome TRANSPARENT, so the
+    /// gradient runs unbroken from the title bar down, and the content band as
+    /// a translucent overlay on it rather than an opaque slab that cuts it.
+    ///
+    /// Defaults to `chrome_bg` in every constructor, so a theme that says
+    /// nothing looks exactly as it did.
+    pub content_bg: ColorU,
     /// Accent: application button fill, active tab text.
     pub accent: ColorU,
     /// Application button hover fill.
@@ -285,6 +295,7 @@ impl RibbonTheme {
     pub const fn office_2013() -> Self {
         Self {
             chrome_bg: WHITE,
+            content_bg: WHITE,
             accent: W13_BLUE,
             accent_hover: W13_BLUE_HOVER,
             accent_text: WHITE,
@@ -322,6 +333,7 @@ impl RibbonTheme {
         let secondary_text = c.secondary_text.into_option();
         Self {
             chrome_bg: c.window_background.into_option().unwrap_or(d.chrome_bg),
+            content_bg: c.window_background.into_option().unwrap_or(d.content_bg),
             accent: accent.unwrap_or(d.accent),
             accent_hover: selection.unwrap_or(d.accent_hover),
             accent_text: c.accent_text.into_option().unwrap_or(d.accent_text),
@@ -681,6 +693,14 @@ fn theme_tab(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     v.push(Cond::on_hover(P::const_text_color(StyleTextColor {
         inner: t.accent,
     })));
+    // A tab header is ONE line. Without this "PAGE LAYOUT" wrapped, and its
+    // second line was drawn below the 26px tab strip, over the ribbon content
+    // - invisible only because the content band was opaque and painted over
+    // it. It stops being invisible the moment an app makes that band
+    // translucent, which is what `content_bg` is for.
+    v.push(Cond::simple(P::WhiteSpace(
+        azul_css::props::property::StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap),
+    )));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -703,7 +723,11 @@ fn theme_tab_active(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     // Erase the underline below the active tab: the bottom border matches
     // the chrome so the tab visually merges with the ribbon content.
     v.push(Cond::simple(P::const_border_bottom_color(
-        StyleBorderBottomColor { inner: t.chrome_bg },
+        StyleBorderBottomColor { inner: t.content_bg },
+    )));
+    // One line, like every other tab - see `theme_tab`.
+    v.push(Cond::simple(P::WhiteSpace(
+        azul_css::props::property::StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap),
     )));
     CssPropertyWithConditionsVec::from_vec(v)
 }
@@ -726,7 +750,7 @@ fn theme_content(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
             inner: FloatValue::const_new(0),
         })),
         Cond::simple(P::const_height(LayoutHeight::const_px(92))),
-        cond_bg(t.chrome_bg),
+        cond_bg(t.content_bg),
     ])
 }
 
