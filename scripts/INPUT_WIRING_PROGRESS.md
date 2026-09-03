@@ -1592,6 +1592,10 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `MarginBoxContent::Custom(Arc<dyn Fn(PageInfo) -> String + Send + Sync>)`. A boxed Rust
       closure is not expressible in C at all. This one may be correctly UNEXPOSED forever; if it
       should be reachable it needs a callback-handle design, not a type fix.
+      USER RULING 2026-09-04: "We can always transform that to a wrapped RefAny + C callback with
+      downcasting." So expose it: `MarginBoxContent::Custom` becomes the ordinary azul callback
+      shape - a C function pointer plus a `RefAny` the app downcasts - instead of a boxed Rust
+      closure. Implement.
 
 
 ### Follow-ups opened by 9e
@@ -2119,6 +2123,12 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [ ] 9b-ii-a-i-d Per-seat FOCUS. X11 MPX gives every master keyboard its own focus; azul has one
       focused node, so today every seat types into the same field. A per-seat focus is a product
       question (two people editing two fields of one window), not a wiring gap; logged, not guessed.
+      USER RULING 2026-09-04: NOT a product question - "that should be possible, maybe with a UUID
+      owner". Per-seat focus is wanted: two people editing two fields of one window. Design
+      direction: focus keyed by seat (the primary = seat 0) the way selections are keyed by
+      `SelectionOwner`; a seat's keys target that seat's focused node; click-to-focus and Tab per
+      seat; the text-edit session per seat follows. An arc; the engine-side keyboard seats
+      (9b-ii-a-i) are its input.
 - [x] 9b-ii-a-ii DONE. "Whatever the compositor shows for an unset cursor" is NOTHING: a
       Wayland pointer has no cursor over a surface until the client answers its `enter` with
       `set_cursor`, so a second seat was an invisible cursor. `set_cursor` is now a wrapper over
@@ -2224,6 +2234,12 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       configured direction and `record_scroll_input` applies the engine's natural-scroll sign
       centrally, so this is either redundant or a double inversion waiting to happen; needs a
       device check on a v9 compositor before it is wired to anything.
+      USER RULING 2026-09-04: "we'll check later, let's just wire it in + a field on the appconfig
+      (can be enabled at startup / loaded from system config, like on macos). Default: disabled,
+      app has to enable / load from system manually." So: an `AppConfig` natural-scrolling
+      field, default OFF; the engine's natural-scroll sign follows it; a way to load the system's
+      setting on demand (macOS reads its preference; Wayland's per-seat
+      `axis_relative_direction` is the system's answer there; Windows / X11 have theirs). Implement.
 - [x] 9b-ii-b-i-b DONE. `seat_pens: BTreeMap<u64, SeatPen>` holds the non-primary seats' pens
       (state, previous, pending flag, own report-rate estimate); the primary keeps its three
       fields. `update_pen_state_full_for` / `clear_pen_state_for` / `set_pen_hover_distance_for`
