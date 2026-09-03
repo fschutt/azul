@@ -34,6 +34,7 @@
 use azul_core::hid::{HidDevice, HidReport};
 
 /// `_IOC` direction bits (asm-generic; every architecture azul targets).
+const IOC_WRITE: u32 = 1;
 const IOC_READ: u32 = 2;
 const IOC_NRBITS: u32 = 8;
 const IOC_TYPEBITS: u32 = 8;
@@ -160,6 +161,38 @@ impl Drop for OpenDevice {
 /// falls back from.
 const fn hidiocgrawuniq(len: u32) -> u32 {
     ioc(IOC_READ, HID_TYPE, 0x08, len)
+}
+
+/// `HIDIOCGFEATURE(len)`: read a feature report, `buf[0]` = the report id.
+const fn hidiocgfeature(len: u32) -> u32 {
+    ioc(IOC_WRITE | IOC_READ, HID_TYPE, 0x07, len)
+}
+
+/// A feature report of the open device with identity `instance`
+/// (8f-i-a-i-b-i). hidraw does not need the fd writable for a GET.
+#[must_use]
+pub fn feature_report(instance: u64, report_id: u8, len: usize) -> Option<Vec<u8>> {
+    if len == 0 || len > 0x3fff {
+        return None;
+    }
+    OPEN.with(|slot| {
+        let devices = slot.borrow();
+        let dev = devices.iter().find(|d| d.info.instance == instance)?;
+        let mut buf = vec![0u8; len];
+        buf[0] = report_id;
+        let n = unsafe {
+            libc::ioctl(
+                dev.fd,
+                hidiocgfeature(len as u32) as libc::c_ulong,
+                buf.as_mut_ptr(),
+            )
+        };
+        if n < 0 {
+            return None;
+        }
+        buf.truncate((n as usize).min(len));
+        Some(buf)
+    })
 }
 
 fn open_device(path: &std::path::Path) -> Option<OpenDevice> {

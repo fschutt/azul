@@ -54,6 +54,45 @@ static LAST_PS_SAMPLES: std::sync::Mutex<
 /// in [`overlay_hid_motion`] instead, at the next poll.
 ///
 /// Returns whether a pad state advanced.
+/// Each pad's calibration (8f-i-a-i-b-i), read ONCE per pad instance from its
+/// calibration feature report the first time a report of it arrives: `Some`
+/// = applied to every sample since, `None` = the pad did not answer (or the
+/// platform cannot ask) and the nominal resolutions stay, which is what every
+/// user-space reader without the report uses. A pad that vanishes is
+/// forgotten so a re-plugged one is asked again.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+static PS_CALIBRATIONS: std::sync::Mutex<
+    std::collections::BTreeMap<u64, Option<playstation::PadCalibration>>,
+> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// The calibration of `device`, reading it on first sight. The DualShock 4
+/// over Bluetooth is known to answer garbage or zeros to the first request,
+/// so a rejected report is asked for once more before settling on nominal.
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn calibration_of(
+    cache: &mut std::collections::BTreeMap<u64, Option<playstation::PadCalibration>>,
+    device: &azul_core::hid::HidDevice,
+    pad: playstation::PlayStationPad,
+    transport: playstation::Transport,
+) -> Option<playstation::PadCalibration> {
+    if let Some(known) = cache.get(&device.instance) {
+        return *known;
+    }
+    let (id, len) = playstation::calibration_report(pad, transport);
+    let mut found = None;
+    for _attempt in 0..2 {
+        let Some(bytes) = crate::desktop::extra::hid::feature_report(device, id, len) else {
+            break;
+        };
+        if let Some(cal) = playstation::parse_calibration(pad, transport, &bytes) {
+            found = Some(cal);
+            break;
+        }
+    }
+    cache.insert(device.instance, found);
+    found
+}
+
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 pub fn ingest_hid_reports(lw: &mut azul_layout::window::LayoutWindow) -> bool {
     use azul_core::gamepad::{GamepadId, GamepadState};
@@ -62,11 +101,22 @@ pub fn ingest_hid_reports(lw: &mut azul_layout::window::LayoutWindow) -> bool {
     let mut last = LAST_PS_SAMPLES
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut calibrations = PS_CALIBRATIONS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Forget pads that are gone, so a re-plugged one is asked again.
+    {
+        let present = lw.hid_manager.devices();
+        calibrations.retain(|instance, _| present.iter().any(|d| d.instance == *instance));
+    }
     for report in lw.hid_manager.reports() {
         let Some(pad) = PlayStationPad::of(&report.device) else {
             continue;
         };
-        if let Some(sample) = playstation::parse(pad, report.bytes.as_ref()) {
+        let bytes = report.bytes.as_ref();
+        let calibration = playstation::transport_of(pad, bytes)
+            .and_then(|t| calibration_of(&mut calibrations, &report.device, pad, t));
+        if let Some(sample) = playstation::parse_with(pad, bytes, calibration.as_ref()) {
             last.insert(report.device.instance, (report.device.clone(), sample));
         }
     }

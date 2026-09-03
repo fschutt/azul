@@ -463,3 +463,46 @@ pub fn enumerate() {
 /// The Linux backend sweeps its file descriptors here because hidraw has no
 /// callback; IOKit does, so a sweep would have nothing to read.
 pub fn poll() {}
+
+/// `kIOHIDReportTypeFeature`
+const IOHID_REPORT_TYPE_FEATURE: u32 = 2;
+
+/// A feature report of the device with identity `instance` (8f-i-a-i-b-i):
+/// `IOHIDDeviceGetReport(device, kIOHIDReportTypeFeature, id, buf, &len)` on
+/// the `IOHIDDeviceRef` the manager matched.
+#[must_use]
+pub fn feature_report(instance: u64, report_id: u8, len: usize) -> Option<Vec<u8>> {
+    if len == 0 {
+        return None;
+    }
+    let k = iokit()?;
+    let device = {
+        let map = DEVICE_BY_REF
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        map.iter().find(|(_, d)| d.instance == instance).map(|(r, _)| *r)?
+    };
+    unsafe {
+        let get_report = k
+            .lib
+            .get::<unsafe extern "C" fn(CFTypeRef, u32, isize, *mut u8, *mut isize) -> IOReturn>(
+                b"IOHIDDeviceGetReport\0",
+            )
+            .ok()?;
+        let mut buf = vec![0u8; len];
+        buf[0] = report_id;
+        let mut n: isize = len as isize;
+        let rc = get_report(
+            device as CFTypeRef,
+            IOHID_REPORT_TYPE_FEATURE,
+            isize::from(report_id),
+            buf.as_mut_ptr(),
+            &mut n,
+        );
+        if rc != KERN_SUCCESS || n <= 0 {
+            return None;
+        }
+        buf.truncate((n as usize).min(len));
+        Some(buf)
+    }
+}

@@ -46,3 +46,32 @@ pub fn poll() {
     // Windows delivers through `WM_INPUT`, like macOS delivers through the
     // run loop. Only Linux sweeps, because hidraw has no callback.
 }
+
+/// A FEATURE report of `device` (8f-i-a-i-b-i): `report_id` goes in as
+/// `buf[0]`, `len` bytes come back (fewer where the platform reports the
+/// actual length). `None` when the device is not open here, the platform
+/// cannot, or the call fails. Linux `HIDIOCGFEATURE`, macOS
+/// `IOHIDDeviceGetReport(kIOHIDReportTypeFeature)`, Windows `HidD_GetFeature`
+/// on a handle opened for the call.
+#[must_use]
+#[allow(unused_variables)]
+pub fn feature_report(
+    device: &azul_core::hid::HidDevice,
+    report_id: u8,
+    len: usize,
+) -> Option<Vec<u8>> {
+    #[cfg(target_os = "linux")]
+    {
+        return linux::feature_report(device.instance, report_id, len);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return macos::feature_report(device.instance, report_id, len);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return windows::feature_report(device.name.as_str(), report_id, len);
+    }
+    #[allow(unreachable_code)]
+    None
+}

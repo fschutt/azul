@@ -2902,13 +2902,26 @@ session needs. Recorded verbatim so the framing is not lost.
       8/8. One compile error, in 8f-i-a-i-c: the gilrs fork keeps `devpath()` private - see that
       entry.
       its end pass.
-- [ ] 8f-i-a-i-b-i Per-pad CALIBRATION: the kernel reads bias and per-axis sensitivity from
-      feature report 0x05 and applies them; this decoder uses the nominal resolutions, which is
-      what every user-space reader without that report does. Needs a feature-report read on each
-      platform (hidraw `HIDIOCGFEATURE`, IOKit `IOHIDDeviceGetReport`, hid.dll `HidD_GetFeature`)
-      - the raw HID layer is read-only today.
-      USER RULING 2026-09-04 (the hardware / platform group): "just implement blindly and we cross-compile
-      at the end. Real verification will come with time."
+- [x] 8f-i-a-i-b-i DONE, BLIND per the ruling. The raw HID layer can now ASK: `extra/hid::
+      feature_report(device, id, len)` - Linux `HIDIOCGFEATURE` on the open hidraw fd (a GET
+      needs no write mode), macOS `IOHIDDeviceGetReport(kIOHIDReportTypeFeature)` on the matched
+      `IOHIDDeviceRef`, Windows `HidD_GetFeature` on a handle opened for the call (8f-i-a-i-a's
+      hid.dll). The decoder gained `Transport` (off the input report id; the DS4 dongle is USB),
+      `calibration_report(pad, transport)` (DualSense 0x05/41; DS4 0x02/37 USB, 0x05/41 BT),
+      `parse_calibration` in the kernel's `ps_calibration_data` layout (bias at 1/3/5; the six
+      gyro plus/minus - `+ - + - + -` on the DualSense and DS4-USB but `+ + + - - -` on DS4-BT;
+      speed at 19/21; accel plus/minus at 23..33; BT reports CRC-tailed with the FEATURE seed
+      0xA3), and `parse_with(pad, bytes, calibration)` applying `(raw - bias) * numer / denom` in
+      raw units before the nominal 1024 / 8192 conversion; `parse` stays nominal. `gamepad/mod.rs`
+      reads each pad's report ONCE per instance on first sight (`PS_CALIBRATIONS`, one retry for
+      the DS4-BT first-answer-garbage habit, a zero-range answer rejected rather than applied),
+      forgets a pad that vanishes. Tests: scale + bias applied and nominal untouched, the BT CRC
+      gate, the zero-range rejection, the DS4-BT interleave. NOT RUN on a pad - the layouts are
+      from the kernel source (hid-playstation.c), the user's ruling; a real pad settles them
+      (8f-i-a-i-b-i-a). ⏳ EIGHTH BATCH: uncompiled until its end pass.
+- [ ] 8f-i-a-i-b-i-a Device check: a DualSense over USB and BT, a DualShock 4 over USB, BT and
+      the dongle - the calibration report answers, the CRC seed, the DS4-BT interleave, and that
+      a calibrated 1 g at rest reads within a percent.
 - [x] 8f-i-a-i-c DONE, without the fork change the previous note asked for: `Gamepad::devpath()`
       is a method of the `LinuxGamepadExt` EXTENSION TRAIT, which gilrs-azul re-exports at its
       root - the batch-pass error ("no method named devpath") was the trait not being in scope,

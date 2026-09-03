@@ -18,7 +18,11 @@
 //! Pure functions over bytes, so every branch is unit-tested with synthetic
 //! reports; the platform-independent publish step lives in `mod.rs`.
 //!
-//! What is NOT applied: the per-pad calibration the kernel reads from
+//! The per-pad calibration IS applied when the caller has read it
+//! (`parse_with`, 8f-i-a-i-b-i - `gamepad/mod.rs` reads the feature report
+//! once per pad through `extra/hid::feature_report`); `parse` alone stays
+//! nominal. The original note, kept for the history:
+//! What WAS NOT applied: the per-pad calibration the kernel reads from
 //! feature report `0x05` (bias and per-axis sensitivity). The nominal
 //! resolutions are what every user-space reader without that report uses;
 //! logged as 8f-i-a-i-b-i.
@@ -48,6 +52,17 @@ const DS_TOUCHPAD_HEIGHT: f32 = 1080.0;
 const DS4_TOUCHPAD_WIDTH: f32 = 1920.0;
 const DS4_TOUCHPAD_HEIGHT: f32 = 942.0;
 const INPUT_CRC32_SEED: u8 = 0xa1;
+/// The CRC seed of FEATURE reports (the calibration report over Bluetooth).
+const FEATURE_CRC32_SEED: u8 = 0xa3;
+/// DualSense calibration: feature report 0x05, 41 bytes on both transports.
+const DS_FEATURE_REPORT_CALIBRATION: u8 = 0x05;
+const DS_FEATURE_REPORT_CALIBRATION_SIZE: usize = 41;
+/// DualShock 4 calibration: 0x02 / 37 bytes over USB (and the dongle),
+/// 0x05 / 41 bytes (CRC-tailed) over Bluetooth.
+const DS4_FEATURE_REPORT_CALIBRATION_USB: u8 = 0x02;
+const DS4_FEATURE_REPORT_CALIBRATION_USB_SIZE: usize = 37;
+const DS4_FEATURE_REPORT_CALIBRATION_BT: u8 = 0x05;
+const DS4_FEATURE_REPORT_CALIBRATION_BT_SIZE: usize = 41;
 const G_TO_MS2: f32 = 9.80665;
 
 /// Which PlayStation pad a HID device is, if any.
@@ -87,32 +102,196 @@ pub struct PadSample {
     pub touch: Option<(f32, f32)>,
 }
 
+/// How the pad is attached, read off the input report id: the calibration
+/// report's id, size and (for the DualShock 4) layout depend on it. The DS4
+/// USB dongle speaks the USB layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transport {
+    Usb,
+    Bluetooth,
+}
+
+/// The transport an input report came over, or `None` for a report this
+/// decoder does not know.
+#[must_use]
+pub fn transport_of(pad: PlayStationPad, bytes: &[u8]) -> Option<Transport> {
+    let id = *bytes.first()?;
+    match (pad, id) {
+        (PlayStationPad::DualSense, DS_INPUT_REPORT_USB)
+        | (PlayStationPad::DualShock4, DS4_INPUT_REPORT_USB) => Some(Transport::Usb),
+        (PlayStationPad::DualSense, DS_INPUT_REPORT_BT)
+        | (PlayStationPad::DualShock4, DS4_INPUT_REPORT_BT) => Some(Transport::Bluetooth),
+        _ => None,
+    }
+}
+
+/// One axis of the pad's factory calibration (8f-i-a-i-b-i): the kernel's
+/// `ps_calibration_data` - `calibrated = (raw - bias) * numer / denom`, in
+/// the pad's own raw units, BEFORE the nominal 1024 / 8192 conversion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AxisCalibration {
+    pub bias: i32,
+    pub sens_numer: i32,
+    pub sens_denom: i32,
+}
+
+impl AxisCalibration {
+    /// Nominal: the raw value as is.
+    pub const IDENTITY: Self = Self {
+        bias: 0,
+        sens_numer: 1,
+        sens_denom: 1,
+    };
+
+    fn apply(self, raw: i16) -> f32 {
+        if self.sens_denom == 0 {
+            return f32::from(raw);
+        }
+        (i32::from(raw) - self.bias) as f32 * self.sens_numer as f32 / self.sens_denom as f32
+    }
+}
+
+/// The per-pad calibration the pad reports in its calibration feature
+/// report (8f-i-a-i-b-i): gyro pitch / yaw / roll and accel x / y / z.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PadCalibration {
+    pub gyro: [AxisCalibration; 3],
+    pub accel: [AxisCalibration; 3],
+}
+
+/// The calibration feature report to ask the pad for: `(report id, size)`.
+#[must_use]
+pub const fn calibration_report(pad: PlayStationPad, transport: Transport) -> (u8, usize) {
+    match (pad, transport) {
+        (PlayStationPad::DualSense, _) => {
+            (DS_FEATURE_REPORT_CALIBRATION, DS_FEATURE_REPORT_CALIBRATION_SIZE)
+        }
+        (PlayStationPad::DualShock4, Transport::Usb) => (
+            DS4_FEATURE_REPORT_CALIBRATION_USB,
+            DS4_FEATURE_REPORT_CALIBRATION_USB_SIZE,
+        ),
+        (PlayStationPad::DualShock4, Transport::Bluetooth) => (
+            DS4_FEATURE_REPORT_CALIBRATION_BT,
+            DS4_FEATURE_REPORT_CALIBRATION_BT_SIZE,
+        ),
+    }
+}
+
+/// Decode a calibration feature report (8f-i-a-i-b-i), the layout the kernel's
+/// `dualsense_get_calibration_data` / `dualshock4_get_calibration_data` read.
+/// BLIND per the user's ruling - written from that source, not from a pad.
+///
+/// Offsets (after the id at 0): gyro pitch / yaw / roll BIAS at 1 / 3 / 5;
+/// then the six gyro plus / minus values - `pitch+ pitch- yaw+ yaw- roll+
+/// roll-` on the DualSense and the DS4 over USB, but `pitch+ yaw+ roll+
+/// pitch- yaw- roll-` on the DS4 over Bluetooth; gyro speed plus / minus at
+/// 19 / 21; accel x / y / z plus / minus at 23 .. 33. Over Bluetooth the
+/// last four bytes are the feature CRC (seed 0xA3). A report whose ranges
+/// are zero (a pad answering before it is ready, the DS4 over Bluetooth is
+/// known to) is rejected so the caller can retry or stay nominal.
+#[must_use]
+pub fn parse_calibration(
+    pad: PlayStationPad,
+    transport: Transport,
+    bytes: &[u8],
+) -> Option<PadCalibration> {
+    let (id, size) = calibration_report(pad, transport);
+    if bytes.len() != size || bytes[0] != id {
+        return None;
+    }
+    if transport == Transport::Bluetooth && !feature_crc_ok(bytes) {
+        return None;
+    }
+    let gyro_bias = [i16_at(bytes, 1), i16_at(bytes, 3), i16_at(bytes, 5)];
+    let bt_ds4 = matches!(
+        (pad, transport),
+        (PlayStationPad::DualShock4, Transport::Bluetooth)
+    );
+    let (gyro_plus, gyro_minus) = if bt_ds4 {
+        (
+            [i16_at(bytes, 7), i16_at(bytes, 9), i16_at(bytes, 11)],
+            [i16_at(bytes, 13), i16_at(bytes, 15), i16_at(bytes, 17)],
+        )
+    } else {
+        (
+            [i16_at(bytes, 7), i16_at(bytes, 11), i16_at(bytes, 15)],
+            [i16_at(bytes, 9), i16_at(bytes, 13), i16_at(bytes, 17)],
+        )
+    };
+    let speed_2x = i32::from(i16_at(bytes, 19)) + i32::from(i16_at(bytes, 21));
+    let acc_plus = [i16_at(bytes, 23), i16_at(bytes, 27), i16_at(bytes, 31)];
+    let acc_minus = [i16_at(bytes, 25), i16_at(bytes, 29), i16_at(bytes, 33)];
+    if speed_2x <= 0 {
+        return None;
+    }
+    let mut gyro = [AxisCalibration::IDENTITY; 3];
+    for i in 0..3 {
+        let denom = (i32::from(gyro_plus[i]) - i32::from(gyro_minus[i])).abs();
+        if denom == 0 {
+            return None;
+        }
+        gyro[i] = AxisCalibration {
+            bias: i32::from(gyro_bias[i]),
+            sens_numer: speed_2x * GYRO_RES_PER_DEG_S as i32,
+            sens_denom: denom,
+        };
+    }
+    let mut accel = [AxisCalibration::IDENTITY; 3];
+    for i in 0..3 {
+        let range_2g = i32::from(acc_plus[i]) - i32::from(acc_minus[i]);
+        if range_2g == 0 {
+            return None;
+        }
+        accel[i] = AxisCalibration {
+            bias: i32::from(acc_plus[i]) - range_2g / 2,
+            sens_numer: 2 * ACC_RES_PER_G as i32,
+            sens_denom: range_2g,
+        };
+    }
+    Some(PadCalibration { gyro, accel })
+}
+
+/// Decode an input report with the pad's nominal sensor resolutions.
+#[must_use]
+pub fn parse(pad: PlayStationPad, bytes: &[u8]) -> Option<PadSample> {
+    parse_with(pad, bytes, None)
+}
+
 /// Decode one raw input report from a PlayStation pad. `bytes` is the report
 /// exactly as the platform handed it, report id in `bytes[0]` (hidraw,
 /// IOKit and raw input all include it for a device that uses ids). `None`
 /// for a report that is not an input report, is the wrong size, or fails
-/// its Bluetooth CRC.
+/// its Bluetooth CRC. The pad's calibration is applied to gyro and accel
+/// when the caller has read it (8f-i-a-i-b-i); nominal otherwise.
 #[must_use]
-pub fn parse(pad: PlayStationPad, bytes: &[u8]) -> Option<PadSample> {
+pub fn parse_with(
+    pad: PlayStationPad,
+    bytes: &[u8],
+    calibration: Option<&PadCalibration>,
+) -> Option<PadSample> {
     let id = *bytes.first()?;
     match pad {
         PlayStationPad::DualSense => match (id, bytes.len()) {
-            (DS_INPUT_REPORT_USB, DS_INPUT_REPORT_USB_SIZE) => parse_dualsense(&bytes[1..]),
+            (DS_INPUT_REPORT_USB, DS_INPUT_REPORT_USB_SIZE) => {
+                parse_dualsense(&bytes[1..], calibration)
+            }
             (DS_INPUT_REPORT_BT, DS_INPUT_REPORT_BT_SIZE) => {
                 if !crc_ok(bytes) {
                     return None;
                 }
-                parse_dualsense(&bytes[2..])
+                parse_dualsense(&bytes[2..], calibration)
             }
             _ => None,
         },
         PlayStationPad::DualShock4 => match (id, bytes.len()) {
-            (DS4_INPUT_REPORT_USB, DS4_INPUT_REPORT_USB_SIZE) => parse_dualshock4(&bytes[1..]),
+            (DS4_INPUT_REPORT_USB, DS4_INPUT_REPORT_USB_SIZE) => {
+                parse_dualshock4(&bytes[1..], calibration)
+            }
             (DS4_INPUT_REPORT_BT, DS4_INPUT_REPORT_BT_SIZE) => {
                 if !crc_ok(bytes) {
                     return None;
                 }
-                parse_dualshock4(&bytes[3..])
+                parse_dualshock4(&bytes[3..], calibration)
             }
             _ => None,
         },
@@ -120,15 +299,15 @@ pub fn parse(pad: PlayStationPad, bytes: &[u8]) -> Option<PadSample> {
 }
 
 /// `struct dualsense_input_report`, starting at `p[0]` (= `x`).
-fn parse_dualsense(p: &[u8]) -> Option<PadSample> {
+fn parse_dualsense(p: &[u8], calibration: Option<&PadCalibration>) -> Option<PadSample> {
     if p.len() < 40 {
         return None;
     }
     // x y rx ry z rz seq buttons[4] reserved[4] gyro[3] accel[3] ts[4]
     // reserved2 points[2]
     let buttons = ps_buttons(p[7], p[8], p[9], true);
-    let gyro = [i16_at(p, 15), i16_at(p, 17), i16_at(p, 19)];
-    let accel = [i16_at(p, 21), i16_at(p, 23), i16_at(p, 25)];
+    let gyro = calibrated([i16_at(p, 15), i16_at(p, 17), i16_at(p, 19)], calibration.map(|c| c.gyro));
+    let accel = calibrated([i16_at(p, 21), i16_at(p, 23), i16_at(p, 25)], calibration.map(|c| c.accel));
     let touch = touch_point(&p[32..36], DS_TOUCHPAD_WIDTH, DS_TOUCHPAD_HEIGHT);
     Some(PadSample {
         buttons,
@@ -144,15 +323,15 @@ fn parse_dualsense(p: &[u8]) -> Option<PadSample> {
 
 /// `struct dualshock4_input_report_common` (32 bytes) starting at `p[0]`,
 /// followed by `num_touch_reports` and the touch reports.
-fn parse_dualshock4(p: &[u8]) -> Option<PadSample> {
+fn parse_dualshock4(p: &[u8], calibration: Option<&PadCalibration>) -> Option<PadSample> {
     if p.len() < 42 {
         return None;
     }
     // x y rx ry buttons[3] z rz ts[2] temp gyro[3] accel[3] reserved2[5]
     // status[2] reserved3 | num_touch_reports | { timestamp, points[2] } ...
     let buttons = ps_buttons(p[4], p[5], p[6], false);
-    let gyro = [i16_at(p, 12), i16_at(p, 14), i16_at(p, 16)];
-    let accel = [i16_at(p, 18), i16_at(p, 20), i16_at(p, 22)];
+    let gyro = calibrated([i16_at(p, 12), i16_at(p, 14), i16_at(p, 16)], calibration.map(|c| c.gyro));
+    let accel = calibrated([i16_at(p, 18), i16_at(p, 20), i16_at(p, 22)], calibration.map(|c| c.accel));
     let num_touch_reports = p[32];
     let touch = if num_touch_reports > 0 {
         touch_point(&p[34..38], DS4_TOUCHPAD_WIDTH, DS4_TOUCHPAD_HEIGHT)
@@ -223,12 +402,21 @@ fn trigger(v: u8) -> f32 {
     f32::from(v) / 255.0
 }
 
-fn gyro_rad_s(raw: [i16; 3]) -> [f32; 3] {
-    raw.map(|v| f32::from(v) / GYRO_RES_PER_DEG_S * core::f32::consts::PI / 180.0)
+/// Raw sensor words into the pad's raw units, calibrated when the pad's
+/// calibration is known (8f-i-a-i-b-i), as they are otherwise.
+fn calibrated(raw: [i16; 3], axes: Option<[AxisCalibration; 3]>) -> [f32; 3] {
+    match axes {
+        Some(a) => [a[0].apply(raw[0]), a[1].apply(raw[1]), a[2].apply(raw[2])],
+        None => raw.map(f32::from),
+    }
 }
 
-fn accel_ms2(raw: [i16; 3]) -> [f32; 3] {
-    raw.map(|v| f32::from(v) / ACC_RES_PER_G * G_TO_MS2)
+fn gyro_rad_s(raw: [f32; 3]) -> [f32; 3] {
+    raw.map(|v| v / GYRO_RES_PER_DEG_S * core::f32::consts::PI / 180.0)
+}
+
+fn accel_ms2(raw: [f32; 3]) -> [f32; 3] {
+    raw.map(|v| v / ACC_RES_PER_G * G_TO_MS2)
 }
 
 /// `struct dualsense_touch_point` / `dualshock4_touch_point`: `contact`
@@ -251,6 +439,15 @@ fn touch_point(q: &[u8], width: f32, height: f32) -> Option<(f32, f32)> {
 /// before it, seeded with the input seed byte), as `ps_check_crc32` checks
 /// it in the kernel.
 fn crc_ok(report: &[u8]) -> bool {
+    crc_ok_with(report, input_crc32)
+}
+
+/// A feature report's trailing CRC (seed 0xA3) checks out.
+fn feature_crc_ok(report: &[u8]) -> bool {
+    crc_ok_with(report, feature_crc32)
+}
+
+fn crc_ok_with(report: &[u8], crc: fn(&[u8]) -> u32) -> bool {
     let Some(split) = report.len().checked_sub(4) else {
         return false;
     };
@@ -260,14 +457,24 @@ fn crc_ok(report: &[u8]) -> bool {
         report[split + 2],
         report[split + 3],
     ]);
-    input_crc32(&report[..split]) == expected
+    crc(&report[..split]) == expected
 }
 
 /// CRC-32 (IEEE, reflected) of the seed byte followed by `data`.
 #[must_use]
 pub fn input_crc32(data: &[u8]) -> u32 {
+    crc32_seeded(INPUT_CRC32_SEED, data)
+}
+
+/// CRC-32 of a FEATURE report: the seed byte 0xA3 followed by `data`.
+#[must_use]
+pub fn feature_crc32(data: &[u8]) -> u32 {
+    crc32_seeded(FEATURE_CRC32_SEED, data)
+}
+
+fn crc32_seeded(seed: u8, data: &[u8]) -> u32 {
     let mut crc: u32 = 0xffff_ffff;
-    for &b in core::iter::once(&INPUT_CRC32_SEED).chain(data) {
+    for &b in core::iter::once(&seed).chain(data) {
         crc ^= u32::from(b);
         for _ in 0..8 {
             let mask = (crc & 1).wrapping_neg();
@@ -309,6 +516,110 @@ mod tests {
             None => p[32] = 0x80,
         }
         r
+    }
+
+    /// A DualSense calibration report whose gyro sensitivity is exactly 2x
+    /// nominal (speed_2x = 2 * range) with a pitch bias, and whose accel x
+    /// range is 1.25x nominal: `parse_with` applies both, `parse` neither.
+    fn ds_calibration(bt: bool) -> Vec<u8> {
+        let mut b = vec![0u8; DS_FEATURE_REPORT_CALIBRATION_SIZE];
+        b[0] = DS_FEATURE_REPORT_CALIBRATION;
+        let put = |b: &mut Vec<u8>, at: usize, v: i16| b[at..at + 2].copy_from_slice(&v.to_le_bytes());
+        put(&mut b, 1, 24); // pitch bias
+        // gyro plus / minus: range 1000 per axis
+        for at in [7usize, 11, 15] {
+            put(&mut b, at, 500);
+            put(&mut b, at + 2, -500);
+        }
+        // speed plus + minus = 2000 = 2 * range -> 2048 raw units per unit
+        put(&mut b, 19, 1000);
+        put(&mut b, 21, 1000);
+        // accel: x range 2g = 10240 (1.25 * 8192), y / z nominal, centred
+        put(&mut b, 23, 5120);
+        put(&mut b, 25, -5120);
+        put(&mut b, 27, 4096);
+        put(&mut b, 29, -4096);
+        put(&mut b, 31, 4096);
+        put(&mut b, 33, -4096);
+        if bt {
+            let crc = feature_crc32(&b[..37]);
+            b[37..41].copy_from_slice(&crc.to_le_bytes());
+        }
+        b
+    }
+
+    #[test]
+    fn calibration_scales_and_biases_the_sensors_and_nominal_is_untouched() {
+        let cal = parse_calibration(PlayStationPad::DualSense, Transport::Usb, &ds_calibration(false))
+            .expect("a well-formed USB calibration report");
+        assert_eq!(cal.gyro[0].bias, 24);
+        assert_eq!(cal.gyro[0].sens_numer, 2000 * 1024);
+        assert_eq!(cal.gyro[0].sens_denom, 1000);
+        assert_eq!(cal.accel[0].bias, 0);
+        assert_eq!(cal.accel[0].sens_numer, 16384);
+        assert_eq!(cal.accel[0].sens_denom, 10240);
+
+        let report = dualsense_usb([1024 + 24, 0, 0], [8192, 0, 0], None);
+        let nominal = parse(PlayStationPad::DualSense, &report).unwrap();
+        let calibrated = parse_with(PlayStationPad::DualSense, &report, Some(&cal)).unwrap();
+        let deg = |rad: f32| rad * 180.0 / core::f32::consts::PI;
+        // nominal: 1048 raw = 1048/1024 deg/s; calibrated: (1048-24) * 2048 / 1024 = 2048 deg/s
+        assert!((deg(nominal.gyro[0]) - 1048.0 / 1024.0).abs() < 1e-4);
+        assert!((deg(calibrated.gyro[0]) - 2048.0).abs() < 1e-2, "{}", deg(calibrated.gyro[0]));
+        // accel x: nominal 1 g; calibrated 8192 * 16384 / 10240 / 8192 = 1.6 g
+        assert!((nominal.accel[0] / G_TO_MS2 - 1.0).abs() < 1e-5);
+        assert!((calibrated.accel[0] / G_TO_MS2 - 1.6).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_bluetooth_calibration_report_needs_its_feature_crc() {
+        let good = ds_calibration(true);
+        assert!(parse_calibration(PlayStationPad::DualSense, Transport::Bluetooth, &good).is_some());
+        let mut bad = good.clone();
+        bad[38] ^= 0x01;
+        assert!(parse_calibration(PlayStationPad::DualSense, Transport::Bluetooth, &bad).is_none());
+        // The USB reading of the same bytes ignores the tail.
+        assert!(parse_calibration(PlayStationPad::DualSense, Transport::Usb, &bad).is_some());
+    }
+
+    #[test]
+    fn a_zero_range_report_is_rejected_not_applied() {
+        // A pad answering before it is ready reports zeros; applying that
+        // would divide by zero or flatten every sample.
+        let mut b = vec![0u8; DS_FEATURE_REPORT_CALIBRATION_SIZE];
+        b[0] = DS_FEATURE_REPORT_CALIBRATION;
+        assert!(parse_calibration(PlayStationPad::DualSense, Transport::Usb, &b).is_none());
+        assert_eq!(calibration_report(PlayStationPad::DualShock4, Transport::Usb), (0x02, 37));
+        assert_eq!(calibration_report(PlayStationPad::DualShock4, Transport::Bluetooth), (0x05, 41));
+    }
+
+    #[test]
+    fn ds4_over_bluetooth_interleaves_plus_then_minus() {
+        let mut b = vec![0u8; DS4_FEATURE_REPORT_CALIBRATION_BT_SIZE];
+        b[0] = DS4_FEATURE_REPORT_CALIBRATION_BT;
+        let put = |b: &mut Vec<u8>, at: usize, v: i16| b[at..at + 2].copy_from_slice(&v.to_le_bytes());
+        put(&mut b, 7, 500);
+        put(&mut b, 9, 600);
+        put(&mut b, 11, 700);
+        put(&mut b, 13, -500);
+        put(&mut b, 15, -600);
+        put(&mut b, 17, -700);
+        put(&mut b, 19, 1000);
+        put(&mut b, 21, 1000);
+        for at in [23usize, 27, 31] {
+            put(&mut b, at, 4096);
+            put(&mut b, at + 2, -4096);
+        }
+        let crc = feature_crc32(&b[..37]);
+        b[37..41].copy_from_slice(&crc.to_le_bytes());
+        let cal = parse_calibration(PlayStationPad::DualShock4, Transport::Bluetooth, &b).unwrap();
+        assert_eq!(
+            [cal.gyro[0].sens_denom, cal.gyro[1].sens_denom, cal.gyro[2].sens_denom],
+            [1000, 1200, 1400]
+        );
+        assert_eq!(transport_of(PlayStationPad::DualShock4, &[DS4_INPUT_REPORT_BT]), Some(Transport::Bluetooth));
+        assert_eq!(transport_of(PlayStationPad::DualShock4, &[DS4_INPUT_REPORT_USB]), Some(Transport::Usb));
+        assert_eq!(transport_of(PlayStationPad::DualSense, &[0x7f]), None);
     }
 
     #[test]
