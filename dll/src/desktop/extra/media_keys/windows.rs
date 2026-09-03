@@ -35,12 +35,15 @@ use azul_core::{
     media_session::{MediaPlaybackState, NowPlayingInfo},
     window::VirtualKeyCode,
 };
-use azul_layout::managers::media_keys::push_media_key;
+use azul_core::media_session::{MediaSeekKind, MediaSeekRequest};
+use azul_css::AzString;
+use azul_layout::managers::media_keys::{push_media_key, push_media_seek};
 use windows::{
     core::{Interface, HSTRING},
     Media::{
-        MediaPlaybackStatus, MediaPlaybackType, SystemMediaTransportControls,
-        SystemMediaTransportControlsButton, SystemMediaTransportControlsButtonPressedEventArgs,
+        MediaPlaybackStatus, MediaPlaybackType, PlaybackPositionChangeRequestedEventArgs,
+        SystemMediaTransportControls, SystemMediaTransportControlsButton,
+        SystemMediaTransportControlsButtonPressedEventArgs,
         SystemMediaTransportControlsTimelineProperties,
     },
     Win32::{Foundation::HWND, System::WinRT::ISystemMediaTransportControlsInterop},
@@ -114,6 +117,30 @@ pub fn start(hwnd: isize) {
             Ok(())
         });
         controls.ButtonPressed(&handler)?;
+
+        // THE SEEK BAR (9h-i-a-i-a-i). `PlaybackPositionChangeRequested` fires
+        // when the user drags the position in the flyout; the args carry
+        // `RequestedPlaybackPosition`, a `TimeSpan` in 100-nanosecond ticks
+        // (the same unit the timeline is published in), so microseconds are
+        // ticks / 10. Registering the handler is what makes the bar draggable
+        // - a timeline alone is read-only.
+        let seek_handler = windows::Foundation::TypedEventHandler::<
+            SystemMediaTransportControls,
+            PlaybackPositionChangeRequestedEventArgs,
+        >::new(|_sender, args| {
+            if let Some(args) = args.as_ref() {
+                if let Ok(position) = args.RequestedPlaybackPosition() {
+                    push_media_seek(MediaSeekRequest {
+                        kind: MediaSeekKind::Absolute,
+                        position_us: position.Duration / 10,
+                        uri: AzString::from_const_str(""),
+                        track_id: AzString::from_const_str(""),
+                    });
+                }
+            }
+            Ok(())
+        });
+        controls.PlaybackPositionChangeRequested(&seek_handler)?;
         Ok(controls)
     })();
 

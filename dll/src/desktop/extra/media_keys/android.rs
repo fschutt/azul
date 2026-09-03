@@ -23,8 +23,9 @@
 //! azul-side numbering crossing a boundary - the same hazard as the sensor
 //! kind codes, and it gets the same guard.
 
-use azul_core::media_session::NowPlayingInfo;
-use azul_layout::managers::media_keys::push_media_key;
+use azul_core::media_session::{MediaSeekKind, MediaSeekRequest, NowPlayingInfo};
+use azul_css::AzString;
+use azul_layout::managers::media_keys::{push_media_key, push_media_seek};
 
 use super::media_keycode_to_key;
 
@@ -42,6 +43,24 @@ pub unsafe extern "system" fn Java_com_azul_media_AzulMediaSession_nativeOnMedia
         // channel MPRIS, `MPRemoteCommandCenter` and SMTC use.
         push_media_key(key);
     }
+}
+
+/// The system UI dragged the seek bar (9h-i-a-i-a-i): `onSeekTo`, in
+/// MILLISECONDS. Parked on the seek queue for the same reason as the
+/// buttons - this runs on Android's media thread.
+#[cfg(feature = "jni")]
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_azul_media_AzulMediaSession_nativeOnMediaSeek(
+    _env: *mut core::ffi::c_void,
+    _class: *mut core::ffi::c_void,
+    position_ms: i64,
+) {
+    push_media_seek(MediaSeekRequest {
+        kind: MediaSeekKind::Absolute,
+        position_us: position_ms.saturating_mul(1000),
+        uri: AzString::from_const_str(""),
+        track_id: AzString::from_const_str(""),
+    });
 }
 
 /// Claim the media session. Idempotent and quiet.

@@ -71,6 +71,14 @@ public final class AzulMediaSession {
                     nativeOnMediaButton(KeyEvent.KEYCODE_MEDIA_PREVIOUS);
                 }
 
+                // THE SEEK BAR (9h-i-a-i-a-i). The system UI sends the new
+                // position in MILLISECONDS; it only offers the bar at all when
+                // ACTION_SEEK_TO is among the published actions (below).
+                @Override
+                public void onSeekTo(long pos) {
+                    nativeOnMediaSeek(pos);
+                }
+
                 @Override
                 public boolean onMediaButtonEvent(android.content.Intent intent) {
                     // A headset button arrives as a raw KeyEvent rather than
@@ -148,7 +156,8 @@ public final class AzulMediaSession {
                     | PlaybackState.ACTION_PLAY_PAUSE
                     | PlaybackState.ACTION_STOP
                     | PlaybackState.ACTION_SKIP_TO_NEXT
-                    | PlaybackState.ACTION_SKIP_TO_PREVIOUS;
+                    | PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                    | PlaybackState.ACTION_SEEK_TO;
             // The SPEED matters: the system extrapolates the position from it
             // between updates, so 0 while playing freezes the progress bar.
             float speed = androidState == PlaybackState.STATE_PLAYING ? 1.0f : 0.0f;
@@ -161,4 +170,5 @@ public final class AzulMediaSession {
     }
 
     private static native void nativeOnMediaButton(int keycode);
+    private static native void nativeOnMediaSeek(long positionMs);
 }

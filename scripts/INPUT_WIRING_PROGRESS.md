@@ -860,11 +860,20 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `OptionMediaSeekRequest` and `CallbackInfo.get_media_seek_request` through `autofix` in
       that pass - the Rust compiles without them (appended variants keep the C layout), the C
       side just cannot name them yet.
-- [ ] 9h-i-a-i-a-i The inbound seek exists for MPRIS only. Windows SMTC's
-      `PlaybackPositionChangeRequested`, Apple's `MPChangePlaybackPositionCommand` and Android's
-      `MediaSession.Callback.onSeekTo` all carry an absolute position and map onto
-      `MediaSeekKind::Absolute` through `push_media_seek` - each is a platform handler on the
-      existing session object, none blocked on anything.
+- [x] 9h-i-a-i-a-i DONE on all three, each checked against its current documentation first
+      (ruling 1). Windows: `SystemMediaTransportControls.PlaybackPositionChangeRequested`, whose
+      `PlaybackPositionChangeRequestedEventArgs.RequestedPlaybackPosition` is a `TimeSpan` in
+      100-ns ticks - the unit the timeline is already published in - so microseconds are
+      ticks / 10; registering the handler is what makes the flyout's bar draggable. Apple:
+      `changePlaybackPositionCommand` (macOS 10.12.2+ / iOS 8+), the one command whose event
+      carries a value, `MPChangePlaybackPositionCommandEvent.positionTime` in SECONDS; its own
+      block, because the key-pushing `register` closure cannot carry a position. Android:
+      `MediaSession.Callback.onSeekTo(long pos)` in MILLISECONDS -> `nativeOnMediaSeek` (new JNI
+      entry beside `nativeOnMediaButton`), plus `ACTION_SEEK_TO` in the published actions, which
+      is the gate for the system UI offering a bar at all. All three land as
+      `MediaSeekKind::Absolute` on the seek queue, so the app sees one `MediaSeek` event whatever
+      the platform. ⚠ NOT COMPILED OR RUN (batch compiles at the end); the Java re-compile
+      against android-34 is part of that pass.
 - [ ] 9h-i-a-i-b MPRIS `Volume` is read/WRITE and is omitted entirely. Answering it needs an
       app-level volume concept azul does not have, and a writable property needs the same inbound
       path 9h-i-a-i-a does. Some desktops render a volume slider only when the property exists.

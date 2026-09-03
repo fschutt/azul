@@ -76,7 +76,9 @@ unsafe impl objc2::encode::Encode for CgSize {
 /// bounds this at one retained image rather than one per track, which is what a
 /// plain leak would give a player that changes tracks all day.
 static CURRENT_ARTWORK_IMAGE: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
-use azul_layout::managers::media_keys::push_media_key;
+use azul_core::media_session::{MediaSeekKind, MediaSeekRequest};
+use azul_css::AzString;
+use azul_layout::managers::media_keys::{push_media_key, push_media_seek};
 
 /// `MPRemoteCommandHandlerStatus.success`.
 const HANDLER_STATUS_SUCCESS: isize = 0;
@@ -215,6 +217,37 @@ pub fn start() {
         register("stopCommand", VirtualKeyCode::MediaStop);
         register("nextTrackCommand", VirtualKeyCode::NextTrack);
         register("previousTrackCommand", VirtualKeyCode::PrevTrack);
+
+        // THE SCRUBBER (9h-i-a-i-a-i). `changePlaybackPositionCommand` is the
+        // one command whose event carries a value: an
+        // `MPChangePlaybackPositionCommandEvent` with `positionTime`, an
+        // `NSTimeInterval` in SECONDS (macOS 10.12.2+ / iOS 8+). Enabling it
+        // is what turns the Now Playing progress bar draggable; a handler
+        // that pushes a key could not carry the position, hence its own
+        // block onto the seek queue.
+        if let Ok(name) = std::ffi::CString::new("changePlaybackPositionCommand") {
+            let sel = objc2::runtime::Sel::register(&name);
+            let command: *mut AnyObject = msg_send![center, performSelector: sel];
+            if !command.is_null() {
+                let handler = RcBlock::new(move |event: *mut AnyObject| -> isize {
+                    if !event.is_null() {
+                        let seconds: f64 = msg_send![event, positionTime];
+                        if seconds.is_finite() {
+                            push_media_seek(MediaSeekRequest {
+                                kind: MediaSeekKind::Absolute,
+                                position_us: (seconds.max(0.0) * 1_000_000.0) as i64,
+                                uri: AzString::from_const_str(""),
+                                track_id: AzString::from_const_str(""),
+                            });
+                        }
+                    }
+                    HANDLER_STATUS_SUCCESS
+                });
+                let _: () = msg_send![command, setEnabled: true];
+                let _: *mut AnyObject = msg_send![command, addTargetWithHandler: &*handler];
+                core::mem::forget(handler);
+            }
+        }
 
         // WITHOUT THIS THE COMMANDS NEVER FIRE. macOS delivers media keys only
         // to the app it considers "now playing", and an app becomes that by
