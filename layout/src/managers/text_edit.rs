@@ -495,6 +495,13 @@ pub struct SelectionHandleDrag {
     /// The OTHER end of the selection, fixed for the whole drag - the anchor
     /// in the anchor/focus model the mouse drag already uses.
     pub anchor: TextCursor,
+    /// The selection spanned BLOCKS when the handle was grabbed (U2-a-i).
+    /// The drag then runs through the cross-block mouse-drag machinery,
+    /// which resolves the pointer against every block and collapses back to
+    /// a single-block range when it returns to the anchor block - the
+    /// single-block path resolves within the session's own inline layout and
+    /// could never leave it.
+    pub cross_block: bool,
 }
 
 /// One painted / hit-testable selection handle (U2-a), in WINDOW

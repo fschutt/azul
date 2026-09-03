@@ -11831,11 +11831,54 @@ impl LayoutWindow {
     #[must_use]
     fn focused_rect_for_cursor(&self, cursor: &TextCursor) -> Option<LogicalRect> {
         let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
-        let (inline_layout, origin) = self.session_inline_geometry(session_node)?;
+        self.rect_for_cursor_in(session_node, cursor)
+    }
+
+    /// A cursor's caret rect in ANY laid-out IFC root, in absolute window
+    /// coordinates - the block-agnostic half of
+    /// [`Self::focused_rect_for_cursor`], which a cross-block selection's far
+    /// end needs (U2-a-i).
+    #[must_use]
+    fn rect_for_cursor_in(&self, node: DomNodeId, cursor: &TextCursor) -> Option<LogicalRect> {
+        let (inline_layout, origin) = self.session_inline_geometry(node)?;
         let mut rect = inline_layout.get_cursor_rect(cursor)?;
         rect.origin.x += origin.x;
         rect.origin.y += origin.y;
         Some(rect)
+    }
+
+    /// The two ends of the current selection in DOCUMENT order, each as
+    /// `(block, cursor)`: the cross-block selection's anchor/focus pair sorted
+    /// by `is_forward`, or the single-block primary range's two cursors on the
+    /// session node. `None` without a range.
+    fn selection_ends_in_document_order(&self) -> Option<[(DomNodeId, TextCursor); 2]> {
+        use azul_core::selection::Selection;
+        if let Some(sel) = self.text_edit_manager.cross_block.as_ref() {
+            let block = |n: NodeId| DomNodeId {
+                dom: sel.dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+            };
+            let anchor = (block(sel.anchor.ifc_root_node_id), sel.anchor.cursor);
+            let focus = (block(sel.focus.ifc_root_node_id), sel.focus.cursor);
+            return Some(if sel.is_forward {
+                [anchor, focus]
+            } else {
+                [focus, anchor]
+            });
+        }
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+        let Selection::Range(range) = mc.get_primary()?.selection else {
+            return None;
+        };
+        if range.start == range.end {
+            return None;
+        }
+        let (lo, hi) = if range.start <= range.end {
+            (range.start, range.end)
+        } else {
+            (range.end, range.start)
+        };
+        Some([(mc.node_id, lo), (mc.node_id, hi)])
     }
 
     /// The focused editable's text with the preedit spliced in at the caret,
@@ -11878,8 +11921,8 @@ impl LayoutWindow {
 
     /// The two draggable handles of the LOCAL primary selection, in window
     /// coordinates: `[start, end]` in document order. `None` when there is
-    /// no range (a caret has no handles), no session, or the selection spans
-    /// blocks (see U2-a-i in the ledger).
+    /// no range (a caret has no handles) or no session. A selection that
+    /// spans blocks gets its handles at the two blocks' own ends (U2-a-i).
     ///
     /// Geometry only - it does not consult `selection_handles`, so a shell
     /// that draws its own handles can still ask where the engine would put
@@ -11889,25 +11932,12 @@ impl LayoutWindow {
         &self,
     ) -> Option<[crate::managers::text_edit::SelectionHandleGeometry; 2]> {
         use crate::managers::text_edit::{SelectionHandleEnd, SelectionHandleGeometry};
-        use azul_core::selection::Selection;
 
-        if self.text_edit_manager.cross_block.is_some() {
-            return None;
-        }
-        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
-        let Selection::Range(range) = mc.get_primary()?.selection else {
-            return None;
-        };
-        if range.start == range.end {
-            return None;
-        }
-        let (lo, hi) = if range.start <= range.end {
-            (range.start, range.end)
-        } else {
-            (range.end, range.start)
-        };
-        let first = self.focused_rect_for_cursor(&lo)?;
-        let last = self.focused_rect_for_cursor(&hi)?;
+        // Either shape of selection (U2-a-i): a cross-block one has its two
+        // ends in different IFC roots, each resolved in its own layout.
+        let [(lo_block, lo), (hi_block, hi)] = self.selection_ends_in_document_order()?;
+        let first = self.rect_for_cursor_in(lo_block, &lo)?;
+        let last = self.rect_for_cursor_in(hi_block, &hi)?;
         Some([
             SelectionHandleGeometry::under(
                 SelectionHandleEnd::Start,
@@ -11949,31 +11979,55 @@ impl LayoutWindow {
     /// the handles the user is reaching for.
     pub fn begin_selection_handle_drag(&mut self, point: LogicalPosition) -> bool {
         use crate::managers::text_edit::{SelectionHandleDrag, SelectionHandleEnd};
-        use azul_core::selection::Selection;
 
         let Some(handle) = self.selection_handle_at(point) else {
             return false;
         };
-        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+        let Some([(lo_block, lo), (hi_block, hi)]) = self.selection_ends_in_document_order()
+        else {
             return false;
-        };
-        let Some(Selection::Range(range)) = mc.get_primary().map(|p| p.selection) else {
-            return false;
-        };
-        let (lo, hi) = if range.start <= range.end {
-            (range.start, range.end)
-        } else {
-            (range.end, range.start)
         };
         // The anchor is the OTHER end, in document order: dragging the start
         // handle keeps the end where it is, and vice versa.
-        let anchor = match handle.end {
-            SelectionHandleEnd::Start => hi,
-            SelectionHandleEnd::End => lo,
+        let (anchor_block, anchor) = match handle.end {
+            SelectionHandleEnd::Start => (hi_block, hi),
+            SelectionHandleEnd::End => (lo_block, lo),
         };
+        let cross_block = self.text_edit_manager.cross_block.is_some();
+        if cross_block {
+            // THE SESSION MOVES TO THE ANCHOR END (U2-a-i). The cross-block
+            // mouse drag extends from the session's own caret to the
+            // pointer, so the block the session sits in IS the anchor block.
+            // Grabbing the handle at the session's end means the other block
+            // must become the session: re-anchor there as a caret and keep
+            // `cross_block` painted until the first move rebuilds it.
+            let Some(key) = self
+                .text_edit_manager
+                .multi_cursor
+                .as_ref()
+                .map(|mc| mc.contenteditable_key)
+            else {
+                return false;
+            };
+            let Some(anchor_node) = anchor_block.node.into_crate_internal() else {
+                return false;
+            };
+            let already_there = self
+                .text_edit_manager
+                .multi_cursor
+                .as_ref()
+                .is_some_and(|mc| mc.node_id == anchor_block);
+            if !already_there {
+                self.text_edit_manager
+                    .initialize_editing(anchor, anchor_block.dom, anchor_node, key);
+            } else if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
+                mc.set_single_cursor(anchor);
+            }
+        }
         self.text_edit_manager.handle_drag = Some(SelectionHandleDrag {
             end: handle.end,
             anchor,
+            cross_block,
         });
         true
     }
@@ -11994,6 +12048,25 @@ impl LayoutWindow {
         let Some(drag) = self.text_edit_manager.handle_drag else {
             return false;
         };
+        if drag.cross_block {
+            // Through the cross-block mouse-drag machinery, which resolves
+            // the pointer against EVERY block and collapses back to a
+            // single-block range inside the anchor block. The same
+            // "onto the anchor is ignored" rule as below, checked up front
+            // because that machinery would collapse the selection to a caret.
+            let Some(dom_id) = self.text_edit_manager.get_editing_dom_id() else {
+                return false;
+            };
+            let Some(anchor_node) = self.text_edit_manager.get_editing_node_id() else {
+                return false;
+            };
+            if let Some((node, cursor)) = self.hittest_text_position_global(dom_id, point) {
+                if node == anchor_node && cursor == drag.anchor {
+                    return false;
+                }
+            }
+            return self.process_mouse_drag_for_selection(point, point).is_some();
+        }
         let Some(focus) = self.focused_cursor_for_point(point) else {
             return false;
         };

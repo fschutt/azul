@@ -2109,9 +2109,28 @@ session needs. Recorded verbatim so the framing is not lost.
       mobile (iOS path compiled on the three Apple targets). ⚠ No device: the Android handles are
       painted and dragged in the engine, not seen under a finger; the iOS interaction is compiled,
       not seen.
-- [ ] U2-a-i Handles for a CROSS-BLOCK selection. `selection_handle_geometry` answers `None`
-      while `cross_block` is set: the two ends live in different IFCs and the caret-rect seam is
-      the session node's. Needs the far end resolved through the cross-block map.
+- [x] U2-a-i DONE. The geometry half was the easy one: `rect_for_cursor_in(block, cursor)` is the
+      session seam with the block as a parameter, and `selection_ends_in_document_order` hands
+      both shapes of selection over as `[(block, cursor); 2]` - the cross-block anchor/focus pair
+      sorted by `is_forward`, or the single-block primary's two cursors - so the handles hang under
+      each block's own line and the paint/hit rule did not change.
+      THE DRAG WAS THE REAL HALF, and it needed a session move. The cross-block mouse drag
+      extends from the SESSION's caret to the pointer, so the block the session sits in IS the
+      anchor block - and the session sits where the press that made the selection was. Grabbing
+      the handle at the session's end (the START handle of a forward selection) must keep the
+      OTHER end fixed, which means the session has to move there first: `begin_selection_handle_drag`
+      re-anchors it with `initialize_editing` at the far end's block and cursor (same
+      contenteditable key), keeps `cross_block` painted until the first move rebuilds it, and the
+      drag then runs through `process_mouse_drag_for_selection` - which resolves the pointer
+      against every block and collapses back to a single-block range inside the anchor block,
+      exactly as the mouse does. "Onto the anchor is ignored" is checked up front through
+      `hittest_text_position_global`, because that machinery would collapse to a caret.
+      EVIDENCE: 4 new integration tests on the three-paragraph fixture (a handle under each
+      block's end, two lines apart; the end handle moves the far end P3 -> P2 with the start
+      anchored; the start handle re-anchors the session at P3 and moves the near end P1 -> P2
+      with the end kept at byte 5 and `is_forward` false; dragging back into the anchor block
+      collapses to a single-block range that still has handles). NEGATIVE CONTROL: dropping the
+      re-anchor fails those three drag tests. All 11 handle tests pass; host, 8/8 mobile.
 - [ ] U2-a-ii Android hides its toolbar while a handle is dragged and re-shows it on release;
       azul's bar (U2) follows the selection through `onGetContentRect` but stays up during the
       drag. Cosmetic, and it needs the drag transition surfaced to the Java side.
