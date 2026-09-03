@@ -601,6 +601,15 @@ fn play_haptic_native(request: &azul_core::haptics::HapticRequest) {
     #[cfg(target_os = "ios")]
     crate::desktop::shell2::ios::play_haptic(request);
 
+    // PEN HAPTICS (9g-i-c). Windows is the only platform with a public API for
+    // a pen's own actuator: macOS has none even for Apple Pencil Pro, and no
+    // Android pen has one. Handled here for the same reason the gamepad is -
+    // the actuator belongs to the DEVICE, not to a window.
+    #[cfg(target_os = "windows")]
+    if request.target == azul_core::haptics::HapticTarget::Pen {
+        crate::desktop::extra::haptics::windows::play_pen(request);
+    }
+
     // GAMEPAD RUMBLE (9g-i-d). Handled HERE rather than in each platform arm
     // because the actuator is the CONTROLLER's, not the machine's: gilrs owns
     // it identically on Windows, Linux and macOS, so a per-platform copy would

@@ -758,8 +758,33 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       EVIDENCE: all three generator paths (impact, notification, selection) proven COMPILED by
       deliberate type errors under `--target aarch64-apple-ios`; no `static_mut_refs` warnings.
       Host, 8/8 mobile, 9 haptics tests green. Compile-only by user direction.
-- [ ] IN SCOPE (implement blindly). 9g-i-c Win32 `SimpleHapticsController` via WinRT - reaches Surface Pen and some gamepads,
-      NOT the trackpad. Needs the WinRT activation plumbing, which the shell does not have yet.
+- [x] 9g-i-c DONE, and NARROWER than the note implied. It said this "reaches Surface Pen and
+      some gamepads" - but the gamepad half is already 9g-i-d, which routes
+      `HapticTarget::Gamepad` through gilrs, and gilrs owns that actuator on Windows too. A
+      second path here would have rumbled TWICE for one request. Checked before writing rather
+      than after.
+      So what is genuinely new is `HapticTarget::Pen`, which NO backend had ever driven: macOS
+      has no public API even for Apple Pencil Pro, no Android pen has an actuator, and Windows
+      was the remaining platform where a pen can buzz. That variant existed in the type and was
+      skipped everywhere.
+      THE POINTER ID is the awkward part and shapes the design: `PenDevice::GetFromPointerId` is
+      the only route to a pen's controller and needs an id that exists ONLY while the pen is
+      tracked. So it is captured from the `WM_POINTER*` stream and the haptic addressed to
+      whichever pen most recently reported; a request arriving after the pen left proximity finds
+      a stale id and does nothing, which is honest - there is no pen to buzz.
+      WAVEFORMS ARE LOOKED UP, NOT ASSUMED. A pen supports a SUBSET of
+      `KnownSimpleHapticsControllerWaveforms` and publishes which through `SupportedFeedback`;
+      sending an unsupported one fails at runtime. The wanted waveform is searched for and, if
+      absent, the pen's FIRST supported one is used - a buzz of the wrong texture beats silence,
+      matching how `HapticPattern::fallback` degrades everywhere else.
+      Intensity goes through `SendHapticFeedbackWithIntensity` only where
+      `IsIntensitySupported()` says so: the plain call is not equivalent to intensity 1.0 on
+      hardware that lacks the axis.
+      Needed two new `windows` crate features (`Devices_Haptics`, `Devices_Input`) and no new
+      library.
+      EVIDENCE: all three seams (pointer capture, dispatch, send) proven COMPILED under
+      `--target x86_64-pc-windows-gnu`. All four desktop targets, 8/8 mobile, azul-dll 1973, 9
+      haptics tests. ⚠ Compile-only - no Windows machine and no Surface Pen here.
 - [x] 9g-i-d DONE for the gilrs backend (Windows + Linux + macOS at once); mobile is 9g-i-d-a.
       `HapticTarget::Gamepad` was skipped by EVERY backend - macOS, Android and iOS each return
       early on anything but `System`, correctly, because a phone body is not a controller's motors.

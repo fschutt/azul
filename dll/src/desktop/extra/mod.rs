@@ -29,6 +29,7 @@ pub mod file_picker;
 /// `azul_layout::managers::gamepad::push_gamepad_state`, which the layout
 /// pass folds into the per-`App` `GamepadManager`.
 pub mod gamepad;
+pub mod haptics;
 pub mod hid;
 pub mod media_keys;
 pub mod geolocation;

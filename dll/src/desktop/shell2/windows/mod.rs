@@ -4690,6 +4690,12 @@ unsafe extern "system" fn window_proc(
                     dm.set_contact(pointer_id);
                 }
             }
+            // Remember the pointer id for pen haptics (9g-i-c):
+            // `PenDevice::GetFromPointerId` is the only route to a pen's
+            // actuator and needs an id that exists solely while the pen is
+            // tracked, so it has to be captured from the stream rather than
+            // looked up when the haptic is requested.
+            crate::desktop::extra::haptics::windows::note_pen_pointer(pointer_id);
             window.feed_pointer_and_dispatch(hwnd, pointer_id, false);
             def_window_proc_w(hwnd, msg, wparam, lparam)
         }

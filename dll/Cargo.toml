@@ -382,6 +382,10 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_System_Ole",
     # Precision-touchpad pinch/pan (windows/direct_manipulation.rs, 7c-i-a).
     "Win32_Graphics_DirectManipulation",
+    # Surface Pen haptics (extra/haptics/windows.rs, 9g-i-c). Devices_Input is
+    # what carries PenDevice; Devices_Haptics the controller it hands back.
+    "Devices_Haptics",
+    "Devices_Input",
     "Win32_System_SystemServices",
     "Win32_System_Com_StructuredStorage",
     "Win32_Graphics_Gdi",
