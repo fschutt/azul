@@ -1814,6 +1814,7 @@ impl WaylandWindow {
                 window_id: options.window_state.window_id.clone(),
                 window_focused: false,
                 active_route: azul_core::resources::OptionRouteMatch::None,
+                pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
             },
             resources.fc_cache.clone(),
             resources.system_style.clone(),
@@ -8127,6 +8128,7 @@ impl WaylandPopup {
             // the engine's focus-loss dismiss sees a true→false edge later.
             window_focused: true,
             active_route: azul_core::resources::OptionRouteMatch::None,
+            pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
         };
         // A popup is a CHILD: share the PARENT's already-warmed manager, which
         // is both the warmest option and the one whose embedded (icon) faces the

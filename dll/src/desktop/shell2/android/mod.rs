@@ -1162,6 +1162,11 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         action: MotionAction,
         mouse_pos: LogicalPosition,
         touch_points: Vec<azul_core::window::TouchPoint>,
+        /// `MotionEvent.getDeviceId()`: which physical device produced this,
+        /// for `MouseState::pointer_device_id` (9b-ii). Android has ONE
+        /// cursor, so this names the device driving the primary seat and
+        /// never a second seat.
+        device_id: u64,
     }
     let mut motion_updates: Vec<MotionUpdate> = Vec::new();
     // (KeyAction, Option<VirtualKeyCode>) — None for unmapped keycodes.
@@ -1300,6 +1305,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                         action: m.action(),
                         mouse_pos,
                         touch_points,
+                        device_id: u64::from(m.device_id().unsigned_abs()),
                     });
                 }
             }
@@ -1337,6 +1343,9 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
 
         {
             let ms = window.common.mouse_state_mut();
+            // The field existed with no writer on any platform, so
+            // `get_pointer_device_id()` answered 0 everywhere (9b-ii).
+            ms.pointer_device_id = update.device_id;
             match update.action {
                 MotionAction::Down | MotionAction::PointerDown => {
                     ms.cursor_position = CursorPosition::InWindow(update.mouse_pos);

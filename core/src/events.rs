@@ -448,10 +448,18 @@ pub struct MouseEventData {
     ///
     /// Only `PenState`, `GamepadState` and `TabletPadState` carried a device id
     /// before, so a mouse event could not say WHICH of two mice moved — and
-    /// `MouseState` is a single global, which is why multi-seat (a kiosk, a
-    /// shared display, two people on one compositor) was not expressible at
-    /// all. This is the first half of fixing that; the state is still global.
+    /// `MouseState` used to be a single global, which is why multi-seat (a
+    /// kiosk, a shared display, two people on one compositor) was not
+    /// expressible at all. The state fans out per seat since 9b-ii; this
+    /// field stays the PHYSICAL device, `seat_id` below says which cursor.
     pub device_id: u64,
+    /// Which pointer SEAT - which independent cursor - produced it. APPENDED
+    /// (9b-ii). `PRIMARY_POINTER_SEAT` (0) for the ordinary mouse, which is
+    /// every event on a platform with one cursor; an X11 MPX master id or a
+    /// Wayland seat otherwise. A callback that receives a non-zero value
+    /// reads that seat's state through `get_pointer_seat_state`, because
+    /// `get_current_mouse_state` is the PRIMARY seat by definition.
+    pub seat_id: u64,
 }
 
 impl Default for MouseEventData {
@@ -463,6 +471,7 @@ impl Default for MouseEventData {
             modifiers: KeyModifiers::default(),
             source: PointerSource::Unknown,
             device_id: 0,
+            seat_id: crate::window::PRIMARY_POINTER_SEAT,
         }
     }
 }

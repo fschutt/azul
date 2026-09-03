@@ -137,6 +137,98 @@ pub struct FullWindowState {
     /// Set by `CallbackInfo::switch_route()` or by the web server on URL match.
     /// Layout callbacks read this via `LayoutCallbackInfo::get_route_param()`.
     pub active_route: azul_core::resources::OptionRouteMatch,
+    /// Every pointer seat OTHER than the primary (9b-ii), sorted by `seat_id`.
+    /// APPENDED for ABI stability.
+    ///
+    /// `mouse_state` above IS the primary seat, and is deliberately not
+    /// duplicated in here: two copies of one cursor are a desync waiting to
+    /// happen, and every existing reader of "the mouse" keeps reading the
+    /// primary. Empty on any platform that presents one cursor - Windows,
+    /// macOS, Android, iOS - which is why nothing there changes. See
+    /// [`azul_core::window::PointerSeat`] for why the key is a SEAT and not a
+    /// device. Read and write through [`Self::pointer_seat`] /
+    /// [`Self::pointer_seat_mut`], which fold the primary in.
+    pub pointer_seats: azul_core::window::PointerSeatVec,
+}
+
+impl FullWindowState {
+    /// The state of pointer seat `seat_id`: the primary for
+    /// [`PRIMARY_POINTER_SEAT`](azul_core::window::PRIMARY_POINTER_SEAT),
+    /// otherwise the matching entry of `pointer_seats`, or `None` for a seat
+    /// this window has never seen.
+    #[must_use]
+    pub fn pointer_seat(&self, seat_id: u64) -> Option<&MouseState> {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            return Some(&self.mouse_state);
+        }
+        self.pointer_seats
+            .as_ref()
+            .iter()
+            .find(|s| s.seat_id == seat_id)
+            .map(|s| &s.state)
+    }
+
+    /// Mutable access to seat `seat_id`, CREATING it (default state) when it
+    /// is new - the platform handlers call this the moment a second master
+    /// pointer moves, and "first seen" is the only registration a seat gets.
+    /// Keeps `pointer_seats` sorted so equality and the event diff are
+    /// order-independent.
+    pub fn pointer_seat_mut(&mut self, seat_id: u64) -> &mut MouseState {
+        use azul_core::window::{PointerSeat, PointerSeatVec};
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            return &mut self.mouse_state;
+        }
+        let idx = match self
+            .pointer_seats
+            .as_ref()
+            .binary_search_by_key(&seat_id, |s| s.seat_id)
+        {
+            Ok(i) => i,
+            Err(i) => {
+                let mut v = self.pointer_seats.clone().into_library_owned_vec();
+                v.insert(
+                    i,
+                    PointerSeat {
+                        seat_id,
+                        state: MouseState::default(),
+                    },
+                );
+                self.pointer_seats = PointerSeatVec::from_vec(v);
+                i
+            }
+        };
+        &mut self.pointer_seats.as_mut()[idx].state
+    }
+
+    /// Forget a non-primary seat (the master pointer was removed, the
+    /// `wl_seat` went away). The event diff then releases whatever it held,
+    /// because a seat present in the previous state and absent in the current
+    /// one is diffed against a default state. The primary cannot be removed;
+    /// returns whether anything went.
+    pub fn remove_pointer_seat(&mut self, seat_id: u64) -> bool {
+        use azul_core::window::PointerSeatVec;
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            return false;
+        }
+        let before = self.pointer_seats.len();
+        if !self.pointer_seats.as_ref().iter().any(|s| s.seat_id == seat_id) {
+            return false;
+        }
+        let mut v = self.pointer_seats.clone().into_library_owned_vec();
+        v.retain(|s| s.seat_id != seat_id);
+        self.pointer_seats = PointerSeatVec::from_vec(v);
+        self.pointer_seats.len() != before
+    }
+
+    /// Every seat, primary first.
+    pub fn pointer_seats_with_primary(&self) -> impl Iterator<Item = (u64, &MouseState)> {
+        core::iter::once((azul_core::window::PRIMARY_POINTER_SEAT, &self.mouse_state)).chain(
+            self.pointer_seats
+                .as_ref()
+                .iter()
+                .map(|s| (s.seat_id, &s.state)),
+        )
+    }
 }
 
 impl_option!(
@@ -178,6 +270,7 @@ impl Default for FullWindowState {
             size: WindowSize::default(),
             flags: WindowFlags::default(),
             mouse_state: MouseState::default(),
+            pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
             theme: WindowTheme::default(),
             ime_position: ImePosition::default(),
             renderer_options: RendererOptions::default(),
@@ -204,6 +297,48 @@ mod autotest_generated {
 
     use super::*;
     use crate::callbacks::{Callback, CallbackInfo};
+
+    // ------------------------------------------------------------------
+    // Pointer seats (9b-ii)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn seat_zero_is_the_primary_and_never_an_entry() {
+        use azul_core::window::PRIMARY_POINTER_SEAT;
+        let mut s = FullWindowState::default();
+        s.pointer_seat_mut(PRIMARY_POINTER_SEAT).left_down = true;
+        assert!(s.mouse_state.left_down, "seat 0 IS mouse_state");
+        assert!(s.pointer_seats.is_empty(), "and is never duplicated into the vec");
+        assert!(!s.remove_pointer_seat(PRIMARY_POINTER_SEAT));
+        assert_eq!(s.pointer_seat(PRIMARY_POINTER_SEAT).map(|m| m.left_down), Some(true));
+    }
+
+    #[test]
+    fn seats_are_created_on_first_touch_and_kept_sorted() {
+        let mut s = FullWindowState::default();
+        assert!(s.pointer_seat(7).is_none());
+        s.pointer_seat_mut(7).right_down = true;
+        s.pointer_seat_mut(3).left_down = true;
+        s.pointer_seat_mut(7).middle_down = true;
+        let ids: Vec<u64> = s.pointer_seats.as_ref().iter().map(|p| p.seat_id).collect();
+        assert_eq!(ids, vec![3, 7], "sorted, and 7 was not re-created");
+        let seven = s.pointer_seat(7).unwrap();
+        assert!(seven.right_down && seven.middle_down);
+        assert!(!s.mouse_state.right_down, "the primary is untouched");
+        let all: Vec<u64> = s.pointer_seats_with_primary().map(|(id, _)| id).collect();
+        assert_eq!(all, vec![0, 3, 7]);
+    }
+
+    #[test]
+    fn a_removed_seat_is_gone_and_equality_sees_it() {
+        let mut a = FullWindowState::default();
+        a.pointer_seat_mut(5).left_down = true;
+        let b = FullWindowState::default();
+        assert_ne!(a, b, "a second cursor holding a button is a state delta");
+        assert!(a.remove_pointer_seat(5));
+        assert!(!a.remove_pointer_seat(5));
+        assert_eq!(a, b);
+    }
 
     // ------------------------------------------------------------------
     // Harness

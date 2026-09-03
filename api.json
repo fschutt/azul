@@ -5104,6 +5104,9 @@
                                 },
                                 "active_route": {
                                     "type": "OptionRouteMatch"
+                                },
+                                "pointer_seats": {
+                                    "type": "PointerSeatVec"
                                 }
                             }
                         ],
@@ -6680,6 +6683,54 @@
                                 "Eraser": {},
                                 "Palm": {},
                                 "Mouse": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PointerSeat": {
+                        "external": "azul_core::window::PointerSeat",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "seat_id": {
+                                    "type": "u64"
+                                },
+                                "state": {
+                                    "type": "MouseState"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PointerSeatVecSlice": {
+                        "external": "azul_core::window::PointerSeatVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PointerSeat",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
                             }
                         ],
                         "repr": "C"
@@ -14904,6 +14955,28 @@
                                     }
                                 ],
                                 "fn_body": "object.clear_selection_owner_color(owner)"
+                            },
+                            "get_pointer_seat_state": {
+                                "doc": [
+                                    "The state of pointer seat `seat_id` (9b-ii): a second, independent",
+                                    "cursor on a multi-seat desktop (an X11 MPX master pointer). `None` for",
+                                    "a seat this window has never seen. [`Self::get_current_mouse_state`]",
+                                    "is the PRIMARY seat by definition, so a callback handed a mouse event",
+                                    "with a non-zero seat id reads that cursor's position and buttons here",
+                                    "- the primary's would be a different cursor's."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "seat_id": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionMouseState"
+                                },
+                                "fn_body": "object.get_pointer_seat_state(seat_id)"
                             }
                         },
                         "repr": "C"
@@ -17609,29 +17682,29 @@
                         ],
                         "struct_fields": [
                             {
+                                "timestamp": {
+                                    "type": "Instant"
+                                },
+                                "event_id": {
+                                    "type": "u64"
+                                },
                                 "position": {
                                     "type": "LogicalPosition"
                                 },
                                 "screen_position": {
                                     "type": "LogicalPosition"
                                 },
-                                "timestamp": {
-                                    "type": "Instant"
-                                },
-                                "button_state": {
-                                    "type": "u8"
-                                },
-                                "event_id": {
-                                    "type": "u64"
-                                },
-                                "pressure": {
-                                    "type": "f32"
-                                },
                                 "tilt": {
                                     "type": "PenTilt"
                                 },
                                 "touch_radius": {
                                     "type": "LogicalSize"
+                                },
+                                "pressure": {
+                                    "type": "f32"
+                                },
+                                "button_state": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -107029,6 +107102,215 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "PointerSeatVecDestructor": {
+                        "external": "azul_core::window::PointerSeatVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "PointerSeatVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PointerSeatVecDestructorType": {
+                        "external": "azul_core::window::PointerSeatVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "PointerSeatVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "PointerSeatVec": {
+                        "external": "azul_core::window::PointerSeatVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PointerSeat",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "PointerSeatVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `PointerSeatVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "PointerSeatVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `PointerSeatVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PointerSeatVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "pointer_seat_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "pointer_seat_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "pointer_seat_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `PointerSeatVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "PointerSeat"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PointerSeatVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `PointerSeatVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const PointerSeat"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PointerSeatVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionPointerSeat"
+                                },
+                                "fn_body": "pointer_seat_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `PointerSeatVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PointerSeatVecSlice"
+                                },
+                                "fn_body": "pointer_seat_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PointerSeatVecSlice"
+                                },
+                                "fn_body": "pointer_seat_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -113005,6 +113287,33 @@
                                 "None": {},
                                 "Some": {
                                     "type": "InputSample"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionPointerSeat": {
+                        "external": "azul_core::window::OptionPointerSeat",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "Eq",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "PointerSeat",
+                                    "doc": [
+                                        "Some value of type PointerSeat"
+                                    ]
                                 }
                             }
                         ],

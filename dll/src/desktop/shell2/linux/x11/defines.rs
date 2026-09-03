@@ -758,6 +758,11 @@ pub const XI_TouchUpdate: c_int = 19;
 pub const XI_TouchEnd: c_int = 20;
 pub const XIAllDevices: c_int = 0;
 pub const XIAllMasterDevices: c_int = 1;
+/// The master pointer every X server has: the "Virtual core pointer". XI2
+/// reserves device id 2 for it (and 3 for the virtual core keyboard); every
+/// other master pointer - an MPX second cursor - gets an id past those. It is
+/// the PRIMARY pointer seat; any other master is a seat of its own (9b-ii).
+pub const XI_VIRTUAL_CORE_POINTER: c_int = 2;
 pub const XIButtonClass: c_int = 1;
 pub const XIValuatorClass: c_int = 2;
 pub const XIScrollClass: c_int = 3;

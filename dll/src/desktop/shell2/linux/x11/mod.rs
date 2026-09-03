@@ -1645,8 +1645,28 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
         // because every pointer and touch event carries it, and an app asking
         // "is this a touchpad?" must get an answer from any of them.
         let source = classify_xi_device(win, ev.sourceid);
-        if source != azul_core::events::PointerSource::Unknown {
-            win.common.mouse_state_mut().pointer_source = source;
+
+        // WHICH CURSOR (9b-ii). `deviceid` is the MASTER pointer, and under
+        // MPX every master pointer is a cursor of its own: the events were
+        // selected on `XIAllMasterDevices`, so a second cursor's presses have
+        // always arrived here - and were applied to the one global mouse
+        // state, teleporting the first cursor's buttons to the second one's
+        // position. The virtual core pointer is the primary seat; any other
+        // master is a seat keyed by its id.
+        let seat_id = if ev.deviceid == defines::XI_VIRTUAL_CORE_POINTER {
+            azul_core::window::PRIMARY_POINTER_SEAT
+        } else {
+            ev.deviceid as u64
+        };
+        {
+            let ms = win.common.pointer_seat_mut(seat_id);
+            if source != azul_core::events::PointerSource::Unknown {
+                ms.pointer_source = source;
+            }
+            // The SLAVE: the physical device that drove this cursor - the same
+            // id the tablet and raw-motion paths report. The field existed
+            // with no writer on any platform.
+            ms.pointer_device_id = ev.sourceid as u64;
         }
 
         // XI2 event coords are physical; touch/pen state wants logical.
@@ -1875,6 +1895,14 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
                 }
             }
 
+            // A SECOND CURSOR takes its own path (9b-ii): the core handlers
+            // below write the primary seat by construction (`mouse_state_mut`,
+            // the motion-compression batch, the primary hit test), so a
+            // non-primary master is applied to its own seat state instead.
+            if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+                return handle_secondary_seat_pointer(win, seat_id, ev, pos);
+            }
+
             // Translate the XI2 pointer event into the equivalent core event and
             // run it through the same handler the core dispatch would have used.
             // Coordinates are passed as raw device pixels (as core events carry
@@ -1972,6 +2000,59 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
         }
     }
     result
+}
+
+/// A pointer event from a NON-PRIMARY master pointer (9b-ii): a second MPX
+/// cursor. Applied to that seat's own `MouseState`, hit-tested into that
+/// seat's own hover history, then run through the ordinary state-diff pass,
+/// which derives its MouseDown/Up/Move/Click with the seat id on the event.
+///
+/// Deliberately NOT the primary's path: no motion compression (the batch
+/// holds one pending motion, the primary's), no gesture samples
+/// (`GestureAndDragManager` tracks one pointer - see 9b-ii-b) and no wheel:
+/// `handle_scroll_input` scrolls the node under the PRIMARY cursor, which is
+/// the wrong node for this seat, so a second cursor's wheel is dropped here
+/// rather than delivered to the first cursor's hover (9b-ii-b again).
+fn handle_secondary_seat_pointer(
+    win: &mut X11Window,
+    seat_id: u64,
+    ev: &defines::XIDeviceEvent,
+    pos: LogicalPosition,
+) -> ProcessEventResult {
+    use azul_core::{
+        events::{MouseButton, MOUSE_BUTTON_BACK, MOUSE_BUTTON_FORWARD},
+        window::CursorPosition,
+    };
+    use crate::desktop::shell2::common::event::{apply_pointer_button_state, PlatformWindow};
+
+    match ev.evtype {
+        defines::XI_ButtonPress | defines::XI_ButtonRelease => {
+            let is_down = ev.evtype == defines::XI_ButtonPress;
+            let button = match ev.detail {
+                1 => MouseButton::Left,
+                2 => MouseButton::Middle,
+                3 => MouseButton::Right,
+                // Wheel emulation (press+release pairs). Primary-only, see
+                // the doc above.
+                4..=7 => return ProcessEventResult::DoNothing,
+                // The thumb pair, the same decoding the core handler applies.
+                8 => MouseButton::Other(MOUSE_BUTTON_BACK),
+                9 => MouseButton::Other(MOUSE_BUTTON_FORWARD),
+                n => MouseButton::Other(n as u8),
+            };
+            win.snapshot_window_state_baseline("x11.seat.button");
+            apply_pointer_button_state(win.common.pointer_seat_mut(seat_id), pos, button, is_down);
+            win.update_seat_hit_test_at(seat_id, pos);
+            win.process_window_events(0)
+        }
+        defines::XI_Motion => {
+            win.snapshot_window_state_baseline("x11.seat.motion");
+            win.common.pointer_seat_mut(seat_id).cursor_position = CursorPosition::InWindow(pos);
+            win.update_seat_hit_test_at(seat_id, pos);
+            win.process_window_events(0)
+        }
+        _ => ProcessEventResult::DoNothing,
+    }
 }
 
 /// XDND (X Drag-and-Drop) drop-target state for one window.
@@ -3296,6 +3377,7 @@ impl X11Window {
                 window_id: options.window_state.window_id.clone(),
                 window_focused: true,
                 active_route: azul_core::resources::OptionRouteMatch::None,
+                pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
             },
             resources.fc_cache.clone(),
             resources.system_style.clone(),

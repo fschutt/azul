@@ -50,10 +50,26 @@ pub fn deepest_node_across_doms(ht: &FullHitTest) -> Option<DomNodeId> {
 /// Identifier for an input point (mouse, touch, pen, etc.)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InputPointId {
-    /// Mouse cursor
+    /// Mouse cursor - the PRIMARY pointer seat.
     Mouse,
     /// Touch point with unique ID (from TouchEvent.id)
     Touch(u64),
+    /// A non-primary pointer seat (9b-ii): a second cursor, keyed by the
+    /// platform's seat id. Never carries `PRIMARY_POINTER_SEAT`; use
+    /// [`InputPointId::for_seat`], which folds the primary into `Mouse`.
+    Seat(u64),
+}
+
+impl InputPointId {
+    /// The input point that tracks pointer seat `seat_id`.
+    #[must_use]
+    pub const fn for_seat(seat_id: u64) -> Self {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            Self::Mouse
+        } else {
+            Self::Seat(seat_id)
+        }
+    }
 }
 
 /// Manages hover state history for all input points
@@ -70,10 +86,12 @@ pub struct HoverManager {
     /// Hit test history for each input point
     /// Each point has its own ring buffer of the last N frames
     hover_histories: BTreeMap<InputPointId, VecDeque<FullHitTest>>,
-    /// The node each mouse button was PRESSED on, kept until that button's
-    /// release has been delivered to it — see
-    /// [`Self::apply_press_target_capture`].
-    press_targets: Vec<(MouseButton, DomNodeId)>,
+    /// The node each mouse button was PRESSED on, per pointer seat, kept
+    /// until that button's release has been delivered to it — see
+    /// [`Self::apply_press_target_capture`]. Keyed by seat as well as button
+    /// (9b-ii): two cursors can hold Left at once, and the second press must
+    /// not overwrite the first's target.
+    press_targets: Vec<(u64, MouseButton, DomNodeId)>,
 }
 
 impl HoverManager {
@@ -86,13 +104,20 @@ impl HoverManager {
         }
     }
 
-    /// The node `button` is currently pressed on, if its release is still owed.
+    /// The node `button` is currently pressed on by the PRIMARY seat, if its
+    /// release is still owed.
     #[must_use]
     pub fn press_target(&self, button: MouseButton) -> Option<DomNodeId> {
+        self.press_target_for(azul_core::window::PRIMARY_POINTER_SEAT, button)
+    }
+
+    /// [`Self::press_target`] for any pointer seat.
+    #[must_use]
+    pub fn press_target_for(&self, seat_id: u64, button: MouseButton) -> Option<DomNodeId> {
         self.press_targets
             .iter()
-            .find(|(b, _)| *b == button)
-            .map(|(_, t)| *t)
+            .find(|(s, b, _)| *s == seat_id && *b == button)
+            .map(|(_, _, t)| *t)
     }
 
     /// Forget every press target (the owed releases will never come — e.g.
@@ -136,18 +161,20 @@ impl HoverManager {
             };
             match event.event_type {
                 EventType::MouseDown => {
-                    self.press_targets.retain(|(b, _)| *b != mouse.button);
-                    self.press_targets.push((mouse.button, event.target));
+                    self.press_targets
+                        .retain(|(s, b, _)| !(*s == mouse.seat_id && *b == mouse.button));
+                    self.press_targets
+                        .push((mouse.seat_id, mouse.button, event.target));
                 }
                 EventType::MouseUp => {
                     let Some(pos) = self
                         .press_targets
                         .iter()
-                        .position(|(b, _)| *b == mouse.button)
+                        .position(|(s, b, _)| *s == mouse.seat_id && *b == mouse.button)
                     else {
                         continue;
                     };
-                    let (_, press_target) = self.press_targets.remove(pos);
+                    let (_, _, press_target) = self.press_targets.remove(pos);
                     if press_target == event.target || in_release_path(press_target, event.target) {
                         continue;
                     }
@@ -266,7 +293,7 @@ impl HoverManager {
         }
         // A press on a node of a purged (rebuilt) dom can never be released
         // to it: the ids are gone.
-        self.press_targets.retain(|(_, t)| t.dom != *dom_id);
+        self.press_targets.retain(|(_, _, t)| t.dom != *dom_id);
     }
 
     /// Clear all hover history for all input points
@@ -374,7 +401,7 @@ impl crate::managers::NodeIdRemap for HoverManager {
         // press target is dropped (its release can never be delivered).
         self.press_targets = core::mem::take(&mut self.press_targets)
             .into_iter()
-            .filter_map(|(b, t)| map.resolve_dom_node_id(dom_id, t).map(|t| (b, t)))
+            .filter_map(|(s, b, t)| map.resolve_dom_node_id(dom_id, t).map(|t| (s, b, t)))
             .collect();
         let node_id_map = map.as_btree_map();
         for history in self.hover_histories.values_mut() {
@@ -600,6 +627,47 @@ mod autotest_generated {
         // Purging the dom forgets the press.
         hm.purge_dom(&DomId { inner: 0 });
         assert_eq!(hm.press_target(MouseButton::Left), None);
+    }
+
+    #[test]
+    fn press_targets_are_per_seat() {
+        // Two cursors holding Left at once (9b-ii): the second press must not
+        // overwrite the first's target, and each release finds its own.
+        use azul_core::events::{KeyModifiers, MouseEventData};
+        let seat_event = |ty: EventType, seat_id: u64, target: DomNodeId| {
+            SyntheticEvent::new(
+                ty,
+                EventSource::User,
+                target,
+                azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 }),
+                EventData::Mouse(MouseEventData {
+                    position: LogicalPosition::zero(),
+                    button: MouseButton::Left,
+                    buttons: 0,
+                    modifiers: KeyModifiers::default(),
+                    seat_id,
+                    ..Default::default()
+                }),
+            )
+        };
+        let never_related = |_: DomNodeId, _: DomNodeId| false;
+        let mut hm = HoverManager::new();
+        let mut events = vec![
+            seat_event(EventType::MouseDown, 0, press_dnid(3)),
+            seat_event(EventType::MouseDown, 9, press_dnid(4)),
+        ];
+        hm.apply_press_target_capture(&mut events, &never_related);
+        assert_eq!(hm.press_target(MouseButton::Left), Some(press_dnid(3)));
+        assert_eq!(hm.press_target_for(9, MouseButton::Left), Some(press_dnid(4)));
+
+        // Seat 9 releases elsewhere: node 4 gets the captured release, and the
+        // primary's press is still on file.
+        let mut events = vec![seat_event(EventType::MouseUp, 9, press_dnid(1))];
+        hm.apply_press_target_capture(&mut events, &never_related);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1].target, press_dnid(4));
+        assert_eq!(hm.press_target_for(9, MouseButton::Left), None);
+        assert_eq!(hm.press_target(MouseButton::Left), Some(press_dnid(3)));
     }
 
     fn hit_item(depth: u32) -> HitTestItem {

@@ -3557,6 +3557,20 @@ impl CallbackInfo {
         self.get_current_window_state().mouse_state
     }
 
+    /// The state of pointer seat `seat_id` (9b-ii): a second, independent
+    /// cursor on a multi-seat desktop (an X11 MPX master pointer). `None` for
+    /// a seat this window has never seen. [`Self::get_current_mouse_state`]
+    /// is the PRIMARY seat by definition, so a callback handed a mouse event
+    /// with a non-zero seat id reads that cursor's position and buttons here
+    /// - the primary's would be a different cursor's.
+    #[must_use]
+    pub fn get_pointer_seat_state(&self, seat_id: u64) -> azul_core::window::OptionMouseState {
+        self.get_current_window_state()
+            .pointer_seat(seat_id)
+            .copied()
+            .into()
+    }
+
     /// Get full previous window state (immutable reference)
     #[must_use]
     pub const fn get_previous_window_state(&self) -> &Option<FullWindowState> {

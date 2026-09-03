@@ -205,6 +205,15 @@ pub struct Win32Window {
     /// it would unregister the app from the Dial's menu, so it is held rather
     /// than recreated per event.
     pub radial_controller: Option<radial_controller::RadialControllerOwner>,
+    /// `hDevice` of the last raw MOUSE input this window received, for
+    /// `MouseState::pointer_device_id` (9b-ii). Win32's legacy mouse messages
+    /// carry no device field at all; raw input is the only channel that
+    /// names the physical mouse, and it is queued AHEAD of the legacy message
+    /// the same motion becomes (`RIDEV_NOLEGACY` exists precisely because raw
+    /// precedes legacy), so by the time `WM_MOUSEMOVE` reads this it names
+    /// the mouse that produced it. Windows has ONE cursor, so this is the
+    /// device driving the primary seat and never a second seat.
+    last_raw_mouse_device: u64,
     /// DirectManipulation viewport for precision-touchpad pinch/pan.
     ///
     /// `None` where DirectManipulation is unavailable (Server SKUs without the
@@ -630,6 +639,7 @@ impl Win32Window {
             window_id: initial_window_state.window_id.clone(),
             window_focused: true,
             active_route: azul_core::resources::OptionRouteMatch::None,
+            pointer_seats: azul_core::window::PointerSeatVec::from_const_slice(&[]),
         };
 
         // Set document_id and id_namespace for this window
@@ -811,6 +821,7 @@ impl Win32Window {
             // `CreateForWindow` each need a real HWND.
             direct_manipulation: None,
             radial_controller: None,
+            last_raw_mouse_device: 0,
             owned_popup: owner_hwnd.is_some(),
             owner_id: owner_hwnd.map_or(0, |h| h as usize as u64),
             hinstance,
@@ -4562,6 +4573,15 @@ unsafe extern "system" fn window_proc(
                         extra,
                     );
             }
+            // The physical mouse behind this motion, from the raw-input
+            // message that preceded it (9b-ii). Stamped on motion only: a
+            // click with no move before it keeps the device that last moved
+            // the cursor, which is the honest answer to "which mouse is
+            // driving".
+            {
+                let device = window.last_raw_mouse_device;
+                window.common.mouse_state_mut().pointer_device_id = device;
+            }
 
             // Update mouse state
             window.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(logical_pos);
@@ -5233,42 +5253,49 @@ unsafe extern "system" fn window_proc(
                 .current_window_state()
                 .mouse_state
                 .is_cursor_locked;
-            if locked {
-                unsafe {
-                    let mut data = core::mem::zeroed::<dlopen::RAWINPUTMOUSE>();
-                    let mut size = core::mem::size_of::<dlopen::RAWINPUTMOUSE>() as u32;
-                    // Returns the byte count, or u32::MAX on error - NOT a
-                    // BOOL. Treating a nonzero return as success would accept
-                    // the error code as a length.
-                    let written = (window.win32.user32.GetRawInputData)(
-                        lparam,
-                        dlopen::RID_INPUT,
-                        (&raw mut data).cast(),
-                        &mut size,
-                        core::mem::size_of::<dlopen::RAWINPUTHEADER>() as u32,
-                    );
-                    if written != u32::MAX && data.header.dwType == dlopen::RIM_TYPEMOUSE {
-                        // A few devices (RDP, some tablets and KVMs) report
-                        // ABSOLUTE positions here. Those are not deltas, and
-                        // accumulating them as if they were sends the camera
-                        // to the corner of the screen on the first event.
-                        let absolute =
-                            (data.mouse.usFlags & dlopen::MOUSE_MOVE_ABSOLUTE) != 0;
-                        let dx = data.mouse.lLastX;
-                        let dy = data.mouse.lLastY;
-                        if !absolute && (dx != 0 || dy != 0) {
-                            if let Some(lw) = window.common.layout_window.as_mut() {
-                                // `hDevice` distinguishes physical mice, the
-                                // same role X11's `sourceid` plays.
-                                lw.device_event_manager.note_raw_motion(
-                                    f64::from(dx),
-                                    f64::from(dy),
-                                    data.header.hDevice as u64,
-                                );
-                            }
+            unsafe {
+                let mut data = core::mem::zeroed::<dlopen::RAWINPUTMOUSE>();
+                let mut size = core::mem::size_of::<dlopen::RAWINPUTMOUSE>() as u32;
+                // Returns the byte count, or u32::MAX on error - NOT a
+                // BOOL. Treating a nonzero return as success would accept
+                // the error code as a length.
+                let written = (window.win32.user32.GetRawInputData)(
+                    lparam,
+                    dlopen::RID_INPUT,
+                    (&raw mut data).cast(),
+                    &mut size,
+                    core::mem::size_of::<dlopen::RAWINPUTHEADER>() as u32,
+                );
+                if written != u32::MAX && data.header.dwType == dlopen::RIM_TYPEMOUSE {
+                    // WHICH MOUSE, read whether or not the pointer is locked
+                    // (9b-ii): the privacy gate below is about MOTION - the
+                    // user's movements across the whole desktop - and a
+                    // device handle carries none of that. Raw input has been
+                    // registered for this window since creation, so this is
+                    // the same data, read one field further.
+                    window.last_raw_mouse_device = data.header.hDevice as u64;
+
+                    // A few devices (RDP, some tablets and KVMs) report
+                    // ABSOLUTE positions here. Those are not deltas, and
+                    // accumulating them as if they were sends the camera
+                    // to the corner of the screen on the first event.
+                    let absolute = (data.mouse.usFlags & dlopen::MOUSE_MOVE_ABSOLUTE) != 0;
+                    let dx = data.mouse.lLastX;
+                    let dy = data.mouse.lLastY;
+                    if locked && !absolute && (dx != 0 || dy != 0) {
+                        if let Some(lw) = window.common.layout_window.as_mut() {
+                            // `hDevice` distinguishes physical mice, the
+                            // same role X11's `sourceid` plays.
+                            lw.device_event_manager.note_raw_motion(
+                                f64::from(dx),
+                                f64::from(dy),
+                                data.header.hDevice as u64,
+                            );
                         }
                     }
                 }
+            }
+            if locked {
                 let result = window.process_window_events(0);
                 window.route_main_window_result(hwnd, result);
             }

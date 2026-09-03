@@ -1750,14 +1750,76 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       unrecognised names, and that "OpenMoko"/"Pentax" do not become styluses. Host check green,
       Linux target check green, 8-target gate green. NOT runtime-verified — needs a real X
       server with a real touchpad.
-- [ ] 9b-ii RE-SCOPED BY THE USER (2026-09-03: "we need to refactor the mouse state"). No longer
-      "a bigger change than this arc" - it is asked for. `MouseState` is a single global, so
-      `device_id` travels on the EVENT while the STATE does not fan out per seat: two mice share
-      one cursor position, one button set and one hover. The fan-out is
-      `BTreeMap<DeviceId, MouseState>` with the existing single global becoming the primary
-      seat's entry, so nothing that reads "the mouse" breaks while a second seat becomes
-      expressible. `InputPointId` (already used to key the hover manager per pointer) is the
-      precedent and probably the key type.
+- [x] 9b-ii DONE (user re-scoped 2026-09-03: "we need to refactor the mouse state"). The state
+      now fans out per pointer SEAT, with the existing global as the primary seat's entry.
+      ⚠ THE KEY IS A SEAT, NOT A DEVICE - the item as logged said `BTreeMap<DeviceId, ...>`, and
+      that would have been wiring it wrong. A seat is an independent CURSOR; a device is the
+      hardware that drove one. On Windows, macOS, Android and iOS the OS merges every mouse into
+      ONE cursor: a click from the second mouse after a move from the first lands where the
+      first left the cursor, because that IS where the cursor is. Keyed by device, that click
+      would have been dispatched at a stale position in a phantom second entry nobody could
+      see. Only X11 (MPX master pointers) and Wayland (one `wl_seat` per user) can present a
+      second cursor, and only there does a second entry ever exist. `pointer_device_id` stays
+      the physical device WITHIN a seat.
+      MODEL: `PointerSeat { seat_id, state: MouseState }` + `PointerSeatVec` in core;
+      `FullWindowState.pointer_seats` holds the NON-primary seats only, sorted - the primary is
+      `mouse_state` itself and is deliberately not duplicated (two copies of one cursor are a
+      desync waiting to happen), so every existing reader of "the mouse" keeps meaning what it
+      meant. `pointer_seat(id)` / `pointer_seat_mut(id)` (creates on first touch) /
+      `remove_pointer_seat` / `pointer_seats_with_primary` fold seat 0 in.
+      EVENTS: the button / click / context-menu / move derivation is ONE shared
+      `pointer_seat_events` for the primary and every other seat (dedup before features), run
+      per seat against that seat's own previous entry and targeted through its own hover
+      history (`InputPointId::Seat(id)`; `for_seat` folds 0 into `Mouse`). A new seat diffs
+      against a default state so its first press is a MouseDown; a vanished seat diffs the other
+      way and releases what it held. Press targets are keyed `(seat, button)`, so a second
+      cursor's release cannot complete the first's click. `MouseEventData.seat_id` APPENDED
+      (Rust-only, the struct is not in api.json).
+      ⚠ BOTH HALVES OF 9b-i WERE DEAD: `MouseState.pointer_device_id` had NO writer on any
+      platform and `MouseEventData.device_id` was never set on a real event (`..Default`), so
+      the fields appended to answer "which mouse" answered 0 everywhere. Now stamped from the
+      seat's state on every derived event, and written by: X11 (`sourceid`, the slave), Windows
+      (`WM_INPUT` `hDevice`, read for its header whether or not the pointer is locked - the
+      privacy gate is about MOTION and a device handle carries none; raw is queued ahead of the
+      legacy message it becomes, so `WM_MOUSEMOVE` stamps the mouse that produced it), Android
+      (`MotionEvent.getDeviceId()`). macOS/iOS/Wayland expose no physical mouse identity, so 0
+      stays honest there.
+      SECOND CURSOR PRODUCER: X11 MPX. Events were already selected on `XIAllMasterDevices`, so
+      a second master's presses had always arrived - and were applied to the one global,
+      teleporting cursor A's buttons to cursor B's position. `deviceid` == 2 (the virtual core
+      pointer, reserved by XI2) is the primary; any other master is a seat, applied to its own
+      state, hit-tested into its own hover history, and run through the ordinary diff pass.
+      `get_pointer_seat_state(seat_id)` on `CallbackInfo` reads a seat from a callback
+      (`get_current_mouse_state` is the primary by definition). `ModifyWindowState` /
+      `QueueWindowStateSequence` copy and hit-test the seats; `first_differing_state_field`
+      classifies `pointer_seats` as event-bearing (the exhaustive destructure caught it).
+      ALSO: `InputSample` fields reordered by alignment - the api checker had been exiting 1 on
+      its padding since 9g-ii-d exposed it, so "autofix converged" was being read off a red exit.
+      EVIDENCE: 10 layout tests (accessors; second seat's press targets the node under THAT
+      seat with its seat id and position; primary events carry seat 0 and the stamped device id;
+      vanished seat releases; new seat diffs from default; click per seat; single-seat state
+      derives exactly what it did before; press targets per seat) + 1 dll test. NEGATIVE
+      CONTROL: making `for_seat` always answer `Mouse` fails the two targeting tests. Host check,
+      8/8 mobile, autofix converged at EXIT=0, `codegen all`, C header carries
+      `AzPointerSeatVec pointer_seats` and `AzCallbackInfo_getPointerSeatState`. ⚠ No MPX setup
+      here: the X11 path is compiled (linux-gnu is in the gate), not seen.
+- [ ] 9b-ii-a Wayland multi-seat. The shell binds ONE `wl_seat`; a second seat needs one
+      binding per `wl_seat` global with per-listener user data naming it (seat id = the
+      global's name), and its own `wl_pointer`. Larger than a line - it is the listener plumbing
+      of the whole pointer path - and not blocked on anything. Wayland also exposes no physical
+      device identity (libinput is behind the compositor), so `pointer_device_id` stays 0 there
+      by design.
+- [ ] 9b-ii-b Per-seat gestures, wheel and pointer capture. `GestureAndDragManager` tracks ONE
+      pointer and is fed from the primary cursor, so drag / double-click / long-press / pen stay
+      primary-only; a second seat's wheel is DROPPED on X11 rather than scrolling the node under
+      the first cursor; `pointer_capture` (one `Option<DomNodeId>`, no seat) still retargets
+      every seat's moves and releases - left as it was rather than approximated, because both
+      "primary only" and "all seats" are wrong for a capture a second seat's press started.
+      Also `deduplicate_synthetic_events` coalesces by (target, type), so two seats pressing
+      the same node produce one MouseDown - the touch path's documented limit, now shared.
+- [ ] 9b-ii-c No harness op injects a second seat: the headless backend and the e2e runner
+      are primary-only, so the per-seat pipeline is proven at the determination level, not
+      through a scenario.
 
 ### QUEUED BY THE USER - 2026-09-03, collaborative editing
 

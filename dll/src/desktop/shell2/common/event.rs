@@ -1078,6 +1078,7 @@ fn first_differing_state_field(a: &FullWindowState, b: &FullWindowState) -> Opti
         theme,
         monitor_id,
         mouse_state,
+        pointer_seats,
         keyboard_state,
         touch_state,
         // Not event-bearing — see the doc above. Never compared.
@@ -1119,6 +1120,10 @@ fn first_differing_state_field(a: &FullWindowState, b: &FullWindowState) -> Opti
     }
     if *mouse_state != b.mouse_state {
         return Some("mouse_state");
+    }
+    // A second cursor's press is an event exactly like the first's (9b-ii).
+    if *pointer_seats != b.pointer_seats {
+        return Some("pointer_seats");
     }
     if *keyboard_state != b.keyboard_state {
         return Some("keyboard_state");
@@ -2849,6 +2854,14 @@ impl CommonWindowState {
         &mut self.current_window_state.mouse_state
     }
 
+    /// The live state of pointer seat `seat_id` (9b-ii) - [`Self::mouse_state_mut`]
+    /// for the primary, the seat's own entry otherwise, created on first use.
+    /// The narrow-door reasoning above applies unchanged: an input sub-state,
+    /// never diffed by `sync_window_state()`.
+    pub fn pointer_seat_mut(&mut self, seat_id: u64) -> &mut azul_core::window::MouseState {
+        self.current_window_state.pointer_seat_mut(seat_id)
+    }
+
     /// The live keyboard state — see [`Self::mouse_state_mut`].
     pub fn keyboard_state_mut(&mut self) -> &mut azul_core::window::KeyboardState {
         &mut self.current_window_state.keyboard_state
@@ -4348,6 +4361,9 @@ pub trait PlatformWindow {
                 let old_state = self.get_current_window_state().clone();
 
                 let mouse_state_changed = old_state.mouse_state != state.mouse_state;
+                // The other cursors (9b-ii): same treatment as the primary,
+                // or an app-pushed seat change would neither copy nor diff.
+                let seats_changed = old_state.pointer_seats != state.pointer_seats;
                 let keyboard_state_changed = old_state.keyboard_state != state.keyboard_state;
                 // WINDOW-LEVEL transitions. `event_determination` derives
                 // WindowFocusIn / WindowFocusOut / WindowMove / WindowResize
@@ -4375,6 +4391,7 @@ pub trait PlatformWindow {
                 let touch_state_changed = old_state.touch_state != state.touch_state;
 
                 let anything_changed = mouse_state_changed
+                    || seats_changed
                     || keyboard_state_changed
                     || focus_changed
                     || position_changed
@@ -4396,6 +4413,7 @@ pub trait PlatformWindow {
                         current.flags = state.flags;
                         current.background_color = state.background_color;
                         current.mouse_state = state.mouse_state;
+                        current.pointer_seats = state.pointer_seats.clone();
                         current.keyboard_state = state.keyboard_state.clone();
                         current.touch_state = state.touch_state.clone();
                         current.window_focused = state.window_focused;
@@ -4485,6 +4503,16 @@ pub trait PlatformWindow {
                         self.update_hit_test_at(pos);
                     }
                 }
+                // Each other seat hit-tests at ITS OWN cursor, into its own
+                // hover history, so the event pass targets its press at the
+                // node under that cursor and not under the primary's.
+                if seats_changed {
+                    for seat in state.pointer_seats.as_ref() {
+                        if let Some(pos) = seat.state.cursor_position.get_position() {
+                            self.update_seat_hit_test_at(seat.seat_id, pos);
+                        }
+                    }
+                }
 
                 // Run the state-diff pass ONCE for whatever changed. This is the
                 // single path that turns a state delta into synthetic events
@@ -4507,6 +4535,7 @@ pub trait PlatformWindow {
                     self.get_common_mut()
                         .update_window_state(WindowStateSource::App, |current| {
                             current.mouse_state = queued_state.mouse_state;
+                            current.pointer_seats = queued_state.pointer_seats.clone();
                             current.keyboard_state = queued_state.keyboard_state.clone();
                             current.title = queued_state.title.clone();
                             current.size = queued_state.size;
@@ -4514,6 +4543,11 @@ pub trait PlatformWindow {
                             current.flags = queued_state.flags;
                         });
 
+                    for seat in queued_state.pointer_seats.as_ref() {
+                        if let Some(pos) = seat.state.cursor_position.get_position() {
+                            self.update_seat_hit_test_at(seat.seat_id, pos);
+                        }
+                    }
                     let mouse_pos = queued_state.mouse_state.cursor_position.get_position();
                     if let Some(pos) = mouse_pos {
                         self.update_hit_test_at(pos);
@@ -7618,6 +7652,23 @@ pub trait PlatformWindow {
             layout_window
                 .hover_manager
                 .push_hit_test(InputPointId::Mouse, hit_test);
+        }
+    }
+
+    /// [`Self::update_hit_test_at`] for a NON-PRIMARY pointer seat (9b-ii):
+    /// the same hit test, filed under the seat's own hover history so
+    /// `determine_all_events` can target that cursor's events at the node
+    /// under that cursor. Folds `PRIMARY_POINTER_SEAT` back into the primary
+    /// path, so a caller need not special-case it.
+    fn update_seat_hit_test_at(&mut self, seat_id: u64, position: azul_core::geom::LogicalPosition) {
+        use azul_layout::managers::hover::InputPointId;
+        let input_id = InputPointId::for_seat(seat_id);
+        if input_id == InputPointId::Mouse {
+            return self.update_hit_test_at(position);
+        }
+        let hit_test = self.get_common_mut().perform_hit_test(position);
+        if let Some(layout_window) = self.get_layout_window_mut() {
+            layout_window.hover_manager.push_hit_test(input_id, hit_test);
         }
     }
 
@@ -13045,6 +13096,18 @@ mod tests {
             first_differing_state_field(&previous, &current),
             None,
             "flags is not compared wholesale"
+        );
+    }
+
+    #[test]
+    fn a_second_seats_button_is_event_bearing() {
+        // 9b-ii: an unconsumed change on a non-primary seat IS a lost event,
+        // exactly as for `mouse_state`.
+        let (previous, mut current) = state_pair();
+        current.pointer_seat_mut(4).left_down = true;
+        assert_eq!(
+            first_differing_state_field(&previous, &current),
+            Some("pointer_seats")
         );
     }
 

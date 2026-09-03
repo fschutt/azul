@@ -297,6 +297,163 @@ impl EventProvider for DocumentEditEventProvider {
     }
 }
 
+/// The button, click, context-menu and movement events of ONE pointer seat,
+/// derived from its state delta.
+///
+/// Shared between the primary seat (`FullWindowState::mouse_state`) and every
+/// additional one in `pointer_seats` (9b-ii), so a second cursor gets exactly
+/// the semantics the first has - the same press-target rule for Click, the
+/// same ContextMenu on right release - rather than a reduced copy that drifts.
+/// `target` is the node under THIS seat's cursor; `input_id` is the hover
+/// history that produced it and is what the click rule reads.
+#[allow(clippy::too_many_arguments)]
+fn pointer_seat_events(
+    seat_id: u64,
+    current: &azul_core::window::MouseState,
+    previous: &azul_core::window::MouseState,
+    target: DomNodeId,
+    hover_manager: &crate::managers::hover::HoverManager,
+    input_id: &crate::managers::hover::InputPointId,
+    modifiers: KeyModifiers,
+    timestamp: &Instant,
+    events: &mut Vec<SyntheticEvent>,
+) {
+    let cursor_pos = current
+        .cursor_position
+        .get_position()
+        .unwrap_or(LogicalPosition { x: 0.0, y: 0.0 });
+    let buttons: u8 = u8::from(current.left_down)
+        | (if current.right_down { 2 } else { 0 })
+        | (if current.middle_down { 4 } else { 0 });
+    let make_mouse_data = |button: MouseButton| -> EventData {
+        EventData::Mouse(MouseEventData {
+            position: cursor_pos,
+            button,
+            buttons,
+            modifiers,
+            source: current.pointer_source,
+            device_id: current.pointer_device_id,
+            seat_id,
+        })
+    };
+
+    // ------------------------------------------------------------------
+    // Buttons (with proper EventData::Mouse and per-button types)
+    // ------------------------------------------------------------------
+    for (curr_down, prev_down, button) in [
+        (current.left_down, previous.left_down, MouseButton::Left),
+        (current.right_down, previous.right_down, MouseButton::Right),
+        (current.middle_down, previous.middle_down, MouseButton::Middle),
+        // The thumb pair. `MouseButton::Other(n)` and the shell routing for it
+        // have both existed; what was missing was any state to diff, so a
+        // press could never become an event.
+        (
+            current.back_down(),
+            previous.back_down(),
+            MouseButton::Other(azul_core::events::MOUSE_BUTTON_BACK),
+        ),
+        (
+            current.forward_down(),
+            previous.forward_down(),
+            MouseButton::Other(azul_core::events::MOUSE_BUTTON_FORWARD),
+        ),
+    ] {
+        if curr_down && !prev_down {
+            events.push(SyntheticEvent::new(
+                EventType::MouseDown,
+                EventSource::User,
+                target,
+                timestamp.clone(),
+                make_mouse_data(button),
+            ));
+        }
+        if !curr_down && prev_down {
+            events.push(SyntheticEvent::new(
+                EventType::MouseUp,
+                EventSource::User,
+                target,
+                timestamp.clone(),
+                make_mouse_data(button),
+            ));
+            // A right-button release is also a context-menu request. Emitting
+            // it here rather than in each shell means the three spellings of
+            // "open the context menu" - this, the Menu/Apps key and Shift+F10,
+            // and the accessibility `ShowContextMenu` action - converge on one
+            // event type instead of three per-platform paths.
+            //
+            // `event_type_to_filters` routes `ContextMenu` to the
+            // `RightMouseDown` filter, so this reaches the handler an app
+            // already registered for right-click without needing a filter
+            // variant of its own.
+            if button == MouseButton::Right {
+                events.push(SyntheticEvent::new(
+                    EventType::ContextMenu,
+                    EventSource::User,
+                    target,
+                    timestamp.clone(),
+                    make_mouse_data(button),
+                ));
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Click synthesis: a left release on the node the press landed on.
+    // ------------------------------------------------------------------
+    // This used to compare the PREVIOUS hover node against the current one, as
+    // a stand-in for "same node as the press" - the comment said so, and the
+    // tests were already named after the real rule. The proxy only holds when
+    // the hover manager happened to push a hit test for the press as well as
+    // the move, which a backend is under no obligation to do: the headless
+    // backend pushes one only on MouseMove, so `previous_hover` stayed `None`
+    // across the press and the release, the comparison never matched, and
+    // NO Click was ever emitted. Every widget keyed on `HoverEventFilter::Click`
+    // - the ribbon tab headers among them - was therefore dead there.
+    //
+    // `press_target` is the real thing and already existed:
+    // `apply_press_target_capture` records it on MouseDown and removes it on
+    // MouseUp, both AFTER this function runs, so during the release pass the
+    // press is still on file. Per seat, so a second cursor's release cannot
+    // complete a click the first cursor started.
+    if !current.left_down && previous.left_down {
+        let pressed_on = hover_manager.press_target_for(seat_id, MouseButton::Left);
+        let released_on = hover_manager.hover_node_full_for(input_id);
+        if pressed_on.is_some() && pressed_on == released_on {
+            events.push(SyntheticEvent::new(
+                EventType::Click,
+                EventSource::User,
+                target,
+                timestamp.clone(),
+                make_mouse_data(MouseButton::Left),
+            ));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Movement
+    // ------------------------------------------------------------------
+    let current_in_window = matches!(current.cursor_position, CursorPosition::InWindow(_));
+    if current_in_window {
+        let current_pos = current.cursor_position.get_position();
+        let previous_pos = previous.cursor_position.get_position();
+
+        // MouseMove fires on ANY mouse movement, targeted at the hovered
+        // node. This emitter is UNCHANGED in behaviour and RENAMED: it used to
+        // push `MouseOver`, which is `mousemove` semantics under the
+        // `mouseover` name. W3C `mouseover` fires on ENTRY and is emitted from
+        // the hover-chain diff, next to its non-bubbling twin `MouseEnter`.
+        if current_pos != previous_pos {
+            events.push(SyntheticEvent::new(
+                EventType::MouseMove,
+                EventSource::User,
+                target,
+                timestamp.clone(),
+                make_mouse_data(MouseButton::Left), // movement doesn't care about button
+            ));
+        }
+    }
+}
+
 pub fn determine_all_events(
     current_state: &FullWindowState,
     previous_state: &FullWindowState,
@@ -357,121 +514,27 @@ pub fn determine_all_events(
             button,
             buttons,
             modifiers,
-            ..Default::default()
+            // Provenance from the PRIMARY seat's state (9b-ii): `device_id`
+            // used to be left at the default 0 on every real event, so the
+            // field that was appended to answer "which mouse" answered
+            // nothing.
+            source: current_state.mouse_state.pointer_source,
+            device_id: current_state.mouse_state.pointer_device_id,
+            seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
         })
     };
 
     // ========================================================================
-    // Mouse Button Events (with proper EventData::Mouse and per-button types)
+    // Pointer seats: buttons, click, context menu, movement
     // ========================================================================
-
+    //
+    // `current_mouse_down` / `previous_mouse_down` describe the PRIMARY seat
+    // and feed the drag/gesture derivation further down, which is primary-only
+    // (see the seat loop below for why).
     let current_mouse_down = current_state.mouse_state.mouse_down();
     let previous_mouse_down = previous_state.mouse_state.mouse_down();
-
-    for (curr_down, prev_down, button) in [
-        (
-            current_state.mouse_state.left_down,
-            previous_state.mouse_state.left_down,
-            MouseButton::Left,
-        ),
-        (
-            current_state.mouse_state.right_down,
-            previous_state.mouse_state.right_down,
-            MouseButton::Right,
-        ),
-        (
-            current_state.mouse_state.middle_down,
-            previous_state.mouse_state.middle_down,
-            MouseButton::Middle,
-        ),
-        // The thumb pair. `MouseButton::Other(n)` and the shell routing for it
-        // have both existed; what was missing was any state to diff, so a
-        // press could never become an event.
-        (
-            current_state.mouse_state.back_down(),
-            previous_state.mouse_state.back_down(),
-            MouseButton::Other(azul_core::events::MOUSE_BUTTON_BACK),
-        ),
-        (
-            current_state.mouse_state.forward_down(),
-            previous_state.mouse_state.forward_down(),
-            MouseButton::Other(azul_core::events::MOUSE_BUTTON_FORWARD),
-        ),
-    ] {
-        if curr_down && !prev_down {
-            events.push(SyntheticEvent::new(
-                EventType::MouseDown,
-                EventSource::User,
-                mouse_target,
-                timestamp.clone(),
-                make_mouse_data(button),
-            ));
-        }
-        if !curr_down && prev_down {
-            events.push(SyntheticEvent::new(
-                EventType::MouseUp,
-                EventSource::User,
-                mouse_target,
-                timestamp.clone(),
-                make_mouse_data(button),
-            ));
-            // A right-button release is also a context-menu request. Emitting
-            // it here rather than in each shell means the three spellings of
-            // "open the context menu" — this, the Menu/Apps key and Shift+F10
-            // below, and the accessibility `ShowContextMenu` action — converge
-            // on one event type instead of three per-platform paths.
-            //
-            // `event_type_to_filters` routes `ContextMenu` to the
-            // `RightMouseDown` filter, so this reaches the handler an app
-            // already registered for right-click without needing a filter
-            // variant of its own.
-            if button == MouseButton::Right {
-                events.push(SyntheticEvent::new(
-                    EventType::ContextMenu,
-                    EventSource::User,
-                    mouse_target,
-                    timestamp.clone(),
-                    make_mouse_data(button),
-                ));
-            }
-        }
-    }
-
-    // ========================================================================
-    // Click synthesis: a left release on the node the press landed on.
-    // ========================================================================
-    // This used to compare the PREVIOUS hover node against the current one, as
-    // a stand-in for "same node as the press" — the comment said so, and the
-    // tests were already named after the real rule. The proxy only holds when
-    // the hover manager happened to push a hit test for the press as well as
-    // the move, which a backend is under no obligation to do: the headless
-    // backend pushes one only on MouseMove, so `previous_hover` stayed `None`
-    // across the press and the release, the comparison never matched, and
-    // NO Click was ever emitted. Every widget keyed on `HoverEventFilter::Click`
-    // — the ribbon tab headers among them — was therefore dead there.
-    //
-    // `press_target` is the real thing and already existed:
-    // `apply_press_target_capture` records it on MouseDown and removes it on
-    // MouseUp, both AFTER this function runs, so during the release pass the
-    // press is still on file.
-    if !current_state.mouse_state.left_down && previous_state.mouse_state.left_down {
-        let pressed_on = hover_manager.press_target(MouseButton::Left);
-        let released_on = hover_manager.current_hover_node_full();
-        if pressed_on.is_some() && pressed_on == released_on {
-            events.push(SyntheticEvent::new(
-                EventType::Click,
-                EventSource::User,
-                mouse_target,
-                timestamp.clone(),
-                make_mouse_data(MouseButton::Left),
-            ));
-        }
-    }
-
-    // ========================================================================
-    // Mouse Movement Events
-    // ========================================================================
-
+    // Read by the hover-chain diff (MouseEnter / MouseLeave) further down,
+    // which is primary-only like the gestures.
     let current_in_window = matches!(
         current_state.mouse_state.cursor_position,
         CursorPosition::InWindow(_)
@@ -481,24 +544,71 @@ pub fn determine_all_events(
         CursorPosition::InWindow(_)
     );
 
-    if current_in_window {
-        let current_pos = current_state.mouse_state.cursor_position.get_position();
-        let previous_pos = previous_state.mouse_state.cursor_position.get_position();
+    pointer_seat_events(
+        azul_core::window::PRIMARY_POINTER_SEAT,
+        &current_state.mouse_state,
+        &previous_state.mouse_state,
+        mouse_target,
+        hover_manager,
+        &crate::managers::hover::InputPointId::Mouse,
+        modifiers,
+        &timestamp,
+        &mut events,
+    );
 
-        // MouseMove fires on ANY mouse movement, targeted at the hovered
-        // node. This emitter is UNCHANGED in behaviour and RENAMED: it used to
-        // push `MouseOver`, which is `mousemove` semantics under the
-        // `mouseover` name. W3C `mouseover` fires on ENTRY and is emitted from
-        // the hover-chain diff below, next to its non-bubbling twin
-        // `MouseEnter`.
-        if current_pos != previous_pos {
-            events.push(SyntheticEvent::new(
-                EventType::MouseMove,
-                EventSource::User,
-                mouse_target,
-                timestamp.clone(),
-                make_mouse_data(MouseButton::Left), // movement doesn't care about button
-            ));
+    // ADDITIONAL SEATS (9b-ii). Each is diffed against ITS OWN previous entry
+    // and targeted through its own hover history, so a second cursor's press
+    // lands on the node under the second cursor. A seat that has just
+    // appeared diffs against a default state, so its first press is a
+    // MouseDown and not a silently absorbed baseline; a seat that vanished
+    // diffs the other way round, releasing whatever it still held.
+    //
+    // Drag, double-click, long-press, pen and the wheel stay PRIMARY-ONLY:
+    // `GestureAndDragManager` tracks one pointer and is fed by the shells from
+    // the primary cursor, so running its detection against a second seat's
+    // positions would report the first cursor's gesture on the second one's
+    // node. That is 9b-ii-b, and is logged rather than approximated here.
+    {
+        let default_seat = azul_core::window::MouseState::default();
+        for seat in current_state.pointer_seats.as_ref() {
+            let input_id = crate::managers::hover::InputPointId::for_seat(seat.seat_id);
+            let target = hover_manager
+                .hover_node_full_for(&input_id)
+                .unwrap_or(root_node);
+            let previous = previous_state
+                .pointer_seat(seat.seat_id)
+                .unwrap_or(&default_seat);
+            pointer_seat_events(
+                seat.seat_id,
+                &seat.state,
+                previous,
+                target,
+                hover_manager,
+                &input_id,
+                modifiers,
+                &timestamp,
+                &mut events,
+            );
+        }
+        for gone in previous_state.pointer_seats.as_ref() {
+            if current_state.pointer_seat(gone.seat_id).is_some() {
+                continue;
+            }
+            let input_id = crate::managers::hover::InputPointId::for_seat(gone.seat_id);
+            let target = hover_manager
+                .hover_node_full_for(&input_id)
+                .unwrap_or(root_node);
+            pointer_seat_events(
+                gone.seat_id,
+                &default_seat,
+                &gone.state,
+                target,
+                hover_manager,
+                &input_id,
+                modifiers,
+                &timestamp,
+                &mut events,
+            );
         }
     }
 
@@ -2628,6 +2738,162 @@ mod autotest_generated {
         let events = run_plain(&cursor_at(20.0, 20.0), &previous);
         assert_eq!(count(&events, EventType::Click), 0);
         assert_eq!(count(&events, EventType::MouseUp), 1);
+    }
+
+    // ==================================================================
+    // determine_all_events - pointer seats (9b-ii)
+    // ==================================================================
+
+    /// `state` with a second cursor (`seat`) at `(x, y)`, left button as given.
+    fn with_seat(mut s: FullWindowState, seat: u64, x: f32, y: f32, left: bool) -> FullWindowState {
+        let ms = s.pointer_seat_mut(seat);
+        ms.cursor_position = CursorPosition::InWindow(LogicalPosition::new(x, y));
+        ms.left_down = left;
+        s
+    }
+
+    fn seat_of(ev: &SyntheticEvent) -> u64 {
+        match &ev.data {
+            EventData::Mouse(m) => m.seat_id,
+            other => panic!("not a mouse event: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_second_seats_press_targets_the_node_under_that_seat() {
+        // THE DEFECT: with one global MouseState, a second MPX cursor's press
+        // was applied to the primary's state - dispatched at the PRIMARY
+        // cursor's position, under the primary's hover. Now the seat's own
+        // hover history decides the target, and the event says which seat.
+        let mut hm = HoverManager::new();
+        hm.push_hit_test(InputPointId::Mouse, hits(&[(0, 3)]));
+        hm.push_hit_test(InputPointId::Seat(7), hits(&[(0, 9)]));
+
+        let previous = with_seat(cursor_at(1.0, 1.0), 7, 50.0, 50.0, false);
+        let current = with_seat(cursor_at(1.0, 1.0), 7, 50.0, 50.0, true);
+        let events = run(&current, &previous, &hm, None, None);
+
+        let down = only(&events, EventType::MouseDown);
+        assert_eq!(down.target, node(0, 9), "under the SECOND cursor, not node 3");
+        assert_eq!(seat_of(&down), 7);
+        match &down.data {
+            EventData::Mouse(m) => assert_eq!(m.position, LogicalPosition::new(50.0, 50.0)),
+            _ => unreachable!(),
+        }
+        // The primary did nothing, so no MOUSE event names it. (The hover-chain
+        // diff still emits its `EventData::None` enter events for the primary's
+        // freshly recorded hover, which is unrelated to seats.)
+        assert!(
+            events
+                .iter()
+                .filter(|e| matches!(e.data, EventData::Mouse(_)))
+                .all(|e| seat_of(e) == 7),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn the_primary_seats_events_carry_seat_zero_and_its_device() {
+        let mut previous = cursor_at(20.0, 20.0);
+        previous.mouse_state.pointer_device_id = 42;
+        let mut current = previous.clone();
+        current.mouse_state.left_down = true;
+        let events = run_plain(&current, &previous);
+        let down = only(&events, EventType::MouseDown);
+        match &down.data {
+            EventData::Mouse(m) => {
+                assert_eq!(m.seat_id, azul_core::window::PRIMARY_POINTER_SEAT);
+                // `device_id` used to be left at the default 0 on every real
+                // event - the field existed and answered nothing.
+                assert_eq!(m.device_id, 42);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn a_seat_that_vanished_releases_what_it_held() {
+        // Removed master pointer: the previous state has the seat with Left
+        // down, the current state has no such seat. Diffed against a default
+        // state, so the release is derived and the press is not stuck.
+        let previous = with_seat(state(), 5, 10.0, 10.0, true);
+        let current = state();
+        let events = run_plain(&current, &previous);
+        let up = only(&events, EventType::MouseUp);
+        assert_eq!(seat_of(&up), 5);
+        assert_eq!(count(&events, EventType::MouseDown), 0);
+    }
+
+    #[test]
+    fn a_new_seat_diffs_against_a_default_state() {
+        // First ever event from a second cursor is a press: it must become a
+        // MouseDown, not be absorbed as a baseline.
+        let current = with_seat(state(), 5, 10.0, 10.0, true);
+        let events = run_plain(&current, &state());
+        assert_eq!(count(&events, EventType::MouseDown), 1);
+        assert_eq!(seat_of(&only(&events, EventType::MouseDown)), 5);
+    }
+
+    #[test]
+    fn a_click_is_per_seat() {
+        // Seat 7 pressed on node 9 and releases on node 9: a Click for seat 7.
+        // The primary pressed on node 3 and is still holding: no click for it,
+        // and seat 7's release must not complete the primary's press.
+        let mut hm = HoverManager::new();
+        hm.push_hit_test(InputPointId::Mouse, hits(&[(0, 3)]));
+        hm.push_hit_test(InputPointId::Seat(7), hits(&[(0, 9)]));
+        let mut downs = vec![
+            SyntheticEvent::new(
+                EventType::MouseDown,
+                EventSource::User,
+                node(0, 3),
+                ts(0),
+                EventData::Mouse(azul_core::events::MouseEventData {
+                    button: MouseButton::Left,
+                    ..Default::default()
+                }),
+            ),
+            SyntheticEvent::new(
+                EventType::MouseDown,
+                EventSource::User,
+                node(0, 9),
+                ts(0),
+                EventData::Mouse(azul_core::events::MouseEventData {
+                    button: MouseButton::Left,
+                    seat_id: 7,
+                    ..Default::default()
+                }),
+            ),
+        ];
+        hm.apply_press_target_capture(&mut downs, &|_, _| false);
+
+        let mut previous = with_seat(cursor_at(1.0, 1.0), 7, 50.0, 50.0, true);
+        previous.mouse_state.left_down = true;
+        let mut current = previous.clone();
+        current.pointer_seat_mut(7).left_down = false;
+        let events = run(&current, &previous, &hm, None, None);
+
+        let click = only(&events, EventType::Click);
+        assert_eq!(click.target, node(0, 9));
+        assert_eq!(seat_of(&click), 7);
+        assert_eq!(count(&events, EventType::MouseUp), 1);
+        assert_eq!(
+            hm.press_target(MouseButton::Left),
+            Some(node(0, 3)),
+            "the primary's press is untouched"
+        );
+    }
+
+    #[test]
+    fn a_single_seat_state_derives_exactly_what_it_did_before() {
+        // No `pointer_seats` entries: the refactor must be invisible.
+        let mut previous = cursor_at(20.0, 20.0);
+        previous.mouse_state.left_down = true;
+        let hm = hover_with_press(hits(&[(0, 8)]), hits(&[(0, 8)]), node(0, 8));
+        let events = run(&cursor_at(20.0, 20.0), &previous, &hm, None, None);
+        assert_eq!(count(&events, EventType::Click), 1);
+        assert_eq!(count(&events, EventType::MouseUp), 1);
+        assert!(events.iter().all(|e| !matches!(&e.data, EventData::Mouse(m) if m.seat_id != 0)));
     }
 
     // ==================================================================

@@ -125,12 +125,23 @@ impl Default for GestureDetectionConfig {
 /// Single input sample with position and timestamp.
 ///
 /// `#[repr(C)]` because it crosses the C ABI through
-/// `CallbackInfo::get_last_input_sample`. It is deliberately NOT `Copy`, unlike
+/// `CallbackInfo::get_last_input_sample`. Field order is by DECREASING
+/// ALIGNMENT, not by topic - `repr(C)` lays it out literally, and the
+/// topical order cost 8 bytes of padding per sample, which the api checker
+/// refuses to proceed on. It is deliberately NOT `Copy`, unlike
 /// `PenState` beside it: `timestamp` is an `Instant`, which on a `std` build
 /// owns a boxed platform clock reading with a destructor.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct InputSample {
+    /// Timestamp when this sample was recorded (from `ExternalSystemCallbacks`).
+    ///
+    /// Spelled as the real type and not through this module's `CoreInstant`
+    /// alias: the codegen reads the field's written type verbatim, so an alias
+    /// here produces an `AzCoreInstant` in the C header that does not exist.
+    pub timestamp: azul_core::task::Instant,
+    /// Unique, monotonic event ID for ordering (atomic counter)
+    pub event_id: u64,
     /// Position in logical coordinates (window-local, Y=0 at top of window)
     pub position: LogicalPosition,
     /// Position in virtual screen coordinates (Y=0 at top of primary monitor).
@@ -142,18 +153,6 @@ pub struct InputSample {
     /// All coordinates are in logical pixels (HiDPI-independent).
     /// On Wayland, this is an estimate (compositor does not expose global position).
     pub screen_position: LogicalPosition,
-    /// Timestamp when this sample was recorded (from `ExternalSystemCallbacks`).
-    ///
-    /// Spelled as the real type and not through this module's `CoreInstant`
-    /// alias: the codegen reads the field's written type verbatim, so an alias
-    /// here produces an `AzCoreInstant` in the C header that does not exist.
-    pub timestamp: azul_core::task::Instant,
-    /// Mouse button state (bitfield: 0x01 = left, 0x02 = right, 0x04 = middle)
-    pub button_state: u8,
-    /// Unique, monotonic event ID for ordering (atomic counter)
-    pub event_id: u64,
-    /// Pen/stylus pressure (0.0 to 1.0, 0.5 = default for mouse)
-    pub pressure: f32,
     /// Pen/stylus tilt angles in degrees.
     /// Range: typically -90.0 to 90.0, both zero = perpendicular.
     ///
@@ -172,6 +171,10 @@ pub struct InputSample {
     /// models the same physical thing but as a major/minor ellipse plus an id,
     /// a position and a force this sample already carries separately.
     pub touch_radius: LogicalSize,
+    /// Pen/stylus pressure (0.0 to 1.0, 0.5 = default for mouse)
+    pub pressure: f32,
+    /// Mouse button state (bitfield: 0x01 = left, 0x02 = right, 0x04 = middle)
+    pub button_state: u8,
 }
 
 /// Rotary-encoder units to RADIANS, given the device's own resolution

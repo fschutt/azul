@@ -682,6 +682,56 @@ impl Default for MouseState {
     }
 }
 
+/// The seat id of the PRIMARY pointer - the one `FullWindowState::mouse_state`
+/// describes. Every platform has exactly this seat; most have only it.
+pub const PRIMARY_POINTER_SEAT: u64 = 0;
+
+/// One ADDITIONAL pointer seat (9b-ii): an independent cursor with its own
+/// position, buttons and hover, next to the primary one.
+///
+/// A SEAT is not a DEVICE. `MouseState::pointer_device_id` names the physical
+/// hardware that last drove a cursor; a seat is the cursor itself. The
+/// distinction is the whole design: on Windows, macOS, Android and iOS the OS
+/// merges every mouse into ONE cursor, so two mice are two devices driving one
+/// seat - a click from the second mouse after a move from the first lands
+/// where the first left the cursor, because that IS where the cursor is.
+/// Keying state by device would have split that one cursor into two entries
+/// with different positions, and dispatched the click somewhere the user
+/// could not see. Only X11 (MPX master pointers) and Wayland (one `wl_seat`
+/// per user) can present a second cursor, and only there does a second entry
+/// exist.
+///
+/// The primary seat is NOT in `pointer_seats`; it stays `mouse_state` so
+/// every existing reader of "the mouse" keeps meaning what it meant.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
+#[repr(C)]
+pub struct PointerSeat {
+    /// The platform's identity for this cursor - an X11 master pointer id,
+    /// a Wayland seat's global name. Never [`PRIMARY_POINTER_SEAT`].
+    pub seat_id: u64,
+    /// The seat's own cursor state.
+    pub state: MouseState,
+}
+
+impl_option!(
+    PointerSeat,
+    OptionPointerSeat,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
+);
+
+impl_vec!(
+    PointerSeat,
+    PointerSeatVec,
+    PointerSeatVecDestructor,
+    PointerSeatVecDestructorType,
+    PointerSeatVecSlice,
+    OptionPointerSeat
+);
+impl_vec_debug!(PointerSeat, PointerSeatVec);
+impl_vec_clone!(PointerSeat, PointerSeatVec, PointerSeatVecDestructor);
+impl_vec_partialeq!(PointerSeat, PointerSeatVec);
+impl_vec_mut!(PointerSeat, PointerSeatVec);
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct VirtualKeyCodeCombo {
