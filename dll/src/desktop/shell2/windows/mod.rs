@@ -27,6 +27,7 @@ pub mod clipboard;
 pub mod dlopen;
 pub mod dnd;
 pub mod direct_manipulation;
+pub mod radial_controller;
 mod dpi;
 mod gl;
 pub mod menu;
@@ -198,6 +199,12 @@ pub struct Win32Window {
     pub needs_gpu_present: bool,
 
     // Menu and UI state
+    /// Surface Dial controller, kept alive for the window's lifetime.
+    ///
+    /// `None` where no Dial support exists, which is the common case: dropping
+    /// it would unregister the app from the Dial's menu, so it is held rather
+    /// than recreated per event.
+    pub radial_controller: Option<radial_controller::RadialControllerOwner>,
     /// DirectManipulation viewport for precision-touchpad pinch/pan.
     ///
     /// `None` where DirectManipulation is unavailable (Server SKUs without the
@@ -800,9 +807,10 @@ impl Win32Window {
 
         let mut result = Win32Window {
             hwnd,
-            // Built AFTER the window exists, below - `CreateViewport` needs a
-            // real HWND and the client size, neither of which is known here.
+            // Both built AFTER the window exists, below: `CreateViewport` and
+            // `CreateForWindow` each need a real HWND.
             direct_manipulation: None,
+            radial_controller: None,
             owned_popup: owner_hwnd.is_some(),
             owner_id: owner_hwnd.map_or(0, |h| h as usize as u64),
             hinstance,
@@ -879,6 +887,14 @@ impl Win32Window {
                     dims.height as i32,
                 );
             }
+
+            // SURFACE DIAL (9c-i-c). `CreateForWindow` is what makes a
+            // UWP-only API reachable from a Win32 app, and it needs the HWND -
+            // so this happens here rather than in the struct literal.
+            // `None` (no Dial paired, or a Windows build without the
+            // interface) is the ordinary outcome and changes nothing else.
+            result.radial_controller =
+                radial_controller::RadialControllerOwner::new(hwnd as isize);
 
             let initial_material = result
                 .common

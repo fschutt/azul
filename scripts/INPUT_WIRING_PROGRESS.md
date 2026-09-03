@@ -1116,9 +1116,28 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [ ] 9c-i-b The crown PRESS. `DialState::pressed` stays false on Android because a crown click
       arrives as a KeyEvent (`KEYCODE_STEM_PRIMARY` on Wear), not on the motion axis - so it needs
       a key-side producer feeding the same `DialState`, not another motion arm.
-- [ ] IN SCOPE (implement blindly). 9c-i-c Win32 `RadialController`: still needs WinRT interop the shell does not have, and is
-      the only backend that can ever fill `contact_position` (a Surface Dial placed on a Studio
-      display).
+- [x] 9c-i-c DONE — Surface Dial, completing the dial on every platform that has one.
+      It is the most CAPABLE dial backend, not just another one. `RotationDeltaInDegrees` is a
+      real angular delta, so this is the one place `DialState::delta_rad` is honest - the Wayland
+      pad dial reports rotation but no position, and the Android Wear crown reports detents with
+      no angle at all (9c-i-a records that there is no honest conversion there). It is also the
+      ONLY backend that can ever fill `contact_position`: a Dial placed on a Surface Studio's
+      display reports a screen contact point, which is what lets an app draw a radial menu around
+      the physical object.
+      `CreateForWindow` IS THE WHOLE TRICK. `RadialController::CreateForCurrentView()` is the UWP
+      entry point and is useless to a Win32 app - there is no CoreWindow - so the desktop route
+      is the `IRadialControllerInterop` activation factory, obtained by casting the factory for
+      `Windows.UI.Input.RadialController`. That is why this needs `Win32_UI_Input_Radial` on top
+      of `UI_Input`, and why the item had been sitting behind "needs WinRT interop".
+      `detent_count` stays 0.0 even though the Dial HAS physical detents: the API reports a
+      continuous angle and never says one was crossed, so a count would be invented. The exact
+      mirror of Android, which reports detents and no angle - each backend fills the axis its
+      platform actually measures, which is now the third time that rule has decided a field.
+      The controller is HELD for the window's lifetime rather than made per event: dropping it
+      unregisters the app from the Dial's menu.
+      EVIDENCE: all three seams (construction, rotation handler, click handler) proven COMPILED
+      under `--target x86_64-pc-windows-gnu`. All four desktop targets, 8/8 mobile, 45 dial
+      tests, azul-dll 1973. ⚠ Compile-only - no Windows machine and no Surface Dial here.
 - [x] 9c-ii DONE — all four layers plus the registration the layer model does not mention.
       `DialState` has been readable through `CallbackInfo::get_dial_state()` since the type
       landed, with no `EventType` and no filter behind it, so a dial could only be POLLED from

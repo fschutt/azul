@@ -386,6 +386,12 @@ windows = { version = "0.62", optional = true, features = [
     # what carries PenDevice; Devices_Haptics the controller it hands back.
     "Devices_Haptics",
     "Devices_Input",
+    # Surface Dial (windows/radial_controller.rs, 9c-i-c). UI_Input carries
+    # RadialController; the Win32 Radial feature carries the HWND interop that
+    # makes it reachable from a desktop app at all.
+    "UI_Input",
+    "Win32_UI_Input_Radial",
+    "Foundation_Collections",
     "Win32_System_SystemServices",
     "Win32_System_Com_StructuredStorage",
     "Win32_Graphics_Gdi",
