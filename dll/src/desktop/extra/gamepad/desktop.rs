@@ -409,8 +409,8 @@ pub fn pad_identities() -> Vec<PadIdentity> {
 
 /// The sysfs `uniq` attribute behind an evdev node: `/dev/input/eventN` ->
 /// `/sys/class/input/eventN/device/uniq`. `None` for anything that is not
-/// an event node. Waiting on its caller: see [`pad_serial`].
-#[allow(dead_code)]
+/// an event node.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn sysfs_uniq_path(devpath: &str) -> Option<String> {
     let node = devpath.strip_prefix("/dev/input/")?;
     if !node.starts_with("event") || !node[5..].bytes().all(|b| b.is_ascii_digit()) {
@@ -420,14 +420,22 @@ fn sysfs_uniq_path(devpath: &str) -> Option<String> {
 }
 
 /// The pad's serial (8f-i-a-i-c). On Linux it is evdev's `uniq`, readable
-/// through sysfs beside the pad's event node - but the event node is
-/// `Gamepad::devpath()`, which gilrs-azul 0.11.2 keeps PRIVATE
-/// (`gamepad.rs:989`, used by its own force-feedback code). Until the fork
-/// makes it `pub` (8f-i-a-i-c-i) every desktop backend answers empty here
-/// and pairing falls back to the unique-vendor/product rule; the sysfs half
-/// is written and tested above so the fork change is a one-line follow-up:
-/// `sysfs_uniq_path(pad.devpath().to_str()?)` then `read_to_string`.
-fn pad_serial(_pad: &gilrs::Gamepad<'_>) -> String {
+/// through sysfs beside the pad's event node, which gilrs exposes through
+/// the `LinuxGamepadExt` extension trait (`devpath()` - a trait method, so
+/// it needs the trait in scope, which is what the first attempt lacked).
+/// The other desktop backends have no gilrs-side serial and answer empty,
+/// leaving the unique-vendor/product rule.
+#[allow(unused_variables)]
+fn pad_serial(pad: &gilrs::Gamepad<'_>) -> String {
+    #[cfg(target_os = "linux")]
+    {
+        use gilrs::LinuxGamepadExt;
+        if let Some(path) = pad.devpath().to_str().and_then(sysfs_uniq_path) {
+            if let Ok(uniq) = std::fs::read_to_string(path) {
+                return uniq.trim().to_owned();
+            }
+        }
+    }
     String::new()
 }
 

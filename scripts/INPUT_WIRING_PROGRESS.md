@@ -2793,24 +2793,20 @@ session needs. Recorded verbatim so the framing is not lost.
       what every user-space reader without that report does. Needs a feature-report read on each
       platform (hidraw `HIDIOCGFEATURE`, IOKit `IOHIDDeviceGetReport`, hid.dll `HidD_GetFeature`)
       - the raw HID layer is read-only today.
-- [~] 8f-i-a-i-c Step (4). The ENGINE side is done: `overlay_hid_motion` pairs a gilrs pad with its
-      HID stream by SERIAL first (exact match on `HidDevice.serial`) and by the unique
-      vendor/product rule second, and a serial-paired pad publishes no duplicate; vendor and product
-      come from gilrs's own `vendor_id()` / `product_id()` with the SDL GUID as the fallback (bytes
-      4-5 and 8-9, pinned by a test). The GILRS side of the serial is EMPTY on every platform for
-      now: on Linux it is evdev's `uniq`, readable through sysfs beside the pad's event node - the
-      exact string hidraw answers `HIDIOCGRAWUNIQ` with, both from `hdev->uniq` - but the event
-      node is `Gamepad::devpath()`, which gilrs-azul 0.11.2 declares WITHOUT `pub`
-      (`gamepad.rs:989`, used by its own force-feedback code), so the read cannot compile against
-      the published crate (the batch pass caught it). The sysfs half (`sysfs_uniq_path`, tested) is
-      in place; the one-line fork change is 8f-i-a-i-c-i. Until then several identical pads fall
-      back to their own complete HID devices under `HID_PAD_ID_FLAG | instance` - correct data
-      twice rather than a guess once; an app can pair them itself through `HidDevice.serial`.
-- [ ] 8f-i-a-i-c-i The fork change: make `gilrs::Gamepad::devpath()` `pub` in gilrs-azul (it is
-      already implemented and used internally), release, bump, then `pad_serial` becomes
-      `sysfs_uniq_path(pad.devpath().to_str()?)` + `read_to_string` on Linux. macOS would need the
-      fork to hand out the `IOHIDDeviceRef` it holds (or read `kIOHIDSerialNumberKey` itself) the
-      same way; Windows needs nothing - XInput never sees a DualSense, so the HID device IS the pad.
+- [x] 8f-i-a-i-c DONE, without the fork change the previous note asked for: `Gamepad::devpath()`
+      is a method of the `LinuxGamepadExt` EXTENSION TRAIT, which gilrs-azul re-exports at its
+      root - the batch-pass error ("no method named devpath") was the trait not being in scope,
+      not a private method. `pad_serial` now brings the trait in on Linux and reads evdev's `uniq`
+      through sysfs beside the pad's event node (`sysfs_uniq_path`, tested) - the exact string
+      hidraw answers `HIDIOCGRAWUNIQ` with, both from `hdev->uniq` - so a table of identical
+      DualSenses pairs each gilrs pad with its own HID stream by serial and publishes no duplicate.
+      `overlay_hid_motion` pairs by serial first and by the unique vendor/product rule second;
+      vendor and product come from gilrs's own `vendor_id()` / `product_id()` with the SDL GUID as
+      the fallback. macOS has no gilrs-side serial (8f-i-a-i-c-ii); Windows never sees a DualSense
+      through XInput, so the HID device IS the pad there. Verified: the Linux target checks green.
+- [x] 8f-i-a-i-c-i WITHDRAWN - no fork change needed: `devpath()` lives on the exported
+      `LinuxGamepadExt` trait (see 8f-i-a-i-c). The user had cleared forking and publishing a
+      gilrs-azul release for it; not spent.
 - [ ] 8f-i-a-i-c-ii macOS: pairing several identical pads needs a gilrs-side serial. gilrs's IOKit
       backend exposes only the SDL GUID; the IOHIDDeviceRef it holds is the same object the raw
       HID layer enumerated (`kIOHIDSerialNumberKey` is readable from it), but gilrs does not hand
@@ -3247,7 +3243,10 @@ session needs. Recorded verbatim so the framing is not lost.
 - [x] 11a `Submit` off the existing `DefaultAction::SubmitForm`; `Change` as commit-on-blur off
       `TextInputOnFocusLost`. Add the filter variants first (all four layers), then update the
       `events_test.rs` unmapped pin.
-- [~] 11b PARTIAL — the filters, planning arms and matcher arms exist so they are subscribable, but nothing PRODUCES them: both need a validation/form-reset concept that does not exist. See 11b-i. Original: `Reset` / `Invalid` — needs a validation concept; design then wire.
+- [x] 11b DONE - the parent entry outlived its sub-items: 11b-i (Submit / Invalid / Reset produce),
+      11b-i-a (Reset), 11b-i-b (`pattern` through regex-lite), 11b-i-c (validity exposed) are all
+      done, so the form family is produced, planned, matched and readable end to end. The "original
+      note" below it is history.
 - [!] 11c BLOCKED — REVISIT AT THE END. Media: `Play`/`Pause`/`Ended`/`TimeUpdate`/`VolumeChange`/
       `MediaError`. Verified, not assumed: `dll/src/unified/` has a decoder (`decode_mp4_h264`), an
       encoder (`VideoEncoder`), a sink (`AudioSink::play(frame)`) and a screen recorder — but NO PLAYER.
