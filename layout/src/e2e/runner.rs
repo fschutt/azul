@@ -917,6 +917,8 @@ impl Runner {
             let pre_filter = {
                 let lw = &self.layout_window;
                 let info = InputInterpreterInfo {
+                    // The harness drives the primary seat only (9b-ii-a-i-d-iv).
+                    seat_focus: &[],
                     events: &synthetic_events,
                     hit_test: hit_test_for_dispatch.as_ref(),
                     keyboard_state: &self.window_state.keyboard_state,

@@ -92,6 +92,15 @@ pub struct FocusManager {
     /// want of a text layout. Bounded so a node that will never have an inline
     /// layout cannot re-arm forever.
     pub pending_focus_retries: u8,
+
+    /// The OTHER seats' focused nodes (9b-ii-a-i-d): seat 0, the primary, IS
+    /// `focused_node`; a second seat (X11 MPX master pair, a second Wayland
+    /// `wl_seat`) keeps its own here, so two people can edit two fields of
+    /// one window - the user's ruling. Absent = that seat focuses nothing.
+    /// Key events of a seat target ITS node; click-to-focus and the Tab walk
+    /// move ITS entry. The text-edit session, the `:focus` restyle and the
+    /// a11y focus stay the primary's (follow-ups, see the ledger).
+    pub seat_focus: std::collections::BTreeMap<u64, DomNodeId>,
 }
 
 /// How many times [`FocusManager::pending_contenteditable_focus`] may be put
@@ -141,7 +150,58 @@ impl FocusManager {
             pending_contenteditable_focus: None,
             deferred_focus_target: None,
             pending_focus_retries: 0,
+            seat_focus: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// The node seat `seat_id` focuses (9b-ii-a-i-d): the primary's is
+    /// `focused_node`, every other seat's its own entry.
+    #[must_use]
+    pub fn focused_node_for(&self, seat_id: u64) -> Option<DomNodeId> {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.focused_node
+        } else {
+            self.seat_focus.get(&seat_id).copied()
+        }
+    }
+
+    /// Move seat `seat_id`'s focus; `None` clears it. The primary seat is
+    /// `set_focused_node`.
+    pub fn set_focused_node_for(&mut self, seat_id: u64, node: Option<DomNodeId>) {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.focused_node = node;
+        } else {
+            match node {
+                Some(n) => {
+                    self.seat_focus.insert(seat_id, n);
+                }
+                None => {
+                    self.seat_focus.remove(&seat_id);
+                }
+            }
+        }
+    }
+
+    /// Whether seat `seat_id` focuses `node`.
+    #[must_use]
+    pub fn has_focus_for(&self, seat_id: u64, node: &DomNodeId) -> bool {
+        self.focused_node_for(seat_id).as_ref() == Some(node)
+    }
+
+    /// Every seat focusing `node`, the primary as seat 0.
+    #[must_use]
+    pub fn seats_focusing(&self, node: &DomNodeId) -> Vec<u64> {
+        let mut seats = Vec::new();
+        if self.focused_node.as_ref() == Some(node) {
+            seats.push(azul_core::window::PRIMARY_POINTER_SEAT);
+        }
+        seats.extend(
+            self.seat_focus
+                .iter()
+                .filter(|(_, n)| *n == node)
+                .map(|(seat, _)| *seat),
+        );
+        seats
     }
 
     /// Get the currently focused node
@@ -312,6 +372,24 @@ impl crate::managers::NodeIdRemap for FocusManager {
     /// Focus on an unmounted node is CLEARED (not kept — the index now denotes a
     /// different element).
     fn remap_node_ids(&mut self, dom_id: DomId, map: &crate::managers::NodeIdMap) {
+        // 0. the other seats' focus (9b-ii-a-i-d): the same rule as the
+        // primary's - follow the node, clear on an unmounted one.
+        self.seat_focus.retain(|_, focused| {
+            if focused.dom != dom_id {
+                return true;
+            }
+            match focused
+                .node
+                .into_crate_internal()
+                .and_then(|old| map.resolve(old))
+            {
+                Some(new_id) => {
+                    focused.node = NodeHierarchyItemId::from_crate_internal(Some(new_id));
+                    true
+                }
+                None => false,
+            }
+        });
         // 1. currently focused node
         if let Some(focused) = self.focused_node {
             if focused.dom == dom_id {
@@ -784,6 +862,10 @@ pub fn resolve_focus_target(
 // Trait Implementations for Event Filtering
 
 impl azul_core::events::FocusManagerQuery for FocusManager {
+    fn get_focused_node_for_seat(&self, seat_id: u64) -> Option<DomNodeId> {
+        self.focused_node_for(seat_id)
+    }
+
     fn get_focused_node_id(&self) -> Option<DomNodeId> {
         self.focused_node
     }
@@ -1222,6 +1304,42 @@ mod autotest_generated {
         // A default instance must answer every query without panicking.
         assert!(!fm.has_focus(&nid(0, 0)));
         assert!(!fm.has_focus(&null_nid(0)));
+    }
+
+    #[test]
+    fn seat_focus_is_independent_of_the_primary() {
+        // 9b-ii-a-i-d: seat 0 IS `focused_node`; seat 7 keeps its own entry.
+        let mut fm = FocusManager::new();
+        fm.set_focused_node_for(azul_core::window::PRIMARY_POINTER_SEAT, Some(nid(0, 1)));
+        fm.set_focused_node_for(7, Some(nid(0, 2)));
+        assert_eq!(fm.get_focused_node(), Some(&nid(0, 1)));
+        assert_eq!(fm.focused_node_for(0), Some(nid(0, 1)));
+        assert_eq!(fm.focused_node_for(7), Some(nid(0, 2)));
+        assert_eq!(fm.focused_node_for(8), None, "an unknown seat focuses nothing");
+        assert!(fm.has_focus_for(7, &nid(0, 2)));
+        assert!(!fm.has_focus_for(7, &nid(0, 1)));
+        assert_eq!(fm.seats_focusing(&nid(0, 2)), vec![7]);
+        // Clearing the seat leaves the primary alone, and the other way round.
+        fm.set_focused_node_for(7, None);
+        assert_eq!(fm.focused_node_for(7), None);
+        assert_eq!(fm.focused_node_for(0), Some(nid(0, 1)));
+        fm.clear_focus();
+        fm.set_focused_node_for(7, Some(nid(0, 3)));
+        assert_eq!(fm.focused_node_for(0), None);
+        assert_eq!(fm.focused_node_for(7), Some(nid(0, 3)));
+    }
+
+    #[test]
+    fn seat_focus_follows_a_remap_and_clears_on_an_unmounted_node() {
+        let mut fm = FocusManager::new();
+        fm.set_focused_node_for(7, Some(nid(0, 5)));
+        fm.set_focused_node_for(9, Some(nid(0, 6)));
+        fm.remap_node_ids(
+            dom(0),
+            &NodeIdMap::from_pairs([(NodeId::new(5), NodeId::new(2))]),
+        );
+        assert_eq!(fm.focused_node_for(7), Some(nid(0, 2)), "followed the node");
+        assert_eq!(fm.focused_node_for(9), None, "unmounted: cleared, not kept");
     }
 
     #[test]

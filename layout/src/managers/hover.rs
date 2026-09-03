@@ -80,13 +80,17 @@ pub fn focusable_under_pointer(
     None
 }
 
-/// Which pointer seat an event belongs to: the seat on a mouse or scroll
-/// event, the primary for everything else.
+/// Which seat an event belongs to: the seat on a mouse, scroll or keyboard
+/// event, the primary for everything else. A keyboard seat IS a pointer seat
+/// (9b-ii-a-i): X11 routes a master keyboard to its paired pointer's seat,
+/// Wayland a `wl_seat`'s keyboard to that seat - so a seat's keys resolve
+/// against that seat's focus (9b-ii-a-i-d).
 #[must_use]
 pub fn seat_of_event(event: &SyntheticEvent) -> u64 {
     match &event.data {
         EventData::Mouse(m) => m.seat_id,
         EventData::Scroll(s) => s.seat_id,
+        EventData::Keyboard(k) => k.seat_id,
         _ => azul_core::window::PRIMARY_POINTER_SEAT,
     }
 }

@@ -4589,6 +4589,53 @@ pub trait PlatformWindow {
             }
 
             // === Focus ===
+            CallbackChange::SetSeatFocusTarget { seat_id, target } => {
+                // `CallbackInfo::set_focus_for_seat` (9b-ii-a-i-d): resolve
+                // against THAT seat's current focus (Next / Previous walk from
+                // it) and move only its entry. No deferral before the first
+                // layout: a seat exists only once input arrived.
+                use azul_layout::managers::focus_cursor::{resolve_focus_target, FocusResolution};
+                let Some(lw) = self.get_layout_window_mut() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                let current = lw.focus_manager.focused_node_for(*seat_id);
+                let out_of_scope = lw.focus_out_of_scope_doms();
+                let new_focus =
+                    match resolve_focus_target(target, &lw.layout_results, current, &out_of_scope) {
+                        Ok(FocusResolution::Resolved(n)) => Some(n),
+                        Ok(FocusResolution::ClearRequested) => None,
+                        Ok(FocusResolution::NotFound) => {
+                            crate::log_debug!(
+                                crate::desktop::shell2::common::debug_server::LogCategory::Window,
+                                "[SetSeatFocusTarget] seat {} target matched nothing - keeping its focus: {:?}",
+                                seat_id,
+                                target
+                            );
+                            return ProcessEventResult::DoNothing;
+                        }
+                        Err(w) => {
+                            crate::log_warn!(
+                                crate::desktop::shell2::common::debug_server::LogCategory::Window,
+                                "[SetSeatFocusTarget] seat {} resolution FAILED: {:?} (target {:?})",
+                                seat_id,
+                                w,
+                                target
+                            );
+                            return ProcessEventResult::DoNothing;
+                        }
+                    };
+                if new_focus == current {
+                    return ProcessEventResult::DoNothing;
+                }
+                lw.focus_manager.set_focused_node_for(*seat_id, new_focus);
+                if let Some(n) = new_focus {
+                    use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
+                    let now = azul_core::task::Instant::now();
+                    lw.scroll_node_into_view(n, ScrollIntoViewOptions::nearest(), now);
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+
             CallbackChange::SetFocusTarget { target } => {
                 // Resolve ONCE, and distinguish "matched nothing" from "there
                 // is no layout to match against yet". A failed resolution must
@@ -7484,6 +7531,35 @@ pub trait PlatformWindow {
                 result
             }
 
+            SystemChange::SetSeatFocus {
+                seat_id,
+                new_focus,
+                old_focus,
+            } => {
+                // A non-primary seat's focus (9b-ii-a-i-d): its entry moves and
+                // the node scrolls into view. No restyle, caret, blink timer
+                // or soft keyboard - those follow the primary's focus until
+                // the text-edit session is per seat (9b-ii-a-i-d-ii).
+                match self.get_layout_window_mut() {
+                    Some(layout_window) if old_focus != new_focus => {
+                        layout_window
+                            .focus_manager
+                            .set_focused_node_for(*seat_id, *new_focus);
+                        if let Some(focus_node) = new_focus {
+                            use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
+                            let now = azul_core::task::Instant::now();
+                            layout_window.scroll_node_into_view(
+                                *focus_node,
+                                ScrollIntoViewOptions::nearest(),
+                                now,
+                            );
+                        }
+                        ProcessEventResult::ShouldReRenderCurrentWindow
+                    }
+                    _ => ProcessEventResult::DoNothing,
+                }
+            }
+
             SystemChange::ClearAllSelections => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     // Clear all selections by collapsing ranges to cursors
@@ -8172,8 +8248,16 @@ pub trait PlatformWindow {
                             }
                         }
                         EventFilter::Focus(_) => {
-                            // Focus events fire on the focused node only
-                            if let Some(ref focused) = focused_node {
+                            // Focus events fire on the focused node only - of
+                            // the SEAT that produced the event (9b-ii-a-i-d):
+                            // a second seat's keys go to its own focus.
+                            let event_seat = azul_layout::managers::hover::seat_of_event(event);
+                            let seat_focus = if event_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                                focused_node
+                            } else {
+                                layout_window.focus_manager.focused_node_for(event_seat)
+                            };
+                            if let Some(ref focused) = seat_focus {
                                 let dom_id = focused.dom;
                                 if let Some(node_id) = focused.node.into_crate_internal() {
                                     if let Some(lr) = layout_window.layout_results.get(&dom_id) {
@@ -10177,8 +10261,13 @@ pub trait PlatformWindow {
         // Can be replaced on LayoutWindow for vim, game controls, etc.
         let pre_filter = if let Some(layout_window) = self.get_layout_window() {
             use azul_core::events::{InputInterpreterInfo, InputInterpreterState};
+            let seat_focus = azul_core::events::seat_focus_of_events(
+                &synthetic_events,
+                &layout_window.focus_manager,
+            );
             let info = InputInterpreterInfo {
                 events: &synthetic_events,
+                seat_focus: &seat_focus,
                 hit_test: hit_test_for_dispatch.as_ref(),
                 keyboard_state: &current_window_state.keyboard_state,
                 mouse_state: &current_window_state.mouse_state,
@@ -10680,7 +10769,22 @@ pub trait PlatformWindow {
                     _ => None,
                 };
 
-                if let Some(new_focus_target) = clicked_focusable_node {
+                if press_seat != azul_core::window::PRIMARY_POINTER_SEAT {
+                    // A second seat's click moves ITS focus (9b-ii-a-i-d):
+                    // onto the focusable under its own cursor, or to nothing.
+                    // The primary's focus, caret and ring are untouched.
+                    let seat_old = self
+                        .get_layout_window()
+                        .and_then(|lw| lw.focus_manager.focused_node_for(press_seat));
+                    if seat_old != clicked_focusable_node {
+                        let r = self.apply_system_change(&SystemChange::SetSeatFocus {
+                            seat_id: press_seat,
+                            new_focus: clicked_focusable_node,
+                            old_focus: seat_old,
+                        });
+                        result = result.max(r);
+                    }
+                } else if let Some(new_focus_target) = clicked_focusable_node {
                     let old_focus_node_id = old_focus.and_then(|f| f.node.into_crate_internal());
                     let new_focus_node_id = new_focus_target.node.into_crate_internal();
                     if old_focus_node_id != new_focus_node_id {
@@ -10730,8 +10834,33 @@ pub trait PlatformWindow {
                 .any(|e| matches!(e.event_type, azul_core::events::EventType::KeyDown));
 
             if has_key_event {
-                let keyboard_state = &self.get_current_window_state().keyboard_state;
-                let focused_node = old_focus;
+                // The seat whose key this is (9b-ii-a-i-d): its keyboard and
+                // its focus drive the default action, so a second seat's Tab
+                // walks ITS focus. One default action per pass; when both
+                // seats' keys land in one pass the first KeyDown wins
+                // (9b-ii-a-i-d-v).
+                let key_seat = pre_filter
+                    .user_events
+                    .iter()
+                    .find(|e| matches!(e.event_type, azul_core::events::EventType::KeyDown))
+                    .map_or(
+                        azul_core::window::PRIMARY_POINTER_SEAT,
+                        azul_layout::managers::hover::seat_of_event,
+                    );
+                let current_window_state = self.get_current_window_state();
+                let keyboard_state = if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                    &current_window_state.keyboard_state
+                } else {
+                    current_window_state
+                        .keyboard_seat(key_seat)
+                        .unwrap_or(&current_window_state.keyboard_state)
+                };
+                let focused_node = if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                    old_focus
+                } else {
+                    self.get_layout_window()
+                        .and_then(|lw| lw.focus_manager.focused_node_for(key_seat))
+                };
                 let layout_results = self.get_layout_window().map(|lw| &lw.layout_results);
 
                 if let Some(layout_results) = layout_results {
@@ -10782,14 +10911,23 @@ pub trait PlatformWindow {
                                     if let Ok(FocusResolution::Resolved(new_focus_node)) =
                                         resolve_result
                                     {
-                                        let r = self.apply_system_change(&SystemChange::SetFocus {
-                                            new_focus: Some(new_focus_node),
-                                            old_focus: focused_node,
-                                            // KEYBOARD focus IS indicated -
-                                            // this is the route the focus ring
-                                            // exists for.
-                                            visible: true,
-                                        });
+                                        let change = if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                                            SystemChange::SetFocus {
+                                                new_focus: Some(new_focus_node),
+                                                old_focus: focused_node,
+                                                // KEYBOARD focus IS indicated -
+                                                // this is the route the focus ring
+                                                // exists for.
+                                                visible: true,
+                                            }
+                                        } else {
+                                            SystemChange::SetSeatFocus {
+                                                seat_id: key_seat,
+                                                new_focus: Some(new_focus_node),
+                                                old_focus: focused_node,
+                                            }
+                                        };
+                                        let r = self.apply_system_change(&change);
                                         result = result.max(r);
                                         default_action_focus_changed = true;
                                     }
@@ -10797,11 +10935,20 @@ pub trait PlatformWindow {
                             }
 
                             DefaultAction::ClearFocus => {
-                                let r = self.apply_system_change(&SystemChange::SetFocus {
-                                    new_focus: None,
-                                    old_focus,
-                                    visible: false,
-                                });
+                                let change = if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                                    SystemChange::SetFocus {
+                                        new_focus: None,
+                                        old_focus,
+                                        visible: false,
+                                    }
+                                } else {
+                                    SystemChange::SetSeatFocus {
+                                        seat_id: key_seat,
+                                        new_focus: None,
+                                        old_focus: focused_node,
+                                    }
+                                };
+                                let r = self.apply_system_change(&change);
                                 result = result.max(r);
                                 default_action_focus_changed = true;
                             }

@@ -3518,6 +3518,7 @@ mod autotest_generated {
         let kb = KeyboardState::default();
         let mouse = MouseState::default();
         let info = InputInterpreterInfo {
+            seat_focus: &[],
             events: &[],
             hit_test: None,
             keyboard_state: &kb,
@@ -3562,6 +3563,7 @@ mod autotest_generated {
 
         let events = vec![copy, click, scroll];
         let info = InputInterpreterInfo {
+            seat_focus: &[],
             events: &events,
             hit_test: Some(&ht),
             keyboard_state: &kb,

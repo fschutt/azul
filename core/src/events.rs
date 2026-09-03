@@ -4244,6 +4244,15 @@ pub enum SystemChange {
     DeactivateDrag,
 
     // === Focus ===
+    /// Move a NON-primary seat's focus (9b-ii-a-i-d): only that seat's
+    /// entry changes - no `:focus` restyle, no caret / blink timer, no soft
+    /// keyboard, which all follow the primary's focus (the text-edit session
+    /// is one). A primary-seat change is `SetFocus`.
+    SetSeatFocus {
+        seat_id: u64,
+        new_focus: Option<DomNodeId>,
+        old_focus: Option<DomNodeId>,
+    },
     /// Change focus to a new target (or clear focus if None).
     /// Handles: `set_focused_node`, `apply_focus_restyle`, `scroll_node_into_view`,
     /// `cursor_blink_timer` start/stop.
@@ -4342,6 +4351,10 @@ pub struct InputInterpreterInfo<'a> {
     pub keyboard_state: &'a crate::window::KeyboardState,
     pub mouse_state: &'a crate::window::MouseState,
     pub state: InputInterpreterState,
+    /// The focused node of each NON-primary keyboard seat present in
+    /// `events` (9b-ii-a-i-d), from `seat_focus_of_events`; a seat missing
+    /// here resolves to the primary's `state.focused_node`.
+    pub seat_focus: &'a [(u64, Option<DomNodeId>)],
 }
 
 /// The `extern "C"` callback type for the input interpreter.
@@ -5018,6 +5031,7 @@ pub fn default_input_interpreter(info: &InputInterpreterInfo<'_>) -> PreCallback
         focused_node: info.state.focused_node,
         drag_start_position: info.state.drag_start_position,
         focus_is_editable: info.state.focus_is_editable,
+        seat_focus: info.seat_focus,
     };
 
     let (system_changes, user_events) = info.events.iter().fold(
@@ -5061,11 +5075,13 @@ where
     SM: SelectionManagerQuery,
     FM: FocusManagerQuery,
 {
+    let seat_focus = seat_focus_of_events(events, focus_manager);
     let info = InputInterpreterInfo {
         events,
         hit_test,
         keyboard_state,
         mouse_state,
+        seat_focus: &seat_focus,
         state: InputInterpreterState {
             focused_node: focus_manager.get_focused_node_id(),
             click_count: selection_manager.get_click_count(),
@@ -5087,6 +5103,21 @@ struct FilterContext<'a> {
     drag_start_position: Option<LogicalPosition>,
     /// See `InputInterpreterState::focus_is_editable`.
     focus_is_editable: bool,
+    /// See `InputInterpreterInfo::seat_focus`.
+    seat_focus: &'a [(u64, Option<DomNodeId>)],
+}
+
+impl FilterContext<'_> {
+    /// The focus a key event of seat `seat_id` acts on (9b-ii-a-i-d).
+    fn focused_node_for(&self, seat_id: u64) -> Option<DomNodeId> {
+        if seat_id == crate::window::PRIMARY_POINTER_SEAT {
+            return self.focused_node;
+        }
+        self.seat_focus
+            .iter()
+            .find(|(seat, _)| *seat == seat_id)
+            .map_or(self.focused_node, |(_, focus)| *focus)
+    }
 }
 
 /// Process a single event and determine if it generates an internal event
@@ -5113,7 +5144,17 @@ fn process_event_for_internal(
             ctx.drag_start_position,
         ),
         EventType::KeyDown => {
-            handle_key_down(event, ctx.keyboard_state, ctx.focused_node, ctx.focus_is_editable)
+            // A seat's key acts on THAT seat's focus (9b-ii-a-i-d).
+            let seat_id = match &event.data {
+                EventData::Keyboard(k) => k.seat_id,
+                _ => crate::window::PRIMARY_POINTER_SEAT,
+            };
+            handle_key_down(
+                event,
+                ctx.keyboard_state,
+                ctx.focused_node_for(seat_id),
+                ctx.focus_is_editable,
+            )
         }
         EventType::MouseUp => Some(handle_mouse_up()),
         _ => None,
@@ -5389,6 +5430,36 @@ pub trait SelectionManagerQuery {
 pub trait FocusManagerQuery {
     /// Get the currently focused node ID
     fn get_focused_node_id(&self) -> Option<DomNodeId>;
+
+    /// The node seat `seat_id` focuses (9b-ii-a-i-d). A manager without
+    /// per-seat focus answers the shared one for every seat.
+    fn get_focused_node_for_seat(&self, seat_id: u64) -> Option<DomNodeId> {
+        let _ = seat_id;
+        self.get_focused_node_id()
+    }
+}
+
+/// The focused node of every NON-primary keyboard seat that `events` carry
+/// (9b-ii-a-i-d), for `InputInterpreterInfo::seat_focus`: the interpreter
+/// resolves a seat's key against that seat's focus, not the primary's.
+#[must_use]
+pub fn seat_focus_of_events<FM: FocusManagerQuery + ?Sized>(
+    events: &[SyntheticEvent],
+    focus_manager: &FM,
+) -> Vec<(u64, Option<DomNodeId>)> {
+    let mut out: Vec<(u64, Option<DomNodeId>)> = Vec::new();
+    for event in events {
+        let EventData::Keyboard(k) = &event.data else {
+            continue;
+        };
+        if k.seat_id == crate::window::PRIMARY_POINTER_SEAT
+            || out.iter().any(|(seat, _)| *seat == k.seat_id)
+        {
+            continue;
+        }
+        out.push((k.seat_id, focus_manager.get_focused_node_for_seat(k.seat_id)));
+    }
+    out
 }
 
 /// Post-callback filter: Determine additional system changes needed after user callbacks.

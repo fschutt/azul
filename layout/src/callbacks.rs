@@ -308,6 +308,12 @@ pub enum CallbackChange {
     SetFocusTarget {
         target: FocusTarget,
     },
+    /// Change a NON-primary seat's focus (9b-ii-a-i-d); the primary's is
+    /// `SetFocusTarget`.
+    SetSeatFocusTarget {
+        seat_id: u64,
+        target: FocusTarget,
+    },
 
     // Event Propagation Control
     /// Stop event from propagating to parent nodes (W3C stopPropagation).
@@ -1608,6 +1614,36 @@ impl CallbackInfo {
     /// Set keyboard focus target (applied after callback returns)
     pub fn set_focus(&mut self, target: FocusTarget) {
         self.push_change(CallbackChange::SetFocusTarget { target });
+    }
+
+    /// Set the focus of pointer / keyboard SEAT `seat_id` (9b-ii-a-i-d): a
+    /// second seat has its own focused node, so two people can edit two
+    /// fields of one window. `Next` / `Previous` walk from that seat's
+    /// current focus. Seat 0 is the primary and behaves as `set_focus`.
+    pub fn set_focus_for_seat(&mut self, seat_id: u64, target: FocusTarget) {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.set_focus(target);
+        } else {
+            self.push_change(CallbackChange::SetSeatFocusTarget { seat_id, target });
+        }
+    }
+
+    /// Clear the focus of seat `seat_id` (9b-ii-a-i-d).
+    pub fn clear_focus_for_seat(&mut self, seat_id: u64) {
+        self.set_focus_for_seat(seat_id, FocusTarget::NoFocus);
+    }
+
+    /// The node seat `seat_id` focuses (9b-ii-a-i-d); the primary's for
+    /// seat 0. `None` when that seat focuses nothing.
+    #[must_use]
+    pub fn get_focused_node_for_seat(&self, seat_id: u64) -> azul_core::dom::OptionDomNodeId {
+        self.get_focus_manager().focused_node_for(seat_id).into()
+    }
+
+    /// Whether seat `seat_id` focuses `node_id` (9b-ii-a-i-d).
+    #[must_use]
+    pub fn is_node_focused_for_seat(&self, seat_id: u64, node_id: DomNodeId) -> bool {
+        self.get_focus_manager().has_focus_for(seat_id, &node_id)
     }
 
     /// Create a new window (applied after callback returns)

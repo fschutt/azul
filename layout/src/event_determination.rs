@@ -1070,8 +1070,8 @@ pub fn determine_all_events(
 
     // KEYBOARDS OF THE OTHER SEATS (9b-ii-a-i): the same modifiers / key
     // down / key up diff over each seat's own keyboard, stamped with the
-    // seat, at the ONE focused node - azul's focus is shared (9b-ii-a-i-d).
-    // A seat that vanished with a key down releases it.
+    // seat, at THAT SEAT'S focused node (9b-ii-a-i-d) - the root when it
+    // focuses nothing. A seat that vanished with a key down releases it.
     {
         let empty = azul_core::window::KeyboardState::default();
         let mut seen: Vec<u64> = Vec::new();
@@ -1084,7 +1084,9 @@ pub fn determine_all_events(
                 seat.seat_id,
                 &seat.state,
                 previous,
-                focus_target,
+                focus_manager
+                    .focused_node_for(seat.seat_id)
+                    .unwrap_or(root_node),
                 root_node,
                 &timestamp,
                 &mut events,
@@ -1098,7 +1100,9 @@ pub fn determine_all_events(
                 gone.seat_id,
                 &empty,
                 &gone.state,
-                focus_target,
+                focus_manager
+                    .focused_node_for(gone.seat_id)
+                    .unwrap_or(root_node),
                 root_node,
                 &timestamp,
                 &mut events,

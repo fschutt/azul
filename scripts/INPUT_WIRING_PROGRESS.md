@@ -2166,7 +2166,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [ ] 9b-ii-a-i-c TOUCH per seat: `TouchState` is one list; a second seat's touchscreen would mix
       its ids into the primary's. Same shape as the keyboard seats (`TouchSeatVec`), gated on a
       producer that has one - X11 XI2 touch events carry the master, Wayland `wl_touch` is per seat.
-- [ ] 9b-ii-a-i-d Per-seat FOCUS. X11 MPX gives every master keyboard its own focus; azul has one
+- [~] 9b-ii-a-i-d Per-seat FOCUS. X11 MPX gives every master keyboard its own focus; azul has one
       focused node, so today every seat types into the same field. A per-seat focus is a product
       question (two people editing two fields of one window), not a wiring gap; logged, not guessed.
       USER RULING 2026-09-04: NOT a product question - "that should be possible, maybe with a UUID
@@ -2175,6 +2175,41 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `SelectionOwner`; a seat's keys target that seat's focused node; click-to-focus and Tab per
       seat; the text-edit session per seat follows. An arc; the engine-side keyboard seats
       (9b-ii-a-i) are its input.
+- [x] 9b-ii-a-i-d-i DONE - the focus STATE per seat and the three routes that move it. Seat 0
+      IS `focused_node` (the pointer-seat rule: the primary keeps its old field, the others live
+      beside it); `FocusManager::seat_focus` holds the rest with `focused_node_for` /
+      `set_focused_node_for` / `has_focus_for` / `seats_focusing`, remapped on a DOM rebuild
+      like the primary (unmounted = cleared). ROUTES: (1) a seat's KeyDown / KeyUp is stamped at
+      THAT seat's focused node (`event_determination`; root when none), the `Focus(..)` filter
+      dispatch reads the event's seat, and the input interpreter resolves the key against the
+      seat's focus (`InputInterpreterInfo::seat_focus` from `seat_focus_of_events`, so a second
+      seat's arrows and shortcuts see its own field); (2) click-to-focus: a non-primary seat's
+      press moves ITS focus onto the focusable under ITS cursor (`SystemChange::SetSeatFocus`),
+      leaving the primary's focus, caret and ring alone; (3) Tab / arrows / Escape: the default
+      action reads the key seat's keyboard and walks the key seat's focus. API:
+      `CallbackInfo::set_focus_for_seat` / `clear_focus_for_seat` / `get_focused_node_for_seat`
+      / `is_node_focused_for_seat` (`CallbackChange::SetSeatFocusTarget`, resolved against that
+      seat's current focus). `seat_of_event` now reads the keyboard seat too - a keyboard seat is
+      its paired pointer seat on both producers. WHY the gap existed: focus predates seats and
+      was one field read from ~270 sites; the "product question" note was refuted by the ruling.
+      Tests: the manager's independence and remap. ⏳ EIGHTH BATCH: uncompiled until its end pass
+      (api.json: the four `CallbackInfo` methods through autofix then).
+- [ ] 9b-ii-a-i-d-ii The TEXT-EDIT SESSION per seat: caret, blink timer, IME, `record_text_input`,
+      `ime_document` and the soft keyboard all read `focused_node` (the primary's), so a second
+      seat's typing still lands in the primary's field even though its focus is its own. Needs
+      `TextEditManager` keyed by seat (the primary as seat 0) and `SetSeatFocus` starting a seat's
+      session; peer carets already have owners (`SelectionOwner`) to hang a seat on.
+- [ ] 9b-ii-a-i-d-iii `:focus` styling and the a11y focus are single: a seat's focused node gets
+      no ring / no `:focus` restyle (`apply_focus_restyle` runs for the primary only) and
+      accesskit sees one focus. A per-seat ring needs a pseudo-class per seat or a seat-coloured
+      overlay; a11y has no multi-focus model at all - log, do not invent.
+- [ ] 9b-ii-a-i-d-iv The e2e runner and the headless ops drive the primary seat only
+      (`seat_focus: &[]`, `CallbackChange::SetSeatFocusTarget` falls to its `_` arm); a seat-focus
+      scenario needs a headless "press on seat N" op plus the runner's port of `SetSeatFocus`.
+- [ ] 9b-ii-a-i-d-v One default action per dispatch pass: when the primary's and a seat's KeyDown
+      land in the SAME pass, the first KeyDown's seat wins and the other seat's Tab is dropped.
+      Rare (two people hitting Tab in one frame), but a per-seat default-action loop is the fix.
+
 - [x] 9b-ii-a-ii DONE. "Whatever the compositor shows for an unset cursor" is NOTHING: a
       Wayland pointer has no cursor over a surface until the client answers its `enter` with
       `set_cursor`, so a second seat was an invisible cursor. `set_cursor` is now a wrapper over
