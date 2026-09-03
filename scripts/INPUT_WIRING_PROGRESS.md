@@ -1793,11 +1793,39 @@ session needs. Recorded verbatim so the framing is not lost.
       `AzSelectionOwner` and `AzCallbackInfo_setRemoteSelections` in the C ABI; autofix converged
       at 0 patches and `azul-doc check` PASSED. Host, 8/8 mobile, azul-core 2785, azul-layout
       7638. ⚠ No two-machine session here - the paint path is compiled and unit-tested, not seen.
-- [ ] U1-a The SELECTION HIGHLIGHT is still painted per node, not per owner. This change colours
-      the CARET by owner; a remote participant's selected RANGE still draws in the node's
-      `::selection` background. The rects come from a different path (`text_selections`, a
-      `BTreeMap<DomId, TextSelection>` built before the owner existed) which has no owner on it at
-      all - so it is the same shape of work again rather than a line in the same place.
+- [x] U1-a DONE - and it was hiding a worse defect than the one logged. The logged gap was "a
+      remote range draws in the node's `::selection` colour". The actual state after U1 was that
+      `session_selection_ranges` walked EVERY selection in the list regardless of owner, so a
+      peer's range was reported as the LOCAL session's: painted in the local colour, yes, but
+      also handed to everything downstream that reads "what has the local user selected" - the
+      `::selection` glyph recolour and the copy path among them. Injecting a remote owner made
+      the local user appear to have selected somebody else's text.
+      Two accessors now, on purpose: `session_selection_ranges` is LOCAL-only (a `continue` on
+      `!owner.is_local()`), and a new `remote_selection_ranges` reports the peers'. Not a field
+      on the local result, because that result is `None` for a caret-only session by design ("a
+      bare caret is not a selection") - and "I have a caret, you have a range" is THE ordinary
+      collaborative state. Hanging the remote ranges off the local accessor would have made
+      everybody else's highlight vanish the moment the local user collapsed their own. For that
+      case `build_text_selections_map` emits a collapsed `TextSelection` at the local caret with
+      the remote map filled: `is_collapsed` suppresses the local highlight, the remote pass runs.
+      `TextSelection.remote_ranges: BTreeMap<NodeId, Vec<(SelectionOwner, SelectionRange)>>` is
+      a SEPARATE map from `affected_nodes` rather than a tag on each range, because the two mean
+      different things and paint differently; mixing them is exactly what the defect was.
+      Paint (`display_list.rs` selection pass): remote ranges FIRST so a local range over the
+      same span stays on top, each in `remote_selection_tint(owner_colors[owner])` = the owner's
+      hue at `min(a, 0x66)` - an owner colour is chosen to be legible as a 1px opaque caret and
+      would hide the text as a fill; `min` so an app that picked a faint colour stays faint. An
+      owner with no registered colour still paints (in `::selection`) - an invisible range is
+      indistinguishable from a bug. The remote pass is deliberately NOT gated on `is_collapsed`,
+      which describes the local anchor/focus only.
+      Evidence: 5 host tests in `text_edit.rs` (local-only filtering; the map separates the two;
+      a remote range SURVIVES a collapsed local caret; a single-user session allocates no remote
+      map; the tint keeps hue and caps alpha). Negative control: removing the owner `continue`
+      fails 3 of them (the two separation tests and the collapsed-caret one). Host check, 8/8
+      mobile. ALSO FIXED on the way: `layout/tests/menubar_item_clip.rs` had not been updated for
+      U1's `owner_colors` argument (two `layout_document` calls, 20 of 21 args) - broken since
+      the previous item, unseen because `--lib` never builds `tests/`. ⚠ Still no two-machine
+      session here: the paint path is compiled and unit-tested at the map level, not seen.
 - [x] U2 DONE on both platforms, and BOTH had a gap - the mirror image of each other.
       ⚠ ANDROID'S TOOLBAR HAS NEVER APPEARED. `NativeTextBridge.startSelectionToolbar` is
       complete Java - an `ActionMode.Callback2`, the menu items, a content rect that follows a

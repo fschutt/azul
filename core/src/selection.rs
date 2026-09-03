@@ -872,6 +872,19 @@ pub struct TextSelection {
     /// occurrences in it (Ctrl+D); the ranges are disjoint and in document order.
     pub affected_nodes: BTreeMap<NodeId, Vec<SelectionRange>>,
 
+    /// OTHER PARTICIPANTS' ranges on the same nodes, with whose they are
+    /// (U1-a).
+    ///
+    /// Separate from `affected_nodes` rather than mixed into it, because the
+    /// two are painted differently and mean different things: that one is the
+    /// LOCAL user's selection and takes the node's `::selection` colour, while
+    /// these take their owner's. Mixing them made a remote participant's range
+    /// look like the local user's own, which is worse than not showing it.
+    ///
+    /// Empty for a single-user app, which is every app until one injects a
+    /// remote owner.
+    pub remote_ranges: BTreeMap<NodeId, Vec<(SelectionOwner, SelectionRange)>>,
+
     /// Indicates whether anchor comes before focus in document order.
     /// True = forward selection (left-to-right), False = backward selection.
     pub is_forward: bool,
@@ -911,6 +924,7 @@ impl TextSelection {
         );
 
         Self {
+            remote_ranges: BTreeMap::new(),
             dom_id,
             anchor,
             focus,

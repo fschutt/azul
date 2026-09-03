@@ -3794,33 +3794,60 @@ where
 
         // === NEW: Check text_selections first (multi-node selection support) ===
         if let Some(text_selection) = self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id) {
-            if let Some(ranges) = text_selection.affected_nodes.get(&dom_id) {
-                let is_collapsed = text_selection.is_collapsed();
-                // Only draw selection highlight if NOT collapsed
-                if !is_collapsed {
-                    // A multi-cursor session (Ctrl+D) puts EVERY occurrence on
-                    // this one node, so every range gets its own rects.
-                    let rects: Vec<LogicalRect> = ranges
-                        .iter()
-                        .flat_map(|range| layout.get_selection_rects(range))
-                        .collect();
-                    let style = get_selection_style(
-                        self.ctx.styled_dom,
-                        Some(dom_id),
-                        self.ctx.system_style.as_ref(),
-                    );
+            let local_ranges = text_selection.affected_nodes.get(&dom_id);
+            let remote_ranges = text_selection.remote_ranges.get(&dom_id);
+            if local_ranges.is_some() || remote_ranges.is_some() {
+                let style = get_selection_style(
+                    self.ctx.styled_dom,
+                    Some(dom_id),
+                    self.ctx.system_style.as_ref(),
+                );
+                let border_radius = BorderRadius {
+                    top_left: style.radius,
+                    top_right: style.radius,
+                    bottom_left: style.radius,
+                    bottom_right: style.radius,
+                };
 
-                    let border_radius = BorderRadius {
-                        top_left: style.radius,
-                        top_right: style.radius,
-                        bottom_left: style.radius,
-                        bottom_right: style.radius,
+                // REMOTE FIRST, so a local selection over the same span stays
+                // legible on top of it.
+                //
+                // Deliberately NOT gated on `is_collapsed`: that flag
+                // describes the LOCAL session's anchor and focus, and says
+                // nothing about whether another participant has a range. A
+                // local caret sitting in a field must not erase everybody
+                // else's highlight.
+                for (owner, range) in remote_ranges.into_iter().flatten() {
+                    let color = match self.ctx.owner_colors.get(owner) {
+                        Some(c) => remote_selection_tint(*c),
+                        // An owner the app never registered a colour for. It
+                        // still gets painted - a range nobody can see is
+                        // indistinguishable from a bug - just in the node's
+                        // own `::selection` colour.
+                        None => style.bg_color,
                     };
-
-                    for mut rect in rects {
+                    for mut rect in layout.get_selection_rects(range) {
                         rect.origin.x += content_box_offset_x;
                         rect.origin.y += content_box_offset_y;
-                        builder.push_selection_rect(rect, style.bg_color, border_radius);
+                        builder.push_selection_rect(rect, color, border_radius);
+                    }
+                }
+
+                if let Some(ranges) = local_ranges {
+                    // Only draw selection highlight if NOT collapsed
+                    if !text_selection.is_collapsed() {
+                        // A multi-cursor session (Ctrl+D) puts EVERY occurrence
+                        // on this one node, so every range gets its own rects.
+                        let rects: Vec<LogicalRect> = ranges
+                            .iter()
+                            .flat_map(|range| layout.get_selection_rects(range))
+                            .collect();
+
+                        for mut rect in rects {
+                            rect.origin.x += content_box_offset_x;
+                            rect.origin.y += content_box_offset_y;
+                            builder.push_selection_rect(rect, style.bg_color, border_radius);
+                        }
                     }
                 }
 
@@ -8771,6 +8798,29 @@ fn rect_intersects(bounds: &LogicalRect, page_top: f32, page_bottom: f32) -> boo
     let item_top = bounds.origin.y;
     let item_bottom = bounds.origin.y + bounds.size.height;
     item_bottom > page_top && item_top < page_bottom
+}
+
+/// The alpha a remote participant's selection fill is drawn at.
+///
+/// An owner colour is picked to be legible as a CARET - a 1px opaque bar - so
+/// it is saturated and fully opaque. Filling a text run with that same colour
+/// would hide the text behind it, which defeats the point of showing where
+/// somebody else is working. 40% is the range every desktop editor's
+/// collaborator highlight lands in, and leaves dark text readable through it.
+pub const REMOTE_SELECTION_ALPHA: u8 = 0x66;
+
+/// A remote participant's owner colour, turned into a fill that text stays
+/// readable through.
+///
+/// Takes the MINIMUM of the two alphas rather than assigning
+/// `REMOTE_SELECTION_ALPHA` outright: an app that deliberately picked a faint
+/// colour for a participant asked for it to be faint, and this must not make
+/// it louder.
+pub fn remote_selection_tint(owner_color: ColorU) -> ColorU {
+    ColorU {
+        a: owner_color.a.min(REMOTE_SELECTION_ALPHA),
+        ..owner_color
+    }
 }
 
 /// Offset a rectangle's Y coordinate.

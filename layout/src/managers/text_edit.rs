@@ -323,6 +323,27 @@ pub struct SessionSelectionRanges {
     pub primary: SelectionRange,
 }
 
+/// Other participants' range selections on one editing session's node, as
+/// [`TextEditManager::remote_selection_ranges`] reports them.
+///
+/// Only ever non-empty once an app has injected selections for a non-local
+/// owner (`set_owner_selections`); a single-user app never sees one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteSelectionRanges {
+    /// DOM the session's node belongs to.
+    pub dom_id: DomId,
+    /// IFC root every range is expressed against.
+    pub node_id: NodeId,
+    /// Each range and whose it is. Never empty.
+    pub ranges: Vec<(azul_core::selection::SelectionOwner, SelectionRange)>,
+    /// The local participant's own caret, when they have one.
+    ///
+    /// Carried because a `TextSelection` has to name an anchor and a focus
+    /// even when the only thing being painted belongs to somebody else, and
+    /// the honest answer for the LOCAL pair is "wherever the local caret is".
+    pub local_cursor: Option<TextCursor>,
+}
+
 /// Does `range` run FORWARD — anchor before focus in logical order?
 ///
 /// `SelectionRange.start` is the ANCHOR and `.end` the FOCUS (the moving end:
@@ -925,6 +946,16 @@ impl TextEditManager {
         let mut primary = None;
         for sel in &mc.selections {
             if let Selection::Range(range) = &sel.selection {
+                // LOCAL ONLY (U1-a). Before the owner existed every range in
+                // this list was the local session's by definition; after U1 a
+                // remote participant's range landed in the same list and every
+                // reader treated it as the local user's own - painted in the
+                // one `::selection` colour, and copied by Ctrl+C. Other
+                // participants' ranges come from
+                // [`Self::remote_selection_ranges`] instead.
+                if !sel.owner.is_local() {
+                    continue;
+                }
                 if sel.id == mc.primary_id {
                     primary = Some(*range);
                 }
@@ -943,6 +974,56 @@ impl TextEditManager {
             node_id,
             ranges,
             primary,
+        })
+    }
+
+    /// OTHER PARTICIPANTS' range selections on the current session's node.
+    ///
+    /// A separate accessor rather than a field on
+    /// [`SessionSelectionRanges`], because a remote range exists independently
+    /// of whether the local user has one: the ordinary collaborative case is
+    /// "I have a caret, you have a selection", and that case returns `None`
+    /// from the local accessor by design - a bare caret is not a selection.
+    /// Hanging the remote ranges off the local result would have made
+    /// everybody else's highlight disappear the moment the local user
+    /// collapsed their own.
+    ///
+    /// `None` when there is no session or its node is detached; empty is
+    /// reported as `None` too, so a single-user app never allocates.
+    #[must_use]
+    pub fn remote_selection_ranges(&self) -> Option<RemoteSelectionRanges> {
+        let mc = self.multi_cursor.as_ref()?;
+        let node_id = mc.node_id.node.into_crate_internal()?;
+
+        let mut ranges = Vec::new();
+        let mut local_cursor = None;
+        for sel in &mc.selections {
+            if sel.owner.is_local() {
+                // The local caret stands in for the anchor/focus of a
+                // remote-only paint, so remember it here rather than walking
+                // the list twice.
+                if local_cursor.is_none() {
+                    local_cursor = Some(match &sel.selection {
+                        Selection::Cursor(c) => *c,
+                        Selection::Range(r) => r.end,
+                    });
+                }
+                continue;
+            }
+            if let Selection::Range(range) = &sel.selection {
+                ranges.push((sel.owner, *range));
+            }
+        }
+
+        if ranges.is_empty() {
+            return None;
+        }
+
+        Some(RemoteSelectionRanges {
+            dom_id: mc.node_id.dom,
+            node_id,
+            ranges,
+            local_cursor,
         })
     }
 
@@ -973,13 +1054,42 @@ impl TextEditManager {
         use azul_core::selection::{SelectionAnchor, SelectionFocus, TextSelection};
 
         let mut map = std::collections::BTreeMap::new();
+        let remote = self.remote_selection_ranges();
         let Some(session) = self.session_selection_ranges() else {
+            // NO LOCAL RANGE, but somebody else may still have one - the usual
+            // collaborative case, since the local user having a bare caret is
+            // the default state. Paint a collapsed selection at the local
+            // caret carrying the remote ranges: `is_collapsed` is then true,
+            // so the local highlight path draws nothing while the remote one
+            // still runs.
+            if let Some(remote) = remote {
+                // A collapsed pair still has to name a cursor. With no
+                // local caret to name (defensive - a session always has one)
+                // the first remote range's start stands in: anchor and focus
+                // are equal either way, so nothing local is painted from it.
+                let cursor = remote
+                    .local_cursor
+                    .unwrap_or_else(|| remote.ranges[0].1.start);
+                let mut sel = TextSelection::new_collapsed(
+                    remote.dom_id,
+                    remote.node_id,
+                    cursor,
+                    LogicalRect::zero(),
+                    azul_core::geom::LogicalPosition::zero(),
+                );
+                sel.remote_ranges.insert(remote.node_id, remote.ranges);
+                map.insert(remote.dom_id, sel);
+            }
             return map;
         };
         let range = session.primary;
 
         let mut affected_nodes = std::collections::BTreeMap::new();
         affected_nodes.insert(session.node_id, session.ranges);
+        let mut remote_ranges = std::collections::BTreeMap::new();
+        if let Some(remote) = remote {
+            remote_ranges.insert(remote.node_id, remote.ranges);
+        }
 
         map.insert(
             session.dom_id,
@@ -997,6 +1107,7 @@ impl TextEditManager {
                     mouse_position: azul_core::geom::LogicalPosition::zero(),
                 },
                 affected_nodes,
+                remote_ranges,
                 is_forward: range_is_forward(&range),
             },
         );
@@ -1995,6 +2106,170 @@ mod autotest_generated {
         assert!(m.build_text_selections_map().is_empty());
     }
 
+    // ---------------------------------------------------------------
+    // U1-a — the selection HIGHLIGHT is per owner, not per node
+    // ---------------------------------------------------------------
+
+    fn owner(n: u64) -> azul_core::selection::SelectionOwner {
+        azul_core::selection::SelectionOwner { high: 0, low: n }
+    }
+
+    #[test]
+    fn autotest_session_ranges_exclude_a_remote_participants_range() {
+        // THE DEFECT U1 INTRODUCED. `session_selection_ranges` walked every
+        // selection in the list; once an app could inject a peer's range, that
+        // range came back as if the local user had made it — painted in the
+        // node's one `::selection` colour and, worse, treated as the local
+        // selection by everything downstream of it (copy included).
+        let node = NodeId::new(6);
+        let mine = range(cursor(0, 0), cursor(0, 2));
+        let theirs = range(cursor(0, 5), cursor(0, 9));
+
+        let mut m = TextEditManager::new();
+        m.multi_cursor = Some(multi_cursor_with(
+            dom_node(DOM0, Some(node)),
+            vec![Selection::Range(mine)],
+            3,
+        ));
+        assert!(m
+            .multi_cursor
+            .as_mut()
+            .unwrap()
+            .set_owner_selections(owner(7), &[Selection::Range(theirs)]));
+
+        let session = m.session_selection_ranges().expect("the local range");
+        assert_eq!(session.ranges, vec![mine], "local ranges only");
+        assert_eq!(session.primary, mine);
+
+        let remote = m.remote_selection_ranges().expect("the peer's range");
+        assert_eq!(remote.ranges, vec![(owner(7), theirs)]);
+        assert_eq!(remote.node_id, node);
+        assert_eq!(remote.dom_id, DOM0);
+        assert_eq!(
+            remote.local_cursor,
+            Some(mine.end),
+            "the local caret rides along for the collapsed case"
+        );
+    }
+
+    #[test]
+    fn autotest_build_text_selections_map_separates_remote_ranges() {
+        let node = NodeId::new(2);
+        let mine = range(cursor(0, 0), cursor(0, 2));
+        let theirs = range(cursor(0, 5), cursor(0, 9));
+
+        let mut m = TextEditManager::new();
+        m.multi_cursor = Some(multi_cursor_with(
+            dom_node(DOM0, Some(node)),
+            vec![Selection::Range(mine)],
+            3,
+        ));
+        m.multi_cursor
+            .as_mut()
+            .unwrap()
+            .set_owner_selections(owner(1), &[Selection::Range(theirs)]);
+
+        let sel = m.build_text_selections_map().remove(&DOM0).expect("a map");
+        assert_eq!(
+            sel.ranges_for_node(&node),
+            &[mine],
+            "affected_nodes is the LOCAL selection and takes ::selection"
+        );
+        assert_eq!(
+            sel.remote_ranges.get(&node).map(|v| v.as_slice()),
+            Some(&[(owner(1), theirs)][..]),
+        );
+        // The endpoints still describe the local primary, not the peer's.
+        assert_eq!(sel.anchor.cursor, mine.start);
+        assert_eq!(sel.focus.cursor, mine.end);
+    }
+
+    #[test]
+    fn autotest_remote_range_survives_a_collapsed_local_caret() {
+        // THE ORDINARY COLLABORATIVE CASE: I am typing (a bare caret, which is
+        // not a selection) while somebody else has text selected. Hanging the
+        // remote ranges off `session_selection_ranges` would have dropped them
+        // here, because that accessor reports `None` for a caret-only session
+        // by design — everybody else's highlight would blink out the instant
+        // the local user collapsed their own.
+        let node = NodeId::new(9);
+        let theirs = range(cursor(0, 3), cursor(0, 7));
+
+        let mut m = TextEditManager::new();
+        m.multi_cursor = Some(multi_cursor_with(
+            dom_node(DOM1, Some(node)),
+            vec![Selection::Cursor(cursor(0, 1))],
+            4,
+        ));
+        m.multi_cursor
+            .as_mut()
+            .unwrap()
+            .set_owner_selections(owner(3), &[Selection::Range(theirs)]);
+
+        assert!(
+            m.session_selection_ranges().is_none(),
+            "a bare local caret is not a selection"
+        );
+
+        let map = m.build_text_selections_map();
+        let sel = map.get(&DOM1).expect("the peer's range still gets a map");
+        assert!(
+            sel.is_collapsed(),
+            "collapsed, so the LOCAL highlight path paints nothing"
+        );
+        assert_eq!(sel.anchor.cursor, cursor(0, 1), "at the local caret");
+        assert_eq!(
+            sel.remote_ranges.get(&node).map(|v| v.as_slice()),
+            Some(&[(owner(3), theirs)][..]),
+        );
+        // `new_collapsed` still lists the caret as a degenerate range, so the
+        // suppression of the local highlight is `is_collapsed` above and NOT
+        // an empty map — worth pinning, because painting that range would put
+        // a zero-width `::selection` rect under the caret.
+        assert_eq!(
+            sel.ranges_for_node(&node),
+            &[range(cursor(0, 1), cursor(0, 1))]
+        );
+    }
+
+    #[test]
+    fn autotest_no_remote_map_for_a_single_user_session() {
+        // The single-user path must not start allocating a second map.
+        let node = NodeId::new(1);
+        let mut m = TextEditManager::new();
+        m.multi_cursor = Some(multi_cursor_with(
+            dom_node(DOM0, Some(node)),
+            vec![Selection::Range(range(cursor(0, 0), cursor(0, 3)))],
+            3,
+        ));
+        assert!(m.remote_selection_ranges().is_none());
+        let sel = m.build_text_selections_map().remove(&DOM0).expect("a map");
+        assert!(sel.remote_ranges.is_empty());
+    }
+
+    #[test]
+    fn autotest_remote_selection_tint_keeps_text_readable() {
+        use crate::solver3::display_list::{remote_selection_tint, REMOTE_SELECTION_ALPHA};
+        let opaque = ColorU {
+            r: 10,
+            g: 200,
+            b: 30,
+            a: 255,
+        };
+        let tinted = remote_selection_tint(opaque);
+        assert_eq!(
+            (tinted.r, tinted.g, tinted.b),
+            (10, 200, 30),
+            "the hue identifies the participant and must not shift"
+        );
+        assert_eq!(tinted.a, REMOTE_SELECTION_ALPHA);
+        assert!(tinted.a < opaque.a, "an opaque fill would hide the text");
+
+        // An app that deliberately picked a faint colour asked for faint.
+        let faint = ColorU { a: 0x10, ..opaque };
+        assert_eq!(remote_selection_tint(faint).a, 0x10);
+    }
+
     #[test]
     fn autotest_build_text_selections_map_single_range() {
         let node = NodeId::new(6);
@@ -2473,6 +2748,7 @@ mod autotest_generated {
         affected.insert(focus, vec![range(cursor(0, 0), cursor(0, 2))]);
         TextSelection {
             dom_id: DOM0,
+            remote_ranges: alloc::collections::BTreeMap::new(),
             anchor: SelectionAnchor {
                 ifc_root_node_id: anchor,
                 cursor: cursor(0, 0),

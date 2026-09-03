@@ -3579,6 +3579,9 @@ impl LayoutWindow {
                     mouse_position: LogicalPosition::zero(),
                 },
                 affected_nodes: affected,
+                // A drag across block boundaries is by definition the local
+                // user's own pointer, so it never carries a remote owner.
+                remote_ranges: BTreeMap::new(),
                 is_forward,
             });
         true

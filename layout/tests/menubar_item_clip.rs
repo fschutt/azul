@@ -248,6 +248,7 @@ fn test_app_path_menubar_not_clipped() {
         DomId::ROOT_ID,
         true,
         Vec::new(),
+        Default::default(), // owner_colors (U1)
         None,
         &azul_core::resources::ImageCache::default(),
         None,
@@ -408,6 +409,7 @@ fn test_probe_words_glyph_counts() {
         DomId::ROOT_ID,
         true,
         Vec::new(),
+        Default::default(), // owner_colors (U1)
         None,
         &azul_core::resources::ImageCache::default(),
         None,
