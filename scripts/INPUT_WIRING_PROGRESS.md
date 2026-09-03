@@ -1750,8 +1750,43 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       unrecognised names, and that "OpenMoko"/"Pentax" do not become styluses. Host check green,
       Linux target check green, 8-target gate green. NOT runtime-verified — needs a real X
       server with a real touchpad.
-- [ ] 9b-ii `MouseState` is still a single global, so multi-seat remains inexpressible — `device_id` now
-      travels on the EVENT but the state does not fan out per seat. That is a bigger change than this arc.
+- [ ] 9b-ii RE-SCOPED BY THE USER (2026-09-03: "we need to refactor the mouse state"). No longer
+      "a bigger change than this arc" - it is asked for. `MouseState` is a single global, so
+      `device_id` travels on the EVENT while the STATE does not fan out per seat: two mice share
+      one cursor position, one button set and one hover. The fan-out is
+      `BTreeMap<DeviceId, MouseState>` with the existing single global becoming the primary
+      seat's entry, so nothing that reads "the mouse" breaks while a second seat becomes
+      expressible. `InputPointId` (already used to key the hover manager per pointer) is the
+      precedent and probably the key type.
+
+### QUEUED BY THE USER - 2026-09-03, collaborative editing
+
+These three came in together and belong together: they are the model a multi-user editing
+session needs. Recorded verbatim so the framing is not lost.
+
+- [ ] U1 CURSOR OWNERSHIP. User: "think about every cursor having an 'owner uuid', for later
+      multiple cursors / selections having app-injected owners, so we can paint them in separate
+      colors, think a 'multi-user editing session' like many people editing a document over a
+      network at the same time".
+      `MultiCursorState` already holds a `Vec<IdentifiedSelection>` with a stable `SelectionId`
+      per entry, so the SHAPE is there - what is missing is an OWNER on each, an app-facing way
+      to inject a remote participant's cursor, and a paint path that colours by owner instead of
+      using the one `caret-color`. `SelectionId` is engine-allocated and local; an owner is
+      app-supplied and must survive the network, so it is a separate field rather than a reuse.
+      Note the existing `-azul-caret-color` / selection colours are per-NODE properties, so
+      per-owner colour is a new axis rather than a new value.
+- [ ] U2 NATIVE SELECTION INTEGRATION. User: "please make sure our selection model integrates
+      with the native selections on ios and android, so that copy-in / copy-out works".
+      The iOS half now has the offset bridge from 10b-i-a/b, so `selectedTextRange` and
+      `setSelectedTextRange:` are honest - but the SELECTION TOOLBAR (UIKit's edit menu, Android's
+      ActionMode) and the clipboard round trip are what "copy-in / copy-out" means, and those are
+      only partly wired: Android already routes ActionMode cut/copy/paste/select-all through
+      `SystemChange`, iOS has no equivalent path. Check both directions against a real selection
+      before claiming it.
+- [ ] U3 Both of the above want the SAME question answered first: is a selection identified by
+      `(node, range)` or by an owner-scoped id? U1 needs owners on every selection and U2 needs
+      the platform's idea of "the selection" to map onto exactly one of them. Doing U1 first
+      fixes the shape U2 has to talk to.
 
 ### Follow-ups opened by 9a
 
