@@ -1688,6 +1688,7 @@ mod owner_tests {
 #[cfg(test)]
 mod peer_shift_tests {
     use super::*;
+    use crate::styled_dom::NodeHierarchyItemId;
 
     fn cursor(byte: u32) -> TextCursor {
         TextCursor {

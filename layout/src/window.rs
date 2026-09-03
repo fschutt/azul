@@ -21219,10 +21219,14 @@ mod autotest_generated {
         assert_eq!(w.text_edit_manager.get_primary_cursor(), Some(at(8)));
 
         // A delete spanning the local caret collapses it to the change start.
+        // "XXhello world" -> "XXhorld" has two equally small explanations
+        // (drop "ello w" keeping hello's 'o', or drop "ello w" keeping
+        // world's 'o'); the diff takes the longest common PREFIX first, so
+        // the change is bytes 3..9 and the caret lands on 3.
         w.layout_results
             .insert(DomId::ROOT_ID, bare_layout_result(editable("XXhorld")));
         w.shift_carets_across_generation();
-        assert_eq!(w.text_edit_manager.get_primary_cursor(), Some(at(4)));
+        assert_eq!(w.text_edit_manager.get_primary_cursor(), Some(at(3)));
     }
 
     #[test]
