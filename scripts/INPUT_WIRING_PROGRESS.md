@@ -243,9 +243,13 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       attribute - `pattern_matches` answers `None` for it. Known deviation documented in the
       module: no `v`-flag Unicode sets / `\p{..}`; such patterns fail to compile and are
       therefore ignored, never mis-matched. Four tests pin anchoring, the empty exemption, the
-      ignore rule and Unicode-aware `.`. ⏳ SECOND BATCH: uncompiled until its end pass
-      (api.json gets the `ValidityReason` variant through autofix then; Cargo.lock updated by
-      `cargo fetch`).
+      ignore rule and Unicode-aware `.`. ✅ COMPILED AND RUN in the second batch pass of 2026-09-03: host check EXIT=0; api.json
+      converged (autofix EXIT=0, 0 patches; the four new CallbackInfo methods and six new types
+      staged through `autofix add`); codegen green; core 2807, layout lib 7679, layout `--test
+      all` 999, dll 2021 tests green; the e2e corpus (62 scenarios) green with the new
+      spatial-navigation scenario RED under its negative control; the 8-target gate 8/8 after one
+      iOS fix (objc2 `error: _` wants a typed NSError; explicit out-pointers now); the Android
+      Java classes compile against android-34.
 - [x] 11b-i-c DONE, and THE NOTE'S PROPOSED DESIGN WOULD NOT HAVE WORKED. It said exposing the
       reason "means a new `EventData` variant (an ABI addition) plus api.json". `CallbackInfo`
       never sees the `SyntheticEvent`: it carries the hit node and read-only access to the
@@ -1009,7 +1013,13 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `MediaSessionManager`, whose `EventProvider` impl emits both kinds. API shapes confirmed
       on the web before writing (Apple's interruption-handling guide and `SetActiveOptions`;
       Android's audio-focus guide and `AudioFocusRequest.Builder`). Core test pins delivery,
-      readability and the `Lost` rule. ⏳ SECOND BATCH: uncompiled until its end pass;
+      readability and the `Lost` rule. ✅ COMPILED AND RUN in the second batch pass of 2026-09-03: host check EXIT=0; api.json
+      converged (autofix EXIT=0, 0 patches; the four new CallbackInfo methods and six new types
+      staged through `autofix add`); codegen green; core 2807, layout lib 7679, layout `--test
+      all` 999, dll 2021 tests green; the e2e corpus (62 scenarios) green with the new
+      spatial-navigation scenario RED under its negative control; the 8-target gate 8/8 after one
+      iOS fix (objc2 `error: _` wants a typed NSError; explicit out-pointers now); the Android
+      Java classes compile against android-34.
       api.json then gets `SystemAudioChange`, `OptionSystemAudioChange`, the three
       `CallbackInfo` methods and the filter variant through autofix.
 - [ ] 9h-i-a-i-d-i-a macOS has `AVAudioSession` too since macOS 11, but a Mac's remote command
@@ -1817,8 +1827,13 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       the lock back by calling `set_pointer_lock(true)` from `WindowFocusReceived`; a drawing
       app is never re-captured. The e2e runner already honours the flag, so the diff covers
       headless scenarios too; layout test `pointer_lock_transitions_emit_a_change_each_way...`
-      pins taken / lost / steady. ⏳ SECOND BATCH: uncompiled until its end pass (api.json gets
-      the `WindowEventFilter` variant through autofix then).
+      pins taken / lost / steady. ✅ COMPILED AND RUN in the second batch pass of 2026-09-03: host check EXIT=0; api.json
+      converged (autofix EXIT=0, 0 patches; the four new CallbackInfo methods and six new types
+      staged through `autofix add`); codegen green; core 2807, layout lib 7679, layout `--test
+      all` 999, dll 2021 tests green; the e2e corpus (62 scenarios) green with the new
+      spatial-navigation scenario RED under its negative control; the 8-target gate 8/8 after one
+      iOS fix (objc2 `error: _` wants a typed NSError; explicit out-pointers now); the Android
+      Java classes compile against android-34.
 
 ### Follow-ups opened by 9c
 
@@ -2423,7 +2438,13 @@ session needs. Recorded verbatim so the framing is not lost.
       run-stable mapping and no shift is applied - a wrong shift is worse than a stale caret,
       and the app's next snapshot re-places the peer. Nine core tests pin the diff, the
       boundaries, each transform case, ranges, locality and run isolation.
-      ⏳ SECOND BATCH: uncompiled until its end pass.
+      ✅ COMPILED AND RUN in the second batch pass of 2026-09-03: host check EXIT=0; api.json
+      converged (autofix EXIT=0, 0 patches; the four new CallbackInfo methods and six new types
+      staged through `autofix add`); codegen green; core 2807, layout lib 7679, layout `--test
+      all` 999, dll 2021 tests green; the e2e corpus (62 scenarios) green with the new
+      spatial-navigation scenario RED under its negative control; the 8-target gate 8/8 after one
+      iOS fix (objc2 `error: _` wants a typed NSError; explicit out-pointers now); the Android
+      Java classes compile against android-34.
 - [ ] U3-a-i Peer shift across an edit that changes the run COUNT: a delete spanning two
       styled runs merges them, a styled paste splits one; `run_text_changes` answers nothing
       then, so peers on the affected runs stay where they were until the next snapshot. Needs
@@ -2448,7 +2469,13 @@ session needs. Recorded verbatim so the framing is not lost.
       node id. Same run-count limit as U3-a (U3-a-i). Tests: core `shift_all_moves_the_local_
       caret_as_well`; layout `a_generation_that_changes_the_text_shifts_every_caret` (snapshot
       pass, remote insert shifts local + peer, unchanged pass moves nothing, a delete spanning
-      the caret collapses it). ⏳ SECOND BATCH: uncompiled until its end pass.
+      the caret collapses it). ✅ COMPILED AND RUN in the second batch pass of 2026-09-03: host check EXIT=0; api.json
+      converged (autofix EXIT=0, 0 patches; the four new CallbackInfo methods and six new types
+      staged through `autofix add`); codegen green; core 2807, layout lib 7679, layout `--test
+      all` 999, dll 2021 tests green; the e2e corpus (62 scenarios) green with the new
+      spatial-navigation scenario RED under its negative control; the 8-target gate 8/8 after one
+      iOS fix (objc2 `error: _` wants a typed NSError; explicit out-pointers now); the Android
+      Java classes compile against android-34.
 
 ### Follow-ups opened by 9a
 
@@ -2560,7 +2587,13 @@ session needs. Recorded verbatim so the framing is not lost.
       the hold asked for: `e2e/spatial-nav-auto-scroll-container.json` - #f1 top-left inside an
       `overflow: auto` box, #f2 far bottom-right inside it, #out directly below the box and
       nearer; ArrowDown must pick #f2 (inside wins), and from #f2 must escape to #out.
-      ⏳ SECOND BATCH: uncompiled until its end pass. END-PASS CHECK REQUIRED: run the scenario
+      ✅ COMPILED AND RUN in the second batch pass of 2026-09-03: host check EXIT=0; api.json
+      converged (autofix EXIT=0, 0 patches; the four new CallbackInfo methods and six new types
+      staged through `autofix add`); codegen green; core 2807, layout lib 7679, layout `--test
+      all` 999, dll 2021 tests green; the e2e corpus (62 scenarios) green with the new
+      spatial-navigation scenario RED under its negative control; the 8-target gate 8/8 after one
+      iOS fix (objc2 `error: _` wants a typed NSError; explicit out-pointers now); the Android
+      Java classes compile against android-34. END-PASS CHECK REQUIRED: run the scenario
       with the `auto` arm stubbed to `false` and confirm it goes RED (a scenario that cannot
       fail proves nothing - see the harness lesson).
 - [x] 8f-i BATTERY DONE on every platform that has a gamepad backend; the IMU/touchpad half is
@@ -2754,7 +2787,13 @@ session needs. Recorded verbatim so the framing is not lost.
       verdict rule. Landed in two commits (fe6e5876f carried only the core half: the edit
       script stopped on a stale anchor after the shell had already staged the commit - a
       `&&`-less chain, the same trap class as the exit-code one; the follow-up carries the
-      rest). ⏳ SECOND BATCH: uncompiled until its end pass; api.json then gets `Proximity`,
+      rest). ✅ COMPILED AND RUN in the second batch pass of 2026-09-03: host check EXIT=0; api.json
+      converged (autofix EXIT=0, 0 patches; the four new CallbackInfo methods and six new types
+      staged through `autofix add`); codegen green; core 2807, layout lib 7679, layout `--test
+      all` 999, dll 2021 tests green; the e2e corpus (62 scenarios) green with the new
+      spatial-navigation scenario RED under its negative control; the 8-target gate 8/8 after one
+      iOS fix (objc2 `error: _` wants a typed NSError; explicit out-pointers now); the Android
+      Java classes compile against android-34.
       `ProximityDistance`, `DistanceUnit`, `OptionProximity` and `CallbackInfo.get_proximity`
       through `autofix add`.
 - [x] 8e-i-a-ii DONE per the USER RULING (2026-09-03). The two stacked reasons are both
@@ -2766,7 +2805,13 @@ session needs. Recorded verbatim so the framing is not lost.
       Polled each pass BEFORE the IMU gate, since a machine can have one without the other.
       Android got the same typed answer from its own rule (max range = far, zero = near, in
       between = a distance in cm, via a new `nativeOnProximity(distance, maxRange)` JNI hook),
-      Linux iio publishes its scaled metres as a `Distance`. ⏳ SECOND BATCH: uncompiled until
+      Linux iio publishes its scaled metres as a `Distance`. ✅ COMPILED AND RUN in the second batch pass of 2026-09-03: host check EXIT=0; api.json
+      converged (autofix EXIT=0, 0 patches; the four new CallbackInfo methods and six new types
+      staged through `autofix add`); codegen green; core 2807, layout lib 7679, layout `--test
+      all` 999, dll 2021 tests green; the e2e corpus (62 scenarios) green with the new
+      spatial-navigation scenario RED under its negative control; the 8-target gate 8/8 after one
+      iOS fix (objc2 `error: _` wants a typed NSError; explicit out-pointers now); the Android
+      Java classes compile against android-34.
       its end pass (Windows-gnu target in the gate; the Java class recompiles then).
 
 ### Follow-ups opened by 8c/8d
