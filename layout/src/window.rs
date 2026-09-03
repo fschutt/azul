@@ -11733,6 +11733,105 @@ impl LayoutWindow {
         Some(cursor_rect)
     }
 
+    /// The caret rect for a BYTE OFFSET in the focused editable, in absolute
+    /// window coordinates (10b-i-a).
+    ///
+    /// The shells' IME protocols speak in flat byte offsets - UIKit's
+    /// `caretRectForPosition:` and `firstRectForRange:`, AppKit's
+    /// `firstRectForCharacterRange:` - while the engine speaks in
+    /// `TextCursor`s over grapheme clusters. This is the bridge, and its
+    /// absence is why both shells answered every geometry question with the
+    /// focused NODE's box: the candidate window landed in the right region
+    /// rather than on the right character, and a loupe pointed at the middle
+    /// of the field.
+    ///
+    /// Nothing new had to be computed for it. `byte_offset_to_cursor` and
+    /// `get_cursor_rect` both already existed - they were simply never joined
+    /// up, and `get_focused_cursor_rect` above is the same two calls for the
+    /// one offset the engine happened to be holding.
+    #[must_use]
+    pub fn focused_rect_for_byte_offset(&self, byte_offset: usize) -> Option<LogicalRect> {
+        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        let (inline_layout, origin) = self.session_inline_geometry(session_node)?;
+        let cursor = Self::byte_offset_to_cursor(
+            &inline_layout,
+            u32::try_from(byte_offset).unwrap_or(u32::MAX),
+        );
+        let mut rect = inline_layout.get_cursor_rect(&cursor)?;
+        rect.origin.x += origin.x;
+        rect.origin.y += origin.y;
+        Some(rect)
+    }
+
+    /// The rect covering a byte RANGE in the focused editable, in absolute
+    /// window coordinates (10b-i-a).
+    ///
+    /// ONE LINE ONLY, deliberately: this answers `firstRectForRange:`, whose
+    /// contract is the first line's part of the range rather than a bounding
+    /// box over all of it. A multi-line selection returns the first line's
+    /// slice, which is what an IME places its candidate window against - a
+    /// union would put the window beside a rectangle covering text the user
+    /// cannot see the start of.
+    ///
+    /// A range whose two ends are on different lines is detected by their
+    /// vertical positions disagreeing, and the START's line wins.
+    #[must_use]
+    pub fn focused_rect_for_byte_range(&self, start: usize, end: usize) -> Option<LogicalRect> {
+        let (lo, hi) = if start <= end { (start, end) } else { (end, start) };
+        let first = self.focused_rect_for_byte_offset(lo)?;
+        if lo == hi {
+            return Some(first);
+        }
+        let last = self.focused_rect_for_byte_offset(hi)?;
+        Some(first_line_span(first, last))
+    }
+
+    /// The byte offset nearest a point, in absolute window coordinates
+    /// (10b-i-a).
+    ///
+    /// The inverse of [`Self::focused_rect_for_byte_offset`], and what
+    /// `closestPositionToPoint:` needs: a tap or a dragged loupe hands the
+    /// shell a point and expects a text position back. `hittest_cursor` has
+    /// answered this since it was written; only the offset conversion and the
+    /// coordinate rebasing were missing.
+    #[must_use]
+    pub fn focused_byte_offset_for_point(&self, point: LogicalPosition) -> Option<usize> {
+        use crate::text3::edit::cursor_byte_offset_in_run;
+
+        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        let (inline_layout, origin) = self.session_inline_geometry(session_node)?;
+        // The hit test works in NODE-relative coordinates; the shells hand in
+        // window ones, and mixing them puts the answer off by the node's
+        // position on screen - which on a scrolled page is the whole error.
+        let local = LogicalPosition::new(point.x - origin.x, point.y - origin.y);
+        let cursor = inline_layout.hittest_cursor(local)?;
+
+        // The cursor names a cluster inside ONE RUN; the shells want an offset
+        // into the whole string, so every run before it has to be counted
+        // back in. `cursor_byte_offset_in_run` answers only the within-run
+        // half, which is why using it alone would put every offset in a
+        // multi-run paragraph at the wrong character.
+        let node = session_node.node.into_crate_internal()?;
+        let content = self.get_text_before_textinput(session_node.dom, node);
+        let target_run = cursor.cluster_id.source_run;
+        let mut consumed = 0usize;
+        for (i, item) in content.iter().enumerate() {
+            let InlineContent::Text(run) = item else {
+                continue;
+            };
+            let i = u32::try_from(i).unwrap_or(u32::MAX);
+            match i.cmp(&target_run) {
+                core::cmp::Ordering::Less => consumed += run.text.len(),
+                core::cmp::Ordering::Equal => {
+                    let byte = cursor_byte_offset_in_run(&run.text, &cursor).min(run.text.len());
+                    return Some(consumed + byte);
+                }
+                core::cmp::Ordering::Greater => break,
+            }
+        }
+        None
+    }
+
     /// Compute the bounding rect of all selection ranges in the focused node.
     /// Returns the union of all selection rects in absolute coordinates.
     pub fn calculate_selection_bounding_rect(&self) -> Option<LogicalRect> {
@@ -23728,5 +23827,92 @@ mod tween_clock_unit_tests {
             (t - 0.9).abs() < 1e-4,
             "0.9ms into a 1ms focus-ring glide is t = 0.9, got {t}"
         );
+    }
+}
+
+
+/// The `firstRectForRange:` span between two caret rects.
+///
+/// Pulled out of [`LayoutWindow::focused_rect_for_byte_range`] because it is
+/// the whole protocol decision and the only part that can be tested without a
+/// laid-out window.
+///
+/// SAME LINE gives the span between the two carets. DIFFERENT LINES gives the
+/// FIRST line's caret rect and not a bounding box, because that is what the
+/// protocol asks for: an IME places its candidate window against the first
+/// line of the range, and a union would put it beside a rectangle covering
+/// text whose start the user cannot see.
+#[must_use]
+pub fn first_line_span(first: LogicalRect, last: LogicalRect) -> LogicalRect {
+    // Compared by the caret's TOP, and with a tolerance: two carets on one
+    // line can differ by a sub-pixel from rounding, and an exact comparison
+    // would call that a line break and silently drop the range's width.
+    if (first.origin.y - last.origin.y).abs() > LINE_BREAK_TOLERANCE_PX {
+        return first;
+    }
+    LogicalRect {
+        origin: first.origin,
+        size: azul_core::geom::LogicalSize::new(
+            // `max` with the caret's own width, so a zero-length range is still
+            // a visible bar rather than a rect UIKit places off-screen.
+            (last.origin.x - first.origin.x).max(first.size.width),
+            first.size.height,
+        ),
+    }
+}
+
+/// How far two caret tops may differ and still count as one line.
+///
+/// Sub-pixel, because it is guarding against rounding rather than against a
+/// real line height - anything larger would merge two genuinely adjacent lines
+/// in small text.
+const LINE_BREAK_TOLERANCE_PX: f32 = 0.5;
+
+#[cfg(test)]
+mod first_line_span_tests {
+    use azul_core::geom::{LogicalPosition, LogicalSize};
+
+    use super::*;
+
+    fn caret(x: f32, y: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition::new(x, y),
+            size: LogicalSize::new(2.0, 16.0),
+        }
+    }
+
+    #[test]
+    fn a_range_on_one_line_spans_between_the_carets() {
+        let r = first_line_span(caret(10.0, 40.0), caret(90.0, 40.0));
+        assert_eq!(r.origin.x, 10.0);
+        assert_eq!(r.origin.y, 40.0);
+        assert_eq!(r.size.width, 80.0);
+        assert_eq!(r.size.height, 16.0);
+    }
+
+    /// THE PROTOCOL CONTRACT. `firstRectForRange:` is the FIRST LINE's part,
+    /// not a bounding box - a union would place the IME candidate window
+    /// beside a rectangle covering text the user cannot see the start of.
+    #[test]
+    fn a_range_across_lines_gives_only_the_first_line() {
+        let first = caret(10.0, 40.0);
+        let r = first_line_span(first, caret(90.0, 62.0));
+        assert_eq!(r, first, "a multi-line range must not become a bounding box");
+    }
+
+    /// Two carets on one line can differ by a rounding sub-pixel, and treating
+    /// that as a line break silently drops the range's width.
+    #[test]
+    fn a_subpixel_difference_is_still_one_line() {
+        let r = first_line_span(caret(10.0, 40.0), caret(90.0, 40.2));
+        assert_eq!(r.size.width, 80.0, "a 0.2px difference is rounding, not a line break");
+    }
+
+    /// A zero-length range is a CARET, and a zero-width rect makes UIKit place
+    /// the magnifier off-screen.
+    #[test]
+    fn an_empty_range_keeps_the_carets_own_width() {
+        let r = first_line_span(caret(10.0, 40.0), caret(10.0, 40.0));
+        assert_eq!(r.size.width, 2.0);
     }
 }

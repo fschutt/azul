@@ -459,11 +459,35 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       so a class missing one can never be advertised as conforming. Host, 8/8 mobile, azul-dll
       1973. ⚠ COMPILE-ONLY - not run on a device or simulator.
 
-- [ ] 10b-i-a Geometry is answered from the FOCUSED NODE's rect, not per-glyph:
-      `firstRectForRange:`, `caretRectForPosition:` and `closestPositionToPoint:` return the node
-      box rather than real glyph rects, because the engine's per-character rects are not reachable
-      from the shell without a layout-query seam that does not exist. The IME candidate window and
-      the loupe therefore land in the right REGION rather than on the right character.
+- [x] 10b-i-a DONE. ⚠ "A LAYOUT-QUERY SEAM THAT DOES NOT EXIST" WAS WRONG - every piece existed
+      and none of them were joined up. `byte_offset_to_cursor`, `UnifiedLayout::get_cursor_rect`
+      and `UnifiedLayout::hittest_cursor` have all been there for a long time, and
+      `get_focused_cursor_rect` is literally two of them called together for the ONE offset the
+      engine happened to be holding. That is now the fourth item this arc whose premise was a
+      missing READER rather than a missing model.
+      Three new queries on `LayoutWindow`: `focused_rect_for_byte_offset`,
+      `focused_rect_for_byte_range` and `focused_byte_offset_for_point` - the bridge between the
+      shells' flat byte offsets and `TextCursor`'s grapheme-cluster ids, in both directions.
+      WHAT IT FIXES, concretely: `caretRectForPosition:` put the IME candidate window and the
+      loupe against the FIELD instead of the character; and `closestPositionToPoint:` answered
+      "the end of the document" for every point, so a tap anywhere placed the caret at the end
+      and a drag inside a selection jumped to its far edge.
+      TWO TRAPS in the conversions. The hit test works in NODE-RELATIVE coordinates while the
+      shell hands in window ones - mixing them is off by the node's position on screen, which on
+      a scrolled page is the whole error. And a cursor names a cluster inside ONE RUN, so
+      `cursor_byte_offset_in_run` alone puts every offset in a multi-run paragraph at the wrong
+      character; the runs before it have to be counted back in.
+      `firstRectForRange:` IS THE FIRST LINE'S PART, NOT A BOUNDING BOX - that is the protocol's
+      contract, and a union would place the candidate window beside a rectangle covering text
+      whose start the user cannot see. Extracted as `first_line_span` so the decision is
+      testable, with a sub-pixel tolerance: two carets on one line differ by rounding, and an
+      exact comparison would call that a line break and drop the range's width.
+      The node box REMAINS the fallback, deliberately: a field with no live text layout has no
+      glyph to point at, and answering zero would put the candidate window in the screen corner.
+      EVIDENCE: 4 tests over the range contract with a NEGATIVE CONTROL - dropping the line check
+      fails with "a multi-line range must not become a bounding box". All three iOS seams proven
+      COMPILED under aarch64-apple-ios. Host, 8/8 mobile, azul-layout 7625. ⚠ No simulator run -
+      compile-only, and no candidate window has actually moved.
 - [ ] 10b-i-b The offset-space limits inherited from the macOS model, all of them precision
       rather than correctness: the preedit is appended rather than spliced at the caret (so
       composing mid-text reports it at the wrong offset), `setSelectedTextRange:` is accepted and

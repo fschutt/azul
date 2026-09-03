@@ -655,16 +655,44 @@ extern "C" fn set_base_writing_direction_for_range(
 // box puts the IME candidate window in the right region instead of at the
 // screen origin. Refining them to real glyph rects is 10b-i-a.
 
-extern "C" fn first_rect_for_range(_this: &Object, _cmd: Sel, _range: *mut Object) -> CGRect {
-    focused_node_rect().unwrap_or(ZERO_RECT)
+extern "C" fn first_rect_for_range(_this: &Object, _cmd: Sel, range: *mut Object) -> CGRect {
+    // PER-GLYPH now (10b-i-a). `firstRectForRange:` places the IME candidate
+    // window, so the node box put it beside the field rather than under the
+    // text being composed.
+    let bounds = unsafe { range_bounds(range) };
+    let rect = bounds.and_then(|(start, end)| {
+        let window = unsafe { azul_ios_window() }?;
+        let lw = window.common.layout_window.as_ref()?;
+        lw.focused_rect_for_byte_range(start, end)
+    });
+    match rect {
+        Some(r) => to_cgrect(r),
+        // The node box is still the FALLBACK, and a deliberate one: a field
+        // with no live text layout (empty, or not yet laid out) has no glyph
+        // to point at, and answering zero would put the candidate window in
+        // the screen corner.
+        None => focused_node_rect().unwrap_or(ZERO_RECT),
+    }
 }
 
-extern "C" fn caret_rect_for_position(_this: &Object, _cmd: Sel, _position: *mut Object) -> CGRect {
-    // A caret is a zero-width bar at the node's leading edge until per-glyph
-    // rects exist. Zero WIDTH, never zero height: a zero-height caret rect
-    // makes UIKit place the magnifier off-screen.
-    let mut r = focused_node_rect().unwrap_or(ZERO_RECT);
+extern "C" fn caret_rect_for_position(_this: &Object, _cmd: Sel, position: *mut Object) -> CGRect {
+    let offset = unsafe { position_offset(position) };
+    let rect = offset.and_then(|offset| {
+        let window = unsafe { azul_ios_window() }?;
+        let lw = window.common.layout_window.as_ref()?;
+        lw.focused_rect_for_byte_offset(offset)
+    });
+    let mut r = match rect {
+        Some(r) => to_cgrect(r),
+        None => focused_node_rect().unwrap_or(ZERO_RECT),
+    };
+    // Zero WIDTH, never zero height: the engine's caret rect is already a thin
+    // bar, but a fallback node box is not - and a zero-HEIGHT rect makes UIKit
+    // place the magnifier off-screen.
     r.size.width = 2.0;
+    if r.size.height <= 0.0 {
+        r.size.height = 1.0;
+    }
     r
 }
 
@@ -673,27 +701,74 @@ extern "C" fn selection_rects_for_range(_this: &Object, _cmd: Sel, _range: *mut 
     unsafe { msg_send![class!(NSArray), array] }
 }
 
-extern "C" fn closest_position_to_point(_this: &Object, _cmd: Sel, _point: CGPoint) -> *mut Object {
-    // Without per-glyph rects there is no honest hit-test, so the caret is the
-    // closest position we can name. Nil would break the loupe entirely.
-    let len = unsafe { azul_ios_window() }.map_or(0, |w| document_len(w));
-    make_position(len)
+extern "C" fn closest_position_to_point(_this: &Object, _cmd: Sel, point: CGPoint) -> *mut Object {
+    // A REAL HIT TEST now (10b-i-a). This drives the loupe and tap-to-place:
+    // answering "the end of the document" for every point, as this used to,
+    // meant a tap anywhere put the caret at the end.
+    let hit = (|| {
+        let window = unsafe { azul_ios_window() }?;
+        let lw = window.common.layout_window.as_ref()?;
+        lw.focused_byte_offset_for_point(azul_core::geom::LogicalPosition::new(
+            point.x as f32,
+            point.y as f32,
+        ))
+    })();
+    match hit {
+        Some(offset) => make_position(offset),
+        // The end of the document remains the fallback for a field with no
+        // text layout. Nil would break the loupe entirely.
+        None => {
+            let len = unsafe { azul_ios_window() }.map_or(0, |w| document_len(w));
+            make_position(len)
+        }
+    }
 }
 
 extern "C" fn closest_position_to_point_within_range(
     _this: &Object,
     _cmd: Sel,
-    _point: CGPoint,
+    point: CGPoint,
     range: *mut Object,
 ) -> *mut Object {
-    match unsafe { range_bounds(range) } {
-        Some((_, end)) => make_position(end),
-        None => core::ptr::null_mut(),
-    }
+    let Some((start, end)) = (unsafe { range_bounds(range) }) else {
+        return core::ptr::null_mut();
+    };
+    // The real hit test, then CLAMPED to the range - which is the whole
+    // difference from `closestPositionToPoint:`. Returning the range's end
+    // unconditionally, as this used to, made a drag inside a selection jump to
+    // its far edge.
+    let hit = (|| {
+        let window = unsafe { azul_ios_window() }?;
+        let lw = window.common.layout_window.as_ref()?;
+        lw.focused_byte_offset_for_point(azul_core::geom::LogicalPosition::new(
+            point.x as f32,
+            point.y as f32,
+        ))
+    })();
+    let (lo, hi) = if start <= end { (start, end) } else { (end, start) };
+    make_position(hit.map_or(hi, |o| o.clamp(lo, hi)))
 }
 
 extern "C" fn character_range_at_point(_this: &Object, _cmd: Sel, _point: CGPoint) -> *mut Object {
     core::ptr::null_mut()
+}
+
+/// An engine rect as a `CGRect`.
+///
+/// Both are already in LOGICAL points and in view coordinates, so this is a
+/// widening cast and nothing else - a scale factor here would be the classic
+/// double-application bug, since UIKit works in points too.
+fn to_cgrect(r: azul_core::geom::LogicalRect) -> CGRect {
+    CGRect {
+        origin: CGPoint {
+            x: f64::from(r.origin.x),
+            y: f64::from(r.origin.y),
+        },
+        size: CGSize {
+            width: f64::from(r.size.width),
+            height: f64::from(r.size.height),
+        },
+    }
 }
 
 /// The focused node's rect in view coordinates, if there is one.
