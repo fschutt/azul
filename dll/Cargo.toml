@@ -413,6 +413,12 @@ windows = { version = "0.62", optional = true, features = [
     "UI_Input",
     "Win32_UI_Input_Radial",
     "Foundation_Collections",
+    # System Media Transport Controls (extra/media_keys/windows.rs,
+    # 9h-i-a-i-c). `Media` carries SMTC itself; `Storage_Streams` carries the
+    # `RandomAccessStreamReference` its thumbnail wants, which is the one
+    # platform that can take album art as a URI rather than as decoded pixels.
+    "Media",
+    "Storage_Streams",
     "Win32_System_SystemServices",
     "Win32_System_Com_StructuredStorage",
     "Win32_Graphics_Gdi",

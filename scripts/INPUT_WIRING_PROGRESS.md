@@ -715,10 +715,45 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [ ] 9h-i-a-i-b MPRIS `Volume` is read/WRITE and is omitted entirely. Answering it needs an
       app-level volume concept azul does not have, and a writable property needs the same inbound
       path 9h-i-a-i-a does. Some desktops render a volume slider only when the property exists.
-- [ ] 9h-i-a-i-c WINDOWS HAS NO MEDIA SESSION AT ALL. `WM_APPCOMMAND` delivers the keys, so 9h-i
-      was complete for INPUT, but there is nothing to publish INTO: that is `SystemMediaTransport
-      Controls`, reached through `ISystemMediaTransportControlsInterop::GetForWindow(HWND)`. A
-      real WinRT backend, not a line of glue, so `set_now_playing` is a no-op there today.
+- [x] 9h-i-a-i-c DONE. Windows now has a media session: title, artist, album and ALBUM ART in the
+      volume flyout and on the lock screen, plus a playback status and a timeline.
+      `ISystemMediaTransportControlsInterop::GetForWindow(HWND)` rather than the UWP
+      `GetForCurrentView`, which needs a `CoreWindow` a Win32 app does not have. The HWND is
+      PASSED IN (`ensure_started` / `publish_now_playing` now take the window handle) rather than
+      guessed with `GetForegroundWindow`, which would attach the session to whatever the user
+      happened to be looking at when the app started. Every other platform ignores the argument.
+      ⚠ THE DANGEROUS PART WAS THE KEYS, NOT THE PUBLISHING. Registering SMTC means one physical
+      play press can arrive as `WM_APPCOMMAND`, as an SMTC `ButtonPressed`, or as both, and which
+      of those happens is a platform detail that cannot be settled from here. GUESSING EITHER WAY
+      IS UNSAFE: subscribe and assume `WM_APPCOMMAND` stops, and every press doubles (play, then
+      immediately pause, landing back where it started); do not subscribe and assume it keeps
+      arriving, and the keys go silent for any app that turns the flag on.
+      So this subscribes AND leaves `WM_APPCOMMAND` alone, and the fix went into the CHANNEL:
+      `push_media_key` drops a key already waiting in the current batch. One press produces one
+      key however many transports saw it. NOT A TIMER and no constant - the queue drains once per
+      pass, so "already pending" means "since the last frame"; a person cannot press play twice
+      inside one frame, and a genuine double press lands in separate batches and survives. That
+      also makes the old `MAX_PENDING` cap unreachable, so its test now asserts the stronger
+      invariant it actually has: a sender repeating four keys forever leaves exactly four.
+      A THIRD TIME UNIT, and the one most likely to pass review unnoticed because it looks like a
+      duration rather than a count: WinRT `TimeSpan` counts 100-NANOSECOND ticks, where MPRIS
+      wants microseconds and macOS wants seconds. Milliseconds into a `TimeSpan` shows a
+      three-minute track as 18 microseconds with the scrubber pinned at zero.
+      Two SMTC traps documented in place: `IsEnabled` must be set or nothing appears AND no
+      button events arrive; and `DisplayUpdater::SetType` must come BEFORE the music properties,
+      because setting it afterwards clears what was just written. `Update()` is what publishes -
+      forgetting it is the classic "flyout still shows the previous track" bug.
+      ALBUM ART WORKS HERE, unlike macOS: `RandomAccessStreamReference::CreateFromUri` takes the
+      URI `artwork_url` already holds, where `MPMediaItemArtwork` wants decoded pixels
+      (9h-i-a-i-e). A URI that does not parse is skipped rather than failing the whole update - a
+      missing cover must not cost the title.
+      EVIDENCE: 2 new tests with NEGATIVE CONTROLS on both - flattening the tick factor fails
+      `winrt_ticks_are_hundred_nanoseconds_and_clamp`, and removing the dedup fails with "a
+      sender repeating four keys forever must leave exactly four, got 64". All three SMTC seams
+      proven COMPILED under `--target x86_64-pc-windows-gnu`. The media-key tests also needed
+      SERIALISING - `PENDING` is a process-global and the harness runs them in parallel, so one
+      test was draining another's keys. Host, 8/8 mobile, azul-core 2774, azul-layout 7612,
+      azul-dll 1992, autofix 0 patches. ⚠ No Windows machine here - compile-only.
 - [ ] 9h-i-a-i-d iOS and Android both have an equivalent and neither has a backend: iOS is the
       SAME `MPNowPlayingInfoCenter` the macOS half now uses (plus an `AVAudioSession` category
       before it will accept anything), Android is `MediaSession`/`MediaMetadata` through a

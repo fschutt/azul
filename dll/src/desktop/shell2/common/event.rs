@@ -9096,7 +9096,7 @@ pub trait PlatformWindow {
         // the Win32 `WM_APPCOMMAND` arm does: neither transport has a release,
         // and leaving the key latched would make it look held forever.
         if depth == 0 {
-            crate::desktop::extra::media_keys::ensure_started();
+            crate::desktop::extra::media_keys::ensure_started(self.get_raw_window_handle());
             let keys = azul_layout::managers::media_keys::drain_media_keys();
             for key in keys {
                 use azul_core::window::OptionVirtualKeyCode;
@@ -9153,7 +9153,8 @@ pub trait PlatformWindow {
                 .get_layout_window_mut()
                 .and_then(|lw| lw.media_session_manager.take_if_dirty());
             if let Some(info) = announce {
-                crate::desktop::extra::media_keys::publish_now_playing(&info);
+                let window = self.get_raw_window_handle();
+                crate::desktop::extra::media_keys::publish_now_playing(&info, window);
             }
         }
 

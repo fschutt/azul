@@ -159,6 +159,21 @@ impl NowPlayingInfo {
     }
 }
 
+/// Milliseconds as WinRT `TimeSpan` ticks, which are 100 NANOSECONDS each.
+///
+/// A third unit, disagreeing with both of the others: MPRIS wants microseconds
+/// and macOS wants seconds. Publishing milliseconds into a `TimeSpan` makes a
+/// three-minute track show as 18 microseconds and pins the scrubber at zero -
+/// the same class of silent factor error `duration_us` guards, so it gets the
+/// same treatment and the same test.
+///
+/// Saturating, because `TimeSpan::Duration` is signed and a nonsense duration
+/// must clamp rather than wrap negative.
+#[must_use]
+pub fn ms_to_winrt_ticks(ms: u64) -> i64 {
+    i64::try_from(ms.saturating_mul(10_000)).unwrap_or(i64::MAX)
+}
+
 /// Holds the current session state and remembers whether the platform has been
 /// told about it.
 ///
@@ -352,6 +367,19 @@ mod tests {
         i.duration_ms = u64::MAX;
         assert_eq!(i.duration_us(), i64::MAX, "an absurd duration must clamp");
         assert!(i.duration_us() > 0, "and must never come out negative");
+    }
+
+    /// A THIRD unit, and the one most likely to be got wrong because it looks
+    /// like a duration rather than a count: WinRT `TimeSpan` ticks are 100ns.
+    #[test]
+    fn winrt_ticks_are_hundred_nanoseconds_and_clamp() {
+        // One second.
+        assert_eq!(ms_to_winrt_ticks(1_000), 10_000_000);
+        // A three-minute track, the value a wrong factor makes absurd.
+        assert_eq!(ms_to_winrt_ticks(180_000), 1_800_000_000);
+        assert_eq!(ms_to_winrt_ticks(0), 0);
+        assert_eq!(ms_to_winrt_ticks(u64::MAX), i64::MAX);
+        assert!(ms_to_winrt_ticks(u64::MAX) > 0, "must never wrap negative");
     }
 
     /// `mpris:trackid` is what a desktop keys its progress bar on, so a pause
