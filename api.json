@@ -5108,6 +5108,9 @@
                                 },
                                 "pointer_seats": {
                                     "type": "PointerSeatVec"
+                                },
+                                "keyboard_seats": {
+                                    "type": "KeyboardSeatVec"
                                 }
                             }
                         ],
@@ -6721,6 +6724,52 @@
                             {
                                 "ptr": {
                                     "type": "PointerSeat",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "KeyboardSeat": {
+                        "external": "azul_core::window::KeyboardSeat",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "seat_id": {
+                                    "type": "u64"
+                                },
+                                "state": {
+                                    "type": "KeyboardState"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "KeyboardSeatVecSlice": {
+                        "external": "azul_core::window::KeyboardSeatVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "KeyboardSeat",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -107433,6 +107482,215 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "KeyboardSeatVecDestructorType": {
+                        "external": "azul_core::window::KeyboardSeatVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "KeyboardSeatVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "KeyboardSeatVecDestructor": {
+                        "external": "azul_core::window::KeyboardSeatVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "KeyboardSeatVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "KeyboardSeatVec": {
+                        "external": "azul_core::window::KeyboardSeatVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "KeyboardSeat",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "KeyboardSeatVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `KeyboardSeatVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "KeyboardSeatVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `KeyboardSeatVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyboardSeatVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "keyboard_seat_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "keyboard_seat_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "keyboard_seat_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `KeyboardSeatVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "KeyboardSeat"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyboardSeatVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `KeyboardSeatVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const KeyboardSeat"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyboardSeatVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionKeyboardSeat"
+                                },
+                                "fn_body": "keyboard_seat_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `KeyboardSeatVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyboardSeatVecSlice"
+                                },
+                                "fn_body": "keyboard_seat_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "KeyboardSeatVecSlice"
+                                },
+                                "fn_body": "keyboard_seat_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -113490,6 +113748,31 @@
                                 "None": {},
                                 "Some": {
                                     "type": "SystemAudioChange"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionKeyboardSeat": {
+                        "external": "azul_core::window::OptionKeyboardSeat",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Eq",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "KeyboardSeat",
+                                    "doc": [
+                                        "Some value of type KeyboardSeat"
+                                    ]
                                 }
                             }
                         ],
