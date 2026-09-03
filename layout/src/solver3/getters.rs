@@ -914,6 +914,32 @@ impl ExtractPropertyValue<azul_css::props::style::transform::StyleAppRegion> for
     }
 }
 
+impl ExtractPropertyValue<azul_css::props::style::spatial_nav::StyleSpatialNavigationAction>
+    for CssProperty
+{
+    fn extract(
+        &self,
+    ) -> Option<azul_css::props::style::spatial_nav::StyleSpatialNavigationAction> {
+        match self {
+            Self::SpatialNavigationAction(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
+impl ExtractPropertyValue<azul_css::props::style::spatial_nav::StyleSpatialNavigationContain>
+    for CssProperty
+{
+    fn extract(
+        &self,
+    ) -> Option<azul_css::props::style::spatial_nav::StyleSpatialNavigationContain> {
+        match self {
+            Self::SpatialNavigationContain(CssPropertyValue::Exact(v)) => Some(*v),
+            _ => None,
+        }
+    }
+}
+
 impl ExtractPropertyValue<LayoutWidth> for CssProperty {
     fn extract(&self) -> Option<LayoutWidth> {
         match self {
@@ -6426,6 +6452,21 @@ get_css_property!(
     get_app_region,
     azul_css::props::style::transform::StyleAppRegion,
     CssPropertyType::AppRegion
+);
+
+// CSS Spatial Navigation Level 1 — read by the arrow-key decision, not by
+// layout or paint. See `default_actions.rs`.
+get_css_property!(
+    get_spatial_navigation_action,
+    get_spatial_navigation_action,
+    azul_css::props::style::spatial_nav::StyleSpatialNavigationAction,
+    CssPropertyType::SpatialNavigationAction
+);
+get_css_property!(
+    get_spatial_navigation_contain,
+    get_spatial_navigation_contain,
+    azul_css::props::style::spatial_nav::StyleSpatialNavigationContain,
+    CssPropertyType::SpatialNavigationContain
 );
 
 // =============================================================================

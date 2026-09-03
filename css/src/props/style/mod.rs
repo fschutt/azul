@@ -11,10 +11,12 @@ pub mod filter;
 pub mod lists;
 pub mod scrollbar;
 pub mod selection;
+pub mod spatial_nav;
 pub mod text;
 pub mod transform;
 
 pub use self::{
     background::*, border::*, border_radius::*, box_shadow::*, content::*, effects::*,
-    exclusion::*, filter::*, lists::*, scrollbar::*, selection::*, text::*, transform::*,
+    exclusion::*, filter::*, lists::*, scrollbar::*, selection::*, spatial_nav::*, text::*,
+    transform::*,
 };

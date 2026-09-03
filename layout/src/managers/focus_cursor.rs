@@ -733,13 +733,29 @@ pub fn resolve_focus_target(
         // `collect_tab_order` already honours tabindex=-1, transient windows
         // and out-of-scope DOMs, and a node that cannot be tabbed to should
         // not be reachable with an arrow key either.
-        Directional(dir) => Ok(next_in_direction(
-            &collect_tab_order(layout_results, out_of_scope),
-            layout_results,
-            current_focus,
-            *dir,
-        )
-        .map_or(FocusResolution::NotFound, FocusResolution::Resolved)),
+        //
+        // `spatial-navigation-contain: contain` (9a-i-b) narrows that pool to
+        // one subtree FIRST, and only widens back to the whole document when
+        // nothing inside answers. That two-step is the spec's own shape: the
+        // search runs in the innermost spatial navigation container and moves
+        // outward when it finds nothing, so an arrow at the edge of a panel
+        // still escapes it rather than dying there.
+        Directional(dir) => {
+            let all = collect_tab_order(layout_results, out_of_scope);
+            let inside = current_focus
+                .and_then(|c| spatial_navigation_container(layout_results, c))
+                .map(|container| {
+                    all.iter()
+                        .copied()
+                        .filter(|cand| is_within(layout_results, *cand, container))
+                        .collect::<Vec<_>>()
+                });
+            let found = inside
+                .as_ref()
+                .and_then(|pool| next_in_direction(pool, layout_results, current_focus, *dir))
+                .or_else(|| next_in_direction(&all, layout_results, current_focus, *dir));
+            Ok(found.map_or(FocusResolution::NotFound, FocusResolution::Resolved))
+        }
 
         Next => Ok(next_in_tab_order(
             &collect_tab_order(layout_results, out_of_scope),
@@ -978,6 +994,126 @@ mod autotest_generated {
                 .with_child(Dom::create_div().with_tab_index(TabIndex::OverrideInParent(0)))
                 .with_child(Dom::create_node(NodeType::TextArea)),
         )
+    }
+
+    /// A `<body>` with two buttons, then a contained panel holding two more.
+    ///
+    /// Flat pre-order indices: 0 body, 1 button, 2 button, 3 panel (the
+    /// container), 4 button, 5 button.
+    fn contain_fixture(contained: bool) -> StyledDom {
+        use azul_css::{
+            css::CssPropertyValue,
+            props::{property::CssProperty, style::spatial_nav::StyleSpatialNavigationContain},
+        };
+
+        let mut panel = azul_core::dom::NodeData::create_div();
+        if contained {
+            panel.upsert_inline_css_property(CssProperty::SpatialNavigationContain(
+                CssPropertyValue::Exact(StyleSpatialNavigationContain::Contain),
+            ));
+        }
+        StyledDom::create_from_dom(
+            Dom::create_body()
+                .with_child(Dom::create_node(NodeType::Button))
+                .with_child(Dom::create_node(NodeType::Button))
+                .with_child(
+                    Dom::create_from_data(panel)
+                        .with_child(Dom::create_node(NodeType::Button))
+                        .with_child(Dom::create_node(NodeType::Button)),
+                ),
+        )
+    }
+
+    /// `contain` marks the panel and nothing else, and it is found from a
+    /// node INSIDE it - which is the lookup the resolver actually makes.
+    #[test]
+    fn contain_names_the_panel_and_only_when_declared() {
+        let contained = window(vec![(dom(0), contain_fixture(true))]);
+        let panel = nid(0, 3);
+        let inside = nid(0, 4);
+
+        assert_eq!(
+            spatial_navigation_container(&contained, inside),
+            Some(panel),
+            "a node inside the panel must resolve to the panel",
+        );
+        // Self-inclusive: the panel is its own container.
+        assert_eq!(
+            spatial_navigation_container(&contained, panel),
+            Some(panel)
+        );
+        // A sibling OUTSIDE the panel is in no container.
+        assert_eq!(spatial_navigation_container(&contained, nid(0, 1)), None);
+
+        // Without the declaration nothing is a container - `auto` does NOT
+        // make one, deliberately (see the function's own docs).
+        let plain = window(vec![(dom(0), contain_fixture(false))]);
+        assert_eq!(spatial_navigation_container(&plain, inside), None);
+    }
+
+    /// Containment is a SUBTREE test, not a "same parent" test, and it must
+    /// never say yes across DOMs.
+    #[test]
+    fn is_within_covers_self_descendants_and_rejects_other_trees() {
+        let w = window(vec![
+            (dom(0), contain_fixture(true)),
+            (dom(1), contain_fixture(true)),
+        ]);
+        let panel = nid(0, 3);
+
+        assert!(is_within(&w, panel, panel), "a container contains itself");
+        assert!(is_within(&w, nid(0, 4), panel));
+        assert!(is_within(&w, nid(0, 5), panel));
+        assert!(!is_within(&w, nid(0, 1), panel), "a sibling is not inside");
+        assert!(!is_within(&w, nid(0, 0), panel), "an ancestor is not inside");
+
+        // Same index, different DOM: a VirtualView page is a separate tree and
+        // treating it as contained would let the filter admit everything.
+        assert!(!is_within(&w, nid(1, 4), panel));
+    }
+
+    /// The pool an arrow searches narrows to the container, and WIDENS AGAIN
+    /// when nothing inside answers - the spec's move-to-the-parent-container
+    /// step. Without the widening, an arrow at the edge of a panel would die
+    /// there instead of escaping.
+    #[test]
+    fn a_contained_arrow_prefers_the_panel_but_can_still_escape() {
+        let w = window(vec![(dom(0), contain_fixture(true))]);
+        let inside = nid(0, 4);
+
+        let resolved = resolve_focus_target(
+            &FocusTarget::Directional(azul_core::callbacks::FocusDirection::Down),
+            &w,
+            Some(inside),
+            &BTreeSet::new(),
+        );
+        // This fixture has no laid-out boxes, so `next_in_direction` falls
+        // back to "the first candidate in the pool" - which is exactly what
+        // makes the POOL observable here.
+        let Ok(FocusResolution::Resolved(target)) = resolved else {
+            panic!("expected a resolution, got {resolved:?}");
+        };
+        assert!(
+            is_within(&w, target, nid(0, 3)),
+            "a contained search must land inside the panel, got {target:?}",
+        );
+
+        // From OUTSIDE the panel there is no container, so the whole document
+        // is in scope and the first tab stop wins.
+        let outside = nid(0, 1);
+        let resolved = resolve_focus_target(
+            &FocusTarget::Directional(azul_core::callbacks::FocusDirection::Down),
+            &w,
+            Some(outside),
+            &BTreeSet::new(),
+        );
+        let Ok(FocusResolution::Resolved(target)) = resolved else {
+            panic!("expected a resolution, got {resolved:?}");
+        };
+        assert!(
+            !is_within(&w, target, nid(0, 3)) || target == nid(0, 3),
+            "an uncontained search must not be confined to the panel, got {target:?}",
+        );
     }
 
     fn tab_order_of(fixture: StyledDom) -> Vec<DomNodeId> {
@@ -2077,6 +2213,85 @@ mod autotest_generated {
 /// Right in a grid walks diagonally down the screen. Weighting the
 /// cross-axis makes "straight ahead, further away" beat "off to one side,
 /// nearer", which is what a person means by the arrow key.
+/// The nearest `spatial-navigation-contain: contain` ancestor of `from`,
+/// itself included.
+///
+/// `auto` - the initial value - deliberately answers `None` here even for a
+/// scroll container, although `css-nav-1` says a scroll container IS a spatial
+/// navigation container under `auto`. Honouring that would change what every
+/// existing arrow key does: navigation would silently become confined to
+/// whatever scroll box the focus happens to sit in, which is not what 9a-i-a
+/// shipped and not something a stylesheet asked for. So only an EXPLICIT
+/// `contain` narrows the search, and the default stays "the whole document" -
+/// see 9a-i-b-i in the ledger.
+fn spatial_navigation_container(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    from: DomNodeId,
+) -> Option<DomNodeId> {
+    use azul_css::props::style::spatial_nav::StyleSpatialNavigationContain;
+
+    let lr = layout_results.get(&from.dom)?;
+    let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+    let states = lr.styled_dom.styled_nodes.as_container();
+    let mut node = from.node.into_crate_internal()?;
+    // Bounded by the node count: a corrupt hierarchy whose parent chain loops
+    // must not hang the event loop, and a valid chain can never be longer.
+    for _ in 0..hierarchy.internal.len().saturating_add(1) {
+        if let Some(sn) = states.get(node) {
+            if matches!(
+                crate::solver3::getters::get_spatial_navigation_contain(
+                    &lr.styled_dom,
+                    node,
+                    &sn.styled_node_state,
+                ),
+                crate::solver3::getters::MultiValue::Exact(
+                    StyleSpatialNavigationContain::Contain
+                )
+            ) {
+                return Some(DomNodeId {
+                    dom: from.dom,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+                });
+            }
+        }
+        match hierarchy.get(node).and_then(|h| h.parent_id()) {
+            Some(parent) => node = parent,
+            None => return None,
+        }
+    }
+    None
+}
+
+/// Is `candidate` inside `container` (or the container itself)?
+///
+/// Cross-DOM candidates are never inside: a containing panel and a
+/// `VirtualView`'s child document are different trees, and treating a node in
+/// another DOM as contained would let the filter admit everything.
+fn is_within(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    candidate: DomNodeId,
+    container: DomNodeId,
+) -> bool {
+    if candidate.dom != container.dom {
+        return false;
+    }
+    let (Some(cand), Some(cont)) = (
+        candidate.node.into_crate_internal(),
+        container.node.into_crate_internal(),
+    ) else {
+        return false;
+    };
+    if cand == cont {
+        return true;
+    }
+    let Some(lr) = layout_results.get(&candidate.dom) else {
+        return false;
+    };
+    let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+    cand.get_nearest_matching_parent(&hierarchy, |n| n == cont)
+        .is_some()
+}
+
 fn next_in_direction(
     candidates: &[DomNodeId],
     layout_results: &BTreeMap<DomId, DomLayoutResult>,

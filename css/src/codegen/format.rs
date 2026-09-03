@@ -777,6 +777,8 @@ impl_enum_fmt!(ExtendMode, Clamp, Repeat);
 
 impl_enum_fmt!(StyleBackfaceVisibility, Visible, Hidden);
 impl_enum_fmt!(StyleAppRegion, NoDrag, Drag);
+impl_enum_fmt!(StyleSpatialNavigationAction, Auto, Focus, Scroll);
+impl_enum_fmt!(StyleSpatialNavigationContain, Auto, Contain);
 
 impl_enum_fmt!(
     StyleUnicodeBidi,

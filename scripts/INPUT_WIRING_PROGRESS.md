@@ -1440,13 +1440,55 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       the pre-existing `arrow_keys_map_to_their_own_direction_and_scroll_by_line` was rewritten
       to pin the FALLBACK half (it encoded "arrows always scroll", the pre-ruling behaviour).
       azul-layout 7557, azul-dll 1944, azul-core 2750, host check and 8-target gate green.
-- [ ] 9a-i-b `spatial-navigation-contain` and `spatial-navigation-action: focus | scroll | auto`
-      as the per-container overrides, per the user's ruling. NOT needed for the ordering above to
-      be coherent — the fallback already means a scroll container with no focusable children
-      still scrolls, which is browser behaviour — but they are how a container opts OUT (forcing
-      scroll even when a focusable is present, or containing navigation within a panel). Both are
-      real CSS properties: parser, cascade, api.json and the resolver honouring them, which is
-      why they are separate from the ordering.
+- [x] 9a-i-b DONE. Both are real CSS properties end to end: type, parser, name table, cascade,
+      prop cache, solver getter, api.json and a resolver that honours them.
+      `spatial-navigation-action` is read off the nearest SCROLL CONTAINER at or above the
+      focused node - not off the focused node itself - because the property answers "what does an
+      arrow do when THIS element is the container being navigated", and the element an arrow
+      would scroll is the one `ScrollFocusedContainer` acts on. "Scroll container" here is the
+      layout's own answer (`scrollbar_info` present) rather than "does it overflow right now":
+      the stricter test needs the scroll manager, which the decision function deliberately does
+      not have, and an author who wrote `scroll` meant it either way.
+      `Scroll` answers BEFORE the spatial search runs, so a map or a canvas pays nothing for a
+      search whose result it would discard. `Focus` means nothing found = NOTHING HAPPENS, not a
+      scroll; the spec's "continue outward" is already covered because `next_in_direction`
+      searches the whole candidate pool rather than one container.
+      THE DECISION IS A PURE FUNCTION (`resolve_arrow_action`) and that is deliberate: the
+      alternative - asserting through `determine_keyboard_default_action` - needs a fixture with
+      a real layout tree carrying `scrollbar_info`, which no test in that file has. Same move as
+      `sensors/units.rs` and `PadAccumulator`: put the logic where it can be tested.
+      `spatial-navigation-contain` narrows the candidate pool to one subtree FIRST and widens
+      back to the whole document when nothing inside answers - the spec's move-to-the-parent-
+      container step, and what stops an arrow at the edge of a panel from dying there.
+      ⚠ `auto` DELIBERATELY DOES NOT make scroll containers into containers, although the spec
+      says it should. Honouring that would silently change what every existing arrow key does -
+      navigation would become confined to whatever scroll box the focus happens to sit in, which
+      is not what 9a-i-a shipped and not something any stylesheet asked for. Logged as 9a-i-b-i
+      rather than done quietly.
+      Both are classified `RelayoutScope::None` and not-relayout: they describe what an ARROW KEY
+      does and move no box and paint no pixel. Both defaults are the WRONG way round for a new
+      property - unlisted means `can_trigger_relayout() == true` and `RelayoutScope::Full` - so
+      being unlisted would have charged a full layout pass per declaration.
+      TWO FFI TRAPS, both invisible to `azul-doc check`: the owned parse errors needed
+      `#[repr(C, u8)]` (a payload enum with no repr compiles silently and is undefined across the
+      boundary) and `AzString` rather than `String` (the codegen builds its mirror from
+      `AzString`; with `String` the generated C ABI failed to compile with a size-mismatch
+      transmute). api.json's own checker was green through both. Caught only by `codegen all` +
+      a real dll build, exactly as the autofix memory says.
+      EVIDENCE: 5 parser tests including an END-TO-END one that goes through the real
+      `CssPropertyType::from_str` + `parse_css_property` (a keyword parser that works in
+      isolation proves nothing about the name table, which lives in a different file), the full
+      6-case action truth table, 3 containment tests, and a NEGATIVE CONTROL - removing the
+      containment filter fails with "a contained search must land inside the panel". autofix
+      converged at 0 patches, `azul-doc check` PASSED, `codegen all` + dll build green. Host,
+      8/8 mobile, azul-css 2865, azul-core 2767, azul-layout 7610, azul-dll 1990.
+- [ ] 9a-i-b-i `spatial-navigation-contain: auto` should, per `css-nav-1`, make every SCROLL
+      CONTAINER a spatial navigation container. It does not here, and that is a deliberate hold
+      rather than an oversight: turning it on changes the behaviour of every existing arrow key
+      in every scroll container at once, confining navigation to whatever box the focus sits in.
+      It needs the spec's full container CHAIN (search the innermost container, then its parent,
+      then outward) to be safe, which is a different shape from the current single-container
+      filter - and it wants a real visual test, not just a fixture.
 - [x] 8f-i BATTERY DONE on every platform that has a gamepad backend; the IMU/touchpad half is
       8f-i-a. `GamepadState::battery` was modelled, documented, and filled by NOBODY - it read as
       its `-1.0` "not reported" default everywhere, which the note called "honest but inert".

@@ -78,6 +78,7 @@ use azul_css::{
             ScrollbarVisibilityModeValue, SelectionBackgroundColorValue, SelectionColorValue,
             SelectionRadiusValue, ShapeImageThresholdValue, ShapeInsideValue, ShapeMarginValue,
             ShapeOutsideValue, StringSetValue, StyleAlignmentBaselineValue, StyleAppRegionValue,
+            StyleSpatialNavigationActionValue, StyleSpatialNavigationContainValue,
             StyleAspectRatioValue, StyleBackfaceVisibilityValue, StyleBackgroundContentValue,
             StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
             StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue, StyleBaselineSourceValue,
@@ -3895,6 +3896,18 @@ impl CssPropertyCache {
         StyleAppRegionValue,
         AppRegion,
         as_app_region
+    );
+    impl_get_prop!(
+        get_spatial_navigation_action,
+        StyleSpatialNavigationActionValue,
+        SpatialNavigationAction,
+        as_spatial_navigation_action
+    );
+    impl_get_prop!(
+        get_spatial_navigation_contain,
+        StyleSpatialNavigationContainValue,
+        SpatialNavigationContain,
+        as_spatial_navigation_contain
     );
     impl_get_prop!(get_display, LayoutDisplayValue, Display, as_display);
     impl_get_prop!(get_float, LayoutFloatValue, Float, as_float);

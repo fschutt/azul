@@ -34,6 +34,8 @@
 //!
 //! See: https://html.spec.whatwg.org/multipage/interaction.html#activation-behavior
 
+use azul_css::props::style::spatial_nav::StyleSpatialNavigationAction;
+
 use crate::window::DomLayoutResult;
 use alloc::vec::Vec;
 use azul_core::{
@@ -282,25 +284,31 @@ pub fn determine_keyboard_default_action_with_editing(
                 if !anchor_is_live {
                     return scroll;
                 }
+                let focus_move = match dir {
+                    FocusDirection::Up => DefaultAction::FocusUp,
+                    FocusDirection::Down => DefaultAction::FocusDown,
+                    FocusDirection::Left => DefaultAction::FocusLeft,
+                    FocusDirection::Right => DefaultAction::FocusRight,
+                };
+                // `spatial-navigation-action` (9a-i-b) is how a container opts
+                // OUT of the ordered fallback. `Scroll` answers BEFORE the
+                // spatial search runs, so a map or a canvas also pays nothing
+                // for a search whose answer it would discard.
+                let action = spatial_navigation_action(layout_results, focus);
+                if action == StyleSpatialNavigationAction::Scroll {
+                    return resolve_arrow_action(action, focus_move, false, scroll);
+                }
                 let spatial = crate::managers::focus_cursor::resolve_focus_target(
                     &FocusTarget::Directional(dir),
                     layout_results,
                     Some(*focus),
                     &BTreeSet::new(),
                 );
-                if matches!(
+                let found = matches!(
                     spatial,
                     Ok(crate::managers::focus_cursor::FocusResolution::Resolved(_))
-                ) {
-                    match dir {
-                        FocusDirection::Up => DefaultAction::FocusUp,
-                        FocusDirection::Down => DefaultAction::FocusDown,
-                        FocusDirection::Left => DefaultAction::FocusLeft,
-                        FocusDirection::Right => DefaultAction::FocusRight,
-                    }
-                } else {
-                    scroll
-                }
+                );
+                resolve_arrow_action(action, focus_move, found, scroll)
             })
         }
 
@@ -442,6 +450,116 @@ fn is_text_input(node_id: &DomNodeId, layout_results: &BTreeMap<DomId, DomLayout
     node.get_callbacks()
         .iter()
         .any(|cb| matches!(cb.event, EventFilter::Focus(FocusEventFilter::TextInput)))
+}
+
+/// What an arrow key does, given the container's `spatial-navigation-action`
+/// and whether spatial navigation found anywhere to go.
+///
+/// Split out as a pure function because it is the whole behaviour of 9a-i-b in
+/// three lines, and the alternative - asserting it through
+/// `determine_keyboard_default_action` - needs a fixture with a real layout
+/// tree carrying `scrollbar_info`, which no test in this file has. The truth
+/// table gets tested directly instead.
+const fn resolve_arrow_action(
+    action: StyleSpatialNavigationAction,
+    focus_move: DefaultAction,
+    found: bool,
+    scroll: DefaultAction,
+) -> DefaultAction {
+    match action {
+        // Always scroll, focusable children or not. `found` is not even
+        // consulted, which is why the caller can skip the search.
+        StyleSpatialNavigationAction::Scroll => scroll,
+        // Always focus. Nothing found means NOTHING HAPPENS - not a scroll.
+        // The spec's "continue the search outward" is already covered, because
+        // `next_in_direction` searches the whole candidate pool rather than
+        // just this container.
+        StyleSpatialNavigationAction::Focus => {
+            if found {
+                focus_move
+            } else {
+                DefaultAction::None
+            }
+        }
+        // The ordered fallback 9a-i-a shipped, and the initial value.
+        StyleSpatialNavigationAction::Auto => {
+            if found {
+                focus_move
+            } else {
+                scroll
+            }
+        }
+    }
+}
+
+/// The `spatial-navigation-action` in force for an arrow press from `focus`.
+///
+/// Read off the nearest SCROLL CONTAINER at or above the focused node, not off
+/// the focused node itself: the property answers "what does an arrow do when
+/// this element is the container being navigated", and the element an arrow
+/// would scroll is the one `ScrollFocusedContainer` acts on.
+///
+/// "Scroll container" here is the layout's own answer - `scrollbar_info` is
+/// present - and NOT "does it currently overflow". The stricter test lives on
+/// `LayoutWindow::find_scrollable_ancestor` and needs the scroll manager,
+/// which this decision function deliberately does not have; the looser one is
+/// also the right question, because an author who wrote
+/// `spatial-navigation-action: scroll` meant it whether or not the box happens
+/// to overflow at this instant.
+fn spatial_navigation_action(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    focus: &DomNodeId,
+) -> StyleSpatialNavigationAction {
+    let Some(lr) = layout_results.get(&focus.dom) else {
+        return StyleSpatialNavigationAction::Auto;
+    };
+    let Some(node) = focus.node.into_crate_internal() else {
+        return StyleSpatialNavigationAction::Auto;
+    };
+    let Some(start) = lr
+        .layout_tree
+        .dom_to_layout
+        .get(&node)
+        .and_then(|v| v.first())
+    else {
+        return StyleSpatialNavigationAction::Auto;
+    };
+    let states = lr.styled_dom.styled_nodes.as_container();
+    // SELF-inclusive, like `find_scrollable_ancestor`: a focused node can BE
+    // the scroll container - a focusable list box is the common case.
+    for idx in lr
+        .layout_tree
+        .ancestor_chain(*start, azul_core::spaces::Inclusivity::SelfAndAncestors)
+    {
+        let is_scroll_container = lr
+            .layout_tree
+            .warm(idx)
+            .and_then(|w| w.scrollbar_info.as_ref())
+            .is_some();
+        if !is_scroll_container {
+            continue;
+        }
+        let Some(dom_node) = lr.layout_tree.get(idx).and_then(|n| n.dom_node_id) else {
+            continue;
+        };
+        let Some(sn) = states.get(dom_node) else {
+            continue;
+        };
+        if let crate::solver3::getters::MultiValue::Exact(action) =
+            crate::solver3::getters::get_spatial_navigation_action(
+                &lr.styled_dom,
+                dom_node,
+                &sn.styled_node_state,
+            )
+        {
+            return action;
+        }
+        // The NEAREST scroll container decides, even when it says nothing:
+        // walking past it to an outer one would let a grandparent override a
+        // panel the author scoped deliberately.
+        return StyleSpatialNavigationAction::Auto;
+    }
+    StyleSpatialNavigationAction::Auto
 }
 
 /// The default action a gamepad button press asks for.
@@ -1435,6 +1553,64 @@ mod autotest_generated {
     /// between it — the complaint that opened the item. Per CSS Spatial
     /// Navigation Level 1 the arrow tries focus FIRST and falls back to
     /// scrolling, which is what makes taking the arrows safe at all.
+    #[test]
+    /// THE WHOLE TRUTH TABLE of `spatial-navigation-action`, all six cases.
+    ///
+    /// The two overrides differ from the default in exactly one cell each, and
+    /// both of those cells are the point of the property: `scroll` must not
+    /// focus even when a target exists, and `focus` must not scroll even when
+    /// none does.
+    #[test]
+    fn the_spatial_navigation_action_truth_table() {
+        let up = DefaultAction::FocusUp;
+        let scroll = DefaultAction::ScrollFocusedContainer {
+            direction: ScrollDirection::Up,
+            amount: ScrollAmount::Line,
+        };
+
+        for found in [true, false] {
+            assert_eq!(
+                resolve_arrow_action(StyleSpatialNavigationAction::Scroll, up, found, scroll),
+                scroll,
+                "`scroll` must scroll whether or not a focus target exists (found={found})",
+            );
+        }
+
+        assert_eq!(
+            resolve_arrow_action(StyleSpatialNavigationAction::Focus, up, true, scroll),
+            up,
+        );
+        assert_eq!(
+            resolve_arrow_action(StyleSpatialNavigationAction::Focus, up, false, scroll),
+            DefaultAction::None,
+            "`focus` must NOT fall back to scrolling - that is what it opts out of",
+        );
+
+        assert_eq!(
+            resolve_arrow_action(StyleSpatialNavigationAction::Auto, up, true, scroll),
+            up,
+        );
+        assert_eq!(
+            resolve_arrow_action(StyleSpatialNavigationAction::Auto, up, false, scroll),
+            scroll,
+            "`auto` is the ordered fallback 9a-i-a shipped",
+        );
+    }
+
+    /// The property is read off the nearest SCROLL CONTAINER, and this fixture
+    /// has no layout tree at all - so every lookup must answer `Auto` rather
+    /// than panicking or inventing an override. That is also what keeps this
+    /// whole change a no-op for existing behaviour.
+    #[test]
+    fn a_node_with_no_layout_reports_the_initial_action() {
+        let layouts = fixture();
+        let focus = button(&layouts);
+        assert_eq!(
+            spatial_navigation_action(&layouts, &focus),
+            StyleSpatialNavigationAction::Auto,
+        );
+    }
+
     #[test]
     fn an_arrow_moves_focus_when_something_is_there_to_focus() {
         let layouts = fixture();

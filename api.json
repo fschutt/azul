@@ -28848,6 +28848,12 @@
                                 "AppRegion": {
                                     "type": "StyleAppRegionValue"
                                 },
+                                "SpatialNavigationAction": {
+                                    "type": "StyleSpatialNavigationActionValue"
+                                },
+                                "SpatialNavigationContain": {
+                                    "type": "StyleSpatialNavigationContainValue"
+                                },
                                 "MixBlendMode": {
                                     "type": "StyleMixBlendModeValue"
                                 },
@@ -41534,6 +41540,8 @@
                                 "PerspectiveOrigin": {},
                                 "BackfaceVisibility": {},
                                 "AppRegion": {},
+                                "SpatialNavigationAction": {},
+                                "SpatialNavigationContain": {},
                                 "MixBlendMode": {},
                                 "Filter": {},
                                 "BackdropFilter": {},
@@ -49250,6 +49258,69 @@
                                 "end": {
                                     "type": "usize"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleSpatialNavigationActionValue": {
+                        "external": "azul_css::props::property::StyleSpatialNavigationActionValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleSpatialNavigationAction"
+                            ]
+                        }
+                    },
+                    "StyleSpatialNavigationContainValue": {
+                        "external": "azul_css::props::property::StyleSpatialNavigationContainValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleSpatialNavigationContain"
+                            ]
+                        }
+                    },
+                    "StyleSpatialNavigationContain": {
+                        "external": "azul_css::props::style::spatial_nav::StyleSpatialNavigationContain",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Contain": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleSpatialNavigationAction": {
+                        "external": "azul_css::props::style::spatial_nav::StyleSpatialNavigationAction",
+                        "derive": [
+                            "Debug",
+                            "Default",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Focus": {},
+                                "Scroll": {}
                             }
                         ],
                         "repr": "C"
@@ -81203,6 +81274,46 @@
                             "Clone",
                             "PartialEq",
                             "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssSpatialNavigationContainParseErrorOwned": {
+                        "external": "azul_css::props::style::spatial_nav::CssSpatialNavigationContainParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "CssSpatialNavigationActionParseErrorOwned": {
+                        "external": "azul_css::props::style::spatial_nav::CssSpatialNavigationActionParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
                         ],
                         "enum_fields": [
                             {
@@ -114614,6 +114725,12 @@
                                 },
                                 "AppRegion": {
                                     "type": "CssAppRegionParseErrorOwned"
+                                },
+                                "SpatialNavigationAction": {
+                                    "type": "CssSpatialNavigationActionParseErrorOwned"
+                                },
+                                "SpatialNavigationContain": {
+                                    "type": "CssSpatialNavigationContainParseErrorOwned"
                                 },
                                 "MixBlendMode": {
                                     "type": "MixBlendModeParseErrorOwned"
