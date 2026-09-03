@@ -245,10 +245,6 @@ pub enum MediaControlKind {
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct MediaControlRequest {
-    pub kind: MediaControlKind,
-    /// Microseconds, the MPRIS unit; relative for `SeekRelative`, absolute for
-    /// `SeekAbsolute`, 0 otherwise.
-    pub position_us: i64,
     /// The URI for `OpenUri`, empty otherwise.
     pub uri: AzString,
     /// For `SeekAbsolute`: the track id the request was made against, so an
@@ -256,6 +252,10 @@ pub struct MediaControlRequest {
     /// says exactly that about `SetPosition`. Empty when the platform gave
     /// none.
     pub track_id: AzString,
+    /// Microseconds, the MPRIS unit; relative for `SeekRelative`, absolute for
+    /// `SeekAbsolute`, 0 otherwise.
+    pub position_us: i64,
+    pub kind: MediaControlKind,
     /// For `SetVolume`: the requested volume, `0.0`..`1.0`. `0.0` otherwise.
     pub volume: f32,
 }

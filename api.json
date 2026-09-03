@@ -14977,6 +14977,45 @@
                                     "type": "OptionMouseState"
                                 },
                                 "fn_body": "object.get_pointer_seat_state(seat_id)"
+                            },
+                            "get_media_control_request": {
+                                "doc": [
+                                    "Raw pointer motion since the last frame, in DEVICE units, or `None`",
+                                    "when the pointer is not locked or nothing moved.",
+                                    "",
+                                    "This is not the difference between two cursor positions: those have",
+                                    "already had the OS acceleration curve applied and are clamped to the",
+                                    "screen, so differencing them gives accelerated motion that stops dead",
+                                    "at the display edge. Raw deltas are pre-acceleration and unbounded,",
+                                    "which is what a 3D orbit, a first-person camera or an infinite-drag",
+                                    "scrubber needs.",
+                                    "",
+                                    "Units are the device's own counts, whose size depends on its DPI -",
+                                    "which is exactly why applications expose a sensitivity setting rather",
+                                    "than treating them as pixels.",
+                                    "What the platform's media controls asked for (9h-i-a-i-a, 9h-i-a-i-b)",
+                                    "- the payload of a `MediaControl` event, or the last one delivered. A",
+                                    "desktop scrubber, a lock-screen slider, `playerctl position` and the",
+                                    "desktop widget's volume slider all arrive here; the transport buttons",
+                                    "arrive as media KEYS instead, because they carry no value.",
+                                    "",
+                                    "`SeekRelative` is an offset in microseconds (negative = back),",
+                                    "`SeekAbsolute` a position to jump to - MPRIS says to ignore it when",
+                                    "`track_id` is not the current track - `OpenUri` carries the `uri` to",
+                                    "open and play, and `SetVolume` the `volume` to apply (`0.0`..`1.0`).",
+                                    "The app reports the result through `set_now_playing`: a position that",
+                                    "is not the continuation of the last one is announced back to the",
+                                    "desktop as a seek, and a changed `volume` as the new `Volume`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionMediaControlRequest"
+                                },
+                                "fn_body": "object.get_media_control_request()"
                             }
                         },
                         "repr": "C"
@@ -40348,7 +40387,8 @@
                                 "DeviceConnected": {},
                                 "DeviceDisconnected": {},
                                 "MonitorConnected": {},
-                                "MonitorDisconnected": {}
+                                "MonitorDisconnected": {},
+                                "MediaControl": {}
                             }
                         ],
                         "repr": "C"
@@ -113318,6 +113358,23 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionMediaControlRequest": {
+                        "external": "azul_core::media_session::OptionMediaControlRequest",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "MediaControlRequest"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -121658,12 +121715,13 @@
                     },
                     "NowPlayingInfo": {
                         "external": "azul_core::media_session::NowPlayingInfo",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "Default"
+                            "PartialEq"
                         ],
                         "struct_fields": [
                             {
@@ -121687,6 +121745,9 @@
                                 },
                                 "position_ms": {
                                     "type": "u64"
+                                },
+                                "volume": {
+                                    "type": "OptionF32"
                                 }
                             }
                         ],
@@ -122447,6 +122508,56 @@
                                 },
                                 "position": {
                                     "type": "NodePosition"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MediaControlKind": {
+                        "external": "azul_core::media_session::MediaControlKind",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "SeekRelative": {},
+                                "SeekAbsolute": {},
+                                "OpenUri": {},
+                                "SetVolume": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MediaControlRequest": {
+                        "external": "azul_core::media_session::MediaControlRequest",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "uri": {
+                                    "type": "String"
+                                },
+                                "track_id": {
+                                    "type": "String"
+                                },
+                                "position_us": {
+                                    "type": "i64"
+                                },
+                                "kind": {
+                                    "type": "MediaControlKind"
+                                },
+                                "volume": {
+                                    "type": "f32"
                                 }
                             }
                         ],

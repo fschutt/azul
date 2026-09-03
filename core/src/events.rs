@@ -625,9 +625,9 @@ azul_css::impl_option!(
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct MediaControlEventData {
-    pub kind: crate::media_session::MediaControlKind,
     /// Microseconds; relative for `SeekRelative`, absolute for `SeekAbsolute`.
     pub position_us: i64,
+    pub kind: crate::media_session::MediaControlKind,
     /// The requested volume for `SetVolume` (`0.0` silent, `1.0` full), `0.0`
     /// for every other kind.
     pub volume: f32,
