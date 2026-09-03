@@ -316,6 +316,7 @@ fn pointer_seat_events(
     input_id: &crate::managers::hover::InputPointId,
     modifiers: KeyModifiers,
     timestamp: &Instant,
+    gesture_manager: Option<&crate::managers::gesture::GestureAndDragManager>,
     events: &mut Vec<SyntheticEvent>,
 ) {
     let cursor_pos = current
@@ -452,6 +453,67 @@ fn pointer_seat_events(
             ));
         }
     }
+    // GESTURES OF A SECOND SEAT (9b-ii-b-i): drag, double-click and long
+    // press from that seat's OWN sessions. The primary's come from the
+    // window-level block, which also owns node / window / text drags; a
+    // seat's drag is the plain event family on the node it pressed, with the
+    // edges computed from its samples (no latch to keep in sync).
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        if let Some(manager) = gesture_manager {
+            let press_source = hover_manager
+                .press_target_for(seat_id, MouseButton::Left)
+                .unwrap_or(target);
+            let release_edge = !current.left_down && previous.left_down;
+            let moved = current.cursor_position.get_position()
+                != previous.cursor_position.get_position();
+            if manager.seat_drag_started_now(seat_id) {
+                events.push(SyntheticEvent::new(
+                    EventType::DragStart,
+                    EventSource::User,
+                    press_source,
+                    timestamp.clone(),
+                    make_mouse_data(MouseButton::Left),
+                ));
+            } else if current.left_down && moved && manager.seat_drag_active(seat_id) {
+                events.push(SyntheticEvent::new(
+                    EventType::Drag,
+                    EventSource::User,
+                    press_source,
+                    timestamp.clone(),
+                    make_mouse_data(MouseButton::Left),
+                ));
+            }
+            if release_edge && manager.seat_drag_just_ended(seat_id) {
+                events.push(SyntheticEvent::new(
+                    EventType::DragEnd,
+                    EventSource::User,
+                    press_source,
+                    timestamp.clone(),
+                    make_mouse_data(MouseButton::Left),
+                ));
+            }
+            if release_edge && manager.detect_double_click_for(seat_id) {
+                events.push(SyntheticEvent::new(
+                    EventType::DoubleClick,
+                    EventSource::User,
+                    target,
+                    timestamp.clone(),
+                    make_mouse_data(MouseButton::Left),
+                ));
+            }
+            if let Some(long_press) = manager.detect_long_press_for(seat_id) {
+                if !long_press.callback_invoked {
+                    events.push(SyntheticEvent::new(
+                        EventType::LongPress,
+                        EventSource::User,
+                        target,
+                        timestamp.clone(),
+                        make_mouse_data(MouseButton::Left),
+                    ));
+                }
+            }
+        }
+    }
 }
 
 pub fn determine_all_events(
@@ -554,6 +616,7 @@ pub fn determine_all_events(
         &crate::managers::hover::InputPointId::Mouse,
         modifiers,
         &timestamp,
+        gesture_manager,
         &mut events,
     );
 
@@ -588,6 +651,7 @@ pub fn determine_all_events(
                 &input_id,
                 modifiers,
                 &timestamp,
+                gesture_manager,
                 &mut events,
             );
         }
@@ -608,6 +672,7 @@ pub fn determine_all_events(
                 &input_id,
                 modifiers,
                 &timestamp,
+                gesture_manager,
                 &mut events,
             );
         }

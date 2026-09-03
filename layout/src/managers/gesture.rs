@@ -226,6 +226,13 @@ pub struct InputSession {
     /// Window position at the time this session started (mouse-down).
     /// Used by titlebar drag callbacks to compute new window position.
     pub window_position_at_start: WindowPosition,
+    /// WHOSE session this is (9b-ii-b-i): the pointer SEAT that pressed.
+    /// `PRIMARY_POINTER_SEAT` (0) for the mouse and for touches - the
+    /// primary seat's own pointers - so every detector that answers "the
+    /// current session" answers for the primary and is never hijacked by a
+    /// second cursor's press; a seat's sessions are read through the
+    /// `*_for(seat_id)` detectors.
+    pub seat_id: u64,
 }
 
 impl InputSession {
@@ -236,6 +243,7 @@ impl InputSession {
             ended: false,
             session_id,
             window_position_at_start: window_position,
+            seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
         }
     }
 
@@ -770,6 +778,9 @@ pub struct GestureAndDragManager {
     /// [`touch_move`](Self::touch_move) / [`touch_up`](Self::touch_up); each
     /// finger gets its own session (two fingers = two live sessions).
     touch_sessions: alloc::collections::btree_map::BTreeMap<u64, u64>,
+    /// Seat id -> the session its pressed button owns (9b-ii-b-i); the
+    /// per-seat twin of `touch_sessions`.
+    seat_sessions: alloc::collections::btree_map::BTreeMap<u64, u64>,
 }
 
 /// Gesture detected by a platform-native recognizer.
@@ -844,6 +855,7 @@ impl GestureAndDragManager {
             long_press_callbacks_invoked: Vec::new(),
             native_gesture: None,
             touch_sessions: alloc::collections::btree_map::BTreeMap::new(),
+            seat_sessions: alloc::collections::btree_map::BTreeMap::new(),
         }
     }
 
@@ -1018,7 +1030,7 @@ impl GestureAndDragManager {
         touch_radius: (f32, f32),
         screen_position: LogicalPosition,
     ) -> bool {
-        let Some(session) = self.input_sessions.last_mut() else {
+        let Some(session) = self.last_primary_session_mut() else {
             return false;
         };
 
@@ -1052,7 +1064,7 @@ impl GestureAndDragManager {
     /// Call this when receiving mouse button up event.
     /// The session is kept for analysis but marked as ended.
     pub fn end_current_session(&mut self) {
-        if let Some(session) = self.input_sessions.last_mut() {
+        if let Some(session) = self.last_primary_session_mut() {
             session.ended = true;
         }
     }
@@ -1445,7 +1457,13 @@ impl GestureAndDragManager {
     /// Returns Some(DetectedDrag) if a drag is detected based on distance threshold.
     #[must_use]
     pub fn detect_drag(&self) -> Option<DetectedDrag> {
-        let session = self.get_current_session()?;
+        self.detect_drag_for(azul_core::window::PRIMARY_POINTER_SEAT)
+    }
+
+    /// `detect_drag` over ONE seat's current session (9b-ii-b-i).
+    #[must_use]
+    pub fn detect_drag_for(&self, seat_id: u64) -> Option<DetectedDrag> {
+        let session = self.current_session_for(seat_id)?;
 
         // A released button ended the session; the samples stay for velocity
         // queries, but they are no longer a drag. Without this every pass
@@ -1489,7 +1507,13 @@ impl GestureAndDragManager {
         if let Some(NativeGestureEvent::LongPress(lp)) = self.native_gesture {
             return Some(lp);
         }
-        let session = self.get_current_session()?;
+        self.detect_long_press_for(azul_core::window::PRIMARY_POINTER_SEAT)
+    }
+
+    /// `detect_long_press` over ONE seat's current session (9b-ii-b-i).
+    #[must_use]
+    pub fn detect_long_press_for(&self, seat_id: u64) -> Option<DetectedLongPress> {
+        let session = self.current_session_for(seat_id)?;
 
         if session.ended {
             return None; // Can't be long press if button already released
@@ -1569,13 +1593,20 @@ impl GestureAndDragManager {
         if self.has_injected_double_click() {
             return true;
         }
-        let sessions = &self.input_sessions;
+        self.detect_double_click_for(azul_core::window::PRIMARY_POINTER_SEAT)
+    }
+
+    /// `detect_double_click` over ONE seat's sessions (9b-ii-b-i): the two
+    /// most recent presses of that seat, and no other seat's.
+    #[must_use]
+    pub fn detect_double_click_for(&self, seat_id: u64) -> bool {
+        let sessions: Vec<&InputSession> = self.sessions_of(seat_id).collect();
         if sessions.len() < 2 {
             return false;
         }
 
-        let prev_session = &sessions[sessions.len() - 2];
-        let last_session = &sessions[sessions.len() - 1];
+        let prev_session = sessions[sessions.len() - 2];
+        let last_session = sessions[sessions.len() - 1];
 
         // Both sessions must have ended (button released)
         if !prev_session.ended || !last_session.ended {
@@ -1608,7 +1639,13 @@ impl GestureAndDragManager {
     /// with synthetic `CoreInstant`/`CoreDuration` values).
     #[must_use]
     pub fn detect_click_count(&self) -> u32 {
-        let sessions = &self.input_sessions;
+        self.detect_click_count_for(azul_core::window::PRIMARY_POINTER_SEAT)
+    }
+
+    /// `detect_click_count` over ONE seat's sessions (9b-ii-b-i).
+    #[must_use]
+    pub fn detect_click_count_for(&self, seat_id: u64) -> u32 {
+        let sessions: Vec<&InputSession> = self.sessions_of(seat_id).collect();
         let n = sessions.len();
         if n == 0 {
             return 1;
@@ -1631,7 +1668,7 @@ impl GestureAndDragManager {
             if !s.ended && !recent.is_empty() {
                 break;
             }
-            recent.push(s);
+            recent.push(*s);
             if recent.len() >= 3 {
                 break;
             }
@@ -1907,7 +1944,144 @@ impl GestureAndDragManager {
     /// Get the current active input session (if any)
     #[must_use]
     pub fn get_current_session(&self) -> Option<&InputSession> {
-        self.input_sessions.last()
+        self.last_primary_session()
+    }
+
+    /// Every session of one seat, oldest first (9b-ii-b-i).
+    pub fn sessions_of(&self, seat_id: u64) -> impl Iterator<Item = &InputSession> {
+        self.input_sessions.iter().filter(move |s| s.seat_id == seat_id)
+    }
+
+    /// The most recent session of one seat, ended or not.
+    #[must_use]
+    pub fn current_session_for(&self, seat_id: u64) -> Option<&InputSession> {
+        self.input_sessions.iter().rev().find(|s| s.seat_id == seat_id)
+    }
+
+    /// The most recent PRIMARY session - what every "current session" reader
+    /// means, and never a second seat's (9b-ii-b-i).
+    fn last_primary_session(&self) -> Option<&InputSession> {
+        self.current_session_for(azul_core::window::PRIMARY_POINTER_SEAT)
+    }
+
+    fn last_primary_session_mut(&mut self) -> Option<&mut InputSession> {
+        self.input_sessions
+            .iter_mut()
+            .rev()
+            .find(|s| s.seat_id == azul_core::window::PRIMARY_POINTER_SEAT)
+    }
+
+    // --- Per-SEAT input sessions (9b-ii-b-i) ---
+    //
+    // The per-seat twin of the touch API: a second cursor's press opens a
+    // session owned by that seat, its moves feed it, its release ends it.
+    // Fed by the shell from the window-state diff of `pointer_seats`, so
+    // every backend that publishes a seat gets its gestures without its own
+    // wiring.
+
+    pub fn seat_down(
+        &mut self,
+        seat_id: u64,
+        position: LogicalPosition,
+        timestamp: CoreInstant,
+        button_state: u8,
+        window_position: WindowPosition,
+        screen_position: LogicalPosition,
+    ) {
+        let session_id = self.start_input_session(
+            position,
+            timestamp,
+            button_state,
+            window_position,
+            screen_position,
+        );
+        if let Some(s) = self
+            .input_sessions
+            .iter_mut()
+            .find(|s| s.session_id == session_id)
+        {
+            s.seat_id = seat_id;
+        }
+        self.seat_sessions.insert(seat_id, session_id);
+    }
+
+    pub fn seat_move(
+        &mut self,
+        seat_id: u64,
+        position: LogicalPosition,
+        timestamp: CoreInstant,
+        screen_position: LogicalPosition,
+    ) -> bool {
+        let Some(session_id) = self.seat_sessions.get(&seat_id).copied() else {
+            return false;
+        };
+        self.record_sample_for_session(session_id, position, timestamp, screen_position)
+    }
+
+    pub fn seat_up(
+        &mut self,
+        seat_id: u64,
+        position: LogicalPosition,
+        timestamp: CoreInstant,
+        screen_position: LogicalPosition,
+    ) {
+        let Some(session_id) = self.seat_sessions.remove(&seat_id) else {
+            return;
+        };
+        let _ = self.record_sample_for_session(session_id, position, timestamp, screen_position);
+        if let Some(session) = self
+            .input_sessions
+            .iter_mut()
+            .find(|s| s.session_id == session_id)
+        {
+            session.ended = true;
+        }
+    }
+
+    /// Whether one seat's current session has become a DRAG: not ended and
+    /// moved past the drag threshold.
+    #[must_use]
+    pub fn seat_drag_active(&self, seat_id: u64) -> bool {
+        self.detect_drag_for(seat_id).is_some()
+    }
+
+    /// Whether one seat's current session crossed the drag threshold with
+    /// its LAST sample - the pure edge `DragStart` fires on, computed from
+    /// the samples so the event pass needs no mutable latch.
+    #[must_use]
+    pub fn seat_drag_started_now(&self, seat_id: u64) -> bool {
+        let Some(session) = self.current_session_for(seat_id) else {
+            return false;
+        };
+        if session.ended || session.samples.len() < self.config.min_samples_for_gesture {
+            return false;
+        }
+        let Some(first) = session.first_sample() else {
+            return false;
+        };
+        let dist = |sample: &InputSample| {
+            let dx = sample.position.x - first.position.x;
+            let dy = sample.position.y - first.position.y;
+            dx.hypot(dy)
+        };
+        let n = session.samples.len();
+        if dist(&session.samples[n - 1]) < self.config.drag_distance_threshold {
+            return false;
+        }
+        n < 2 || dist(&session.samples[n - 2]) < self.config.drag_distance_threshold
+    }
+
+    /// Whether one seat's most recent session - which has just ended - had
+    /// been a drag, so its release is a `DragEnd`.
+    #[must_use]
+    pub fn seat_drag_just_ended(&self, seat_id: u64) -> bool {
+        let Some(session) = self.current_session_for(seat_id) else {
+            return false;
+        };
+        session.ended
+            && session
+                .direct_distance()
+                .is_some_and(|d| d >= self.config.drag_distance_threshold)
     }
 
     /// Get current mouse position from latest sample

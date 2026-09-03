@@ -2168,11 +2168,34 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       seat's move passes through, its release does not end the capture, the captured seat's does)
       - NEGATIVE CONTROL: dropping the seat filter fails it - and a core dedup test. Host, the dll
       test target, the Linux target directly (X11 + Wayland compile) and 8/8 mobile.
-- [ ] 9b-ii-b-i Per-seat GESTURES: `GestureAndDragManager` tracks one pointer and is fed from
-      the primary cursor, so drag / double-click / long-press / pen stay primary-only; on Wayland
-      a second seat's `axis_stop` (the momentum phase) and `axis_relative_direction` (natural
-      scroll) are not recorded either - the gesture latch and the inversion flag are the window's.
-      Needs the manager keyed by input point, which is its own arc.
+- [x] 9b-ii-b-i DONE - the manager is keyed by SEAT, not rewritten. `InputSession` carries
+      `seat_id` (0 = the primary seat's mouse and touches), `seat_sessions` mirrors the touch
+      map, and `seat_down` / `seat_move` / `seat_up` are the per-seat twin of the touch API. The
+      load-bearing change: every "current session" reader (`get_current_session`,
+      `end_current_session`, the sample recorder) now means the last PRIMARY session, so a second
+      cursor's press can no longer hijack the primary's drag / long-press / double-click / click
+      count - it used to, silently, since sessions were one flat list. Per-seat detectors
+      (`detect_drag_for`, `detect_long_press_for`, `detect_double_click_for`,
+      `detect_click_count_for`, `current_session_for`) read one seat's sessions only; the
+      primary's detectors delegate to seat 0. Feeding is platform-independent: the shell derives
+      each seat's press / move / release from the window-state diff of `pointer_seats` before the
+      event pass (`feed_seat_gesture_sessions`), so X11 MPX and Wayland seats get gestures
+      without backend wiring. Events: `pointer_seat_events` emits a second seat's `DragStart` /
+      `Drag` / `DragEnd` (on the node it pressed, edges computed from the samples - no latch),
+      `DoubleClick` and `LongPress`, all stamped with the seat. Wayland: a second seat's
+      `axis_stop` records `TrackpadEnd` under the seat's own input point (its momentum phase
+      releases its own rubber band) and `axis_relative_direction` lands on the seat's frame -
+      recorded like the primary's, which turned out to be unconsumed too (see 9b-ii-b-i-a).
+      Pen stays primary-only (9b-ii-b-i-b). ⏳ FOURTH BATCH: uncompiled until its end pass.
+- [ ] 9b-ii-b-i-a Wayland `axis_relative_direction` is RECORDED for every seat and CONSUMED for
+      none: `axis_inverted` has no reader. The compositor already delivers deltas in the user's
+      configured direction and `record_scroll_input` applies the engine's natural-scroll sign
+      centrally, so this is either redundant or a double inversion waiting to happen; needs a
+      device check on a v9 compositor before it is wired to anything.
+- [ ] 9b-ii-b-i-b PEN per seat: `pen_state` is one slot. Wayland tablets are per seat
+      (`zwp_tablet_seat_v2`), so a second seat's stylus would overwrite the first's state.
+      A `BTreeMap<u64, PenState>` keyed like the sessions, with the primary in slot 0; the
+      producers (X11 XI2 valuators, Wayland tablet events) already know their seat.
 - [x] 9b-ii-c DONE - as a FIELD, not a new op: `mouse_move` / `mouse_down` / `mouse_up` take
       `"seat": N` (default 0, the ordinary mouse), applied through `FullWindowState::pointer_seat_mut`,
       whose seat 0 IS `mouse_state` - so the three appliers have ONE code path and a seat op is

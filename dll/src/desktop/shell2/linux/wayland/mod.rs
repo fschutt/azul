@@ -400,6 +400,12 @@ pub(super) struct SeatAxisFrame {
     pub(super) discrete: (f32, f32),
     pub(super) value120_seen: bool,
     pub(super) pending: bool,
+    /// `axis_relative_direction` per axis for THIS seat (9b-ii-b-i), the
+    /// per-seat twin of the window's `axis_inverted`. Recorded like the
+    /// primary's; neither is consumed today - the compositor already hands
+    /// over deltas in the direction the user configured, and the engine's
+    /// natural-scroll sign is applied centrally in `record_scroll_input`.
+    pub(super) inverted: (bool, bool),
 }
 
 pub struct WaylandWindow {
@@ -4472,6 +4478,51 @@ impl WaylandWindow {
         self.flush_seat_axis(seat_id);
         if let Some(frame) = self.seat_axis.get_mut(&seat_id) {
             frame.source = WL_AXIS_SOURCE_WHEEL;
+        }
+    }
+
+    /// `wl_pointer.axis_relative_direction` for a second seat (9b-ii-b-i):
+    /// recorded on the seat's own frame, as the primary's is on the window.
+    pub(super) fn handle_seat_pointer_axis_relative_direction(
+        &mut self,
+        seat_id: u64,
+        axis: u32,
+        direction: u32,
+    ) {
+        let inverted = direction == WL_POINTER_AXIS_RELATIVE_DIRECTION_INVERTED;
+        let frame = self.seat_axis.entry(seat_id).or_default();
+        match axis {
+            WL_POINTER_AXIS_HORIZONTAL_SCROLL => frame.inverted.0 = inverted,
+            WL_POINTER_AXIS_VERTICAL_SCROLL => frame.inverted.1 = inverted,
+            _ => {}
+        }
+    }
+
+    /// `wl_pointer.axis_stop` for a second seat (9b-ii-b-i): the fingers
+    /// lifted from THAT seat's touchpad, so its momentum phase - the
+    /// `TrackpadEnd` that releases a rubber-banded axis - is recorded under
+    /// the seat's own input point, where its scroll deltas went.
+    pub(super) fn handle_seat_pointer_axis_stop(&mut self, seat_id: u64) {
+        use azul_core::task::Instant;
+        use azul_layout::managers::hover::InputPointId;
+        use azul_layout::managers::scroll_state::ScrollInputSource;
+
+        self.flush_seat_axis(seat_id);
+        let source = self.seat_axis.get(&seat_id).map_or(WL_AXIS_SOURCE_WHEEL, |f| f.source);
+        if source != WL_AXIS_SOURCE_FINGER && source != WL_AXIS_SOURCE_CONTINUOUS {
+            return;
+        }
+        if let Some(ref mut layout_window) = self.common.layout_window {
+            let now = Instant::from(std::time::Instant::now());
+            layout_window.scroll_manager.record_scroll_from_hit_test(
+                0.0,
+                0.0,
+                ScrollInputSource::TrackpadEnd,
+                azul_layout::managers::scroll_state::ScrollInputDevice::Touchpad,
+                &layout_window.hover_manager,
+                &InputPointId::for_seat(seat_id),
+                now,
+            );
         }
     }
 

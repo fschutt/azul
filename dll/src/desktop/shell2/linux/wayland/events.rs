@@ -3351,7 +3351,8 @@ extern "C" fn pointer_axis_stop_handler(
     // window's, which is the primary's.
     let seat_id = window.seat_id_for_pointer(pointer);
     if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
-        // axis_stop (the momentum phase) is primary-only: 9b-ii-b-i.
+        // A second seat's momentum phase is its own (9b-ii-b-i).
+        window.handle_seat_pointer_axis_stop(seat_id);
         return;
     }
     window.handle_pointer_axis_stop();
@@ -3389,7 +3390,8 @@ extern "C" fn pointer_axis_relative_direction_handler(
     // window's, which is the primary's.
     let seat_id = window.seat_id_for_pointer(pointer);
     if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
-        // the inversion flag is recorded for the primary only; a seat's frame reads the raw sign.
+        // A second seat's natural-scroll flag is its own (9b-ii-b-i).
+        window.handle_seat_pointer_axis_relative_direction(seat_id, axis, direction);
         return;
     }
     window.handle_pointer_axis_relative_direction(axis, direction);

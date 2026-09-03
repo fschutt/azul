@@ -8455,6 +8455,86 @@ pub trait PlatformWindow {
     /// - `button_state`: Button state bitfield (BUTTON_STATE_LEFT / RIGHT / MIDDLE)
     /// - `is_button_down`: Whether a button was just pressed (starts new session)
     /// - `is_button_up`: Whether a button was just released (ends session)
+    /// Open, feed and close the gesture sessions of every NON-PRIMARY seat
+    /// from the diff between the previous and the current `pointer_seats`
+    /// (9b-ii-b-i): a press edge opens the seat's session, a move while a
+    /// button is down feeds it, a release edge (or the seat vanishing with
+    /// a button down) ends it. Platform-independent by construction.
+    fn feed_seat_gesture_sessions(&mut self) {
+        use azul_core::window::{CursorPosition, WindowPosition};
+
+        let previous_seats: azul_core::window::PointerSeatVec = self
+            .get_previous_window_state()
+            .as_ref()
+            .map(|p| p.pointer_seats.clone())
+            .unwrap_or_default();
+        let current = self.get_current_window_state();
+        let window_position = current.position;
+        let screen_of = |p: azul_core::geom::LogicalPosition| match window_position {
+            WindowPosition::Initialized(pos) => {
+                azul_core::geom::LogicalPosition::new(pos.x as f32 + p.x, pos.y as f32 + p.y)
+            }
+            WindowPosition::Uninitialized | WindowPosition::RelativeToParentWindow(_) => p,
+        };
+        let buttons_of = |m: &azul_core::window::MouseState| -> u8 {
+            u8::from(m.left_down)
+                | (if m.right_down { 2 } else { 0 })
+                | (if m.middle_down { 4 } else { 0 })
+        };
+        // (seat, position, buttons now, buttons before, moved)
+        let mut edges: Vec<(u64, azul_core::geom::LogicalPosition, u8, u8, bool)> = Vec::new();
+        let previous_seat = |id: u64| previous_seats.as_ref().iter().find(|s| s.seat_id == id);
+        for seat in current.pointer_seats.as_ref() {
+            let prev = previous_seat(seat.seat_id).map(|s| &s.state);
+            let pos = match seat.state.cursor_position {
+                CursorPosition::InWindow(p) => p,
+                _ => continue,
+            };
+            let now_buttons = buttons_of(&seat.state);
+            let before = prev.map_or(0, buttons_of);
+            let moved = prev.is_none_or(|p| p.cursor_position.get_position() != Some(pos));
+            edges.push((seat.seat_id, pos, now_buttons, before, moved));
+        }
+        for gone in previous_seats.as_ref() {
+            if current.pointer_seat(gone.seat_id).is_some() {
+                continue;
+            }
+            let pos = gone
+                .state
+                .cursor_position
+                .get_position()
+                .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
+            edges.push((gone.seat_id, pos, 0, buttons_of(&gone.state), false));
+        }
+        if edges.is_empty() {
+            return;
+        }
+        #[cfg(feature = "std")]
+        let now = azul_core::task::Instant::from(std::time::Instant::now());
+        #[cfg(not(feature = "std"))]
+        let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0));
+        let Some(lw) = self.get_layout_window_mut() else {
+            return;
+        };
+        let manager = &mut lw.gesture_drag_manager;
+        for (seat_id, pos, now_buttons, before_buttons, moved) in edges {
+            if now_buttons != 0 && before_buttons == 0 {
+                manager.seat_down(
+                    seat_id,
+                    pos,
+                    now.clone(),
+                    now_buttons,
+                    window_position,
+                    screen_of(pos),
+                );
+            } else if now_buttons == 0 && before_buttons != 0 {
+                manager.seat_up(seat_id, pos, now.clone(), screen_of(pos));
+            } else if now_buttons != 0 && moved {
+                let _ = manager.seat_move(seat_id, pos, now.clone(), screen_of(pos));
+            }
+        }
+    }
+
     fn record_input_sample(
         &mut self,
         position: azul_core::geom::LogicalPosition,
@@ -9458,6 +9538,14 @@ pub trait PlatformWindow {
 
         // Get previous state (or use current as fallback for first frame)
         let has_previous = self.get_previous_window_state().is_some();
+        // SECOND SEATS' GESTURE SESSIONS (9b-ii-b-i) are fed from the
+        // window-state diff of `pointer_seats`, so every backend that
+        // publishes a seat gets drag / double-click / long-press for it
+        // without its own wiring; the primary's sessions are fed by the
+        // backends' own `record_input_sample` calls as before. Before the
+        // state borrows below: it needs the manager mutably.
+        self.feed_seat_gesture_sessions();
+
         let previous_state = self
             .get_previous_window_state()
             .as_ref()
