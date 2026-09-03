@@ -2098,8 +2098,11 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       Two tests pin the stamp, the primary's isolation and the vanish-release. What is NOT
       modelled, on purpose: FOCUS is shared - every seat's keys reach the one focused node
       (9b-ii-a-i-d). The PRODUCERS are the open half, each logged with its blocker below.
-      ⏳ FIFTH BATCH: uncompiled until its end pass (api.json: `KeyboardSeat`, `KeyboardSeatVec`,
-      `FullWindowState.keyboard_seats` through autofix then).
+      ✅ COMPILED AND RUN in the fifth batch pass of 2026-09-04: sources compiled first try, the twenty
+      host errors were the generated shim's stale `FullWindowState`; api.json converged over six
+      autofix rounds (`keyboard_seats`, `KeyboardSeat`, `KeyboardSeatVec` + destructor / slice
+      types); codegen green; core 2809 (after one misplaced test field), layout lib 7681 and
+      `--test all` 999, the e2e corpus, dll 2035 tests green; the 8-target gate 8/8.
 - [ ] 9b-ii-a-i-a X11 producer: keys arrive as CORE `KeyPress` / `KeyRelease`, which carry no
       device, so a second MPX keyboard's presses are indistinguishable from the first's. Attributing
       a seat needs XI2 `XI_KeyPress` / `XI_KeyRelease` selected on the window (`deviceid` = the
