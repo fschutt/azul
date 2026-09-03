@@ -175,14 +175,34 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       never compared against another node, nor across DomIds; no snapshot is distinguishable from
       no change; and re-focusing REPLACES the baseline rather than accumulating.
       azul-layout 7575 (+7), azul-dll 1963, azul-core 2759, host, 8/8 mobile, autofix converged.
-- [ ] 11b-i UNBLOCKED (user 2026-09-03: "put as an extra attribute on the `form` node type").
-      `Reset` and `Invalid` are subscribable but unproducible. `Reset` needs a form-reset concept
-      (a `form_node` + the initial values to restore); `Invalid` needs validation state on the node —
-      a `required` / `pattern` attribute or a validator callback. Both are DESIGN questions, not plumbing,
-      which is why they are logged rather than guessed at.
-
-### Follow-ups opened by 10f
-
+- [~] 11b-i FOUNDATION LANDED — and the investigation found a BIGGER gap than the item states.
+      ⚠ `Submit` IS ALSO UNPRODUCIBLE, not just `Reset`/`Invalid`. `DefaultAction::SubmitForm`
+      exists, its consumer in `common/event.rs` exists, and that consumer's comment even claims
+      "Enter on a focused control produced this action and nothing consumed it" - but grepping
+      the whole repo finds only the enum variant, a test list, and the consumer. NOTHING EVER
+      CONSTRUCTED IT. The producer site carried an explicit admission:
+      "Enter on non-activatable element - might submit form / For now, no action (form handling
+      could be added later)". So `EventType::Submit` could not fire on any platform.
+      FIXED: `find_form_ancestor` walks up to the nearest `NodeType::Form` (which already
+      existed, as does a full set of validation attributes - `Required`, `Pattern`, `MinLength`,
+      `MaxLength`, `Min`, `Max`), and Enter on a non-activatable control now produces
+      `SubmitForm { form_node }`. That is HTML's implicit-submission rule, and the walk is up the
+      ANCESTOR chain because a control belongs to the form it is nested in.
+      A control outside every form still produces `None`: guessing a target would fire Submit at
+      an unrelated node.
+      EVIDENCE: 5 tests, and the key one was NEGATIVE-CONTROLLED - stubbing the arm back to
+      `DefaultAction::None` makes it fail with `left: None`, so it really catches the old
+      behaviour rather than passing vacuously. (A first attempt at that control was invalid: it
+      failed to COMPILE rather than to assert, which proves nothing.) azul-layout 7586, azul-core
+      2760, azul-dll 1973, host, 8/8 mobile.
+      STILL OPEN, with the design now clear because the pieces are all present:
+        - `Invalid`: validate the form's controls on submit against the `Required`/`Pattern`/
+          `MinLength`/`MaxLength` attributes that already exist, fire `Invalid` on the first
+          failure and suppress the `Submit`. That is HTML's constraint-validation order.
+        - `Reset`: HTML restores each control to its `Value` ATTRIBUTE (the default value), which
+          is exactly the "initial values to restore" the item said were missing - they are
+          already in the DOM. Needs a trigger (`InputType` = "reset") and a `DefaultAction::
+          ResetForm`.
 - [x] 10f-i DONE — `scripts/android/AzulGamepad.java` owns the `InputManager.InputDeviceListener`
       and forwards buttons/axes, plus a one-time enumeration for pads connected before the listener
       existed. Hotplug is the only part the native queue cannot deliver.

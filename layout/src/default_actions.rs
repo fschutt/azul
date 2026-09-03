@@ -142,9 +142,19 @@ pub fn determine_keyboard_default_action_with_editing(
                 }
                 if is_element_activatable(focus, layout_results) {
                     DefaultAction::ActivateFocusedElement { target: *focus }
+                } else if let Some(form_node) = find_form_ancestor(focus, layout_results) {
+                    // IMPLICIT SUBMISSION, the HTML rule: Enter in a control
+                    // that does not activate submits the form it belongs to.
+                    //
+                    // `DefaultAction::SubmitForm` and its consumer both
+                    // existed - the consumer even claims "Enter on a focused
+                    // control produced this action" - but NOTHING ever
+                    // constructed it, so `EventType::Submit` could not fire on
+                    // any platform. This is the missing producer.
+                    DefaultAction::SubmitForm { form_node }
                 } else {
-                    // Enter on non-activatable element - might submit form
-                    // For now, no action (form handling could be added later)
+                    // Not in a form: there is no target to submit, and
+                    // guessing one would fire Submit at an unrelated node.
                     DefaultAction::None
                 }
             })
@@ -339,6 +349,39 @@ fn is_element_activatable(
         .as_container()
         .get(internal_id)
         .is_some_and(azul_core::dom::NodeData::is_activatable)
+}
+
+/// The nearest `NodeType::Form` ancestor of `node_id`, including itself.
+///
+/// HTML's rule: a control belongs to the form it is nested in, and Enter in
+/// that control submits THAT form - not the page, and not the innermost thing
+/// that happens to be focusable. Nested forms are invalid HTML, so the first
+/// one found walking up is unambiguous.
+///
+/// Returns `None` for a control that is not in a form, which is why Enter
+/// there does nothing rather than guessing at a target.
+fn find_form_ancestor(
+    node_id: &DomNodeId,
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+) -> Option<DomNodeId> {
+    use azul_core::dom::NodeType;
+
+    let layout = layout_results.get(&node_id.dom)?;
+    let mut current = node_id.node.into_crate_internal()?;
+    let node_data = layout.styled_dom.node_data.as_container();
+    let hierarchy = layout.styled_dom.node_hierarchy.as_container();
+
+    loop {
+        if matches!(node_data.get(current)?.get_node_type(), NodeType::Form) {
+            return Some(DomNodeId {
+                dom: node_id.dom,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                    current,
+                )),
+            });
+        }
+        current = hierarchy.get(current)?.parent_id()?;
+    }
 }
 
 /// Check if an element is a text input (where Space should insert text, not activate).
@@ -719,6 +762,115 @@ mod autotest_generated {
             },
         );
         map
+    }
+
+    /// A body containing a `Form` whose child is a plain, non-activatable
+    /// control - the shape implicit submission is about.
+    ///
+    /// Node 0 = body, 1 = form, 2 = the control inside it, 3 = a control
+    /// OUTSIDE any form.
+    fn form_fixture() -> BTreeMap<DomId, DomLayoutResult> {
+        let dom = Dom::create_body()
+            .with_child(
+                Dom::create_node(NodeType::Form)
+                    .with_child(Dom::create_from_data(node_with_callback(
+                        NodeType::TextArea,
+                        EventFilter::Focus(FocusEventFilter::TextInput),
+                    ))),
+            )
+            .with_child(Dom::create_from_data(node_with_callback(
+                NodeType::TextArea,
+                EventFilter::Focus(FocusEventFilter::TextInput),
+            )));
+
+        let styled_dom = StyledDom::create_from_dom(dom);
+        let mut map = BTreeMap::new();
+        map.insert(
+            DomId::ROOT_ID,
+            DomLayoutResult {
+                styled_dom,
+                layout_tree: LayoutTree {
+                    nodes: Vec::new(),
+                    warm: Vec::new(),
+                    cold: Vec::new(),
+                    root: 0,
+                    dom_to_layout: BTreeMap::new(),
+                    children_arena: Vec::new(),
+                    children_offsets: Vec::new(),
+                    subtree_needs_intrinsic: Vec::new(),
+                },
+                calculated_positions: Vec::new(),
+                viewport: LogicalRect::zero(),
+                display_list: std::sync::Arc::new(DisplayList::default()),
+                scroll_ids: HashMap::new(),
+                scroll_id_to_node_id: HashMap::new(),
+            },
+        );
+        map
+    }
+
+    /// A control inside a form finds it; the walk is up the ANCESTOR chain,
+    /// not a scan of the document.
+    #[test]
+    fn a_control_finds_the_form_it_is_nested_in() {
+        let layouts = form_fixture();
+        assert_eq!(
+            find_form_ancestor(&dom_node(2), &layouts),
+            Some(dom_node(1)),
+            "the control's parent is the form"
+        );
+    }
+
+    /// The form is its own ancestor - HTML's rule, and it keeps Enter on a
+    /// focused form itself from walking past it to nothing.
+    #[test]
+    fn a_form_is_its_own_ancestor() {
+        let layouts = form_fixture();
+        assert_eq!(find_form_ancestor(&dom_node(1), &layouts), Some(dom_node(1)));
+    }
+
+    /// A control outside every form has NO target, and that must stay `None`:
+    /// guessing one would fire Submit at an unrelated node.
+    #[test]
+    fn a_control_outside_a_form_has_no_target() {
+        let layouts = form_fixture();
+        assert_eq!(find_form_ancestor(&dom_node(3), &layouts), None);
+        assert_eq!(find_form_ancestor(&dom_node(0), &layouts), None, "the body is not a form");
+    }
+
+    /// THE PRODUCER THAT WAS MISSING. `DefaultAction::SubmitForm` and its
+    /// consumer both existed - the consumer even claims Enter produces it -
+    /// but nothing ever constructed it, so `EventType::Submit` could not fire
+    /// on any platform.
+    #[test]
+    fn enter_in_a_form_control_submits_the_form() {
+        let layouts = form_fixture();
+        let result = determine_keyboard_default_action(
+            &kbd(VirtualKeyCode::Return, &[]),
+            Some(dom_node(2)),
+            &layouts,
+            false,
+        );
+        assert_eq!(
+            result.action,
+            DefaultAction::SubmitForm {
+                form_node: dom_node(1)
+            },
+            "Enter in a non-activatable form control must submit its form"
+        );
+    }
+
+    /// Enter outside a form stays `None` rather than submitting something.
+    #[test]
+    fn enter_outside_a_form_does_nothing() {
+        let layouts = form_fixture();
+        let result = determine_keyboard_default_action(
+            &kbd(VirtualKeyCode::Return, &[]),
+            Some(dom_node(3)),
+            &layouts,
+            false,
+        );
+        assert_eq!(result.action, DefaultAction::None);
     }
 
     fn dom_node(index: usize) -> DomNodeId {
