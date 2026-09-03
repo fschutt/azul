@@ -1683,3 +1683,148 @@ mod owner_tests {
         assert!(mc.selections[0].owner.is_local());
     }
 }
+
+/// U3-a: a peer's caret moves with the text it is anchored in.
+#[cfg(test)]
+mod peer_shift_tests {
+    use super::*;
+
+    fn cursor(byte: u32) -> TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: byte,
+            },
+            affinity: CursorAffinity::Leading,
+        }
+    }
+
+    fn node() -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+        }
+    }
+
+    fn with_peer_at(at: Selection) -> (MultiCursorState, SelectionOwner) {
+        let bob = SelectionOwner::new(2, 2);
+        let mut mc = MultiCursorState::new_with_cursor(cursor(0), node(), 0);
+        assert!(mc.set_owner_selections(bob, &[at]));
+        (mc, bob)
+    }
+
+    fn peer(mc: &MultiCursorState, who: SelectionOwner) -> Selection {
+        mc.selections.iter().find(|s| s.owner == who).unwrap().selection
+    }
+
+    fn change(start: u32, end: u32, inserted: u32) -> RunTextChange {
+        RunTextChange {
+            run: 0,
+            start,
+            end,
+            inserted,
+        }
+    }
+
+    #[test]
+    fn the_diff_between_two_texts_is_the_replaced_middle() {
+        assert_eq!(RunTextChange::between(0, "hello", "hexllo"), Some(change(2, 2, 1)));
+        assert_eq!(RunTextChange::between(0, "abc", "ac"), Some(change(1, 2, 0)));
+        assert_eq!(RunTextChange::between(0, "abcd", "aXYd"), Some(change(1, 3, 2)));
+        assert_eq!(RunTextChange::between(0, "same", "same"), None);
+        assert_eq!(RunTextChange::between(0, "", "new"), Some(change(0, 0, 3)));
+        assert_eq!(RunTextChange::between(0, "gone", ""), Some(change(0, 4, 0)));
+    }
+
+    /// Inserting a repeated character: the prefix wins, the change lands
+    /// AFTER the existing copy, and the arithmetic stays consistent (no
+    /// overlap between prefix and suffix).
+    #[test]
+    fn a_repeated_character_is_placed_after_its_twin() {
+        assert_eq!(RunTextChange::between(0, "aa", "aaa"), Some(change(2, 2, 1)));
+        assert_eq!(RunTextChange::between(0, "aaa", "aa"), Some(change(2, 3, 0)));
+    }
+
+    /// A change never starts or ends inside a multi-byte character.
+    #[test]
+    fn the_diff_respects_char_boundaries() {
+        // 'é' (C3 A9) -> 'è' (C3 A8): the first byte is shared, but the
+        // change must cover the whole character.
+        assert_eq!(RunTextChange::between(0, "\u{e9}", "\u{e8}"), Some(change(0, 2, 2)));
+    }
+
+    #[test]
+    fn a_change_before_the_caret_shifts_it_and_one_after_does_not() {
+        // "hello world", Bob at 6 (before "world").
+        let (mut mc, bob) = with_peer_at(Selection::Cursor(cursor(6)));
+        mc.shift_peers_across(&[change(0, 0, 3)]); // insert 3 at the start
+        assert_eq!(peer(&mc, bob), Selection::Cursor(cursor(9)));
+        mc.shift_peers_across(&[change(2, 4, 0)]); // delete 2 before him
+        assert_eq!(peer(&mc, bob), Selection::Cursor(cursor(7)));
+        mc.shift_peers_across(&[change(9, 9, 5)]); // insert after him
+        assert_eq!(peer(&mc, bob), Selection::Cursor(cursor(7)));
+    }
+
+    /// A caret AT a pure insert's position is attached to the character that
+    /// follows, so it moves with it.
+    #[test]
+    fn an_insert_at_the_caret_pushes_it_after_the_new_text() {
+        let (mut mc, bob) = with_peer_at(Selection::Cursor(cursor(4)));
+        mc.shift_peers_across(&[change(4, 4, 2)]);
+        assert_eq!(peer(&mc, bob), Selection::Cursor(cursor(6)));
+    }
+
+    #[test]
+    fn a_change_spanning_the_caret_collapses_it_to_the_change_start() {
+        let (mut mc, bob) = with_peer_at(Selection::Cursor(cursor(5)));
+        mc.shift_peers_across(&[change(3, 8, 1)]); // replace 3..8 by one byte
+        assert_eq!(peer(&mc, bob), Selection::Cursor(cursor(3)));
+    }
+
+    #[test]
+    fn a_peer_range_moves_both_ends_and_may_collapse() {
+        let range = Selection::Range(SelectionRange {
+            start: cursor(4),
+            end: cursor(8),
+        });
+        let (mut mc, bob) = with_peer_at(range);
+        mc.shift_peers_across(&[change(0, 0, 2)]);
+        assert_eq!(
+            peer(&mc, bob),
+            Selection::Range(SelectionRange {
+                start: cursor(6),
+                end: cursor(10),
+            })
+        );
+        // A replace that swallows the whole range collapses it.
+        mc.shift_peers_across(&[change(5, 12, 0)]);
+        assert_eq!(
+            peer(&mc, bob),
+            Selection::Range(SelectionRange {
+                start: cursor(5),
+                end: cursor(5),
+            })
+        );
+    }
+
+    /// The local selection is placed by the edit result, never by this.
+    #[test]
+    fn local_selections_are_not_shifted() {
+        let (mut mc, _bob) = with_peer_at(Selection::Cursor(cursor(6)));
+        mc.shift_peers_across(&[change(0, 0, 3)]);
+        assert_eq!(mc.get_primary_cursor(), Some(cursor(0)));
+    }
+
+    /// A change on ANOTHER run leaves a caret alone.
+    #[test]
+    fn only_the_changed_run_is_affected() {
+        let (mut mc, bob) = with_peer_at(Selection::Cursor(cursor(6)));
+        mc.shift_peers_across(&[RunTextChange {
+            run: 1,
+            start: 0,
+            end: 0,
+            inserted: 3,
+        }]);
+        assert_eq!(peer(&mc, bob), Selection::Cursor(cursor(6)));
+    }
+}

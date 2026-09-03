@@ -15365,6 +15365,8 @@ impl LayoutWindow {
         // Update cursors from edit result
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
             mc.update_from_edit_result(&new_selections);
+            // Peers' carets move with the text the edit changed (U3-a).
+            mc.shift_peers_across(&crate::text3::edit::run_text_changes(&content, &new_content));
         }
         // No legacy cursor manager sync needed -- multi_cursor is the source of truth
 
@@ -18538,6 +18540,9 @@ impl LayoutWindow {
                 } => (content, selections),
                 crate::text3::edit::EditOutcome::NoOp(_) => return None,
             };
+        // What the delete did to the text, taken while `content` is still
+        // ours - it is moved into the undo record below (U3-a).
+        let peer_changes = crate::text3::edit::run_text_changes(&content, &new_content);
 
         // MWA-C-undo_redo: deletions (Backspace / Delete / Cut all route
         // here) were never recorded — only insertions were undoable. Record
@@ -18606,6 +18611,8 @@ impl LayoutWindow {
         // Update multi-cursor state
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
             mc.update_from_edit_result(&new_selections);
+            // Peers' carets move with the text the delete removed (U3-a).
+            mc.shift_peers_across(&peer_changes);
         }
         // No legacy cursor manager sync needed -- multi_cursor is the source of truth
 

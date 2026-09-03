@@ -101,6 +101,37 @@ fn adjust_cursor_runs(selections: &mut [Selection], boundary_run: u32, run_count
     }
 }
 
+/// What an edit did to the text, run by run (U3-a): one
+/// [`RunTextChange`](azul_core::selection::RunTextChange) per text run whose
+/// text differs between `old` and `new`, all relative to the OLD content -
+/// the input `MultiCursorState::shift_peers_across` moves peers' carets by.
+///
+/// Empty when the run COUNT changed: an edit that split or merged runs has
+/// no run-stable mapping, and a wrong shift is worse than a stale caret (the
+/// peer is re-placed by the app's next snapshot either way). Typing, pasting
+/// and deleting inside a run - every keystroke in a plain text field - keep
+/// the count.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)] // run counts are bounded far below u32
+pub fn run_text_changes(
+    old: &[InlineContent],
+    new: &[InlineContent],
+) -> Vec<azul_core::selection::RunTextChange> {
+    if old.len() != new.len() {
+        return Vec::new();
+    }
+    old.iter()
+        .zip(new)
+        .enumerate()
+        .filter_map(|(i, (o, n))| match (o, n) {
+            (InlineContent::Text(o), InlineContent::Text(n)) => {
+                azul_core::selection::RunTextChange::between(i as u32, &o.text, &n.text)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// Byte length of the text in the run at `run_idx`, or 0 for non-text / missing runs.
 fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
     match content.get(run_idx as usize) {

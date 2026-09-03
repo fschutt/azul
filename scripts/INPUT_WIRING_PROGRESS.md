@@ -2394,18 +2394,41 @@ session needs. Recorded verbatim so the framing is not lost.
       vs `len`). NEGATIVE CONTROL: restoring the all-owners `to_selections` fails the typing
       test. The 6 U1 owner tests still pass. Host check, 8/8 mobile. ⚠ Still no two-machine
       session here; the invariants are pinned at the model, not seen in a session.
-- [ ] U3-a Peers' carets are NOT shifted by a local edit (see above): after the local user
-      types before a peer's caret, the peer's caret is one character stale until the next
-      snapshot. Correct as a model (the sync layer owns the transform), but an app WITHOUT a
-      CRDT/OT layer would want the engine to apply the trivial "insert before me shifts me" rule
-      locally. Not done here because it is exactly the kind of guess that looks done while
-      being wrong for every non-trivial edit (a replace across the peer's caret, a paste of N
-      lines).
-      USER RULING 2026-09-03: yes, apply it. A peer's caret is anchored at a LOGICAL position, so
-      when an edit changes the text before it the caret moves with the text: an insert or delete
-      entirely before the caret shifts it by the delta; an edit that spans the caret collapses it
-      to the edit's start (the only position that still exists). Nothing beyond that - the sync
-      layer still owns the semantics of concurrent edits.
+- [x] U3-a DONE per the USER RULING (2026-09-03): a peer's caret is anchored at a logical
+      position and moves with the text. `RunTextChange { run, start, end, inserted }` (core) is
+      the shape of one change to one run's text; `RunTextChange::between(old, new)` derives it
+      as the replaced middle between the common prefix and suffix, backed off to char
+      boundaries on both sides; `transform(byte)` is the ruling verbatim - a change entirely
+      before the caret shifts it by the delta, one after leaves it, one spanning it collapses
+      it to the change's start, and a caret AT a pure insert's position moves after the new
+      text (it is attached to the character that follows). `MultiCursorState::shift_peers_across`
+      applies it to every non-local selection (ranges move both ends and may collapse; local
+      selections are untouched - the edit result already placed them). Both edit sites in the
+      window (`apply_one_text_changeset`'s insert and `delete_selection`) feed it
+      `run_text_changes(old, new)`, one change per changed text run. LIMIT, logged as U3-a-i:
+      when an edit changes the run COUNT (split / merge across styled runs) there is no
+      run-stable mapping and no shift is applied - a wrong shift is worse than a stale caret,
+      and the app's next snapshot re-places the peer. Nine core tests pin the diff, the
+      boundaries, each transform case, ranges, locality and run isolation.
+      ⏳ SECOND BATCH: uncompiled until its end pass.
+- [ ] U3-a-i Peer shift across an edit that changes the run COUNT: a delete spanning two
+      styled runs merges them, a styled paste splits one; `run_text_changes` answers nothing
+      then, so peers on the affected runs stay where they were until the next snapshot. Needs
+      a run-mapping (old run -> new run + byte base) computed alongside the edit, which
+      `edit_text_outcome` knows and currently discards.
+- [ ] U3-b (from the user's question, 2026-09-03: "isn't this already the case where we
+      preserve the caret position ... across layout() RefreshDom events?") - NOT YET. Across a
+      `RefreshDom` the engine preserves the caret's NODE (`TextEditManager::remap_node_ids`
+      follows the diff's node moves and drops the session if the node vanished) and keeps the
+      caret's (run, byte) VERBATIM; nothing transforms it against the node's new text. So when
+      the app's `layout()` delivers text that differs from what the engine had (a remote
+      participant's insert applied through the app's model, an app-side rewrite), the local
+      caret and every peer keep a byte position that may now point elsewhere - or past the end.
+      The ruling's rule and `RunTextChange` are exactly the transform this needs: diff the
+      node's old and new runs at reconciliation and shift EVERY caret (local and peers) the way
+      U3-a shifts peers. Logged rather than done in the same item because the reconciliation of
+      the engine's quick-edit overlay against the app's text is the delicate seam (see the
+      "structural edit latch" notes) and deserves its own firing and its own tests.
 
 ### Follow-ups opened by 9a
 

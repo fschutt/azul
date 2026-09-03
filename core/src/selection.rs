@@ -522,7 +522,9 @@ impl MultiCursorState {
     /// entries), assigns new IDs for extras. Peers' entries are carried over
     /// UNTOUCHED, owner and id included: rebuilding the whole list as local
     /// used to absorb every peer into the local user after the first
-    /// keystroke.
+    /// keystroke. Their POSITIONS are then moved across the edit by
+    /// [`Self::shift_peers_across`] (U3-a), by the caller that knows the
+    /// text delta.
     pub fn update_from_edit_result(&mut self, new_selections: &[Selection]) {
         let old_ids: Vec<SelectionId> = self.local_selections().map(|s| s.id).collect();
         let peers: Vec<IdentifiedSelection> = self
@@ -546,6 +548,43 @@ impl MultiCursorState {
         // IDs are reassigned by index; make sure primary_id still resolves.
         self.ensure_primary_valid();
         // Don't merge here — edit_text already returns correct positions
+    }
+
+    /// Move the PEERS' selections across a change to the text (U3-a).
+    ///
+    /// `update_from_edit_result` carries peers over verbatim because the edit
+    /// result knows nothing about them; the caller that knows what the edit
+    /// did to the text - one `RunTextChange` per changed run, all relative to
+    /// the OLD text - applies it here, and a peer's caret moves with the text
+    /// it was anchored in, per the user's ruling (see
+    /// [`RunTextChange::transform`]). Local selections are not touched: the
+    /// edit result already placed them. A peer RANGE has both ends moved and
+    /// may collapse when the change spans it.
+    ///
+    /// The sync layer still owns the semantics of CONCURRENT edits; this is
+    /// only the local user's own change, which the peer will also receive.
+    pub fn shift_peers_across(&mut self, changes: &[RunTextChange]) {
+        if changes.is_empty() {
+            return;
+        }
+        let shift = |mut c: TextCursor| -> TextCursor {
+            for change in changes {
+                if change.run == c.cluster_id.source_run {
+                    c.cluster_id.start_byte_in_run =
+                        change.transform(c.cluster_id.start_byte_in_run);
+                }
+            }
+            c
+        };
+        for sel in self.selections.iter_mut().filter(|s| !s.owner.is_local()) {
+            sel.selection = match sel.selection {
+                Selection::Cursor(c) => Selection::Cursor(shift(c)),
+                Selection::Range(r) => Selection::Range(SelectionRange {
+                    start: shift(r.start),
+                    end: shift(r.end),
+                }),
+            };
+        }
     }
 
     /// The id a collapsed local set keeps: the local primary's when there is
@@ -969,6 +1008,86 @@ pub struct TextSelection {
     /// Indicates whether anchor comes before focus in document order.
     /// True = forward selection (left-to-right), False = backward selection.
     pub is_forward: bool,
+}
+
+/// One contiguous change to a run's text (U3-a): bytes `start..end` of the
+/// OLD text were replaced by `inserted` bytes. The shape every caret shift is
+/// computed from, whoever made the change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RunTextChange {
+    /// The run (`GraphemeClusterId::source_run`) whose text changed.
+    pub run: u32,
+    /// First changed byte of the old text.
+    pub start: u32,
+    /// One past the last changed byte of the old text (`== start` for a pure
+    /// insert).
+    pub end: u32,
+    /// How many bytes replaced `start..end`.
+    pub inserted: u32,
+}
+
+impl RunTextChange {
+    /// The smallest change between two versions of one run's text: the common
+    /// prefix and the common suffix are unchanged, what lies between was
+    /// replaced. `None` when the texts are identical.
+    ///
+    /// Byte-level, then backed off to char boundaries on BOTH sides so a
+    /// change never starts or ends inside a multi-byte character. When the
+    /// inserted text repeats its neighbour (`aa` -> `aaa`) the position is
+    /// ambiguous by nature; the prefix wins, which puts the change AFTER the
+    /// existing copy - the only carets that can tell the difference sit
+    /// between identical characters.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)] // run text is bounded far below u32
+    pub fn between(run: u32, old: &str, new: &str) -> Option<Self> {
+        if old == new {
+            return None;
+        }
+        let ob = old.as_bytes();
+        let nb = new.as_bytes();
+        let shorter = ob.len().min(nb.len());
+        let mut prefix = 0;
+        while prefix < shorter && ob[prefix] == nb[prefix] {
+            prefix += 1;
+        }
+        while prefix > 0 && !(old.is_char_boundary(prefix) && new.is_char_boundary(prefix)) {
+            prefix -= 1;
+        }
+        let mut suffix = 0;
+        while suffix < shorter - prefix && ob[ob.len() - 1 - suffix] == nb[nb.len() - 1 - suffix] {
+            suffix += 1;
+        }
+        while suffix > 0
+            && !(old.is_char_boundary(ob.len() - suffix) && new.is_char_boundary(nb.len() - suffix))
+        {
+            suffix -= 1;
+        }
+        Some(Self {
+            run,
+            start: prefix as u32,
+            end: (ob.len() - suffix) as u32,
+            inserted: (nb.len() - prefix - suffix) as u32,
+        })
+    }
+
+    /// Where a caret that sat at `byte` of the OLD text sits in the new one.
+    ///
+    /// The user's rule (2026-09-03): a caret is anchored at a LOGICAL
+    /// position, so a change entirely before it shifts it by the delta, a
+    /// change entirely after it leaves it alone, and a change that spans it
+    /// collapses it to the change's start - the only position that still
+    /// exists. A caret AT a pure insert's position counts as after it: it is
+    /// attached to the character that follows, and that character moved.
+    #[must_use]
+    pub fn transform(&self, byte: u32) -> u32 {
+        if byte < self.start {
+            byte
+        } else if byte >= self.end {
+            byte - (self.end - self.start) + self.inserted
+        } else {
+            self.start
+        }
+    }
 }
 
 impl TextSelection {
