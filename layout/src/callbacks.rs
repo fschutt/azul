@@ -4978,6 +4978,45 @@ impl CallbackInfo {
             .into()
     }
 
+    /// Why this control failed the last form validation.
+    ///
+    /// The payload of an `Invalid` event: the event says WHICH control was
+    /// rejected, and this says WHY. `ValidityState::is_valid` for a control
+    /// that passed, or that nothing has validated yet - an untouched field is
+    /// valid until a constraint check says otherwise, which is HTML's rule
+    /// too.
+    ///
+    /// A SET rather than one reason, because one field can be both too short
+    /// and out of range; read it with `ValidityState::has`.
+    ///
+    /// # Why this is not on the event
+    ///
+    /// `CallbackInfo` never sees the `SyntheticEvent` - it carries the hit
+    /// node and read-only access to the window - so an `EventData` variant
+    /// carrying this would have been an ABI addition no application could
+    /// observe. Parked in a manager and fetched here, like every other
+    /// payload an app can actually read.
+    #[must_use]
+    pub fn get_validity_state(&self) -> azul_core::form::ValidityState {
+        self.get_validity_state_of(self.get_hit_node())
+    }
+
+    /// [`Self::get_validity_state`] for any control, not just this one.
+    ///
+    /// What a FORM-LEVEL handler needs: an `Invalid` listener on the form
+    /// itself runs for each failing child, and an app that wants to paint all
+    /// of them at once asks about each control by id rather than waiting to be
+    /// called for it.
+    #[must_use]
+    pub fn get_validity_state_of(
+        &self,
+        node: azul_core::dom::DomNodeId,
+    ) -> azul_core::form::ValidityState {
+        self.get_layout_window()
+            .form_validation_manager
+            .state_of(node)
+    }
+
     /// Which modifier keys are held right now.
     #[must_use]
     pub fn get_key_modifiers(&self) -> azul_core::events::KeyModifiers {

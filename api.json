@@ -14693,6 +14693,59 @@
                                     "type": "OptionInputSample"
                                 },
                                 "fn_body": "object.get_last_input_sample()"
+                            },
+                            "get_validity_state": {
+                                "doc": [
+                                    "Why this control failed the last form validation.",
+                                    "",
+                                    "The payload of an `Invalid` event: the event says WHICH control was",
+                                    "rejected, and this says WHY. `ValidityState::is_valid` for a control",
+                                    "that passed, or that nothing has validated yet - an untouched field is",
+                                    "valid until a constraint check says otherwise, which is HTML's rule",
+                                    "too.",
+                                    "",
+                                    "A SET rather than one reason, because one field can be both too short",
+                                    "and out of range; read it with `ValidityState::has`.",
+                                    "",
+                                    "# Why this is not on the event",
+                                    "",
+                                    "`CallbackInfo` never sees the `SyntheticEvent` - it carries the hit",
+                                    "node and read-only access to the window - so an `EventData` variant",
+                                    "carrying this would have been an ABI addition no application could",
+                                    "observe. Parked in a manager and fetched here, like every other",
+                                    "payload an app can actually read."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ValidityState"
+                                },
+                                "fn_body": "object.get_validity_state()"
+                            },
+                            "get_validity_state_of": {
+                                "doc": [
+                                    "[`Self::get_validity_state`] for any control, not just this one.",
+                                    "",
+                                    "What a FORM-LEVEL handler needs: an `Invalid` listener on the form",
+                                    "itself runs for each failing child, and an app that wants to paint all",
+                                    "of them at once asks about each control by id rather than waiting to be",
+                                    "called for it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ValidityState"
+                                },
+                                "fn_body": "object.get_validity_state_of(node)"
                             }
                         },
                         "repr": "C"
@@ -17422,6 +17475,84 @@
                                 "touch_radius": {
                                     "type": "LogicalSize"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ValidityState": {
+                        "external": "azul_core::form::ValidityState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "flags": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "has": {
+                                "doc": [
+                                    "Did this control fail `reason`?"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "reason": "ValidityReason"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.has(reason)"
+                            },
+                            "is_valid": {
+                                "doc": [
+                                    "Did it pass everything?"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_valid()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "ValidityReason": {
+                        "external": "azul_core::form::ValidityReason",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "ValueMissing": {},
+                                "TooShort": {},
+                                "TooLong": {},
+                                "RangeUnderflow": {},
+                                "RangeOverflow": {}
                             }
                         ],
                         "repr": "C"

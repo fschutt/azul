@@ -21,31 +21,29 @@
 
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 
-use azul_core::dom::{AttributeType, DomId, DomNodeId, NodeId};
+use azul_core::{
+    dom::{AttributeType, DomId, DomNodeId, NodeId},
+    form::{ValidityReason, ValidityState},
+};
 
 use crate::window::DomLayoutResult;
 
-/// Why a control failed validation. Mirrors the `ValidityState` flags HTML
-/// exposes, minus the ones no attribute here can produce.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ValidityReason {
-    /// `required` and the value is empty.
-    ValueMissing,
-    /// Shorter than `minlength`.
-    TooShort,
-    /// Longer than `maxlength`.
-    TooLong,
-    /// Below `min`.
-    RangeUnderflow,
-    /// Above `max`.
-    RangeOverflow,
-}
-
-/// One control that failed, and why.
+/// One control that failed, and EVERY constraint it failed.
+///
+/// `ValidityReason` and `ValidityState` moved to `azul_core::form` when
+/// 11b-i-c exposed them: a type an app reads has to live where the FFI can
+/// reach it. They are re-exported here so this module still reads as one
+/// piece.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidControl {
     pub node: DomNodeId,
-    pub reason: ValidityReason,
+    /// Every constraint this control failed, not just the first.
+    ///
+    /// It used to be one `reason` per entry, which meant a field failing two
+    /// constraints produced TWO entries and therefore two `Invalid` events on
+    /// one node. HTML fires `invalid` once per control, and an app marking
+    /// fields would have marked one twice and mis-counted its error list.
+    pub state: ValidityState,
 }
 
 /// Validate every control inside `form`, in document order.
@@ -101,8 +99,11 @@ pub fn validate_form(
         };
         let value = value_of(node).unwrap_or_default();
 
+        // ONE entry per control, accumulating every failed constraint. See
+        // `InvalidControl::state`.
+        let mut state = ValidityState::valid();
         let mut push = |reason| {
-            failures.push(InvalidControl { node, reason });
+            state.insert(reason);
         };
 
         for attr in attrs.as_ref() {
@@ -143,6 +144,10 @@ pub fn validate_form(
                 }
                 _ => {}
             }
+        }
+        drop(push);
+        if !state.is_valid() {
+            failures.push(InvalidControl { node, state });
         }
     }
     failures
@@ -384,7 +389,7 @@ mod tests {
         let layouts = form_with(vec![vec![AttributeType::Required]]);
         let got = validate_form(node(FORM), &layouts, &|_| None);
         assert_eq!(got.len(), 1);
-        assert_eq!(got[0].reason, ValidityReason::ValueMissing);
+        assert!(got[0].state.has(ValidityReason::ValueMissing));
         assert_eq!(got[0].node, node(2));
     }
 
@@ -435,13 +440,34 @@ mod tests {
         // this 4 long and wrongly pass minlength on a 2-char value.
         let got = validate_form(node(FORM), &layouts, &|_| Some("éé".into()));
         assert_eq!(got.len(), 1);
-        assert_eq!(got[0].reason, ValidityReason::TooShort);
+        assert!(got[0].state.has(ValidityReason::TooShort));
 
         let got = validate_form(node(FORM), &layouts, &|_| Some("ééé".into()));
         assert!(got.is_empty(), "3 characters satisfies minlength 3");
 
         let got = validate_form(node(FORM), &layouts, &|_| Some("ééééé".into()));
-        assert_eq!(got[0].reason, ValidityReason::TooLong);
+        assert!(got[0].state.has(ValidityReason::TooLong));
+    }
+
+    /// ONE ENTRY PER CONTROL, however many constraints it breaks.
+    ///
+    /// This used to be one entry per failed CONSTRAINT, so a field that was
+    /// both too short and out of range produced two entries - and therefore
+    /// two `Invalid` events on one node. HTML fires `invalid` once per
+    /// control, and an app marking bad fields would have marked this one
+    /// twice and reported two errors for one field.
+    #[test]
+    fn a_control_failing_two_constraints_is_reported_once_with_both() {
+        let layouts = form_with(vec![vec![
+            AttributeType::MinLength(5),
+            AttributeType::Max("10".into()),
+        ]]);
+        // "99" is 2 characters (too short) AND numerically above 10.
+        let got = validate_form(node(FORM), &layouts, &|_| Some("99".into()));
+        assert_eq!(got.len(), 1, "one control must produce one entry, got {got:?}");
+        assert!(got[0].state.has(ValidityReason::TooShort));
+        assert!(got[0].state.has(ValidityReason::RangeOverflow));
+        assert!(!got[0].state.has(ValidityReason::ValueMissing));
     }
 
     #[test]
@@ -450,14 +476,12 @@ mod tests {
             AttributeType::Min("10".into()),
             AttributeType::Max("20".into()),
         ]]);
-        assert_eq!(
-            validate_form(node(FORM), &layouts, &|_| Some("9".into()))[0].reason,
-            ValidityReason::RangeUnderflow
-        );
-        assert_eq!(
-            validate_form(node(FORM), &layouts, &|_| Some("21".into()))[0].reason,
-            ValidityReason::RangeOverflow
-        );
+        assert!(validate_form(node(FORM), &layouts, &|_| Some("9".into()))[0]
+            .state
+            .has(ValidityReason::RangeUnderflow));
+        assert!(validate_form(node(FORM), &layouts, &|_| Some("21".into()))[0]
+            .state
+            .has(ValidityReason::RangeOverflow));
         assert!(validate_form(node(FORM), &layouts, &|_| Some("15".into())).is_empty());
         // STRING comparison would call "9" greater than "20"; the numeric one
         // is the whole point of parsing both sides.

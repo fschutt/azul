@@ -891,6 +891,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         hid_manager: _,
         haptic_manager: _,
         media_session_manager: _,
+        form_validation_manager: _,
         safe_area_insets: _,
         currently_dragging_thumb: _,
         pending_caret_restore: _,
@@ -1385,6 +1386,9 @@ pub struct LayoutWindow {
     /// What the app has told the system media widget it is playing. Latest
     /// wins; the shell announces it when an announceable field changes.
     pub media_session_manager: azul_core::media_session::MediaSessionManager,
+    /// Why each control failed the last form validation, so an `Invalid`
+    /// callback can ask. Replaced wholesale by each validation pass.
+    pub form_validation_manager: azul_core::form::FormValidationManager,
     /// Safe-area insets (notch / system-UI margins) for this window, in logical
     /// px. Set by the platform shell (macOS NSScreen.safeAreaInsets, iOS
     /// UIView.safeAreaInsets, Android `WindowInsets`); zero where none.
@@ -1949,6 +1953,7 @@ impl LayoutWindow {
             hid_manager: azul_core::hid::HidManager::new(),
             haptic_manager: azul_core::haptics::HapticManager::new(),
             media_session_manager: azul_core::media_session::MediaSessionManager::new(),
+            form_validation_manager: azul_core::form::FormValidationManager::new(),
             safe_area_insets: azul_css::system::SafeAreaInsets::default(),
             timers: BTreeMap::new(),
             system_animations_override: None,
@@ -18863,6 +18868,7 @@ impl LayoutWindow {
             hid_manager: _,
             haptic_manager: _,
             media_session_manager: _,
+            form_validation_manager: _,
             // Payload-only state (file paths / clipboard contents), no NodeIds:
             file_drop_manager: _,
             clipboard_manager: _,

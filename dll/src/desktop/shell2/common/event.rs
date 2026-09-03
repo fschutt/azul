@@ -10604,6 +10604,13 @@ pub trait PlatformWindow {
                                 };
 
                                 if invalid.is_empty() {
+                                    // A form that now validates must not leave
+                                    // last attempt's reasons standing: a field
+                                    // the user just fixed would keep reporting
+                                    // the error it no longer has.
+                                    if let Some(lw) = self.get_layout_window_mut() {
+                                        lw.form_validation_manager.set_failures([]);
+                                    }
                                     let ev = azul_core::events::SyntheticEvent::new(
                                         azul_core::events::EventType::Submit,
                                         azul_core::events::EventSource::User,
@@ -10614,6 +10621,18 @@ pub trait PlatformWindow {
                                     let (r, _u, _p) = self.dispatch_events_propagated(&[ev]);
                                     result = result.max(r);
                                 } else {
+                                    // PUBLISH THE REASONS BEFORE DISPATCHING.
+                                    // The `Invalid` event names the control;
+                                    // `CallbackInfo::get_validity_state` says
+                                    // why, and it reads from here - so a
+                                    // callback that runs before this is stored
+                                    // would be told its own field is fine
+                                    // (11b-i-c).
+                                    if let Some(lw) = self.get_layout_window_mut() {
+                                        lw.form_validation_manager.set_failures(
+                                            invalid.iter().map(|f| (f.node, f.state)),
+                                        );
+                                    }
                                     // One `Invalid` per failing control, in
                                     // document order. ALL of them, not just
                                     // the first: an app marking every bad

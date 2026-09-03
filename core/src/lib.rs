@@ -347,6 +347,9 @@ pub mod keyring;
 /// never by a cargo feature — see the module docs for the 2026-08-07 incident
 /// that made a compile-time gate delete the one diagnosis that was needed.
 pub mod log_filter;
+/// Form constraint validation - the `ValidityState` an `Invalid` event
+/// explains itself with. The rules live in `azul_layout::form`.
+pub mod form;
 /// Menu system: context menus, dropdown menus, and menu bars.
 pub mod menu;
 /// The system media session — what the desktop's media widget shows. The

@@ -230,9 +230,41 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       workspace has no regex dependency. Adding one is a dependency decision rather than a wiring
       one, and a hand-rolled matcher would accept and reject the wrong strings - worse than not
       checking, because an app would trust it.
-- [ ] 11b-i-c The `Invalid` event carries `EventData::None`, so an app knows WHICH control failed
-      but not WHY. `ValidityReason` is computed and discarded at the dispatch boundary. Exposing
-      it means a new `EventData` variant (an ABI addition) plus api.json.
+- [x] 11b-i-c DONE, and THE NOTE'S PROPOSED DESIGN WOULD NOT HAVE WORKED. It said exposing the
+      reason "means a new `EventData` variant (an ABI addition) plus api.json". `CallbackInfo`
+      never sees the `SyntheticEvent`: it carries the hit node and read-only access to the
+      `LayoutWindow`, and `EventData` is not in api.json at all. That variant would have been an
+      ABI addition NO APPLICATION COULD OBSERVE - the exact "looks done while doing nothing"
+      shape the standing rules warn about, and it was written into the item.
+      What every payload an app can actually read does instead is park itself in a manager and
+      get fetched by an accessor - `peek_raw_motion` is the same shape - so that is what this
+      does: `FormValidationManager` on the `LayoutWindow`, published BEFORE the events dispatch
+      (a callback reading it after would be told its own field is fine), and
+      `CallbackInfo::get_validity_state` / `get_validity_state_of`.
+      A SET, NOT A REASON. One field can be both too short and out of range, and HTML's
+      `ValidityState` is a set of flags for exactly that. That exposed a DEFECT in 11b-i:
+      `validate_form` pushed one entry per failed CONSTRAINT, so such a field produced TWO
+      `Invalid` events on one node - HTML fires `invalid` once per control, and an app marking
+      bad fields would have marked that one twice and reported two errors for one mistake. Now
+      one entry per control carrying every failure.
+      A BITSET rather than a struct of bools, so appending the `PatternMismatch` that 11b-i-b
+      will add stays a pure enum append with no change to `ValidityState`'s layout - the same
+      trade `GamepadState::buttons` makes. The discriminants ARE bit positions, so a test pins
+      them: renumbering would leave every stored state meaning something else with nothing
+      failing to compile.
+      `has()` and `is_valid()` are EXPOSED, not just the `flags` field: a binding handed a bare
+      `u32` has no way to know which bit is which, and would have to hardcode the numbering this
+      change just pinned.
+      An unvalidated control reads as VALID rather than unknown, and a successful submit CLEARS
+      the map - a field the user just fixed must stop reporting the error it no longer has.
+      EVIDENCE: 3 core tests (bit positions distinct and pinned, a state holding two failures at
+      once and idempotent, the clear-on-new-pass) + a new layout test with a NEGATIVE CONTROL -
+      restoring one-entry-per-constraint fails with "one control must produce one entry, got
+      [.. flags: 2 .., .. flags: 16 ..]". Both dispatch seams proven COMPILED by deliberate type
+      errors. `codegen all` + a real dll build put `AzCallbackInfo_getValidityState`,
+      `AzCallbackInfo_getValidityStateOf`, `AzValidityState_has` and `AzValidityReason` in the C
+      ABI. autofix converged at 0 patches, `azul-doc check` PASSED. Host, 8/8 mobile, azul-core
+      2770, azul-layout 7611, azul-dll 1992, azul-doc 18.
 - [x] 10f-i DONE — `scripts/android/AzulGamepad.java` owns the `InputManager.InputDeviceListener`
       and forwards buttons/axes, plus a one-time enumeration for pads connected before the listener
       existed. Hotplug is the only part the native queue cannot deliver.

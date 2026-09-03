@@ -580,6 +580,11 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // and `PenTilt`, which it now carries, are both in "callbacks", and a
     // sample is read from a callback and nowhere else.
     ("InputSample", "callbacks"),
+    // Form validity. No keyword matched, so both landed in "misc"; they are
+    // read from a callback (`get_validity_state`) and nowhere else, which is
+    // where `PenState`, `PenTilt` and `InputSample` above already live.
+    ("ValidityState", "callbacks"),
+    ("ValidityReason", "callbacks"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -1143,6 +1148,8 @@ mod tests {
     #[test]
     fn the_input_sample_override_lands_with_the_other_callback_types() {
         assert_eq!(difficult_type_module("InputSample"), Some("callbacks"));
+        assert_eq!(difficult_type_module("ValidityState"), Some("callbacks"));
+        assert_eq!(difficult_type_module("ValidityReason"), Some("callbacks"));
         // The Option wrapper is routed by the option rule, not by this table,
         // and must keep going to "option" rather than following the prefix.
         assert_eq!(determine_module("OptionInputSample").0, "option");
