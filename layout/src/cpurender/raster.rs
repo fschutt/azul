@@ -4981,6 +4981,7 @@ pub fn render_component_preview(
         dom_id,
         false,
         Vec::new(),
+        Default::default(), // owner_colors (U1): no live participants here
         None, // preedit_text: not needed for headless preview rendering
         &azul_core::resources::ImageCache::default(),
         None, // content overlay: no live window in headless preview

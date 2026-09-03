@@ -14794,6 +14794,116 @@
                                     "type": "DomNodeIdVec"
                                 },
                                 "fn_body": "object.get_hovered_nodes_frames_ago(frames_ago)"
+                            },
+                            "set_remote_selections": {
+                                "doc": [
+                                    "Ask the platform to show or hide the on-screen keyboard.",
+                                    "",
+                                    "A REQUEST, not a setting: only the OS knows whether a keyboard is",
+                                    "actually up - a hardware keyboard suppresses it, and the user can",
+                                    "dismiss it at any time - so this records intent and the shell",
+                                    "reconciles. Desktop shells ignore it.",
+                                    "",
+                                    "# It OVERRIDES the focus default; it does not stand alone",
+                                    "",
+                                    "This doc used to claim that focusing a text field does NOT raise the",
+                                    "keyboard implicitly. THAT WAS NOT TRUE of the engine it described:",
+                                    "focusing an editable raises it on the mobile shells and always has,",
+                                    "which is why tapping a text field in an existing app works at all -",
+                                    "no app calls this. The contract the comment stated would have left",
+                                    "every mobile text field dead until each app opted in.",
+                                    "",
+                                    "The real contract is an OVERRIDE. This and the focus-driven raise write",
+                                    "ONE queue and the last writer wins, and a callback runs after the focus",
+                                    "change that triggered it - so an app that wants a focused field WITHOUT",
+                                    "a keyboard (restoring focus after a dialog closes, a programmatic focus",
+                                    "during startup - the cases the old comment named) calls this with",
+                                    "`false` from that callback and gets it.",
+                                    "Publish a remote participant's cursors and selections (U1).",
+                                    "",
+                                    "The injection point for a SHARED EDITING SESSION: a peer's caret",
+                                    "arrives over the network and this makes it the whole of what that peer",
+                                    "has selected in the focused editable. Their caret is painted in their",
+                                    "own colour - see [`Self::set_selection_owner_color`] - so several",
+                                    "people editing one document are visibly distinguishable.",
+                                    "",
+                                    "REPLACES rather than adds, because a remote participant's state is a",
+                                    "SNAPSHOT: accumulating would leave a stale caret behind every time a",
+                                    "message was missed.",
+                                    "",
+                                    "Does nothing for `SelectionOwner::LOCAL`, or when nothing is focused.",
+                                    "The local caret is the engine's, and letting an app overwrite it here",
+                                    "would put every text-editing invariant the engine maintains into the",
+                                    "app's hands."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "owner": "SelectionOwner"
+                                    },
+                                    {
+                                        "selections": "SelectionVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_remote_selections(owner, selections)"
+                            },
+                            "clear_remote_selections": {
+                                "doc": [
+                                    "Forget a participant - they left, or their connection dropped (U1)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "owner": "SelectionOwner"
+                                    }
+                                ],
+                                "fn_body": "object.clear_remote_selections(owner)"
+                            },
+                            "set_selection_owner_color": {
+                                "doc": [
+                                    "What colour a participant's caret is painted in (U1).",
+                                    "",
+                                    "Per OWNER, not per node, which is why this is an API rather than a CSS",
+                                    "property: `caret-color` answers \"what colour is the caret in this",
+                                    "field\", and a shared session needs \"what colour is Alice\" - a different",
+                                    "axis, and one no stylesheet can know because the participants are",
+                                    "decided at runtime.",
+                                    "",
+                                    "An owner with no colour registered falls back to the node's",
+                                    "`caret-color`, which is what the LOCAL caret always does - so a",
+                                    "single-user app is unaffected by any of this."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "owner": "SelectionOwner"
+                                    },
+                                    {
+                                        "color": "ColorU"
+                                    }
+                                ],
+                                "fn_body": "object.set_selection_owner_color(owner, color)"
+                            },
+                            "clear_selection_owner_color": {
+                                "doc": [
+                                    "Drop a participant's colour, so their caret falls back to the node's",
+                                    "`caret-color` (U1)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "owner": "SelectionOwner"
+                                    }
+                                ],
+                                "fn_body": "object.clear_selection_owner_color(owner)"
                             }
                         },
                         "repr": "C"
@@ -27463,6 +27573,9 @@
                                 },
                                 "selection": {
                                     "type": "Selection"
+                                },
+                                "owner": {
+                                    "type": "SelectionOwner"
                                 }
                             }
                         ],
@@ -28045,6 +28158,31 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SelectionOwner": {
+                        "external": "azul_core::selection::SelectionOwner",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "high": {
+                                    "type": "u64"
+                                },
+                                "low": {
+                                    "type": "u64"
                                 }
                             }
                         ],

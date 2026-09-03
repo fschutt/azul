@@ -4039,23 +4039,22 @@ where
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, (cd, cn, _))| {
-                *cd == self.ctx.styled_dom.dom_id
-                    && (*cn == dom_id || self.ifc_root_owns_dom_node(node_index, *cn))
+            .find(|(_, loc)| {
+                loc.dom == self.ctx.styled_dom.dom_id
+                    && (loc.node == dom_id || self.ifc_root_owns_dom_node(node_index, loc.node))
             })
             .map(|(i, _)| i);
 
-        for (i, (cursor_dom_id, cursor_node_id, cursor)) in
-            self.ctx.cursor_locations.iter().enumerate()
-        {
+        for (i, location) in self.ctx.cursor_locations.iter().enumerate() {
+            let cursor = &location.cursor;
             // Check DOM ID matches
-            if self.ctx.styled_dom.dom_id != *cursor_dom_id {
+            if self.ctx.styled_dom.dom_id != location.dom {
                 continue;
             }
 
             // Check this node contains the cursor
-            if dom_id != *cursor_node_id
-                && !self.ifc_root_owns_dom_node(node_index, *cursor_node_id)
+            if dom_id != location.node
+                && !self.ifc_root_owns_dom_node(node_index, location.node)
             {
                 continue;
             }
@@ -4094,12 +4093,24 @@ where
 
             // Blink: keep the caret item present every frame (stable item count for
             // incremental damage) but make it invisible in the off phase by zeroing alpha.
+            // PER-PARTICIPANT COLOUR (U1). A shared editing session paints
+            // each person's caret in their own colour; `caret-color` answers
+            // "what colour is the caret in this field", which is a different
+            // question and cannot name a person. An owner the app has not
+            // registered - the local caret included - falls back to the CSS
+            // value, so a single-user app is unaffected.
+            let owner_color = self
+                .ctx
+                .owner_colors
+                .get(&location.owner)
+                .copied()
+                .unwrap_or(style.color);
             let caret_color = if self.ctx.cursor_is_visible {
-                style.color
+                owner_color
             } else {
                 ColorU {
                     a: 0,
-                    ..style.color
+                    ..owner_color
                 }
             };
             builder.push_cursor_rect(rect, caret_color);

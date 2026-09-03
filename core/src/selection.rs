@@ -250,6 +250,14 @@ impl_vec_partialord!(SelectionId, SelectionIdVec);
 pub struct IdentifiedSelection {
     pub id: SelectionId,
     pub selection: Selection,
+    /// WHOSE selection this is (U1).
+    ///
+    /// [`SelectionOwner::LOCAL`] for the person at this machine, which is
+    /// every selection the engine creates itself. An app running a shared
+    /// editing session injects the other participants' cursors with their own
+    /// owners, and the paint path colours by this rather than by the node's
+    /// `caret-color` - one colour per participant is the whole point.
+    pub owner: SelectionOwner,
 }
 
 impl_option!(
@@ -273,6 +281,44 @@ impl_vec_clone!(
     IdentifiedSelectionVecDestructor
 );
 impl_vec_partialeq!(IdentifiedSelection, IdentifiedSelectionVec);
+
+/// WHO a cursor or selection belongs to (U1).
+///
+/// A 128-bit id rather than an index, because it has to survive a NETWORK: in a
+/// shared editing session the participants are decided elsewhere - a server, a
+/// CRDT peer id, a user account - and an engine-allocated number could not be
+/// agreed on by two machines. [`SelectionId`] is that engine-allocated number
+/// and stays local; this is the app's, and the two are separate fields for
+/// exactly that reason.
+///
+/// Split into two `u64`s rather than a `u128` because this crosses the C ABI,
+/// where `u128` had no stable layout until recently and still surprises
+/// bindings.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub struct SelectionOwner {
+    pub high: u64,
+    pub low: u64,
+}
+
+impl SelectionOwner {
+    /// The person at this machine.
+    ///
+    /// All-zero, so a `Default` selection is a local one and every existing
+    /// construction site keeps meaning what it meant.
+    pub const LOCAL: Self = Self { high: 0, low: 0 };
+
+    #[must_use]
+    pub const fn new(high: u64, low: u64) -> Self {
+        Self { high, low }
+    }
+
+    /// Is this the local participant?
+    #[must_use]
+    pub const fn is_local(self) -> bool {
+        self.high == 0 && self.low == 0
+    }
+}
 
 /// Multi-cursor state for a contenteditable element (Sublime Text style).
 ///
@@ -313,6 +359,7 @@ impl MultiCursorState {
             selections: vec![IdentifiedSelection {
                 id,
                 selection: Selection::Cursor(cursor),
+                owner: SelectionOwner::LOCAL,
             }],
             primary_id: id,
             node_id,
@@ -328,6 +375,7 @@ impl MultiCursorState {
         self.selections.push(IdentifiedSelection {
             id,
             selection: Selection::Cursor(cursor),
+            owner: SelectionOwner::LOCAL,
         });
         self.primary_id = id;
         self.merge_overlapping();
@@ -342,6 +390,7 @@ impl MultiCursorState {
         self.selections.push(IdentifiedSelection {
             id,
             selection: Selection::Range(range),
+            owner: SelectionOwner::LOCAL,
         });
         self.primary_id = id;
         self.merge_overlapping();
@@ -420,6 +469,7 @@ impl MultiCursorState {
             self.selections.push(IdentifiedSelection {
                 id,
                 selection: *sel,
+                owner: SelectionOwner::LOCAL,
             });
         }
         // IDs are reassigned by index; make sure primary_id still resolves.
@@ -437,6 +487,7 @@ impl MultiCursorState {
         self.selections.push(IdentifiedSelection {
             id,
             selection: Selection::Cursor(cursor),
+            owner: SelectionOwner::LOCAL,
         });
         self.primary_id = id;
     }
@@ -451,6 +502,7 @@ impl MultiCursorState {
         self.selections.push(IdentifiedSelection {
             id,
             selection: Selection::Range(range),
+            owner: SelectionOwner::LOCAL,
         });
         self.primary_id = id;
     }
@@ -477,11 +529,18 @@ impl MultiCursorState {
         let primary = self.primary_id;
         let mut new_primary = primary;
 
-        // Sort by the start position of each selection
+        // BY OWNER FIRST, then by position (U1). Two participants' cursors
+        // must never merge: in a shared editing session that would silently
+        // delete someone from the document - their caret absorbed into another
+        // person's and repainted in that person's colour. Sorting by owner
+        // groups each participant's selections so the adjacency check below
+        // only ever compares two of the same owner's.
         self.selections.sort_by(|a, b| {
-            let pos_a = selection_start_pos(&a.selection);
-            let pos_b = selection_start_pos(&b.selection);
-            pos_a.cmp(&pos_b)
+            a.owner.cmp(&b.owner).then_with(|| {
+                let pos_a = selection_start_pos(&a.selection);
+                let pos_b = selection_start_pos(&b.selection);
+                pos_a.cmp(&pos_b)
+            })
         });
 
         // Merge overlapping: if selection[i+1] starts at or before selection[i] ends,
@@ -491,7 +550,8 @@ impl MultiCursorState {
             if let Some(last) = merged.last_mut() {
                 let last_end = selection_end_pos(&last.selection);
                 let cur_start = selection_start_pos(&sel.selection);
-                if cur_start <= last_end {
+                // SAME OWNER ONLY - see the sort above.
+                if last.owner == sel.owner && cur_start <= last_end {
                     // Overlap — merge into one range covering both
                     let new_start = selection_start_pos(&last.selection);
                     let cur_end = selection_end_pos(&sel.selection);
@@ -532,6 +592,65 @@ impl MultiCursorState {
         // Point primary at a surviving selection (fallback: last element).
         self.primary_id = new_primary;
         self.ensure_primary_valid();
+    }
+
+    /// Replace everything ONE participant owns (U1).
+    ///
+    /// The injection point for a shared editing session: a peer's cursor
+    /// arrives over the network, and this makes it the whole of what that peer
+    /// has selected. Replacing rather than merging is deliberate - a remote
+    /// participant's state is a SNAPSHOT, and adding to it would leave stale
+    /// carets behind whenever a message was missed.
+    ///
+    /// Refuses to touch [`SelectionOwner::LOCAL`]: the local caret is the
+    /// engine's, and letting an app overwrite it through this door would make
+    /// every text-editing invariant the engine maintains someone else's
+    /// problem. Returns `false` in that case.
+    pub fn set_owner_selections(
+        &mut self,
+        owner: SelectionOwner,
+        selections: &[Selection],
+    ) -> bool {
+        if owner.is_local() {
+            return false;
+        }
+        self.selections.retain(|s| s.owner != owner);
+        for selection in selections {
+            self.selections.push(IdentifiedSelection {
+                id: SelectionId::new(),
+                selection: *selection,
+                owner,
+            });
+        }
+        // NOT `merge_overlapping` here: that call is about keeping the LOCAL
+        // caret set sane after a movement, and a remote snapshot is already
+        // whatever the peer says it is. Merging it would also renumber ids the
+        // caller may be tracking.
+        self.ensure_primary_valid();
+        true
+    }
+
+    /// Forget a participant - they left, or their connection dropped.
+    ///
+    /// Returns how many selections went. `LOCAL` is refused for the same
+    /// reason as above; removing it would leave the document with no caret.
+    pub fn remove_owner(&mut self, owner: SelectionOwner) -> usize {
+        if owner.is_local() {
+            return 0;
+        }
+        let before = self.selections.len();
+        self.selections.retain(|s| s.owner != owner);
+        self.ensure_primary_valid();
+        before - self.selections.len()
+    }
+
+    /// Every participant with a selection right now, `LOCAL` included.
+    #[must_use]
+    pub fn owners(&self) -> Vec<SelectionOwner> {
+        let mut out: Vec<SelectionOwner> = self.selections.iter().map(|s| s.owner).collect();
+        out.sort_unstable();
+        out.dedup();
+        out
     }
 
     /// Move all cursors using a movement function. Merges collisions afterward.

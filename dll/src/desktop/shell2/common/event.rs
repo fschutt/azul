@@ -6379,6 +6379,31 @@ pub trait PlatformWindow {
                 }
                 ProcessEventResult::DoNothing
             }
+            CallbackChange::SetRemoteSelections { owner, selections } => {
+                // A remote caret changes PIXELS and nothing else - no layout,
+                // no focus, no text. Repaint rather than relayout.
+                let changed = self.get_layout_window_mut().is_some_and(|lw| {
+                    lw.text_edit_manager
+                        .multi_cursor
+                        .as_mut()
+                        .is_some_and(|mc| mc.set_owner_selections(*owner, selections.as_ref()))
+                });
+                if changed {
+                    if let Some(lw) = self.get_layout_window_mut() {
+                        lw.text_edit_manager.mark_dirty();
+                    }
+                    ProcessEventResult::ShouldReRenderCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
+            }
+            CallbackChange::SetSelectionOwnerColor { owner, color } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.text_edit_manager
+                        .set_owner_color(*owner, color.clone().into_option());
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
             CallbackChange::CommitUndoSnapshot => {
                 // Clone the Arc first so the `&self` borrow ends before we
                 // borrow `&self` again via get_undo_manager().

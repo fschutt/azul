@@ -421,6 +421,7 @@ where
             fragmentation_context: Some(&mut fragmentation_context),
             cursor_is_visible: true,
             cursor_locations: Vec::new(),
+            owner_colors: Default::default(),
             preedit_text: None,
             cache_map: std::mem::take(&mut cache.cache_map),
             image_cache,
@@ -485,6 +486,7 @@ where
     let mut counter_values = cache.counters.clone();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx = LayoutContext {
+        owner_colors: Default::default(),
         reflowed_ifcs: std::collections::BTreeSet::new(),
         style_cache: Default::default(),
         virtual_view_sizes: None,
@@ -720,6 +722,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
     let mut counter_values = std::collections::HashMap::new();
     let empty_text_selections: BTreeMap<DomId, TextSelection> = BTreeMap::new();
     let mut ctx_temp = LayoutContext {
+        owner_colors: Default::default(),
         reflowed_ifcs: std::collections::BTreeSet::new(),
         style_cache: Default::default(),
         virtual_view_sizes: None,
@@ -784,6 +787,7 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
 
     // Now create the real context with computed counters and fragmentation
     let mut ctx = LayoutContext {
+        owner_colors: Default::default(),
         reflowed_ifcs: std::collections::BTreeSet::new(),
         style_cache: Default::default(),
         virtual_view_sizes: None,
@@ -2606,6 +2610,7 @@ where
             reflowed_ifcs: std::collections::BTreeSet::new(),
             cursor_is_visible: false,
             cursor_locations: Vec::new(),
+            owner_colors: Default::default(),
             preedit_text: None,
             cache_map: std::mem::take(&mut cache.cache_map),
             image_cache,

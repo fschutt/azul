@@ -115,7 +115,11 @@ mod autotest_generated {
     }
 
     fn ident(id: SelectionId, sel: Selection) -> IdentifiedSelection {
-        IdentifiedSelection { id, selection: sel }
+        IdentifiedSelection {
+            id,
+            selection: sel,
+            owner: SelectionOwner::LOCAL,
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -1449,5 +1453,139 @@ mod autotest_generated {
         );
         sel.focus.mouse_position = LogicalPosition::new(999.0, -999.0);
         assert!(sel.is_collapsed());
+    }
+}
+
+
+#[cfg(test)]
+mod owner_tests {
+    use alloc::{vec, vec::Vec};
+
+    use crate::{
+        dom::{DomId, DomNodeId, NodeId},
+        selection::{
+            CursorAffinity, GraphemeClusterId, MultiCursorState, Selection, SelectionOwner,
+            SelectionRange, TextCursor,
+        },
+        styled_dom::NodeHierarchyItemId,
+    };
+
+    fn cursor(byte: u32) -> TextCursor {
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: byte,
+            },
+            affinity: CursorAffinity::Leading,
+        }
+    }
+
+    fn node() -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+        }
+    }
+
+    fn state() -> MultiCursorState {
+        MultiCursorState::new_with_cursor(cursor(0), node(), 0)
+    }
+
+    #[test]
+    fn the_engines_own_selections_are_local() {
+        let mc = state();
+        assert!(mc.selections[0].owner.is_local());
+        assert_eq!(SelectionOwner::LOCAL, SelectionOwner::default());
+        assert_eq!(mc.owners(), vec![SelectionOwner::LOCAL]);
+    }
+
+    /// THE POINT OF THE WHOLE FIELD. Two participants' cursors at the same
+    /// place must stay two cursors: merging them would silently delete someone
+    /// from the session - their caret absorbed into another person's and
+    /// repainted in that person's colour.
+    #[test]
+    fn two_owners_at_the_same_position_do_not_merge() {
+        let mut mc = state();
+        let alice = SelectionOwner::new(1, 1);
+        let bob = SelectionOwner::new(2, 2);
+        assert!(mc.set_owner_selections(alice, &[Selection::Cursor(cursor(0))]));
+        assert!(mc.set_owner_selections(bob, &[Selection::Cursor(cursor(0))]));
+
+        mc.merge_overlapping();
+
+        assert_eq!(mc.selections.len(), 3, "local + two peers, all at offset 0");
+        assert_eq!(mc.owners().len(), 3);
+    }
+
+    /// ...but one owner's own overlapping selections still collapse, which is
+    /// what `merge_overlapping` is for.
+    #[test]
+    fn one_owners_overlapping_selections_still_merge() {
+        let mut mc = state();
+        let alice = SelectionOwner::new(1, 1);
+        mc.set_owner_selections(
+            alice,
+            &[
+                Selection::Range(SelectionRange {
+                    start: cursor(0),
+                    end: cursor(5),
+                }),
+                Selection::Range(SelectionRange {
+                    start: cursor(3),
+                    end: cursor(9),
+                }),
+            ],
+        );
+        mc.merge_overlapping();
+        let alice_count = mc.selections.iter().filter(|s| s.owner == alice).count();
+        assert_eq!(alice_count, 1, "one owner's overlaps must still collapse");
+    }
+
+    /// A remote participant's state is a SNAPSHOT: replacing is what stops a
+    /// missed message leaving a stale caret behind forever.
+    #[test]
+    fn injecting_replaces_that_owner_and_leaves_the_others_alone() {
+        let mut mc = state();
+        let alice = SelectionOwner::new(1, 1);
+        let bob = SelectionOwner::new(2, 2);
+        mc.set_owner_selections(alice, &[Selection::Cursor(cursor(0)), Selection::Cursor(cursor(4))]);
+        mc.set_owner_selections(bob, &[Selection::Cursor(cursor(8))]);
+        assert_eq!(mc.selections.iter().filter(|s| s.owner == alice).count(), 2);
+
+        mc.set_owner_selections(alice, &[Selection::Cursor(cursor(2))]);
+        assert_eq!(
+            mc.selections.iter().filter(|s| s.owner == alice).count(),
+            1,
+            "a snapshot replaces, it does not accumulate"
+        );
+        assert_eq!(mc.selections.iter().filter(|s| s.owner == bob).count(), 1);
+        assert!(mc.selections.iter().any(|s| s.owner.is_local()));
+    }
+
+    #[test]
+    fn a_participant_who_leaves_takes_only_their_own_carets() {
+        let mut mc = state();
+        let alice = SelectionOwner::new(1, 1);
+        let bob = SelectionOwner::new(2, 2);
+        mc.set_owner_selections(alice, &[Selection::Cursor(cursor(0))]);
+        mc.set_owner_selections(bob, &[Selection::Cursor(cursor(4))]);
+
+        assert_eq!(mc.remove_owner(alice), 1);
+        assert!(!mc.owners().contains(&alice));
+        assert!(mc.owners().contains(&bob));
+        assert!(mc.selections.iter().any(|s| s.owner.is_local()));
+    }
+
+    /// THE LOCAL CARET IS THE ENGINE'S. Letting an app overwrite or delete it
+    /// through the remote door would make every text-editing invariant the
+    /// engine maintains someone else's problem - and removing it would leave
+    /// the document with no caret at all.
+    #[test]
+    fn the_local_owner_cannot_be_injected_or_removed() {
+        let mut mc = state();
+        assert!(!mc.set_owner_selections(SelectionOwner::LOCAL, &[Selection::Cursor(cursor(9))]));
+        assert_eq!(mc.remove_owner(SelectionOwner::LOCAL), 0);
+        assert_eq!(mc.selections.len(), 1);
+        assert!(mc.selections[0].owner.is_local());
     }
 }

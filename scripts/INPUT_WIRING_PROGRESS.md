@@ -1764,17 +1764,40 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 These three came in together and belong together: they are the model a multi-user editing
 session needs. Recorded verbatim so the framing is not lost.
 
-- [ ] U1 CURSOR OWNERSHIP. User: "think about every cursor having an 'owner uuid', for later
-      multiple cursors / selections having app-injected owners, so we can paint them in separate
-      colors, think a 'multi-user editing session' like many people editing a document over a
-      network at the same time".
-      `MultiCursorState` already holds a `Vec<IdentifiedSelection>` with a stable `SelectionId`
-      per entry, so the SHAPE is there - what is missing is an OWNER on each, an app-facing way
-      to inject a remote participant's cursor, and a paint path that colours by owner instead of
-      using the one `caret-color`. `SelectionId` is engine-allocated and local; an owner is
-      app-supplied and must survive the network, so it is a separate field rather than a reuse.
-      Note the existing `-azul-caret-color` / selection colours are per-NODE properties, so
-      per-owner colour is a new axis rather than a new value.
+- [x] U1 DONE - the MODEL, the injection API and the PAINT. A shared editing session can now
+      show several people's carets, each in their own colour.
+      `SelectionOwner` is a 128-bit id (two `u64`s, because `u128` has no settled C layout) and
+      NOT a reuse of `SelectionId`: that one is engine-allocated and local, while an owner has to
+      survive a NETWORK - two machines cannot agree on a counter one of them allocated. `LOCAL`
+      is all-zero, so `Default` is a local selection and every existing construction site kept
+      meaning what it meant.
+      ⚠ THE MERGE WAS THE REAL HAZARD. `merge_overlapping` collapsed any two adjacent selections,
+      so two participants whose carets touched would have become ONE - silently deleting someone
+      from the session, their caret absorbed into another person's and repainted in that person's
+      colour. Merging is now confined to a single owner, and the sort is by owner first so the
+      adjacency check only ever compares two of the same person's.
+      INJECTION REPLACES, IT DOES NOT ACCUMULATE: a remote participant's state is a SNAPSHOT, and
+      adding to it would leave a stale caret behind every time a message was missed. And `LOCAL`
+      is REFUSED at that door - the local caret is the engine's, and letting an app overwrite it
+      there would put every text-editing invariant the engine maintains into the app's hands.
+      COLOUR IS PER OWNER, NOT PER NODE, which is why it is a registry rather than a CSS property:
+      `caret-color` answers "what colour is the caret in this field", and a session needs "what
+      colour is Alice" - a different axis, and one no stylesheet can know because the participants
+      are decided at runtime. An unregistered owner falls back to `caret-color`, which is what the
+      LOCAL caret always does, so a single-user app is untouched by any of this.
+      `(DomId, NodeId, TextCursor)` became a named `CursorLocation` carrying the owner: the paint
+      site is where the colour is chosen, and looking the owner up from a parallel list would be a
+      desync waiting to happen.
+      EVIDENCE: 6 model tests with a NEGATIVE CONTROL - allowing the merge to cross owners fails
+      with "local + two peers, all at offset 0". `codegen all` + a dll build put
+      `AzSelectionOwner` and `AzCallbackInfo_setRemoteSelections` in the C ABI; autofix converged
+      at 0 patches and `azul-doc check` PASSED. Host, 8/8 mobile, azul-core 2785, azul-layout
+      7638. ⚠ No two-machine session here - the paint path is compiled and unit-tested, not seen.
+- [ ] U1-a The SELECTION HIGHLIGHT is still painted per node, not per owner. This change colours
+      the CARET by owner; a remote participant's selected RANGE still draws in the node's
+      `::selection` background. The rects come from a different path (`text_selections`, a
+      `BTreeMap<DomId, TextSelection>` built before the owner existed) which has no owner on it at
+      all - so it is the same shape of work again rather than a line in the same place.
 - [ ] U2 NATIVE SELECTION INTEGRATION. User: "please make sure our selection model integrates
       with the native selections on ios and android, so that copy-in / copy-out works".
       The iOS half now has the offset bridge from 10b-i-a/b, so `selectedTextRange` and

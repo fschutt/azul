@@ -2810,6 +2810,7 @@ mod autotest_generated {
 
         fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
             LayoutContext {
+                owner_colors: Default::default(),
                 reflowed_ifcs: BTreeSet::new(),
                 style_cache: Default::default(),
                 virtual_view_sizes: None,

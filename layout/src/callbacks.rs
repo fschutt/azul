@@ -914,6 +914,17 @@ pub enum CallbackChange {
     SetNowPlaying {
         info: azul_core::media_session::NowPlayingInfo,
     },
+    /// Publish one participant's selections in a shared editing session (U1).
+    /// APPENDED at the end.
+    SetRemoteSelections {
+        owner: azul_core::selection::SelectionOwner,
+        selections: azul_core::selection::SelectionVec,
+    },
+    /// Register or drop a participant's caret colour (U1). APPENDED.
+    SetSelectionOwnerColor {
+        owner: azul_core::selection::SelectionOwner,
+        color: azul_css::props::basic::color::OptionColorU,
+    },
 }
 
 /// Whether a batch of CSS property overrides can move geometry, i.e. whether
@@ -5163,6 +5174,69 @@ impl CallbackInfo {
     /// a keyboard (restoring focus after a dialog closes, a programmatic focus
     /// during startup - the cases the old comment named) calls this with
     /// `false` from that callback and gets it.
+    /// Publish a remote participant's cursors and selections (U1).
+    ///
+    /// The injection point for a SHARED EDITING SESSION: a peer's caret
+    /// arrives over the network and this makes it the whole of what that peer
+    /// has selected in the focused editable. Their caret is painted in their
+    /// own colour - see [`Self::set_selection_owner_color`] - so several
+    /// people editing one document are visibly distinguishable.
+    ///
+    /// REPLACES rather than adds, because a remote participant's state is a
+    /// SNAPSHOT: accumulating would leave a stale caret behind every time a
+    /// message was missed.
+    ///
+    /// Does nothing for `SelectionOwner::LOCAL`, or when nothing is focused.
+    /// The local caret is the engine's, and letting an app overwrite it here
+    /// would put every text-editing invariant the engine maintains into the
+    /// app's hands.
+    pub fn set_remote_selections(
+        &mut self,
+        owner: azul_core::selection::SelectionOwner,
+        selections: azul_core::selection::SelectionVec,
+    ) {
+        self.push_change(CallbackChange::SetRemoteSelections { owner, selections });
+    }
+
+    /// Forget a participant - they left, or their connection dropped (U1).
+    pub fn clear_remote_selections(&mut self, owner: azul_core::selection::SelectionOwner) {
+        self.push_change(CallbackChange::SetRemoteSelections {
+            owner,
+            selections: alloc::vec::Vec::new().into(),
+        });
+    }
+
+    /// What colour a participant's caret is painted in (U1).
+    ///
+    /// Per OWNER, not per node, which is why this is an API rather than a CSS
+    /// property: `caret-color` answers "what colour is the caret in this
+    /// field", and a shared session needs "what colour is Alice" - a different
+    /// axis, and one no stylesheet can know because the participants are
+    /// decided at runtime.
+    ///
+    /// An owner with no colour registered falls back to the node's
+    /// `caret-color`, which is what the LOCAL caret always does - so a
+    /// single-user app is unaffected by any of this.
+    pub fn set_selection_owner_color(
+        &mut self,
+        owner: azul_core::selection::SelectionOwner,
+        color: azul_css::props::basic::color::ColorU,
+    ) {
+        self.push_change(CallbackChange::SetSelectionOwnerColor {
+            owner,
+            color: azul_css::props::basic::color::OptionColorU::Some(color),
+        });
+    }
+
+    /// Drop a participant's colour, so their caret falls back to the node's
+    /// `caret-color` (U1).
+    pub fn clear_selection_owner_color(&mut self, owner: azul_core::selection::SelectionOwner) {
+        self.push_change(CallbackChange::SetSelectionOwnerColor {
+            owner,
+            color: azul_css::props::basic::color::OptionColorU::None,
+        });
+    }
+
     pub fn request_soft_keyboard(&mut self, visible: bool) {
         self.push_change(CallbackChange::RequestSoftKeyboard { visible });
     }

@@ -243,7 +243,11 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// All active cursor locations from `MultiCursorState` / `CursorManager`.
     /// Each entry is (`dom_id`, `node_id`, cursor). Multiple entries = multi-cursor mode.
     /// Empty = no active cursor. The last entry is the primary cursor.
-    pub cursor_locations: Vec<(DomId, NodeId, TextCursor)>,
+    pub cursor_locations: Vec<crate::managers::text_edit::CursorLocation>,
+    /// Per-participant caret colours (U1), keyed by `SelectionOwner`. Empty
+    /// for a single-user app, where every caret falls back to `caret-color`.
+    pub owner_colors:
+        alloc::collections::BTreeMap<azul_core::selection::SelectionOwner, azul_css::props::basic::color::ColorU>,
     /// IME preedit (composition) text to render inline at the cursor position.
     /// When Some, the text should be rendered with an underline decoration.
     pub preedit_text: Option<String>,
@@ -447,7 +451,7 @@ pub static SKIP_DISPLAY_LIST: core::sync::atomic::AtomicBool =
 #[must_use]
 pub fn dl_input_fingerprint(
     cursor_is_visible: bool,
-    cursor_locations: &[(DomId, NodeId, TextCursor)],
+    cursor_locations: &[crate::managers::text_edit::CursorLocation],
     text_selections: &BTreeMap<DomId, TextSelection>,
     preedit_text: Option<&str>,
 ) -> u64 {
@@ -510,7 +514,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     id_namespace: azul_core::resources::IdNamespace,
     dom_id: DomId,
     cursor_is_visible: bool,
-    cursor_locations: Vec<(DomId, NodeId, TextCursor)>,
+    cursor_locations: Vec<crate::managers::text_edit::CursorLocation>,
+    owner_colors: alloc::collections::BTreeMap<
+        azul_core::selection::SelectionOwner,
+        azul_css::props::basic::color::ColorU,
+    >,
     preedit_text: Option<String>,
     image_cache: &azul_core::resources::ImageCache,
     content_overlay: Option<&crate::overlay::ContentOverlay>,
@@ -589,6 +597,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         reflowed_ifcs: std::collections::BTreeSet::new(),
         cursor_is_visible,
         cursor_locations: cursor_locations.clone(),
+        owner_colors: Default::default(),
         preedit_text: preedit_text.clone(),
         cache_map: cache::LayoutCacheMap::default(), // temp context doesn't need real cache
         image_cache,
@@ -964,6 +973,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 
     // Now create the real context with computed counters
     let mut ctx = LayoutContext {
+        owner_colors: Default::default(),
         style_cache: Default::default(),
         // The report a `VirtualView` is sized by (sizing.rs). The commit that
         // threaded this parameter through left the context at `None`, so no
@@ -2762,6 +2772,7 @@ mod autotest_generated {
                     reflowed_ifcs: std::collections::BTreeSet::new(),
                     cursor_is_visible: true,
                     cursor_locations: Vec::new(),
+                    owner_colors: Default::default(),
                     preedit_text: None,
                     cache_map: cache::LayoutCacheMap::default(),
                     image_cache: &self.image_cache,
@@ -3027,6 +3038,7 @@ mod autotest_generated {
                 DomId::ROOT_ID,
                 false,
                 Vec::new(),
+                Default::default(), // owner_colors (U1)
                 None,
                 &image_cache,
                 None,
@@ -3070,6 +3082,7 @@ mod autotest_generated {
                 DomId::ROOT_ID,
                 false,
                 Vec::new(),
+                Default::default(), // owner_colors (U1)
                 None,
                 &image_cache,
                 None,
@@ -3115,6 +3128,7 @@ mod autotest_generated {
                 DomId::ROOT_ID,
                 false,
                 Vec::new(),
+                Default::default(), // owner_colors (U1)
                 None,
                 &image_cache,
                 None,

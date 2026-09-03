@@ -2978,6 +2978,18 @@ impl Runner {
                 // No repaint: the media widget is not part of this window.
                 ProcessEventResult::DoNothing
             }
+            CallbackChange::SetRemoteSelections { owner, selections } => {
+                if let Some(mc) = self.layout_window.text_edit_manager.multi_cursor.as_mut() {
+                    mc.set_owner_selections(*owner, selections.as_ref());
+                }
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+            CallbackChange::SetSelectionOwnerColor { owner, color } => {
+                self.layout_window
+                    .text_edit_manager
+                    .set_owner_color(*owner, color.clone().into_option());
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
             CallbackChange::CommitUndoSnapshot => {
                 self.unsupported("CommitUndoSnapshot", "no app-data undo manager")
             }

@@ -4448,6 +4448,7 @@ impl LayoutWindow {
             styled_dom.dom_id,
             false,
             Vec::new(),
+            Default::default(), // owner_colors (U1): geometry pass paints nothing
             None,
             &self.image_cache,
             Some(&self.content_overlay),
@@ -5646,6 +5647,7 @@ impl LayoutWindow {
             && (self.text_edit_manager.should_draw_cursor()
                 || self.text_edit_manager.tween.is_active());
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
+        let owner_colors = self.text_edit_manager.owner_colors.clone();
         // The live selection goes through the LAYOUT path too. Only the
         // display-list-only path (`regenerate_display_list_for_dom`) painted
         // `SelectionRect`s; this one handed `layout_document` an empty map,
@@ -5720,6 +5722,10 @@ impl LayoutWindow {
                     dom_id,
                     cursor_is_visible,
                     cursor_locations,
+                    // THE LIVE registry (U1). Every other `layout_document`
+                    // call here is a geometry or headless pass that paints no
+                    // caret, which is why they pass an empty map.
+                    owner_colors,
                     preedit,
                     image_cache,
                     Some(content_overlay),
@@ -12893,6 +12899,7 @@ impl LayoutWindow {
                         z.retained.styled_dom.dom_id,
                         false,
                         Vec::new(),
+                        Default::default(), // owner_colors (U1)
                         None,
                         &self.image_cache,
                         Some(&self.content_overlay),
@@ -16405,6 +16412,7 @@ impl LayoutWindow {
             fragmentation_context: None,
             cursor_is_visible,
             cursor_locations,
+            owner_colors: self.text_edit_manager.owner_colors.clone(),
             preedit_text: self.text_edit_manager.preedit_text.clone(),
             cache_map,
             image_cache: &self.image_cache,

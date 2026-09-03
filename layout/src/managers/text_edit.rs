@@ -9,6 +9,9 @@
 //! Every mutation that affects visual output sets `display_list_dirty = true`,
 //! ensuring the display list is always regenerated.
 
+use alloc::collections::BTreeMap;
+use azul_css::props::basic::color::ColorU;
+
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
@@ -347,6 +350,24 @@ pub enum CompositionPhase {
     End,
 }
 
+/// One painted caret: where it is, and WHOSE it is (U1).
+///
+/// This was a bare `(DomId, NodeId, TextCursor)` tuple. The owner has to
+/// travel with it - the paint site is where a participant's colour is chosen,
+/// and looking it up from a parallel list would be a desync waiting to happen.
+/// A named struct rather than a fourth tuple field so the reader at the paint
+/// site can tell which is which.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CursorLocation {
+    pub dom: DomId,
+    pub node: NodeId,
+    pub cursor: TextCursor,
+    /// [`SelectionOwner::LOCAL`] for this machine's caret.
+    ///
+    /// [`SelectionOwner::LOCAL`]: azul_core::selection::SelectionOwner::LOCAL
+    pub owner: azul_core::selection::SelectionOwner,
+}
+
 /// Unified text editing manager.
 ///
 /// `multi_cursor` is the single source of truth for cursor/selection positions.
@@ -383,6 +404,9 @@ pub struct TextEditManager {
     /// Pending on-screen-keyboard request: `Some(true)` = show, `Some(false)`
     /// = hide, `None` = nothing asked this pass.
     pub pending_soft_keyboard: Option<bool>,
+    /// Per-participant caret/selection colours (U1). Empty for a single-user
+    /// app, which is every app until one injects a remote owner.
+    pub owner_colors: BTreeMap<azul_core::selection::SelectionOwner, ColorU>,
     /// Set to true by any mutation that changes visual output.
     pub display_list_dirty: bool,
     /// Caret / selection tween bookkeeping (see [`TextTweenState`]).
@@ -447,6 +471,7 @@ impl TextEditManager {
             pending_composition: None,
             composition_text: String::new(),
             pending_soft_keyboard: None,
+            owner_colors: BTreeMap::new(),
             display_list_dirty: false,
             tween: TextTweenState::default(),
             pending_edit_notifications: Vec::new(),
@@ -791,7 +816,7 @@ impl TextEditManager {
     ///
     /// Returns all cursor positions from `MultiCursorState`, or empty if not editing.
     #[must_use]
-    pub fn build_cursor_locations(&self) -> Vec<(DomId, NodeId, TextCursor)> {
+    pub fn build_cursor_locations(&self) -> Vec<CursorLocation> {
         let Some(ref mc) = self.multi_cursor else {
             return Vec::new();
         };
@@ -805,9 +830,46 @@ impl TextEditManager {
                     Selection::Cursor(c) => *c,
                     Selection::Range(r) => r.end,
                 };
-                (mc.node_id.dom, node_id, cursor)
+                CursorLocation {
+                    dom: mc.node_id.dom,
+                    node: node_id,
+                    cursor,
+                    owner: s.owner,
+                }
             })
             .collect()
+    }
+
+    /// The colour a participant's caret and selection are painted in (U1).
+    ///
+    /// `None` for an owner the app has not named, which is the answer for the
+    /// LOCAL caret too: it keeps using the node's own `caret-color`, so a
+    /// single-user app is unaffected by any of this.
+    #[must_use]
+    pub fn owner_color(&self, owner: azul_core::selection::SelectionOwner) -> Option<ColorU> {
+        self.owner_colors.get(&owner).copied()
+    }
+
+    /// Name a participant's colour, or drop it with `None`.
+    ///
+    /// Per OWNER rather than per node, which is why this is a registry and not
+    /// a CSS property: `caret-color` answers "what colour is the caret in this
+    /// field", and a shared session needs "what colour is Alice" - a different
+    /// axis, and one the stylesheet cannot know.
+    pub fn set_owner_color(
+        &mut self,
+        owner: azul_core::selection::SelectionOwner,
+        color: Option<ColorU>,
+    ) {
+        match color {
+            Some(c) => {
+                self.owner_colors.insert(owner, c);
+            }
+            None => {
+                self.owner_colors.remove(&owner);
+            }
+        }
+        self.mark_dirty();
     }
 
     /// Cross-block selection (spans multiple IFC roots), precomputed by
@@ -1072,6 +1134,18 @@ impl TextEditManager {
 mod autotest_generated {
     use super::*;
 
+    /// The old `(DomId, NodeId, TextCursor)` shape, for tests written before
+    /// `CursorLocation` gained its owner (U1). Keeping them comparing the
+    /// three fields they were written about is better than rewriting each
+    /// assertion around a field they say nothing about.
+    fn locs_as_triples(m: &TextEditManager) -> Vec<(DomId, NodeId, TextCursor)> {
+        m.build_cursor_locations()
+            .into_iter()
+            .map(|l| (l.dom, l.node, l.cursor))
+            .collect()
+    }
+
+
     /// THE ORDERING RULE (10a-iv). Two writers share one queue - the shell's
     /// focus-driven raise and the app's explicit request - and the app must be
     /// able to override, because a callback runs after the focus change that
@@ -1160,6 +1234,7 @@ mod autotest_generated {
             .map(|selection| IdentifiedSelection {
                 id: SelectionId::new(),
                 selection,
+                owner: azul_core::selection::SelectionOwner::LOCAL,
             })
             .collect();
         let primary_id = identified.last().map_or_else(SelectionId::new, |s| s.id);
@@ -1552,10 +1627,14 @@ mod autotest_generated {
         );
         assert!(m.should_draw_cursor());
         assert!(m.display_list_dirty);
-        assert_eq!(
-            m.build_cursor_locations(),
-            vec![(DOM0, NodeId::ZERO, cursor(0, 0))]
-        );
+        {
+            let locs = m.build_cursor_locations();
+            assert_eq!(locs.len(), 1);
+            assert_eq!(locs[0].dom, DOM0);
+            assert_eq!(locs[0].node, NodeId::ZERO);
+            assert_eq!(locs[0].cursor, cursor(0, 0));
+            assert!(locs[0].owner.is_local());
+        }
     }
 
     #[test]
@@ -1587,7 +1666,7 @@ mod autotest_generated {
             "the contenteditable key is opaque — u64::MAX must survive verbatim"
         );
         assert_eq!(
-            m.build_cursor_locations(),
+            locs_as_triples(&m),
             vec![(DOM_MAX, node, extreme_cursor)]
         );
     }
@@ -1844,7 +1923,7 @@ mod autotest_generated {
         ));
 
         assert_eq!(
-            m.build_cursor_locations(),
+            locs_as_triples(&m),
             vec![(DOM1, node, a), (DOM1, node, c), (DOM1, node, c)],
             "a Range contributes its `end` as the caret position"
         );
@@ -1893,8 +1972,8 @@ mod autotest_generated {
 
         let locations = m.build_cursor_locations();
         assert_eq!(locations.len(), 1000);
-        assert_eq!(locations[0], (DOM0, node, cursor(0, 0)));
-        assert_eq!(locations[999], (DOM0, node, cursor(0, 999)));
+        assert_eq!((locations[0].dom, locations[0].node, locations[0].cursor), (DOM0, node, cursor(0, 0)));
+        assert_eq!((locations[999].dom, locations[999].node, locations[999].cursor), (DOM0, node, cursor(0, 999)));
     }
 
     // ------------------------------------------------------------------
