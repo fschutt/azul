@@ -650,10 +650,8 @@ impl KdeIni {
                 continue;
             }
             if let Some((k, v)) = line.split_once('=') {
-                out.entries.insert(
-                    (group.clone(), k.trim().to_string()),
-                    v.trim().to_string(),
-                );
+                out.entries
+                    .insert((group.clone(), k.trim().to_string()), v.trim().to_string());
             }
         }
         out
@@ -1176,16 +1174,17 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
         // muted tone — both follow whatever colour scheme the user picked.
         let groove = read_kde_color("Colors:Window", "BackgroundNormal")
             .or_else(|| style.colors.window_background.into_option());
-        // `ForegroundInactive` is the palette's own "muted" tone — exactly
-        // what a scrollbar handle is — and it is defined by every KDE scheme.
-        let handle = read_kde_color("Colors:Window", "ForegroundInactive")
-            .or_else(|| read_kde_color("Colors:Button", "ForegroundInactive"))
-            .or_else(|| style.colors.secondary_text.into_option());
+        // Breeze's handle is not a palette entry: breezehelper.cpp's
+        // scrollBarHandleColor() is `alphaColor(WindowText, 0.5)` — the
+        // scheme's normal foreground at HALF opacity, composited over the
+        // groove. ForegroundInactive at full alpha (the previous guess) is
+        // visibly heavier than every Qt scrollbar next to it.
+        let handle = read_kde_color("Colors:Window", "ForegroundNormal")
+            .or_else(|| read_kde_color("Colors:Button", "ForegroundNormal"))
+            .or_else(|| style.colors.text.into_option())
+            .map(|c| ColorU { a: 128, ..c });
         if groove.is_some() || handle.is_some() {
-            let width = style
-                .scrollbar
-                .as_deref()
-                .and_then(|s| s.width.clone());
+            let width = style.scrollbar.as_deref().and_then(|s| s.width.clone());
             style.scrollbar = Some(Box::new(ComputedScrollbarStyle {
                 width,
                 thumb_color: handle,
@@ -1206,11 +1205,11 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     // behaviour — is to JUMP to the clicked position. The engine's enum
     // defaults to `PageUpDown`, so Linux did the opposite of both desktops
     // until this was read.
-    style.scrollbar_preferences.track_click = match read_kde_str("KDE", "ScrollbarLeftClickNavigatesByPage")
-    {
-        Some(v) if v.trim().eq_ignore_ascii_case("true") => ScrollbarTrackClick::PageUpDown,
-        _ => ScrollbarTrackClick::JumpToPosition,
-    };
+    style.scrollbar_preferences.track_click =
+        match read_kde_str("KDE", "ScrollbarLeftClickNavigatesByPage") {
+            Some(v) if v.trim().eq_ignore_ascii_case("true") => ScrollbarTrackClick::PageUpDown,
+            _ => ScrollbarTrackClick::JumpToPosition,
+        };
 
     // ── Titlebar colours (client-side decorations) ──────────────────
     // KDE keeps the titlebar's palette in its own group, with a full
@@ -1950,13 +1949,15 @@ pub(crate) fn adopt_observed_theme(
 /// it was discovered for, so the second window through re-uses the first
 /// window's work and a switch BACK re-discovers rather than serving a stale
 /// entry.
-fn rediscovered_style_for(
-    theme: azul_core::window::WindowTheme,
-) -> alloc::sync::Arc<SystemStyle> {
+fn rediscovered_style_for(theme: azul_core::window::WindowTheme) -> alloc::sync::Arc<SystemStyle> {
     use std::sync::Mutex;
 
-    static CACHE: Mutex<Option<(azul_core::window::WindowTheme, alloc::sync::Arc<SystemStyle>)>> =
-        Mutex::new(None);
+    static CACHE: Mutex<
+        Option<(
+            azul_core::window::WindowTheme,
+            alloc::sync::Arc<SystemStyle>,
+        )>,
+    > = Mutex::new(None);
 
     let mut guard = CACHE
         .lock()
@@ -2149,21 +2150,17 @@ pub fn dump_discovered_style() -> String {
         s.scrollbar
             .as_deref()
             .and_then(|sb| sb.thumb_color)
-            .map_or_else(|| "-".to_string(), |c| alloc::format!(
-                "#{:02x}{:02x}{:02x}",
-                c.r,
-                c.g,
-                c.b
-            )),
+            .map_or_else(
+                || "-".to_string(),
+                |c| alloc::format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
+            ),
         s.scrollbar
             .as_deref()
             .and_then(|sb| sb.track_color)
-            .map_or_else(|| "-".to_string(), |c| alloc::format!(
-                "#{:02x}{:02x}{:02x}",
-                c.r,
-                c.g,
-                c.b
-            ))
+            .map_or_else(
+                || "-".to_string(),
+                |c| alloc::format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
+            )
     );
     let _ = writeln!(o, "caret_blink_ms      {}", s.input.caret_blink_rate_ms);
     o

@@ -1434,9 +1434,16 @@ impl PlatformWindow for WaylandWindow {
         let seat = self.seat;
         let serial = self.pointer_state.serial;
         if !toplevel.is_null() && !seat.is_null() && serial != 0 {
+            wl_trace!("xdg_toplevel.move serial={serial} — compositor takes the grab");
             unsafe {
                 (self.wayland.xdg_toplevel_move)(toplevel, seat, serial);
             }
+        } else {
+            wl_trace!(
+                "xdg_toplevel.move NOT sent: toplevel={:?} seat={:?} serial={serial}",
+                toplevel,
+                seat
+            );
         }
     }
 
@@ -2127,6 +2134,30 @@ impl WaylandWindow {
 
         let title = CString::new(options.window_state.title.as_str()).unwrap();
         unsafe { (window.wayland.xdg_toplevel_set_title)(window.xdg_toplevel, title.as_ptr()) };
+
+        // app_id is the window's IDENTITY on Wayland: KWin keys remembered
+        // geometry, window rules and taskbar/.desktop matching off it. Without
+        // one, every azul window falls into the compositor's anonymous bucket
+        // and inherits whatever size/placement rule accumulated there.
+        // Fallback mirrors the documented X11 WM_CLASS default: the binary name.
+        let app_id: String = options
+            .window_state
+            .platform_specific_options
+            .linux_options
+            .wayland_app_id
+            .as_ref()
+            .map(|s| s.as_str().to_string())
+            .unwrap_or_else(|| {
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    .unwrap_or_else(|| "azul".to_string())
+            });
+        if let Ok(app_id) = CString::new(app_id) {
+            unsafe {
+                (window.wayland.xdg_toplevel_set_app_id)(window.xdg_toplevel, app_id.as_ptr())
+            };
+        }
 
         let width = options.window_state.size.dimensions.width as i32;
         let height = options.window_state.size.dimensions.height as i32;
@@ -3573,8 +3604,7 @@ impl WaylandWindow {
                 // Device identity = the TABLET's USB vid/pid; the per-tool
                 // hardware serial goes in tool_id (truncated — Wintab tool
                 // ids are 32-bit as well).
-                ((self.tablet_info.vendor_id as u64) << 32)
-                    | self.tablet_info.product_id as u64,
+                ((self.tablet_info.vendor_id as u64) << 32) | self.tablet_info.product_id as u64,
                 p.tangential,
                 p.rotation,
                 p.tool_id as u32,
@@ -7546,10 +7576,7 @@ impl WaylandWindow {
             // breeze-dark as two directories, and the tint comes from the
             // palette. Re-read them BEFORE the relayout that repaints with
             // them, or the new palette is drawn around the old glyphs.
-            super::system_icons::refresh_system_icons(
-                &self.resources.icon_provider,
-                &new_style,
-            );
+            super::system_icons::refresh_system_icons(&self.resources.icon_provider, &new_style);
             // Full rebuild or restyle, decided from what the app's `layout()`
             // declared it reads — see `PlatformWindow::adopt_system_style`.
             self.adopt_system_style(new_style);

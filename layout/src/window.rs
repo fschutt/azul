@@ -811,7 +811,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // funnel's stash and the next re-materialization; typically empty at
         // report time.
         previous_child_arenas: _,
-            text_selection_drag_anchor: _,
+        text_selection_drag_anchor: _,
         prev_left_down: _,
         file_drop_manager: _,
         clipboard_manager: _,
@@ -1789,8 +1789,7 @@ impl LayoutWindow {
             skip_gpu_sync: false,
             frame_report: FrameReport::default(),
             recorded_size_queries: (Vec::new(), false),
-            recorded_style_dependencies:
-                azul_core::callbacks::SystemStyleDependencies::empty(),
+            recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies::empty(),
             last_dom_fingerprints: None,
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "pdf")]
@@ -2600,9 +2599,7 @@ impl LayoutWindow {
     /// NEGATIVE CONTROL: stop calling this on the lightweight scroll path and
     /// a VirtualView freezes again while its scrollbar keeps moving.
     pub fn patch_virtual_view_content_offset(&mut self, dom_id: DomId, node_id: NodeId) -> bool {
-        let Some(child_dom_id) = self
-            .virtual_view_manager
-            .get_nested_dom_id(dom_id, node_id)
+        let Some(child_dom_id) = self.virtual_view_manager.get_nested_dom_id(dom_id, node_id)
         else {
             return false;
         };
@@ -2777,6 +2774,19 @@ impl LayoutWindow {
         let (target, operation) = match action {
             DefaultAction::SplitBlockAtCursor { target } => {
                 let node_id = target.node.into_crate_internal()?;
+                // The action targets the editing HOST (the focused node), but
+                // the edit acts on the caret's BLOCK: Enter in
+                // `div[contenteditable] > p > text` splits the <p>, and the
+                // apply side (`apply_split`) is specified against exactly
+                // that shape — `host.children[i]` split at a position INSIDE
+                // it. Recording the host here made every Enter split block 0
+                // at boundary 0: a silent empty paragraph prepended, the
+                // caret unmoved (the AzWriter symptom).
+                let node_id = self.structural_edit_node(target.dom, node_id);
+                let target = DomNodeId {
+                    dom: target.dom,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                };
                 // The caret is ONE producer of a structural position: which
                 // direct child it sits in/before, and — only when that child
                 // is text — the byte inside it. Splitting a <ul> between
@@ -2784,34 +2794,47 @@ impl LayoutWindow {
                 // SAME operation with a different position.
                 let at = self.caret_node_position(target.dom, node_id)?;
                 (
-                    *target,
-                    DocumentOperation::SplitNode(DocOpSplitNode { node: *target, at }),
+                    target,
+                    DocumentOperation::SplitNode(DocOpSplitNode { node: target, at }),
                 )
             }
             DefaultAction::MergeWithPrevious { target } => {
                 let node_id = target.node.into_crate_internal()?;
+                // Same re-targeting as the split: Backspace at the start of a
+                // paragraph merges the caret's BLOCK with its previous
+                // sibling, not the host with whatever sits beside the host.
+                let node_id = self.structural_edit_node(target.dom, node_id);
+                let target = DomNodeId {
+                    dom: target.dom,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                };
                 let prev = self.block_sibling(target.dom, node_id, false)?;
                 let join = self.merge_join_position(target.dom, prev);
                 (
-                    *target,
+                    target,
                     DocumentOperation::MergeNodes(DocOpMergeNodes {
                         first: DomNodeId {
                             dom: target.dom,
                             node: NodeHierarchyItemId::from_crate_internal(Some(prev)),
                         },
-                        second: *target,
+                        second: target,
                         join,
                     }),
                 )
             }
             DefaultAction::MergeWithNext { target } => {
                 let node_id = target.node.into_crate_internal()?;
+                let node_id = self.structural_edit_node(target.dom, node_id);
+                let target = DomNodeId {
+                    dom: target.dom,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+                };
                 let next = self.block_sibling(target.dom, node_id, true)?;
                 let join = self.merge_join_position(target.dom, node_id);
                 (
-                    *target,
+                    target,
                     DocumentOperation::MergeNodes(DocOpMergeNodes {
-                        first: *target,
+                        first: target,
                         second: DomNodeId {
                             dom: target.dom,
                             node: NodeHierarchyItemId::from_crate_internal(Some(next)),
@@ -2829,6 +2852,53 @@ impl LayoutWindow {
         // The preview materializes inside record_document_edit — the shared
         // chokepoint, so app-recorded changesets preview identically.
         Some(self.record_document_edit(changeset))
+    }
+
+    /// The node a keyboard structural edit acts on: the DIRECT child of
+    /// `host` on the caret's ancestor chain, when that child is an ELEMENT
+    /// (the caret's block — the `<p>` of `div[contenteditable] > p > text`).
+    /// A flat host (its direct child at the caret IS a text leaf) and an
+    /// element-level caret keep the host itself: there the host's own child
+    /// list is the thing being split/merged.
+    fn structural_edit_node(&self, dom_id: DomId, host: NodeId) -> NodeId {
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return host;
+        };
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let node_data = lr.styled_dom.node_data.as_container();
+        let Some(caret) = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .filter(|mc| mc.node_id.dom == dom_id)
+            .and_then(|mc| mc.node_id.node.into_crate_internal())
+        else {
+            return host;
+        };
+        if caret == host {
+            return host;
+        }
+        // Walk the caret up to the direct child of `host`; a caret outside
+        // the host's subtree keeps the host.
+        let mut direct = caret;
+        loop {
+            match hierarchy
+                .get(direct)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            {
+                Some(p) if p == host => break,
+                Some(p) => direct = p,
+                None => return host,
+            }
+        }
+        let is_element = node_data
+            .get(direct)
+            .is_some_and(|n| !matches!(n.get_node_type(), NodeType::Text(_)));
+        if is_element {
+            direct
+        } else {
+            host
+        }
     }
 
     /// The caret expressed as a STRUCTURAL position inside `node`: the index
@@ -2888,13 +2958,15 @@ impl LayoutWindow {
 
         // Only a TEXT child carries a byte offset; anything else is a
         // boundary before/after it (after = caret at the child's end).
-        if node_data
-            .get(direct_child)
-            .is_some_and(|n| matches!(n.get_node_type(), NodeType::Text(_)))
-        {
+        if let Some(NodeType::Text(t)) = node_data.get(direct_child).map(|n| n.get_node_type()) {
+            // Affinity resolved against the text: a Trailing caret sits AFTER
+            // its grapheme, so the raw start_byte_in_run is one cluster short
+            // — an end-of-paragraph Enter split "hello worl|d", not
+            // "hello world|". Same resolution the text-edit paths use.
+            let byte = crate::text3::edit::cursor_byte_offset_in_run(t.as_str(), &cursor);
             Some(NodePosition::in_text_child(
                 index,
-                cursor.cluster_id.start_byte_in_run,
+                u32::try_from(byte).unwrap_or(u32::MAX),
             ))
         } else {
             Some(NodePosition::before_child(index))
@@ -5753,8 +5825,7 @@ impl LayoutWindow {
                             content_offset,
                             ..
                         } if *existing_child == child_dom_id => {
-                            *content_offset =
-                                self.virtual_view_content_offset(dom_id, node_id);
+                            *content_offset = self.virtual_view_content_offset(dom_id, node_id);
                             replaced = true;
                             break;
                         }
@@ -6878,6 +6949,24 @@ impl LayoutWindow {
         )
         .ok()?;
 
+        // The funnel's overlay-reapply tail does not run on this path: the
+        // child was just laid out from its DOM text, but uncommitted edits
+        // (typed text the app has not been handed yet) live in
+        // `content_overlay`, remapped onto the new generation by the
+        // reconcile above. Re-apply them, or an EdgeScrolled
+        // re-materialization silently reverts the visible text to the
+        // pre-edit state — "scrolling clears what I just typed", only the
+        // (remapped) caret surviving.
+        let dirty: Vec<NodeId> = self
+            .content_overlay
+            .iter_text()
+            .filter(|((d, _), _)| *d == child_dom_id)
+            .map(|((_, n), _)| *n)
+            .collect();
+        for n in dirty {
+            self.reapply_dirty_text_node(child_dom_id, n);
+        }
+
         Some(child_dom_id)
     }
 
@@ -7487,9 +7576,9 @@ impl LayoutWindow {
         scroll_id: u64,
     ) -> Option<usize> {
         use crate::solver3::display_list::DisplayListItem as I;
-        let start = items.iter().position(|i| {
-            matches!(i, I::PushScrollFrame { scroll_id: id, .. } if *id == scroll_id)
-        })?;
+        let start = items.iter().position(
+            |i| matches!(i, I::PushScrollFrame { scroll_id: id, .. } if *id == scroll_id),
+        )?;
         let mut depth = 0usize;
         for (idx, item) in items.iter().enumerate().skip(start) {
             match item {
@@ -8401,8 +8490,7 @@ impl LayoutWindow {
             &self.layout_results,
             current_focus,
             &self.focus_out_of_scope_doms(),
-        )
-        else {
+        ) else {
             return None;
         };
         let new_focus = match resolved {
@@ -14823,7 +14911,9 @@ impl LayoutWindow {
                     let mut found: Option<(NodeId, LayoutNodeId)> = None;
                     for idx in tree.ancestor_chain(ifc_idx, Inclusivity::SelfAndAncestors) {
                         let Some(pnode) = tree.get(idx) else { break };
-                        let Some(pdom) = pnode.dom_node_id else { continue };
+                        let Some(pdom) = pnode.dom_node_id else {
+                            continue;
+                        };
                         let st = layout_result
                             .styled_dom
                             .styled_nodes
@@ -14887,9 +14977,8 @@ impl LayoutWindow {
                         )
                     };
                     let old_info = tree.warm(host_idx).and_then(|w| w.scrollbar_info);
-                    let was = old_info.map_or((false, false), |i| {
-                        (i.needs_horizontal, i.needs_vertical)
-                    });
+                    let was =
+                        old_info.map_or((false, false), |i| (i.needs_horizontal, i.needs_vertical));
                     let was_reflow = old_info.is_some_and(|i| i.needs_reflow());
                     let st = layout_result
                         .styled_dom
@@ -14916,8 +15005,7 @@ impl LayoutWindow {
                         style.reserve_width_px,
                     );
                     now_reqs.visual_width_px = style.visual_width_px;
-                    let transitioned =
-                        was != (now_reqs.needs_horizontal, now_reqs.needs_vertical);
+                    let transitioned = was != (now_reqs.needs_horizontal, now_reqs.needs_vertical);
                     Some(HostPlan {
                         host_dom,
                         host_idx,
@@ -14953,9 +15041,7 @@ impl LayoutWindow {
                         escalate_for_scrollbar_geometry = true;
                     } else {
                         if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-                            if let Some(warm) =
-                                layout_result.layout_tree.warm_mut(plan.host_idx)
-                            {
+                            if let Some(warm) = layout_result.layout_tree.warm_mut(plan.host_idx) {
                                 warm.scrollbar_info = Some(plan.now_reqs);
                             }
                         }
@@ -14968,9 +15054,7 @@ impl LayoutWindow {
                             // DL build and its scroll-geometry cache key must
                             // see the published state (publish before
                             // consume).
-                            crate::managers::scroll_registration::register_scroll_nodes(
-                                self, &now,
-                            );
+                            crate::managers::scroll_registration::register_scroll_nodes(self, &now);
                         } else {
                             // Overflow STOPPED. The registration pass skips
                             // non-needing nodes, so shrink the manager's
@@ -17158,12 +17242,14 @@ impl LayoutWindow {
         // newlines (what Word puts on the clipboard for a multi-paragraph
         // selection).
         if let Some(cb) = self.text_edit_manager.get_cross_block_selection() {
-            copy_trace(|| format!(
+            copy_trace(|| {
+                format!(
                     "[copy] cross-block selection on {:?} ({} node(s)); copy targets {:?}",
                     cb.dom_id,
                     cb.affected_nodes.len(),
                     dom_id
-                ));
+                )
+            });
             if cb.dom_id == *dom_id {
                 let mut nodes: Vec<(NodeId, SelectionRange)> = cb
                     .affected_nodes
@@ -17213,15 +17299,21 @@ impl LayoutWindow {
         }
 
         let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
-            copy_trace(|| String::from("[copy] no cross-block selection and no multi_cursor — nothing to extract"));
+            copy_trace(|| {
+                String::from(
+                    "[copy] no cross-block selection and no multi_cursor — nothing to extract",
+                )
+            });
             return None;
         };
         let Some(node_id) = mc.node_id.node.into_crate_internal() else {
-            copy_trace(|| format!(
+            copy_trace(|| {
+                format!(
                     "[copy] multi_cursor on {:?} carries a node id that decodes to NONE — \
                      nothing to extract",
                     mc.node_id.dom
-                ));
+                )
+            });
             return None;
         };
 
@@ -17235,13 +17327,15 @@ impl LayoutWindow {
             })
             .collect();
         if ranges.is_empty() {
-            copy_trace(|| format!(
+            copy_trace(|| {
+                format!(
                     "[copy] multi_cursor on {:?}/{:?} holds {} selection(s) but no RANGE — \
                      nothing to extract",
                     mc.node_id.dom,
                     node_id,
                     mc.selections.len()
-                ));
+                )
+            });
             return None;
         }
 
@@ -17276,13 +17370,15 @@ impl LayoutWindow {
                 }
             }
         }
-        copy_trace(|| format!(
+        copy_trace(|| {
+            format!(
                 "[copy] extracting from {:?}/{:?}: {} range(s), {} inline run(s)",
                 dom_id,
                 node_id,
                 ranges.len(),
                 content.len()
-            ));
+            )
+        });
         let mut acc = ClipboardExtract::default();
         for r in &ranges {
             let sr = r.start.cluster_id.source_run as usize;
@@ -17326,11 +17422,13 @@ impl LayoutWindow {
 
         let out = acc.finish();
         if out.is_none() {
-            copy_trace(|| format!(
+            copy_trace(|| {
+                format!(
                     "[copy] every range resolved to zero bytes against {:?}/{:?}'s inline \
                      content — the ranges and the runs disagree (dual text path?)",
                     dom_id, node_id
-                ));
+                )
+            });
         }
         out
     }
@@ -17595,6 +17693,20 @@ impl LayoutWindow {
                 .get_nested_dom_id(*parent_dom, *node_id)
             {
                 self.hover_manager.purge_dom(&child_dom);
+            }
+        }
+
+        // An ACKED structural edit's caret restore normally lands at the tail
+        // of `layout_and_generate_display_list` — but when the app's
+        // RefreshDom takes the pre-cascade skip (the ROOT dom is fingerprint-
+        // identical; the change lives behind a VirtualView's RefAny), the new
+        // generation is built HERE, by the queued re-invocations, and no full
+        // layout follows. Without this, the resume stayed queued, the caret
+        // sat remapped in the OLD block, and the next unrelated full layout
+        // teleported it — "Enter does not move the cursor", second half.
+        if !updated.is_empty() {
+            if let Some(resume) = self.pending_caret_restore.take() {
+                self.restore_caret_from_resume_point(&resume);
             }
         }
 
@@ -17906,18 +18018,30 @@ impl LayoutWindow {
             resize_watch_dpi: _,
         } = self;
 
-        if let Some(rejected) = pending_document_edit.take() {
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[azul][document-edit] structural edit #{} dropped: the app re-rendered \
-                 without mark_document_edit_applied — treating the edit as rejected",
-                rejected.id
-            );
-            #[cfg(not(debug_assertions))]
-            drop(rejected);
-            *document_edit_notified = None;
+        // Only a NOTIFIED edit can be rejected: an un-notified one cannot
+        // have been "re-rendered without acking" by an app that never heard
+        // of it. The gap is real and was hit in the field: the split's own
+        // PREVIEW relayout re-invokes the VirtualView, the fresh DOM
+        // reconciles here, and the edit died silently one pass before the
+        // DocumentEdit notification would have gone out — Enter in AzWriter
+        // did nothing, on every desktop shell, release builds only (the
+        // debug eprintln was the single witness). Same guard as the drop in
+        // `layout_and_generate_display_list`.
+        if document_edit_notified.is_some() {
+            if let Some(rejected) = pending_document_edit.take() {
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "[azul][document-edit] structural edit #{} dropped: the app re-rendered \
+                     without mark_document_edit_applied — treating the edit as rejected",
+                    rejected.id
+                );
+                #[cfg(not(debug_assertions))]
+                drop(rejected);
+                *document_edit_notified = None;
+            }
         }
         let _ = document_edit_notified;
+        let _ = pending_document_edit;
 
         // Tracks are seeded for the ROOT dom only (like the manager anim
         // bridge), so only a root remap touches them.
@@ -20335,13 +20459,15 @@ mod autotest_generated {
 
         // body(0) > wrapper div(1, 140px wide) > virtual view(2, fills wrapper)
         let dom = Dom::create_body().with_child(
-            Dom::create_div().with_css("width: 140px; height: 20px;").with_child(
-                Dom::create_virtual_view(
-                    RefAny::new(0_u8),
-                    azul_core::callbacks::VirtualViewCallback::create(half_split),
-                )
-                .with_css("width: 100%; height: 20px;"),
-            ),
+            Dom::create_div()
+                .with_css("width: 140px; height: 20px;")
+                .with_child(
+                    Dom::create_virtual_view(
+                        RefAny::new(0_u8),
+                        azul_core::callbacks::VirtualViewCallback::create(half_split),
+                    )
+                    .with_css("width: 100%; height: 20px;"),
+                ),
         );
         let win = laid_out(StyledDom::create_from_dom(dom), 640.0, 480.0);
 
