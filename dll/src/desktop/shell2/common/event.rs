@@ -972,21 +972,57 @@ const AUTO_SCROLL_ANCESTOR_WALK_LIMIT: usize = 64;
 /// what the battery and every shipped binary are — has to opt in with
 /// `AZ_VALIDATE=1`.
 #[must_use]
+/// Does this `AZ_VALIDATE` value turn the gate on?
+///
+/// Split out of [`validation_enabled`] so it can be tested WITHOUT touching
+/// the process environment: a test that sets `AZ_VALIDATE` races every other
+/// test in the binary that reads it, which is the class of problem this whole
+/// area already had.
+///
+/// Unset is off. An empty or explicitly-negative value is off, so
+/// `AZ_VALIDATE=` and `AZ_VALIDATE=0` both mean what they look like. Anything
+/// else is on, because a user who typed the variable at all meant to enable
+/// it.
+#[must_use]
+pub fn validation_from_value(value: Option<&str>) -> bool {
+    match value {
+        None => false,
+        Some(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            !matches!(v.as_str(), "" | "0" | "off" | "false" | "no" | "none")
+        }
+    }
+}
+
 pub fn validation_enabled() -> bool {
     if cfg!(debug_assertions) {
         return true;
     }
     #[cfg(feature = "std")]
     {
-        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        return *ON.get_or_init(|| {
-            std::env::var("AZ_VALIDATE")
-                .map(|v| {
-                    let v = v.trim().to_ascii_lowercase();
-                    !matches!(v.as_str(), "" | "0" | "off" | "false" | "no" | "none")
-                })
-                .unwrap_or(false)
-        });
+        fn read_env() -> bool {
+            validation_from_value(std::env::var("AZ_VALIDATE").ok().as_deref())
+        }
+        // NO LATCH IN A TEST BINARY. The `OnceLock` below is right for the
+        // product - this is read once per input pass and the variable cannot
+        // change - and WRONG under `cargo test`, where the tests run in
+        // parallel and `require_validation_gate` sets the variable from
+        // whichever test reaches it first. Any unrelated test that happened to
+        // read this earlier latched it OFF, and the whole validation suite
+        // then failed loudly with "the gate is OFF in this test binary".
+        //
+        // That was a real intermittent failure, not a theoretical one: the
+        // same command passed twice and failed once. Re-reading in tests costs
+        // one `getenv` on a path no benchmark touches, and removes the
+        // ordering dependency entirely rather than papering it over by
+        // demanding the caller export the variable.
+        #[cfg(test)]
+        return read_env();
+        #[cfg(not(test))]
+        {
+            static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            return *ON.get_or_init(read_env);
+        }
     }
     #[cfg(not(feature = "std"))]
     false
@@ -11923,6 +11959,21 @@ mod tests {
             "the validation gate is OFF in this test binary, so \
              check_input_delta_consumed cannot fire and this suite proves nothing"
         );
+    }
+
+    /// The gate's PARSING, tested without touching the environment - a test
+    /// that sets `AZ_VALIDATE` races every other test in this binary that
+    /// reads it, which is exactly the failure that made this whole suite go
+    /// red intermittently.
+    #[test]
+    fn the_validate_variable_is_off_unless_it_says_otherwise() {
+        assert!(!validation_from_value(None), "unset must be off");
+        for off in ["", "  ", "0", "off", "false", "no", "none", "OFF", "False"] {
+            assert!(!validation_from_value(Some(off)), "`{off}` must be off");
+        }
+        for on in ["1", "yes", "true", "on", "  1 ", "anything"] {
+            assert!(validation_from_value(Some(on)), "`{on}` must be on");
+        }
     }
 
     fn state_pair() -> (FullWindowState, FullWindowState) {

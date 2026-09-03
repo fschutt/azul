@@ -102,6 +102,12 @@ fn synthetic_gamepad_state_fires_gamepadinput() {
         right_stick_y: 0.0,
         left_z: 0.0,
         right_z: 1.0,
+        // `..Default::default()` rather than spelling the battery, touchpad
+        // and IMU fields 8f added: this test is about the CHANNEL carrying a
+        // state through to an event, and listing every field would make it
+        // fail to compile each time the struct grows - which is exactly what
+        // it did, silently, because the e2e target is not built by `--lib`.
+        ..Default::default()
     });
 
     let drained = drain_gamepad_states();
@@ -114,8 +120,14 @@ fn synthetic_gamepad_state_fires_gamepadinput() {
     assert!(mgr.primary().is_some(), "the connected pad is the primary");
 
     let events = mgr.get_pending_events(ts());
-    assert_eq!(events.len(), 1, "one GamepadInput event is pending");
-    assert_eq!(events[0].event_type, EventType::GamepadInput);
+    // TWO events, and the order matters: a pad's ARRIVAL comes before its
+    // first stick sample, so an app that reacts to a pad appearing sees it
+    // before the state that pad is already in. This test predates the hotplug
+    // half and asserted one event; it never caught up because the e2e target
+    // had not compiled since 8f.
+    assert_eq!(events.len(), 2, "the arrival and the first sample, in that order");
+    assert_eq!(events[0].event_type, EventType::DeviceConnected);
+    assert_eq!(events[1].event_type, EventType::GamepadInput);
 }
 
 /// The P6 input events route to BOTH a node-level Hover filter and the window-

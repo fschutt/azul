@@ -214,19 +214,19 @@ const MANIFEST: &[(&str, u8, u8, u8)] = &[
     ("LControl",           1,   1,   2),
     ("LShift",             1,   1,   2),
     ("LWin",               1,   2,   1),
-    ("Mail",               0,   0,   1),
-    ("MediaSelect",        0,   0,   1),
-    ("MediaStop",          0,   0,   1),
+    ("Mail",               0,   1,   1),
+    ("MediaSelect",        0,   1,   1),
+    ("MediaStop",          0,   1,   1),
     ("Minus",              1,   2,   1),
-    ("Mute",               0,   0,   1),
+    ("Mute",               0,   1,   1),
     ("NavigateForward",    0,   0,   1),
     ("NavigateBackward",   0,   0,   1),
-    ("NextTrack",          0,   0,   1),
+    ("NextTrack",          0,   1,   1),
     ("NoConvert",          0,   0,   1),
     ("OEM102",             0,   0,   1),
     ("Period",             1,   2,   1),
-    ("PlayPause",          0,   0,   1),
-    ("PrevTrack",          0,   0,   1),
+    ("PlayPause",          0,   2,   1),
+    ("PrevTrack",          0,   1,   1),
     ("RAlt",               1,   4,   1),
     ("RBracket",           1,   2,   1),
     ("RControl",           1,   1,   1),
@@ -234,16 +234,26 @@ const MANIFEST: &[(&str, u8, u8, u8)] = &[
     ("RWin",               1,   2,   1),
     ("Semicolon",          1,   2,   1),
     ("Slash",              1,   2,   1),
-    ("Sleep",              0,   0,   1),
+    ("Sleep",              0,   1,   1),
     ("Sysrq",              0,   1,   0),
     ("Tab",                1,   2,   1),
-    ("VolumeDown",         0,   0,   1),
-    ("VolumeUp",           0,   0,   1),
-    ("WebFavorites",       0,   0,   1),
-    ("WebHome",            0,   0,   1),
-    ("WebRefresh",         0,   0,   1),
-    ("WebSearch",          0,   0,   1),
-    ("WebStop",            0,   0,   1),
+    ("VolumeDown",         0,   1,   1),
+    ("VolumeUp",           0,   1,   1),
+    ("WebFavorites",       0,   1,   1),
+    ("WebHome",            0,   1,   1),
+    ("WebRefresh",         0,   1,   1),
+    ("WebSearch",          0,   1,   1),
+    ("WebStop",            0,   1,   1),
+    // ADDED by 13e. 9h-i mapped these on X11 and the manifest was never
+    // updated - only the e2e target checks it, and that target had not
+    // compiled since 8f, so the drift sat unseen for the whole arc.
+    // Win32 is 0: `VK_BROWSER_BACK` maps to `NavigateBackward`, which is
+    // what the old exemption text said and what this row must record.
+    ("WebBack",            0,   1,   0),
+    ("WebForward",         0,   1,   0),
+    ("MyComputer",         0,   2,   0),
+    ("Wake",               0,   1,   0),
+    ("Power",              0,   1,   0),
 ];
 
 /// `VirtualKeyCode`s no table maps, with the reason each one is unreachable.
@@ -309,31 +319,9 @@ const EXEMPT: &[(&str, &str)] = &[
          the commented block in the Win32 table), X11 as XF86Calculator, macOS not at all",
     ),
     (
-        "MyComputer",
-        "ACPI/vendor hotkey: Win32 VK_LAUNCH_APP1 (deliberately unmapped), X11 XF86Explorer",
-    ),
-    (
-        "Power",
-        "the power button is an ACPI event handled by the OS, never delivered as a key event \
-         to an application window",
-    ),
-    (
-        "Wake",
-        "wake is an ACPI event; the machine is asleep when it happens, so no window can \
-         receive it",
-    ),
-    (
         "Stop",
         "the browser Stop key is WebStop (mapped on Win32); this variant is winit's duplicate \
          and nothing produces it",
-    ),
-    (
-        "WebBack",
-        "duplicate of NavigateBackward, which is what VK_BROWSER_BACK maps to",
-    ),
-    (
-        "WebForward",
-        "duplicate of NavigateForward, which is what VK_BROWSER_FORWARD maps to",
     ),
     (
         "Unlabeled",

@@ -205,6 +205,21 @@ fn state_bitwise_eq(a: &GamepadState, b: &GamepadState) -> bool {
         && a.right_stick_y.to_bits() == b.right_stick_y.to_bits()
         && a.left_z.to_bits() == b.left_z.to_bits()
         && a.right_z.to_bits() == b.right_z.to_bits()
+        // THE FIELDS 8f ADDED, and leaving them out was a real gap: a pad
+        // whose only change is an IMU sample, a finger on the touchpad or a
+        // battery step reported "unchanged" and fired no `GamepadInput` - so
+        // the producers 8f-i and 8f-i-a filled had nothing downstream reading
+        // them. A gyro-aiming game needs the per-frame event this now emits.
+        && a.battery.to_bits() == b.battery.to_bits()
+        && a.touchpad_x.to_bits() == b.touchpad_x.to_bits()
+        && a.touchpad_y.to_bits() == b.touchpad_y.to_bits()
+        && a.touchpad_active == b.touchpad_active
+        && a.gyro_x.to_bits() == b.gyro_x.to_bits()
+        && a.gyro_y.to_bits() == b.gyro_y.to_bits()
+        && a.gyro_z.to_bits() == b.gyro_z.to_bits()
+        && a.accel_x.to_bits() == b.accel_x.to_bits()
+        && a.accel_y.to_bits() == b.accel_y.to_bits()
+        && a.accel_z.to_bits() == b.accel_z.to_bits()
 }
 
 // ────────── Async update channel (platform backend → manager) ──────────
@@ -239,6 +254,91 @@ pub fn drain_gamepad_states() -> Vec<GamepadState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// THE FIELDS 8f ADDED MUST BE VISIBLE TO THE CHANGE DETECTOR. They were
+    /// not, so a pad whose only change was an IMU sample, a finger on the
+    /// touchpad or a battery step reported "unchanged" and fired no event -
+    /// leaving 8f-i and 8f-i-a's producers writing into a value nothing read.
+    #[test]
+    fn every_gamepad_field_is_part_of_the_change_detection() {
+        let base = GamepadState {
+            id: GamepadId { id: 3 },
+            connected: true,
+            ..Default::default()
+        };
+
+        let mut cases: Vec<(&str, GamepadState)> = Vec::new();
+        let mut c = base;
+        c.buttons = 1;
+        cases.push(("buttons", c));
+        let mut c = base;
+        c.left_stick_x = 0.5;
+        cases.push(("left_stick_x", c));
+        let mut c = base;
+        c.left_stick_y = 0.5;
+        cases.push(("left_stick_y", c));
+        let mut c = base;
+        c.right_stick_x = 0.5;
+        cases.push(("right_stick_x", c));
+        let mut c = base;
+        c.right_stick_y = 0.5;
+        cases.push(("right_stick_y", c));
+        let mut c = base;
+        c.left_z = 0.5;
+        cases.push(("left_z", c));
+        let mut c = base;
+        c.right_z = 0.5;
+        cases.push(("right_z", c));
+        let mut c = base;
+        c.battery = 0.5;
+        cases.push(("battery", c));
+        let mut c = base;
+        c.touchpad_x = 0.5;
+        cases.push(("touchpad_x", c));
+        let mut c = base;
+        c.touchpad_y = 0.5;
+        cases.push(("touchpad_y", c));
+        let mut c = base;
+        c.touchpad_active = true;
+        cases.push(("touchpad_active", c));
+        let mut c = base;
+        c.gyro_x = 0.5;
+        cases.push(("gyro_x", c));
+        let mut c = base;
+        c.gyro_y = 0.5;
+        cases.push(("gyro_y", c));
+        let mut c = base;
+        c.gyro_z = 0.5;
+        cases.push(("gyro_z", c));
+        let mut c = base;
+        c.accel_x = 0.5;
+        cases.push(("accel_x", c));
+        let mut c = base;
+        c.accel_y = 0.5;
+        cases.push(("accel_y", c));
+        let mut c = base;
+        c.accel_z = 0.5;
+        cases.push(("accel_z", c));
+        let mut c = base;
+        c.connected = false;
+        cases.push(("connected", c));
+
+        for (field, changed) in cases {
+            let mut mgr = GamepadManager::new();
+            mgr.set_state(base);
+            assert!(
+                mgr.set_state(changed),
+                "changing `{field}` did not register as a change"
+            );
+        }
+
+        // ...and the other half: an IDENTICAL state must NOT, or an idle pad
+        // would make every frame look changed.
+        let mut mgr = GamepadManager::new();
+        mgr.set_state(base);
+        assert!(!mgr.set_state(base), "an unchanged pad reported a change");
+    }
+
 
     fn st(id: u32, connected: bool, buttons: u32) -> GamepadState {
         let mut s = GamepadState::empty(GamepadId { id });

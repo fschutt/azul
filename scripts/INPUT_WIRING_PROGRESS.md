@@ -2187,8 +2187,36 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
   counterparts do not exist** — items 10a-i and 10f-ii. Nothing would call them, so a booted APK would
   show a window and drive none of the new input paths. Build the Java glue FIRST; the emulator only
   becomes useful after that.
-- [ ] 13d `cargo test --release --lib` per crate.
-- [ ] 13e Full e2e (`--test all`) ONCE.
+- [x] 13d DONE. azul-css 2865, azul-core 2775, azul-layout 7613, azul-dll 1995, azul-doc 211.
+- [x] 13e DONE, and it was worth every second: 988 pass, and it found FOUR things `--lib` cannot.
+      ⚠ THE E2E TARGET HAD NOT COMPILED SINCE 8f. `layout/tests/synthetic_events.rs` built a
+      `GamepadState` field-by-field, so the battery/touchpad/IMU fields broke it - and because
+      `--lib` never builds `--test all`, every "azul-layout 76xx passed" in this whole arc was
+      reported against a target that was RED. That is the single most important thing this item
+      found, and it is an argument for running it more than once.
+      1. THE GAMEPAD CHANGE DETECTOR IGNORED TEN FIELDS. `state_bitwise_eq` never compared
+         `battery`, `touchpad_*`, `gyro_*` or `accel_*`, so a pad whose only change was an IMU
+         sample, a finger on the touch surface or a battery step reported UNCHANGED and fired no
+         `GamepadInput` - leaving the producers 8f-i and 8f-i-a filled writing into a value
+         nothing downstream read. A gyro-aiming game got no events at all. Fixed, with a
+         field-completeness test and a negative control ("changing `battery` did not register as
+         a change").
+      2. The keycode MANIFEST drifted: 9h-i mapped 20 X11 keysyms (media, web, power) and never
+         updated the table that pins them, and three keys sat on the EXEMPTION list while being
+         mapped - which masks a real row. The test also caught my own first attempt: I guessed
+         Win32 maps `WebBack`, and it maps `NavigateBackward` instead.
+      3. A REAL INTERMITTENT FAILURE in the dll suite: `validation_enabled` latched `AZ_VALIDATE`
+         in a `OnceLock`, so whichever test read it first decided for the whole binary - and when
+         that was an unrelated test, all 13 validation tests failed with "the gate is OFF in this
+         test binary". Observed once, then two clean runs of the same command. The latch is right
+         for the product (read once per input pass) and wrong under `cargo test`, so it is now
+         skipped under `cfg(test)`; the parsing moved into `validation_from_value` so it can be
+         tested WITHOUT touching the environment, which is what made the race in the first place.
+      4. `synthetic_gamepad_state_fires_gamepadinput` asserted ONE event where hotplug now makes
+         two - the arrival before the first sample, which is the intended order.
+      ⚠ The e2e run is expensive (160-185s plus a rebuild). USER RULING mid-item: implement and
+      write tests, do not run the batteries between items - so 13e is the checkpoint, not a
+      per-item gate.
 - [ ] 13f Drive the step-0 ratchet allow-list to empty; anything left is a real remaining gap.
 
 ---
