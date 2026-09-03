@@ -7462,6 +7462,32 @@ fn reloc_canonicalize(
             if let Some(e) = tab.resolve(native) {
                 let off = native.wrapping_sub(e.canonical_addr);
                 if off < 0x1000 {
+                    // The name alone under-keys: duplicate monomorphizations
+                    // share a canonical_name while their BODIES differ (each
+                    // embeds its own helpers' displacements). Two callers,
+                    // byte-identical after reloc masking, calling different
+                    // same-named copies then collide on the cache key, and
+                    // the stored template splices the first copy's callee
+                    // into the second's callers — verify-mode showed the
+                    // healed template re-poisoned by the twin every run,
+                    // a ping-pong that never converges. A 16-byte pointee
+                    // fingerprint separates different-content copies while
+                    // ICF'd byte-identical ones still share (that dedup is
+                    // the cache's whole point).
+                    if let Some((lo, hi)) = img {
+                        let n64 = native as u64;
+                        if n64 >= lo && n64.saturating_add(16) <= hi {
+                            let pointee = unsafe {
+                                std::slice::from_raw_parts(native as *const u8, 16)
+                            };
+                            return format!(
+                                "{}+0x{:x}:{}",
+                                e.canonical_name,
+                                off,
+                                super::fnv1a64_hex(pointee),
+                            );
+                        }
+                    }
                     return format!("{}+0x{:x}", e.canonical_name, off);
                 }
             }
