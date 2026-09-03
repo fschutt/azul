@@ -1552,9 +1552,15 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                     if Some(update.action_pointer_id) == window.pan_pointer_id {
                         // The panning finger lifted with others still down:
                         // the first remaining one carries on, from where it is.
-                        let next = update
+                        // Read from the touch state, which the block above
+                        // refreshed from this very event (`update.touch_points`
+                        // was moved into it).
+                        let next = window
+                            .common
+                            .touch_state_mut()
                             .touch_points
-                            .first()
+                            .iter()
+                            .next()
                             .map(|tp| (tp.id as i32, tp.position));
                         window.pan_pointer_id = next.map(|(id, _)| id);
                         window.touch_pan_last = next.map(|(_, p)| p);

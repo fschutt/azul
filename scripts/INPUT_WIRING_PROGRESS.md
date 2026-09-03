@@ -906,9 +906,10 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       has a per-player volume to wire: Windows SMTC, `MPRemoteCommandCenter` and Android's
       `MediaSession` for local playback route volume to the system mixer and carry none, so
       the field is MPRIS-only by the platforms' own design, not by omission.
-      ⚠ NOT COMPILED OR RUN (batch compiles at the end; api.json picks up the new names,
-      `NowPlayingInfo.volume`, `MediaControlKind`, `MediaControlRequest`, `OptionMediaControlRequest`
-      and `get_media_control_request` through autofix then).
+      COMPILED AND RUN in the batch pass of 2026-09-03: host check EXIT=0; core 2794, layout 7671 +
+      999 (`--test all`), dll 2015 tests green; the e2e corpus (57 scenarios, incl. the new
+      second-seat scenario) green; the 8-target gate green after one Android fix (the pan block
+      read a vector the touch-state refresh had moved - caught by the gate, not by the host). api.json picked up the new names through autofix (EXIT=0, converged).
 - [x] 9h-i-a-i-c DONE. Windows now has a media session: title, artist, album and ALBUM ART in the
       volume flyout and on the lock screen, plus a playback status and a timeline.
       `ISystemMediaTransportControlsInterop::GetForWindow(HWND)` rather than the UWP
@@ -2081,7 +2082,10 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       set. Forgotten when the seat goes. The xdg_popup GRAB itself stays the primary seat's - the
       grab is what makes clicking outside dismiss the menu, and xdg-shell allows one grabbing seat
       per popup; a second seat's outside-click therefore does not dismiss (9b-ii-a-iii-a).
-      ⚠ NOT COMPILED OR RUN (batch compiles at the end).
+      COMPILED AND RUN in the batch pass of 2026-09-03: host check EXIT=0; core 2794, layout 7671 +
+      999 (`--test all`), dll 2015 tests green; the e2e corpus (57 scenarios, incl. the new
+      second-seat scenario) green; the 8-target gate green after one Android fix (the pan block
+      read a vector the touch-state refresh had moved - caught by the gate, not by the host).
 - [x] 9b-ii-a-iii-a DONE. The X11 rule ported turned out to need no bounds at all on Wayland:
       X11 checks bounds because the grab delivers EVERY press to the menu window, inside or out;
       on Wayland a second seat's press that reaches the PARENT surface while a popup is open is
@@ -2094,7 +2098,10 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       mailbox learns of it exactly as for the primary seat. The press is swallowed, as X11 swallows
       its outside press and as the compositor swallows the primary's: the press that closes a menu
       does not click through to what was under it.
-      ⚠ NOT COMPILED OR RUN (batch compiles at the end).
+      COMPILED AND RUN in the batch pass of 2026-09-03: host check EXIT=0; core 2794, layout 7671 +
+      999 (`--test all`), dll 2015 tests green; the e2e corpus (57 scenarios, incl. the new
+      second-seat scenario) green; the 8-target gate green after one Android fix (the pan block
+      read a vector the touch-state refresh had moved - caught by the gate, not by the host).
 - [x] 9b-ii-b DONE for the wheel, pointer capture and the dedup; the gestures are 9b-ii-b-i.
       THE WHEEL: `ScrollManager::record_scroll_from_hit_test` already took an `InputPointId`, so
       the scroll physics had been per input point all along - what was missing was a producer
@@ -2344,7 +2351,10 @@ session needs. Recorded verbatim so the framing is not lost.
       cursor jumped finger to finger, and the button released only when the LAST finger lifted -
       and got the same rule by `UITouch` identity (`primary_touch_id` / `pan_touch_id`). The
       handles there are UIKit's own, so what this fixes on iOS is the mouse pipe itself.
-      ⚠ NOT COMPILED OR RUN (batch compiles at the end).
+      COMPILED AND RUN in the batch pass of 2026-09-03: host check EXIT=0; core 2794, layout 7671 +
+      999 (`--test all`), dll 2015 tests green; the e2e corpus (57 scenarios, incl. the new
+      second-seat scenario) green; the 8-target gate green after one Android fix (the pan block
+      read a vector the touch-state refresh had moved - caught by the gate, not by the host).
 - [x] U3 ANSWERED, and the answer turned out to need code: a selection is identified by an
       OWNER-SCOPED id, `(SelectionOwner, SelectionId)`, and the engine acts on the LOCAL owner's
       set and on nothing else. The PRIMARY is always local; the platform's idea of "the
