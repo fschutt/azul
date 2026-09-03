@@ -2150,9 +2150,14 @@ impl LayoutWindow {
 
         // A4: an ACKED structural edit's caret lands now, against the NEW
         // generation (host by stable key, block by path, offset clamped).
+        // The list built above still paints the caret where the OLD session
+        // had it; the dirty-text loop below rebuilds it for edited DOMs, and
+        // `restored_dom` covers the case where nothing else does (the split
+        // of a fully synced paragraph: no overlay entry survives the GC).
+        let mut restored_dom: Option<DomId> = None;
         if result.is_ok() {
             if let Some(resume) = self.pending_caret_restore.take() {
-                self.restore_caret_from_resume_point(&resume);
+                restored_dom = self.restore_caret_from_resume_point(&resume);
             }
         }
 
@@ -2180,6 +2185,11 @@ impl LayoutWindow {
         if result.is_ok() {
             let dirty_entries: Vec<(DomId, NodeId)> =
                 self.content_overlay.iter_text().map(|(k, _)| *k).collect();
+            if let Some(dom_id) = restored_dom {
+                if !dirty_entries.iter().any(|(d, _)| *d == dom_id) {
+                    self.regenerate_display_list_for_dom(dom_id);
+                }
+            }
             for (dom_id, node_id) in dirty_entries {
                 self.reapply_dirty_text_node(dom_id, node_id);
             }
@@ -3049,6 +3059,72 @@ impl LayoutWindow {
         }
     }
 
+    /// The node a CHARACTER edit belongs to: walking up from the caret's
+    /// session node, the first ancestor (at or below `host`) that OWNS an
+    /// inline layout — the IFC root whose runs the caret's cluster ids
+    /// index. `host` itself when the session is absent, in another dom,
+    /// outside `host`, or when nothing below `host` owns an inline layout
+    /// (a flat editable: the host IS the IFC root).
+    fn caret_text_target(&self, dom_id: DomId, host: NodeId) -> NodeId {
+        let Some(caret) = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .filter(|mc| mc.node_id.dom == dom_id)
+            .and_then(|mc| mc.node_id.node.into_crate_internal())
+        else {
+            return host;
+        };
+        if caret == host {
+            return host;
+        }
+        // Containment first: a caret outside the host's subtree keeps the host.
+        let Some(lr) = self.layout_results.get(&dom_id) else {
+            return host;
+        };
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        {
+            let mut cur = caret;
+            loop {
+                match hierarchy
+                    .get(cur)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                {
+                    Some(p) if p == host => break,
+                    Some(p) => cur = p,
+                    None => return host,
+                }
+            }
+        }
+        // The shape-able owner: the nearest NON-TEXT ancestor with a layout
+        // node — the element whose IFC the edit re-shapes (`p` in the
+        // word-processor shape, the value node in a text widget). A bare
+        // text leaf is skipped even when a layout lookup resolves through
+        // it: `update_text_cache_after_edit` shapes at the ELEMENT, and a
+        // leaf-keyed entry painted nothing.
+        let node_data = lr.styled_dom.node_data.as_container();
+        let mut n = caret;
+        loop {
+            let is_text = node_data
+                .get(n)
+                .is_some_and(|d| matches!(d.get_node_type(), NodeType::Text(_)));
+            let has_layout = lr.layout_tree.dom_to_layout.contains_key(&n);
+            if !is_text && has_layout {
+                return n;
+            }
+            if n == host {
+                return host;
+            }
+            match hierarchy
+                .get(n)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            {
+                Some(p) => n = p,
+                None => return host,
+            }
+        }
+    }
+
     /// The caret expressed as a STRUCTURAL position inside `node`: the index
     /// of the direct child the caret sits in (walking up from the caret's
     /// node to the direct child), plus the byte inside it iff that child is
@@ -3088,8 +3164,40 @@ impl LayoutWindow {
             }
         }
         if direct_child == node_id {
-            // Caret on the node itself: a pure boundary at child 0.
-            return Some(NodePosition::before_child(0));
+            // Caret ON the node itself — but the text cursor still carries a
+            // real position (cluster id + affinity) measured against the
+            // node's LIVE inline content. Resolve it to an absolute byte and
+            // map it onto the content ITEMS: each item corresponds to one
+            // model child (a run renders as exactly one child), so the
+            // position speaks the apply side's index space even when the
+            // engine DOM's children are stale or absent (a fresh paragraph
+            // whose text lives only in the overlay). Before this, an
+            // element-level caret degraded to before_child(0) and Enter
+            // split at the paragraph START — the new block stole the text.
+            use crate::text3::cache::InlineContent as IC;
+            let abs = self.resolve_cursor_to_text_byte(dom_id, node_id, &cursor) as usize;
+            let content = self.get_text_before_textinput(dom_id, node_id);
+            let mut acc = 0usize;
+            for (i, item) in content.iter().enumerate() {
+                let len = Self::inline_item_flat_len(item);
+                let idx = u32::try_from(i).unwrap_or(u32::MAX);
+                if abs <= acc + len {
+                    if matches!(item, IC::Text(_)) {
+                        return Some(NodePosition::in_text_child(
+                            idx,
+                            u32::try_from(abs - acc).unwrap_or(u32::MAX),
+                        ));
+                    }
+                    if abs == acc {
+                        return Some(NodePosition::before_child(idx));
+                    }
+                    return Some(NodePosition::before_child(idx + 1));
+                }
+                acc += len;
+            }
+            return Some(NodePosition::before_child(
+                u32::try_from(content.len()).unwrap_or(u32::MAX),
+            ));
         }
 
         // Index of that direct child among ALL children.
@@ -3823,21 +3931,20 @@ impl LayoutWindow {
     /// Divergence (the app transformed the tree differently) falls back to
     /// the anchor start; a missing anchor leaves the caret alone. Never
     /// panics — the fallback is a first-class path.
+    /// Returns the DOM the caret landed in, so the caller can rebuild that
+    /// DOM's display list: the restore runs AFTER the new generation's list
+    /// was emitted (it needs the new DOM to resolve the path), so the list
+    /// still paints the caret where the OLD session had it.
     fn restore_caret_from_resume_point(
         &mut self,
         resume: &crate::managers::changeset::EditResumePoint,
-    ) {
+    ) -> Option<DomId> {
         use azul_core::selection::{
             CursorAffinity, GraphemeClusterId, MultiCursorState, TextCursor,
         };
 
-        let Some((dom_id, anchor)) = self.find_host_by_contenteditable_key(resume.anchor_key)
-        else {
-            return;
-        };
-        let Some(lr) = self.layout_results.get(&dom_id) else {
-            return;
-        };
+        let (dom_id, anchor) = self.find_host_by_contenteditable_key(resume.anchor_key)?;
+        let lr = self.layout_results.get(&dom_id)?;
         let hierarchy = lr.styled_dom.node_hierarchy.as_container();
         let node_data = lr.styled_dom.node_data.as_container();
 
@@ -3914,6 +4021,7 @@ impl LayoutWindow {
             dom_node,
             resume.anchor_key,
         ));
+        Some(dom_id)
     }
 
     /// Find the contenteditable host with the given stable key in ANY
@@ -14159,6 +14267,23 @@ impl LayoutWindow {
         //
         // Only the INSERT path needs it: `delete_selection` on an empty
         // editable is correctly a no-op.
+        // THE RECORDER TARGETS THE FOCUSED NODE — the contenteditable HOST.
+        // But every other coordinate in the character path is PER-IFC: the
+        // caret's cluster ids index the runs of the IFC that shaped them
+        // (`process_mouse_click_for_selection` resolves against the clicked
+        // paragraph's layout), and a full layout shapes text per IFC root.
+        // Writing the overlay at the HOST stored ONE flattened blob of every
+        // paragraph — spliced at per-IFC cursor indices (the wrong run for
+        // any caret past block 0), painted as one run over paragraph 1 after
+        // a split, and handed to the app's text-sync API as an un-mappable
+        // whole-document string. Resolve the edit to the caret's inline-
+        // layout OWNER (its paragraph / list item / value node); a flat host
+        // (host IS the IFC root — TextInput's shape after its own walk) or a
+        // caret-less session keeps the recorded node. Host-level readback
+        // stays correct either way: `collect_text_from_children` composes
+        // children through the per-node overlay.
+        let node_id = self.caret_text_target(dom_id, node_id);
+
         let mut content = self.get_text_before_textinput(dom_id, node_id);
         if content.is_empty() {
             let style_node = self.seed_style_node(dom_id, node_id);
@@ -17914,7 +18039,11 @@ impl LayoutWindow {
         // teleported it — "Enter does not move the cursor", second half.
         if !updated.is_empty() {
             if let Some(resume) = self.pending_caret_restore.take() {
-                self.restore_caret_from_resume_point(&resume);
+                // The child DOM's list was just built with the pre-restore
+                // caret; rebuild it so the caret is painted where it landed.
+                if let Some(dom_id) = self.restore_caret_from_resume_point(&resume) {
+                    self.regenerate_display_list_for_dom(dom_id);
+                }
             }
         }
 

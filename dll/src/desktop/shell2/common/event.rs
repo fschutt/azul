@@ -1947,6 +1947,22 @@ pub struct RegenerationState {
     /// full rebuild lays out at the current (new) size anyway, so this flag is
     /// consumed and dropped alongside it.
     resize_relayout: bool,
+    /// A REAL rebuild (`request_regeneration`) is outstanding — as opposed to
+    /// the request bit being raised by `request_relayout_only` purely as a
+    /// frame signal. Every frame path tests `relayout_only` FIRST and retires
+    /// the request behind it, so without this distinction a rebuild that
+    /// arrived while a relayout-only request was still unconsumed was
+    /// serviced as a relayout of the DOM it was supposed to replace, and then
+    /// retired: the app's `RefreshDom` vanished. The live symptom was Enter in
+    /// AzWriter — the split's preview relayout (KeyDown pass) and the
+    /// `DocumentEdit` callback's `RefreshDom` (next pass) landed between two
+    /// frames whenever the compositor's frame callback was late, and the
+    /// paragraph never split on screen.
+    rebuild_owed: bool,
+    /// The request generation at the last REAL rebuild ask, so a frame can
+    /// retire exactly the rebuild it observed (`rebuild_generation <= seen`)
+    /// and keep one raised mid-flight by a lifecycle callback.
+    rebuild_generation: u64,
 }
 
 impl RegenerationState {
@@ -1959,6 +1975,8 @@ impl RegenerationState {
             reason: azul_core::callbacks::RelayoutReason::Initial,
             relayout_only: false,
             resize_relayout: false,
+            rebuild_owed: true,
+            rebuild_generation: 0,
         }
     }
 
@@ -1973,6 +1991,8 @@ impl RegenerationState {
             reason: azul_core::callbacks::RelayoutReason::Initial,
             relayout_only: false,
             resize_relayout: false,
+            rebuild_owed: false,
+            rebuild_generation: 0,
         }
     }
 }
@@ -2145,6 +2165,13 @@ impl CommonWindowState {
 
     pub fn request_regeneration(&mut self, reason: azul_core::callbacks::RelayoutReason) {
         self.regen.request.raise();
+        self.regen.rebuild_owed = true;
+        self.regen.rebuild_generation = self.regen.request.epoch();
+        // A rebuild supersedes a pending relayout-only request: the full
+        // path lays the new DOM out anyway, and leaving the flag up would let
+        // the frame path take the relayout-only branch and retire this
+        // request unserviced (see `RegenerationState::rebuild_owed`).
+        self.regen.relayout_only = false;
         if reason != azul_core::callbacks::RelayoutReason::RefreshDom {
             self.regen.reason = reason;
         }
@@ -2194,6 +2221,12 @@ impl CommonWindowState {
     /// asked again mid-flight and the request STAYS SET.
     pub fn clear_regeneration_unless_reraised(&mut self, seen: u64) {
         self.regen.request.retire_unless_reraised(seen);
+        // The rebuild this frame observed is serviced; one asked mid-flight
+        // (a lifecycle callback returning RefreshDom) has a newer generation
+        // and stays owed — and cleared `relayout_only` when it asked.
+        if self.regen.rebuild_generation <= seen {
+            self.regen.rebuild_owed = false;
+        }
     }
 
     /// Take the regeneration request outright — returns whether one was
@@ -2206,6 +2239,7 @@ impl CommonWindowState {
     /// lifecycle callbacks and they raise new requests.
     #[must_use]
     pub fn take_regeneration(&mut self) -> bool {
+        self.regen.rebuild_owed = false;
         self.regen.request.take()
     }
 
@@ -2219,9 +2253,16 @@ impl CommonWindowState {
     /// was invisible to them: the work sat queued until some unrelated event
     /// happened to redraw. Every frame path checks `relayout_only_pending()`
     /// FIRST, so raising both cannot cause a spurious DOM rebuild.
+    ///
+    /// The converse must hold too: while a REAL rebuild is owed, the flag is
+    /// NOT raised — the frame path would take the relayout-only branch and
+    /// retire the rebuild unserviced. The rebuild re-lays-out everything the
+    /// relayout would have.
     pub fn request_relayout_only(&mut self) {
-        self.regen.relayout_only = true;
-        self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        if !self.regen.rebuild_owed {
+            self.regen.relayout_only = true;
+        }
+        self.regen.request.raise();
     }
 
     /// Is the relayout-only fast path requested? Read-only.
@@ -3017,6 +3058,109 @@ pub trait PlatformWindow {
 
     // Frame Regeneration
 
+    /// Arm the caret / selection tween driver (~16ms) if a display-list build
+    /// left a tween in flight (`LayoutWindow::apply_text_tweens` publishes the
+    /// flag). The timer self-terminates via its RefAny'd flag when the tween
+    /// finishes, so there is no matching stop call to keep in sync.
+    ///
+    /// A tween starts wherever a display list is built with the caret at a
+    /// new rect, and its FIRST frame paints the caret at the PREVIOUS rect
+    /// (t = 0, for continuity) — so every such site must arm the driver, or
+    /// the caret is left standing where it was: the `process_window_events`
+    /// tail (platform input), the timer pass (an app timer, the E2E
+    /// harness's ops, the VirtualView drain) and the frame path's
+    /// `regenerate_layout` (a RefreshDom rebuild that moves the caret, e.g.
+    /// the ack of a structural edit). Only the first was covered: after
+    /// Enter in AzWriter the caret stayed on the line it came from until the
+    /// next key event happened to arm the driver.
+    fn arm_caret_tween_timer_if_needed(&mut self) {
+        use azul_core::task::CARET_TWEEN_TIMER_ID;
+        let needs_tween_timer = self
+            .get_layout_window()
+            .map(|lw| {
+                lw.text_edit_manager.tween.is_active()
+                    && !lw.timers.contains_key(&CARET_TWEEN_TIMER_ID)
+            })
+            .unwrap_or(false);
+        if !needs_tween_timer {
+            return;
+        }
+        let timer = self
+            .get_layout_window()
+            .map(|lw| lw.create_caret_tween_timer());
+        if let Some(timer) = timer {
+            if let Some(lw) = self.get_layout_window_mut() {
+                lw.timers.insert(CARET_TWEEN_TIMER_ID, timer.clone());
+            }
+            self.start_timer(CARET_TWEEN_TIMER_ID.id, timer);
+        }
+    }
+
+    /// Arm the scroll physics timer if the shared `ScrollInputQueue` holds
+    /// input nobody is draining. The queue is fed from more places than the
+    /// platform wheel handlers (which arm the timer themselves): caret-into-
+    /// view glides, `scroll_to_animated` from a callback, and the
+    /// `CallbackChange::WheelInput` ingress — any of which can run inside a
+    /// timer pass or a frame-path rebuild, where no wheel handler follows.
+    /// Same self-termination as wheel scrolling: the physics timer exits
+    /// when idle, so there is no matching stop call.
+    fn arm_scroll_physics_timer_if_needed(&mut self) {
+        use azul_core::task::SCROLL_MOMENTUM_TIMER_ID;
+        let needs_scroll_timer = self
+            .get_layout_window()
+            .map(|lw| {
+                lw.scroll_manager.scroll_input_queue.has_pending()
+                    && !lw.timers.contains_key(&SCROLL_MOMENTUM_TIMER_ID)
+            })
+            .unwrap_or(false);
+        if !needs_scroll_timer {
+            return;
+        }
+        let timer = self.get_layout_window().map(|lw| {
+            use azul_core::refany::RefAny;
+            use azul_layout::scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState};
+            use azul_layout::timer::{Timer, TimerCallbackType};
+            let physics = lw
+                .system_style
+                .as_ref()
+                .map(|s| s.scroll_physics.clone())
+                .unwrap_or_default();
+            let interval_ms = physics.timer_interval_ms.max(1);
+            let state = ScrollPhysicsState::new(lw.scroll_manager.get_input_queue(), physics);
+            Timer::create(
+                RefAny::new(state),
+                scroll_physics_timer_callback as TimerCallbackType,
+                azul_layout::callbacks::ExternalSystemCallbacks::rust_internal().get_system_time_fn,
+            )
+            .with_interval(azul_core::task::Duration::System(
+                azul_core::task::SystemTimeDiff::from_millis(u64::from(interval_ms)),
+            ))
+        });
+        if let Some(timer) = timer {
+            if let Some(lw) = self.get_layout_window_mut() {
+                lw.timers.insert(SCROLL_MOMENTUM_TIMER_ID, timer.clone());
+            }
+            self.start_timer(SCROLL_MOMENTUM_TIMER_ID.id, timer);
+        }
+    }
+
+    /// Arm every framework-owned animation driver whose work is pending —
+    /// the ONE site a pass ends with, whatever kind of pass it was.
+    ///
+    /// The drivers (caret tween, scroll physics) are ordinary timers that
+    /// self-terminate, so "is one running?" is the only state, and any code
+    /// path that leaves work behind (a tween in flight, an undrained scroll
+    /// input) must be followed by this call or that work waits for the next
+    /// unrelated input event. Four kinds of pass can leave such work:
+    /// platform input (`process_window_events`), the timer/thread pass (app
+    /// timers, the E2E harness, the VirtualView drain), and the frame path's
+    /// `regenerate_layout` (both return paths). Each of those calls this —
+    /// never one of the two helpers on its own.
+    fn arm_animation_drivers_if_needed(&mut self) {
+        self.arm_caret_tween_timer_if_needed();
+        self.arm_scroll_physics_timer_if_needed();
+    }
+
     /// Rebuild the DOM and lay it out ONCE. Implemented per backend.
     ///
     /// Do NOT call this directly from a frame path — call
@@ -3085,6 +3229,7 @@ pub trait PlatformWindow {
             if !lifecycle_wants_pass && !docks_changed {
                 self.refill_a11y_tree_after_regeneration();
                 self.flush_a11y_tree_update();
+                self.arm_animation_drivers_if_needed();
                 _span.note(format_args!(
                     "{passes} pass(es) in {:.2}ms",
                     started.elapsed().as_secs_f64() * 1000.0
@@ -3105,6 +3250,7 @@ pub trait PlatformWindow {
         }
         self.refill_a11y_tree_after_regeneration();
         self.flush_a11y_tree_update();
+        self.arm_animation_drivers_if_needed();
         // Hitting the cap means the lifecycle loop never converged — every one
         // of these passes is a FULL relayout, so this is the difference between
         // a resize costing one layout and costing MAX_LIFECYCLE_REGEN_PASSES of
@@ -8462,82 +8608,10 @@ pub trait PlatformWindow {
             lw.frame_report.terminal_result = result as u8;
         }
 
-        // Arm the caret / selection tween driver if the display-list pass this
-        // event triggered left a tween in flight (LayoutWindow::apply_text_tweens
-        // publishes the flag). One shared site for every backend — the timer
-        // self-terminates via its RefAny'd flag when the tween finishes, so
-        // there is no matching stop call to keep in sync.
-        {
-            use azul_core::task::CARET_TWEEN_TIMER_ID;
-            let needs_tween_timer = self
-                .get_layout_window()
-                .map(|lw| {
-                    lw.text_edit_manager.tween.is_active()
-                        && !lw.timers.contains_key(&CARET_TWEEN_TIMER_ID)
-                })
-                .unwrap_or(false);
-            if needs_tween_timer {
-                let timer = self
-                    .get_layout_window()
-                    .map(|lw| lw.create_caret_tween_timer());
-                if let Some(timer) = timer {
-                    if let Some(lw) = self.get_layout_window_mut() {
-                        lw.timers.insert(CARET_TWEEN_TIMER_ID, timer.clone());
-                    }
-                    self.start_timer(CARET_TWEEN_TIMER_ID.id, timer);
-                }
-            }
-
-            // Arm the scroll-physics timer for WINDOW-LEVEL queue pushes:
-            // caret-into-view glides (ledger #8) and callback
-            // scroll_to_animated land in the shared ScrollInputQueue outside
-            // any platform wheel handler, so no shell ever armed the timer
-            // for them — the queue sat undrained until the next physical
-            // wheel event. One shared site, same self-termination as wheel
-            // scrolling (the physics timer exits when idle).
-            {
-                use azul_core::task::SCROLL_MOMENTUM_TIMER_ID;
-                let needs_scroll_timer = self
-                    .get_layout_window()
-                    .map(|lw| {
-                        lw.scroll_manager.scroll_input_queue.has_pending()
-                            && !lw.timers.contains_key(&SCROLL_MOMENTUM_TIMER_ID)
-                    })
-                    .unwrap_or(false);
-                if needs_scroll_timer {
-                    let timer = self.get_layout_window().map(|lw| {
-                        use azul_core::refany::RefAny;
-                        use azul_layout::scroll_timer::{
-                            scroll_physics_timer_callback, ScrollPhysicsState,
-                        };
-                        use azul_layout::timer::{Timer, TimerCallbackType};
-                        let physics = lw
-                            .system_style
-                            .as_ref()
-                            .map(|s| s.scroll_physics.clone())
-                            .unwrap_or_default();
-                        let interval_ms = physics.timer_interval_ms.max(1);
-                        let state =
-                            ScrollPhysicsState::new(lw.scroll_manager.get_input_queue(), physics);
-                        Timer::create(
-                            RefAny::new(state),
-                            scroll_physics_timer_callback as TimerCallbackType,
-                            azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
-                                .get_system_time_fn,
-                        )
-                        .with_interval(azul_core::task::Duration::System(
-                            azul_core::task::SystemTimeDiff::from_millis(u64::from(interval_ms)),
-                        ))
-                    });
-                    if let Some(timer) = timer {
-                        if let Some(lw) = self.get_layout_window_mut() {
-                            lw.timers.insert(SCROLL_MOMENTUM_TIMER_ID, timer.clone());
-                        }
-                        self.start_timer(SCROLL_MOMENTUM_TIMER_ID.id, timer);
-                    }
-                }
-            }
-        }
+        // A display-list pass may have left a caret tween in flight, and a
+        // callback may have pushed scroll input (caret-into-view glide,
+        // scroll_to_animated) that no platform wheel handler will drain.
+        self.arm_animation_drivers_if_needed();
 
         result
     }
@@ -10198,6 +10272,11 @@ pub trait PlatformWindow {
             self.request_relayout_only();
             needs_redraw = true;
         }
+
+        // A timer callback can move the caret (CreateTextInput from the E2E
+        // harness, an app timer editing text) and build the display list that
+        // starts the tween — arm its driver here too, not only after input.
+        self.arm_animation_drivers_if_needed();
 
         needs_redraw
     }
