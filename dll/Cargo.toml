@@ -390,6 +390,11 @@ winapi = { version = "0.3.9", optional = true, default-features = false, feature
     "winerror",
     "wincred",
     "minwindef",
+    # CreateFileW / CloseHandle on a HID interface path, for hid.dll's
+    # HidD_GetSerialNumberString and HidD_GetFeature (extra/hid/windows.rs,
+    # 8f-i-a-i-a / 8f-i-a-i-b-i).
+    "fileapi",
+    "handleapi",
 ] }
 # Motion sensors (Windows.Devices.Sensors, WinRT) — accel/gyro/mag.
 windows = { version = "0.62", optional = true, features = [

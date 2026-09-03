@@ -101,19 +101,26 @@ fn describe(user32: &dlopen::User32Functions, handle: isize) -> Option<HidDevice
         // per connected instance, and for a device that reports a USB serial
         // Windows builds the path from that serial - so hashing it tells two
         // identical pads apart and survives their reconnection (8f-i-a-i).
-        // The serial STRING itself needs hid.dll (`HidD_GetSerialNumberString`
-        // on an opened handle), which this backend does not load; logged as
-        // 8f-i-a-i-a.
-        let instance = HidDevice::handle_instance(name.as_bytes());
+        // The serial STRING itself (8f-i-a-i-a) comes from hid.dll's
+        // `HidD_GetSerialNumberString` on a handle opened on that path -
+        // hid.dll is loaded lazily and the handle is closed again at once;
+        // only the identity strings are read here, never reports. With a
+        // serial the identity is serial-keyed like the other platforms', so
+        // it matches gilrs' pairing (`instance_for`); without one it stays
+        // the path hash.
+        let serial = hid_dll::serial_number(&name);
+        let vendor_id = info.hid.dwVendorId as u16;
+        let product_id = info.hid.dwProductId as u16;
+        let instance = HidDevice::instance_for(vendor_id, product_id, &serial, name.as_bytes());
         Some(HidDevice {
             // The OS reports these as DWORDs but a USB id is 16-bit; the high
             // half is always zero and truncating is the correct narrowing.
-            vendor_id: info.hid.dwVendorId as u16,
-            product_id: info.hid.dwProductId as u16,
+            vendor_id,
+            product_id,
             usage_page: info.hid.usUsagePage,
             usage: info.hid.usUsage,
             name: name.into(),
-            serial: azul_css::AzString::from_const_str(""),
+            serial: serial.into(),
             instance,
         })
     }
@@ -249,6 +256,147 @@ pub fn handle_wm_input(user32: &dlopen::User32Functions, lparam: isize) {
                 report_id: 0,
                 bytes: buf[start..end].to_vec().into(),
             });
+        }
+    }
+}
+
+/// A FEATURE report of the device at interface path `name` (8f-i-a-i-b-i):
+/// `hid.dll`'s `HidD_GetFeature` on a handle opened for the call. `buf[0]`
+/// is the report id going in; the whole buffer comes back filled. `None`
+/// when hid.dll, the open or the call fails.
+#[must_use]
+pub fn feature_report(name: &str, report_id: u8, len: usize) -> Option<Vec<u8>> {
+    hid_dll::feature_report(name, report_id, len)
+}
+
+/// hid.dll, loaded on first use (8f-i-a-i-a). BLIND per the user's ruling:
+/// written against the documented signatures, cross-compiled, not yet run on
+/// a Windows machine.
+mod hid_dll {
+    use std::sync::OnceLock;
+
+    use winapi::shared::minwindef::HINSTANCE;
+    use winapi::um::winnt::HANDLE;
+
+    /// `BOOLEAN HidD_GetSerialNumberString(HANDLE, PVOID buffer, ULONG bytes)`
+    type GetSerialNumberString =
+        unsafe extern "system" fn(HANDLE, *mut core::ffi::c_void, u32) -> u8;
+    /// `BOOLEAN HidD_GetFeature(HANDLE, PVOID report, ULONG bytes)`
+    type GetFeature = unsafe extern "system" fn(HANDLE, *mut core::ffi::c_void, u32) -> u8;
+
+    struct HidDll {
+        _lib: HINSTANCE,
+        get_serial_number_string: GetSerialNumberString,
+        get_feature: GetFeature,
+    }
+
+    // SAFETY: a loaded module handle and two function pointers; hid.dll is
+    // thread-agnostic for these calls.
+    unsafe impl Send for HidDll {}
+    unsafe impl Sync for HidDll {}
+
+    static HID: OnceLock<Option<HidDll>> = OnceLock::new();
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(core::iter::once(0)).collect()
+    }
+
+    fn hid() -> Option<&'static HidDll> {
+        HID.get_or_init(|| unsafe {
+            use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryW};
+            let lib = LoadLibraryW(wide("hid.dll").as_ptr());
+            if lib.is_null() {
+                return None;
+            }
+            let serial = GetProcAddress(lib, b"HidD_GetSerialNumberString\0".as_ptr().cast());
+            let feature = GetProcAddress(lib, b"HidD_GetFeature\0".as_ptr().cast());
+            if serial.is_null() || feature.is_null() {
+                return None;
+            }
+            Some(HidDll {
+                _lib: lib,
+                get_serial_number_string: core::mem::transmute::<
+                    *mut core::ffi::c_void,
+                    GetSerialNumberString,
+                >(serial.cast()),
+                get_feature: core::mem::transmute::<*mut core::ffi::c_void, GetFeature>(
+                    feature.cast(),
+                ),
+            })
+        })
+        .as_ref()
+    }
+
+    /// Open the interface path for the HidD_* calls. Access 0 asks for no
+    /// read / write right at all, which is what hidapi's enumeration does:
+    /// the identity strings and feature reports still work, and a device
+    /// another process holds exclusively (keyboards, mice) still opens.
+    unsafe fn open(name: &str) -> Option<HANDLE> {
+        use winapi::um::fileapi::{CreateFileW, OPEN_EXISTING};
+        use winapi::um::handleapi::INVALID_HANDLE_VALUE;
+        use winapi::um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+        let h = CreateFileW(
+            wide(name).as_ptr(),
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            core::ptr::null_mut(),
+            OPEN_EXISTING,
+            0,
+            core::ptr::null_mut(),
+        );
+        if h == INVALID_HANDLE_VALUE {
+            None
+        } else {
+            Some(h)
+        }
+    }
+
+    unsafe fn close(h: HANDLE) {
+        use winapi::um::handleapi::CloseHandle;
+        CloseHandle(h);
+    }
+
+    /// The device's USB serial string, or empty.
+    #[must_use]
+    pub fn serial_number(name: &str) -> String {
+        let Some(dll) = hid() else {
+            return String::new();
+        };
+        unsafe {
+            let Some(h) = open(name) else {
+                return String::new();
+            };
+            // The documented maximum is 4093 bytes; 256 UTF-16 units is what
+            // every reader asks for and a USB serial is far shorter.
+            let mut buf = [0u16; 256];
+            let ok = (dll.get_serial_number_string)(
+                h,
+                buf.as_mut_ptr().cast(),
+                (buf.len() * core::mem::size_of::<u16>()) as u32,
+            );
+            close(h);
+            if ok == 0 {
+                return String::new();
+            }
+            let end = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
+            String::from_utf16_lossy(&buf[..end])
+        }
+    }
+
+    /// See the module-level `feature_report`.
+    #[must_use]
+    pub fn feature_report(name: &str, report_id: u8, len: usize) -> Option<Vec<u8>> {
+        let dll = hid()?;
+        if len == 0 {
+            return None;
+        }
+        unsafe {
+            let h = open(name)?;
+            let mut buf = vec![0u8; len];
+            buf[0] = report_id;
+            let ok = (dll.get_feature)(h, buf.as_mut_ptr().cast(), len as u32);
+            close(h);
+            (ok != 0).then_some(buf)
         }
     }
 }

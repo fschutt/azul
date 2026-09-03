@@ -2870,13 +2870,17 @@ session needs. Recorded verbatim so the framing is not lost.
       8/8. One compile error, in 8f-i-a-i-c: the gilrs fork keeps `devpath()` private - see that
       entry.
       uncompiled until its end pass (api.json: `HidDevice` gains `serial` and `instance`).
-- [ ] 8f-i-a-i-a Windows: the serial STRING. The instance id is already reconnect-stable there
-      (the path carries the serial), but `HidDevice.serial` is empty: reading it needs
-      `HidD_GetSerialNumberString` on a handle opened with `CreateFile` on the device path, i.e.
-      loading hid.dll and opening each device - which the raw-input backend deliberately avoids.
-      Worth doing when an app needs the string itself rather than the identity.
-      USER RULING 2026-09-04 (the hardware / platform group): "just implement blindly and we cross-compile
-      at the end. Real verification will come with time."
+- [x] 8f-i-a-i-a DONE, BLIND per the ruling. `extra/hid/windows.rs::hid_dll` loads hid.dll on
+      first use (`LoadLibraryW` + `GetProcAddress`, the two `HidD_*` entry points), `describe`
+      opens the raw-input device NAME - which IS the HID interface path - with `CreateFileW`
+      (access 0, shared, hidapi's enumeration mode, so an exclusively-held keyboard still opens),
+      reads `HidD_GetSerialNumberString` into 256 UTF-16 units and closes the handle at once. The
+      identity is now `instance_for(vid, pid, serial, path)` - serial-keyed like Linux and macOS,
+      so it pairs with gilrs' serial (8f-i-a-i-c), the path hash only as the fallback. The same
+      module carries `feature_report` (`HidD_GetFeature`) for 8f-i-a-i-b-i. Cargo: winapi
+      `fileapi` + `handleapi`. NOT RUN on Windows: the cross-compile at the eighth batch's end
+      pass (13d-windows) is the check available here; a real pad settles the rest. ⏳ EIGHTH
+      BATCH: uncompiled until its end pass.
 - [x] 8f-i-a-i-b DONE. `extra/gamepad/playstation.rs`: a pure, platform-free decoder for the
       DualSense (0x0ce6, Edge 0x0df2) and DualShock 4 (0x05c4, 0x09cc, dongle 0x0ba0) input
       reports, layouts checked against the kernel's `hid-playstation` before writing - USB 0x01

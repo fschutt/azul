@@ -14,8 +14,10 @@
 //! - **Linux**: `/dev/hidraw*`, implemented here. No library to load.
 //! - **macOS**: `IOHIDManager`, implemented here. dlopen'd; needs Input Monitoring.
 //! - **Windows**: `RIM_TYPEHID` through the `WM_INPUT` arm 9d-i already built.
-//!   Needs NO hid.dll: `GetRawInputDeviceInfoW(RIDI_DEVICEINFO)` carries the
-//!   vid/pid/usage directly.
+//!   Needs NO hid.dll for the stream: `GetRawInputDeviceInfoW(RIDI_DEVICEINFO)`
+//!   carries the vid/pid/usage directly. hid.dll IS loaded, lazily, for the
+//!   two things raw input cannot answer - the serial STRING (8f-i-a-i-a) and
+//!   feature reports (8f-i-a-i-b-i) - on a handle opened for the call.
 
 #[cfg(target_os = "linux")]
 pub mod linux;
