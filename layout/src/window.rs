@@ -575,6 +575,15 @@ pub struct FrameReport {
     /// text) — the silent channel behind "typed text paints nothing". `0`
     /// after a pass that shaped text is the invariant; a test can pin it.
     pub font_shape_deficit: u32,
+    /// Extra layout passes since the last reset that a CONTENT-SIZED
+    /// `VirtualView` cost: the pass folds in a size the view's callback
+    /// reported for a box the solver had already laid out (the first paint
+    /// of an auto-sized icon view; a status label re-rendered with a longer
+    /// text). One per host dom per frame at most, and `0` on any pass where
+    /// every view's box already matched its report - which is the invariant
+    /// a steady state must pin: a view that reports a different size every
+    /// time it is handed the box it asked for would show up here every frame.
+    pub virtual_view_size_passes: u32,
 }
 
 /// Maximum recursion depth for event processing.
@@ -641,6 +650,7 @@ impl FrameReport {
         self.layout_passes = 0;
         self.dl_rebuilds = 0;
         self.font_shape_deficit = 0;
+        self.virtual_view_size_passes = 0;
         self.hit_depth_cap = false;
         self.frames_since_reset = 0;
         self.accumulated_paint_damage = FrameDamage::None;
@@ -4809,7 +4819,7 @@ impl LayoutWindow {
         let is_child_dom = styled_dom.dom_id.inner != 0;
         if is_child_dom {
             let saved_root_cache = core::mem::take(&mut self.layout_cache);
-            let result = self.layout_dom_recursive_impl(
+            let result = self.layout_dom_recursive_sized_by_views(
                 styled_dom,
                 window_state,
                 renderer_resources,
@@ -4820,7 +4830,7 @@ impl LayoutWindow {
             self.layout_cache = saved_root_cache;
             return result;
         }
-        self.layout_dom_recursive_impl(
+        self.layout_dom_recursive_sized_by_views(
             styled_dom,
             window_state,
             renderer_resources,
@@ -4828,6 +4838,174 @@ impl LayoutWindow {
             debug_messages,
             child_viewport,
         )
+    }
+
+    /// One layout pass, then ONE more if a content-sized `VirtualView` in
+    /// this dom reported a size its box did not have.
+    ///
+    /// The solver sizes a `VirtualView` by what its callback reported on the
+    /// PREVIOUS pass (`materialized_sizes` is snapshotted before the pass,
+    /// the callbacks run after it). That order is the only one that
+    /// terminates - the callback is handed the box to decide what to
+    /// materialize - but it also means a view sized by its content is laid
+    /// out at the 300x150 replaced-element default on its first pass, and
+    /// nothing re-ran layout: an auto-sized icon view painted a 300x150 box
+    /// until the next unrelated relayout. The second pass here folds the
+    /// report in before the frame is shown, through the css-dirty channel
+    /// (`RelayoutScope::SizingOnly` on the view: intrinsic-dirty + layout
+    /// root, the same dirt a width change would leave), so the host re-flows
+    /// incrementally rather than cold.
+    ///
+    /// Exactly one extra pass: the view's box is then the reported size and
+    /// the callback, re-invoked by the grown container or not at all, has
+    /// nothing new to report. A callback that reports a DIFFERENT size when
+    /// handed the box it asked for is not converging, and a second extra pass
+    /// would not help it; its box stays at the second report until the next
+    /// pass.
+    fn layout_dom_recursive_sized_by_views(
+        &mut self,
+        styled_dom: StyledDom,
+        window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+        child_viewport: Option<LogicalRect>,
+    ) -> Result<(), solver3::LayoutError> {
+        let dom_id = if styled_dom.dom_id.inner == 0 {
+            DomId::ROOT_ID
+        } else {
+            styled_dom.dom_id
+        };
+        // Marks left over from an earlier pass that never got its second
+        // pass (a failed layout) describe boxes this pass re-derives anyway.
+        drop(self.virtual_view_manager.take_natural_size_stale(dom_id));
+        self.layout_dom_recursive_impl(
+            styled_dom,
+            window_state,
+            renderer_resources,
+            system_callbacks,
+            debug_messages,
+            child_viewport,
+        )?;
+        let stale = self.virtual_view_manager.take_natural_size_stale(dom_id);
+        if stale.is_empty() {
+            return Ok(());
+        }
+        if let Some(msgs) = debug_messages.as_mut() {
+            msgs.push(LayoutDebugMessage::info(format!(
+                "[layout_dom_recursive] {} content-sized VirtualView(s) in {dom_id:?} reported a \
+                 new size - second pass",
+                stale.len()
+            )));
+        }
+        self.frame_report.virtual_view_size_passes = self
+            .frame_report
+            .virtual_view_size_passes
+            .saturating_add(1);
+        let Some(previous) = self.layout_results.remove(&dom_id) else {
+            return Ok(());
+        };
+        let displaced = self.stage_view_size_dirt(dom_id, stale);
+        let result = self.layout_dom_recursive_impl(
+            previous.styled_dom,
+            window_state,
+            renderer_resources,
+            system_callbacks,
+            debug_messages,
+            child_viewport,
+        );
+        if self.pending_css_dirty.is_none() {
+            self.pending_css_dirty = displaced;
+        }
+        // Whatever the second pass left behind is not serviced (see above).
+        drop(self.virtual_view_manager.take_natural_size_stale(dom_id));
+        result
+    }
+
+    /// Stage the stale views of `dom_id` as css dirt for its next pass
+    /// (`RelayoutScope::SizingOnly`: intrinsic-dirty + layout root, the dirt
+    /// a width change leaves), returning whatever OTHER dom's dirt was
+    /// pending so the caller can put it back after the pass - the slot holds
+    /// one dom's diff, and the extra pass is not that dom's.
+    fn stage_view_size_dirt(
+        &mut self,
+        dom_id: DomId,
+        stale: Vec<NodeId>,
+    ) -> Option<(DomId, Vec<(NodeId, azul_css::props::property::RelayoutScope)>)> {
+        let displaced = self
+            .pending_css_dirty
+            .take()
+            .filter(|(d, _)| *d != dom_id);
+        self.pending_css_dirty = Some((
+            dom_id,
+            stale
+                .into_iter()
+                .map(|n| (n, azul_css::props::property::RelayoutScope::SizingOnly))
+                .collect(),
+        ));
+        displaced
+    }
+
+    /// Lay `dom_id` out again, in place, because a content-sized
+    /// `VirtualView` in it was re-rendered with content of a different size
+    /// (`process_pending_virtual_view_updates`). Same channel as the
+    /// second pass in [`Self::layout_dom_recursive_sized_by_views`], for the
+    /// path where no layout pass is running: the in-place re-render handed
+    /// the callback its OLD box, the callback measured the new content, and
+    /// the box it reported has to reach the solver or the label stays
+    /// clipped by the box the previous content earned.
+    ///
+    /// An incremental relayout of THIS dom only: the root keeps its live
+    /// cache (a child dom lays out cold, as always), and the other views in
+    /// it are re-pointed by the placeholder swap, not re-invoked - the page
+    /// view of a document editor is not re-materialized because a word
+    /// count changed.
+    ///
+    /// Returns whether a pass ran.
+    pub fn relayout_dom_for_virtual_view_sizes(
+        &mut self,
+        dom_id: DomId,
+        window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
+    ) -> bool {
+        let stale = self.virtual_view_manager.take_natural_size_stale(dom_id);
+        if stale.is_empty() {
+            return false;
+        }
+        let Some(previous) = self.layout_results.remove(&dom_id) else {
+            return false;
+        };
+        self.frame_report.virtual_view_size_passes = self
+            .frame_report
+            .virtual_view_size_passes
+            .saturating_add(1);
+        // A child dom's viewport is its host view's box (recorded on its
+        // result); the root's is the window (`None`).
+        let child_viewport = if dom_id == DomId::ROOT_ID {
+            None
+        } else {
+            Some(previous.viewport)
+        };
+        let displaced = self.stage_view_size_dirt(dom_id, stale);
+        let mut debug_messages = None;
+        let ran = self
+            .layout_dom_recursive_with_viewport(
+                previous.styled_dom,
+                window_state,
+                renderer_resources,
+                system_callbacks,
+                &mut debug_messages,
+                child_viewport,
+            )
+            .is_ok();
+        if self.pending_css_dirty.is_none() {
+            self.pending_css_dirty = displaced;
+        }
+        // The re-flow moved the view's box; the arena did not change, so the
+        // hit-tester keyed by node ids stays valid - only the rects it reads
+        // from `layout_results` did, and they are fresh there now.
+        ran
     }
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded layout/render numeric cast
@@ -6984,10 +7162,13 @@ impl LayoutWindow {
         }
 
         // Use the override styled_dom if provided, otherwise read from layout_results
-        let virtual_view_node = if let Some(styled_dom) = styled_dom_override {
+        let (virtual_view_node, content_sized) = if let Some(styled_dom) = styled_dom_override {
             let node_data_container = styled_dom.node_data.as_container();
             let node_data = node_data_container.get(node_id)?;
-            node_data.get_virtual_view_node_ref()?.clone()
+            (
+                node_data.get_virtual_view_node_ref()?.clone(),
+                Self::virtual_view_content_sized_axes(styled_dom, node_id),
+            )
         } else {
             let layout_result = self.layout_results.get(&parent_dom_id)?;
             if let Some(msgs) = debug_messages {
@@ -6998,7 +7179,10 @@ impl LayoutWindow {
             let node_data_container = layout_result.styled_dom.node_data.as_container();
             let node_data = node_data_container.get(node_id)?;
             if let Some(vv) = node_data.get_virtual_view_node_ref() {
-                vv.clone()
+                (
+                    vv.clone(),
+                    Self::virtual_view_content_sized_axes(&layout_result.styled_dom, node_id),
+                )
             } else {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(format!(
@@ -7022,11 +7206,57 @@ impl LayoutWindow {
             node_id,
             &virtual_view_node,
             bounds,
+            content_sized,
             window_state,
             renderer_resources,
             system_callbacks,
             debug_messages,
         )
+    }
+
+    /// Which axes of a `VirtualView`'s box the CSS leaves to the CONTENT:
+    /// `(width, height)`, each `true` for `auto` / `min-content` /
+    /// `max-content` (or unset). On those axes the box is the size the
+    /// callback reported on the previous pass, so a report that differs
+    /// from the box means the box is stale (see
+    /// [`VirtualViewManager::mark_natural_size_stale`]). A stated `px` /
+    /// `%` / `calc()` wins over the report, exactly as on an `<img>`, so a
+    /// mismatch there is not a stale box and must not cost a pass.
+    fn virtual_view_content_sized_axes(styled_dom: &StyledDom, node_id: NodeId) -> (bool, bool) {
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+
+        use crate::solver3::getters::{get_css_height, get_css_width, MultiValue};
+
+        let styled_nodes = styled_dom.styled_nodes.as_container();
+        let Some(styled_node) = styled_nodes.get(node_id) else {
+            return (false, false);
+        };
+        let state = &styled_node.styled_node_state;
+        let width = match get_css_width(styled_dom, node_id, state) {
+            MultiValue::Exact(LayoutWidth::Px(_) | LayoutWidth::Calc(_)) => false,
+            MultiValue::Exact(
+                LayoutWidth::Auto
+                | LayoutWidth::MinContent
+                | LayoutWidth::MaxContent
+                | LayoutWidth::FitContent(_),
+            )
+            | MultiValue::Auto
+            | MultiValue::Initial
+            | MultiValue::Inherit => true,
+        };
+        let height = match get_css_height(styled_dom, node_id, state) {
+            MultiValue::Exact(LayoutHeight::Px(_) | LayoutHeight::Calc(_)) => false,
+            MultiValue::Exact(
+                LayoutHeight::Auto
+                | LayoutHeight::MinContent
+                | LayoutHeight::MaxContent
+                | LayoutHeight::FitContent(_),
+            )
+            | MultiValue::Auto
+            | MultiValue::Initial
+            | MultiValue::Inherit => true,
+        };
+        (width, height)
     }
 
     /// Core implementation for invoking a `VirtualView` callback and managing the recursive layout.
@@ -7046,6 +7276,7 @@ impl LayoutWindow {
         node_id: NodeId,
         virtual_view_node: &azul_core::dom::VirtualViewNode,
         bounds: LogicalRect,
+        content_sized: (bool, bool),
         window_state: &FullWindowState,
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
@@ -7152,6 +7383,43 @@ impl LayoutWindow {
         // Mark the VirtualView as invoked to prevent duplicate InitialRender calls
         self.virtual_view_manager
             .mark_invoked(parent_dom_id, node_id, reason);
+
+        // A CONTENT-SIZED view reported a size the solver has not seen: the
+        // box was sized from the previous report (or the 300x150 default on
+        // the first pass), and the pass that laid it out is over. Mark it so
+        // the host is laid out once more with this report before the frame
+        // is shown - `relayout_dom_for_virtual_view_sizes`, from the funnel
+        // that ran this pass or from the re-render drain.
+        //
+        // Stale on an axis = the box differs from the report AND the report
+        // differs from the previous one (`declared_scroll`, what the solver
+        // just sized from). A box that still differs from a report the
+        // solver already had is constrained by CSS - stretched by a flex row,
+        // clamped by min/max - and another pass would produce the same box:
+        // the view has converged, at a box that is not its report. Without
+        // the second half every re-render of a label in a stretching row
+        // cost a pass, forever.
+        //
+        // Only a view that does not scroll (its materialized window IS its
+        // document) has a natural size; a scrolling view's window is always
+        // smaller than its document and never a sizing claim. A zero report
+        // is "nothing to say" (the foreign-payload default), not a claim to
+        // collapse to.
+        {
+            let declared = callback_return.materialized.size;
+            let is_natural = size_eq(declared, callback_return.virtual_rect.size);
+            let has_size = declared.width > 0.0 && declared.height > 0.0;
+            let unseen = |axis: fn(LogicalSize) -> f32| {
+                !feq(axis(declared), axis(bounds.size))
+                    && declared_scroll.is_none_or(|prev| !feq(axis(declared), axis(prev)))
+            };
+            let width_stale = content_sized.0 && unseen(|s| s.width);
+            let height_stale = content_sized.1 && unseen(|s| s.height);
+            if is_natural && has_size && (width_stale || height_stale) {
+                self.virtual_view_manager
+                    .mark_natural_size_stale(parent_dom_id, node_id);
+            }
+        }
 
         // Get the child Dom from the callback's return value, then convert to StyledDom
         let mut child_styled_dom = match callback_return.dom {
@@ -18058,6 +18326,24 @@ impl LayoutWindow {
             }
         }
 
+        // A re-rendered CONTENT-SIZED view (a status-bar label, an icon
+        // view) may have reported a size its box does not have; the re-invoke
+        // above handed it the old box. Lay each such host out once more so
+        // the box follows the content - a longer label is no longer clipped
+        // by the box the shorter one earned. Deepest dom first: a host that
+        // is itself a view's content resizes before the view that holds it
+        // is asked about its own box.
+        let mut hosts = self.virtual_view_manager.natural_size_stale_doms();
+        hosts.sort_by_key(|d| core::cmp::Reverse(d.inner));
+        for host in hosts {
+            self.relayout_dom_for_virtual_view_sizes(
+                host,
+                window_state,
+                renderer_resources,
+                system_callbacks,
+            );
+        }
+
         updated
     }
 
@@ -18101,6 +18387,17 @@ impl LayoutWindow {
             LogicalSize::new(size.width, size.height),
         ))
     }
+}
+
+/// Two lengths agree once they round to the same half pixel; layout emits
+/// sub-pixel values that must not count as a size change.
+fn feq(a: f32, b: f32) -> bool {
+    (a - b).abs() < 0.5
+}
+
+/// [`feq`] on both axes.
+fn size_eq(a: LogicalSize, b: LogicalSize) -> bool {
+    feq(a.width, b.width) && feq(a.height, b.height)
 }
 
 #[cfg(feature = "a11y")]

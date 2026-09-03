@@ -372,6 +372,8 @@ mod unresolved_family_render;
 mod variable_font_disk_path;
 #[path = "virtualized_view_manager.rs"]
 mod virtualized_view_manager;
+#[path = "virtual_view_natural_size.rs"]
+mod virtual_view_natural_size;
 #[path = "visibility_collapse.rs"]
 mod visibility_collapse;
 #[path = "vview_contenteditable_e2e.rs"]

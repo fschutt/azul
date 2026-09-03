@@ -577,8 +577,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     let mut counter_values = HashMap::new();
     let mut ctx_temp = LayoutContext {
         style_cache: Default::default(),
-        virtual_view_sizes: None,
-            scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+        virtual_view_sizes: Some(virtual_view_sizes),
+        scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
         styled_dom: new_dom,
         font_manager,
         text_selections,
@@ -796,15 +796,26 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     dom_to_tree.insert(d, idx);
                 }
             }
+            let mut dirty_roots = std::collections::BTreeSet::new();
             for (dom_id_dirty, scope) in css_dirty {
                 if *scope == azul_css::props::property::RelayoutScope::None {
                     continue;
                 }
                 if let Some(&idx) = dom_to_tree.get(dom_id_dirty) {
                     recon_result.intrinsic_dirty.insert(idx);
-                    recon_result.layout_roots.insert(idx);
+                    dirty_roots.insert(idx);
                 }
             }
+            // Same lift as the reconcile's own roots get: a flex item or an
+            // inline-level box is re-solved by its container, or its
+            // siblings keep the slots they had.
+            let promoted = cache::promote_layout_roots_to_containers(&dirty_roots, |idx| {
+                new_tree
+                    .nodes
+                    .get(idx)
+                    .map(|n| (n.parent, n.formatting_context))
+            });
+            recon_result.layout_roots.extend(promoted);
         }
     }
 
@@ -954,8 +965,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Now create the real context with computed counters
     let mut ctx = LayoutContext {
         style_cache: Default::default(),
-        virtual_view_sizes: None,
-            scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+        // The report a `VirtualView` is sized by (sizing.rs). The commit that
+        // threaded this parameter through left the context at `None`, so no
+        // view was ever sized by what it returned - it stayed 300x150.
+        virtual_view_sizes: Some(virtual_view_sizes),
+        scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
         styled_dom: new_dom,
         font_manager,
         text_selections,

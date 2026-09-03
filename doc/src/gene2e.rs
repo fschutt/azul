@@ -1284,6 +1284,7 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
    | `relayouts`      | EVENT PASSES (`process_window_events`)  | 0    | 1                   | 0                     | 1      |
    | `dom_regens`     | runs of the layout callback             | 0    | 0                   | 0                     | 1      |
    | `layout_passes`  | times LAYOUT ACTUALLY RAN               | 0    | 0                   | 1                     | 1      |
+   | `virtual_view_size_passes` | extra passes content-sized VirtualViews cost | 0 | 0            | 0                     | 0      |
 
    - `relayouts` is NOT a layout counter, despite the name. It is the recursion depth
      of the event pass. `0` means "no state delta was processed" — what an IDLE frame
@@ -1295,7 +1296,13 @@ invalidation path completely broken. Only the ops listed above exist; use nothin
      `relayouts` stays `0` for them no matter how much work the engine does — but they
      route through a full relayout, which `layout_passes` counts. "a no-op CSS write
      must not re-run layout" is `max_layout_passes: 0`, and nothing else expresses it.
+   - `virtual_view_size_passes` counts the ONE extra pass a content-sized VirtualView
+     (a status-bar label, an icon view - no stated width/height) costs when its
+     callback reports a size the solver has not seen: on its first frame, and on a
+     re-render whose content changed size. Steady state is `0`; a re-render that keeps
+     the size is `0`; one per keystroke is a view that never converges.
    - Rows: "does not re-run layout"      -> assert_work_bounded {{"max_layout_passes": 0}}
+           "the label re-render re-sized its box once" -> assert_work_bounded {{"exact_virtual_view_size_passes": 1}}
            "costs exactly one layout pass"-> assert_work_bounded {{"exact_layout_passes": 1}}
            "one event pass, no re-entry" -> assert_work_bounded {{"exact_relayouts": 1, "max_dom_regens": 0}}
            "bounded, and it DID run"     -> assert_work_bounded {{"min_relayouts": 1, "max_relayouts": 2}}

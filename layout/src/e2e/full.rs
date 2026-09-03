@@ -396,6 +396,9 @@ pub struct FrameReportResponse {
     pub dom_regenerations: u32,
     /// Times layout ACTUALLY ran (`layout_and_generate_display_list`).
     pub layout_passes: u32,
+    /// Extra passes a content-sized `VirtualView` cost (its reported size
+    /// folded into a box already laid out); `0` in any steady state.
+    pub virtual_view_size_passes: u32,
     pub hit_depth_cap: bool,
     /// Terminal `ProcessEventResult` discriminant (0 = DoNothing … 6 = RegenerateDomAllWindows).
     pub terminal_result: u8,
@@ -5608,6 +5611,7 @@ fn build_frame_report_response(
         relayout_iterations: report.relayout_iterations,
         dom_regenerations: report.dom_regenerations,
         layout_passes: report.layout_passes,
+        virtual_view_size_passes: report.virtual_view_size_passes,
         hit_depth_cap: report.hit_depth_cap,
         terminal_result: report.terminal_result,
         test_clock_offset_ms: azul_core::task::test_clock_offset_ms(),
@@ -6403,10 +6407,17 @@ fn eval_assert_idle_stable(
 /// that dropped the interaction passed. Use `min_*` / `exact_*` to prove the
 /// work DID happen.
 ///
+/// * `max_virtual_view_size_passes` bounds `virtual_view_size_passes`: the
+///   extra layout passes content-sized `VirtualView`s cost (one per host dom
+///   whose views reported a size the solver had not seen). `0` in steady
+///   state is the invariant; a label re-rendered with longer text costs
+///   exactly one; one per keystroke is a view that never converges.
+///
 /// Parameters: `max_relayouts` / `min_relayouts` / `exact_relayouts`,
 /// `max_dom_regens` / `min_dom_regens` / `exact_dom_regens`,
 /// `max_layout_passes` / `min_layout_passes` / `exact_layout_passes`,
-/// `allow_depth_cap` (default false).
+/// `max_virtual_view_size_passes` / `min_virtual_view_size_passes` /
+/// `exact_virtual_view_size_passes`, `allow_depth_cap` (default false).
 #[cfg(feature = "std")]
 fn eval_assert_work_bounded(
     params: &serde_json::Value,
@@ -6426,6 +6437,9 @@ fn eval_assert_work_bounded(
             "max_layout_passes",
             "min_layout_passes",
             "exact_layout_passes",
+            "max_virtual_view_size_passes",
+            "min_virtual_view_size_passes",
+            "exact_virtual_view_size_passes",
         ],
     ) {
         return bad;
@@ -6450,6 +6464,9 @@ fn eval_assert_work_bounded(
         "max_layout_passes",
         "min_layout_passes",
         "exact_layout_passes",
+        "max_virtual_view_size_passes",
+        "min_virtual_view_size_passes",
+        "exact_virtual_view_size_passes",
     ];
     if !CONSTRAINTS.iter().any(|c| params.get(*c).is_some()) {
         return AssertionResult::fail(format!(
@@ -6463,6 +6480,7 @@ fn eval_assert_work_bounded(
     let relayouts = report.relayout_iterations;
     let regens = report.dom_regenerations;
     let layouts = report.layout_passes;
+    let vv_size_passes = report.virtual_view_size_passes;
     let depth_cap = report.hit_depth_cap;
 
     // LIVENESS PRECONDITION — see `assert_idle_stable`. Upper bounds alone are
@@ -6563,6 +6581,14 @@ fn eval_assert_work_bounded(
             num("max_layout_passes"),
             num("exact_layout_passes"),
         ),
+        check(
+            "VirtualView size passes (the extra passes content-sized views cost; 0 in steady \
+             state, one per re-render that changes a view's size)",
+            vv_size_passes,
+            num("min_virtual_view_size_passes"),
+            num("max_virtual_view_size_passes"),
+            num("exact_virtual_view_size_passes"),
+        ),
     ]
     .into_iter()
     .flatten()
@@ -6573,7 +6599,8 @@ fn eval_assert_work_bounded(
 
     AssertionResult::pass(format!(
         "assert_work_bounded: {relayouts} event iteration(s), {regens} DOM regen(s), {layouts} \
-         layout pass(es) over {} frame(s), depth cap not hit",
+         layout pass(es), {vv_size_passes} VirtualView size pass(es) over {} frame(s), depth cap \
+         not hit",
         report.frames_since_reset
     ))
 }

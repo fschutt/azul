@@ -814,6 +814,49 @@ impl ReconciliationResult {
     }
 }
 
+/// Lift each layout root to the container that decides its slot.
+///
+/// A dirty FLEX / GRID ITEM cannot be laid out on its own: its size is
+/// decided by its container's flex algorithm, and its siblings' slots move
+/// with it. The same holds for an INLINE-LEVEL box (an inline-block, an
+/// inline replaced element): its box sits on a line the parent's inline
+/// formatting context lays out, and a size change re-breaks that line.
+/// Promote such a root to its container, walking up through nested
+/// containers (a flex item inside a flex item; an inline-block inside a
+/// flex row). Block-flow siblings need no promotion: `reposition_clean_subtrees`
+/// re-stacks them after the root is re-solved.
+///
+/// `node` yields a node's parent and formatting context; the reconcile calls
+/// this on its tree builder, the css-dirty channel on the built tree - the
+/// two producers of layout roots, which used to disagree (only the reconcile
+/// promoted, so a `width` change delivered through the css-dirty channel
+/// re-solved a flex item in place while its siblings kept their slots).
+pub(crate) fn promote_layout_roots_to_containers(
+    roots: &BTreeSet<usize>,
+    node: impl Fn(usize) -> Option<(Option<usize>, FormattingContext)>,
+) -> BTreeSet<usize> {
+    roots
+        .iter()
+        .map(|&idx| {
+            let mut root = idx;
+            while let Some((Some(parent), own_fc)) = node(root) {
+                let inline_level = matches!(
+                    own_fc,
+                    FormattingContext::Inline | FormattingContext::InlineBlock
+                );
+                let parent_is_flex_or_grid = node(parent).is_some_and(|(_, fc)| {
+                    matches!(fc, FormattingContext::Flex | FormattingContext::Grid)
+                });
+                if !inline_level && !parent_is_flex_or_grid {
+                    break;
+                }
+                root = parent;
+            }
+            root
+        })
+        .collect()
+}
+
 /// After dirty subtrees are laid out, this repositions their clean siblings
 /// without recalculating their internal layout. This is a critical optimization.
 ///
@@ -1217,26 +1260,11 @@ pub fn reconcile_and_invalidate<T: ParsedFontTrait>(
     // painted 64 px into a 36 px slot, over the widget beneath it. (The
     // `reposition_clean_subtrees` comment always claimed the parent would
     // "already be a layout root"; now it is.)
-    let promoted_layout_roots: BTreeSet<usize> = recon_result
-        .layout_roots
-        .iter()
-        .map(|&idx| {
-            let mut root = idx;
-            while let Some(parent) = new_tree_builder.get(root).and_then(|n| n.parent) {
-                let parent_is_flex_or_grid = new_tree_builder.get(parent).is_some_and(|p| {
-                    matches!(
-                        p.formatting_context,
-                        FormattingContext::Flex | FormattingContext::Grid
-                    )
-                });
-                if !parent_is_flex_or_grid {
-                    break;
-                }
-                root = parent;
-            }
-            root
-        })
-        .collect();
+    let promoted_layout_roots = promote_layout_roots_to_containers(&recon_result.layout_roots, |idx| {
+        new_tree_builder
+            .get(idx)
+            .map(|n| (n.parent, n.formatting_context))
+    });
     recon_result.layout_roots = promoted_layout_roots;
 
     // Clean up layout roots: if a parent is a layout root, its children don't need to be.

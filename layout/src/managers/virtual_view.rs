@@ -34,6 +34,23 @@ pub struct VirtualViewManager {
     /// `force_reinvoke` clear-flag trick that collapsed every delivered
     /// reason to `InitialRender`.
     reason_overrides: Vec<((DomId, NodeId), VirtualViewCallbackReason)>,
+    /// Views whose CONTENT-SIZED box is out of date: the callback just
+    /// reported a natural size (a non-scrolling view, `materialized ==
+    /// virtual_rect`) that differs from the box it was laid out in, on an
+    /// axis the CSS leaves to the content (`auto` / `min-content` /
+    /// `max-content`).
+    ///
+    /// A `VirtualView` is sized by what it returned - but the solver reads
+    /// that report from the PREVIOUS pass (`materialized_sizes`, snapshotted
+    /// before layout, callbacks run after it), so a view sized by its content
+    /// is laid out at the replaced-element default (300x150) on its first
+    /// frame and at its OLD size after an in-place re-render that changed the
+    /// content. Nothing re-ran layout: an icon view painted 300x150 until the
+    /// next unrelated relayout, and a status-bar label re-rendered with a
+    /// longer text was clipped by the box the shorter text had earned. The
+    /// window drains this set right after the pass that filled it and lays
+    /// the host out once more with the reported size (`crate::window::LayoutWindow::relayout_dom_for_virtual_view_sizes`).
+    natural_size_stale: alloc::collections::BTreeSet<(DomId, NodeId)>,
 }
 
 /// Internal state for a single `VirtualView` instance
@@ -355,6 +372,36 @@ impl VirtualViewManager {
         self.states.keys().copied().collect()
     }
 
+    /// Record that `(dom_id, node_id)`'s content-sized box no longer matches
+    /// what its callback reported (see `natural_size_stale`).
+    pub fn mark_natural_size_stale(&mut self, dom_id: DomId, node_id: NodeId) {
+        self.natural_size_stale.insert((dom_id, node_id));
+    }
+
+    /// Drain the stale content-sized views of ONE host dom, sorted by node.
+    /// Empty when every content-sized view in `dom_id` is laid out at the
+    /// size it reported.
+    pub fn take_natural_size_stale(&mut self, dom_id: DomId) -> Vec<NodeId> {
+        let mut taken = Vec::new();
+        self.natural_size_stale.retain(|(d, n)| {
+            if *d == dom_id {
+                taken.push(*n);
+                false
+            } else {
+                true
+            }
+        });
+        taken
+    }
+
+    /// Every host dom with at least one stale content-sized view, sorted.
+    #[must_use]
+    pub fn natural_size_stale_doms(&self) -> Vec<DomId> {
+        let mut doms: Vec<DomId> = self.natural_size_stale.iter().map(|(d, _)| *d).collect();
+        doms.dedup();
+        doms
+    }
+
     /// Checks whether a `VirtualView` needs to be re-invoked and returns the reason
     ///
     /// Returns `Some(reason)` if the `VirtualView` callback should be invoked:
@@ -657,6 +704,19 @@ impl crate::managers::NodeIdRemap for VirtualViewManager {
                 true
             })
         });
+
+        // Same rule for the stale content-size marks: follow the host node,
+        // drop the mark with an unmounted host.
+        let stale = core::mem::take(&mut self.natural_size_stale);
+        self.natural_size_stale = stale
+            .into_iter()
+            .filter_map(|(d, node_id)| {
+                if d != dom {
+                    return Some((d, node_id));
+                }
+                map.resolve(node_id).map(|new_id| (d, new_id))
+            })
+            .collect();
     }
 }
 
