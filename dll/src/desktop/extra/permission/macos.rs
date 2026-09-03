@@ -48,6 +48,12 @@ pub fn handle_event(event: &PermissionDiffEvent) {
             match capability {
                 Capability::Camera => request_av_capture_access(true),
                 Capability::Microphone => request_av_capture_access(false),
+                // 9f-i-a-i: THE APP ASKING IS THE WHOLE POINT. The HID
+                // backend probes with `IOHIDCheckAccess` and never prompts,
+                // because enumerating devices must not raise a privacy dialog
+                // - but an explicit subscribe to this capability IS the app
+                // requesting, exactly as it is for Camera above.
+                Capability::InputMonitoring => request_input_monitoring(),
                 // Geolocation: the CLLocationManager prompt is owned by the
                 // parallel geolocation backend (extra/geolocation/macos.rs);
                 // its auth-change delegate pushes async results. Seeding
@@ -100,10 +106,49 @@ pub fn probe_status(capability: Capability) -> PermissionState {
         Capability::PhotoLibrary => ph_status(2),
         Capability::PhotoLibraryWrite => ph_status(1),
         Capability::ScreenCapture => screen_capture_status(),
+        Capability::InputMonitoring => input_monitoring_status(),
         // Everything else here is iOS-only or has no synchronous macOS
         // status getter.
         _ => PermissionState::NotDetermined,
     }
+}
+
+/// Input Monitoring, from the same `IOHIDCheckAccess` the HID backend uses.
+///
+/// UNKNOWN maps to `NotDetermined` and DENIED to `Denied`, and keeping those
+/// apart is what makes the capability useful: an app may prompt for the first
+/// and must not for the second. Collapsing both to "no" would make every
+/// machine look permanently refused.
+#[cfg(all(target_os = "macos", feature = "libloading"))]
+fn input_monitoring_status() -> PermissionState {
+    use crate::desktop::extra::hid::macos::InputMonitoringAccess;
+    match crate::desktop::extra::hid::macos::input_monitoring_access() {
+        InputMonitoringAccess::Granted => {
+            PermissionState::Granted(azul_layout::managers::permission::PermissionQuality::Full)
+        }
+        InputMonitoringAccess::Denied => PermissionState::Denied,
+        InputMonitoringAccess::Unknown => PermissionState::NotDetermined,
+    }
+}
+
+/// Without the HID backend there is nothing to probe.
+#[cfg(all(target_os = "macos", not(feature = "libloading")))]
+fn input_monitoring_status() -> PermissionState {
+    PermissionState::NotDetermined
+}
+
+/// See [`input_monitoring_status`]; requesting needs the same backend.
+#[cfg(all(target_os = "macos", feature = "libloading"))]
+fn request_input_monitoring() {
+    crate::desktop::extra::hid::macos::request_input_monitoring();
+}
+
+#[cfg(all(target_os = "macos", not(feature = "libloading")))]
+fn request_input_monitoring() {
+    crate::plog_warn!(
+        "[permission] macos: no HID backend built in (feature libloading off) - \
+         cannot prompt for Input Monitoring"
+    );
 }
 
 #[cfg(not(target_os = "macos"))]

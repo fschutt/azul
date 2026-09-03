@@ -109,12 +109,16 @@ fn capability_to_permission(capability: Capability) -> Option<&'static str> {
         // Scoped storage needs no runtime permission to *add* media;
         // accel/gyro/magnetometer are sensor-free; ScreenCapture is a
         // MediaProjection consent dialog; the rest are iOS-only.
+        // ...and `InputMonitoring` is macOS's TCC gate on reading input
+        // devices the app does not own. Android exposes no raw HID at all, so
+        // there is no permission to name and nothing an app could be granted.
         PhotoLibraryWrite
         | ScreenCapture
         | Motion
         | BluetoothBackground
         | LocalNetwork
-        | AppTrackingTransparency => return None,
+        | AppTrackingTransparency
+        | InputMonitoring => return None,
     })
 }
 

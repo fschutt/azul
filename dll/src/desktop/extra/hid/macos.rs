@@ -15,11 +15,11 @@
 //!
 //! `IOHIDCheckAccess` (10.15+) is used to ask BEFORE opening, so the common
 //! denied case is a quiet log rather than an error path. `IOHIDRequestAccess`
-//! is deliberately NOT called: it shows a system prompt, and a UI toolkit must
-//! not raise a privacy dialog on its own initiative just because an app linked
-//! it. Whether azul should model this as a `Capability` (so an app can request
-//! it explicitly, like Camera or Microphone) is logged as 9f-i-a-i rather than
-//! decided here.
+//! is still never called FROM HERE: this backend must not raise a privacy
+//! dialog on its own initiative just because an app linked it. 9f-i-a-i gave
+//! the app a way to ask instead - subscribing to
+//! `Capability::InputMonitoring` calls `request_input_monitoring` below, which
+//! is an explicit request rather than a side effect of enumerating devices.
 //!
 //! # Signatures
 //!
@@ -52,6 +52,9 @@ type IOOptionBits = u32;
 const REQUEST_TYPE_LISTEN_EVENT: u32 = 1;
 /// `kIOHIDAccessTypeGranted`.
 const ACCESS_TYPE_GRANTED: u32 = 0;
+/// `kIOHIDAccessTypeDenied`. `kIOHIDAccessTypeUnknown` is 2 and is the
+/// fallthrough - a machine that has never been asked.
+const ACCESS_TYPE_DENIED: u32 = 1;
 const KERN_SUCCESS: IOReturn = 0;
 
 struct IoKit {
@@ -79,21 +82,76 @@ fn iokit() -> Option<&'static IoKit> {
         .as_ref()
 }
 
-/// Whether Input Monitoring is granted.
+/// `kIOHIDAccessType`, all three values - the permission layer needs the
+/// tri-state, not just "granted".
 ///
-/// `true` when `IOHIDCheckAccess` is missing (pre-10.15), where no TCC gate
+/// `Unknown` is what a machine that has never been asked reports, and it is
+/// distinct from `Denied`: an app may prompt for the first and must not for
+/// the second.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputMonitoringAccess {
+    Granted,
+    Denied,
+    Unknown,
+}
+
+/// Ask the system whether Input Monitoring is granted, WITHOUT prompting.
+///
+/// `Granted` when `IOHIDCheckAccess` is missing (pre-10.15), where no TCC gate
 /// existed - the same rule the screen-capture preflight beside this uses, so an
 /// older system is never blocked by a check it cannot answer.
-fn access_granted(k: &IoKit) -> bool {
+#[must_use]
+pub fn input_monitoring_access() -> InputMonitoringAccess {
+    let Some(k) = iokit() else {
+        return InputMonitoringAccess::Unknown;
+    };
     unsafe {
         let Ok(check) = k
             .lib
             .get::<unsafe extern "C" fn(u32) -> u32>(b"IOHIDCheckAccess\0")
         else {
+            return InputMonitoringAccess::Granted;
+        };
+        match check(REQUEST_TYPE_LISTEN_EVENT) {
+            ACCESS_TYPE_GRANTED => InputMonitoringAccess::Granted,
+            ACCESS_TYPE_DENIED => InputMonitoringAccess::Denied,
+            _ => InputMonitoringAccess::Unknown,
+        }
+    }
+}
+
+/// Raise the system's Input Monitoring prompt.
+///
+/// THE ONLY CALLER IS AN EXPLICIT `Capability::InputMonitoring` SUBSCRIBE, and
+/// that is the whole point of 9f-i-a-i. This backend still never prompts on its
+/// own initiative just because an app linked it - the app has to ask, exactly
+/// as it does for Camera or Microphone.
+///
+/// `IOHIDRequestAccess` returns immediately; the user's answer arrives later
+/// and the next `input_monitoring_access` poll picks it up. macOS shows the
+/// prompt only once per app, so a second call on a denied system does nothing
+/// visible - which is why the permission layer must not treat silence as a
+/// failure.
+pub fn request_input_monitoring() -> bool {
+    let Some(k) = iokit() else {
+        return false;
+    };
+    unsafe {
+        let Ok(request) = k
+            .lib
+            .get::<unsafe extern "C" fn(u32) -> bool>(b"IOHIDRequestAccess\0")
+        else {
+            // Pre-10.15: nothing to request, because nothing gates it.
             return true;
         };
-        check(REQUEST_TYPE_LISTEN_EVENT) == ACCESS_TYPE_GRANTED
+        request(REQUEST_TYPE_LISTEN_EVENT)
     }
+}
+
+/// Whether Input Monitoring is granted.
+fn access_granted(k: &IoKit) -> bool {
+    let _ = k;
+    input_monitoring_access() != InputMonitoringAccess::Denied
 }
 
 /// Read an integer device property, or `0` when absent.

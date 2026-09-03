@@ -870,13 +870,36 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       azul-layout 7579. ⚠ Not RUN: no Input Monitoring grant here and no way to assert on a real
       device, so this has never seen a report.
 
-- [ ] 9f-i-a-i Should Input Monitoring be a `Capability`? `permission.rs` models Camera,
-      Microphone, ScreenCapture, Geolocation, Biometric and others, and HID access on macOS is
-      exactly that shape - a TCC permission the user grants and an app may want to request
-      explicitly. Adding it means a new api.json enum variant plus a backend arm in all five
-      permission files, which is a public-API decision rather than part of the HID producer, so it
-      is logged rather than folded in. Until then the backend reports no devices when denied,
-      which is honest but gives an app no way to ASK.
+- [x] 9f-i-a-i DONE - YES. `Capability::InputMonitoring`, and the answer was not really a
+      judgement call once the shape was written out: macOS gates raw HID with a TCC permission
+      that has the same `Check`/`Request` pair as Camera and Microphone, so modelling it as
+      anything else would have been the inventive choice.
+      WHAT THIS ACTUALLY BUYS: `IOHIDRequestAccess` now has a caller. 9f-i-a deliberately never
+      called it, because enumerating devices must not raise a privacy dialog as a side effect -
+      so a denied machine reported an empty device list FOREVER with no way to ask. An explicit
+      subscribe to the capability IS the app asking, exactly as it is for Camera. The HID backend
+      still never prompts on its own.
+      THE TRI-STATE IS THE POINT, not the boolean the HID backend already had.
+      `kIOHIDAccessType` distinguishes Denied from Unknown, and an app may prompt for the second
+      and must not for the first; collapsing both to "no" would make every machine that has never
+      been asked look permanently refused. So `access_granted` was replaced by
+      `input_monitoring_access` returning all three, and the old boolean is now derived from it.
+      MACOS ONLY, and that is not an omission: Linux gates `/dev/hidraw*` with file permissions
+      and udev rules that no runtime API can request, Windows RawInput needs no permission, and
+      neither mobile platform exposes raw HID. Those backends answer `NotDetermined`, which is
+      honest - there is nothing to ask.
+      APPENDED, because the enum crosses the C API: inserting it anywhere else renumbers every
+      variant after it and a binding built against the old header would silently request the
+      wrong permission. A test pins that.
+      TWO EXISTING GUARDS EARNED THEIR KEEP: `all_capabilities_are_distinct_and_totally_ordered`
+      failed to compile until the variant was added to `ALL_CAPS`, and the Android backend's
+      exhaustive match caught the missing arm on the 8-target gate rather than at runtime.
+      EVIDENCE: the REAL macOS arm proven compiled by a deliberate type error (the cfg has a
+      `libloading`-off stub, and a silent stub is exactly what this item was about), the
+      discriminant test, `codegen all` + dll build putting `AzCapability_InputMonitoring` in the
+      C ABI, autofix converged at 0 patches, `azul-doc check` PASSED, host and 8/8 mobile,
+      azul-layout permission suite 58. ⚠ Not RUN: no way to grant or revoke Input Monitoring in
+      a test here.
 - [x] 9f-i-b DONE — Windows completes HID on all three desktop platforms.
       ⚠ THE ITEM'S PREMISE WAS WRONG ON THE HARD PART. It said the vid/pid "needs
       `HidD_GetAttributes` from **hid.dll**, a library this codebase does not load at all". It does

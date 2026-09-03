@@ -80,6 +80,23 @@ pub enum Capability {
     LocalNetwork,
     /// iOS App Tracking Transparency (`IDFA` consent, iOS 14.5+).
     AppTrackingTransparency,
+    /// Raw HID access - macOS "Input Monitoring". APPENDED at the end for ABI
+    /// stability: this enum crosses the C API, so a variant inserted in the
+    /// middle would renumber every discriminant after it.
+    ///
+    /// The odd one out in this list, and worth saying why it belongs: every
+    /// other capability here gates a SENSOR or a DATA STORE, while this gates
+    /// reading input devices the app does not own. macOS models it as exactly
+    /// the same kind of thing - a TCC permission with a `Check`/`Request` pair
+    /// - so an app that wants a flight stick or a wheel can ASK, instead of
+    /// silently getting an empty device list forever (9f-i-a-i).
+    ///
+    /// macOS ONLY, and that is not an omission: Linux gates `/dev/hidraw*`
+    /// with file permissions and udev rules, which no runtime API can request;
+    /// Windows RawInput needs no permission at all; and neither mobile
+    /// platform exposes raw HID. Those backends leave it `NotDetermined`,
+    /// which is honest - there is nothing to ask.
+    InputMonitoring,
 }
 
 /// Quality of a granted permission. Matches research/08 §2's quality split.
@@ -429,6 +446,22 @@ pub fn drain_async_results() -> Vec<(Capability, PermissionState)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `Capability` crosses the C API, so its discriminants are an ABI.
+    /// `InputMonitoring` must be LAST - inserting it anywhere else renumbers
+    /// every variant after it, and a binding compiled against the old header
+    /// would then ask for the wrong permission with nothing failing to
+    /// compile.
+    #[test]
+    fn input_monitoring_is_appended_and_does_not_renumber_the_others() {
+        assert_eq!(Capability::Camera as i32, 0);
+        assert_eq!(Capability::Microphone as i32, 1);
+        assert_eq!(Capability::ScreenCapture as i32, 2);
+        // The variant that was last before this change stays where it was.
+        assert_eq!(Capability::AppTrackingTransparency as i32, 17);
+        assert_eq!(Capability::InputMonitoring as i32, 18);
+    }
+
     use azul_core::dom::{DomId, NodeId};
 
     fn node(idx: usize) -> DomNodeId {
@@ -694,7 +727,7 @@ mod autotest_generated {
     /// Every `Capability` variant, in declaration order. Kept honest by
     /// `all_capabilities_are_distinct_and_totally_ordered` below, whose
     /// exhaustive `match` fails to compile if a variant is ever added.
-    const ALL_CAPS: [Capability; 18] = [
+    const ALL_CAPS: [Capability; 19] = [
         Capability::Camera,
         Capability::Microphone,
         Capability::ScreenCapture,
@@ -713,6 +746,7 @@ mod autotest_generated {
         Capability::NearbyWifi,
         Capability::LocalNetwork,
         Capability::AppTrackingTransparency,
+        Capability::InputMonitoring,
     ];
 
     /// Every distinct `PermissionState` value, including both payloads of the
@@ -787,7 +821,8 @@ mod autotest_generated {
                 | Capability::BluetoothBackground
                 | Capability::NearbyWifi
                 | Capability::LocalNetwork
-                | Capability::AppTrackingTransparency => {}
+                | Capability::AppTrackingTransparency
+                | Capability::InputMonitoring => {}
             }
         }
 

@@ -121231,7 +121231,8 @@
                                 "BluetoothBackground": {},
                                 "NearbyWifi": {},
                                 "LocalNetwork": {},
-                                "AppTrackingTransparency": {}
+                                "AppTrackingTransparency": {},
+                                "InputMonitoring": {}
                             }
                         ],
                         "repr": "C"
