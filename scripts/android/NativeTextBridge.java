@@ -278,13 +278,72 @@ public final class NativeTextBridge {
 
         @Override
         public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
-            outAttrs.inputType = EditorInfo.TYPE_CLASS_TEXT
-                    | EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE;
+            // The focused control's purpose, from its HTML `type` attribute.
+            // Previously hardcoded to multiline text, so every field got the
+            // full keyboard: a phone number field had no phone pad, an email
+            // field no `@` key, and a single-line input showed a newline key
+            // with no way to dismiss the keyboard.
+            int hints = nativeGetInputHints(nativePtr);
+            int purpose = hints & 0xFF;
+            boolean multiline = ((hints >> 8) & 1) != 0;
+
+            int type;
+            int action;
+            switch (purpose) {
+                case 1: // Number
+                    type = EditorInfo.TYPE_CLASS_NUMBER;
+                    action = EditorInfo.IME_ACTION_DONE;
+                    break;
+                case 2: // Decimal
+                    type = EditorInfo.TYPE_CLASS_NUMBER
+                            | EditorInfo.TYPE_NUMBER_FLAG_DECIMAL;
+                    action = EditorInfo.IME_ACTION_DONE;
+                    break;
+                case 3: // Phone
+                    type = EditorInfo.TYPE_CLASS_PHONE;
+                    action = EditorInfo.IME_ACTION_DONE;
+                    break;
+                case 4: // Email
+                    type = EditorInfo.TYPE_CLASS_TEXT
+                            | EditorInfo.TYPE_TEXT_VARIATION_EMAIL_ADDRESS;
+                    action = EditorInfo.IME_ACTION_NEXT;
+                    break;
+                case 5: // Url
+                    type = EditorInfo.TYPE_CLASS_TEXT
+                            | EditorInfo.TYPE_TEXT_VARIATION_URI;
+                    action = EditorInfo.IME_ACTION_GO;
+                    break;
+                case 6: // Password
+                    // VARIATION_PASSWORD is what excludes the field from the
+                    // IME's learning dictionary and suggestion strip, not just
+                    // what dots the characters out.
+                    type = EditorInfo.TYPE_CLASS_TEXT
+                            | EditorInfo.TYPE_TEXT_VARIATION_PASSWORD;
+                    action = EditorInfo.IME_ACTION_DONE;
+                    break;
+                case 7: // Search
+                    type = EditorInfo.TYPE_CLASS_TEXT;
+                    action = EditorInfo.IME_ACTION_SEARCH;
+                    break;
+                default: // Text
+                    type = EditorInfo.TYPE_CLASS_TEXT;
+                    action = EditorInfo.IME_ACTION_DONE;
+                    break;
+            }
+
+            if (multiline) {
+                // MULTI_LINE and an action key are mutually exclusive: Enter
+                // has to be a newline, so the action becomes NONE. Setting
+                // both makes Enter ambiguous and some IMEs drop the newline.
+                type |= EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE;
+                action = EditorInfo.IME_ACTION_NONE;
+            }
+
+            outAttrs.inputType = type;
             // NO_FULLSCREEN: without it a landscape phone replaces the whole
             // app with the IME's own full-screen editor, and the document the
             // user is editing disappears behind it.
-            outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN
-                    | EditorInfo.IME_ACTION_NONE;
+            outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN | action;
             outAttrs.initialSelStart = -1;
             outAttrs.initialSelEnd = -1;
             return new AzulInputConnection(this, nativePtr);
@@ -405,6 +464,15 @@ public final class NativeTextBridge {
                                                       int cursorPos);
 
     private static native void nativeFinishComposing(long nativePtr);
+
+    /**
+     * The focused control's IME hints, packed as {@code purpose | (multiline << 8)}.
+     *
+     * Packed into one call because {@link AzulInputView#onCreateInputConnection}
+     * runs while the IME is opening and every JNI crossing is a chance for the
+     * window to have gone away.
+     */
+    private static native int nativeGetInputHints(long nativePtr);
 
     private static native void nativeDeleteSurrounding(long nativePtr, int before, int after);
 

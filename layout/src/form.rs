@@ -148,6 +148,116 @@ pub fn validate_form(
     failures
 }
 
+/// What a control is FOR, so a soft keyboard can show the right layout.
+///
+/// This is HTML's `type` attribute, which `AttributeType::InputType` already
+/// carries - the 10a-iii note said an input-purpose attribute was needed
+/// "first, which is a design question", and it was already in the DOM.
+///
+/// The values are a deliberate SUBSET: only purposes that change what a
+/// keyboard shows. `type="checkbox"` has no keyboard, so it is `Text` here
+/// rather than a variant nobody would branch on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(i32)]
+pub enum InputPurpose {
+    /// Ordinary text - the platform default, and what an unset or unknown
+    /// `type` resolves to. Per the user's ruling: default to the platform
+    /// default rather than guessing.
+    #[default]
+    Text = 0,
+    /// Digits only (`type="number"`).
+    Number = 1,
+    /// Digits plus a decimal separator.
+    Decimal = 2,
+    /// A phone pad (`type="tel"`).
+    Phone = 3,
+    /// Text with `@` and `.` promoted (`type="email"`).
+    Email = 4,
+    /// Text with `/` and `.com` promoted (`type="url"`).
+    Url = 5,
+    /// Obscured, and excluded from autocorrect and learning
+    /// (`type="password"`).
+    Password = 6,
+    /// A Search key instead of Enter (`type="search"`).
+    Search = 7,
+}
+
+/// The purpose of one control, from its `type` attribute.
+///
+/// Unknown and absent both give `Text`: a `type` this build does not know is
+/// not a reason to show the wrong keyboard.
+#[must_use]
+pub fn input_purpose(
+    node: DomNodeId,
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+) -> InputPurpose {
+    let Some(layout) = layout_results.get(&node.dom) else {
+        return InputPurpose::Text;
+    };
+    let Some(id) = node.node.into_crate_internal() else {
+        return InputPurpose::Text;
+    };
+    let node_data = layout.styled_dom.node_data.as_container();
+    let Some(data) = node_data.get(id) else {
+        return InputPurpose::Text;
+    };
+    for attr in data.attributes().as_ref() {
+        if let AttributeType::InputType(t) = attr {
+            let t = t.as_str();
+            // ASCII-case-insensitive, as HTML attribute values are.
+            return if t.eq_ignore_ascii_case("number") {
+                InputPurpose::Number
+            } else if t.eq_ignore_ascii_case("decimal") {
+                InputPurpose::Decimal
+            } else if t.eq_ignore_ascii_case("tel") {
+                InputPurpose::Phone
+            } else if t.eq_ignore_ascii_case("email") {
+                InputPurpose::Email
+            } else if t.eq_ignore_ascii_case("url") {
+                InputPurpose::Url
+            } else if t.eq_ignore_ascii_case("password") {
+                InputPurpose::Password
+            } else if t.eq_ignore_ascii_case("search") {
+                InputPurpose::Search
+            } else {
+                InputPurpose::Text
+            };
+        }
+    }
+    InputPurpose::Text
+}
+
+/// Whether a control accepts newlines, which decides whether the Enter key is
+/// a line break or an action key (Done / Go / Search).
+///
+/// `TextArea` is the multiline control; everything else is single-line. The
+/// Android bridge hardcoded MULTI_LINE for every field, so a single-line input
+/// showed a newline key and had no way to dismiss the keyboard.
+#[must_use]
+pub fn is_multiline(
+    node: DomNodeId,
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+) -> bool {
+    let Some(layout) = layout_results.get(&node.dom) else {
+        return false;
+    };
+    let Some(id) = node.node.into_crate_internal() else {
+        return false;
+    };
+    layout
+        .styled_dom
+        .node_data
+        .as_container()
+        .get(id)
+        .is_some_and(|d| {
+            matches!(d.get_node_type(), azul_core::dom::NodeType::TextArea)
+                || d.attributes()
+                    .as_ref()
+                    .iter()
+                    .any(|a| matches!(a, AttributeType::ContentEditable(true)))
+        })
+}
+
 /// Every control in `form` paired with the value a reset restores it to.
 ///
 /// HTML restores each control to its `value` ATTRIBUTE - the DEFAULT value,
@@ -375,6 +485,66 @@ mod tests {
         assert_eq!(got.len(), 2);
         assert_eq!(got[0].node, node(2));
         assert_eq!(got[1].node, node(3), "in document order");
+    }
+
+    #[test]
+    fn every_html_type_maps_to_its_purpose() {
+        for (html, expected) in [
+            ("number", InputPurpose::Number),
+            ("decimal", InputPurpose::Decimal),
+            ("tel", InputPurpose::Phone),
+            ("email", InputPurpose::Email),
+            ("url", InputPurpose::Url),
+            ("password", InputPurpose::Password),
+            ("search", InputPurpose::Search),
+            ("text", InputPurpose::Text),
+        ] {
+            let layouts = form_with(vec![vec![AttributeType::InputType(html.into())]]);
+            assert_eq!(input_purpose(node(2), &layouts), expected, "type={html}");
+        }
+    }
+
+    /// HTML attribute values are ASCII-case-insensitive, and real documents
+    /// contain `type="EMAIL"`.
+    #[test]
+    fn the_type_attribute_is_case_insensitive() {
+        let layouts = form_with(vec![vec![AttributeType::InputType("EMAIL".into())]]);
+        assert_eq!(input_purpose(node(2), &layouts), InputPurpose::Email);
+    }
+
+    /// An absent or unrecognised `type` gives the PLATFORM DEFAULT, per the
+    /// ruling - not a guess, and not a failure. A `type` a future HTML adds
+    /// must not produce the wrong keyboard.
+    #[test]
+    fn an_unknown_or_absent_type_defaults_to_text() {
+        let layouts = form_with(vec![vec![]]);
+        assert_eq!(input_purpose(node(2), &layouts), InputPurpose::Text);
+
+        let layouts = form_with(vec![vec![AttributeType::InputType("colour-picker".into())]]);
+        assert_eq!(input_purpose(node(2), &layouts), InputPurpose::Text);
+    }
+
+    /// The discriminants are a WIRE FORMAT: `NativeTextBridge.java` switches on
+    /// these exact integers. Renumbering the enum would silently give every
+    /// field the wrong keyboard - the same hazard as the sensor codes, and it
+    /// gets the same guard.
+    #[test]
+    fn the_purpose_discriminants_are_the_jni_wire_codes() {
+        for (purpose, code) in [
+            (InputPurpose::Text, 0),
+            (InputPurpose::Number, 1),
+            (InputPurpose::Decimal, 2),
+            (InputPurpose::Phone, 3),
+            (InputPurpose::Email, 4),
+            (InputPurpose::Url, 5),
+            (InputPurpose::Password, 6),
+            (InputPurpose::Search, 7),
+        ] {
+            assert_eq!(
+                purpose as i32, code,
+                "{purpose:?} moved; NativeTextBridge.java still switches on {code}"
+            );
+        }
     }
 
     /// A control resets to its `value` ATTRIBUTE - the default - not to

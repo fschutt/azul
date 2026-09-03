@@ -506,13 +506,32 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       and can the engine distinguish user focus from restored/programmatic focus?), not a wiring one,
       so it is logged rather than decided here.
 
-- [ ] 10a-iii UNBLOCKED (user 2026-09-03: an input-purpose attribute, "default to whatever is
-      the default input purpose if not set"). `EditorInfo` hints (`inputType`, `imeOptions`) are how Android decides to show a numeric pad
-      or a "Go" key instead of Enter. Needs an input-purpose attribute on the DOM node first, which is a
-      design question, not plumbing.
-
-### Follow-ups opened by 9h
-
+- [x] 10a-iii DONE. ⚠ THE "DESIGN QUESTION" WAS ALREADY ANSWERED IN THE DOM. The note said this
+      "needs an input-purpose attribute on the DOM node first, which is a design question, not
+      plumbing" - but `AttributeType::InputType` is HTML's `type` attribute and has existed all
+      along, exactly as `NodeType::Form` and the validation attributes did for 11b-i. Three items
+      in a row have now turned out to be missing a READER, not a model.
+      `onCreateInputConnection` hardcoded `TYPE_CLASS_TEXT | TYPE_TEXT_FLAG_MULTI_LINE` with
+      `IME_ACTION_NONE` for every field: a phone-number field had no phone pad, an email field no
+      `@` key, and a single-line input showed a NEWLINE key with no way to dismiss the keyboard.
+      `input_purpose` maps the `type` attribute onto the 8 purposes that change what a keyboard
+      shows (a deliberate subset - `type="checkbox"` has no keyboard, so it is `Text` rather than
+      a variant nobody would branch on), and `is_multiline` distinguishes `TextArea` and
+      contenteditable from single-line controls.
+      MULTILINE AND AN ACTION KEY ARE MUTUALLY EXCLUSIVE: Enter has to be a newline, so multiline
+      forces `IME_ACTION_NONE`. Setting both makes Enter ambiguous and some IMEs drop the newline.
+      Unknown and absent `type` both give `Text` - the PLATFORM DEFAULT the ruling asked for, so
+      a `type` a future HTML adds cannot produce the wrong keyboard.
+      THE DISCRIMINANTS ARE A WIRE FORMAT: `NativeTextBridge.java` switches on these exact ints,
+      and renumbering the enum would silently give every field the wrong keyboard. Same hazard as
+      the sensor codes, same guard - a test pins all 8.
+      Hints are PACKED into one JNI call (`purpose | multiline << 8`) because
+      `onCreateInputConnection` runs while the IME is opening and every crossing is a chance for
+      the window to have gone.
+      EVIDENCE: 8 new tests including the wire-code guard and case-insensitivity; the JNI seam
+      proven COMPILED under `--target aarch64-linux-android` with `_internal_deps`; and the JAVA
+      COMPILED against android-34 with `javac`, which nothing in the Rust build validates. Host,
+      8/8 mobile, azul-layout 7604. ⚠ No device - compile-only.
 - [x] 9h-i LINUX HALF DONE (both backends). macOS remains open as 9h-i-b.
       Neither Linux backend mapped a SINGLE multimedia keysym: `grep XF86` across the whole x11
       directory returned ZERO, so Play/Pause, Volume, Prev/Next and the browser keys produced

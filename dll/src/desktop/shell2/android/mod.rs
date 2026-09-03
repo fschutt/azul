@@ -2799,6 +2799,35 @@ pub mod text_bridge {
     /// byte panics, and `n` is a count the IME chose with no idea of our
     /// encoding.
     #[no_mangle]
+    /// The focused control's IME hints, packed into one int.
+    ///
+    /// `purpose | (multiline << 8)`. Packed rather than two JNI calls because
+    /// `onCreateInputConnection` runs on the UI thread while the IME is
+    /// opening, and each crossing is a chance for the window to be gone.
+    ///
+    /// Returns `0` (plain text, single line) when nothing is focused, which is
+    /// the platform default the user's ruling asked for - not a guess.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeGetInputHints(
+        _env: *mut jni::sys::JNIEnv,
+        _class: jni::sys::jclass,
+        native_ptr: i64,
+    ) -> i32 {
+        let mut packed = 0i32;
+        with_window(native_ptr, |w| {
+            if let Some(lw) = w.common.layout_window.as_ref() {
+                if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
+                    let purpose =
+                        azul_layout::form::input_purpose(focused, &lw.layout_results) as i32;
+                    let multiline =
+                        i32::from(azul_layout::form::is_multiline(focused, &lw.layout_results));
+                    packed = purpose | (multiline << 8);
+                }
+            }
+        });
+        packed
+    }
+
     pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeGetTextBeforeCursor(
         env: *mut jni::sys::JNIEnv,
         _class: jni::sys::jclass,
