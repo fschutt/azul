@@ -5598,6 +5598,41 @@ impl CallbackInfo {
         self.get_hover_manager().get_history(&InputPointId::Mouse)
     }
 
+    /// Every node under the pointer, FRONT TO BACK (9g-ii-e).
+    ///
+    /// The hit test itself is a `BTreeMap` of `DomId` to a `HitTest` that is
+    /// four more maps, which is why `get_current_hit_test` above cannot cross
+    /// the C ABI - it would need five map types nothing else uses. No
+    /// application wants that shape anyway; it wants the ANSWER, and this is
+    /// it.
+    ///
+    /// Ordered by z-depth rather than by node id, which is a real difference:
+    /// two overlapping absolutely-positioned nodes can have any id
+    /// relationship, and the one on top is the one the backend reported at the
+    /// lower depth.
+    ///
+    /// Only the REGULAR hits - a scrollbar is not the content beneath it.
+    #[must_use]
+    pub fn get_hovered_nodes(&self) -> azul_core::dom::DomNodeIdVec {
+        self.get_current_hit_test()
+            .map(azul_core::hit_test::FullHitTest::hovered_node_ids)
+            .unwrap_or_default()
+            .into()
+    }
+
+    /// [`Self::get_hovered_nodes`] for a PAST frame - `0` is the current one.
+    ///
+    /// The history is what a gesture recogniser written in application code
+    /// needs, and it was unreachable for the same reason the current hit test
+    /// was. Empty for a frame that has aged out; the buffer holds five.
+    #[must_use]
+    pub fn get_hovered_nodes_frames_ago(&self, frames_ago: usize) -> azul_core::dom::DomNodeIdVec {
+        self.get_hit_test_frame(frames_ago)
+            .map(azul_core::hit_test::FullHitTest::hovered_node_ids)
+            .unwrap_or_default()
+            .into()
+    }
+
     /// Check if there's sufficient mouse history for gesture detection (at least 2 frames)
     #[must_use]
     pub fn has_sufficient_history_for_gestures(&self) -> bool {

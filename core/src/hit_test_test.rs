@@ -1069,3 +1069,113 @@ mod autotest_generated {
         }
     }
 }
+
+#[cfg(test)]
+mod hovered_node_answers {
+    use alloc::{collections::BTreeMap, vec, vec::Vec};
+
+    use crate::{
+        dom::{DomId, DomNodeId, NodeId},
+        geom::LogicalPosition,
+        hit_test::{FullHitTest, HitTest, HitTestItem, OptionDomNodeId},
+        styled_dom::NodeHierarchyItemId,
+    };
+
+    fn item(depth: u32) -> HitTestItem {
+        HitTestItem {
+            point_in_viewport: LogicalPosition::zero(),
+            point_relative_to_item: crate::spaces::ContentBoxLocal::new(LogicalPosition::zero()),
+            is_focusable: false,
+            is_virtual_view_hit: None,
+            hit_depth: depth,
+        }
+    }
+
+    fn hit_test(nodes: &[(usize, u32)]) -> HitTest {
+        let mut regular = BTreeMap::new();
+        for (id, depth) in nodes {
+            regular.insert(NodeId::new(*id), item(*depth));
+        }
+        HitTest {
+            regular_hit_test_nodes: regular,
+            scroll_hit_test_nodes: BTreeMap::new(),
+            scrollbar_hit_test_nodes: BTreeMap::new(),
+            cursor_hit_test_nodes: BTreeMap::new(),
+        }
+    }
+
+    fn nid(node: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
+        }
+    }
+
+    fn full(nodes: &[(usize, u32)]) -> FullHitTest {
+        let mut hovered = BTreeMap::new();
+        hovered.insert(DomId::ROOT_ID, hit_test(nodes));
+        FullHitTest {
+            hovered_nodes: hovered,
+            focused_node: OptionDomNodeId::None,
+        }
+    }
+
+    /// DEPTH ORDERS THE ANSWER, not the node id. Two overlapping absolutely
+    /// positioned nodes can have any id relationship, and the one on top is
+    /// the one with the lower `hit_depth` - so a call site that took the
+    /// largest id (as one in the dll does) can name the node underneath.
+    #[test]
+    fn hovered_nodes_come_back_front_to_back_by_depth_not_by_id() {
+        // Node 2 is BEHIND node 9, despite the ids.
+        let hit = full(&[(2, 5), (9, 0), (4, 2)]);
+        assert_eq!(hit.hovered_node_ids(), vec![nid(9), nid(4), nid(2)]);
+        assert_eq!(hit.topmost_node(), Some(nid(9)));
+    }
+
+    #[test]
+    fn nothing_under_the_pointer_answers_none() {
+        let empty = FullHitTest {
+            hovered_nodes: BTreeMap::new(),
+            focused_node: OptionDomNodeId::None,
+        };
+        assert!(empty.hovered_node_ids().is_empty());
+        assert_eq!(empty.topmost_node(), None);
+
+        // A dom that was hit-tested but hit nothing is the same answer.
+        let none_hit = full(&[]);
+        assert!(none_hit.hovered_node_ids().is_empty());
+        assert_eq!(none_hit.topmost_node(), None);
+    }
+
+    /// SCROLLBARS AND CURSOR AREAS ARE NOT "under the pointer" in the sense an
+    /// app means - a scrollbar is not the content beneath it - so only the
+    /// regular hits are reported.
+    #[test]
+    fn only_regular_hits_count() {
+        let mut hit = hit_test(&[(1, 0)]);
+        hit.cursor_hit_test_nodes.insert(
+            NodeId::new(7),
+            crate::hit_test::CursorHitTestItem {
+                cursor_type: crate::hit_test::CursorType::default(),
+                hit_depth: 0,
+                point_in_viewport: LogicalPosition::zero(),
+            },
+        );
+        let mut hovered = BTreeMap::new();
+        hovered.insert(DomId::ROOT_ID, hit);
+        let full = FullHitTest {
+            hovered_nodes: hovered,
+            focused_node: OptionDomNodeId::None,
+        };
+        assert_eq!(full.hovered_node_ids(), vec![nid(1)]);
+    }
+
+    /// A tie must not flip between frames: the first node at the frontmost
+    /// depth wins, and the sort is stable.
+    #[test]
+    fn a_depth_tie_is_resolved_stably() {
+        let hit = full(&[(1, 0), (2, 0), (3, 0)]);
+        assert_eq!(hit.topmost_node(), Some(nid(1)));
+        assert_eq!(hit.hovered_node_ids(), vec![nid(1), nid(2), nid(3)]);
+    }
+}

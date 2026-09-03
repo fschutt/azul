@@ -391,6 +391,76 @@ pub struct FullHitTest {
 }
 
 impl FullHitTest {
+    /// Every node under the pointer, FRONT TO BACK (9g-ii-e).
+    ///
+    /// # Why this exists rather than the struct being exposed
+    ///
+    /// `FullHitTest` is a `BTreeMap` of `DomId` to a `HitTest` that is itself
+    /// four more maps. Exposing that shape across the C ABI needs five map
+    /// types nothing else would use, and no application wants the shape - it
+    /// wants the ANSWER: what is under the cursor, nearest first. So the
+    /// accessors return that, the same trade `get_hid_reports` makes by
+    /// returning an owned vec rather than a borrowed slice.
+    ///
+    /// Ordered by `hit_depth`, which `WebRender` and the CPU tester both fill
+    /// with a real z-order (0 = frontmost). That is a stronger ordering than
+    /// the `NodeId` one some call sites use as a proxy: two overlapping
+    /// absolutely-positioned nodes can have any id relationship, and the one
+    /// on top is the one with the lower depth.
+    ///
+    /// Only the REGULAR hits: scroll frames, scrollbar parts and cursor areas
+    /// are hit-tested separately and are not nodes an app would call "under
+    /// the pointer" - a scrollbar is not the content beneath it.
+    #[must_use]
+    pub fn hovered_node_ids(&self) -> Vec<DomNodeId> {
+        let mut with_depth: Vec<(u32, DomNodeId)> = Vec::new();
+        for (dom_id, hit) in &self.hovered_nodes {
+            for (node_id, item) in &hit.regular_hit_test_nodes {
+                with_depth.push((
+                    item.hit_depth,
+                    DomNodeId {
+                        dom: *dom_id,
+                        node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                            *node_id,
+                        )),
+                    },
+                ));
+            }
+        }
+        // Stable within a depth, so two nodes a backend reported at the same
+        // z-order keep the order the maps gave them rather than an arbitrary
+        // one that changes between frames.
+        with_depth.sort_by_key(|(depth, _)| *depth);
+        with_depth.into_iter().map(|(_, id)| id).collect()
+    }
+
+    /// The node nearest the user, or `None` when the pointer is over nothing.
+    ///
+    /// What an app almost always means by "the hit test": the topmost regular
+    /// hit. Cheaper than [`Self::hovered_node_ids`] because it does not sort.
+    #[must_use]
+    pub fn topmost_node(&self) -> Option<DomNodeId> {
+        let mut best: Option<(u32, DomNodeId)> = None;
+        for (dom_id, hit) in &self.hovered_nodes {
+            for (node_id, item) in &hit.regular_hit_test_nodes {
+                let candidate = DomNodeId {
+                    dom: *dom_id,
+                    node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                        *node_id,
+                    )),
+                };
+                // STRICTLY less, so the first node at the frontmost depth wins
+                // and the answer does not flip between frames for a tie.
+                if best.is_none_or(|(d, _)| item.hit_depth < d) {
+                    best = Some((item.hit_depth, candidate));
+                }
+            }
+        }
+        best.map(|(_, id)| id)
+    }
+}
+
+impl FullHitTest {
     /// Create an empty hit-test result
     #[must_use]
     pub fn empty(focused_node: Option<DomNodeId>) -> Self {

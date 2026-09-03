@@ -4177,6 +4177,19 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
+impl_vec!(
+    DomNodeId,
+    DomNodeIdVec,
+    DomNodeIdVecDestructor,
+    DomNodeIdVecDestructorType,
+    DomNodeIdVecSlice,
+    OptionDomNodeId
+);
+impl_vec_debug!(DomNodeId, DomNodeIdVec);
+impl_vec_clone!(DomNodeId, DomNodeIdVec, DomNodeIdVecDestructor);
+impl_vec_partialeq!(DomNodeId, DomNodeIdVec);
+impl_vec_partialord!(DomNodeId, DomNodeIdVec);
+
 impl DomNodeId {
     pub const ROOT: Self = Self {
         dom: DomId::ROOT_ID,

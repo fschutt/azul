@@ -1309,9 +1309,37 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `AzInstant`/`AzPenTilt`/`AzLogicalSize` fields and ZERO occurrences of `AzCoreInstant`.
       autofix converged at 0 patches, `azul-doc check` PASSED with the new lint green. Host, 8/8
       mobile, azul-layout 7604, azul-doc 211.
-- [ ] 9g-ii-e `get_current_hit_test` / `get_hit_test_frame` / `get_hit_test_history` return
-      `FullHitTest`, which is FIVE `BTreeMap`s deep plus an `Option<(DomId, LogicalPosition)>`.
-      Exposing it needs a custom map type; this is a large piece of work, not a wiring gap.
+- [x] 9g-ii-e DONE, by exposing the ANSWER instead of the STRUCTURE. The note is right that
+      `FullHitTest` cannot cross the C ABI - a `BTreeMap` of `DomId` to a `HitTest` that is four
+      more maps would need five map types nothing else uses - and wrong that this makes the
+      information unreachable. No app wants that shape; it wants "what is under the cursor". So
+      `hovered_node_ids()` and `topmost_node()` answer that, and
+      `CallbackInfo::get_hovered_nodes` / `get_hovered_nodes_frames_ago` expose it. Same trade
+      `get_hid_reports` makes by returning an owned vec rather than a borrowed slice.
+      ORDERED BY `hit_depth`, NOT BY NODE ID, and that is a real difference rather than a
+      preference: two overlapping absolutely-positioned nodes can have any id relationship, and
+      the one on top is the one the backend reported at the lower depth. Both producers fill it
+      (WebRender from its own hit test, the CPU tester from its front-to-back walk).
+      Only the REGULAR hits: scroll frames, scrollbar parts and cursor areas are hit-tested
+      separately, and a scrollbar is not the content beneath it.
+      ⚠ I ALMOST ADDED A DUPLICATE. `get_topmost_hovered_node` was written and then WITHDRAWN
+      (source and api.json) on finding `get_deepest_hovered_node` already exposed - a second
+      "which node" accessor with subtly different semantics is worse than one. Checking for an
+      existing function before adding one is the same discipline that kept 9g-ii-a and 9g-ii-b
+      from adding duplicate types; this time it caught me one step late.
+      EVIDENCE: 4 tests with a NEGATIVE CONTROL - ordering by node id instead of depth reverses
+      the answer. `codegen all` + a dll build put `AzCallbackInfo_getHoveredNodes` and
+      `AzDomNodeIdVec` in the C ABI; autofix converged at 0 patches, `azul-doc check` PASSED.
+      Host, 8/8 mobile, azul-core 2779.
+- [ ] 9g-ii-e-i `get_deepest_hovered_node` PICKS BY THE LARGEST NODE ID, WITHIN THE FIRST DOM
+      ONLY (`hovered_nodes.iter().next()` then `regular_hit_test_nodes.keys().next_back()`). That
+      is a proxy for z-order that overlapping absolutely-positioned siblings break, and it ignores
+      every DOM after the first - so a hit inside a `VirtualView` page can name a node from the
+      host instead. `FullHitTest::topmost_node()` is the correct implementation and is already
+      written and tested. NOT SWITCHED HERE on purpose: it is a shipped API whose documented job
+      is the drag auto-scroll anchor, it works today, and changing its selection rule needs
+      confirmation that both hit-test producers order `hit_depth` consistently - which is a
+      device-level check, not a reading one.
 - [ ] 9g-ii-f `query_pagination` -> `FakePageConfig` -> `PageSequence` -> ... ->
       `MarginBoxContent::Custom(Arc<dyn Fn(PageInfo) -> String + Send + Sync>)`. A boxed Rust
       closure is not expressible in C at all. This one may be correctly UNEXPOSED forever; if it

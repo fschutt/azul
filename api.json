@@ -14746,6 +14746,54 @@
                                     "type": "ValidityState"
                                 },
                                 "fn_body": "object.get_validity_state_of(node)"
+                            },
+                            "get_hovered_nodes": {
+                                "doc": [
+                                    "Every node under the pointer, FRONT TO BACK (9g-ii-e).",
+                                    "",
+                                    "The hit test itself is a `BTreeMap` of `DomId` to a `HitTest` that is",
+                                    "four more maps, which is why `get_current_hit_test` above cannot cross",
+                                    "the C ABI - it would need five map types nothing else uses. No",
+                                    "application wants that shape anyway; it wants the ANSWER, and this is",
+                                    "it.",
+                                    "",
+                                    "Ordered by z-depth rather than by node id, which is a real difference:",
+                                    "two overlapping absolutely-positioned nodes can have any id",
+                                    "relationship, and the one on top is the one the backend reported at the",
+                                    "lower depth.",
+                                    "",
+                                    "Only the REGULAR hits - a scrollbar is not the content beneath it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DomNodeIdVec"
+                                },
+                                "fn_body": "object.get_hovered_nodes()"
+                            },
+                            "get_hovered_nodes_frames_ago": {
+                                "doc": [
+                                    "[`Self::get_hovered_nodes`] for a PAST frame - `0` is the current one.",
+                                    "",
+                                    "The history is what a gesture recogniser written in application code",
+                                    "needs, and it was unreachable for the same reason the current hit test",
+                                    "was. Empty for a frame that has aged out; the buffer holds five."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "frames_ago": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DomNodeIdVec"
+                                },
+                                "fn_body": "object.get_hovered_nodes_frames_ago(frames_ago)"
                             }
                         },
                         "repr": "C"
@@ -27971,6 +28019,32 @@
                                 },
                                 "device_id": {
                                     "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DomNodeIdVecSlice": {
+                        "external": "azul_core::dom::DomNodeIdVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DomNodeId",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
                                 }
                             }
                         ],
@@ -106605,6 +106679,216 @@
                                 },
                                 "fn_body": "hid_report_vec.as_c_slice_range(start, end)"
                             }
+                        },
+                        "repr": "C"
+                    },
+                    "DomNodeIdVecDestructor": {
+                        "external": "azul_core::dom::DomNodeIdVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "DomNodeIdVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "DomNodeIdVec": {
+                        "external": "azul_core::dom::DomNodeIdVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DomNodeId",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "DomNodeIdVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `DomNodeIdVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "DomNodeIdVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `DomNodeIdVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DomNodeIdVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "dom_node_id_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "dom_node_id_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "dom_node_id_vec.is_empty()"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDomNodeId"
+                                },
+                                "fn_body": "dom_node_id_vec.c_get(index).into()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `DomNodeIdVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DomNodeIdVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `DomNodeIdVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const DomNodeId"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DomNodeIdVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `DomNodeIdVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DomNodeIdVecSlice"
+                                },
+                                "fn_body": "dom_node_id_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DomNodeIdVecSlice"
+                                },
+                                "fn_body": "dom_node_id_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DomNodeIdVecDestructorType": {
+                        "external": "azul_core::dom::DomNodeIdVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "DomNodeIdVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
                         },
                         "repr": "C"
                     }
