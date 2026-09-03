@@ -34,35 +34,86 @@ extern "C" fn on_tab_click(mut data: RefAny, _: CallbackInfo, index: usize) -> U
     Update::RefreshDom
 }
 
-extern "C" fn on_style_select(mut data: RefAny, _: CallbackInfo, index: usize) -> Update {
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
+extern "C" fn on_style_select(mut data: RefAny, mut info: CallbackInfo, index: usize) -> Update {
+    // Gallery cells: 0 Normal, 1 No Spacing, 2 Heading 1, 3 Heading 2,
+    // 4 Title, 5 Subtitle, 6 Subtle Emphasis, 7 Emphasis. Paragraph styles
+    // apply to the block(s) the selection/caret sits in; the two character
+    // styles toggle italic over the selection.
+    use crate::ir::{FormatAxis, IrParaStyle};
+    let para_style = match index {
+        0 | 1 => Some(IrParaStyle::Body),
+        2 => Some(IrParaStyle::Heading(1)),
+        3 => Some(IrParaStyle::Heading(2)),
+        4 => Some(IrParaStyle::Heading(1)), // Title renders as the top heading
+        5 => Some(IrParaStyle::Heading(3)), // Subtitle as the third level
+        _ => None,
     };
-    state.selected_style = index;
+    let update = match para_style {
+        Some(style) => {
+            let Some(mut state) = data.downcast_mut::<AppState>() else {
+                return Update::DoNothing;
+            };
+            let mut changed = crate::sync_ir_text_from_engine(&mut state, &mut info);
+            // Target blocks: every block the selection touches, else the
+            // caret's block.
+            let mut blocks: Vec<usize> = Vec::new();
+            let spans = info.get_document_selection();
+            for span in spans.as_ref() {
+                if let Some((b, _)) = crate::map_node_to_block(&state, &mut info, span.node) {
+                    if !blocks.contains(&b) {
+                        blocks.push(b);
+                    }
+                }
+            }
+            if blocks.is_empty() {
+                if let Some(caret) = info.get_document_caret().into_option() {
+                    if let Some((b, _)) = crate::map_node_to_block(&state, &mut info, caret.node) {
+                        blocks.push(b);
+                    }
+                }
+            }
+            for b in blocks {
+                changed |= crate::ir::set_block_style(&mut state.document.ir, b, style.clone());
+            }
+            if changed {
+                state.document.refresh_derived();
+                state.document.dirty = true;
+            }
+            Update::RefreshDom
+        }
+        None => crate::apply_format_axis(&mut data, &mut info, FormatAxis::Italic),
+    };
+    if let Some(mut state) = data.downcast_mut::<AppState>() {
+        state.selected_style = index;
+    }
+    let _ = update;
     Update::RefreshDom
 }
 
-extern "C" fn on_toggle_bold(mut data: RefAny, _: CallbackInfo) -> Update {
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    state.bold = !state.bold;
+extern "C" fn on_toggle_bold(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let update = crate::apply_format_axis(&mut data, &mut info, crate::ir::FormatAxis::Bold);
+    if let Some(mut state) = data.downcast_mut::<AppState>() {
+        state.bold = !state.bold;
+    }
+    let _ = update;
     Update::RefreshDom
 }
 
-extern "C" fn on_toggle_italic(mut data: RefAny, _: CallbackInfo) -> Update {
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    state.italic = !state.italic;
+extern "C" fn on_toggle_italic(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let update = crate::apply_format_axis(&mut data, &mut info, crate::ir::FormatAxis::Italic);
+    if let Some(mut state) = data.downcast_mut::<AppState>() {
+        state.italic = !state.italic;
+    }
+    let _ = update;
     Update::RefreshDom
 }
 
-extern "C" fn on_toggle_underline(mut data: RefAny, _: CallbackInfo) -> Update {
-    let Some(mut state) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    state.underline = !state.underline;
+extern "C" fn on_toggle_underline(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let update = crate::apply_format_axis(&mut data, &mut info, crate::ir::FormatAxis::Underline);
+    if let Some(mut state) = data.downcast_mut::<AppState>() {
+        state.underline = !state.underline;
+    }
+    let _ = update;
     Update::RefreshDom
 }
 

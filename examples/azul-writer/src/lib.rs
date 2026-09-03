@@ -34,16 +34,16 @@ use std::path::{Path, PathBuf};
 
 use azul::app::{App, AppConfig};
 use azul::callbacks::{
-    CallbackInfo, DocumentChangeset, LayoutCallbackInfo, RefAny, TimerCallback,
+    CallbackInfo, LayoutCallbackInfo, RefAny, TimerCallback,
     TimerCallbackInfo, TimerCallbackReturn, Update, WriteBackCallback,
 };
 use azul::css::{
-    DocumentOperation, LayoutSize, NodePosition, SystemStyleDependency, WindowDecorations,
+    DocumentOperation, LayoutSize, SystemStyleDependency, WindowDecorations,
 };
 use azul::dialog::FileDialog;
-use azul::dom::{Callback, Dom, DomId, DomNodeId, NodeHierarchyItemId};
+use azul::dom::{Callback, Dom, DomId, DomNodeId};
 use azul::widgets::SliderState;
-use azul::misc::EditResumePoint;
+
 use azul::option::{
     OptionFileTypeList, OptionLogicalRect, OptionRefAny, OptionString, OptionThreadSendMsg,
 };
@@ -54,7 +54,7 @@ use azul::task::{
     TerminateTimer, Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSendMsg,
     ThreadSender, ThreadWriteBackMsg, Timer, TimerId,
 };
-use azul::time::{Duration, Instant, SystemTimeDiff};
+use azul::time::{Duration, SystemTimeDiff};
 use azul::window::{WindowCreateOptions, WindowFrame};
 
 pub use crate::args::Args;
@@ -102,24 +102,7 @@ fn root_dom_id() -> DomId {
     DomId { inner: 0 }
 }
 
-/// The "no node" id — the crate-internal `from_crate_internal(None)`
-/// encoding (inner 0).
-fn null_node_id() -> DomNodeId {
-    DomNodeId {
-        dom: root_dom_id(),
-        node: NodeHierarchyItemId::from_raw(0),
-    }
-}
 
-/// Coarse label for a document-edit error (the ABI enum carries no Debug).
-fn edit_err_str(e: &azul::error::DocumentEditError) -> &'static str {
-    use azul::error::DocumentEditError;
-    match e {
-        DocumentEditError::HostNotFound => "host not found",
-        DocumentEditError::TargetNotFound => "target not found",
-        DocumentEditError::Unsupported => "unsupported operation",
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -222,7 +205,11 @@ const PAGINATION_CHUNK_BLOCKS: u32 = 64;
 /// snapshot handle IS designed for off-thread pagination (its shared state
 /// is Arc/Mutex-guarded).
 struct PaginationThreadInit {
-    markdown: String,
+    /// The IR itself travels to the worker — deriving the content tree
+    /// from the markdown serialization would silently drop what markdown
+    /// cannot spell (page breaks, alignment), paginating a DIFFERENT tree
+    /// than the canvas renders.
+    ir: ir::IrDocument,
     generation: u64,
     fonts: Option<FontCacheSnapshot>,
 }
@@ -250,15 +237,15 @@ extern "C" fn pagination_worker(
 ) {
     use azul::dom::DomSplit;
 
-    let (markdown, generation, fonts) = {
+    let (doc_ir, generation, fonts) = {
         let Some(init) = init.downcast_ref::<PaginationThreadInit>() else {
             return;
         };
-        (init.markdown.clone(), init.generation, init.fonts.clone())
+        (init.ir.clone(), init.generation, init.fonts.clone())
     };
 
-    let total_blocks = document::markdown_block_count(&markdown) as u32;
-    let content = document::markdown_to_content_dom(&markdown);
+    let total_blocks = doc_ir.blocks.len() as u32;
+    let content = document::content_dom_from_ir(&doc_ir);
 
     let mut remaining = content;
     let mut block_offset: u32 = 0;
@@ -416,7 +403,7 @@ pub extern "C" fn on_pages_mounted(mut data: RefAny, mut info: CallbackInfo) -> 
     }
 
     let init = RefAny::new(PaginationThreadInit {
-        markdown: state.document.markdown.clone(),
+        ir: state.document.ir.clone(),
         generation,
         fonts,
     });
@@ -473,30 +460,19 @@ fn markdown_filter() -> OptionFileTypeList {
 /// `always_ask`), then runs the `document::save_markdown` seam.
 fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Update {
     let (current_path, model_snapshot) = {
-        let Some(state) = data.downcast_ref::<AppState>() else {
+        let Some(mut state) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
         };
+        // LIVE text: fold every un-synced character edit into the IR
+        // through the engine's text-sync loop (typed edits are not
+        // structural and fire no DocumentEdit; this is how they reach the
+        // saved markdown), then serialize the IR.
+        if sync_ir_text_from_engine(&mut state, info) {
+            state.document.refresh_derived();
+            state.document.dirty = true;
+        }
         let mut snapshot = state.document.clone();
-        // LIVE text: read each block's on-screen text back through the
-        // engine (`get_node_text_content` sees the text overlay, so typed
-        // edits — which are not structural and therefore fire no
-        // DocumentEdit — reach the saved markdown). Falls back to the
-        // model's own text for anything not currently rendered.
-        let mut provider = |path: &[u32]| -> Option<String> {
-            let id = document::path_dom_id(path)?;
-            let node = info.get_node_id_by_id_attribute(root_dom_id(), id);
-            // inner 0 = the None encoding (id not present in the DOM).
-            if node.into_raw() == 0 {
-                return None;
-            }
-            info.get_node_text_content(DomNodeId {
-                dom: root_dom_id(),
-                node,
-            })
-            .into_option()
-            .map(|s| s.as_str().to_string())
-        };
-        snapshot.markdown = document::dom_to_markdown(&snapshot.content, &mut provider);
+        snapshot.markdown = ir::to_markdown(&snapshot.ir);
         (state.document.path.clone(), snapshot)
     };
 
@@ -592,6 +568,150 @@ fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Upda
 /// Page->model mapping: pages are contiguous slices of the model's block
 /// list, so a changeset recorded against page `p` shifts by that page's
 /// block offset (`document::page_block_offsets`).
+/// Fold every un-synced character-level edit into the IR and ack the
+/// highest revision — the app half of the engine's text-sync loop
+/// (`get_unsynced_text_edits` / `mark_text_revision_synced`). Per-run
+/// precision: an edit node inside block `i` resolves to its run through
+/// `get_node_child_index_path`, so formatting on untouched runs survives
+/// typing. Returns true when the model changed (caller refreshes derived
+/// state).
+pub(crate) fn sync_ir_text_from_engine(state: &mut AppState, info: &mut CallbackInfo) -> bool {
+    let edits = info.get_unsynced_text_edits();
+    let edits = edits.as_ref();
+    if edits.is_empty() {
+        return false;
+    }
+    let total_blocks = state.document.ir.blocks.len();
+    let mut changed = false;
+    let mut max_revision = 0u64;
+    for edit in edits {
+        max_revision = max_revision.max(edit.revision);
+        let text = edit.text.as_str();
+        // Rendered blocks carry ids mw-blk-<model index>: resolve each
+        // block node in the edit's dom and containment-test the edit node.
+        let mut applied = false;
+        for i in 0..total_blocks {
+            let id = document::block_dom_id(i);
+            let block_node = info.get_node_id_by_id_attribute(edit.node.dom, id.as_str());
+            if block_node.into_raw() == 0 {
+                continue; // block not mounted in this dom
+            }
+            let block_id = DomNodeId {
+                dom: edit.node.dom,
+                node: block_node,
+            };
+            let Some(rel) = info
+                .get_node_child_index_path(block_id, edit.node)
+                .into_option()
+            else {
+                continue;
+            };
+            let rel = rel.as_ref();
+            applied = true;
+            changed |= match state.document.ir.blocks.get(i) {
+                Some(ir::IrBlock::Paragraph(_)) => match rel.first() {
+                    Some(&run) => ir::set_run_text(&mut state.document.ir, i, run as usize, text),
+                    None => ir::sync_block_text(&mut state.document.ir, &[i as u32], text),
+                },
+                Some(ir::IrBlock::List(_)) => {
+                    let item = rel.first().copied().unwrap_or(0);
+                    ir::sync_block_text(&mut state.document.ir, &[i as u32, item], text)
+                }
+                _ => false,
+            };
+            break;
+        }
+        if !applied {
+            // Not part of the document (some other editable): leave it to
+            // its owner, but still ack — the engine clamps monotonically
+            // and equality-GC keeps un-owned entries authoritative.
+        }
+    }
+    info.mark_text_revision_synced(max_revision);
+    changed
+}
+
+/// Which model block contains `node` (a selection span's or caret's node),
+/// plus the node's child-index path inside that block. Resolution goes
+/// through the rendered block ids (mw-blk-<model index>), so it works in
+/// whatever dom the page is mounted in.
+pub(crate) fn map_node_to_block(
+    state: &AppState,
+    info: &mut CallbackInfo,
+    node: DomNodeId,
+) -> Option<(usize, Vec<u32>)> {
+    for i in 0..state.document.ir.blocks.len() {
+        let id = document::block_dom_id(i);
+        let block_node = info.get_node_id_by_id_attribute(node.dom, id.as_str());
+        if block_node.into_raw() == 0 {
+            continue;
+        }
+        let block_id = DomNodeId {
+            dom: node.dom,
+            node: block_node,
+        };
+        if let Some(rel) = info.get_node_child_index_path(block_id, node).into_option() {
+            return Some((i, rel.as_ref().to_vec()));
+        }
+    }
+    None
+}
+
+/// Map an engine selection span onto (block index, byte range in the
+/// block's FLATTENED text): the span's bytes index the span node's own
+/// text, so they shift by the preceding runs' lengths.
+pub(crate) fn map_span_to_block_range(
+    state: &AppState,
+    info: &mut CallbackInfo,
+    span: &azul::dom::DocumentSelectionSpan,
+) -> Option<(usize, usize, usize)> {
+    let (block, rel) = map_node_to_block(state, info, span.node)?;
+    let run_start: usize = match state.document.ir.blocks.get(block) {
+        Some(ir::IrBlock::Paragraph(p)) => {
+            let run_idx = rel.first().copied().unwrap_or(0) as usize;
+            p.runs
+                .iter()
+                .take(run_idx)
+                .map(|r| r.text.len())
+                .sum()
+        }
+        _ => 0,
+    };
+    Some((
+        block,
+        run_start + span.start_byte as usize,
+        run_start + span.end_byte as usize,
+    ))
+}
+
+/// A ribbon formatting command: sync live text (the selection's bytes are
+/// measured against it), toggle the axis over every selected range in the
+/// IR, re-render. The office-suite semantics of `toggle_format_range`
+/// apply per block: any-unset -> set, else clear.
+pub(crate) fn apply_format_axis(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    axis: ir::FormatAxis,
+) -> Update {
+    let Some(mut state) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let mut changed = sync_ir_text_from_engine(&mut state, info);
+    let spans = info.get_document_selection();
+    for span in spans.as_ref() {
+        if let Some((block, start, end)) = map_span_to_block_range(&state, info, span) {
+            changed |= ir::toggle_format_range(&mut state.document.ir, block, start, end, axis);
+        }
+    }
+    if changed {
+        state.document.refresh_derived();
+        state.document.dirty = true;
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
+}
+
 pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let changeset = match info.get_document_edit_clone().into_option() {
         Some(c) => c,
@@ -602,50 +722,53 @@ pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> 
         return Update::DoNothing;
     };
 
+    // Character edits FIRST: the structural op's byte positions were
+    // measured against the live (overlay) text, so the IR must hold that
+    // text before splitting at those bytes.
+    let synced = sync_ir_text_from_engine(&mut state, &mut info);
+
     // Which page hosts the edit? The engine addresses the CURRENT DOM; the
-    // canvas renders one sheet per page in order, so the page index is the
-    // edit's position among the rendered pages. Re-derive the offsets from
-    // the same pagination the canvas used.
+    // canvas renders one sheet per page in order. The changeset's resume
+    // path is PAGE-local; shift its head by the page's model offset.
     let pages = document::paginate_cached(&state.document.content, state.document.generation);
     let offsets = document::page_block_offsets(&pages);
     let page_index = state.editing_page.min(offsets.len().saturating_sub(1));
     let page_offset = offsets.get(page_index).copied().unwrap_or(0);
+    let mut resume: Vec<u32> = changeset.resume.node_path.as_ref().to_vec();
+    if let Some(first) = resume.first_mut() {
+        *first += page_offset as u32;
+    }
 
-    // The operation edits the child list of the model ROOT (blocks live
-    // there); the mapped host path is [] shifted by nothing, while the
-    // resume path inside the changeset already names the block index.
-    let host_path = document::page_path_to_model_path(page_offset, &[]);
-
-    let applied = match changeset
-        .apply_to_dom(&mut state.document.content, host_path)
-        .into_result()
-    {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("[azwriter] edit apply failed: {}", edit_err_str(&e));
-            return Update::DoNothing;
+    let Some((inverse, inverse_resume)) =
+        ir::apply_operation(&mut state.document.ir, &changeset.operation, &resume)
+    else {
+        eprintln!("[azwriter] edit apply failed: operation not mirrorable onto the IR");
+        if synced {
+            state.document.refresh_derived();
+            state.document.dirty = true;
         }
+        return if synced {
+            Update::RefreshDom
+        } else {
+            Update::DoNothing
+        };
     };
 
-    // Record the inverse for undo, with the resume the engine handed back.
-    state.undo_stack.push((
-        applied.inverse.clone(),
-        applied.inverse_resume.node_path.as_ref().to_vec(),
-    ));
+    // Record the inverse for undo (same shape the engine's applier hands
+    // back: the op + ITS resume path).
+    state.undo_stack.push((inverse.clone(), inverse_resume));
     state.redo_stack.clear(); // a new edit orphans the redo branch
 
-    // The model is the source of truth: re-serialize so a save writes the
-    // edited document and the word count stays honest.
-    let mut provider = |_: &[u32]| None;
-    state.document.markdown = document::dom_to_markdown(&state.document.content, &mut provider);
+    // The IR is the source of truth: re-derive the render tree and the
+    // markdown so a save writes the edited document and the word count
+    // stays honest.
+    state.document.refresh_derived();
     state.document.dirty = true;
-    // The model tree changed: invalidate the pagination memo exactly once.
-    state.document.touch();
     drop(state);
 
     // Commit handshake: the ACK ends the engine's preview and makes the
     // edit undoable through the same record->apply->ack loop.
-    info.mark_document_edit_applied_with_inverse(changeset.id, applied.inverse);
+    info.mark_document_edit_applied_with_inverse(changeset.id, inverse);
     Update::RefreshDom
 }
 
@@ -745,35 +868,6 @@ pub extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Upd
     }
 }
 
-/// Replay a recorded operation against the model and return its own inverse
-/// (so undo and redo are the same code path in both directions).
-fn replay(
-    model: &mut Dom,
-    op: &DocumentOperation,
-    resume_path: &[u32],
-) -> Option<(DocumentOperation, Vec<u32>)> {
-    let changeset = DocumentChangeset::new(
-        null_node_id(),
-        op.clone(),
-        EditResumePoint {
-            anchor_key: 0,
-            node_path: resume_path.to_vec().into(),
-            position: NodePosition {
-                child_index: 0,
-                text_byte: Some(0).into(),
-            },
-        },
-        Instant::now(),
-    );
-    let applied = changeset
-        .apply_to_dom(model, Vec::<u32>::new())
-        .into_result()
-        .ok()?;
-    Some((
-        applied.inverse,
-        applied.inverse_resume.node_path.as_ref().to_vec(),
-    ))
-}
 
 /// Quick-access / Ctrl+Z: undo the last structural edit.
 pub extern "C" fn on_undo(mut data: RefAny, _: CallbackInfo) -> Update {
@@ -783,19 +877,14 @@ pub extern "C" fn on_undo(mut data: RefAny, _: CallbackInfo) -> Update {
     let Some((op, path)) = state.undo_stack.pop() else {
         return Update::DoNothing;
     };
-    let mut model = state.document.content.clone();
-    let Some(redo_entry) = replay(&mut model, &op, &path) else {
+    let Some(redo_entry) = ir::apply_operation(&mut state.document.ir, &op, &path) else {
         // Put it back: a failed apply must not silently eat history.
         state.undo_stack.push((op, path));
         return Update::DoNothing;
     };
-    state.document.content = model;
     state.redo_stack.push(redo_entry);
-    let mut none_provider = |_: &[u32]| None;
-    state.document.markdown =
-        document::dom_to_markdown(&state.document.content, &mut none_provider);
+    state.document.refresh_derived();
     state.document.dirty = true;
-    state.document.touch();
     Update::RefreshDom
 }
 
@@ -807,18 +896,13 @@ pub extern "C" fn on_redo(mut data: RefAny, _: CallbackInfo) -> Update {
     let Some((op, path)) = state.redo_stack.pop() else {
         return Update::DoNothing;
     };
-    let mut model = state.document.content.clone();
-    let Some(undo_entry) = replay(&mut model, &op, &path) else {
+    let Some(undo_entry) = ir::apply_operation(&mut state.document.ir, &op, &path) else {
         state.redo_stack.push((op, path));
         return Update::DoNothing;
     };
-    state.document.content = model;
     state.undo_stack.push(undo_entry);
-    let mut none_provider = |_: &[u32]| None;
-    state.document.markdown =
-        document::dom_to_markdown(&state.document.content, &mut none_provider);
+    state.document.refresh_derived();
     state.document.dirty = true;
-    state.document.touch();
     Update::RefreshDom
 }
 

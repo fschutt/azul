@@ -48,6 +48,7 @@ dependencies = [
  "azul-dll",
  "ctor",
  "docx-parser",
+ "flate2",
  "pulldown-cmark",
  "serde",
  "serde_json",

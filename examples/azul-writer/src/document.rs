@@ -18,12 +18,10 @@
 
 use std::path::{Path, PathBuf};
 
-use azul::css::{BoxOrStaticString, Css, LayoutSize, LogicalSize};
+use azul::css::{BoxOrStaticString, LayoutSize, LogicalSize};
 use azul::dom::{Dom, DomSplit, NodeType};
-use azul::error::XmlError;
 use azul::misc::PaginationSnapshot;
 use azul::pdf::Pdf;
-use azul::xml::Xml;
 
 /// Snapshot handles the pagination call takes. Re-exported through this
 /// module so every caller names ONE source.
@@ -63,6 +61,14 @@ pub fn empty_font_cache() -> FontCacheSnapshot {
 /// cache — this preserves that exactly.
 pub fn empty_image_cache() -> ImageCacheSnapshot {
     ImageCacheSnapshot::empty()
+}
+
+/// Render an IR into the canvas content tree with the document stylesheet
+/// (the one place outside this module that needs `DOC_CSS`: the pagination
+/// worker rebuilds the same tree the canvas shows).
+#[must_use]
+pub fn content_dom_from_ir(ir: &crate::ir::IrDocument) -> Dom {
+    crate::ir::to_content_dom(ir, DOC_CSS)
 }
 
 /// Read the text out of a `NodeType::Text` / `NodeType::Icon` payload.
@@ -119,11 +125,16 @@ pub struct DocumentModel {
     /// Where the document came from / was last saved to. `None` = the
     /// unsaved "Document1".
     pub path: Option<PathBuf>,
-    /// Raw markdown source (the save round-trip writes this back).
+    /// THE document model: the format-neutral IR every mapper feeds
+    /// (markdown, docx) and every edit mutates. `content` and `markdown`
+    /// are DERIVED caches of it — see [`Self::refresh_derived`].
+    pub ir: crate::ir::IrDocument,
+    /// Markdown serialization of `ir` (the save round-trip writes this
+    /// back; pagination workers use its length for budget estimates).
     pub markdown: String,
-    /// Parsed content DOM, rebuilt whenever `markdown` changes. This is the
-    /// SOURCE OF TRUTH the C11 edit loop mutates; `markdown` is re-serialized
-    /// from it after every applied edit.
+    /// Rendered content DOM of `ir`, cached so `layout()` never re-renders.
+    /// One root child per IR block, one node per run — the invariants the
+    /// changeset/pagination index spaces rely on (see `ir::to_content_dom`).
     pub content: Dom,
     /// Unsaved changes since the last save/load.
     pub dirty: bool,
@@ -138,10 +149,13 @@ impl DocumentModel {
     /// The blank, unsaved "Document1".
     #[must_use]
     pub fn untitled() -> Self {
+        let ir = crate::ir::from_markdown("");
+        let content = crate::ir::to_content_dom(&ir, DOC_CSS);
         Self {
             path: None,
+            ir,
             markdown: String::new(),
-            content: blank_document(),
+            content,
             dirty: false,
             generation: next_generation(),
         }
@@ -156,22 +170,40 @@ impl DocumentModel {
         // and the blank page was misread as four separate engine bugs
         // (no text, no caret, dead click, no scrollbar). The error text
         // renders as the document body, so the mistake explains itself.
-        let markdown = match std::fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("[azwriter] cannot open {}: {e}", path.display());
-                format!(
-                    "# Cannot open document\n\n`{}`\n\n{}\n\n(cwd: `{}`)",
-                    path.display(),
-                    e,
-                    std::env::current_dir()
-                        .map_or_else(|_| "?".into(), |d| d.display().to_string()),
-                )
+        let error_doc = |e: String| {
+            eprintln!("[azwriter] cannot open {}: {e}", path.display());
+            crate::ir::from_markdown(&format!(
+                "# Cannot open document\n\n`{}`\n\n{}\n\n(cwd: `{}`)",
+                path.display(),
+                e,
+                std::env::current_dir().map_or_else(|_| "?".into(), |d| d.display().to_string()),
+            ))
+        };
+        // Dispatch by extension: .docx goes through the docx importer into
+        // the same IR the markdown path fills. Everything else is markdown.
+        let is_docx = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("docx"));
+        let ir = if is_docx {
+            match std::fs::read(path) {
+                Ok(bytes) => match crate::ir::from_docx_bytes(&bytes) {
+                    Ok(ir) => ir,
+                    Err(e) => error_doc(e),
+                },
+                Err(e) => error_doc(e.to_string()),
+            }
+        } else {
+            match std::fs::read_to_string(path) {
+                Ok(md) => crate::ir::from_markdown(&md),
+                Err(e) => error_doc(e.to_string()),
             }
         };
-        let content = markdown_to_content_dom(&markdown);
+        let content = crate::ir::to_content_dom(&ir, DOC_CSS);
+        let markdown = crate::ir::to_markdown(&ir);
         Self {
             path: Some(path.to_path_buf()),
+            ir,
             markdown,
             content,
             dirty: false,
@@ -179,9 +211,20 @@ impl DocumentModel {
         }
     }
 
-    /// Re-parse `markdown` into the cached content DOM (call after edits).
+    /// Re-derive `content` + `markdown` from the IR after a model mutation
+    /// (a structural edit, a formatting command, a text sync) and bump the
+    /// generation so the pagination memo recomputes exactly once.
+    pub fn refresh_derived(&mut self) {
+        self.content = crate::ir::to_content_dom(&self.ir, DOC_CSS);
+        self.markdown = crate::ir::to_markdown(&self.ir);
+        self.generation = next_generation();
+    }
+
+    /// Re-parse `markdown` into the model (markdown is authoritative ONLY
+    /// here: callers that set `markdown` wholesale, e.g. New/Open flows).
     pub fn reparse(&mut self) {
-        self.content = markdown_to_content_dom(&self.markdown);
+        self.ir = crate::ir::from_markdown(&self.markdown);
+        self.content = crate::ir::to_content_dom(&self.ir, DOC_CSS);
         self.generation = next_generation();
     }
 
@@ -309,25 +352,6 @@ pub fn blank_document() -> Dom {
 // SEAM 1: load  (markdown -> HTML -> azul XML parser -> Dom)
 // ============================================================================
 
-/// Coarse human-readable tag for an [`XmlError`] (the ABI enum carries no
-/// Display impl; the exact byte position matters less than WHICH failure).
-fn xml_error_kind(e: &XmlError) -> &'static str {
-    match e {
-        XmlError::NoParserAvailable => "no XML parser available",
-        XmlError::NoRootNode => "no root node",
-        XmlError::SizeLimit => "size limit reached",
-        XmlError::DtdDetected => "DTD detected",
-        XmlError::MalformedHierarchy(_) => "malformed hierarchy",
-        XmlError::ParserError(_) => "parser error",
-        XmlError::UnclosedRootNode => "unclosed root node",
-        XmlError::UnexpectedCloseTag(_) => "unexpected close tag",
-        XmlError::UnknownEntityReference(_) => "unknown entity reference",
-        XmlError::DuplicatedAttribute(_) => "duplicated attribute",
-        XmlError::InvalidAttributeValue(_) => "invalid attribute value",
-        XmlError::UnexpectedEndOfStream => "unexpected end of stream",
-        _ => "invalid XML",
-    }
-}
 
 /// Where `--dump-xml` writes the generated document XML.
 ///
@@ -344,9 +368,6 @@ pub fn init_dump_xml(path: Option<PathBuf>) {
     let _ = DUMP_XML.set(path);
 }
 
-fn dump_xml_path() -> Option<&'static Path> {
-    DUMP_XML.get()?.as_deref()
-}
 
 /// markdown source -> content `Dom`, through the full pipeline:
 /// pulldown-cmark renders HTML, the azul XML parser turns it into an
@@ -354,103 +375,14 @@ fn dump_xml_path() -> Option<&'static Path> {
 /// `Dom.css` (applied by the normal cascade inside the app's DOM).
 #[must_use]
 pub fn markdown_to_content_dom(markdown: &str) -> Dom {
-    use pulldown_cmark::{html, Options, Parser};
-
-    let mut opts = Options::empty();
-    opts.insert(Options::ENABLE_STRIKETHROUGH);
-    opts.insert(Options::ENABLE_TABLES);
-    let parser = Parser::new_ext(markdown, opts);
-    let mut body = String::new();
-    html::push_html(&mut body, parser);
-
-    // the classic office-suite implicit empty paragraph: an empty document must still have
-    // ONE paragraph node, or the caret has nothing to anchor to — a blank
-    // page with a dead click is exactly what that looks like.
-    if body.trim().is_empty() {
-        body = "<p></p>".to_string();
-    }
-
-    let xml = format!("<html><head><style>{DOC_CSS}</style></head><body>{body}</body></html>");
-    if let Some(dump) = dump_xml_path() {
-        let _ = std::fs::write(dump, &xml);
-    }
-    match Xml::from_str(xml).into_result() {
-        Ok(parsed) => {
-            let full = Dom::create_from_parsed_xml(parsed);
-            unwrap_html_shell(full)
-        }
-        Err(e) => Dom::create_div()
-            .with_css(DOC_CSS)
-            .with_child(Dom::create_p_with_text(format!(
-                "markdown parse error: {}",
-                xml_error_kind(&e)
-            ))),
-    }
+    // md -> IR -> Dom: pulldown events build the IR, the IR renders the
+    // content tree directly. (This replaced the md -> HTML string -> XML
+    // parser round-trip; the IR guarantees the block/run index invariants
+    // the edit loop needs, and inline formatting survives the trip.)
+    crate::ir::to_content_dom(&crate::ir::from_markdown(markdown), DOC_CSS)
 }
 
-/// Drop whitespace-only text nodes RECURSIVELY. CSS 2.1 §9.2.2.1 collapses
-/// them away (they generate no boxes), and keeping them makes child indices
-/// disagree with the visible children at EVERY level — the top-level case
-/// broke changeset resume paths, the nested case (inter-`<li>` newlines
-/// inside a `<ul>`) breaks the serializer's `[block, child]` paths and the
-/// ids built from them.
-///
-/// `pre` is skipped: there whitespace is content, not markup formatting.
-fn strip_layout_whitespace(children: &[Dom]) -> Vec<Dom> {
-    children
-        .iter()
-        .filter(|c| match &c.root.node_type {
-            NodeType::Text(t) => !box_str(t).trim().is_empty(),
-            _ => true,
-        })
-        .map(|c| {
-            let mut kept = c.clone();
-            if !matches!(kept.root.node_type, NodeType::Pre) {
-                kept.children = strip_layout_whitespace(kept.children.as_ref()).into();
-                kept.fixup_children_estimated();
-            }
-            kept
-        })
-        .collect()
-}
 
-/// The XML parser returns the full `<html><body>…` document; the editor
-/// embeds CONTENT inside its own DOM, so the shell nodes must go: a nested
-/// `Html`/`Body` measures as an empty box inside an app tree (and the page
-/// stayed blank). Take body's children as the content, and carry the
-/// `<style>` blocks (attached to the html node) on the new root so the
-/// document stylesheet still scopes the subtree.
-fn unwrap_html_shell(full: Dom) -> Dom {
-    let mut content = Dom::create_div();
-    // The document is editable: the flag lives on the content ROOT, so the
-    // per-page split clones (same NodeData shape) are all editable too.
-    content.root.set_contenteditable(true);
-    content.css = full.css.clone();
-    let body = full
-        .children
-        .as_ref()
-        .iter()
-        .find(|c| matches!(c.root.node_type, NodeType::Body));
-    if let Some(body) = body {
-        // Drop inter-block whitespace-only text nodes. CSS 2.1 §9.2.2.1
-        // collapses them away (they generate no boxes), and keeping them
-        // would make the model's child indices disagree with the visible
-        // block indices — the page->model path mapping, the changeset
-        // resume paths and the markdown serializer all address blocks by
-        // child index, so a phantom node between every pair shifts every
-        // edit by one.
-        content.children = strip_layout_whitespace(body.children.as_ref()).into();
-        // body-level <style> blocks (rare) must survive too.
-        let mut css: Vec<Css> = content.css.as_ref().to_vec();
-        css.extend(body.css.as_ref().iter().cloned());
-        content.css = css.into();
-    } else {
-        // No shell (already a fragment): keep as-is.
-        return full;
-    }
-    content.fixup_children_estimated();
-    content
-}
 
 /// Loads a markdown file and returns the document CONTENT DOM (not yet
 /// paginated — feed it to [`paginate`]). Prefer `DocumentModel::from_path`,
@@ -1273,6 +1205,13 @@ mod pdf_export_tests {
     use super::*;
     use azul::css::StyledDom;
 
+    fn find_from(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+        hay.get(from..)?
+            .windows(needle.len())
+            .position(|w| w == needle)
+            .map(|p| p + from)
+    }
+
     /// The capstone's f(markdown -> Dom -> PDF): the content DOM the canvas
     /// shows, styled and handed to the engine's typed PDF path, must yield
     /// a real multi-page PDF (header + page objects + embedded text).
@@ -1304,7 +1243,33 @@ mod pdf_export_tests {
             out.len()
         );
         assert_eq!(&out[..5], b"%PDF-", "PDF header");
-        let text = String::from_utf8_lossy(out);
+        // Content streams are FlateDecode-compressed: inflate every stream
+        // so the operator scan below sees the actual content ops (the
+        // plaintext scan silently matched nothing once compression landed,
+        // and this test lost its subject).
+        let mut text = String::from_utf8_lossy(out).into_owned();
+        {
+            use std::io::Read;
+            let mut at = 0usize;
+            while let Some(s_off) = find_from(out, b"stream", at) {
+                let data_start = match out.get(s_off + 6) {
+                    Some(b'\r') => s_off + 8,
+                    Some(b'\n') => s_off + 7,
+                    _ => s_off + 6,
+                };
+                let Some(e_off) = find_from(out, b"endstream", data_start) else {
+                    break;
+                };
+                let mut inflated = String::new();
+                let mut dec = flate2::read::ZlibDecoder::new(&out[data_start..e_off]);
+                if dec.read_to_string(&mut inflated).is_ok() {
+                    text.push('\n');
+                    text.push_str(&inflated);
+                }
+                at = e_off + 9;
+            }
+        }
+        let text = text;
         assert!(
             text.contains("/Type /Page") || text.contains("/Type/Page"),
             "page objects"

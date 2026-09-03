@@ -48,6 +48,11 @@ crate-type = ["rlib", "cdylib"]
 name = "AzWriter"
 path = "src/main.rs"
 
+[dev-dependencies]
+# Test-only: inflate PDF content streams so the export test can assert on
+# the text-matrix geometry inside them (streams are FlateDecode-compressed).
+flate2 = "1"
+
 [features]
 # Engine telemetry (opt-in at runtime via AZ_TELEMETRY): frame durations +
 # solver/raster spans from real runs, e.g. driving the app through e2e tests

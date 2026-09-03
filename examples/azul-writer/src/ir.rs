@@ -600,9 +600,16 @@ fn runs_to_markdown(runs: &[IrRun]) -> String {
 /// same contenteditable `div` the markdown pipeline always produced.
 #[must_use]
 pub fn to_content_dom(doc: &IrDocument, doc_css: &str) -> Dom {
-    let mut content = Dom::create_div();
-    content.set_contenteditable(true);
-    let mut root = content.with_css(doc_css);
+    let mut root = Dom::create_div();
+    root.set_contenteditable(true);
+    // The document stylesheet is AUTHOR css (selector rules like
+    // `p { margin-bottom: 11px; }`), so it rides the subtree-stylesheet
+    // slot (`Dom.css`, the cascade's input) — `with_css` parses INLINE
+    // declarations for the node itself and is the wrong door for a sheet.
+    if !doc_css.trim().is_empty() {
+        let sheet = azul::css::Css::from_string(doc_css);
+        root.css = vec![sheet].into();
+    }
 
     for block in &doc.blocks {
         root.add_child(block_to_dom(block));
@@ -952,6 +959,362 @@ pub fn from_docx_bytes(data: &[u8]) -> Result<IrDocument, String> {
 }
 
 // ============================================================================
+// Editing: the engine changeset mirror + formatting + text sync
+// ============================================================================
+
+use azul::css::DocumentOperation;
+use azul::dom::{DocOpMergeNodes, DocOpSplitNode};
+
+/// One inline formatting axis a toolbar toggles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormatAxis {
+    Bold,
+    Italic,
+    Underline,
+    Strike,
+}
+
+fn floor_char_boundary(s: &str, mut b: usize) -> usize {
+    b = b.min(s.len());
+    while b > 0 && !s.is_char_boundary(b) {
+        b -= 1;
+    }
+    b
+}
+
+/// Merge adjacent same-format runs and drop empty ones — restores the
+/// "runs are maximal" invariant after splicing.
+pub fn normalize_runs(runs: &mut Vec<IrRun>) {
+    let old = core::mem::take(runs);
+    for run in old {
+        push_run(runs, run);
+    }
+}
+
+/// Apply an engine [`DocumentOperation`] to the IR — the block-level mirror
+/// of the engine's own `apply_document_operation` (same index and position
+/// semantics: `resume_path.last()` names the block AFTER a split / the
+/// SURVIVOR of a merge; `at.child_index` addresses the block's runs/items;
+/// a `text_byte` cuts the addressed run). Returns the inverse operation and
+/// ITS resume path (the same pair the engine's `AppliedEdit` carries), or
+/// `None` when the op cannot be mirrored (unknown variant, out of range).
+pub fn apply_operation(
+    doc: &mut IrDocument,
+    op: &DocumentOperation,
+    resume_path: &[u32],
+) -> Option<(DocumentOperation, Vec<u32>)> {
+    let resume_last = resume_path.last().copied().unwrap_or(0);
+    match op {
+        DocumentOperation::SplitNode(split) => {
+            let idx = (resume_last as usize).saturating_sub(1);
+            if idx >= doc.blocks.len() {
+                return None;
+            }
+            let ci = split.at.child_index as usize;
+            let byte = split.at.text_byte.into_option();
+            let second = match &mut doc.blocks[idx] {
+                IrBlock::Paragraph(p) => {
+                    let mut tail: Vec<IrRun> = Vec::new();
+                    match byte {
+                        Some(b) if ci < p.runs.len() => {
+                            let run = &mut p.runs[ci];
+                            let cut = floor_char_boundary(&run.text, b as usize);
+                            let mut head_run = run.clone();
+                            let tail_text = run.text[cut..].to_string();
+                            head_run.text = run.text[..cut].to_string();
+                            let mut tail_run = run.clone();
+                            tail_run.text = tail_text;
+                            *run = head_run;
+                            tail.push(tail_run);
+                            tail.extend(p.runs.drain(ci + 1..));
+                        }
+                        _ => {
+                            tail.extend(p.runs.drain(ci.min(p.runs.len())..));
+                        }
+                    }
+                    let mut tail_p = IrParagraph {
+                        style: p.style.clone(),
+                        align: p.align,
+                        runs: tail,
+                    };
+                    normalize_runs(&mut p.runs);
+                    normalize_runs(&mut tail_p.runs);
+                    IrBlock::Paragraph(tail_p)
+                }
+                IrBlock::List(l) => {
+                    let items = l.items.split_off(ci.min(l.items.len()));
+                    IrBlock::List(IrList {
+                        ordered: l.ordered,
+                        items,
+                    })
+                }
+                IrBlock::Table(t) => {
+                    let rows = t.rows.split_off(ci.min(t.rows.len()));
+                    IrBlock::Table(IrTable {
+                        has_header: false,
+                        rows,
+                    })
+                }
+                // A childless block splits into itself + an empty clone of
+                // its shape — the engine mirror of "clone NodeData, move no
+                // children".
+                IrBlock::Rule => IrBlock::Rule,
+                IrBlock::PageBreak => IrBlock::PageBreak,
+            };
+            doc.blocks.insert(idx + 1, second);
+            Some((
+                DocumentOperation::MergeNodes(DocOpMergeNodes {
+                    first: split.node,
+                    second: split.node,
+                    join: split.at,
+                }),
+                vec![idx as u32],
+            ))
+        }
+        DocumentOperation::MergeNodes(merge) => {
+            let first = resume_last as usize;
+            if first + 1 >= doc.blocks.len() {
+                return None;
+            }
+            let second = doc.blocks.remove(first + 1);
+            let join_is_text = merge.join.text_byte.into_option().is_some();
+            match (&mut doc.blocks[first], second) {
+                (IrBlock::Paragraph(a), IrBlock::Paragraph(b)) => {
+                    if join_is_text {
+                        for run in b.runs {
+                            push_run(&mut a.runs, run);
+                        }
+                    } else {
+                        a.runs.extend(b.runs);
+                    }
+                }
+                (IrBlock::List(a), IrBlock::List(b)) => a.items.extend(b.items),
+                (IrBlock::Paragraph(a), IrBlock::List(b)) => {
+                    for item in b.items {
+                        for run in item.runs {
+                            push_run(&mut a.runs, run);
+                        }
+                    }
+                }
+                (IrBlock::List(a), IrBlock::Paragraph(b)) => {
+                    a.items.push(IrListItem { runs: b.runs });
+                }
+                // Structure-only seams (rules, tables meeting paragraphs):
+                // the second block's text is best-effort appended; a rule
+                // absorbs nothing.
+                (IrBlock::Table(a), IrBlock::Table(b)) => a.rows.extend(b.rows),
+                (_, _second) => {}
+            }
+            Some((
+                DocumentOperation::SplitNode(DocOpSplitNode {
+                    node: merge.first,
+                    at: merge.join,
+                }),
+                vec![(first + 1) as u32],
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// Which runs (by index) a `[start, end)` byte range of the block's
+/// FLATTENED text covers, splitting partially-covered runs first so the
+/// covered set is exact. Returns the covered index range.
+fn split_runs_at_range(
+    runs: &mut Vec<IrRun>,
+    start: usize,
+    end: usize,
+) -> core::ops::Range<usize> {
+    // Clamp BOTH bounds to char boundaries of the flattened text first —
+    // the same clamped values drive the splits AND the coverage walk, or a
+    // mid-code-point bound covers one run too many.
+    let flat = flatten_runs(runs);
+    let start = floor_char_boundary(&flat, start);
+    let end = floor_char_boundary(&flat, end).max(start);
+
+    // Split at `end` FIRST (so `start` offsets stay valid), then at `start`.
+    let split_at = |runs: &mut Vec<IrRun>, byte: usize| {
+        let mut acc = 0usize;
+        for i in 0..runs.len() {
+            let len = runs[i].text.len();
+            if byte > acc && byte < acc + len {
+                let cut = byte - acc;
+                if runs[i].text.is_char_boundary(cut) {
+                    let mut tail = runs[i].clone();
+                    tail.text = runs[i].text[cut..].to_string();
+                    runs[i].text.truncate(cut);
+                    runs.insert(i + 1, tail);
+                }
+                return;
+            }
+            acc += len;
+        }
+    };
+    split_at(runs, end);
+    split_at(runs, start);
+
+    // After the splits, `start` and `end` both lie on run boundaries: the
+    // covered set is [first run starting at `start` .. first run starting
+    // at `end`). An empty range (start == end) is a pure insertion point.
+    let mut acc = 0usize;
+    let mut first = None;
+    let mut last = None;
+    for (i, run) in runs.iter().enumerate() {
+        if acc == start && first.is_none() {
+            first = Some(i);
+        }
+        if acc >= end {
+            last = Some(i);
+            break;
+        }
+        acc += run.text.len();
+    }
+    if first.is_none() && acc == start {
+        first = Some(runs.len());
+    }
+    let first = first.unwrap_or(runs.len());
+    let last = last.unwrap_or(runs.len());
+    first..last.max(first)
+}
+
+/// Toggle one formatting axis over `[start_byte, end_byte)` of block
+/// `block_idx`'s flattened text (a `DocumentSelectionSpan` mapped into the
+/// model). Word-processor semantics: if ANY covered part lacks the flag,
+/// the whole range gains it; otherwise the whole range loses it. Returns
+/// false when the block has no editable runs or the range is empty.
+pub fn toggle_format_range(
+    doc: &mut IrDocument,
+    block_idx: usize,
+    start_byte: usize,
+    end_byte: usize,
+    axis: FormatAxis,
+) -> bool {
+    if start_byte >= end_byte {
+        return false;
+    }
+    let runs = match doc.blocks.get_mut(block_idx) {
+        Some(IrBlock::Paragraph(p)) => &mut p.runs,
+        _ => return false,
+    };
+    let covered = split_runs_at_range(runs, start_byte, end_byte);
+    if covered.is_empty() {
+        return false;
+    }
+    let get = |r: &IrRun| match axis {
+        FormatAxis::Bold => r.bold,
+        FormatAxis::Italic => r.italic,
+        FormatAxis::Underline => r.underline,
+        FormatAxis::Strike => r.strike,
+    };
+    let target = !runs[covered.clone()].iter().all(get);
+    for run in &mut runs[covered] {
+        match axis {
+            FormatAxis::Bold => run.bold = target,
+            FormatAxis::Italic => run.italic = target,
+            FormatAxis::Underline => run.underline = target,
+            FormatAxis::Strike => run.strike = target,
+        }
+    }
+    normalize_runs(runs);
+    true
+}
+
+/// Replace ONE run's text wholesale (the per-run text-sync fast path: the
+/// engine's overlay is keyed on the session node, which renders as exactly
+/// one run). Formatting stays; empty text drops the run.
+pub fn set_run_text(doc: &mut IrDocument, block_idx: usize, run_idx: usize, text: &str) -> bool {
+    let runs = match doc.blocks.get_mut(block_idx) {
+        Some(IrBlock::Paragraph(p)) => &mut p.runs,
+        _ => return false,
+    };
+    if run_idx >= runs.len() {
+        // Typing into an empty paragraph: the engine's session sits on the
+        // block itself and no run exists yet — materialize one.
+        if runs.is_empty() && run_idx == 0 {
+            if text.is_empty() {
+                return false;
+            }
+            runs.push(IrRun::plain(text));
+            return true;
+        }
+        return false;
+    }
+    if runs[run_idx].text == text {
+        return false;
+    }
+    runs[run_idx].text = text.to_string();
+    normalize_runs(runs);
+    true
+}
+
+/// Set a block's paragraph style (the Styles gallery).
+pub fn set_block_style(doc: &mut IrDocument, block_idx: usize, style: IrParaStyle) -> bool {
+    match doc.blocks.get_mut(block_idx) {
+        Some(IrBlock::Paragraph(p)) => {
+            p.style = style;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Fold one engine text edit into the model: the block/item addressed by
+/// `path` (`[block]` or `[block, item]`) now reads `new_text`. A prefix/
+/// suffix diff confines the change to the touched runs, so formatting on
+/// untouched text survives typing; the changed middle inherits the format
+/// of the run it lands in.
+pub fn sync_block_text(doc: &mut IrDocument, path: &[u32], new_text: &str) -> bool {
+    let runs: &mut Vec<IrRun> = match (path, doc.blocks.get_mut(path.first().map_or(usize::MAX, |b| *b as usize))) {
+        ([_], Some(IrBlock::Paragraph(p))) => &mut p.runs,
+        ([_, item], Some(IrBlock::List(l))) => {
+            match l.items.get_mut(*item as usize) {
+                Some(it) => &mut it.runs,
+                None => return false,
+            }
+        }
+        _ => return false,
+    };
+    let old = flatten_runs(runs);
+    if old == new_text {
+        return false;
+    }
+
+    // Common prefix / suffix on char boundaries; the middle is the edit.
+    let mut prefix = old
+        .bytes()
+        .zip(new_text.bytes())
+        .take_while(|(a, b)| a == b)
+        .count();
+    prefix = floor_char_boundary(&old, prefix.min(new_text.len()));
+    let mut suffix = old
+        .bytes()
+        .rev()
+        .zip(new_text.bytes().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    suffix = suffix.min(old.len() - prefix).min(new_text.len() - prefix);
+    while suffix > 0 && !old.is_char_boundary(old.len() - suffix) {
+        suffix -= 1;
+    }
+
+    let mid_new = &new_text[prefix..new_text.len() - suffix];
+    let covered = split_runs_at_range(runs, prefix, old.len() - suffix);
+
+    // The replacement inherits the format of the FIRST covered run, else of
+    // the run just before the cut, else plain.
+    let mut template = runs
+        .get(covered.start)
+        .or_else(|| covered.start.checked_sub(1).and_then(|i| runs.get(i)))
+        .cloned()
+        .unwrap_or_default();
+    template.text = mid_new.to_string();
+
+    runs.splice(covered, (!template.text.is_empty()).then_some(template));
+    normalize_runs(runs);
+    true
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -1056,6 +1419,94 @@ mod tests {
         assert!(matches!(&ir.blocks[3], IrBlock::PageBreak));
     }
 
+    fn split_op(block_after: u32, child: u32, byte: Option<u32>) -> (DocumentOperation, Vec<u32>) {
+        use azul::css::NodePosition;
+        use azul::dom::{DomId, DomNodeId, NodeHierarchyItemId};
+        let at = NodePosition {
+            child_index: child,
+            text_byte: byte.into(),
+        };
+        (
+            DocumentOperation::SplitNode(DocOpSplitNode {
+                node: DomNodeId {
+                    dom: DomId { inner: 0 },
+                    node: NodeHierarchyItemId::from_raw(0),
+                },
+                at,
+            }),
+            vec![block_after],
+        )
+    }
+
+    #[test]
+    fn split_paragraph_at_byte_mirrors_the_engine() {
+        let mut ir = from_markdown("Hello **bold** world\n");
+        // Split block 0 at run 0 ("Hello "), byte 3: "Hel" | "lo **bold** world".
+        let (op, resume) = split_op(1, 0, Some(3));
+        let (inverse, inv_resume) =
+            apply_operation(&mut ir, &op, &resume).expect("split applies");
+        assert_eq!(ir.blocks.len(), 2);
+        let IrBlock::Paragraph(a) = &ir.blocks[0] else { panic!() };
+        let IrBlock::Paragraph(b) = &ir.blocks[1] else { panic!() };
+        assert_eq!(flatten_runs(&a.runs), "Hel");
+        assert_eq!(flatten_runs(&b.runs), "lo bold world");
+        assert!(b.runs.iter().any(|r| r.bold), "bold survives the split");
+        // The inverse merge restores one block with runs intact.
+        let (_, _) = apply_operation(&mut ir, &inverse, &inv_resume).expect("merge applies");
+        assert_eq!(ir.blocks.len(), 1);
+        let IrBlock::Paragraph(p) = &ir.blocks[0] else { panic!() };
+        assert_eq!(flatten_runs(&p.runs), "Hello bold world");
+        assert!(p.runs.iter().any(|r| r.bold));
+    }
+
+    #[test]
+    fn toggle_bold_over_a_range_splits_runs_and_merges_back() {
+        let mut ir = from_markdown("hello world\n");
+        // Bold "world" (bytes 6..11).
+        assert!(toggle_format_range(&mut ir, 0, 6, 11, FormatAxis::Bold));
+        let IrBlock::Paragraph(p) = &ir.blocks[0] else { panic!() };
+        assert_eq!(p.runs.len(), 2, "{:?}", p.runs);
+        assert!(!p.runs[0].bold && p.runs[1].bold);
+        assert_eq!(p.runs[1].text, "world");
+        assert_eq!(to_markdown(&ir), "hello **world**\n");
+        // Toggling the same range again clears it and the runs merge back.
+        assert!(toggle_format_range(&mut ir, 0, 6, 11, FormatAxis::Bold));
+        let IrBlock::Paragraph(p) = &ir.blocks[0] else { panic!() };
+        assert_eq!(p.runs.len(), 1);
+        assert_eq!(to_markdown(&ir), "hello world\n");
+    }
+
+    #[test]
+    fn toggle_bold_respects_multibyte_boundaries() {
+        let mut ir = from_markdown("gr\u{00fc}\u{00df}e here\n");
+        // A range end landing INSIDE the 2-byte '\u{00df}' clamps to a char boundary
+        // instead of splitting the code point.
+        assert!(toggle_format_range(&mut ir, 0, 0, 5, FormatAxis::Bold));
+        let IrBlock::Paragraph(p) = &ir.blocks[0] else { panic!() };
+        let flat = flatten_runs(&p.runs);
+        assert_eq!(flat, "gr\u{00fc}\u{00df}e here", "no bytes lost: {flat:?}");
+        assert!(p.runs[0].bold);
+        assert_eq!(
+            p.runs[0].text, "gr\u{00fc}",
+            "the clamped range covers exactly the runs it touches"
+        );
+        assert!(!p.runs[1].bold, "{:?}", p.runs);
+    }
+
+    #[test]
+    fn sync_block_text_preserves_untouched_formatting() {
+        let mut ir = from_markdown("one **two** three\n");
+        // The user typed "XY" inside "three": new flat text.
+        assert!(sync_block_text(&mut ir, &[0], "one two thrXYee"));
+        let IrBlock::Paragraph(p) = &ir.blocks[0] else { panic!() };
+        assert_eq!(flatten_runs(&p.runs), "one two thrXYee");
+        assert!(
+            p.runs.iter().any(|r| r.bold && r.text == "two"),
+            "bold run untouched by an edit elsewhere: {:?}",
+            p.runs
+        );
+    }
+
     #[test]
     fn derived_title_and_word_count() {
         let ir = from_markdown(SAMPLE);
@@ -1098,3 +1549,5 @@ mod docx_end_to_end {
         assert_eq!(ir.derived_title().as_deref(), Some("A Real Heading"));
     }
 }
+
+
