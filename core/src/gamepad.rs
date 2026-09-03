@@ -146,6 +146,12 @@ pub struct GamepadState {
     /// nothing is touching. Not a `TouchPoint`: the pad surface is not the
     /// screen, so its coordinates are not window coordinates and must not be
     /// mistaken for them.
+    ///
+    /// ORIGIN IS BOTTOM-LEFT: `y` grows upward, like the thumbstick axes
+    /// beside it and unlike a window's y-down coordinates. Stated because the
+    /// underlying hardware disagrees with itself - a DualShock's raw HID
+    /// report counts y downward while the Game Controller framework normalizes
+    /// it upward - so a producer needs to be told which one this field is.
     pub touchpad_x: f32,
     /// See [`GamepadState::touchpad_x`].
     pub touchpad_y: f32,

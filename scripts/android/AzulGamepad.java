@@ -11,10 +11,18 @@
 package com.azul.gamepad;
 
 import android.app.Activity;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.hardware.input.InputManager;
+import android.os.Build;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public final class AzulGamepad {
 
@@ -22,6 +30,111 @@ public final class AzulGamepad {
 
     private static InputManager inputManager;
     private static InputManager.InputDeviceListener deviceListener;
+
+    // The per-controller sensor listeners, so they can be unregistered when
+    // the pad leaves. Keyed by device id; a pad with no IMU has no entry.
+    private static final Map<Integer, PadSensorListener> sensorListeners = new HashMap<>();
+
+    /**
+     * A controller's own accelerometer / gyroscope.
+     *
+     * The SensorManager here comes from InputDevice.getSensorManager(), which
+     * scopes it to ONE input device - so this is the pad's motion, not the
+     * phone's. That is the whole reason the values go to GamepadState rather
+     * than to the ordinary sensor path.
+     */
+    private static final class PadSensorListener implements SensorEventListener {
+        private final int deviceId;
+
+        PadSensorListener(int deviceId) {
+            this.deviceId = deviceId;
+        }
+
+        @Override
+        public void onSensorChanged(SensorEvent event) {
+            if (event == null || event.values == null || event.values.length < 3) {
+                return;
+            }
+            // The sensor TYPE is passed through unchanged: the Rust side keys
+            // on Android's own constant, so there is no second numbering that
+            // could drift out of sync with this file.
+            nativeOnMotionSensor(deviceId, event.sensor.getType(),
+                    event.values[0], event.values[1], event.values[2]);
+        }
+
+        @Override
+        public void onAccuracyChanged(Sensor sensor, int accuracy) {}
+    }
+
+    /**
+     * Subscribe to a controller's IMU, if it has one.
+     *
+     * API 31. The version check is NOT optional even though this compiles
+     * against a newer SDK: getSensorManager() does not exist on an older
+     * device and calling it there is a NoSuchMethodError at runtime, which
+     * would take the whole listener down rather than degrade.
+     */
+    private static void attachSensors(int deviceId) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return;
+        }
+        if (sensorListeners.containsKey(deviceId)) {
+            return;
+        }
+        try {
+            InputDevice device = InputDevice.getDevice(deviceId);
+            if (device == null) {
+                return;
+            }
+            SensorManager sensors = device.getSensorManager();
+            if (sensors == null) {
+                return;
+            }
+            Sensor accel = sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+            Sensor gyro = sensors.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+            if (accel == null && gyro == null) {
+                // Most controllers have neither; not an error.
+                return;
+            }
+            PadSensorListener listener = new PadSensorListener(deviceId);
+            // SENSOR_DELAY_GAME rather than FASTEST: this feeds a per-frame
+            // state snapshot, so a higher rate would only add wake-ups.
+            if (accel != null) {
+                sensors.registerListener(listener, accel, SensorManager.SENSOR_DELAY_GAME);
+            }
+            if (gyro != null) {
+                sensors.registerListener(listener, gyro, SensorManager.SENSOR_DELAY_GAME);
+            }
+            sensorListeners.put(deviceId, listener);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** Unsubscribe a controller's IMU. Safe to call for a pad that had none. */
+    private static void detachSensors(int deviceId) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            return;
+        }
+        PadSensorListener listener = sensorListeners.remove(deviceId);
+        if (listener == null) {
+            return;
+        }
+        try {
+            // The device is GONE by the time a removal arrives, so its
+            // SensorManager cannot be fetched to unregister against. The
+            // platform tears the per-device listeners down with the device;
+            // dropping the reference here is what stops us leaking one per
+            // reconnect.
+            InputDevice device = InputDevice.getDevice(deviceId);
+            if (device != null) {
+                SensorManager sensors = device.getSensorManager();
+                if (sensors != null) {
+                    sensors.unregisterListener(listener);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
 
     /** Start watching for controllers. Reports the ones already attached. */
     public static void attach(Activity activity) {
@@ -38,6 +151,7 @@ public final class AzulGamepad {
                 public void onInputDeviceAdded(int deviceId) {
                     if (isGamepad(deviceId)) {
                         nativeOnDeviceChanged(deviceId, 1);
+                        attachSensors(deviceId);
                     }
                 }
 
@@ -47,6 +161,7 @@ public final class AzulGamepad {
                     // gamepad, so every removal is reported; the Rust side
                     // ignores ids it never saw added.
                     nativeOnDeviceChanged(deviceId, 0);
+                    detachSensors(deviceId);
                 }
 
                 @Override
@@ -58,6 +173,7 @@ public final class AzulGamepad {
             for (int id : InputDevice.getDeviceIds()) {
                 if (isGamepad(id)) {
                     nativeOnDeviceChanged(id, 1);
+                    attachSensors(id);
                 }
             }
         } catch (Throwable t) {
@@ -72,6 +188,9 @@ public final class AzulGamepad {
             }
         } catch (Throwable ignored) {
         } finally {
+            for (Integer id : new java.util.ArrayList<>(sensorListeners.keySet())) {
+                detachSensors(id);
+            }
             deviceListener = null;
         }
     }
@@ -123,4 +242,7 @@ public final class AzulGamepad {
                                             float hatX, float hatY);
 
     private static native void nativeOnDeviceChanged(int deviceId, int connected);
+
+    private static native void nativeOnMotionSensor(int deviceId, int kind,
+                                                    float x, float y, float z);
 }

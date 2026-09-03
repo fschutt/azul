@@ -1440,10 +1440,72 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       escape the sentinel-or-`[0,1]` contract every consumer trusts. Host, iOS, 8/8 mobile,
       azul-dll 1969 (+6).
 
-- [ ] IN SCOPE (implement blindly). 8f-i-a The pad TOUCHPAD and its gyro/accelerometer are still unfilled on every backend.
-      Unlike battery these have no gilrs equivalent at all - gilrs does not surface them - so they
-      need SDL or raw HID on desktop and `GCMotion` on Apple. Filling only the Apple half would
-      make the platforms genuinely diverge, which is why battery landed alone.
+- [x] 8f-i-a DONE on APPLE and ANDROID; the desktop half is 8f-i-a-i and is no longer a
+      hand-wave. The note said these "need SDL or raw HID on desktop and `GCMotion` on Apple",
+      which was right about Apple and understated the rest: Android has `InputDevice
+      .getSensorManager()` (API 31), a `SensorManager` SCOPED TO ONE CONTROLLER, which is exactly
+      the distinction `GamepadState::gyro_*` exists for - a game that aims with the pad must not
+      read the phone.
+      APPLE, two traps and neither is a property read:
+        - THE SENSORS ARE OFF UNTIL ASKED. A DualSense reports
+          `sensorsRequireManualActivation`, and until `sensorsActive` is set every read returns
+          zeroes for the life of the process - INDISTINGUISHABLE from a pad with no gyro, which
+          is how this would have shipped looking done while doing nothing.
+        - THE VECTORS ARE STRUCT RETURNS. 24 bytes of three doubles comes back in registers on
+          arm64 (an HFA) but through a hidden pointer on x86_64 (`objc_msgSend_stret`), and the
+          device target is arm64 while the SIMULATOR is x86_64 - both are live. That is why those
+          two reads go through `objc2`, which picks the variant from the type's encoding, while
+          the rest of the file stays on the `objc` 0.2 calls around it. Both targets were
+          compiled, not just the one.
+      `acceleration` is iOS 14+; older SDKs get `gravity + userAcceleration`, which RECONSTRUCTS
+      it exactly rather than approximating it. `touchpadPrimary` exists only on the DualShock and
+      DualSense profiles, so the selector probe is also the "has a touchpad" test; `touchState` is
+      the honest active flag but is declared on a superclass that may not carry it, so it is
+      probed and the fallback (either axis non-zero) is documented as unable to tell "no finger"
+      from "a finger exactly centred".
+      ANDROID NEEDED A BUG FIXED FIRST, and it was a real one nobody had noticed:
+      `GamepadManager::set_state` REPLACES a pad's slot, and every Android entry point published
+      a partial state with `..Default::default()`. So pressing a button ZEROED THE STICKS and
+      moving a stick RELEASED EVERY HELD BUTTON. Android is the only backend where this could
+      happen, because it is the only push-driven one - the polled backends build a complete
+      snapshot by construction. Adding a third partial producer (the IMU) would have made it
+      worse, so the per-pad union is now accumulated and the full snapshot republished.
+      THE ACCUMULATOR LIVES IN THE SHARED `mod.rs`, NOT IN `android.rs`, for the same reason
+      `sensors/units.rs` does: that file is cfg-gated to a target this machine never runs tests
+      on, and the accumulation is precisely the logic that fails silently.
+      The Android sensor wire code IS Android's own `Sensor.getType()`, passed through unchanged,
+      so unlike the `SensorKind` codes there is no second numbering that could drift; any type
+      other than the two is ignored rather than mapped, so a pad that also reports a magnetometer
+      cannot land in the gyro fields.
+      ALSO documented the touchpad ORIGIN in the field itself (bottom-left, y up): it was
+      unstated, the hardware disagrees with itself (a DualShock's raw HID counts y downward while
+      GameController normalizes it upward), and this is the first producer.
+      EVIDENCE: 4 accumulator tests that RUN HERE with a NEGATIVE CONTROL - restoring the
+      fresh-default-per-event behaviour fails with "a button press zeroed a stick". Both Apple
+      seams proven COMPILED on aarch64-apple-ios AND x86_64-apple-ios (the struct-return ABI
+      differs between them), the Android seam under `_internal_deps`, and the JAVA COMPILED
+      against android-34 with `javac` - nothing in the Rust build validates
+      `InputDevice.getSensorManager()` or the API-31 guard. Host, 8/8 mobile, azul-core 2767,
+      azul-dll 1984, autofix still 0 patches and `azul-doc check` PASSED. No controller with an
+      IMU here - compile-only.
+- [ ] 8f-i-a-i DESKTOP (the gilrs backend, so Linux + Windows + macOS) still has no pad IMU or
+      touchpad, and the blockers are now specific rather than "needs SDL or raw HID":
+        1. gilrs surfaces neither, and has no raw-report escape hatch.
+        2. 9f-i DID land raw HID on all three desktop platforms, so the DualSense/DualShock
+           reports are now reachable - but `HidReport` carries only vendor/product ids, NO
+           per-instance handle. Two identical pads are indistinguishable in that stream, so
+           "which gilrs pad does this report belong to" has no answer for the second one.
+        3. The HID report queue is SINGLE-CONSUMER (`take_reports`). A gamepad reader draining it
+           would steal reports from `CallbackInfo::get_hid_reports`, which is a public API.
+      Any of the three is fixable; wiring it before they are would produce a backend that works
+      for exactly one pad on one machine and silently mixes up two. On macOS there is a fourth
+      option that does not exist on the others - GameController.framework works there and would
+      give `GCMotion` directly - but pad IDENTITY still comes from gilrs, so it needs the same
+      correlation answer.
+- [ ] 8f-i-a-ii The pad TOUCHPAD on Android, which the platform does not expose: Android turns a
+      DualShock touch surface into an on-screen MOUSE POINTER rather than reporting the surface,
+      so there is nothing to read. Filling it would mean claiming the pointer is a finger, which
+      is wrong for a pad used alongside a real mouse.
 - [x] 8e-i ANDROID DONE (all eleven kinds, `HingeAngle` included); apple/linux/windows are 8e-i-a.
       The note's premise was STALE in the part that mattered: it said the work was blocked behind
       a Java helper, but `scripts/android/AzulSensors.java` had already SHIPPED - the module's own

@@ -102,3 +102,132 @@ pub fn poll() {
     // Android is push-based (the InputDevice JNI callback parks states), so
     // there's nothing to pull here.
 }
+
+/// Accumulated per-pad state for a PUSH-DRIVEN backend.
+///
+/// # Why this has to exist
+///
+/// `GamepadManager::set_state` REPLACES a pad's slot outright - it stores whole
+/// pads, and a partial one overwrites the rest with defaults. That is exactly
+/// right for a polled backend, which builds a complete snapshot every frame by
+/// construction, and exactly wrong for a push-driven one, where a key event
+/// carries one button, a motion event carries the axes and a sensor event
+/// carries three floats. Publishing each of those directly meant pressing a
+/// button zeroed the sticks and moving a stick released every held button.
+///
+/// So the union is accumulated here and the FULL snapshot is published every
+/// time. Android is the only backend that needs it today; it lives in this
+/// shared module rather than inside `android.rs` because that file is
+/// `cfg`-gated to a target this machine never runs tests on, and this is
+/// precisely the logic that goes wrong silently.
+#[derive(Debug, Default)]
+pub(crate) struct PadAccumulator {
+    pads: std::collections::BTreeMap<u32, azul_core::gamepad::GamepadState>,
+}
+
+impl PadAccumulator {
+    /// Apply an update to one pad and return the complete state to publish.
+    ///
+    /// A pad seen for the first time starts CONNECTED with no battery: `-1.0`
+    /// is the "not reported" sentinel, and defaulting to `0.0` would make a
+    /// pad whose battery the platform never mentions look flat.
+    pub(crate) fn update(
+        &mut self,
+        id: u32,
+        f: impl FnOnce(&mut azul_core::gamepad::GamepadState),
+    ) -> azul_core::gamepad::GamepadState {
+        let slot = self.pads.entry(id).or_insert_with(|| {
+            azul_core::gamepad::GamepadState {
+                id: azul_core::gamepad::GamepadId { id },
+                connected: true,
+                battery: -1.0,
+                ..Default::default()
+            }
+        });
+        f(slot);
+        *slot
+    }
+
+    /// Forget a pad that disconnected.
+    ///
+    /// Without this, a pad reconnecting on the same device id comes back with
+    /// whatever it was holding when it left - buttons still down, and now also
+    /// a stale gyro reading that never moves again.
+    pub(crate) fn forget(&mut self, id: u32) {
+        self.pads.remove(&id);
+    }
+}
+
+#[cfg(test)]
+mod pad_accumulator_tests {
+    use azul_core::gamepad::GamepadButton;
+
+    use super::*;
+
+    /// THE BUG THIS EXISTS FOR. A button press must not zero the sticks.
+    #[test]
+    fn an_update_preserves_every_field_another_update_set() {
+        let mut acc = PadAccumulator::default();
+
+        acc.update(7, |p| {
+            p.left_stick_x = 0.5;
+            p.left_stick_y = -0.25;
+            p.right_z = 1.0;
+        });
+        let after_button = acc.update(7, |p| p.buttons |= GamepadButton::South.bit());
+
+        assert_eq!(after_button.left_stick_x, 0.5, "a button press zeroed a stick");
+        assert_eq!(after_button.left_stick_y, -0.25);
+        assert_eq!(after_button.right_z, 1.0);
+        assert_ne!(after_button.buttons & GamepadButton::South.bit(), 0);
+
+        // ...and the other direction: a stick sample must not release buttons.
+        let after_stick = acc.update(7, |p| p.left_stick_x = -1.0);
+        assert_ne!(
+            after_stick.buttons & GamepadButton::South.bit(),
+            0,
+            "a stick sample released a held button"
+        );
+
+        // A pad IMU sample must disturb neither.
+        let after_imu = acc.update(7, |p| {
+            p.gyro_x = 2.0;
+            p.accel_z = 9.8;
+        });
+        assert_ne!(after_imu.buttons & GamepadButton::South.bit(), 0);
+        assert_eq!(after_imu.left_stick_x, -1.0);
+        assert_eq!(after_imu.gyro_x, 2.0);
+        assert_eq!(after_imu.accel_z, 9.8);
+    }
+
+    #[test]
+    fn a_first_sighting_reports_no_battery_rather_than_a_flat_one() {
+        let mut acc = PadAccumulator::default();
+        let s = acc.update(1, |_| {});
+        assert_eq!(s.battery, -1.0, "an unknown battery must not read as flat");
+        assert!(s.connected);
+        assert_eq!(s.id.id, 1);
+    }
+
+    #[test]
+    fn pads_do_not_share_state() {
+        let mut acc = PadAccumulator::default();
+        acc.update(1, |p| p.left_stick_x = 1.0);
+        let other = acc.update(2, |_| {});
+        assert_eq!(other.left_stick_x, 0.0, "one pad's stick leaked into another");
+    }
+
+    /// A pad that reconnects on the same id must not come back mid-press.
+    #[test]
+    fn forgetting_a_pad_clears_everything_it_was_holding() {
+        let mut acc = PadAccumulator::default();
+        acc.update(3, |p| {
+            p.buttons = GamepadButton::South.bit();
+            p.gyro_x = 5.0;
+        });
+        acc.forget(3);
+        let back = acc.update(3, |_| {});
+        assert_eq!(back.buttons, 0, "a reconnecting pad came back with buttons held");
+        assert_eq!(back.gyro_x, 0.0, "and with a stale gyro reading");
+    }
+}

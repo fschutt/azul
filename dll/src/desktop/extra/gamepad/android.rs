@@ -10,6 +10,30 @@
 //! `InputDevice.getSources()` and the `SOURCE_GAMEPAD` / `SOURCE_JOYSTICK`
 //! constants are Java-side API with no NDK equivalent, and calls the entry
 //! points below.
+//!
+//! # Every entry point publishes the WHOLE pad, and that is a fix
+//!
+//! `GamepadManager::set_state` REPLACES the slot outright, so an entry point
+//! that filled its own fields and left the rest at `Default` erased everything
+//! the other entry points had just published: pressing a button zeroed the
+//! sticks, and moving a stick released every held button. Android is the only
+//! backend where this could happen, because it is the only push-driven one -
+//! the polled backends build a complete snapshot every frame by construction.
+//!
+//! So the per-device state is accumulated HERE, in [`PADS`], and each entry
+//! point updates its own fields and republishes the full snapshot.
+//!
+//! # The pad's own IMU (8f-i-a)
+//!
+//! `InputDevice.getSensorManager()` (API 31) hands back a `SensorManager`
+//! SCOPED TO THAT CONTROLLER, so a DualSense's gyro arrives separately from
+//! the phone's own. That distinction is the whole point of
+//! `GamepadState::gyro_*`: a game that aims with the pad must not read the
+//! phone. Both Android units already match azul-core's (m/s^2 and rad/s).
+//!
+//! The touch surface is NOT filled on Android and cannot be: the platform
+//! turns a DualShock touchpad into an on-screen mouse pointer rather than
+//! exposing the surface. See 8f-i-a-ii.
 
 use azul_core::gamepad::{GamepadButton, GamepadId, GamepadState};
 use azul_layout::managers::gamepad::push_gamepad_state;
@@ -53,18 +77,30 @@ fn keycode_to_button(keycode: i32) -> Option<GamepadButton> {
     })
 }
 
-/// Per-pad button bitsets, keyed by Android device id.
+/// Per-pad ACCUMULATED state, keyed by Android device id.
 ///
-/// Android reports button presses as individual key events, not as a state
-/// snapshot, so the held set has to be accumulated here — otherwise every
-/// event would publish a state in which exactly one button was down.
-static BUTTONS: std::sync::Mutex<Option<std::collections::BTreeMap<i32, u32>>> =
-    std::sync::Mutex::new(None);
+/// The accumulator itself lives in the shared `mod.rs` so its behaviour can be
+/// TESTED - this file is `cfg`-gated to a target this machine never runs tests
+/// on, and the accumulation is exactly the part that goes wrong silently.
+static PADS: std::sync::Mutex<Option<super::PadAccumulator>> = std::sync::Mutex::new(None);
 
-fn with_buttons<R>(f: impl FnOnce(&mut std::collections::BTreeMap<i32, u32>) -> R) -> Option<R> {
-    let mut guard = BUTTONS.lock().ok()?;
-    Some(f(guard.get_or_insert_with(Default::default)))
+/// Update one pad's accumulated state and hand back the FULL snapshot to
+/// publish. `None` only if the lock is poisoned.
+fn with_pad(device_id: i32, f: impl FnOnce(&mut GamepadState)) -> Option<GamepadState> {
+    let mut guard = PADS.lock().ok()?;
+    Some(
+        guard
+            .get_or_insert_with(Default::default)
+            .update(device_id as u32, f),
+    )
 }
+
+/// `Sensor.TYPE_ACCELEROMETER`. The wire code IS Android's own constant,
+/// passed straight through from `Sensor.getType()`, so there is no second
+/// numbering to drift out of sync with the Java side.
+const ANDROID_SENSOR_ACCELEROMETER: i32 = 1;
+/// `Sensor.TYPE_GYROSCOPE`.
+const ANDROID_SENSOR_GYROSCOPE: i32 = 4;
 
 /// A gamepad button went down or up.
 #[no_mangle]
@@ -78,24 +114,17 @@ pub unsafe extern "system" fn Java_com_azul_gamepad_AzulGamepad_nativeOnButton(
     let Some(button) = keycode_to_button(keycode) else {
         return;
     };
-    let bits = with_buttons(|m| {
-        let e = m.entry(device_id).or_insert(0);
+    let Some(state) = with_pad(device_id, |p| {
+        p.connected = true;
         if is_down != 0 {
-            *e |= button.bit();
+            p.buttons |= button.bit();
         } else {
-            *e &= !button.bit();
+            p.buttons &= !button.bit();
         }
-        *e
-    });
-    let Some(buttons) = bits else { return };
-    push_gamepad_state(GamepadState {
-        id: GamepadId {
-            id: device_id as u32,
-        },
-        connected: true,
-        buttons,
-        ..Default::default()
-    });
+    }) else {
+        return;
+    };
+    push_gamepad_state(state);
 }
 
 /// A gamepad's axes moved.
@@ -149,27 +178,59 @@ pub unsafe extern "system" fn Java_com_azul_gamepad_AzulGamepad_nativeOnAxes(
         | GamepadButton::DPadDown.bit()
         | GamepadButton::DPadLeft.bit()
         | GamepadButton::DPadRight.bit();
-    let buttons = with_buttons(|m| {
-        let e = m.entry(device_id).or_insert(0);
-        *e = (*e & !dpad_mask) | hat_bits;
-        *e
-    })
-    .unwrap_or(hat_bits);
+    let Some(state) = with_pad(device_id, |p| {
+        p.connected = true;
+        p.buttons = (p.buttons & !dpad_mask) | hat_bits;
+        p.left_stick_x = lx;
+        p.left_stick_y = ly;
+        p.right_stick_x = rx;
+        p.right_stick_y = ry;
+        p.left_z = apply_axial_deadzone(ltrigger);
+        p.right_z = apply_axial_deadzone(rtrigger);
+    }) else {
+        return;
+    };
+    push_gamepad_state(state);
+}
 
-    push_gamepad_state(GamepadState {
-        id: GamepadId {
-            id: device_id as u32,
-        },
-        connected: true,
-        buttons,
-        left_stick_x: lx,
-        left_stick_y: ly,
-        right_stick_x: rx,
-        right_stick_y: ry,
-        left_z: apply_axial_deadzone(ltrigger),
-        right_z: apply_axial_deadzone(rtrigger),
-        ..Default::default()
-    });
+/// A reading from the CONTROLLER's own accelerometer or gyroscope.
+///
+/// `InputDevice.getSensorManager()` (API 31) scopes a `SensorManager` to one
+/// input device, which is what makes this the PAD's motion and not the
+/// phone's - the distinction `GamepadState::gyro_*` exists for.
+///
+/// `kind` is Android's own `Sensor.getType()`, passed through unchanged: any
+/// other type is ignored rather than mapped, so a device that also reports a
+/// magnetometer or a step counter cannot land in the gyro fields.
+///
+/// Units need no conversion - Android reports m/s^2 and rad/s, which are
+/// already `GamepadState`'s.
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_azul_gamepad_AzulGamepad_nativeOnMotionSensor(
+    _env: *mut core::ffi::c_void,
+    _class: *mut core::ffi::c_void,
+    device_id: i32,
+    kind: i32,
+    x: f32,
+    y: f32,
+    z: f32,
+) {
+    let Some(state) = with_pad(device_id, |p| match kind {
+        ANDROID_SENSOR_ACCELEROMETER => {
+            p.accel_x = x;
+            p.accel_y = y;
+            p.accel_z = z;
+        }
+        ANDROID_SENSOR_GYROSCOPE => {
+            p.gyro_x = x;
+            p.gyro_y = y;
+            p.gyro_z = z;
+        }
+        _ => {}
+    }) else {
+        return;
+    };
+    push_gamepad_state(state);
 }
 
 /// A gamepad was attached or detached.
@@ -181,15 +242,20 @@ pub unsafe extern "system" fn Java_com_azul_gamepad_AzulGamepad_nativeOnDeviceCh
     connected: i32,
 ) {
     if connected == 0 {
-        // Drop the accumulated button state, or a pad reconnecting on the
-        // same device id would come back with its old buttons held.
-        let _ = with_buttons(|m| m.remove(&device_id));
+        // Drop the accumulated state, or a pad reconnecting on the same device
+        // id would come back with its old buttons held and its old gyro.
+        if let Ok(mut guard) = PADS.lock() {
+            if let Some(acc) = guard.as_mut() {
+                acc.forget(device_id as u32);
+            }
+        }
     }
     push_gamepad_state(GamepadState {
         id: GamepadId {
             id: device_id as u32,
         },
         connected: connected != 0,
+        battery: -1.0,
         ..Default::default()
     });
 }
