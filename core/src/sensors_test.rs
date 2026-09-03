@@ -498,3 +498,46 @@ fn the_sensor_kind_discriminants_are_the_jni_wire_codes() {
         );
     }
 }
+
+/// 8e-i-a-i / 8e-i-a-ii: the typed proximity answer.
+#[cfg(test)]
+mod proximity_tests {
+    use super::*;
+
+    #[test]
+    fn a_distance_converts_between_its_units_without_inventing_precision() {
+        let mm = ProximityDistance {
+            value: 250.0,
+            unit: DistanceUnit::Millimeters,
+        };
+        assert_eq!(mm.in_centimeters(), 25.0);
+        assert_eq!(mm.in_meters(), 0.25);
+        let m = ProximityDistance {
+            value: 0.05,
+            unit: DistanceUnit::Meters,
+        };
+        assert_eq!(m.in_millimeters(), 50.0);
+        assert_eq!(m.in_centimeters(), 5.0);
+        let cm = ProximityDistance {
+            value: 3.0,
+            unit: DistanceUnit::Centimeters,
+        };
+        assert_eq!(cm.in_millimeters(), 30.0);
+    }
+
+    /// A binary sensor gives a verdict; a ranging one gives a measurement
+    /// and no verdict - that is the app's threshold to apply.
+    #[test]
+    fn only_the_binary_answers_are_verdicts() {
+        assert_eq!(Proximity::Near.is_near(), Some(true));
+        assert_eq!(Proximity::Far.is_near(), Some(false));
+        assert_eq!(
+            Proximity::Distance(ProximityDistance {
+                value: 1.0,
+                unit: DistanceUnit::Centimeters
+            })
+            .is_near(),
+            None
+        );
+    }
+}

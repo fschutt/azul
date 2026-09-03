@@ -51,10 +51,14 @@ pub enum SensorKind {
     /// The signal behind "adapt to a dark room" — a UI dimming itself,
     /// a camera view raising exposure.
     AmbientLight,
-    /// Proximity in **cm**, in `x`. `y`/`z` unused.
+    /// Proximity in **cm**, in `x`. `y`/`z` unused. The RAW distance, where
+    /// the platform reports one (Android, Linux iio).
     ///
     /// Many phone sensors are binary and report only their maximum range or
-    /// `0.0`, so treat a small value as "near" rather than as a distance.
+    /// `0.0`; the TYPED answer - [`Proximity::Near`], [`Proximity::Far`] or a
+    /// [`Proximity::Distance`] - is `CallbackInfo::get_proximity`, which is
+    /// also the only form the boolean sensors (iOS, Windows `IsDetected`)
+    /// can fill (8e-i-a-i, 8e-i-a-ii).
     Proximity,
     /// Atmospheric pressure in **hPa**, in `x`. `y`/`z` unused. Used for
     /// relative altitude, which GPS gives poorly.
@@ -137,6 +141,83 @@ impl_option!(
     OptionSensorReading,
     [Debug, Clone, Copy, PartialEq]
 );
+
+/// The length unit of a [`ProximityDistance`] - the sensor's NATIVE unit,
+/// kept rather than converted so no precision is invented: Windows reports
+/// millimetres, Android centimetres, Linux iio metres.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum DistanceUnit {
+    Millimeters,
+    Centimeters,
+    Meters,
+}
+
+/// A measured distance to the nearest object, from a RANGING proximity
+/// sensor (8e-i-a-i, 8e-i-a-ii).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ProximityDistance {
+    pub value: f32,
+    pub unit: DistanceUnit,
+}
+
+impl ProximityDistance {
+    #[must_use]
+    pub fn in_millimeters(&self) -> f32 {
+        match self.unit {
+            DistanceUnit::Millimeters => self.value,
+            DistanceUnit::Centimeters => self.value * 10.0,
+            DistanceUnit::Meters => self.value * 1000.0,
+        }
+    }
+
+    #[must_use]
+    pub fn in_centimeters(&self) -> f32 {
+        self.in_millimeters() / 10.0
+    }
+
+    #[must_use]
+    pub fn in_meters(&self) -> f32 {
+        self.in_millimeters() / 1000.0
+    }
+}
+
+/// What the proximity sensor says (8e-i-a-i, 8e-i-a-ii; USER RULING
+/// 2026-09-03): a proper model instead of a distance with a made-up value
+/// for "far".
+///
+/// Most phone sensors are BINARY - iOS exposes only
+/// `UIDevice.proximityState`, Windows only `IsDetected` unless the sensor
+/// also ranges - and answer [`Self::Near`] / [`Self::Far`]. A ranging sensor
+/// answers [`Self::Distance`] in its native unit, and whether that is "near"
+/// is the app's call: a distance is a measurement, not a verdict.
+#[repr(C, u8)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Proximity {
+    /// Something is close - a phone at the ear, a hand over the sensor.
+    Near,
+    /// Nothing within the sensor's range.
+    Far,
+    /// A measured distance (ranging sensors only).
+    Distance(ProximityDistance),
+}
+
+impl Proximity {
+    /// `Some(true)` near, `Some(false)` far, `None` for a distance - which
+    /// only the app can turn into a verdict, against its own threshold.
+    #[must_use]
+    pub const fn is_near(&self) -> Option<bool> {
+        match self {
+            Self::Near => Some(true),
+            Self::Far => Some(false),
+            Self::Distance(_) => None,
+        }
+    }
+}
+
+// FFI Option wrapper for `CallbackInfo::get_proximity() -> Option<Proximity>`.
+impl_option!(Proximity, OptionProximity, [Debug, Clone, Copy, PartialEq]);
 
 #[cfg(test)]
 #[path = "sensors_test.rs"]
