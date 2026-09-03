@@ -170,6 +170,8 @@ mod display_list_ids;
 mod dl_patch_golden;
 #[path = "document_edit_notify.rs"]
 mod document_edit_notify;
+#[path = "document_selection_api.rs"]
+mod document_selection_api;
 #[path = "drag_image_between_pages_e2e.rs"]
 mod drag_image_between_pages_e2e;
 #[path = "drag_selection_scroll.rs"]

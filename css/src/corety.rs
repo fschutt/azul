@@ -606,6 +606,12 @@ impl_vec!(
     OptionU32
 );
 impl_vec_mut!(u32, U32Vec);
+impl_option!(
+    U32Vec,
+    OptionU32Vec,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]
+);
 impl_vec_debug!(u32, U32Vec);
 impl_vec_partialord!(u32, U32Vec);
 impl_vec_ord!(u32, U32Vec);

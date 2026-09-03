@@ -1871,6 +1871,10 @@ impl Runner {
                     .mark_document_edit_applied_with_inverse(*id, inverse.clone());
                 ProcessEventResult::DoNothing
             }
+            CallbackChange::MarkTextRevisionSynced { revision } => {
+                self.layout_window.mark_text_revision_synced(*revision);
+                ProcessEventResult::DoNothing
+            }
             CallbackChange::UndoStructuralEdit => {
                 let _ = self.layout_window.undo_structural_edit();
                 ProcessEventResult::DoNothing

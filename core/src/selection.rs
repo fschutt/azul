@@ -835,6 +835,100 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq]
 );
 
+// ============================================================================
+// App-facing document coordinates (the CallbackInfo selection/sync API)
+// ============================================================================
+
+/// A position in a node's TEXT CONTENT, app-facing: `text_byte` indexes the
+/// flattened text of `node` — the exact string
+/// `CallbackInfo::get_node_text_content(node)` returns (overlay-first, so it
+/// sees uncommitted typing). The engine resolves cluster ids and affinity
+/// BEFORE handing this out: the byte always lies on a grapheme-cluster
+/// boundary of that string (a ZWJ emoji family or a decomposed `é` is never
+/// split), and is in LOGICAL order — bidi visual reordering does not affect
+/// it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub struct DocumentPosition {
+    pub node: DomNodeId,
+    pub text_byte: u32,
+}
+
+impl_option!(
+    DocumentPosition,
+    OptionDocumentPosition,
+    [Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord]
+);
+
+/// A selected byte span `[start_byte, end_byte)` of `node`'s text content,
+/// in the coordinates of [`DocumentPosition`]. Always LOGICAL and
+/// NORMALIZED: `start_byte <= end_byte` regardless of drag direction or
+/// script direction (an RTL selection is still a forward byte span). A
+/// cross-block selection yields one span per affected node, in document
+/// order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub struct DocumentSelectionSpan {
+    pub node: DomNodeId,
+    pub start_byte: u32,
+    pub end_byte: u32,
+}
+
+impl_option!(
+    DocumentSelectionSpan,
+    OptionDocumentSelectionSpan,
+    [Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord]
+);
+
+impl_vec!(
+    DocumentSelectionSpan,
+    DocumentSelectionSpanVec,
+    DocumentSelectionSpanVecDestructor,
+    DocumentSelectionSpanVecDestructorType,
+    DocumentSelectionSpanVecSlice,
+    OptionDocumentSelectionSpan
+);
+impl_vec_debug!(DocumentSelectionSpan, DocumentSelectionSpanVec);
+impl_vec_clone!(
+    DocumentSelectionSpan,
+    DocumentSelectionSpanVec,
+    DocumentSelectionSpanVecDestructor
+);
+impl_vec_partialeq!(DocumentSelectionSpan, DocumentSelectionSpanVec);
+impl_vec_partialord!(DocumentSelectionSpan, DocumentSelectionSpanVec);
+
+/// One un-synced character-level edit: `node`'s effective text is now
+/// `text` (revision-stamped). The app folds it into its model and acks the
+/// highest revision it saw via `CallbackInfo::mark_text_revision_synced` —
+/// the character-path counterpart of the structural DocumentEdit loop.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub struct DocumentTextEdit {
+    pub node: DomNodeId,
+    pub text: azul_css::corety::AzString,
+    pub revision: u64,
+}
+
+impl_option!(
+    DocumentTextEdit,
+    OptionDocumentTextEdit,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]
+);
+
+impl_vec!(
+    DocumentTextEdit,
+    DocumentTextEditVec,
+    DocumentTextEditVecDestructor,
+    DocumentTextEditVecDestructorType,
+    DocumentTextEditVecSlice,
+    OptionDocumentTextEdit
+);
+impl_vec_debug!(DocumentTextEdit, DocumentTextEditVec);
+impl_vec_clone!(DocumentTextEdit, DocumentTextEditVec, DocumentTextEditVecDestructor);
+impl_vec_partialeq!(DocumentTextEdit, DocumentTextEditVec);
+impl_vec_partialord!(DocumentTextEdit, DocumentTextEditVec);
+
 #[cfg(test)]
 #[path = "selection_test.rs"]
 mod selection_test;

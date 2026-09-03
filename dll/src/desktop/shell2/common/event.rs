@@ -4333,6 +4333,13 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
+            CallbackChange::MarkTextRevisionSynced { revision } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.mark_text_revision_synced(*revision);
+                }
+                ProcessEventResult::DoNothing
+            }
+
             CallbackChange::UndoStructuralEdit => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     let _ = lw.undo_structural_edit();

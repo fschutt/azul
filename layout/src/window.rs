@@ -2363,6 +2363,154 @@ impl LayoutWindow {
             .collect()
     }
 
+    /// Flatten-length of one inline item — the SAME accounting
+    /// `overlay::flatten_inline_content` performs, so byte offsets built
+    /// from it index the exact string `get_node_text_content` returns.
+    fn inline_item_flat_len(item: &crate::text3::cache::InlineContent) -> usize {
+        use crate::text3::cache::InlineContent as IC;
+        match item {
+            IC::Text(run) => run.text.len(),
+            IC::Space(_) | IC::LineBreak(_) | IC::Tab { .. } => 1,
+            IC::Ruby { base, .. } => base.iter().map(Self::inline_item_flat_len).sum(),
+            IC::Marker { run, .. } => run.text.len(),
+            IC::Image(_) | IC::Shape(_) => 0,
+        }
+    }
+
+    /// Resolve an engine `TextCursor` (cluster id + affinity) on `node` to
+    /// an ABSOLUTE byte offset in the node's flattened text content — the
+    /// app-facing coordinate ([`azul_core::selection::DocumentPosition`]).
+    ///
+    /// Affinity is resolved by the SAME grapheme segmentation the edit
+    /// paths use (`cursor_byte_offset_in_run`), so a trailing cursor on a
+    /// ZWJ emoji family or a decomposed `é` lands past the WHOLE cluster,
+    /// and bidi text resolves in logical order (bytes, not visual x).
+    #[must_use]
+    pub fn resolve_cursor_to_text_byte(
+        &self,
+        dom_id: DomId,
+        node_id: NodeId,
+        cursor: &azul_core::selection::TextCursor,
+    ) -> u32 {
+        use crate::text3::cache::InlineContent as IC;
+        let content = self.get_text_before_textinput(dom_id, node_id);
+        let run_idx = cursor.cluster_id.source_run as usize;
+        let mut acc: usize = 0;
+        for (i, item) in content.iter().enumerate() {
+            if i == run_idx {
+                if let IC::Text(run) = item {
+                    acc += crate::text3::edit::cursor_byte_offset_in_run(&run.text, cursor);
+                }
+                return u32::try_from(acc).unwrap_or(u32::MAX);
+            }
+            acc += Self::inline_item_flat_len(item);
+        }
+        // Cursor past the content (stale session): clamp to the end.
+        u32::try_from(acc).unwrap_or(u32::MAX)
+    }
+
+    /// The current selection as app-facing byte spans (see
+    /// `CallbackInfo::get_document_selection` for the contract). Cross-block
+    /// selections yield one span per affected IFC root in document order;
+    /// otherwise each multi-cursor RANGE on the editing session's node
+    /// yields one span. Spans are normalized (`start <= end`, logical
+    /// order) — a backward or RTL drag reads the same as a forward one.
+    #[must_use]
+    pub fn document_selection_spans(
+        &self,
+    ) -> Vec<azul_core::selection::DocumentSelectionSpan> {
+        use azul_core::selection::{DocumentSelectionSpan, Selection};
+        let mut out = Vec::new();
+        if let Some(cross) = &self.text_edit_manager.cross_block {
+            for (&node, ranges) in &cross.affected_nodes {
+                for range in ranges {
+                    let a = self.resolve_cursor_to_text_byte(cross.dom_id, node, &range.start);
+                    let b = self.resolve_cursor_to_text_byte(cross.dom_id, node, &range.end);
+                    out.push(DocumentSelectionSpan {
+                        node: DomNodeId {
+                            dom: cross.dom_id,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+                        },
+                        start_byte: a.min(b),
+                        end_byte: a.max(b),
+                    });
+                }
+            }
+            return out;
+        }
+        if let Some(mc) = &self.text_edit_manager.multi_cursor {
+            let Some(node_id) = mc.node_id.node.into_crate_internal() else {
+                return out;
+            };
+            for sel in &mc.selections {
+                if let Selection::Range(range) = &sel.selection {
+                    let a = self.resolve_cursor_to_text_byte(mc.node_id.dom, node_id, &range.start);
+                    let b = self.resolve_cursor_to_text_byte(mc.node_id.dom, node_id, &range.end);
+                    out.push(DocumentSelectionSpan {
+                        node: mc.node_id,
+                        start_byte: a.min(b),
+                        end_byte: a.max(b),
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    /// The primary caret as an app-facing position, if an editing session
+    /// is active (see `CallbackInfo::get_document_caret`).
+    #[must_use]
+    pub fn document_caret(&self) -> Option<azul_core::selection::DocumentPosition> {
+        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
+        let node_id = mc.node_id.node.into_crate_internal()?;
+        let cursor = self.text_edit_manager.get_primary_cursor()?;
+        Some(azul_core::selection::DocumentPosition {
+            node: mc.node_id,
+            text_byte: self.resolve_cursor_to_text_byte(mc.node_id.dom, node_id, &cursor),
+        })
+    }
+
+    /// Child-index path `ancestor -> node` (the changeset / serializer path
+    /// vocabulary): `[]` when `node == ancestor`, `None` when `node` is not
+    /// in `ancestor`'s subtree (or another dom).
+    #[must_use]
+    pub fn node_child_index_path(
+        &self,
+        ancestor: DomNodeId,
+        node: DomNodeId,
+    ) -> Option<Vec<u32>> {
+        if ancestor.dom != node.dom {
+            return None;
+        }
+        let lr = self.layout_results.get(&node.dom)?;
+        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+        let anc = ancestor.node.into_crate_internal()?;
+        let mut cur = node.node.into_crate_internal()?;
+        let mut path_rev: Vec<u32> = Vec::new();
+        while cur != anc {
+            let mut index: u32 = 0;
+            let mut sib = hierarchy
+                .get(cur)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
+            while let Some(sn) = sib {
+                index += 1;
+                sib = hierarchy
+                    .get(sn)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
+            }
+            path_rev.push(index);
+            match hierarchy
+                .get(cur)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            {
+                Some(p) => cur = p,
+                None => return None,
+            }
+        }
+        path_rev.reverse();
+        Some(path_rev)
+    }
+
     /// The pending structural edit, if any (the app's callback inspects it).
     #[must_use]
     pub const fn get_pending_document_edit(

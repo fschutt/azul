@@ -413,6 +413,12 @@ pub enum CallbackChange {
         id: u64,
         inverse: crate::managers::changeset::DocumentOperation,
     },
+    /// The character-path handshake: the app's model has incorporated every
+    /// text edit up to and including `revision` (from
+    /// `get_unsynced_text_edits`); the engine may drop those overlay entries.
+    MarkTextRevisionSynced {
+        revision: u64,
+    },
     /// Undo the newest structural edit (re-records its inverse for the app).
     UndoStructuralEdit,
     /// Redo the newest undone structural edit.
@@ -2182,6 +2188,85 @@ impl CallbackInfo {
             .get_pending_document_edit()
             .cloned()
             .into()
+    }
+
+    /// Every character-level edit the app has NOT yet folded into its own
+    /// model: `(node, effective text, revision)` — the node's text content
+    /// as the user now sees it (typing, IME commits, deletions). Fold them
+    /// in, then ack the highest revision with
+    /// [`Self::mark_text_revision_synced`]; the engine drops converged
+    /// overlay entries at the next layout tail. The character-path
+    /// counterpart of `get_document_edit_clone`.
+    #[must_use]
+    pub fn get_unsynced_text_edits(&self) -> azul_core::selection::DocumentTextEditVec {
+        let edits: Vec<azul_core::selection::DocumentTextEdit> = self
+            .get_layout_window()
+            .unsynced_text_edits()
+            .into_iter()
+            .map(
+                |(node, text, revision)| azul_core::selection::DocumentTextEdit {
+                    node,
+                    text: text.into(),
+                    revision,
+                },
+            )
+            .collect();
+        edits.into()
+    }
+
+    /// Ack the character-path sync: the app's model holds every text edit
+    /// up to and including `revision`. Monotonic and clamped engine-side —
+    /// a stale or garbage value can never pre-commit future edits.
+    pub fn mark_text_revision_synced(&mut self, revision: u64) {
+        self.push_change(CallbackChange::MarkTextRevisionSynced { revision });
+    }
+
+    /// The current TEXT revision stamp (compare with the values from
+    /// [`Self::get_unsynced_text_edits`]); `0` = no character edits yet.
+    #[must_use]
+    pub fn get_document_text_revision(&self) -> u64 {
+        self.get_layout_window().document_text_revision()
+    }
+
+    /// The current selection as byte spans over node TEXT CONTENT — the
+    /// same string [`Self::get_node_text_content`] returns for each span's
+    /// node. Spans are normalized (`start_byte <= end_byte`), in LOGICAL
+    /// byte order (drag direction and bidi visual order do not change
+    /// them), and cut only on grapheme-cluster boundaries. A cross-block
+    /// selection yields one span per affected block, in document order; a
+    /// caret with no selection yields none.
+    #[must_use]
+    pub fn get_document_selection(&self) -> azul_core::selection::DocumentSelectionSpanVec {
+        self.get_layout_window().document_selection_spans().into()
+    }
+
+    /// The primary caret in the same coordinates as
+    /// [`Self::get_document_selection`], or `None` when no editing session
+    /// is active.
+    #[must_use]
+    pub fn get_document_caret(&self) -> azul_core::selection::OptionDocumentPosition {
+        self.get_layout_window().document_caret().into()
+    }
+
+    /// Child-index path from `ancestor` down to `node` — the same path
+    /// vocabulary `DocumentChangeset` resume points and pagination
+    /// serializers speak. Empty when `node == ancestor`; `None` when `node`
+    /// is not inside `ancestor` (or in another dom). Lets an app map any
+    /// engine node (a selection span's, a text edit's) onto its own model
+    /// indices without walking siblings by hand.
+    #[must_use]
+    pub fn get_node_child_index_path(
+        &self,
+        ancestor: DomNodeId,
+        node: DomNodeId,
+    ) -> azul_css::corety::OptionU32Vec {
+        match self.get_layout_window().node_child_index_path(ancestor, node) {
+            Some(path) => {
+                let v: azul_css::corety::U32Vec = path.into();
+                azul_css::corety::OptionU32Vec::Some(v)
+            }
+            None => azul_css::corety::OptionU32Vec::None,
+        }
     }
 
     /// Add an image to the image cache (applied after callback returns)

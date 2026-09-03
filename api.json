@@ -13588,6 +13588,106 @@
                                 },
                                 "fn_body": "object.get_document_edit_clone()"
                             },
+                            "get_unsynced_text_edits": {
+                                "doc": [
+                                    "Every character-level edit the app has NOT yet folded into its own model:",
+                                    "the node's effective text as the user now sees it, revision-stamped.",
+                                    "Fold them in, then ack the highest revision with `mark_text_revision_synced` -",
+                                    "the character-path counterpart of `get_document_edit_clone`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentTextEditVec"
+                                },
+                                "fn_body": "object.get_unsynced_text_edits()"
+                            },
+                            "mark_text_revision_synced": {
+                                "doc": [
+                                    "Ack the character-path sync: the app's model holds every text edit up to",
+                                    "and including `revision`. Monotonic; clamped engine-side."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "revision": "u64"
+                                    }
+                                ],
+                                "fn_body": "object.mark_text_revision_synced(revision)"
+                            },
+                            "get_document_text_revision": {
+                                "doc": [
+                                    "The current TEXT revision stamp; `0` = no character edits yet."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "u64"
+                                },
+                                "fn_body": "object.get_document_text_revision()"
+                            },
+                            "get_document_selection": {
+                                "doc": [
+                                    "The current selection as byte spans over node text content (the same",
+                                    "string `get_node_text_content` returns). Normalized `start <= end`,",
+                                    "logical order, grapheme-safe; one span per affected block for a",
+                                    "cross-block selection; empty when only a caret exists."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentSelectionSpanVec"
+                                },
+                                "fn_body": "object.get_document_selection()"
+                            },
+                            "get_document_caret": {
+                                "doc": [
+                                    "The primary caret in the same coordinates as `get_document_selection`,",
+                                    "or `None` when no editing session is active."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDocumentPosition"
+                                },
+                                "fn_body": "object.get_document_caret()"
+                            },
+                            "get_node_child_index_path": {
+                                "doc": [
+                                    "Child-index path from `ancestor` down to `node` - the same path vocabulary",
+                                    "`DocumentChangeset` resume points speak. Empty when `node == ancestor`;",
+                                    "`None` when `node` is not inside `ancestor` (or in another dom)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "ancestor": "DomNodeId"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionU32Vec"
+                                },
+                                "fn_body": "object.get_node_child_index_path(ancestor, node)"
+                            },
                             "mark_document_edit_applied_with_inverse": {
                                 "doc": [
                                     "The handshake carrying the applier's INVERSE operation (from",
@@ -23143,6 +23243,39 @@
                         ],
                         "repr": "C"
                     },
+                    "DocumentSelectionSpan": {
+                        "doc": [
+                            "A selected byte span `[start_byte, end_byte)` of `node`'s text content,",
+                            "always normalized (`start_byte <= end_byte`) and in logical order -",
+                            "drag direction and bidi visual order do not change it."
+                        ],
+                        "priority": 42.0,
+                        "external": "azul_core::selection::DocumentSelectionSpan",
+                        "derive": [
+                            "Debug",
+                            "PartialOrd",
+                            "Ord",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node": {
+                                    "type": "DomNodeId"
+                                },
+                                "start_byte": {
+                                    "type": "u32"
+                                },
+                                "end_byte": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
                     "TextInputSelectionRange": {
                         "external": "azul_layout::widgets::text_input::TextInputSelectionRange",
                         "derive": [
@@ -26496,6 +26629,32 @@
                             {
                                 "ptr": {
                                     "type": "BackstageNavItem",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocumentSelectionSpanVecSlice": {
+                        "external": "azul_core::selection::DocumentSelectionSpanVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DocumentSelectionSpan",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -47687,6 +47846,94 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "DocumentPosition": {
+                        "doc": [
+                            "A position in a node's TEXT CONTENT, app-facing: `text_byte` indexes the",
+                            "flattened text of `node` - the exact string `get_node_text_content(node)`",
+                            "returns. Resolved on grapheme-cluster boundaries, in LOGICAL byte order."
+                        ],
+                        "priority": 42.0,
+                        "external": "azul_core::selection::DocumentPosition",
+                        "derive": [
+                            "Debug",
+                            "PartialOrd",
+                            "Ord",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node": {
+                                    "type": "DomNodeId"
+                                },
+                                "text_byte": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocumentTextEdit": {
+                        "doc": [
+                            "One un-synced character-level edit: `node`'s effective text is now `text`",
+                            "(revision-stamped). Fold into the app model, then ack via",
+                            "`CallbackInfo::mark_text_revision_synced`."
+                        ],
+                        "priority": 42.0,
+                        "external": "azul_core::selection::DocumentTextEdit",
+                        "derive": [
+                            "Debug",
+                            "PartialOrd",
+                            "Ord",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node": {
+                                    "type": "DomNodeId"
+                                },
+                                "text": {
+                                    "type": "String"
+                                },
+                                "revision": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocumentTextEditVecSlice": {
+                        "external": "azul_core::selection::DocumentTextEditVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DocumentTextEdit",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -60110,7 +60357,6 @@
                                 }
                             }
                         ],
-                        "repr": "C",
                         "constructors": {
                             "from_system": {
                                 "doc": [
@@ -60125,7 +60371,8 @@
                                 ],
                                 "fn_body": "azul_layout::widgets::quick_access::QuickAccessTheme::from_system(style)"
                             }
-                        }
+                        },
+                        "repr": "C"
                     },
                     "QuickAccessBar": {
                         "external": "azul_layout::widgets::quick_access::QuickAccessBar",
@@ -60404,7 +60651,6 @@
                                 }
                             }
                         ],
-                        "repr": "C",
                         "constructors": {
                             "from_system": {
                                 "doc": [
@@ -60428,7 +60674,8 @@
                                 ],
                                 "fn_body": "azul_layout::widgets::quick_access::QuickAccessStyle::from_theme(theme)"
                             }
-                        }
+                        },
+                        "repr": "C"
                     },
                     "StatusBarViewSwitcher": {
                         "external": "azul_layout::widgets::statusbar::StatusBarViewSwitcher",
@@ -60817,7 +61064,6 @@
                                 }
                             }
                         ],
-                        "repr": "C",
                         "constructors": {
                             "from_system": {
                                 "doc": [
@@ -60841,7 +61087,8 @@
                                 ],
                                 "fn_body": "azul_layout::widgets::statusbar::StatusBarStyle::from_theme(theme)"
                             }
-                        }
+                        },
+                        "repr": "C"
                     },
                     "StatusBarTheme": {
                         "external": "azul_layout::widgets::statusbar::StatusBarTheme",
@@ -60886,7 +61133,6 @@
                                 }
                             }
                         ],
-                        "repr": "C",
                         "constructors": {
                             "from_system": {
                                 "doc": [
@@ -60901,7 +61147,8 @@
                                 ],
                                 "fn_body": "azul_layout::widgets::statusbar::StatusBarTheme::from_system(style)"
                             }
-                        }
+                        },
+                        "repr": "C"
                     },
                     "StatusBarSegment": {
                         "external": "azul_layout::widgets::statusbar::StatusBarSegment",
@@ -61072,7 +61319,6 @@
                                 }
                             }
                         ],
-                        "repr": "C",
                         "constructors": {
                             "from_system": {
                                 "doc": [
@@ -61096,7 +61342,8 @@
                                 ],
                                 "fn_body": "azul_layout::widgets::backstage::BackstageStyle::from_theme(theme)"
                             }
-                        }
+                        },
+                        "repr": "C"
                     },
                     "BackstageBehavior": {
                         "external": "azul_layout::widgets::backstage::BackstageBehavior",
@@ -61518,7 +61765,6 @@
                                 }
                             }
                         ],
-                        "repr": "C",
                         "constructors": {
                             "from_system": {
                                 "doc": [
@@ -61533,7 +61779,8 @@
                                 ],
                                 "fn_body": "azul_layout::widgets::backstage::BackstageTheme::from_system(style)"
                             }
-                        }
+                        },
+                        "repr": "C"
                     },
                     "StatusBarViewVecSlice": {
                         "external": "azul_layout::widgets::statusbar::StatusBarViewVecSlice",
@@ -92471,6 +92718,426 @@
                         },
                         "repr": "C"
                     },
+                    "DocumentSelectionSpanVec": {
+                        "external": "azul_core::selection::DocumentSelectionSpanVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DocumentSelectionSpan",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "DocumentSelectionSpanVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `DocumentSelectionSpanVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "DocumentSelectionSpanVec"
+                                },
+                                "fn_body": "DocumentSelectionSpanVec::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `DocumentSelectionSpanVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentSelectionSpanVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "document_selection_span_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "document_selection_span_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "document_selection_span_vec.is_empty()"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDocumentSelectionSpan"
+                                },
+                                "fn_body": "document_selection_span_vec.c_get(index).into()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `DocumentSelectionSpanVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "DocumentSelectionSpan"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentSelectionSpanVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `DocumentSelectionSpanVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const DocumentSelectionSpan"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentSelectionSpanVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `DocumentSelectionSpanVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentSelectionSpanVecSlice"
+                                },
+                                "fn_body": "document_selection_span_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentSelectionSpanVecSlice"
+                                },
+                                "fn_body": "document_selection_span_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DocumentSelectionSpanVecDestructor": {
+                        "external": "azul_core::selection::DocumentSelectionSpanVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "DocumentSelectionSpanVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "DocumentSelectionSpanVecDestructorType": {
+                        "external": "azul_core::selection::DocumentSelectionSpanVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "DocumentSelectionSpanVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "DocumentTextEditVec": {
+                        "external": "azul_core::selection::DocumentTextEditVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DocumentTextEdit",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "DocumentTextEditVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `DocumentTextEditVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "DocumentTextEditVec"
+                                },
+                                "fn_body": "DocumentTextEditVec::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `DocumentTextEditVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentTextEditVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "document_text_edit_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "document_text_edit_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "document_text_edit_vec.is_empty()"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDocumentTextEdit"
+                                },
+                                "fn_body": "document_text_edit_vec.c_get(index).into()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `DocumentTextEditVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "DocumentTextEdit"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentTextEditVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `DocumentTextEditVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const DocumentTextEdit"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentTextEditVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `DocumentTextEditVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentTextEditVecSlice"
+                                },
+                                "fn_body": "document_text_edit_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "DocumentTextEditVecSlice"
+                                },
+                                "fn_body": "document_text_edit_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DocumentTextEditVecDestructor": {
+                        "external": "azul_core::selection::DocumentTextEditVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "DocumentTextEditVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "DocumentTextEditVecDestructorType": {
+                        "external": "azul_core::selection::DocumentTextEditVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "DocumentTextEditVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
                     "DomIdVecDestructorType": {
                         "external": "azul_core::dom::DomIdVecDestructorType",
                         "callback_typedef": {
@@ -105522,6 +106189,92 @@
                                 "None": {},
                                 "Some": {
                                     "type": "SelectionRange"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDocumentPosition": {
+                        "external": "azul_core::selection::OptionDocumentPosition",
+                        "derive": [
+                            "Debug",
+                            "PartialOrd",
+                            "Ord",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "DocumentPosition"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDocumentSelectionSpan": {
+                        "external": "azul_core::selection::OptionDocumentSelectionSpan",
+                        "derive": [
+                            "Debug",
+                            "PartialOrd",
+                            "Ord",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "DocumentSelectionSpan"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionDocumentTextEdit": {
+                        "external": "azul_core::selection::OptionDocumentTextEdit",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "DocumentTextEdit"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionU32Vec": {
+                        "external": "azul_css::corety::OptionU32Vec",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialOrd"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "U32Vec"
                                 }
                             }
                         ],
