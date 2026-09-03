@@ -980,12 +980,43 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       the 8-target gate rather than by inspection. All four desktop targets green, 8/8 mobile,
       azul-dll 1973, 9 haptics tests, autofix converged. ⚠ No controller here - compile-only.
 
-- [ ] 9g-i-d-a Mobile gamepad rumble. Android exposes it through
-      `InputDevice.getVibrator()`/`VibratorManager` (per-device, and subject to the same VIBRATE
-      permission question as 9g-i-a); iOS/tvOS through `GCController.haptics`, which is a
-      CoreHaptics engine per controller rather than a fire-and-forget call and so does not fit the
-      current drain shape without a per-pad engine cache. Neither shares gilrs, so neither is a
-      few lines on top of this.
+- [x] 9g-i-d-a ANDROID DONE; iOS is 9g-i-d-a-i and is a genuinely different architecture.
+      `HapticTarget::Gamepad` was DROPPED ON THE FLOOR on Android: `play_haptic` returned early
+      for anything that was not `System`, so an app calling `play_haptic(pattern, Gamepad(id))`
+      on a phone with a controller attached got silence, with the API reporting success.
+      The pad's motor is reached through `InputDevice.getVibratorManager()` (API 31) or
+      `getVibrator()` below that - the SAME `Vibrator` interface as the phone's own, a different
+      device through one API - which is why this lives beside `play_via_vibrator` rather than in
+      the gamepad backend. `pad` is the Android input device id, which is exactly what
+      `gamepad::android` already publishes as the `GamepadId`, so there is no mapping table and a
+      stale id from an unplugged pad simply yields a null device.
+      NOT THE COMPOSITION API the phone path uses: those primitives are TAPS. A rumble is a
+      sustained buzz, which is `createOneShot(ms, amplitude)` - and that is API 26, so unlike the
+      primitives it needs no version fallback.
+      `hasVibrator()` is the real test and is load-bearing: most controllers have no motor and
+      `getVibrator()` still returns a NON-NULL stub for them, so without it every rumble would
+      look like it worked.
+      THREE RULES MOVED TO CORE so both backends answer them identically and so they can be
+      TESTED - the Android code is cfg-gated to a target this machine never runs tests on:
+      `rumble_duration_ms` (0 means "natural", which for a MOTOR is not zero - a zero-length
+      rumble is not something a person can feel; 150ms), `wants_strong_motor` (the pattern picks
+      the low- or high-frequency motor; driving both is muddier, not louder), and `amplitude_u8`.
+      That last one has a real trap: ANDROID REJECTS AMPLITUDE 0 as invalid rather than treating
+      it as silence, so it floors at 1 and the backend returns early on a zero intensity instead.
+      EVIDENCE: 3 core tests with a NEGATIVE CONTROL - removing the amplitude floor and the
+      duration default fails with "intensity 0 produced amplitude 0, which Android rejects".
+      Both new seams proven COMPILED under `--target aarch64-linux-android` with `_internal_deps`.
+      VIBRATE is already in the manifest (line 26). Host, 8/8 mobile, azul-core 2773, azul-dll
+      1992, autofix 0 patches. ⚠ No controller here - compile-only.
+- [ ] 9g-i-d-a-i iOS/tvOS gamepad rumble. `GCController.haptics` hands back a `GCDeviceHaptics`
+      whose `createEngine(withLocality:)` is a CoreHaptics ENGINE - not a fire-and-forget call
+      like every other backend on this path. Playing one buzz means building a `CHHapticEvent`
+      with intensity/sharpness `CHHapticEventParameter`s, wrapping it in a `CHHapticPattern`,
+      making a player, starting the engine and starting the player: five Objective-C classes with
+      error out-parameters, plus a per-pad engine CACHE, because starting an engine per request
+      would stutter. That is a new subsystem rather than a few lines on the existing drain, and
+      nothing here can run it - the locality choice alone (`.default` vs `.handles` vs
+      `.triggers`) wants a real controller to judge.
 - [x] 9g-ii-a DONE, per the ruling ("make new structs if needed"). Both accessors returned
       non-empty tuples, which have no C representation, so neither could be exposed and no
       binding could read an IME caret or a raw motion delta.

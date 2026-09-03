@@ -255,6 +255,72 @@ impl HapticRequest {
             self.intensity.clamp(0.0, 1.0)
         }
     }
+
+    /// How long a CONTINUOUS actuator should run, in milliseconds.
+    ///
+    /// `duration_ms == 0` means "the pattern's natural duration", which for a
+    /// tap-style actuator is whatever the platform does and for a MOTOR is not
+    /// zero: a rumble of zero length is not something a person can feel.
+    /// 150ms is gilrs's own example figure and about the shortest pulse an ERM
+    /// motor can spin up and down within.
+    ///
+    /// Shared rather than repeated per backend: the gilrs path and the Android
+    /// per-controller vibrator answer the same question, and two copies of a
+    /// magic number drift.
+    #[must_use]
+    pub fn rumble_duration_ms(&self) -> u32 {
+        rumble_duration_ms(self.duration_ms)
+    }
+
+    /// Which MOTOR this pattern belongs on, not how hard to drive it.
+    ///
+    /// A controller has a low-frequency motor that THUDS and a high-frequency
+    /// one that BUZZES, and the pattern picks between them. Driving both
+    /// together is a different, muddier sensation rather than a louder one -
+    /// which is why this is a bool and not a mix.
+    ///
+    /// `true` = the strong (low-frequency) motor.
+    #[must_use]
+    pub fn wants_strong_motor(&self) -> bool {
+        matches!(
+            self.pattern,
+            HapticPattern::ImpactHeavy
+                | HapticPattern::ImpactMedium
+                | HapticPattern::ImpactRigid
+                | HapticPattern::Error
+                | HapticPattern::Warning
+                | HapticPattern::LongPress
+        )
+    }
+
+    /// The intensity as an 8-bit amplitude in `1..=255`.
+    ///
+    /// Android's `VibrationEffect.createOneShot` takes amplitude in that
+    /// range, where `0` is not "silent" but INVALID - it throws
+    /// `IllegalArgumentException`. A caller that wants silence must not play
+    /// at all, so this floors at 1 and the backend checks for a zero intensity
+    /// before calling.
+    #[must_use]
+    pub fn amplitude_u8(&self) -> u8 {
+        let scaled = self.intensity_clamped() * 255.0;
+        // `as` saturates, and the clamp above already bounds it; the floor at
+        // 1 is the part that matters.
+        (scaled as u8).max(1)
+    }
+}
+
+/// See [`HapticRequest::rumble_duration_ms`].
+const DEFAULT_RUMBLE_MS: u32 = 150;
+
+/// The free-function form of [`HapticRequest::rumble_duration_ms`], for a
+/// backend that was handed the duration rather than the whole request.
+#[must_use]
+pub fn rumble_duration_ms(duration_ms: u32) -> u32 {
+    if duration_ms == 0 {
+        DEFAULT_RUMBLE_MS
+    } else {
+        duration_ms
+    }
 }
 
 /// Collects haptic requests for the platform backend to play.
@@ -306,6 +372,74 @@ impl HapticManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A rumble of zero length is not something a person can feel, so `0`
+    /// ("natural duration") has to become a real pulse for a MOTOR - unlike a
+    /// tap actuator, where the platform decides.
+    #[test]
+    fn a_natural_duration_becomes_a_real_pulse_for_a_motor() {
+        let mut r = HapticRequest::new(HapticPattern::ImpactHeavy, HapticTarget::System);
+        assert_eq!(r.duration_ms, 0, "the constructor still means `natural`");
+        assert_eq!(r.rumble_duration_ms(), 150);
+
+        r.duration_ms = 40;
+        assert_eq!(r.rumble_duration_ms(), 40, "an explicit duration wins");
+    }
+
+    /// The split is by PATTERN, not by strength: a heavy impact belongs on the
+    /// low-frequency motor and a selection tick on the high-frequency one, and
+    /// swapping them makes every tick feel like a thud.
+    #[test]
+    fn the_motor_split_follows_the_pattern() {
+        for p in [
+            HapticPattern::ImpactHeavy,
+            HapticPattern::ImpactMedium,
+            HapticPattern::ImpactRigid,
+            HapticPattern::Error,
+            HapticPattern::Warning,
+            HapticPattern::LongPress,
+        ] {
+            assert!(
+                HapticRequest::new(p, HapticTarget::System).wants_strong_motor(),
+                "{p:?} must drive the strong motor"
+            );
+        }
+        for p in [
+            HapticPattern::Selection,
+            HapticPattern::ImpactLight,
+            HapticPattern::ImpactSoft,
+            HapticPattern::Success,
+            HapticPattern::KeyPress,
+            HapticPattern::TextHandleMove,
+        ] {
+            assert!(
+                !HapticRequest::new(p, HapticTarget::System).wants_strong_motor(),
+                "{p:?} must drive the weak motor"
+            );
+        }
+    }
+
+    /// Android's `createOneShot` REJECTS amplitude 0 - it is invalid, not
+    /// silent - so the floor at 1 is what keeps a very small intensity from
+    /// throwing instead of buzzing faintly.
+    #[test]
+    fn the_amplitude_never_reaches_the_value_android_rejects() {
+        let mut r = HapticRequest::new(HapticPattern::ImpactHeavy, HapticTarget::System);
+
+        r.intensity = 1.0;
+        assert_eq!(r.amplitude_u8(), 255);
+        r.intensity = 0.5;
+        assert_eq!(r.amplitude_u8(), 127);
+
+        for tiny in [0.0, 0.0001, -5.0, f32::NAN] {
+            r.intensity = tiny;
+            let a = r.amplitude_u8();
+            assert!(a >= 1, "intensity {tiny} produced amplitude {a}, which Android rejects");
+        }
+        // NaN is treated as "full" by `intensity_clamped`, not as zero.
+        r.intensity = f32::NAN;
+        assert_eq!(r.amplitude_u8(), 255);
+    }
 
     /// Every chain has to TERMINATE, or a backend walking it hangs. A cycle
     /// here would be an infinite loop inside the event loop, on the device

@@ -292,10 +292,10 @@ pub fn rumble(pad: u32, intensity: f32, duration_ms: u32, strong: bool) {
 
         // gilrs magnitude is a u16 across the FULL range, not a percentage.
         let magnitude = (intensity.clamp(0.0, 1.0) * f32::from(u16::MAX)) as u16;
-        // A haptic TAP with no duration is not a rumble the user can feel;
-        // 150ms is the gilrs example's own figure and about the shortest
-        // pulse an ERM motor can spin up and down within.
-        let ms = if duration_ms == 0 { 150 } else { duration_ms };
+        // A haptic TAP with no duration is not a rumble the user can feel.
+        // The rule and its 150ms figure live in `HapticRequest` so the
+        // Android per-controller path answers it identically.
+        let ms = azul_core::haptics::rumble_duration_ms(duration_ms);
         let play_for = Ticks::from_ms(ms);
 
         // STRONG is the low-frequency motor (a heavy thud), WEAK the

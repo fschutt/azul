@@ -615,30 +615,22 @@ fn play_haptic_native(request: &azul_core::haptics::HapticRequest) {
     // it identically on Windows, Linux and macOS, so a per-platform copy would
     // be the same code three times. Every platform arm above skips
     // `HapticTarget::Gamepad` for exactly this reason.
-    // `gamepad::desktop` is the gilrs backend and exists only off-mobile;
-    // Android and iOS use `InputDevice` / GameController, neither of which
-    // exposes rumble through this path (9g-i-d-a).
+    // `gamepad::desktop` is the gilrs backend and exists only off-mobile.
+    // ANDROID handles `HapticTarget::Gamepad` inside its own `play_haptic`
+    // (9g-i-d-a), because there the pad's actuator is reached through the same
+    // JNI `Vibrator` interface as the phone's - a different device, one API.
+    // iOS is still unfilled: `GCController.haptics` is a CoreHaptics ENGINE
+    // per controller rather than a fire-and-forget call. See 9g-i-d-a-i.
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     if let azul_core::haptics::HapticTarget::Gamepad(pad) = request.target {
-        use azul_core::haptics::HapticPattern;
-        // Which MOTOR, not how hard: a controller has a low-frequency motor
-        // that thuds and a high-frequency one that buzzes, and the pattern's
-        // weight picks between them. Driving both together is a different,
-        // muddier sensation rather than a louder one.
-        let strong = matches!(
-            request.pattern,
-            HapticPattern::ImpactHeavy
-                | HapticPattern::ImpactMedium
-                | HapticPattern::ImpactRigid
-                | HapticPattern::Error
-                | HapticPattern::Warning
-                | HapticPattern::LongPress
-        );
+        // Which MOTOR, not how hard - see `wants_strong_motor`. It lives in
+        // core because the Android per-controller path asks the same question
+        // and two copies of the pattern list would drift.
         crate::desktop::extra::gamepad::desktop::rumble(
             pad,
             request.intensity_clamped(),
             request.duration_ms,
-            strong,
+            request.wants_strong_motor(),
         );
     }
 }

@@ -2422,16 +2422,160 @@ fn play_via_vibrator(
     }
 }
 
+/// Rumble ONE CONTROLLER's motor (9g-i-d-a).
+///
+/// Android reaches a pad's actuator through the same `Vibrator` interface as
+/// the phone's own - a different device, one API - which is why this lives
+/// beside `play_via_vibrator` rather than in the gamepad backend. The gilrs
+/// path the desktop uses does not exist here.
+///
+/// `pad` is the Android INPUT DEVICE ID, which is exactly what
+/// `gamepad::android` publishes as the `GamepadId`, so no mapping table is
+/// needed - and a stale id from a pad that has since unplugged simply yields
+/// a null device.
+///
+/// # Not the composition API
+///
+/// `play_via_vibrator` above builds a composition PRIMITIVE, which is a tap.
+/// A rumble is a sustained buzz of a given strength, which is
+/// `createOneShot(ms, amplitude)` - and that call is API 26, so unlike the
+/// primitives it needs no version fallback.
+#[cfg(all(target_os = "android", feature = "jni"))]
+fn play_gamepad_rumble(
+    env: &mut jni::JNIEnv,
+    request: &azul_core::haptics::HapticRequest,
+    pad: u32,
+) -> bool {
+    use jni::objects::{JObject, JValue};
+
+    // Zero intensity is "do not play", NOT amplitude 0 - Android rejects that
+    // as invalid rather than treating it as silence.
+    if request.intensity_clamped() <= 0.0 {
+        return false;
+    }
+
+    let mut attempt = || -> Result<bool, String> {
+        // `android.view.InputDevice` is on the BOOT classpath, so a bare
+        // `find_class` resolves it from a Rust thread - the same reason
+        // `HapticFeedbackConstants` does not need `find_app_class`.
+        let device = env
+            .call_static_method(
+                "android/view/InputDevice",
+                "getDevice",
+                "(I)Landroid/view/InputDevice;",
+                &[JValue::Int(pad as i32)],
+            )
+            .and_then(|v| v.l())
+            .map_err(|e| {
+                let _ = env.exception_clear();
+                format!("InputDevice.getDevice({pad}): {e:?}")
+            })?;
+        if device.is_null() {
+            // The pad unplugged between the callback and this drain. Normal.
+            return Ok(false);
+        }
+
+        // API 31 moved a device's actuators behind `VibratorManager`; the
+        // older `getVibrator()` still answers below that. Same two-step the
+        // phone's own vibrator lookup makes, and for the same reason.
+        let vibrator: JObject = {
+            let manager = env
+                .call_method(
+                    &device,
+                    "getVibratorManager",
+                    "()Landroid/os/VibratorManager;",
+                    &[],
+                )
+                .and_then(|v| v.l());
+            match manager {
+                Ok(m) if !m.is_null() => env
+                    .call_method(&m, "getDefaultVibrator", "()Landroid/os/Vibrator;", &[])
+                    .and_then(|v| v.l())
+                    .map_err(|e| {
+                        let _ = env.exception_clear();
+                        format!("pad getDefaultVibrator: {e:?}")
+                    })?,
+                _ => {
+                    let _ = env.exception_clear();
+                    env.call_method(&device, "getVibrator", "()Landroid/os/Vibrator;", &[])
+                        .and_then(|v| v.l())
+                        .map_err(|e| {
+                            let _ = env.exception_clear();
+                            format!("InputDevice.getVibrator: {e:?}")
+                        })?
+                }
+            }
+        };
+        if vibrator.is_null() {
+            return Ok(false);
+        }
+        // MOST CONTROLLERS HAVE NO MOTOR, and `getVibrator` still hands back a
+        // non-null stub for them. `hasVibrator` is the real test; without it
+        // every rumble would look like it worked.
+        let has = env
+            .call_method(&vibrator, "hasVibrator", "()Z", &[])
+            .and_then(|v| v.z())
+            .unwrap_or(false);
+        if !has {
+            return Ok(false);
+        }
+
+        // `createOneShot(long, int)` - a sustained buzz, not a tap. Amplitude
+        // is 1..=255 and 0 THROWS, which is what `amplitude_u8` floors.
+        let effect = env
+            .call_static_method(
+                "android/os/VibrationEffect",
+                "createOneShot",
+                "(JI)Landroid/os/VibrationEffect;",
+                &[
+                    JValue::Long(i64::from(request.rumble_duration_ms())),
+                    JValue::Int(i32::from(request.amplitude_u8())),
+                ],
+            )
+            .and_then(|v| v.l())
+            .map_err(|e| {
+                let _ = env.exception_clear();
+                format!("createOneShot: {e:?}")
+            })?;
+
+        env.call_method(
+            &vibrator,
+            "vibrate",
+            "(Landroid/os/VibrationEffect;)V",
+            &[JValue::Object(&effect)],
+        )
+        .map(|_| true)
+        .map_err(|e| {
+            // A missing VIBRATE permission arrives here as a SecurityException;
+            // clearing it is what stops a permission problem from aborting the
+            // process at the next JNI boundary.
+            let _ = env.exception_clear();
+            format!("pad vibrate: {e:?} (is android.permission.VIBRATE declared?)")
+        })
+    };
+
+    match attempt() {
+        Ok(played) => played,
+        Err(e) => {
+            log_debug!(LogCategory::Input, "[Android] pad rumble: {e}");
+            false
+        }
+    }
+}
+
 #[cfg(all(target_os = "android", feature = "jni"))]
 pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
     use azul_core::haptics::HapticTarget;
     use jni::JavaVM;
 
-    // Android exposes no per-controller actuator through this API, and the
-    // phone body is not a stand-in for a gamepad's motors.
-    if request.target != HapticTarget::System {
-        return;
-    }
+    // The phone body is not a stand-in for a gamepad's motors, and a Pen has
+    // no actuator on any Android device - so only these two targets play.
+    let pad = match request.target {
+        HapticTarget::System => None,
+        // 9g-i-d-a: the pad's own motor, reached through `InputDevice`.
+        HapticTarget::Gamepad(pad) => Some(pad),
+        _ => return,
+    };
 
     let vm_ptr = java_vm_ptr();
     let activity_ptr = activity_ptr();
@@ -2447,6 +2591,14 @@ pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
             .map_err(|e| format!("attach_current_thread: {e:?}"))?;
         let activity =
             unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
+
+        // A GAMEPAD is a different device entirely: its motor is reached
+        // through `InputDevice`, and `performHapticFeedback` below would
+        // buzz the PHONE instead - which is the wrong body.
+        if let Some(pad) = pad {
+            play_gamepad_rumble(&mut env, request, pad);
+            return Ok(());
+        }
 
         // THE VIBRATOR PATH FIRST, but only for the two things
         // `performHapticFeedback` cannot express: a scaled intensity, and the
