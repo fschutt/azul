@@ -564,6 +564,17 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // devices. Same word-boundary trap as Tablet/Table and Dial/Dialog.
     ("HidDevice", "gamepad"),
     ("HidReport", "gamepad"),
+    // The system media session - what the desktop's media widget shows. No
+    // keyword matched, so both landed in "misc"; "audio" is where the audio
+    // sink and the rest of the playback surface already live, and it is where
+    // someone wiring up a music player looks.
+    // Spelled in FULL, not as a "Media" prefix: that also matches `MediaType`,
+    // which is the CSS `@media` type and belongs to css. FOURTH instance of
+    // this trap after Tablet/Table, Dial/Dialog and Hid/Hidpi - a prefix table
+    // is a word-boundary bug generator, so every new entry gets checked
+    // against the existing type names before it is added.
+    ("MediaPlaybackState", "audio"),
+    ("NowPlayingInfo", "audio"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -1110,6 +1121,17 @@ mod tests {
         assert_eq!(difficult_type_module("HidReport"), Some("gamepad"));
         assert_eq!(difficult_type_module("HidpiAdjustedBounds"), None);
         assert_ne!(determine_module("HidpiAdjustedBounds").0, "gamepad");
+    }
+
+    /// A "Media" prefix would also capture `MediaType`, the CSS `@media` type,
+    /// and drag it out of css into audio. Fourth word-boundary trap in this
+    /// table, so it gets the same guard the other three have.
+    #[test]
+    fn the_media_session_entries_do_not_capture_the_css_media_type() {
+        assert_eq!(difficult_type_module("MediaPlaybackState"), Some("audio"));
+        assert_eq!(difficult_type_module("NowPlayingInfo"), Some("audio"));
+        assert_eq!(difficult_type_module("MediaType"), None);
+        assert_ne!(determine_module("MediaType").0, "audio");
     }
 
     /// The override is a PREFIX match, so it must not capture the css `table`

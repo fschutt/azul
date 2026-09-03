@@ -6334,6 +6334,12 @@ pub trait PlatformWindow {
                 }
                 ProcessEventResult::DoNothing
             }
+            CallbackChange::SetNowPlaying { info } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.media_session_manager.set(info.clone());
+                }
+                ProcessEventResult::DoNothing
+            }
             CallbackChange::CommitUndoSnapshot => {
                 // Clone the Arc first so the `&self` borrow ends before we
                 // borrow `&self` again via get_undo_manager().
@@ -9137,6 +9143,25 @@ pub trait PlatformWindow {
                 .unwrap_or_default();
             for request in &pending {
                 play_haptic_native(request);
+            }
+        }
+
+        // MEDIA SESSION. `CallbackInfo::set_now_playing()` ->
+        // `CallbackChange::SetNowPlaying` -> `MediaSessionManager::set()`, and
+        // then the same missing last step the haptic queue had: nothing read
+        // it. The MPRIS and `MPRemoteCommandCenter` backends existed but served
+        // a hardcoded "stopped, no track", so an app that IS a media player had
+        // the state and no way to publish it (9h-i-a-i).
+        //
+        // Drained at the OUTERMOST pass only, like the haptics, and for a
+        // related reason: `take_if_dirty` coalesces, so draining inside the
+        // recursion would announce twice for one user action.
+        if depth == 0 {
+            let announce = self
+                .get_layout_window_mut()
+                .and_then(|lw| lw.media_session_manager.take_if_dirty());
+            if let Some(info) = announce {
+                crate::desktop::extra::media_keys::publish_now_playing(&info);
             }
         }
 

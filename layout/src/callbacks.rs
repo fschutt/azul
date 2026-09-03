@@ -906,6 +906,14 @@ pub enum CallbackChange {
     },
     /// Ask the platform to show or hide the on-screen keyboard. APPENDED.
     RequestSoftKeyboard { visible: bool },
+    /// Publish what the app is playing to the system media session. APPENDED.
+    ///
+    /// Deferred for the same reason as `PlayHaptic`: the sink is a D-Bus
+    /// connection or an Objective-C singleton, and neither belongs on the
+    /// layout thread.
+    SetNowPlaying {
+        info: azul_core::media_session::NowPlayingInfo,
+    },
 }
 
 /// Whether a batch of CSS property overrides can move geometry, i.e. whether
@@ -5057,6 +5065,41 @@ impl CallbackInfo {
     /// has no strength axis at all.
     pub fn play_haptic_request(&mut self, request: azul_core::haptics::HapticRequest) {
         self.push_change(CallbackChange::PlayHaptic { request });
+    }
+
+    /// Tell the system media session what this app is playing.
+    ///
+    /// This is what puts a title, an artist and a play/pause button in the
+    /// desktop's media widget: GNOME's and KDE's media applets, macOS's
+    /// Control Center and Now Playing widget. It is the app-facing half of the
+    /// media KEYS - on every platform the two are one object, and an app
+    /// becomes eligible to receive `Play`/`Next` precisely by declaring what it
+    /// is playing.
+    ///
+    /// Azul does not derive this: it has no playback state machine, and an app
+    /// playing audio through `rodio`, a system framework, or the network knows
+    /// what it is playing when the toolkit cannot see it.
+    ///
+    /// # Call it as often as you like
+    ///
+    /// A player is expected to call this every frame with an advancing
+    /// `position_ms`. That costs nothing: a change to the position ALONE is
+    /// stored but not announced, because the MPRIS spec forbids announcing
+    /// `Position` and because 60 D-Bus broadcasts a second would wake every
+    /// listening process on the desktop. Announcements happen when the track,
+    /// the state or the duration actually change.
+    ///
+    /// # It needs `AppConfig::expose_system_media_controls`
+    ///
+    /// Registering an app as a media player is visible - it appears in the
+    /// desktop's media controls - so it is opt-in, and publishing with the flag
+    /// off does nothing. That is the same flag that makes the media keys
+    /// arrive.
+    ///
+    /// Platforms with no media-session API yet (Windows, iOS, Android) ignore
+    /// this rather than failing, so one call site is correct everywhere.
+    pub fn set_now_playing(&mut self, info: azul_core::media_session::NowPlayingInfo) {
+        self.push_change(CallbackChange::SetNowPlaying { info });
     }
 
     /// Ask the platform to show or hide the on-screen keyboard.

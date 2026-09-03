@@ -2970,6 +2970,14 @@ impl Runner {
                     .request_soft_keyboard(*visible);
                 ProcessEventResult::DoNothing
             }
+            CallbackChange::SetNowPlaying { info } => {
+                // Recorded, never published: the runner is headless and has no
+                // session bus. Recording it anyway is what lets a test assert
+                // that a callback published what it meant to.
+                self.layout_window.media_session_manager.set(info.clone());
+                // No repaint: the media widget is not part of this window.
+                ProcessEventResult::DoNothing
+            }
             CallbackChange::CommitUndoSnapshot => {
                 self.unsupported("CommitUndoSnapshot", "no app-data undo manager")
             }

@@ -25,20 +25,27 @@
 //! `MPRemoteCommandHandlerStatus`. `RcBlock` is what the camera-authorisation
 //! and audio-sink backends already use for the same purpose.
 
-use azul_core::window::VirtualKeyCode;
+use azul_core::{
+    media_session::{MediaPlaybackState, NowPlayingInfo},
+    window::VirtualKeyCode,
+};
 use azul_layout::managers::media_keys::push_media_key;
 
 /// `MPRemoteCommandHandlerStatus.success`.
 const HANDLER_STATUS_SUCCESS: isize = 0;
-/// `MPNowPlayingPlaybackState.playing`.
+/// `MPNowPlayingPlaybackState`. The two azul does not use - `unknown` (0) and
+/// `interrupted` (4) - are things the SYSTEM asserts about a player, not things
+/// a player asserts about itself.
 const PLAYBACK_STATE_PLAYING: isize = 1;
+const PLAYBACK_STATE_PAUSED: isize = 2;
+const PLAYBACK_STATE_STOPPED: isize = 3;
 
 /// Load MediaPlayer.framework. `false` where it is absent.
 ///
 /// dlopen'd rather than linked, like ScreenCaptureKit and IOKit beside it: an
 /// app that never turns this on pays nothing, and a missing framework degrades
 /// instead of failing to launch.
-fn ensure_loaded() -> bool {
+fn library() -> Option<&'static libloading::Library> {
     static LIB: std::sync::OnceLock<Option<libloading::Library>> = std::sync::OnceLock::new();
     LIB.get_or_init(|| {
         unsafe {
@@ -48,7 +55,35 @@ fn ensure_loaded() -> bool {
         }
         .ok()
     })
-    .is_some()
+    .as_ref()
+}
+
+fn ensure_loaded() -> bool {
+    library().is_some()
+}
+
+/// Read one of MediaPlayer.framework's `NSString * const` dictionary keys.
+///
+/// These are EXPORTED SYMBOLS, not literals, and their string values are not
+/// documented - `MPMediaItemPropertyTitle` is not guaranteed to be `"title"`,
+/// so hardcoding a guess would silently produce a dictionary the framework
+/// ignores. Since the framework is dlopen'd rather than linked, each one has to
+/// be looked up by name: `dlsym` gives the ADDRESS OF THE VARIABLE, and the
+/// variable holds the `NSString *` - which is what `Symbol<*mut AnyObject>`
+/// dereferences to.
+///
+/// A missing key means that one field is dropped, not that publishing fails -
+/// a future macOS renaming one constant should cost a subtitle, not the widget.
+unsafe fn info_key(symbol: &[u8]) -> Option<*mut objc2::runtime::AnyObject> {
+    let lib = library()?;
+    let sym: libloading::Symbol<'_, *mut objc2::runtime::AnyObject> =
+        unsafe { lib.get(symbol) }.ok()?;
+    let ptr: *mut objc2::runtime::AnyObject = *sym;
+    if ptr.is_null() {
+        None
+    } else {
+        Some(ptr)
+    }
 }
 
 /// Register for the transport commands.
@@ -139,4 +174,150 @@ pub fn start() {
         }
         crate::plog_info!("[media-keys] MPRemoteCommandCenter registered");
     }
+}
+
+/// Publish the app's session into `MPNowPlayingInfoCenter`.
+///
+/// # Why this is the same object as the command centre
+///
+/// macOS only delivers media keys to the app it considers "now playing", and
+/// that is decided by this very centre. So publishing is not a cosmetic extra
+/// on top of `start` - it is what keeps the app eligible for the keys it
+/// registered for, and a player that goes `Stopped` correctly stops receiving
+/// them.
+///
+/// # Artwork is dropped
+///
+/// `MPMediaItemPropertyArtwork` wants an `MPMediaItemArtwork`, which wraps a
+/// decoded `NSImage`. `NowPlayingInfo::artwork_url` is a URI, because that is
+/// what MPRIS takes, and turning it into pixels means fetching a URL and
+/// decoding an image from inside a UI toolkit's event loop. That is a real
+/// feature, not a line of glue - logged as 9h-i-a-i-d.
+pub fn publish(info: &NowPlayingInfo) {
+    if !ensure_loaded() {
+        return;
+    }
+
+    unsafe {
+        use objc2::{msg_send, runtime::AnyObject};
+
+        let Some(info_cls) = std::ffi::CString::new("MPNowPlayingInfoCenter")
+            .ok()
+            .as_deref()
+            .and_then(objc2::runtime::AnyClass::get)
+        else {
+            return;
+        };
+        let center: *mut AnyObject = msg_send![info_cls, defaultCenter];
+        if center.is_null() {
+            return;
+        }
+
+        // A DICTIONARY, replaced wholesale on every publish. Mutating the one
+        // the centre already holds is not an option: `nowPlayingInfo` returns a
+        // COPY, so writes to it would go nowhere.
+        let Some(dict_cls) = std::ffi::CString::new("NSMutableDictionary")
+            .ok()
+            .as_deref()
+            .and_then(objc2::runtime::AnyClass::get)
+        else {
+            return;
+        };
+        let dict: *mut AnyObject = msg_send![dict_cls, dictionary];
+        if dict.is_null() {
+            return;
+        }
+
+        let mut put = |symbol: &[u8], value: *mut AnyObject| {
+            if value.is_null() {
+                return;
+            }
+            if let Some(key) = info_key(symbol) {
+                let _: () = msg_send![dict, setObject: value, forKey: key];
+            }
+        };
+
+        if !info.title.as_str().is_empty() {
+            put(b"MPMediaItemPropertyTitle\0", nsstring(info.title.as_str()));
+        }
+        if !info.artist.as_str().is_empty() {
+            put(
+                b"MPMediaItemPropertyArtist\0",
+                nsstring(info.artist.as_str()),
+            );
+        }
+        if !info.album.as_str().is_empty() {
+            put(
+                b"MPMediaItemPropertyAlbumTitle\0",
+                nsstring(info.album.as_str()),
+            );
+        }
+        if info.duration_ms != 0 {
+            // SECONDS as a double here, where MPRIS wants microseconds as an
+            // integer. Publishing milliseconds would make every track look
+            // 1000x too long and the scrubber never move.
+            put(
+                b"MPMediaItemPropertyPlaybackDuration\0",
+                nsnumber(info.duration_ms as f64 / 1000.0),
+            );
+        }
+        put(
+            b"MPNowPlayingInfoPropertyElapsedPlaybackTime\0",
+            nsnumber(info.position_ms as f64 / 1000.0),
+        );
+        // WITHOUT A RATE THE TIME DOES NOT MOVE. Control Center advances the
+        // elapsed time itself by extrapolating from the rate; a paused player
+        // publishes 0.0 so the display holds, and a playing one publishes 1.0
+        // so it ticks between publishes instead of freezing.
+        let rate = if info.state == MediaPlaybackState::Playing {
+            1.0
+        } else {
+            0.0
+        };
+        put(
+            b"MPNowPlayingInfoPropertyPlaybackRate\0",
+            nsnumber(rate),
+        );
+
+        let _: () = msg_send![center, setNowPlayingInfo: dict];
+
+        let state = match info.state {
+            MediaPlaybackState::Playing => PLAYBACK_STATE_PLAYING,
+            MediaPlaybackState::Paused => PLAYBACK_STATE_PAUSED,
+            MediaPlaybackState::Stopped => PLAYBACK_STATE_STOPPED,
+        };
+        let _: () = msg_send![center, setPlaybackState: state];
+    }
+}
+
+/// An autoreleased `NSString` from a Rust string, or null if it contains an
+/// interior NUL.
+unsafe fn nsstring(s: &str) -> *mut objc2::runtime::AnyObject {
+    use objc2::{msg_send, runtime::AnyObject};
+
+    let Ok(c) = std::ffi::CString::new(s) else {
+        return core::ptr::null_mut();
+    };
+    let Some(cls) = std::ffi::CString::new("NSString")
+        .ok()
+        .as_deref()
+        .and_then(objc2::runtime::AnyClass::get)
+    else {
+        return core::ptr::null_mut();
+    };
+    unsafe { msg_send![cls, stringWithUTF8String: c.as_ptr()] }
+}
+
+/// An autoreleased `NSNumber` holding a double.
+unsafe fn nsnumber(v: f64) -> *mut objc2::runtime::AnyObject {
+    use objc2::{msg_send, runtime::AnyObject};
+
+    let Some(cls) = std::ffi::CString::new("NSNumber")
+        .ok()
+        .as_deref()
+        .and_then(objc2::runtime::AnyClass::get)
+    else {
+        return core::ptr::null_mut();
+    };
+    unsafe { msg_send![cls, numberWithDouble: v] }
 }

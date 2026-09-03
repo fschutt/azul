@@ -625,10 +625,76 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       azul-layout 7581, azul-dll 1973, autofix converged and `codegen all` re-ran for the new
       `AppConfig` field. ⚠ No Linux desktop here - compile-only, never registered on a real bus.
 
-- [ ] 9h-i-a-i MPRIS metadata: `PlaybackStatus`, `Metadata` and `Position` are stubbed at
-      "stopped, no track" because azul has no playback state machine - the same thing 11c is
-      blocked on. An app that IS a media player has the state and no way to publish it; exposing
-      it needs an API for the app to push status/metadata into the MPRIS interface.
+- [x] 9h-i-a-i DONE. NOT blocked on 11c after all, and the note said why without drawing the
+      conclusion: "an app that IS a media player has the state and no way to publish it". The
+      missing piece was an API for the app to PUSH, not a state machine for the engine to derive
+      - and an engine-side machine could never have covered the real cases anyway, because an app
+      playing through `rodio`, a system framework or the network knows what it is playing exactly
+      when the toolkit cannot see it.
+      `CallbackInfo::set_now_playing(NowPlayingInfo)` -> `CallbackChange::SetNowPlaying` ->
+      `MediaSessionManager` -> drained at `process_window_events` depth 0 beside the haptics ->
+      `publish_now_playing`. Same five-link shape as the haptic queue, and for the same reason:
+      the sink is a D-Bus connection or an Objective-C singleton and neither belongs on the
+      layout thread.
+      TWO BACKENDS, because both platforms already had the object. Linux MPRIS now answers
+      `PlaybackStatus`/`Metadata`/`Position` from what the app published and emits
+      `PropertiesChanged`; macOS fills `MPNowPlayingInfoCenter`, which is not a bonus but a
+      REQUIREMENT - macOS delivers media keys only to the app it considers "now playing", so
+      publishing is what keeps the keys 9h-i registered for arriving.
+      THE DIRTY FLAG IGNORES `position_ms`, AND THAT IS THE DESIGN. A player calls this every
+      frame with an advancing position; announcing that would put 60 D-Bus broadcasts a second on
+      the session bus, waking every listening process. It is also what the spec says: `Position`
+      must never appear in `PropertiesChanged` because it advances continuously - clients
+      extrapolate it and read the property when they need it. So the getters ANSWER from the
+      stored value at any time and only real changes are ANNOUNCED. Comparing the whole struct
+      would have been the obvious implementation and the wrong one.
+      `mpris:trackid` is minted only when the TRACK changes, never on a pause: a desktop keys its
+      progress bar and its "song changed" notification on that id, so a serial per publish would
+      reset the bar and pop a notification every time the user hit pause.
+      UNIT TRAPS, one per platform and they disagree: MPRIS wants MICROSECONDS as a signed
+      integer (milliseconds there makes every track look 1000x short and the bar finish
+      instantly), macOS wants SECONDS as a double. The struct stores milliseconds and each
+      backend converts. `u64` ms and not `u32`, because `u32` MICROseconds overflows at 71
+      minutes - an ordinary audiobook chapter.
+      macOS also needs `MPNowPlayingInfoPropertyPlaybackRate`: Control Center advances the
+      elapsed time by extrapolating from it, so without it the display freezes between publishes.
+      The dictionary KEYS are exported `NSString * const` symbols whose string values are not
+      documented, so with the framework dlopen'd they are looked up by `dlsym` rather than
+      guessed - a hardcoded `"title"` would silently produce a dictionary the framework ignores.
+      EVIDENCE: 7 core tests, with a NEGATIVE CONTROL - replacing the field-wise comparison with
+      `self != other` makes two of them FAIL on an assert (not on a compile error) with
+      "a position-only change announced itself at frame 1". All four Linux seams and both macOS
+      seams proven COMPILED by deliberate type errors. `codegen all` + a real dll build put
+      `AzCallbackInfo_setNowPlaying` and `AzNowPlayingInfo` in the C ABI; autofix converged at
+      0 patches, `azul-doc check` PASSED. Host, 8/8 mobile, azul-core 2767, azul-layout 7604,
+      azul-dll 1975. Also a FOURTH word-boundary guard on `DIFFICULT_TYPE_MODULES`: a `"Media"`
+      prefix would have dragged the CSS `MediaType` into the audio module, so both entries are
+      spelled in full and a test pins it.
+      WARNING WHEN THE FLAG IS OFF: publishing without `expose_system_media_controls` logs once
+      rather than silently doing nothing - silently doing nothing when the app asked for
+      something visible is the exact failure mode this whole backlog is about.
+      No Linux desktop and no Input-Monitoring-free way to observe Control Center here, so this
+      is compile-only on both halves. Never seen a real media widget.
+- [ ] 9h-i-a-i-a `Seek`, `SetPosition`, `OpenUri` and the `Seeked` signal are still absent, and
+      `CanSeek` still reports false. Unlike the transport commands these cannot become a
+      `VirtualKeyCode` - there is no seek KEY - so they need an event kind that carries a
+      position, which is a dispatch-model change rather than a backend gap. Reporting `CanSeek`
+      true without it would put a dead scrubber in the desktop UI.
+- [ ] 9h-i-a-i-b MPRIS `Volume` is read/WRITE and is omitted entirely. Answering it needs an
+      app-level volume concept azul does not have, and a writable property needs the same inbound
+      path 9h-i-a-i-a does. Some desktops render a volume slider only when the property exists.
+- [ ] 9h-i-a-i-c WINDOWS HAS NO MEDIA SESSION AT ALL. `WM_APPCOMMAND` delivers the keys, so 9h-i
+      was complete for INPUT, but there is nothing to publish INTO: that is `SystemMediaTransport
+      Controls`, reached through `ISystemMediaTransportControlsInterop::GetForWindow(HWND)`. A
+      real WinRT backend, not a line of glue, so `set_now_playing` is a no-op there today.
+- [ ] 9h-i-a-i-d iOS and Android both have an equivalent and neither has a backend: iOS is the
+      SAME `MPNowPlayingInfoCenter` the macOS half now uses (plus an `AVAudioSession` category
+      before it will accept anything), Android is `MediaSession`/`MediaMetadata` through a
+      service. Both are also where a phone's lock-screen controls come from.
+- [ ] 9h-i-a-i-e macOS drops `artwork_url`. `MPMediaItemPropertyArtwork` wants an
+      `MPMediaItemArtwork` wrapping a decoded `NSImage`, and the field is a URI because that is
+      what MPRIS takes - so filling it means fetching a URL and decoding an image from inside the
+      event loop, which is a feature with a cache and a failure mode, not glue.
 - [ ] 9h-i-a-ii MPRIS `Raise` is inert. Focusing a window from the desktop's media widget is a
       window-manager action the shell owns, and there is no seam from a D-Bus thread to "raise
       window N" - it needs the same cross-thread request path the media keys now have.
