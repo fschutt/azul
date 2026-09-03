@@ -333,6 +333,18 @@ impl Runner {
     /// re-derivation.
     fn update_hit_test_at(&mut self, position: LogicalPosition) {
         use azul_layout::managers::hover::InputPointId;
+        self.update_hit_test_for(InputPointId::Mouse, position);
+    }
+
+    /// [`Self::update_hit_test_at`] for ANY input point (9b-ii-c): a second
+    /// seat's hit test goes into that seat's own hover history, so its press
+    /// is targeted at the node under that cursor - the same split the dll's
+    /// `update_seat_hit_test_at` makes.
+    fn update_hit_test_for(
+        &mut self,
+        input_id: azul_layout::managers::hover::InputPointId,
+        position: LogicalPosition,
+    ) {
 
         let focused_node = self.layout_window.focus_manager.get_focused_node().copied();
         let hit_test = {
@@ -362,7 +374,7 @@ impl Runner {
         };
         self.layout_window
             .hover_manager
-            .push_hit_test(InputPointId::Mouse, hit_test);
+            .push_hit_test(input_id, hit_test);
     }
 
     /// Publish one hit test per live touch point and drive the gesture
@@ -1096,7 +1108,25 @@ impl Runner {
             // to walk every hit DOM and let the last focusable win, so a
             // focusable host node under a VirtualView page took a click meant
             // for the page.
-            let clicked_focusable_node = hit_test_for_dispatch.as_ref().and_then(|hit_test| {
+            // The hit test of the seat that PRESSED (9b-ii-c): a second
+            // cursor's press focuses what is under the second cursor, not
+            // what the primary happens to hover.
+            let press_seat = synthetic_events
+                .iter()
+                .find(|e| e.event_type == azul_core::events::EventType::MouseDown)
+                .map_or(
+                    azul_core::window::PRIMARY_POINTER_SEAT,
+                    azul_layout::managers::hover::seat_of_event,
+                );
+            let hit_for_focus = if press_seat == azul_core::window::PRIMARY_POINTER_SEAT {
+                hit_test_for_dispatch.clone()
+            } else {
+                self.layout_window
+                    .hover_manager
+                    .get_current(&azul_layout::managers::hover::InputPointId::for_seat(press_seat))
+                    .cloned()
+            };
+            let clicked_focusable_node = hit_for_focus.as_ref().and_then(|hit_test| {
                 let results = &self.layout_window.layout_results;
                 crate::managers::hover::focusable_under_pointer(
                     hit_test,
@@ -1702,6 +1732,9 @@ impl Runner {
                 let size_changed = self.window_state.size.dimensions != old.size.dimensions;
                 let dpi_changed = self.window_state.size.dpi != old.size.dpi;
                 let mouse_state_changed = self.window_state.mouse_state != old.mouse_state;
+                // The other cursors (9b-ii-c): the dll's arm makes the same
+                // distinction, or a seat op would neither hit-test nor diff.
+                let seats_changed = self.window_state.pointer_seats != old.pointer_seats;
                 if size_changed {
                     self.resize_pending = true;
                 }
@@ -1737,6 +1770,7 @@ impl Runner {
                 let anything_changed = size_changed
                     || dpi_changed
                     || touch_state_changed
+                    || seats_changed
                     || self.window_state.mouse_state != old.mouse_state
                     || self.window_state.keyboard_state != old.keyboard_state
                     || self.window_state.window_focused != old.window_focused
@@ -1761,6 +1795,23 @@ impl Runner {
                 }
                 // Same idea for touch, one hit test PER FINGER — see
                 // [`Runner::sync_touch_points`].
+                if seats_changed {
+                    let seats: Vec<(u64, Option<LogicalPosition>)> = self
+                        .window_state
+                        .pointer_seats
+                        .as_ref()
+                        .iter()
+                        .map(|s| (s.seat_id, s.state.cursor_position.get_position()))
+                        .collect();
+                    for (seat_id, pos) in seats {
+                        if let Some(pos) = pos {
+                            self.update_hit_test_for(
+                                azul_layout::managers::hover::InputPointId::for_seat(seat_id),
+                                pos,
+                            );
+                        }
+                    }
+                }
                 if touch_state_changed {
                     self.sync_touch_points(&old_touch_points);
                 }
