@@ -1631,6 +1631,12 @@ pub fn is_behind_pointer(type_str: &str) -> bool {
 const PRIMITIVE_TYPES: &[&str] = &[
     "bool", "f32", "f64", "fn", "i128", "i16", "i32", "i64", "i8", "isize", "slice", "u128", "u16",
     "u32", "u64", "u8", "()", "usize", "c_void", "str", "char", "c_char", "c_schar", "c_uchar",
+    // The rest of the `core::ffi` integer family. `c_int` was already USED by
+    // api.json (the three `glGet*Location` return types) while missing from
+    // this list, so it read as a class that does not exist; the others are
+    // here so the next one to be used does not repeat that.
+    "c_int", "c_uint", "c_short", "c_ushort", "c_long", "c_ulong", "c_longlong", "c_ulonglong",
+    "c_float", "c_double",
 ];
 
 /// Single-letter types are usually generic type parameters
@@ -1720,6 +1726,14 @@ pub fn collect_all_referenced_types_from_api_with_chains(
                         // Each item is a map like {"arg_name": "type"}
                         for param_map in &fn_data.fn_args {
                             for (param_name, param_type_str) in param_map {
+                                // `{"self": "ref"}` is the RECEIVER KIND, not a
+                                // parameter: its "type" is one of ref/refmut/
+                                // value, which are not types at all. Counting
+                                // them as referenced types made three
+                                // non-existent names look reachable.
+                                if param_name == "self" {
+                                    continue;
+                                }
                                 if let Some(param_type) =
                                     extract_base_type_if_not_opaque(param_type_str)
                                 {
@@ -1759,6 +1773,14 @@ pub fn collect_all_referenced_types_from_api_with_chains(
                         // Same structure as functions
                         for param_map in &ctor_data.fn_args {
                             for (param_name, param_type_str) in param_map {
+                                // `{"self": "ref"}` is the RECEIVER KIND, not a
+                                // parameter: its "type" is one of ref/refmut/
+                                // value, which are not types at all. Counting
+                                // them as referenced types made three
+                                // non-existent names look reachable.
+                                if param_name == "self" {
+                                    continue;
+                                }
                                 if let Some(param_type) =
                                     extract_base_type_if_not_opaque(param_type_str)
                                 {

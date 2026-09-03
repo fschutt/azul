@@ -65,7 +65,7 @@ use crate::{
     managers::{
         file_drop::FileDropManager,
         focus_cursor::FocusManager,
-        gesture::{GestureAndDragManager, InputSample, PenState},
+        gesture::{GestureAndDragManager, InputSample, OptionInputSample, PenState},
         gpu_state::GpuStateManager,
         hover::{HoverManager, InputPointId},
         scroll_state::{AnimatedScrollState, ScrollManager},
@@ -5231,19 +5231,37 @@ impl CallbackInfo {
             .is_some_and(|pen| pen.barrel_button_pressed)
     }
 
-    /// Get the last recorded input sample (for `event_id` and detailed input data)
+    /// The most recent input sample: where the pointer was, when, at what
+    /// pressure and tilt, and the contact size.
+    ///
+    /// This is the raw sample the gesture recogniser works from, one step
+    /// below the events - useful for a drawing surface that wants every
+    /// coalesced point, or for correlating a callback with the `event_id` that
+    /// caused it.
+    ///
+    /// `None` outside an input session, i.e. whenever no button or contact is
+    /// down: samples are recorded per press, not continuously.
+    ///
+    /// Returns an OWNED sample rather than a borrow because this crosses the C
+    /// API, where a reference into engine state has no representation and no
+    /// lifetime to protect it - the same reason `get_hid_reports` returns an
+    /// owned vec.
     #[must_use]
-    pub fn get_last_input_sample(&self) -> Option<&InputSample> {
+    pub fn get_last_input_sample(&self) -> OptionInputSample {
         let manager = self.get_gesture_drag_manager();
         manager
             .get_current_session()
             .and_then(|session| session.last_sample())
+            .cloned()
+            .into()
     }
 
     /// Get the event ID of the current event
     #[must_use]
     pub fn get_current_event_id(&self) -> Option<u64> {
-        self.get_last_input_sample().map(|sample| sample.event_id)
+        self.get_last_input_sample()
+            .into_option()
+            .map(|sample| sample.event_id)
     }
 
     // Gesture Query Methods

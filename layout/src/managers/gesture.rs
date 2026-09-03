@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use azul_core::{
     dom::{DomId, NodeId},
     drag::{ActiveDragType, DragContext, DragData},
-    geom::{LogicalPosition, PhysicalPositionI32},
+    geom::{LogicalPosition, LogicalSize, PhysicalPositionI32},
     hit_test::HitTest,
     task::{Duration as CoreDuration, Instant as CoreInstant},
     window::WindowPosition,
@@ -122,8 +122,14 @@ impl Default for GestureDetectionConfig {
     }
 }
 
-/// Single input sample with position and timestamp
+/// Single input sample with position and timestamp.
+///
+/// `#[repr(C)]` because it crosses the C ABI through
+/// `CallbackInfo::get_last_input_sample`. It is deliberately NOT `Copy`, unlike
+/// `PenState` beside it: `timestamp` is an `Instant`, which on a `std` build
+/// owns a boxed platform clock reading with a destructor.
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct InputSample {
     /// Position in logical coordinates (window-local, Y=0 at top of window)
     pub position: LogicalPosition,
@@ -136,20 +142,36 @@ pub struct InputSample {
     /// All coordinates are in logical pixels (HiDPI-independent).
     /// On Wayland, this is an estimate (compositor does not expose global position).
     pub screen_position: LogicalPosition,
-    /// Timestamp when this sample was recorded (from `ExternalSystemCallbacks`)
-    pub timestamp: CoreInstant,
+    /// Timestamp when this sample was recorded (from `ExternalSystemCallbacks`).
+    ///
+    /// Spelled as the real type and not through this module's `CoreInstant`
+    /// alias: the codegen reads the field's written type verbatim, so an alias
+    /// here produces an `AzCoreInstant` in the C header that does not exist.
+    pub timestamp: azul_core::task::Instant,
     /// Mouse button state (bitfield: 0x01 = left, 0x02 = right, 0x04 = middle)
     pub button_state: u8,
     /// Unique, monotonic event ID for ordering (atomic counter)
     pub event_id: u64,
     /// Pen/stylus pressure (0.0 to 1.0, 0.5 = default for mouse)
     pub pressure: f32,
-    /// Pen/stylus tilt angles in degrees (`x_tilt`, `y_tilt`)
-    /// Range: typically -90.0 to 90.0, (0.0, 0.0) = perpendicular
-    pub tilt: (f32, f32),
-    /// Touch contact radius in logical pixels (width, height)
-    /// For mouse input, this is (0.0, 0.0)
-    pub touch_radius: (f32, f32),
+    /// Pen/stylus tilt angles in degrees.
+    /// Range: typically -90.0 to 90.0, both zero = perpendicular.
+    ///
+    /// A NAMED struct rather than a `(f32, f32)`, because a tuple has no C
+    /// representation and this whole sample was unreachable from a binding
+    /// while it carried two. `PenTilt` is not a new type invented for that -
+    /// it already existed and `PenState::tilt` beside it already used it, so
+    /// the tuple here was the odd one out; the conversion that used to happen
+    /// one level down (`PenTilt { x_tilt: tilt.0, .. }`) simply moved up.
+    pub tilt: crate::callbacks::PenTilt,
+    /// Touch contact extent in logical pixels. Zero for mouse input.
+    ///
+    /// `LogicalSize` for the same C-representation reason as `tilt`, and it
+    /// reuses an existing type rather than adding one because a width/height
+    /// pair in logical pixels IS a logical size. Not `TouchPoint`, which
+    /// models the same physical thing but as a major/minor ellipse plus an id,
+    /// a position and a force this sample already carries separately.
+    pub touch_radius: LogicalSize,
 }
 
 impl_option!(
@@ -916,8 +938,8 @@ impl GestureAndDragManager {
             button_state,
             event_id,
             pressure,
-            tilt,
-            touch_radius,
+            tilt: tilt.into(),
+            touch_radius: LogicalSize::new(touch_radius.0, touch_radius.1),
         };
 
         let session = InputSession::new(session_id, sample, window_position);
@@ -985,8 +1007,8 @@ impl GestureAndDragManager {
             button_state,
             event_id,
             pressure,
-            tilt,
-            touch_radius,
+            tilt: tilt.into(),
+            touch_radius: LogicalSize::new(touch_radius.0, touch_radius.1),
         });
 
         true
@@ -1109,8 +1131,8 @@ impl GestureAndDragManager {
             button_state: TOUCH_CONTACT_BUTTON_STATE,
             event_id: allocate_event_id(),
             pressure: 0.5,
-            tilt: (0.0, 0.0),
-            touch_radius: (0.0, 0.0),
+            tilt: crate::callbacks::PenTilt { x_tilt: 0.0, y_tilt: 0.0 },
+            touch_radius: LogicalSize::zero(),
         });
         true
     }
@@ -2399,8 +2421,8 @@ mod autotest_generated {
             button_state: 0x01,
             event_id: 0,
             pressure: 0.5,
-            tilt: (0.0, 0.0),
-            touch_radius: (0.0, 0.0),
+            tilt: crate::callbacks::PenTilt { x_tilt: 0.0, y_tilt: 0.0 },
+            touch_radius: LogicalSize::zero(),
         }
     }
 
@@ -2848,7 +2870,7 @@ mod autotest_generated {
         assert_eq!(session.samples.len(), 2);
         let first = session.first_sample().unwrap();
         assert!(first.pressure.is_nan());
-        assert!(first.tilt.0.is_infinite());
+        assert!(first.tilt.x_tilt.is_infinite());
         assert_eq!(first.button_state, 0xFF);
         assert_eq!(first.event_id, u64::MAX);
         // ts(u64::MAX) - ts(0) fits: duration_since is a saturating u64 sub.

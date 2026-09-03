@@ -484,6 +484,62 @@ fn main() -> anyhow::Result<()> {
                 }
             }
 
+            // Lint 5: DANGLING TYPE REFERENCES. Every type named by a field, an
+            // enum payload, a function argument or a return must be a type
+            // api.json actually defines.
+            //
+            // Nothing else catches this. Lint 1 compares api.json against the
+            // SOURCE, and a source type spelled through a local `use ... as`
+            // alias matches itself perfectly: `InputSample.timestamp` was
+            // recorded as `CoreInstant` - this module's alias for
+            // `azul_core::task::Instant` - and every check stayed green while
+            // the codegen was set to emit a field of type `AzCoreInstant`,
+            // which is declared nowhere. The failure would have surfaced as a
+            // C compile error in whichever binding a user built first, with
+            // nothing pointing back at the alias.
+            //
+            // The referenced set already excludes primitives and single-letter
+            // generic parameters, so what is left is names that should resolve
+            // to a class and do not.
+            {
+                let (referenced, chains) =
+                    api::collect_all_referenced_types_from_api_with_chains(&api_data);
+                let mut defined: std::collections::HashSet<&str> =
+                    std::collections::HashSet::new();
+                // `classes` is the whole namespace - callback typedefs live
+                // there too, as classes carrying a `callback_typedef`.
+                for (_ver, vd) in &api_data.0 {
+                    for (_mod, md) in &vd.api {
+                        for cls in md.classes.keys() {
+                            defined.insert(cls.as_str());
+                        }
+                    }
+                }
+                let dangling: Vec<&String> = referenced
+                    .iter()
+                    .filter(|t| !defined.contains(t.as_str()))
+                    .collect();
+                if dangling.is_empty() {
+                    println!("[ok] every type api.json references is a type api.json defines");
+                } else {
+                    eprintln!(
+                        "[FAIL] api.json references {} type(s) it does not define:",
+                        dangling.len()
+                    );
+                    for t in &dangling {
+                        match chains.get(*t) {
+                            Some(chain) => eprintln!(
+                                "    `{}` (first seen at {}) - if this is a local `use ... as` \
+                                 alias, spell the real type in the source field",
+                                t, chain
+                            ),
+                            None => eprintln!("    `{}`", t),
+                        }
+                    }
+                    problems += dangling.len();
+                }
+            }
+
             if problems > 0 {
                 anyhow::bail!("azul-doc check failed: {} problem(s)", problems);
             }

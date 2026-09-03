@@ -575,6 +575,11 @@ const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
     // against the existing type names before it is added.
     ("MediaPlaybackState", "audio"),
     ("NowPlayingInfo", "audio"),
+    // A raw pointer/pen sample. "Input" matched nothing and it fell into
+    // "dom", which is actively misleading - it is not a node type. `PenState`
+    // and `PenTilt`, which it now carries, are both in "callbacks", and a
+    // sample is read from a callback and nowhere else.
+    ("InputSample", "callbacks"),
 ];
 
 /// Module for a known-difficult type name, if it is one.
@@ -1132,6 +1137,15 @@ mod tests {
         assert_eq!(difficult_type_module("NowPlayingInfo"), Some("audio"));
         assert_eq!(difficult_type_module("MediaType"), None);
         assert_ne!(determine_module("MediaType").0, "audio");
+    }
+
+    /// The sample belongs with the pen types it carries, not in "dom".
+    #[test]
+    fn the_input_sample_override_lands_with_the_other_callback_types() {
+        assert_eq!(difficult_type_module("InputSample"), Some("callbacks"));
+        // The Option wrapper is routed by the option rule, not by this table,
+        // and must keep going to "option" rather than following the prefix.
+        assert_eq!(determine_module("OptionInputSample").0, "option");
     }
 
     /// The override is a PREFIX match, so it must not capture the css `table`

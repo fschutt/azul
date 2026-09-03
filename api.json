@@ -14665,6 +14665,34 @@
                                     }
                                 ],
                                 "fn_body": "object.set_now_playing(info)"
+                            },
+                            "get_last_input_sample": {
+                                "doc": [
+                                    "The most recent input sample: where the pointer was, when, at what",
+                                    "pressure and tilt, and the contact size.",
+                                    "",
+                                    "This is the raw sample the gesture recogniser works from, one step",
+                                    "below the events - useful for a drawing surface that wants every",
+                                    "coalesced point, or for correlating a callback with the `event_id` that",
+                                    "caused it.",
+                                    "",
+                                    "`None` outside an input session, i.e. whenever no button or contact is",
+                                    "down: samples are recorded per press, not continuously.",
+                                    "",
+                                    "Returns an OWNED sample rather than a borrow because this crosses the C",
+                                    "API, where a reference into engine state has no representation and no",
+                                    "lifetime to protect it - the same reason `get_hid_reports` returns an",
+                                    "owned vec."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionInputSample"
+                                },
+                                "fn_body": "object.get_last_input_sample()"
                             }
                         },
                         "repr": "C"
@@ -17360,6 +17388,43 @@
                                 "type": "Update"
                             }
                         }
+                    },
+                    "InputSample": {
+                        "external": "azul_layout::managers::gesture::InputSample",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "position": {
+                                    "type": "LogicalPosition"
+                                },
+                                "screen_position": {
+                                    "type": "LogicalPosition"
+                                },
+                                "timestamp": {
+                                    "type": "Instant"
+                                },
+                                "button_state": {
+                                    "type": "u8"
+                                },
+                                "event_id": {
+                                    "type": "u64"
+                                },
+                                "pressure": {
+                                    "type": "f32"
+                                },
+                                "tilt": {
+                                    "type": "PenTilt"
+                                },
+                                "touch_radius": {
+                                    "type": "LogicalSize"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -112259,6 +112324,23 @@
                                 "None": {},
                                 "Some": {
                                     "type": "RawMotionEventData"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionInputSample": {
+                        "external": "azul_layout::managers::gesture::OptionInputSample",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "InputSample"
                                 }
                             }
                         ],

@@ -979,8 +979,38 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       autofix converged at 0 patches / 0 errors. azul-core 2760, azul-layout 7575, azul-dll 1973,
       host, 8/8 mobile.
 
-- [ ] 9g-ii-d `get_last_input_sample` -> `Option<&InputSample>`: `InputSample` has no `repr` and two
-      `(f32, f32)` tuple fields (`tilt`, `touch_radius`). Same named-struct decision as 9g-ii-a.
+- [x] 9g-ii-d DONE, and like 9g-ii-a/b it needed NO new type - checking first is what keeps this
+      from growing duplicates. `tilt` becomes `PenTilt`, which already existed and which
+      `PenState::tilt` right beside it ALREADY USED: the tuple here was the odd one out, and the
+      conversion that happened one level down (`PenTilt { x_tilt: tilt.0, .. }`) just moved up.
+      `touch_radius` becomes `LogicalSize` - a width/height pair in logical pixels IS a logical
+      size. NOT `TouchPoint`, which models the same physical contact but as a major/minor ellipse
+      plus an id, a position and a force this sample already carries separately.
+      `#[repr(C)]` added; the sample is deliberately NOT `Copy` (its `Instant` owns a boxed clock
+      reading), so the accessor returns an OWNED `OptionInputSample` rather than the borrow it
+      used to - a reference into engine state has no C representation and no lifetime to protect
+      it, the same call `get_hid_reports` makes.
+      ⚠ THE REAL FIND IS A HOLE IN THE CHECKER, and it nearly shipped. api.json recorded the
+      timestamp's type as `CoreInstant` - this module's `use azul_core::task::Instant as
+      CoreInstant` alias - and EVERY CHECK STAYED GREEN, because lint 1 compares api.json against
+      the SOURCE and an alias matches itself perfectly. The codegen was set to emit a field of
+      type `AzCoreInstant`, which is declared nowhere; it would have surfaced as a C compile
+      error in whichever binding a user built first, with nothing pointing back at the alias.
+      So the field is now spelled `azul_core::task::Instant` and there is a NEW LINT: every type
+      api.json references must be a type api.json defines. It found two more things immediately -
+      `c_int` was used by three `glGet*Location` returns while missing from `PRIMITIVE_TYPES`,
+      and the collector was counting the `self` receiver KIND (`ref`/`refmut`/`value`) as a type.
+      Both fixed.
+      Module: `InputSample` auto-landed in `dom`, which is actively misleading for a pointer
+      sample; moved to `callbacks` with the `PenState`/`PenTilt` it now carries, via a
+      `DIFFICULT_TYPE_MODULES` entry and a test that also pins `OptionInputSample` staying in
+      `option`.
+      EVIDENCE: NEGATIVE CONTROL - putting `CoreInstant` back in api.json makes the new lint fail
+      with "`CoreInstant` (first seen at InputSample.timestamp)". `codegen all` + a real dll build
+      put `AzCallbackInfo_getLastInputSample` in the C ABI returning `AzOptionInputSample`, with
+      `AzInstant`/`AzPenTilt`/`AzLogicalSize` fields and ZERO occurrences of `AzCoreInstant`.
+      autofix converged at 0 patches, `azul-doc check` PASSED with the new lint green. Host, 8/8
+      mobile, azul-layout 7604, azul-doc 211.
 - [ ] 9g-ii-e `get_current_hit_test` / `get_hit_test_frame` / `get_hit_test_history` return
       `FullHitTest`, which is FIVE `BTreeMap`s deep plus an `Option<(DomId, LogicalPosition)>`.
       Exposing it needs a custom map type; this is a large piece of work, not a wiring gap.
