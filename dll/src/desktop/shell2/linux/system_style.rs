@@ -1868,32 +1868,467 @@ pub(crate) fn observed_system_theme() -> Option<Theme> {
     }
 }
 
+/// The fd both Linux event loops park on, so a theme switch WAKES them.
+///
+/// `OBSERVED_COLOR_SCHEME` alone was not enough. It is read from
+/// `check_timers_and_threads`, and both loops call that only when a timerfd
+/// fired or a background thread is live — otherwise they sit in `poll(2)` with
+/// an INFINITE timeout. An idle window (no animation, no timer, no thread) was
+/// therefore never going to run the read, so the portal's answer sat in the
+/// atomic until the user happened to move the mouse. An eventfd in both poll
+/// sets is what turns "the watcher knows" into "the window knows".
+///
+/// One fd for the whole process, not one per window: the setting is
+/// process-wide, `poll(2)` on the same fd from several loops all wake, and the
+/// counter semantics mean a drain by one loop cannot lose the wake for another
+/// (each loop re-reads the atomic, which is the source of truth).
+static THEME_WAKE_FD: core::sync::atomic::AtomicI32 = core::sync::atomic::AtomicI32::new(-1);
+
+/// The eventfd to put in a backend's poll set, or `-1` when it could not be
+/// created (in which case the loop simply keeps its old timer-driven latency).
+///
+/// Starts the watcher as a side effect, exactly like [`observed_system_theme`]:
+/// a backend that polls the fd is a backend that wants the answer.
+pub(crate) fn theme_wake_fd() -> i32 {
+    ensure_theme_watcher();
+    THEME_WAKE_FD.load(core::sync::atomic::Ordering::Relaxed)
+}
+
+/// Acknowledge a wake so `poll(2)` stops reporting the fd as readable.
+///
+/// The COUNT is deliberately discarded: it says how many times the desktop's
+/// setting moved since the last drain, and the answer to all of them is the
+/// same single re-read of `observed_system_theme`.
+pub(crate) fn drain_theme_wake() {
+    let fd = THEME_WAKE_FD.load(core::sync::atomic::Ordering::Relaxed);
+    if fd < 0 {
+        return;
+    }
+    let mut n: u64 = 0;
+    unsafe {
+        libc::read(fd, core::ptr::addr_of_mut!(n).cast::<libc::c_void>(), 8);
+    }
+}
+
+/// Publish a scheme the watcher just learned, and wake every parked loop.
+fn publish_color_scheme(scheme: u32) {
+    if color_scheme_to_theme(scheme).is_none() {
+        return;
+    }
+    let previous =
+        OBSERVED_COLOR_SCHEME.swap(scheme as u8, core::sync::atomic::Ordering::Relaxed);
+    if previous == scheme as u8 {
+        return;
+    }
+    let fd = THEME_WAKE_FD.load(core::sync::atomic::Ordering::Relaxed);
+    if fd < 0 {
+        return;
+    }
+    let one: u64 = 1;
+    unsafe {
+        libc::write(fd, core::ptr::addr_of!(one).cast::<libc::c_void>(), 8);
+    }
+}
+
 /// Start the watcher thread once per process.
 ///
-/// It MUST NOT run on the event-loop thread. `query_xdg_portal` opens a Unix
-/// socket to the session bus and does a synchronous request/response with two-
-/// second read and write timeouts, so polling it inline would risk a two-second
-/// freeze of the UI every time the portal was slow or absent — trading "dark
-/// mode does not apply until restart" for "the window hangs", which is worse.
+/// It MUST NOT run on the event-loop thread. The bus socket is a synchronous
+/// request/response channel and the watch below BLOCKS on it, so running any of
+/// this inline would park the UI on the session bus.
 ///
-/// Polling rather than subscribing to `SettingChanged`: reading a signal needs a
-/// match rule and a message loop against the bus, where a poll reuses the
-/// request path that already exists here. Two seconds is far below human
-/// tolerance for a theme switch and is one tiny D-Bus call.
+/// The mechanism is the portal's `SettingChanged` SIGNAL, not a poll. There is
+/// no Wayland protocol for the desktop's colour scheme and XSETTINGS does not
+/// carry one either, so `org.freedesktop.portal.Settings` is the answer on both
+/// Linux backends — and it announces changes rather than making callers ask.
+/// A `Read` still happens twice: once per connection to learn the CURRENT value
+/// (a signal only reports transitions), and once per idle interval as a
+/// backstop for a portal implementation that answers `Read` but never emits the
+/// signal.
 fn ensure_theme_watcher() {
     THEME_WATCHER.get_or_init(|| {
+        // Created BEFORE the thread starts, so `theme_wake_fd()` never observes
+        // -1 after `ensure_theme_watcher()` has returned.
+        let fd = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
+        THEME_WAKE_FD.store(fd, core::sync::atomic::Ordering::Relaxed);
+
         let _ = std::thread::Builder::new()
             .name("azul-theme-watch".into())
-            .spawn(|| loop {
-                if let Some((scheme, _accent)) = query_xdg_portal() {
-                    if color_scheme_to_theme(scheme).is_some() {
-                        OBSERVED_COLOR_SCHEME
-                            .store(scheme as u8, core::sync::atomic::Ordering::Relaxed);
+            .spawn(|| {
+                // Doubling backoff, so a session with no bus at all (a TTY
+                // login, a container without DBUS_SESSION_BUS_ADDRESS) stops
+                // retrying every two seconds forever.
+                let mut backoff = core::time::Duration::from_secs(2);
+                loop {
+                    if watch_portal_color_scheme().is_some() {
+                        // The connection lived and then ended: the bus went
+                        // away or the portal restarted. Reconnect promptly.
+                        backoff = core::time::Duration::from_secs(2);
+                    } else {
+                        backoff = (backoff * 2).min(core::time::Duration::from_secs(60));
                     }
+                    std::thread::sleep(backoff);
                 }
-                std::thread::sleep(core::time::Duration::from_secs(2));
             });
     });
+}
+
+/// How long the watcher parks on the bus before re-`Read`ing as a backstop.
+const PORTAL_BACKSTOP_INTERVAL: core::time::Duration = core::time::Duration::from_secs(30);
+
+/// Subscribe to `org.freedesktop.portal.Settings.SettingChanged` and publish
+/// every colour-scheme change until the connection ends.
+///
+/// Returns `Some(())` if a connection was established (and has since ended),
+/// `None` if one could not be made at all — the caller uses that to tell "the
+/// portal went away" from "there is no session bus here" when choosing a
+/// backoff.
+fn watch_portal_color_scheme() -> Option<()> {
+    use std::io::Read;
+    use std::os::unix::net::UnixStream;
+
+    let bus_addr = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok()?;
+    let path = bus_addr.strip_prefix("unix:path=")?.split(',').next()?;
+    let mut stream = UnixStream::connect(path).ok()?;
+    stream
+        .set_write_timeout(Some(core::time::Duration::from_secs(2)))
+        .ok()?;
+    // The read timeout IS the backstop interval: a wait that ends without a
+    // message means "nothing happened for 30s", which is exactly when the
+    // backstop `Read` should go out.
+    stream.set_read_timeout(Some(PORTAL_BACKSTOP_INTERVAL)).ok()?;
+
+    let uid = unsafe { libc_getuid() };
+    let auth_msg = alloc::format!("\0AUTH EXTERNAL {}\r\nBEGIN\r\n", hex_encode_uid(uid));
+    send_all_nosignal(&stream, auth_msg.as_bytes()).ok()?;
+    let mut auth_buf = [0u8; 256];
+    let n = stream.read(&mut auth_buf).ok()?;
+    if !core::str::from_utf8(&auth_buf[..n]).ok()?.contains("OK") {
+        return None;
+    }
+
+    let mut serial: u32 = 1;
+    let send_call = |stream: &UnixStream,
+                     serial: &mut u32,
+                     dest: &str,
+                     path: &str,
+                     iface: &str,
+                     member: &str,
+                     args: &[DValue<'_>]|
+     -> Option<()> {
+        let msg = build_dbus_method_call(dest, path, iface, member, args, *serial);
+        *serial += 1;
+        send_all_nosignal(stream, &msg).ok()
+    };
+
+    if send_call(
+        &stream,
+        &mut serial,
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+        "Hello",
+        &[],
+    )
+    .is_none()
+    {
+        return Some(());
+    }
+
+    // The match rule. Without it the bus delivers no broadcast signals at all —
+    // signal subscription on D-Bus is opt-in per client, and this is the opt-in.
+    if send_call(
+        &stream,
+        &mut serial,
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+        "AddMatch",
+        &[DValue::String(
+            "type='signal',interface='org.freedesktop.portal.Settings',member='SettingChanged',\
+             arg0='org.freedesktop.appearance'",
+        )],
+    )
+    .is_none()
+    {
+        return Some(());
+    }
+
+    // A signal reports a TRANSITION, so the value in effect right now has to be
+    // asked for once. The serial is RETURNED and remembered: replies are matched
+    // against it, because `Hello`'s and `AddMatch`'s replies come back down this
+    // same socket and the response parser is a heuristic over the last four
+    // bytes of the body — handed the wrong message it could invent a scheme.
+    let read_color_scheme = |stream: &UnixStream, serial: &mut u32| -> Option<u32> {
+        let sent = *serial;
+        let msg = build_dbus_method_call(
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.Settings",
+            "Read",
+            &[
+                DValue::String("org.freedesktop.appearance"),
+                DValue::String("color-scheme"),
+            ],
+            *serial,
+        );
+        *serial += 1;
+        send_all_nosignal(stream, &msg).ok()?;
+        Some(sent)
+    };
+    let mut outstanding_read = read_color_scheme(&stream, &mut serial);
+
+    // Every byte the bus has sent that has not yet been split into a message.
+    // A read can stop MID-message (the timeout below, a short read), so the
+    // remainder has to survive to the next one — parsing per `read()` call
+    // would corrupt the stream the first time that happened.
+    let mut pending: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        match stream.read(&mut chunk) {
+            // The peer closed: the bus or the portal went away.
+            Ok(0) => return Some(()),
+            Ok(n) => pending.extend_from_slice(&chunk[..n]),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                // Idle for a full interval. Ask outright, so a portal that
+                // answers `Read` but never emits `SettingChanged` still gets
+                // its changes noticed — just at poll latency rather than
+                // instantly.
+                let Some(sent) = read_color_scheme(&stream, &mut serial) else {
+                    return Some(());
+                };
+                outstanding_read = Some(sent);
+                continue;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Some(()),
+        }
+
+        loop {
+            let len = match dbus_message_len(&pending) {
+                Some(len) => len,
+                // The fixed header is fully here and still does not describe a
+                // message: the stream is desynchronised or the peer is not
+                // speaking D-Bus. Nothing can resynchronise a byte stream after
+                // that, so drop the connection and reconnect rather than
+                // growing `pending` forever.
+                None if pending.len() >= 16 => return Some(()),
+                None => break,
+            };
+            if pending.len() < len {
+                break;
+            }
+            let msg: alloc::vec::Vec<u8> = pending.drain(..len).collect();
+            if let Some(scheme) = color_scheme_from_message(&msg, outstanding_read) {
+                outstanding_read = None;
+                publish_color_scheme(scheme);
+            }
+        }
+    }
+}
+
+// ── Minimal D-Bus message READER (framing + the two shapes we consume) ────
+
+/// Total on-the-wire length of the message starting at `data[0]`, once enough
+/// of its fixed header has arrived to say.
+///
+/// D-Bus is a framed protocol whose frame length is only computable from the
+/// 16-byte fixed header: body length at offset 4, header-field array length at
+/// offset 12, and the body starts at the next 8-byte boundary after the fields.
+fn dbus_message_len(data: &[u8]) -> Option<usize> {
+    if data.len() < 16 {
+        return None;
+    }
+    let le = match data[0] {
+        b'l' => true,
+        b'B' => false,
+        _ => return None,
+    };
+    let u32_at = |o: usize| -> u32 {
+        let b: [u8; 4] = data[o..o + 4].try_into().unwrap_or([0; 4]);
+        if le {
+            u32::from_le_bytes(b)
+        } else {
+            u32::from_be_bytes(b)
+        }
+    };
+    let body_len = u32_at(4) as usize;
+    let fields_len = u32_at(12) as usize;
+    // The spec's hard maximum message length. A length past it is a corrupt or
+    // hostile header, not a big message, and refusing here is what keeps the
+    // arithmetic below from overflowing.
+    const MAX_MESSAGE_LEN: usize = 134_217_728;
+    if body_len > MAX_MESSAGE_LEN || fields_len > MAX_MESSAGE_LEN {
+        return None;
+    }
+    let body_start = (16 + fields_len).next_multiple_of(8);
+    Some(body_start + body_len)
+}
+
+/// A cursor over one complete D-Bus message, aware of its byte order.
+struct DbusMessage<'a> {
+    data: &'a [u8],
+    le: bool,
+    pos: usize,
+}
+
+impl<'a> DbusMessage<'a> {
+    fn new(data: &'a [u8]) -> Option<Self> {
+        let le = match *data.first()? {
+            b'l' => true,
+            b'B' => false,
+            _ => return None,
+        };
+        Some(Self { data, le, pos: 0 })
+    }
+
+    fn align(&mut self, to: usize) {
+        self.pos = self.pos.next_multiple_of(to);
+    }
+
+    fn u8(&mut self) -> Option<u8> {
+        let v = *self.data.get(self.pos)?;
+        self.pos += 1;
+        Some(v)
+    }
+
+    fn u32(&mut self) -> Option<u32> {
+        self.align(4);
+        let b: [u8; 4] = self.data.get(self.pos..self.pos + 4)?.try_into().ok()?;
+        self.pos += 4;
+        Some(if self.le {
+            u32::from_le_bytes(b)
+        } else {
+            u32::from_be_bytes(b)
+        })
+    }
+
+    /// A `s`/`o` value: 4-aligned u32 length, bytes, NUL.
+    fn string(&mut self) -> Option<&'a str> {
+        let len = self.u32()? as usize;
+        let end = self.pos.checked_add(len)?;
+        let s = core::str::from_utf8(self.data.get(self.pos..end)?).ok()?;
+        self.pos = end.checked_add(1)?;
+        Some(s)
+    }
+
+    /// A `g` value: single-byte length, bytes, NUL. Used for both the header
+    /// fields' variant signatures and a variant's own.
+    fn signature(&mut self) -> Option<&'a str> {
+        let len = self.u8()? as usize;
+        let end = self.pos.checked_add(len)?;
+        let s = core::str::from_utf8(self.data.get(self.pos..end)?).ok()?;
+        self.pos = end.checked_add(1)?;
+        Some(s)
+    }
+
+    /// Step over a value of the given single-character type, so an unwanted
+    /// header field does not desynchronise the walk.
+    ///
+    /// Only the types that appear in a header field are handled; anything else
+    /// aborts the walk rather than guessing a width.
+    fn skip_value(&mut self, sig: &str) -> Option<()> {
+        match sig {
+            "s" | "o" => {
+                self.string()?;
+            }
+            "g" => {
+                self.signature()?;
+            }
+            "u" => {
+                self.u32()?;
+            }
+            _ => return None,
+        }
+        Some(())
+    }
+}
+
+/// The colour-scheme value carried by `msg`, if `msg` carries one.
+///
+/// Two shapes reach here and both are accepted:
+///   * the SIGNAL `SettingChanged(s namespace, s key, v value)` — the change
+///     announcement this watcher subscribes to;
+///   * the METHOD_RETURN for `Settings.Read`, whose body is `v` wrapping the
+///     same `u` — the initial and backstop reads.
+///
+/// `expect_reply_serial` is the serial of the `Read` currently in flight, and a
+/// METHOD_RETURN is only decoded when it answers exactly that. `Hello` and
+/// `AddMatch` reply on this same socket, and the reply decoder is a heuristic
+/// over the last four bytes of the body accepting anything in `0..=2` — handed
+/// the wrong reply it could invent a colour scheme out of a unique bus name.
+fn color_scheme_from_message(msg: &[u8], expect_reply_serial: Option<u32>) -> Option<u32> {
+    // Fixed header: [0] endianness, [1] type, [4..8] body length,
+    // [12..16] header-field array length.
+    let msg_type = *msg.get(1)?;
+    const METHOD_RETURN: u8 = 2;
+    const SIGNAL: u8 = 4;
+    if msg_type != METHOD_RETURN && msg_type != SIGNAL {
+        return None;
+    }
+
+    let mut cur = DbusMessage::new(msg)?;
+    cur.pos = 12;
+    let fields_len = cur.u32()? as usize;
+    let fields_end = 16usize.checked_add(fields_len)?;
+    let body_start = fields_end.checked_next_multiple_of(8)?;
+
+    // The header-field array is STRUCT(BYTE code, VARIANT value), each struct
+    // 8-byte aligned. Codes 3 (MEMBER) and 5 (REPLY_SERIAL) are what identify
+    // the two shapes; every other field is stepped over by its own type, so an
+    // unread one cannot desynchronise the walk.
+    let mut member: Option<&str> = None;
+    let mut reply_serial: Option<u32> = None;
+    cur.pos = 16;
+    while cur.pos < fields_end {
+        cur.align(8);
+        if cur.pos >= fields_end {
+            break;
+        }
+        let code = cur.u8()?;
+        let sig = cur.signature()?;
+        match (code, sig) {
+            (3, "s") => member = Some(cur.string()?),
+            (5, "u") => reply_serial = Some(cur.u32()?),
+            _ => cur.skip_value(sig)?,
+        }
+    }
+
+    if msg_type == METHOD_RETURN {
+        if expect_reply_serial.is_none() || reply_serial != expect_reply_serial {
+            return None;
+        }
+        // `parse_uint32_from_variant_response` already knows this body shape —
+        // but it reads its lengths as little-endian, so a big-endian reply has
+        // to fall through to the next signal rather than be misparsed. (The
+        // session bus on every platform azul builds for is little-endian; this
+        // is the guard, not a limitation worth working around.)
+        if !cur.le {
+            return None;
+        }
+        return parse_uint32_from_variant_response(msg);
+    }
+
+    if member != Some("SettingChanged") {
+        return None;
+    }
+
+    // Body: (s namespace, s key, v value).
+    cur.pos = body_start;
+    if cur.string()? != "org.freedesktop.appearance" {
+        return None;
+    }
+    if cur.string()? != "color-scheme" {
+        return None;
+    }
+    if cur.signature()? != "u" {
+        return None;
+    }
+    cur.u32()
 }
 
 /// Adopt the watcher's theme into `common`, returning the RE-DISCOVERED style
