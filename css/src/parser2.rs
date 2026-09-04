@@ -470,6 +470,7 @@ pub fn pseudo_selector_from_str<'a>(
         "hover" => Ok(CssPathPseudoSelector::Hover),
         "active" => Ok(CssPathPseudoSelector::Active),
         "focus" => Ok(CssPathPseudoSelector::Focus),
+        "seat-focus" => Ok(CssPathPseudoSelector::SeatFocus),
         "dragging" => Ok(CssPathPseudoSelector::Dragging),
         "drag-over" => Ok(CssPathPseudoSelector::DragOver),
         "root" => Ok(CssPathPseudoSelector::Root),
@@ -2361,6 +2362,10 @@ mod autotest_generated {
         assert_eq!(
             pseudo_selector_from_str("focus", None),
             Ok(CssPathPseudoSelector::Focus)
+        );
+        assert_eq!(
+            pseudo_selector_from_str("seat-focus", None),
+            Ok(CssPathPseudoSelector::SeatFocus)
         );
         assert_eq!(
             pseudo_selector_from_str("dragging", None),

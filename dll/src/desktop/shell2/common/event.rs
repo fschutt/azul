@@ -648,6 +648,42 @@ fn play_haptic_native(request: &azul_core::haptics::HapticRequest) {
     }
 }
 
+/// `:seat-focus` restyle for a NON-primary seat (9b-ii-a-i-d-iii-a): the node
+/// that lost this seat's focus drops the pseudo-class unless another seat
+/// still focuses it; the node that gained it takes it. Same classification
+/// as `apply_focus_restyle`.
+fn apply_seat_focus_restyle(
+    layout_window: &mut LayoutWindow,
+    old_focus: Option<azul_core::dom::DomNodeId>,
+    new_focus: Option<azul_core::dom::DomNodeId>,
+) -> ProcessEventResult {
+    use azul_core::diff::ChangeAccumulator;
+
+    let lost = old_focus
+        .filter(|n| layout_window.focus_manager.seats_focusing(n).iter().all(|s| *s == 0))
+        .and_then(|n| n.node.into_crate_internal());
+    let gained = new_focus.and_then(|n| n.node.into_crate_internal());
+    if lost.is_none() && gained.is_none() {
+        return ProcessEventResult::DoNothing;
+    }
+    let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() else {
+        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    };
+    let restyle_result = layout_result.styled_dom.restyle_on_seat_focus_change(lost, gained);
+    if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
+        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    }
+    let mut accumulator = ChangeAccumulator::new();
+    accumulator.merge_restyle_result(&restyle_result);
+    if accumulator.needs_layout() {
+        ProcessEventResult::ShouldIncrementalRelayout
+    } else if accumulator.needs_paint_only() {
+        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+    } else {
+        ProcessEventResult::ShouldReRenderCurrentWindow
+    }
+}
+
 fn apply_focus_restyle(
     layout_window: &mut LayoutWindow,
     old_focus: Option<NodeId>,
@@ -7561,7 +7597,10 @@ pub trait PlatformWindow {
                                 now,
                             );
                         }
-                        ProcessEventResult::ShouldReRenderCurrentWindow
+                        // `:seat-focus` (9b-ii-a-i-d-iii-a): the seat's own
+                        // pseudo-class, restyled like the primary's `:focus`.
+                        let r = apply_seat_focus_restyle(layout_window, *old_focus, *new_focus);
+                        r.max(ProcessEventResult::ShouldReRenderCurrentWindow)
                     }
                     _ => ProcessEventResult::DoNothing,
                 }

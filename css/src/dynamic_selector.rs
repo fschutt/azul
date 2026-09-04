@@ -22,6 +22,8 @@ pub struct PseudoStateFlags {
     pub disabled: bool,
     pub checked: bool,
     pub focus_within: bool,
+    /// A NON-primary pointer seat focuses the node (`:seat-focus`).
+    pub seat_focused: bool,
     pub visited: bool,
     /// Window is not focused (equivalent to GTK :backdrop)
     pub backdrop: bool,
@@ -49,6 +51,7 @@ impl PseudoStateFlags {
             PseudoStateType::Hover => self.hover,
             PseudoStateType::Active => self.active,
             PseudoStateType::Focus => self.focused,
+            PseudoStateType::SeatFocus => self.seat_focused,
             PseudoStateType::Disabled => self.disabled,
             PseudoStateType::CheckedTrue => self.checked,
             PseudoStateType::CheckedFalse => !self.checked,
@@ -889,6 +892,8 @@ pub enum PseudoStateType {
     Active,
     /// Element has focus (:focus)
     Focus,
+    /// A non-primary pointer seat focuses the element (:seat-focus)
+    SeatFocus,
     /// Element is disabled (:disabled)
     Disabled,
     /// Element is checked/selected (:checked)
@@ -1347,6 +1352,7 @@ impl DynamicSelector {
             PseudoStateType::Hover => node_state.hover,
             PseudoStateType::Active => node_state.active,
             PseudoStateType::Focus => node_state.focused,
+            PseudoStateType::SeatFocus => node_state.seat_focused,
             PseudoStateType::Placeholder => node_state.placeholder,
             PseudoStateType::Disabled => node_state.disabled,
             PseudoStateType::CheckedTrue => node_state.checked,
@@ -1963,6 +1969,11 @@ impl CssPropertyWithConditionsVec {
                     return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Active)])
                 }
                 "focus" => return Some(vec![DynamicSelector::PseudoState(PseudoStateType::Focus)]),
+                "seat-focus" => {
+                    return Some(vec![DynamicSelector::PseudoState(
+                        PseudoStateType::SeatFocus,
+                    )])
+                }
                 "focus-within" => {
                     return Some(vec![DynamicSelector::PseudoState(
                         PseudoStateType::FocusWithin,
@@ -2549,6 +2560,7 @@ mod autotest_generated {
             PseudoStateType::CheckedTrue,
             PseudoStateType::FocusWithin,
             PseudoStateType::Visited,
+            PseudoStateType::SeatFocus,
             PseudoStateType::Backdrop,
             PseudoStateType::Dragging,
             PseudoStateType::DragOver,
@@ -2571,6 +2583,7 @@ mod autotest_generated {
             dragging: true,
             drag_over: true,
             placeholder: true,
+            seat_focused: false,
         };
         assert!(flags.has_state(PseudoStateType::Hover));
         assert!(flags.has_state(PseudoStateType::Placeholder));
@@ -3913,6 +3926,7 @@ mod autotest_generated {
             PseudoStateType::CheckedFalse,
             PseudoStateType::FocusWithin,
             PseudoStateType::Visited,
+            PseudoStateType::SeatFocus,
             PseudoStateType::Backdrop,
             PseudoStateType::Dragging,
             PseudoStateType::DragOver,
@@ -4660,6 +4674,7 @@ mod autotest_generated {
             ("hover", PseudoStateType::Hover),
             ("active", PseudoStateType::Active),
             ("focus", PseudoStateType::Focus),
+            ("seat-focus", PseudoStateType::SeatFocus),
             ("focus-within", PseudoStateType::FocusWithin),
             ("disabled", PseudoStateType::Disabled),
             ("checked", PseudoStateType::CheckedTrue),

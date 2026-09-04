@@ -1,0 +1,44 @@
+{
+  "name": "seat_focus_pseudo_class",
+  "description": "PER-SEAT :focus PSEUDO-CLASS (9b-ii-a-i-d-iii-a): an app's own CSS can style what a second seat focuses through `:seat-focus`, restyled on the seat's focus move like the primary's `:focus`; the primary's `:focus` rule does not fire for the seat and vice versa. Before this a seat's focus had no CSS hook at all.",
+  "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"a\" contenteditable=\"true\">alpha</div>",
+        "<div id=\"b\" contenteditable=\"true\">bravo</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#a, #b { display: block; width: 200px; height: 40px; font-size: 14px; background: #ffffff; }",
+        "#b { margin-top: 20px; }",
+        "#b:seat-focus { background: #123456; }",
+        "#b:focus { background: #654321; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+
+    { "op": "get_display_list" },
+    { "op": "assert_response", "not_contains": "#123456ff" },
+
+    { "op": "mouse_move", "x": 20, "y": 80, "seat": 7 },
+    { "op": "mouse_down", "x": 20, "y": 80, "seat": 7 },
+    { "op": "mouse_up", "x": 20, "y": 80, "seat": 7 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 50 },
+    { "op": "get_focus_state", "seat": 7 },
+    { "op": "assert_response", "contains": "#b" },
+    { "op": "get_display_list" },
+    { "op": "assert_response", "contains": "#123456ff" },
+    { "op": "assert_response", "not_contains": "#654321ff" },
+
+    { "op": "mouse_move", "x": 350, "y": 250, "seat": 7 },
+    { "op": "mouse_down", "x": 350, "y": 250, "seat": 7 },
+    { "op": "mouse_up", "x": 350, "y": 250, "seat": 7 },
+    { "op": "wait_frame" },
+    { "op": "get_display_list" },
+    { "op": "assert_response", "not_contains": "#123456ff" }
+  ]
+}

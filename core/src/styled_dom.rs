@@ -226,6 +226,9 @@ pub struct StyledNodeState {
     /// rules travel the same bucketing/inheritance/lookup path as `:hover`
     /// and `:focus` instead of needing storage of their own.
     pub placeholder: bool,
+    /// A NON-primary pointer seat focuses this node (`:seat-focus`,
+    /// 9b-ii-a-i-d-iii-a). Independent of `focused`, which is the primary's.
+    pub seat_focused: bool,
 }
 
 impl fmt::Debug for StyledNodeState {
@@ -245,6 +248,9 @@ impl fmt::Debug for StyledNodeState {
         }
         if self.checked {
             v.push("checked");
+        }
+        if self.seat_focused {
+            v.push("seat_focused");
         }
         if self.focus_within {
             v.push("focus_within");
@@ -302,6 +308,7 @@ impl StyledNodeState {
             8 => self.backdrop,
             9 => self.dragging,
             10 => self.drag_over,
+            11 => self.seat_focused,
             _ => false,
         }
     }
@@ -324,6 +331,7 @@ impl StyledNodeState {
             // compact-cache fast path, which is keyed for the normal state,
             // so a `::placeholder` rule silently never applied.
             && !self.placeholder
+            && !self.seat_focused
     }
 
     /// Create from `PseudoStateFlags`
@@ -343,6 +351,7 @@ impl StyledNodeState {
             dragging: flags.dragging,
             drag_over: flags.drag_over,
             placeholder: flags.placeholder,
+            seat_focused: flags.seat_focused,
         }
     }
 }
@@ -1865,6 +1874,58 @@ impl StyledDom {
             |state, val| state.focused = val,
             azul_css::dynamic_selector::PseudoStateType::Focus,
         )
+    }
+
+    /// `:seat-focus` on/off for `nodes` (9b-ii-a-i-d-iii-a).
+    pub fn restyle_nodes_seat_focus(&mut self, nodes: &[NodeId], on: bool) -> RestyleNodes {
+        self.restyle_nodes_state(
+            nodes,
+            on,
+            |state, val| state.seat_focused = val,
+            azul_css::dynamic_selector::PseudoStateType::SeatFocus,
+        )
+    }
+
+    /// A non-primary seat's focus moved: `lost` drops `:seat-focus`, `gained`
+    /// takes it. Same result classification as `restyle_on_state_change`.
+    pub fn restyle_on_seat_focus_change(
+        &mut self,
+        lost: Option<NodeId>,
+        gained: Option<NodeId>,
+    ) -> RestyleResult {
+        let mut result = RestyleResult {
+            gpu_only_changes: true,
+            ..RestyleResult::default()
+        };
+        let mut process = |changes: RestyleNodes, result: &mut RestyleResult| {
+            for (node_id, props) in changes {
+                for change in &props {
+                    let prop_type = change.current_prop.get_type();
+                    let scope = prop_type.relayout_scope(true);
+                    if scope > result.max_relayout_scope {
+                        result.max_relayout_scope = scope;
+                    }
+                    if scope != RelayoutScope::None {
+                        result.needs_layout = true;
+                        result.gpu_only_changes = false;
+                    }
+                    if !prop_type.is_gpu_only_property() {
+                        result.gpu_only_changes = false;
+                    }
+                    result.needs_display_list = true;
+                }
+                result.changed_nodes.entry(node_id).or_default().extend(props);
+            }
+        };
+        if let Some(old) = lost {
+            let changes = self.restyle_nodes_seat_focus(&[old], false);
+            process(changes, &mut result);
+        }
+        if let Some(new) = gained {
+            let changes = self.restyle_nodes_seat_focus(&[new], true);
+            process(changes, &mut result);
+        }
+        result
     }
 
     /// Generic restyle method parameterized by the state field and pseudo-state type.

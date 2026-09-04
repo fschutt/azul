@@ -254,7 +254,7 @@ mod autotest_generated {
     #[test]
     fn styled_node_state_has_state_maps_every_index_exactly_once() {
         // Each setter must light up exactly one state index in 1..=10.
-        let setters: [(u8, fn(&mut StyledNodeState)); 10] = [
+        let setters: [(u8, fn(&mut StyledNodeState)); 11] = [
             (1, |s| s.hover = true),
             (2, |s| s.active = true),
             (3, |s| s.focused = true),
@@ -265,13 +265,14 @@ mod autotest_generated {
             (8, |s| s.backdrop = true),
             (9, |s| s.dragging = true),
             (10, |s| s.drag_over = true),
+            (11, |s| s.seat_focused = true),
         ];
 
         for (expected_idx, set) in setters {
             let mut s = StyledNodeState::new();
             set(&mut s);
             assert!(!s.is_normal(), "state {expected_idx} must not be 'normal'");
-            for idx in 1..=10u8 {
+            for idx in 1..=11u8 {
                 assert_eq!(
                     s.has_state(idx),
                     idx == expected_idx,
@@ -284,7 +285,7 @@ mod autotest_generated {
     #[test]
     fn styled_node_state_has_state_is_false_for_every_out_of_range_u8() {
         let all_on = StyledNodeState::from_pseudo_state_flags(&pseudo_flags(true));
-        for idx in 11..=u8::MAX {
+        for idx in 12..=u8::MAX {
             assert!(!StyledNodeState::new().has_state(idx));
             assert!(
                 !all_on.has_state(idx),
@@ -297,7 +298,7 @@ mod autotest_generated {
     fn styled_node_state_from_pseudo_state_flags_roundtrips_every_field() {
         let all_on = StyledNodeState::from_pseudo_state_flags(&pseudo_flags(true));
         assert!(!all_on.is_normal());
-        for idx in 0..=10u8 {
+        for idx in 0..=11u8 {
             assert!(all_on.has_state(idx), "state {idx} should be active");
         }
 

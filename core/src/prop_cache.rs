@@ -1501,7 +1501,7 @@ impl CssPropertyCache {
     ) -> Vec<TagIdToNodeIdMapping> {
         use azul_css::{
             css::{
-                CssPathPseudoSelector::{Active, DragOver, Dragging, Focus, Hover, Placeholder},
+                CssPathPseudoSelector::{Active, DragOver, Dragging, Focus, Hover, Placeholder, SeatFocus},
                 CssPathSelector, CssRuleBlock,
             },
             dynamic_selector::{DynamicSelector, PseudoStateType},
@@ -1659,6 +1659,9 @@ impl CssPropertyCache {
                 let has_focus = specific_rules
                     .iter()
                     .any(|r| crate::style::rule_ends_with(&r.path, Some(Focus)));
+                let has_seat_focus = specific_rules
+                    .iter()
+                    .any(|r| crate::style::rule_ends_with(&r.path, Some(SeatFocus)));
                 let has_dragging = specific_rules
                     .iter()
                     .any(|r| crate::style::rule_ends_with(&r.path, Some(Dragging)));
@@ -1707,6 +1710,11 @@ impl CssPropertyCache {
                 collect_and_assign!(Some(Hover), PseudoStateType::Hover, has_hover);
                 collect_and_assign!(Some(Active), PseudoStateType::Active, has_active);
                 collect_and_assign!(Some(Focus), PseudoStateType::Focus, has_focus);
+                collect_and_assign!(
+                    Some(SeatFocus),
+                    PseudoStateType::SeatFocus,
+                    has_seat_focus
+                );
                 collect_and_assign!(Some(Dragging), PseudoStateType::Dragging, has_dragging);
                 collect_and_assign!(Some(DragOver), PseudoStateType::DragOver, has_drag_over);
                 collect_and_assign!(
@@ -1729,6 +1737,7 @@ impl CssPropertyCache {
                 PseudoStateType::Hover,
                 PseudoStateType::Active,
                 PseudoStateType::Focus,
+                PseudoStateType::SeatFocus,
                 PseudoStateType::Dragging,
                 PseudoStateType::DragOver,
                 PseudoStateType::Placeholder,
@@ -1909,6 +1918,7 @@ impl CssPropertyCache {
                         if has_pseudo(PseudoStateType::Hover)
                             || has_pseudo(PseudoStateType::Active)
                             || has_pseudo(PseudoStateType::Focus)
+                            || has_pseudo(PseudoStateType::SeatFocus)
                             || has_pseudo(PseudoStateType::Dragging)
                             || has_pseudo(PseudoStateType::DragOver)
                         {
@@ -2755,6 +2765,50 @@ impl CssPropertyCache {
             if let Some(p) = Self::find_in_stateful(
                 self.cascaded_props.get_slice(node_id.index()),
                 PseudoStateType::Focus,
+                css_property_type,
+            ) {
+                return Some(p);
+            }
+        }
+
+        // `:seat-focus` (9b-ii-a-i-d-iii-a): a non-primary seat's focus, the
+        // same three-tier lookup as `:focus`.
+        if node_state.seat_focused {
+            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
+            if let Some(p) =
+                node_data
+                    .style
+                    .iter_inline_properties()
+                    .fold(None, |acc, (prop, conds)| {
+                        if matches_pseudo_state(conds, PseudoStateType::SeatFocus)
+                            && prop.get_type() == *css_property_type
+                        {
+                            // LAST matching inline declaration wins (CSS source order),
+                            // same as the compact builder's later-overwrites-earlier and
+                            // get_property_with_context - a widget's merged_style()
+                            // appends overrides and relies on exactly this.
+                            Some(prop)
+                        } else {
+                            acc
+                        }
+                    })
+            {
+                return Some(p);
+            }
+
+            // PRIORITY 2: CSS stylesheet properties
+            if let Some(p) = Self::find_in_stateful(
+                self.css_props.get_slice(node_id.index()),
+                PseudoStateType::SeatFocus,
+                css_property_type,
+            ) {
+                return Some(p);
+            }
+
+            // PRIORITY 3: Cascaded/inherited properties
+            if let Some(p) = Self::find_in_stateful(
+                self.cascaded_props.get_slice(node_id.index()),
+                PseudoStateType::SeatFocus,
                 css_property_type,
             ) {
                 return Some(p);

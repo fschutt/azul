@@ -1304,11 +1304,16 @@ impl Runner {
         use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
         let now = self.now();
         let lw = &mut self.layout_window;
+        let old_focus = lw.focus_manager.focused_node_for(seat);
         lw.focus_manager.set_focused_node_for(seat, new_focus);
         if let Some(n) = new_focus {
             lw.scroll_node_into_view(n, ScrollIntoViewOptions::nearest(), now);
         }
-        ProcessEventResult::ShouldReRenderCurrentWindow
+        // `:seat-focus` (9b-ii-a-i-d-iii-a): the same restyle the primary's
+        // `:focus` gets, on the seat's own pseudo-class, and only while no
+        // OTHER seat still focuses the node that lost this seat.
+        let result = apply_seat_focus_restyle(lw, old_focus, new_focus);
+        result.max(ProcessEventResult::ShouldReRenderCurrentWindow)
     }
 
     /// Port of the DLL's `apply_system_change(SystemChange::SetFocus { .. })`:
@@ -3789,6 +3794,42 @@ impl Runner {
     fn register_scroll_nodes(&mut self) {
         let now = self.now();
         crate::managers::scroll_registration::register_scroll_nodes(&mut self.layout_window, &now);
+    }
+}
+
+/// `:seat-focus` restyle for a NON-primary seat (9b-ii-a-i-d-iii-a), the port
+/// of the DLL's `apply_seat_focus_restyle`: the node that lost this seat's
+/// focus drops the pseudo-class unless another seat still focuses it, the
+/// node that gained it takes it.
+fn apply_seat_focus_restyle(
+    layout_window: &mut LayoutWindow,
+    old_focus: Option<DomNodeId>,
+    new_focus: Option<DomNodeId>,
+) -> ProcessEventResult {
+    use azul_core::diff::ChangeAccumulator;
+
+    let lost = old_focus
+        .filter(|n| layout_window.focus_manager.seats_focusing(n).iter().all(|s| *s == 0))
+        .and_then(|n| n.node.into_crate_internal());
+    let gained = new_focus.and_then(|n| n.node.into_crate_internal());
+    if lost.is_none() && gained.is_none() {
+        return ProcessEventResult::DoNothing;
+    }
+    let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() else {
+        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    };
+    let restyle_result = layout_result.styled_dom.restyle_on_seat_focus_change(lost, gained);
+    if restyle_result.changed_nodes.is_empty() || restyle_result.gpu_only_changes {
+        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    }
+    let mut accumulator = ChangeAccumulator::new();
+    accumulator.merge_restyle_result(&restyle_result);
+    if accumulator.needs_layout() {
+        ProcessEventResult::ShouldIncrementalRelayout
+    } else if accumulator.needs_paint_only() {
+        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+    } else {
+        ProcessEventResult::ShouldReRenderCurrentWindow
     }
 }
 

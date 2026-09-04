@@ -2050,6 +2050,9 @@ pub enum CssPathPseudoSelector {
     Active,
     /// `:focus` - element has received focus
     Focus,
+    /// `:seat-focus` - a NON-primary pointer seat focuses the element
+    /// (9b-ii-a-i-d-iii-a); the primary's focus is `:focus`.
+    SeatFocus,
     /// `:lang(de)` - element matches language
     Lang(AzString),
     /// `:backdrop` - window is not focused (GTK compatibility)
@@ -2101,7 +2104,7 @@ impl fmt::Display for CssPathPseudoSelector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::CssPathPseudoSelector::{
             Active, Backdrop, DragOver, Dragging, First, Focus, Hover, Lang, Last, NthChild,
-            Placeholder, Root,
+            Placeholder, Root, SeatFocus,
         };
         match &self {
             First => write!(f, "first"),
@@ -2110,6 +2113,7 @@ impl fmt::Display for CssPathPseudoSelector {
             Hover => write!(f, "hover"),
             Active => write!(f, "active"),
             Focus => write!(f, "focus"),
+            SeatFocus => write!(f, "seat-focus"),
             Lang(lang) => write!(f, "lang({})", lang.as_str()),
             Backdrop => write!(f, "backdrop"),
             Dragging => write!(f, "dragging"),
@@ -3842,6 +3846,7 @@ mod autotest_generated {
             (CssPathPseudoSelector::Hover, "hover".to_string()),
             (CssPathPseudoSelector::Active, "active".to_string()),
             (CssPathPseudoSelector::Focus, "focus".to_string()),
+            (CssPathPseudoSelector::SeatFocus, "seat-focus".to_string()),
             (
                 CssPathPseudoSelector::Lang("de-DE".to_string().into()),
                 "lang(de-DE)".to_string(),
