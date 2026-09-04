@@ -902,8 +902,13 @@ struct WaveEntry {
 
 struct WaveInFlight {
     pending: Vec<WaveEntry>,
-    child: std::process::Child,
-    manifest: PathBuf,
+    /// Several children, each with a slice of the wave's manifest. remill's
+    /// per-entry cost is dominated by the per-entry semantics load, which the
+    /// tool cannot amortize (its Arch caches types bound to the semantics
+    /// module) - so the remaining lever is running slices CONCURRENTLY.
+    /// A handful of long-lived children is exactly the load the spawn
+    /// machinery handles well; the 100k-tiny-spawn hazard does not apply.
+    children: Vec<(std::process::Child, PathBuf)>,
     started: std::time::Instant,
 }
 
@@ -1162,31 +1167,58 @@ impl RemillTranspiler {
         if pending.is_empty() {
             return None;
         }
-        let jobs: Vec<BatchJob> = pending
-            .iter()
-            .map(|p| BatchJob {
+        let mut jobs: Vec<BatchJob> = Vec::with_capacity(pending.len() * 2);
+        for p in &pending {
+            jobs.push(BatchJob {
                 lift_addr: p.lift_addr,
                 ir_out: p.ctx.ir_path.clone(),
                 bytes: p.ctx.bytes.clone(),
                 fn_addr: p.addr,
-            })
-            .collect();
-        match self.spawn_batch_child(&jobs, "wave") {
-            Ok((child, manifest)) => Some(WaveInFlight {
-                pending,
-                child,
-                manifest,
-                started: std::time::Instant::now(),
-            }),
-            Err(e) => {
-                eprintln!(
-                    "[azul-web]   batch: {} fn(s) could not launch ({}) — per-fn lifts",
-                    jobs.len(),
-                    e.reason.lines().next().unwrap_or(""),
-                );
-                None // every entry falls back to the individual path
+            });
+            // The reloc-template probe (same bytes at a probe address) rides
+            // the SAME manifest as its primary instead of a second serial
+            // child - the pair even lands in the same slice, so a child that
+            // dies takes the pair together and the fallback story stays
+            // per-function.
+            if p.ctx.reloc_canon.is_some() {
+                jobs.push(BatchJob {
+                    lift_addr: p.lift_addr.wrapping_add(0x4000_0000),
+                    ir_out: self.scratch_dir.join(format!(
+                        "{}_{:x}.probe.ll",
+                        sanitize_filename(&p.name),
+                        p.addr
+                    )),
+                    bytes: p.ctx.bytes.clone(),
+                    fn_addr: p.addr,
+                });
             }
         }
+        let slices = std::thread::available_parallelism()
+            .map(|n| (n.get() / 4).clamp(2, 6))
+            .unwrap_or(4)
+            .min(jobs.len().max(1));
+        let per = jobs.len().div_ceil(slices);
+        let mut children = Vec::new();
+        for chunk in jobs.chunks(per.max(1)) {
+            match self.spawn_batch_child(chunk, "wave") {
+                Ok(cm) => children.push(cm),
+                Err(e) => {
+                    eprintln!(
+                        "[azul-web]   batch: slice of {} could not launch ({}) — per-fn lifts",
+                        chunk.len(),
+                        e.reason.lines().next().unwrap_or(""),
+                    );
+                }
+            }
+        }
+        if children.is_empty() {
+            return None;
+        }
+        Some(WaveInFlight {
+            pending,
+            children,
+            started: std::time::Instant::now(),
+        })
     }
 
     /// Wait for a launched wave, then do the per-function bookkeeping: read
@@ -1201,54 +1233,37 @@ impl RemillTranspiler {
     ) {
         let WaveInFlight {
             pending,
-            child,
-            manifest,
+            children,
             started,
         } = wave;
         let n = pending.len();
-        let ok = wait_batch_child(child, &manifest);
-        if ok {
-            eprintln!(
-                "[azul-web]   batch: {n} fn(s) in one remill process ({} ms)",
-                started.elapsed().as_millis(),
-            );
-        } else {
-            eprintln!(
-                "[azul-web]   batch: {n} fn(s) FAILED — falling back to per-fn lifts",
-            );
-            return;
+        let n_children = children.len();
+        let mut ok_children = 0usize;
+        for (child, manifest) in children {
+            if wait_batch_child(child, &manifest) {
+                ok_children += 1;
+            }
         }
-        // Probe lifts for the reloc templates: one more child, synchronous
-        // here - it overlaps the NEXT wave's primary child, which the walk
-        // launched before reaping this one.
+        eprintln!(
+            "[azul-web]   batch: {n} fn(s)+probes across {ok_children}/{n_children} remill process(es) ({} ms)",
+            started.elapsed().as_millis(),
+        );
+        // A failed slice's functions simply miss their IR below and fall back
+        // to the individual path; the healthy slices still count.
+        // Probe IRs were lifted by the same children, straight to disk.
         #[cfg(target_arch = "x86_64")]
         let probe_irs: std::collections::HashMap<usize, String> = {
-            let probe_jobs: Vec<BatchJob> = pending
-                .iter()
-                .filter(|p| p.ctx.reloc_canon.is_some())
-                .map(|p| BatchJob {
-                    lift_addr: p.lift_addr.wrapping_add(0x4000_0000),
-                    ir_out: self.scratch_dir.join(format!(
-                        "{}_{:x}.probe.ll",
-                        sanitize_filename(&p.name),
-                        p.addr
-                    )),
-                    bytes: p.ctx.bytes.clone(),
-                    fn_addr: p.addr,
-                })
-                .collect();
             let mut m = std::collections::HashMap::new();
-            if !probe_jobs.is_empty() {
-                if let Ok((pc, pm)) = self.spawn_batch_child(&probe_jobs, "probe") {
-                    if wait_batch_child(pc, &pm) {
-                        for j in &probe_jobs {
-                            if let Ok(p_ir) = read_and_demote(&j.ir_out, "probe") {
-                                m.insert(j.fn_addr, p_ir);
-                            }
-                            let _ = std::fs::remove_file(&j.ir_out);
-                        }
-                    }
+            for p in pending.iter().filter(|p| p.ctx.reloc_canon.is_some()) {
+                let pp = self.scratch_dir.join(format!(
+                    "{}_{:x}.probe.ll",
+                    sanitize_filename(&p.name),
+                    p.addr
+                ));
+                if let Ok(p_ir) = read_and_demote(&pp, "probe") {
+                    m.insert(p.addr, p_ir);
                 }
+                let _ = std::fs::remove_file(&pp);
             }
             m
         };
