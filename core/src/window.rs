@@ -733,7 +733,9 @@ impl_vec_partialeq!(PointerSeat, PointerSeatVec);
 impl_vec_mut!(PointerSeat, PointerSeatVec);
 
 /// One NON-primary keyboard seat's state (9b-ii-a-i): the per-seat twin of
-/// [`PointerSeat`]. X11 MPX pairs each master keyboard with a master
+/// [`PointerSeat`].
+///
+/// X11 MPX pairs each master keyboard with a master
 /// pointer, and a Wayland `wl_seat` carries both; the seat id is the same
 /// number [`PointerSeat::seat_id`] uses for that pairing, so a keystroke and
 /// a click from the same person carry the same seat. The primary seat's
@@ -1129,9 +1131,11 @@ pub struct TouchPoint {
 }
 
 /// The one `u64` a touch contact is tracked under in the hover manager and
-/// the gesture sessions (9b-ii-a-i-c): the raw id for the primary seat, so
-/// every existing key stays what it was, and a seat-namespaced value for
-/// any other seat, so two seats' finger `0` never share a session.
+/// the gesture sessions (9b-ii-a-i-c).
+///
+/// It is the raw id for the primary seat, so every existing key stays what it
+/// was, and a seat-namespaced value for any other seat, so two seats' finger
+/// `0` never share a session.
 #[must_use]
 pub const fn touch_point_key(seat_id: u64, id: u64) -> u64 {
     if seat_id == PRIMARY_POINTER_SEAT {

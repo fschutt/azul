@@ -482,9 +482,10 @@ impl MultiCursorState {
         self.selections.iter_mut().filter(|s| s.owner.is_local())
     }
 
-    /// How many carets the LOCAL user is typing into. This - not [`Self::len`]
-    /// - is the count a "one line per cursor" paste or a "multi-cursor mode"
-    /// decision wants; a peer's caret is not somewhere the local user types.
+    /// How many carets the LOCAL user is typing into. This - not
+    /// [`Self::len`] - is the count a "one line per cursor" paste or a
+    /// "multi-cursor mode" decision wants; a peer's caret is not somewhere the
+    /// local user types.
     #[must_use]
     pub fn local_len(&self) -> usize {
         self.local_selections().count()
@@ -1098,11 +1099,9 @@ pub struct TextSelection {
     pub is_forward: bool,
 }
 
-/// One contiguous change to a run's text (U3-a): bytes `start..end` of the
-/// OLD text were replaced by `inserted` bytes. The shape every caret shift is
-/// computed from, whoever made the change.
 /// An edit that changed the RUN COUNT of a node's inline content (U3-a-i):
 /// a delete spanning two styled runs merged them, a styled paste split one.
+///
 /// The runs before `first` and the runs after the changed middle are the
 /// same in both generations (aligned by common prefix and suffix); a caret
 /// in the middle is mapped through the concatenated middle text, a caret
@@ -1126,6 +1125,9 @@ pub struct RunRemap {
 impl RunRemap {
     /// Where a caret of the old generation sits in the new one.
     #[must_use]
+    // Run counts come from `old_lens`/`new_lens`, whose elements and indices are
+    // already u32; a run count past u32::MAX cannot be built in the first place.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn map_cursor(&self, c: TextCursor) -> TextCursor {
         let run = c.cluster_id.source_run;
         let first = self.first;
@@ -1202,7 +1204,7 @@ pub struct RunTextDiff {
 
 impl RunTextDiff {
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.remap.is_none() && self.changes.is_empty()
     }
 
@@ -1210,10 +1212,7 @@ impl RunTextDiff {
     /// the byte changes of its (new) run.
     #[must_use]
     pub fn map_cursor(&self, c: TextCursor) -> TextCursor {
-        let mut c = match &self.remap {
-            Some(remap) => remap.map_cursor(c),
-            None => c,
-        };
+        let mut c = self.remap.as_ref().map_or(c, |remap| remap.map_cursor(c));
         for change in &self.changes {
             if change.run == c.cluster_id.source_run {
                 c.cluster_id.start_byte_in_run = change.transform(c.cluster_id.start_byte_in_run);
@@ -1223,6 +1222,10 @@ impl RunTextDiff {
     }
 }
 
+/// One contiguous change to a run's text (U3-a): bytes `start..end` of the
+/// OLD text were replaced by `inserted` bytes.
+///
+/// The shape every caret shift is computed from, whoever made the change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RunTextChange {
     /// The run (`GraphemeClusterId::source_run`) whose text changed.
@@ -1289,7 +1292,7 @@ impl RunTextChange {
     /// exists. A caret AT a pure insert's position counts as after it: it is
     /// attached to the character that follows, and that character moved.
     #[must_use]
-    pub fn transform(&self, byte: u32) -> u32 {
+    pub const fn transform(&self, byte: u32) -> u32 {
         if byte < self.start {
             byte
         } else if byte >= self.end {
@@ -1383,9 +1386,11 @@ impl_option!(
 // ============================================================================
 
 /// A position in a node's TEXT CONTENT, app-facing: `text_byte` indexes the
-/// flattened text of `node` — the exact string
-/// `CallbackInfo::get_node_text_content(node)` returns (overlay-first, so it
-/// sees uncommitted typing). The engine resolves cluster ids and affinity
+/// flattened text of `node`.
+///
+/// It is the exact string `CallbackInfo::get_node_text_content(node)` returns
+/// (overlay-first, so it sees uncommitted typing). The engine resolves cluster
+/// ids and affinity
 /// BEFORE handing this out: the byte always lies on a grapheme-cluster
 /// boundary of that string (a ZWJ emoji family or a decomposed `é` is never
 /// split), and is in LOGICAL order — bidi visual reordering does not affect
@@ -1404,8 +1409,10 @@ impl_option!(
 );
 
 /// A selected byte span `[start_byte, end_byte)` of `node`'s text content,
-/// in the coordinates of [`DocumentPosition`]. Always LOGICAL and
-/// NORMALIZED: `start_byte <= end_byte` regardless of drag direction or
+/// in the coordinates of [`DocumentPosition`].
+///
+/// Always LOGICAL and NORMALIZED: `start_byte <= end_byte` regardless of drag
+/// direction or
 /// script direction (an RTL selection is still a forward byte span). A
 /// cross-block selection yields one span per affected node, in document
 /// order.
@@ -1441,9 +1448,11 @@ impl_vec_partialeq!(DocumentSelectionSpan, DocumentSelectionSpanVec);
 impl_vec_partialord!(DocumentSelectionSpan, DocumentSelectionSpanVec);
 
 /// One un-synced character-level edit: `node`'s effective text is now
-/// `text` (revision-stamped). The app folds it into its model and acks the
-/// highest revision it saw via `CallbackInfo::mark_text_revision_synced` —
-/// the character-path counterpart of the structural DocumentEdit loop.
+/// `text` (revision-stamped).
+///
+/// The app folds it into its model and acks the highest revision it saw via
+/// `CallbackInfo::mark_text_revision_synced` — the character-path counterpart
+/// of the structural `DocumentEdit` loop.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct DocumentTextEdit {

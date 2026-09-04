@@ -341,8 +341,8 @@ mod autotest_generated {
     /// SVG shapes are NOT unknown elements: they are painted boxes.
     ///
     /// `SvgPath` used to be listed above as an example of the inline default,
-    /// and that default is exactly what stopped an SVG in a DOM from painting
-    /// - `paint_node_background_and_border` skips inline boxes, because their
+    /// and that default is exactly what stopped an SVG in a DOM from painting -
+    /// `paint_node_background_and_border` skips inline boxes, because their
     /// backgrounds belong to text layout, which knows nothing about SVG
     /// geometry. The definition containers stay `display: none`: they define,
     /// they do not draw.

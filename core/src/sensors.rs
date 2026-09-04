@@ -194,6 +194,10 @@ impl ProximityDistance {
 /// is the app's call: a distance is a measurement, not a verdict.
 #[repr(C, u8)]
 #[derive(Debug, Clone, Copy, PartialEq)]
+// `Distance` carries a reading and the other two are bare tags; that asymmetry
+// is the point of the type (a ranging sensor reports a number, a binary sensor
+// reports near/far) and boxing an f32 to even the variants out would be worse.
+#[allow(variant_size_differences)]
 pub enum Proximity {
     /// Something is close - a phone at the ear, a hand over the sensor.
     Near,

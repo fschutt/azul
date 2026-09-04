@@ -1035,6 +1035,7 @@ impl CssPropertyCache {
 // =============================================================================
 
 /// Apply UA CSS defaults for a node type directly to compact values.
+///
 /// UA defaults have lowest cascade priority — overridden by author CSS.
 /// Which tier-1 bits a node COPIES FROM ITS PARENT — the packed form of "this
 /// property is inherited".
@@ -1044,7 +1045,7 @@ impl CssPropertyCache {
 /// descendant fall back to the CSS initial value while `get_property_slow` —
 /// which inherits through `computed_values` — still answers correctly, so the
 /// two cascade paths disagree about the computed value. That is the failure
-/// mode that bit the VirtualView overflow default. An extra slot inherits a
+/// mode that bit the `VirtualView` overflow default. An extra slot inherits a
 /// property CSS says does not.
 ///
 /// `every_inheritable_tier1_property_is_actually_inherited` checks the

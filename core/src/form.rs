@@ -98,7 +98,7 @@ impl ValidityState {
 /// Replaced WHOLESALE on each validation rather than merged, which is what
 /// makes a control that has since been fixed stop reporting: it simply is not
 /// in the new map.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FormValidationManager {
     failures: BTreeMap<DomNodeId, ValidityState>,
 }

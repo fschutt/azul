@@ -2306,7 +2306,7 @@ impl NodeDataExt {
     /// Every field EXCEPT `marker`, as one comparable/hashable tuple - the
     /// single place that decides what "same ext" means.
     #[allow(clippy::type_complexity)]
-    fn cmp_key(
+    const fn cmp_key(
         &self,
     ) -> (
         &AttributeTypeVec,
@@ -2337,7 +2337,7 @@ impl NodeDataExt {
 
 impl NodeDataExt {
     /// `true` when every identity-relevant field (everything [`cmp_key`]
-    /// (Self::cmp_key) compares, i.e. everything but the marker) is at its
+    /// (`Self::cmp_key`) compares, i.e. everything but the marker) is at its
     /// default - such an ext exists only to carry a marker, and
     /// `NodeData::identity_extra` treats it as absent.
     fn is_identity_empty(&self) -> bool {
@@ -2370,8 +2370,8 @@ impl Ord for NodeDataExt {
         self.cmp_key().cmp(&other.cmp_key())
     }
 }
-impl core::hash::Hash for NodeDataExt {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+impl Hash for NodeDataExt {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.cmp_key().hash(state);
     }
 }
@@ -3184,14 +3184,14 @@ impl NodeData {
 
     /// Stamp an app-chosen marker string on this node — see
     /// [`NodeDataExt::marker`]. `None` clears it.
-    pub fn set_marker(&mut self, marker: azul_css::OptionString) {
+    pub fn set_marker(&mut self, marker: OptionString) {
         match marker {
-            azul_css::OptionString::None => {
+            OptionString::None => {
                 if let Some(ext) = self.extra.as_mut() {
                     ext.marker = None;
                 }
             }
-            azul_css::OptionString::Some(s) => {
+            OptionString::Some(s) => {
                 self.extra
                     .get_or_insert_with(|| Box::new(NodeDataExt::default()))
                     .marker = Some(s);
@@ -3208,7 +3208,7 @@ impl NodeData {
     /// Builder form of [`Self::set_marker`].
     #[inline]
     #[must_use]
-    pub fn with_marker(mut self, marker: azul_css::OptionString) -> Self {
+    pub fn with_marker(mut self, marker: OptionString) -> Self {
         self.set_marker(marker);
         self
     }
@@ -7123,13 +7123,13 @@ impl Dom {
     /// knowing its internals. Invisible to CSS matching, unlike an id.
     #[inline]
     #[must_use]
-    pub fn with_marker(mut self, marker: azul_css::OptionString) -> Self {
+    pub fn with_marker(mut self, marker: OptionString) -> Self {
         self.root.set_marker(marker);
         self
     }
     /// Setter form of [`Self::with_marker`].
     #[inline]
-    pub fn set_marker(&mut self, marker: azul_css::OptionString) {
+    pub fn set_marker(&mut self, marker: OptionString) {
         self.root.set_marker(marker);
     }
     /// Setter form of [`Self::with_key`].

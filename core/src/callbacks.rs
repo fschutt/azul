@@ -486,8 +486,9 @@ pub struct VirtualViewCallbackInfo {
 
 /// Trampoline signature for [`VirtualViewCallbackInfo::measure_dom`] and
 /// [`VirtualViewCallbackInfo::measure_dom_shrink_to_fit`]:
-/// `(layout_window_ctx, dom, available, mode) -> content extent`. The `Dom`
-/// is passed by pointer and CONSUMED (moved out) by the trampoline.
+/// `(layout_window_ctx, dom, available, mode) -> content extent`.
+///
+/// The `Dom` is passed by pointer and CONSUMED (moved out) by the trampoline.
 pub type MeasureDomFn =
     extern "C" fn(*mut c_void, *mut Dom, LogicalSize, MeasureDomMode) -> LogicalSize;
 
@@ -1182,8 +1183,8 @@ impl SystemStyleDependencies {
     #[must_use]
     pub fn dom_depends_on_change(
         &self,
-        old: &azul_css::system::SystemStyle,
-        new: &azul_css::system::SystemStyle,
+        old: &SystemStyle,
+        new: &SystemStyle,
     ) -> bool {
         if self.is_empty() {
             return old != new;
@@ -1379,7 +1380,7 @@ impl LayoutCallbackInfo {
     /// adds them, and one that only wants to avoid the home indicator does
     /// not.
     #[must_use]
-    pub fn get_safe_area_insets(&self) -> azul_css::system::SafeAreaInsets {
+    pub const fn get_safe_area_insets(&self) -> azul_css::system::SafeAreaInsets {
         // SAFETY: same contract as `get_monitors` above — `ref_data` is set
         // for the duration of the layout call.
         unsafe { (*self.ref_data).safe_area }
