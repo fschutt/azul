@@ -2979,6 +2979,23 @@ impl WaylandWindow {
                 })
                 .collect();
 
+            // Desktop light/dark switch. There is NO Wayland protocol for the
+            // colour scheme, so the mechanism is the xdg-desktop-portal
+            // `SettingChanged` signal, and it arrives on a watcher thread that
+            // has no way to reach this loop — except this eventfd. Without it in
+            // the poll set the change sat in the watcher's atomic until an
+            // unrelated compositor event woke us, which on an idle window is
+            // never: the timeout below is `-1`.
+            let theme_wake_idx = pollfds.len();
+            let theme_wake_fd = super::system_style::theme_wake_fd();
+            if theme_wake_fd >= 0 {
+                pollfds.push(libc::pollfd {
+                    fd: theme_wake_fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                });
+            }
+
             // Background threads (e.g. MapWidget tile fetches) have NO fd in the
             // poll set, so their completion can't wake poll(). While any thread is
             // in flight, poll on a ~16ms tick and drain thread writebacks on every
@@ -3026,6 +3043,7 @@ impl WaylandWindow {
             );
 
             let mut any_timer_fired = false;
+            let mut theme_woke = false;
             if result > 0 {
                 // Check Wayland display fd
                 if pollfds[0].revents & libc::POLLIN != 0 {
@@ -3131,6 +3149,18 @@ impl WaylandWindow {
                         self.handle_key(keycode, 1);
                     }
                 }
+                // The desktop's colour scheme moved. Acknowledge the wake and
+                // let `check_timers_and_threads` below do the adopting — it
+                // already owns that call, so there stays exactly ONE theme path
+                // in this backend.
+                if theme_wake_fd >= 0
+                    && theme_wake_idx < pollfds.len()
+                    && pollfds[theme_wake_idx].revents & libc::POLLIN != 0
+                {
+                    super::system_style::drain_theme_wake();
+                    theme_woke = true;
+                }
+
                 // A seat's timer fired: replay ITS key as a press on that seat
                 // (9b-ii-a-i-b-i); the seat's key state marks it a repeat.
                 for (seat_id, idx) in &seat_repeat_idx {
@@ -3155,7 +3185,7 @@ impl WaylandWindow {
             // callback produced a visual change. Run on every wake while threads
             // are active (the 16ms tick guarantees we get here) so tile-fetch
             // writebacks drain promptly.
-            if any_timer_fired || has_threads {
+            if any_timer_fired || has_threads || theme_woke {
                 self.check_timers_and_threads();
             }
             // result == 0: timeout (shouldn't happen with -1)
@@ -8966,10 +8996,12 @@ impl WaylandWindow {
         }
 
         // A runtime light/dark switch. There is NO Wayland protocol for this —
-        // the xdg-desktop-portal `Settings` interface is the mechanism — so the
-        // same watcher serves X11 and Wayland alike. `observed_system_theme` is
-        // a relaxed atomic load; the blocking D-Bus round trip that feeds it
-        // runs on a watcher thread, never on this one.
+        // the xdg-desktop-portal `Settings.SettingChanged` signal is the
+        // mechanism — so the same watcher serves X11 and Wayland alike.
+        // `observed_system_theme` is a relaxed atomic load; the blocking D-Bus
+        // subscription that feeds it runs on a watcher thread, never on this
+        // one, and that thread writes an eventfd `wait_for_events` parks on so
+        // the signal reaches this read without waiting for an unrelated event.
         if let Some(new_style) = super::system_style::adopt_observed_theme(&mut self.common) {
             let _ = self.process_window_events(0);
             // The desktop's own icons are theme artwork: KDE ships breeze and
