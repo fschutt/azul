@@ -1501,7 +1501,6 @@ impl CssPropertyCache {
     ) -> Vec<TagIdToNodeIdMapping> {
         use azul_css::{
             css::{
-                CssDeclaration,
                 CssPathPseudoSelector::{Active, DragOver, Dragging, Focus, Hover, Placeholder},
                 CssPathSelector, CssRuleBlock,
             },
@@ -1587,8 +1586,10 @@ impl CssPropertyCache {
                 }
                 if crate::style::rule_ends_with(&rule.path, None) {
                     for d in &rule.declarations {
-                        if let CssDeclaration::Static(s) = d {
-                            self.global_css_props.push(s.clone());
+                        // `Static` as-is; an `env()` declaration resolved
+                        // against the same context that gates the rule.
+                        if let Some(s) = d.resolve_in_cascade(dyn_ctx.as_deref()) {
+                            self.global_css_props.push(s);
                         }
                     }
                 }
@@ -1631,7 +1632,7 @@ impl CssPropertyCache {
                             for (decl_idx, decl) in
                                 rule_block.declarations.as_slice().iter().enumerate()
                             {
-                                if matches!(decl, CssDeclaration::Static(_)) {
+                                if decl.is_cascade_resolvable() {
                                     out.push((
                                         u16::try_from(rule_idx).unwrap_or(u16::MAX),
                                         u16::try_from(decl_idx).unwrap_or(u16::MAX),
@@ -1685,13 +1686,14 @@ impl CssPropertyCache {
                                     let decl = &specific_rules[rule_idx as usize]
                                         .declarations
                                         .as_slice()[decl_idx as usize];
-                                    if let CssDeclaration::Static(prop) = decl {
+                                    if let Some(prop) = decl.resolve_in_cascade(dyn_ctx.as_deref())
+                                    {
                                         self.css_props.push_to(
                                             n.index(),
                                             StatefulCssProperty {
                                                 state: $state,
                                                 prop_type: prop.get_type(),
-                                                property: prop.clone(),
+                                                property: prop,
                                             },
                                         );
                                     }

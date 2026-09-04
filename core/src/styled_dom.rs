@@ -2277,14 +2277,16 @@ impl StyledDom {
         // drops non-matching rule blocks), so a context change must re-run
         // the author cascade — rebuilding the compact cache alone would
         // keep the stale rule selection. Only DOMs whose stylesheet
-        // actually has conditional rules pay this.
+        // actually has conditional rules pay this. `env()` values are baked
+        // the same way (resolved against the context's safe-area insets),
+        // so a stylesheet using them counts as conditional too.
         let author_conditional = self
             .get_css_property_cache()
             .retained_author_css
             .rules
             .as_ref()
             .iter()
-            .any(|r| !r.conditions.as_ref().is_empty());
+            .any(azul_css::css::CssRuleBlock::depends_on_dynamic_context);
         if author_conditional {
             self.restyle_retained();
         }

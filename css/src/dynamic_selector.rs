@@ -976,6 +976,25 @@ pub struct DynamicSelectorContext {
     /// Whether the window currently has focus (for :backdrop pseudo-class)
     /// When false, :backdrop styles should be applied
     pub window_focused: bool,
+
+    /// The safe-area insets `env(safe-area-inset-*)` resolves against, in
+    /// logical px. `NaN` = the platform reported NO inset for that edge, so
+    /// an `env()` on it takes its fallback (or `0px` without one) - the same
+    /// "absent" sentinel `container_width` uses, compared by bit pattern in
+    /// `PartialEq` below so an unchanged context still short-circuits the
+    /// restyle. Fed from `LayoutWindow::safe_area_insets` (the shells'
+    /// single authority) via [`Self::with_safe_area`]; a rotation or a
+    /// keyboard changes these, the context stops comparing equal, and the
+    /// author cascade re-runs - which is how every `env()` value follows
+    /// the live inset without any per-property invalidation.
+    pub safe_area_top: f32,
+    pub safe_area_right: f32,
+    pub safe_area_bottom: f32,
+    pub safe_area_left: f32,
+    /// `env(keyboard-inset-height)`: how much of the window the on-screen
+    /// keyboard covers from the bottom (`SafeAreaInsets::keyboard`). `NaN`
+    /// when no keyboard is up.
+    pub keyboard_inset_height: f32,
 }
 
 impl PartialEq for DynamicSelectorContext {
@@ -1000,6 +1019,11 @@ impl PartialEq for DynamicSelectorContext {
             && self.pseudo_state == other.pseudo_state
             && self.language == other.language
             && self.window_focused == other.window_focused
+            && self.safe_area_top.to_bits() == other.safe_area_top.to_bits()
+            && self.safe_area_right.to_bits() == other.safe_area_right.to_bits()
+            && self.safe_area_bottom.to_bits() == other.safe_area_bottom.to_bits()
+            && self.safe_area_left.to_bits() == other.safe_area_left.to_bits()
+            && self.keyboard_inset_height.to_bits() == other.keyboard_inset_height.to_bits()
     }
 }
 
@@ -1023,6 +1047,11 @@ impl Default for DynamicSelectorContext {
             pseudo_state: PseudoStateFlags::default(),
             language: AzString::from_const_str("en-US"),
             window_focused: true,
+            safe_area_top: f32::NAN,
+            safe_area_right: f32::NAN,
+            safe_area_bottom: f32::NAN,
+            safe_area_left: f32::NAN,
+            keyboard_inset_height: f32::NAN,
         }
     }
 }
@@ -1057,7 +1086,41 @@ impl DynamicSelectorContext {
             pseudo_state: PseudoStateFlags::default(),
             language: system_style.language.clone(),
             window_focused: true,
+            // The insets are NOT read off `SystemStyle::metrics.titlebar.safe_area`:
+            // those are the platform's static guesses (`TitlebarMetrics::ios()`),
+            // while the window's live values arrive through `with_safe_area`.
+            safe_area_top: f32::NAN,
+            safe_area_right: f32::NAN,
+            safe_area_bottom: f32::NAN,
+            safe_area_left: f32::NAN,
+            keyboard_inset_height: f32::NAN,
         }
+    }
+
+    /// Carry the window's live safe-area insets, so `env(safe-area-inset-*)`
+    /// and `env(keyboard-inset-height)` resolve against them.
+    ///
+    /// Each edge becomes its absolute pixel value; an edge the platform did
+    /// not report (`None`) - or one carrying a relative unit, which no shell
+    /// writes - becomes the `NaN` "absent" sentinel, so `env()` falls back.
+    #[must_use]
+    pub fn with_safe_area(&self, insets: &crate::system::SafeAreaInsets) -> Self {
+        use crate::props::basic::pixel::OptionPixelValue;
+        let px = |v: &OptionPixelValue| -> f32 {
+            match v {
+                OptionPixelValue::Some(p) => {
+                    p.to_pixels_absolute().into_option().unwrap_or(f32::NAN)
+                }
+                OptionPixelValue::None => f32::NAN,
+            }
+        };
+        let mut ctx = self.clone();
+        ctx.safe_area_top = px(&insets.top);
+        ctx.safe_area_right = px(&insets.right);
+        ctx.safe_area_bottom = px(&insets.bottom);
+        ctx.safe_area_left = px(&insets.left);
+        ctx.keyboard_inset_height = px(&insets.keyboard);
+        ctx
     }
 
     /// Update viewport dimensions (e.g., on window resize)
@@ -1103,6 +1166,96 @@ impl DynamicSelectorContext {
             }
         }
         false
+    }
+}
+
+/// A CSS `env()` variable name the engine can supply a value for.
+///
+/// `env()` is the value-side twin of the dynamic selectors: a selector asks
+/// "does this rule apply under the window's context?", an `env()` asks "what
+/// is this length under the window's context?". Both read
+/// [`DynamicSelectorContext`], both are (re)resolved in the author cascade
+/// whenever the context changes, and neither needs its own invalidation.
+///
+/// Parsed by `parser2` into a `CssDeclaration::Dynamic` whose `dynamic_id`
+/// is `"env:<name>"` (see [`ENV_DYNAMIC_ID_PREFIX`]) and whose
+/// `default_value` is the parsed fallback; `CssDeclaration::resolve_in_cascade`
+/// turns that into a concrete property against the live context. Not a
+/// C-ABI type: it never leaves the css/core crates.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum EnvVariable {
+    SafeAreaInsetTop,
+    SafeAreaInsetRight,
+    SafeAreaInsetBottom,
+    SafeAreaInsetLeft,
+    /// The VirtualKeyboard API's `env(keyboard-inset-height)`.
+    KeyboardInsetHeight,
+}
+
+/// `dynamic_id` prefix that marks a `CssDeclaration::Dynamic` as an `env()`
+/// reference rather than a `var()` one. A custom property name can never
+/// contain `:`, so the two namespaces cannot collide.
+pub const ENV_DYNAMIC_ID_PREFIX: &str = "env:";
+
+impl EnvVariable {
+    pub const ALL: [Self; 5] = [
+        Self::SafeAreaInsetTop,
+        Self::SafeAreaInsetRight,
+        Self::SafeAreaInsetBottom,
+        Self::SafeAreaInsetLeft,
+        Self::KeyboardInsetHeight,
+    ];
+
+    /// The name as written inside `env(...)`.
+    #[must_use]
+    pub const fn as_css_name(&self) -> &'static str {
+        match self {
+            Self::SafeAreaInsetTop => "safe-area-inset-top",
+            Self::SafeAreaInsetRight => "safe-area-inset-right",
+            Self::SafeAreaInsetBottom => "safe-area-inset-bottom",
+            Self::SafeAreaInsetLeft => "safe-area-inset-left",
+            Self::KeyboardInsetHeight => "keyboard-inset-height",
+        }
+    }
+
+    /// Parse the name written inside `env(...)`; `None` for a name the
+    /// engine does not define (the CSS "unknown environment variable" case,
+    /// where only the fallback can apply).
+    #[must_use]
+    pub fn from_css_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|v| v.as_css_name() == name.trim())
+    }
+
+    /// The `dynamic_id` an `env()` declaration is stored under.
+    #[must_use]
+    pub fn dynamic_id(&self) -> AzString {
+        alloc::format!("{ENV_DYNAMIC_ID_PREFIX}{}", self.as_css_name()).into()
+    }
+
+    /// Recover the variable from a `dynamic_id`; `None` for a plain `var()` id
+    /// (no prefix) or a prefixed name this build does not know.
+    #[must_use]
+    pub fn from_dynamic_id(id: &str) -> Option<Self> {
+        id.strip_prefix(ENV_DYNAMIC_ID_PREFIX)
+            .and_then(Self::from_css_name)
+    }
+
+    /// The variable's value under `ctx`, in logical px; `None` when the
+    /// platform reported nothing for it (the context's `NaN` sentinel), in
+    /// which case the `env()` fallback applies.
+    #[must_use]
+    pub fn resolve(&self, ctx: &DynamicSelectorContext) -> Option<f32> {
+        let v = match self {
+            Self::SafeAreaInsetTop => ctx.safe_area_top,
+            Self::SafeAreaInsetRight => ctx.safe_area_right,
+            Self::SafeAreaInsetBottom => ctx.safe_area_bottom,
+            Self::SafeAreaInsetLeft => ctx.safe_area_left,
+            Self::KeyboardInsetHeight => ctx.keyboard_inset_height,
+        };
+        v.is_finite().then_some(v)
     }
 }
 
@@ -4981,5 +5134,91 @@ mod autotest_generated {
         assert!(props[0].matches(&base.with_viewport(1024.0, 768.0)));
         assert!(props[0].matches(&base.with_viewport(800.0, 600.0)));
         assert!(!props[0].matches(&base.with_viewport(799.0, 600.0)));
+    }
+}
+
+/// The safe-area half of the context: how the window's insets get in, and
+/// that they participate in the "did anything change" equality that gates
+/// the author restyle.
+#[cfg(test)]
+mod safe_area_context_tests {
+    use super::*;
+    use crate::{
+        props::basic::pixel::{OptionPixelValue, PixelValue},
+        system::SafeAreaInsets,
+    };
+
+    #[test]
+    fn default_context_reports_no_inset_so_every_env_falls_back() {
+        let ctx = DynamicSelectorContext::default();
+        for v in EnvVariable::ALL {
+            assert_eq!(v.resolve(&ctx), None, "{v:?}");
+        }
+    }
+
+    #[test]
+    fn with_safe_area_carries_each_edge_and_the_keyboard() {
+        let insets = SafeAreaInsets {
+            top: OptionPixelValue::Some(PixelValue::px(47.0)),
+            right: OptionPixelValue::None,
+            bottom: OptionPixelValue::Some(PixelValue::px(34.0)),
+            left: OptionPixelValue::Some(PixelValue::pt(0.0)),
+            keyboard: OptionPixelValue::Some(PixelValue::px(300.0)),
+        };
+        let ctx = DynamicSelectorContext::default().with_safe_area(&insets);
+        assert_eq!(EnvVariable::SafeAreaInsetTop.resolve(&ctx), Some(47.0));
+        assert_eq!(EnvVariable::SafeAreaInsetRight.resolve(&ctx), None);
+        assert_eq!(EnvVariable::SafeAreaInsetBottom.resolve(&ctx), Some(34.0));
+        assert_eq!(EnvVariable::SafeAreaInsetLeft.resolve(&ctx), Some(0.0));
+        assert_eq!(EnvVariable::KeyboardInsetHeight.resolve(&ctx), Some(300.0));
+    }
+
+    #[test]
+    fn a_relative_inset_is_treated_as_absent_not_invented() {
+        // No shell writes one, but `to_pixels_absolute` refuses to guess and
+        // so must the context.
+        let insets = SafeAreaInsets {
+            bottom: OptionPixelValue::Some(PixelValue::em(2.0)),
+            ..Default::default()
+        };
+        let ctx = DynamicSelectorContext::default().with_safe_area(&insets);
+        assert_eq!(EnvVariable::SafeAreaInsetBottom.resolve(&ctx), None);
+    }
+
+    /// The whole invalidation story for `env()` rests on this: an inset
+    /// change must make the context compare UNEQUAL (so the restyle runs),
+    /// and an unchanged all-NaN context must still compare EQUAL (so the
+    /// per-frame context offer keeps short-circuiting).
+    #[test]
+    fn inset_changes_are_visible_to_context_equality_and_nan_is_stable() {
+        let base = DynamicSelectorContext::default();
+        assert_eq!(base, base.with_safe_area(&SafeAreaInsets::default()));
+
+        let with_bottom = base.with_safe_area(&SafeAreaInsets {
+            bottom: OptionPixelValue::Some(PixelValue::px(34.0)),
+            ..Default::default()
+        });
+        assert_ne!(base, with_bottom);
+        assert_eq!(with_bottom, with_bottom.clone());
+
+        let keyboard_up = with_bottom.with_safe_area(&SafeAreaInsets {
+            bottom: OptionPixelValue::Some(PixelValue::px(34.0)),
+            keyboard: OptionPixelValue::Some(PixelValue::px(250.0)),
+            ..Default::default()
+        });
+        assert_ne!(with_bottom, keyboard_up);
+    }
+
+    #[test]
+    fn names_round_trip() {
+        for v in EnvVariable::ALL {
+            assert_eq!(EnvVariable::from_css_name(v.as_css_name()), Some(v));
+            assert_eq!(
+                EnvVariable::from_css_name(&format!("  {}  ", v.as_css_name())),
+                Some(v)
+            );
+        }
+        assert_eq!(EnvVariable::from_css_name("safe-area-inset"), None);
+        assert_eq!(EnvVariable::from_css_name(""), None);
     }
 }

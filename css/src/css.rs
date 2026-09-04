@@ -374,8 +374,91 @@ impl CssDeclaration {
         use self::CssDeclaration::{Dynamic, Static};
         match self {
             Static(s) => format!("{s:?}"),
-            Dynamic(d) => format!("var(--{}, {:?})", d.dynamic_id, d.default_value),
+            Dynamic(d) => match self.env_variable() {
+                Some(v) => format!("env({}, {:?})", v.as_css_name(), d.default_value),
+                None => format!("var(--{}, {:?})", d.dynamic_id, d.default_value),
+            },
         }
+    }
+
+    /// The `env()` variable this declaration reads, if it is one.
+    ///
+    /// An `env()` declaration is a `Dynamic` whose `dynamic_id` carries the
+    /// [`ENV_DYNAMIC_ID_PREFIX`](crate::dynamic_selector::ENV_DYNAMIC_ID_PREFIX);
+    /// its `default_value` is the parsed fallback. `None` for `Static` and
+    /// for a plain `var()` reference.
+    #[must_use]
+    pub fn env_variable(&self) -> Option<crate::dynamic_selector::EnvVariable> {
+        match self {
+            Self::Static(_) => None,
+            Self::Dynamic(d) => {
+                crate::dynamic_selector::EnvVariable::from_dynamic_id(d.dynamic_id.as_str())
+            }
+        }
+    }
+
+    /// Whether the cascade can turn this declaration into a concrete property:
+    /// every `Static`, plus `env()` references. A `var()` `Dynamic` is not
+    /// (it is substituted at parse time and never reaches the cascade).
+    #[must_use]
+    pub fn is_cascade_resolvable(&self) -> bool {
+        matches!(self, Self::Static(_)) || self.env_variable().is_some()
+    }
+
+    /// Whether this declaration's value depends on the window's
+    /// [`DynamicSelectorContext`](crate::dynamic_selector::DynamicSelectorContext)
+    /// - i.e. it is an `env()` - so a context change must re-run the cascade
+    /// for it, exactly as it must for a rule with `@media`-style conditions.
+    #[must_use]
+    pub fn depends_on_dynamic_context(&self) -> bool {
+        self.env_variable().is_some()
+    }
+
+    /// The concrete property this declaration contributes to the cascade
+    /// under `ctx`.
+    ///
+    /// - `Static` - the property itself.
+    /// - `env()` - the variable's live value (an absolute length parsed as
+    ///   the declared property's own type, so `padding-bottom` gets a
+    ///   padding and `top` gets an inset), or the parsed fallback when the
+    ///   platform reports none for it, or when there is no context yet (a
+    ///   `StyledDom` no window has adopted - the same rule conditional
+    ///   rule blocks follow).
+    /// - a `var()` `Dynamic` - `None`, matching the previous behaviour of
+    ///   every cascade site (they filtered on `Static`).
+    #[must_use]
+    pub fn resolve_in_cascade(
+        &self,
+        ctx: Option<&crate::dynamic_selector::DynamicSelectorContext>,
+    ) -> Option<CssProperty> {
+        match self {
+            Self::Static(s) => Some(s.clone()),
+            Self::Dynamic(d) => {
+                let var = self.env_variable()?;
+                let Some(px) = ctx.and_then(|c| var.resolve(c)) else {
+                    return Some(d.default_value.clone());
+                };
+                Some(Self::env_length_as(&d.default_value, px))
+            }
+        }
+    }
+
+    /// `px` (logical, absolute) re-typed as `like`'s property. Goes through
+    /// the property's own parser rather than a hand-written match over every
+    /// length-taking variant, so a new length property is covered the day it
+    /// gets a parser. Without the parser feature `env()` cannot be parsed in
+    /// the first place, so the fallback is the only value that can exist.
+    #[allow(unused_variables)]
+    fn env_length_as(like: &CssProperty, px: f32) -> CssProperty {
+        #[cfg(feature = "parser")]
+        {
+            if let Ok(p) =
+                crate::props::property::parse_css_property(like.get_type(), &format!("{px}px"))
+            {
+                return p;
+            }
+        }
+        like.clone()
     }
 }
 
@@ -798,6 +881,23 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, Eq, PartialOrd]
 );
+
+impl CssRuleBlock {
+    /// Whether this rule's contribution to the cascade depends on the
+    /// window's `DynamicSelectorContext`: it has `@media`/`@os`-style
+    /// conditions, or one of its declarations is an `env()`. The cascade is
+    /// re-run for such rules when the context changes
+    /// (`StyledDom::set_dynamic_selector_context`).
+    #[must_use]
+    pub fn depends_on_dynamic_context(&self) -> bool {
+        !self.conditions.as_ref().is_empty()
+            || self
+                .declarations
+                .as_ref()
+                .iter()
+                .any(CssDeclaration::depends_on_dynamic_context)
+    }
+}
 
 impl PartialOrd for CssRuleBlock {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {

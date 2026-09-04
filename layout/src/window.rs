@@ -14665,8 +14665,9 @@ mod tests {
         fn padding_bottom(sd: &StyledDom) -> f32 {
             let node = NodeId::new(1);
             let node_data = sd.node_data.as_container();
+            let data = node_data.get(node).expect(".foot is node 1");
             sd.get_css_property_cache()
-                .get_padding_bottom(&node_data[node], &node, &StyledNodeState::default())
+                .get_padding_bottom(data, &node, &StyledNodeState::default())
                 .and_then(|v| v.get_property().copied())
                 .map(|p| p.inner.to_pixels(0.0, 16.0, 16.0))
                 .expect("padding-bottom is declared on .foot")

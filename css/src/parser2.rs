@@ -80,14 +80,14 @@ use crate::{
         NodeTypeTagParseError, NodeTypeTagParseErrorOwned,
     },
     dynamic_selector::{
-        parse_os_version, BoolCondition, DynamicSelector, DynamicSelectorVec, LanguageCondition,
-        MediaType, MinMaxRange, OrientationType, OsCondition, ThemeCondition,
+        parse_os_version, BoolCondition, DynamicSelector, DynamicSelectorVec, EnvVariable,
+        LanguageCondition, MediaType, MinMaxRange, OrientationType, OsCondition, ThemeCondition,
     },
     props::{
         basic::parse::parse_parentheses,
         property::{
             parse_combined_css_property, parse_css_property, CombinedCssPropertyType, CssKeyMap,
-            CssParsingErrorOwned, CssPropertyType,
+            CssParsingErrorOwned, CssProperty, CssPropertyType,
         },
     },
 };
@@ -409,7 +409,7 @@ pub enum DynamicCssParseError<'a> {
 }
 
 impl_display! { DynamicCssParseError<'a>, {
-    InvalidBraceContents(e) => format!("Invalid contents of var() function: var({})", e),
+    InvalidBraceContents(e) => format!("Invalid contents of var()/env() function: ({})", e),
     UnexpectedValue(e) => format!("{}", e),
 }}
 
@@ -1976,6 +1976,11 @@ fn resolve_var_reference(
     let CssDeclaration::Dynamic(dyn_prop) = decl else {
         return decl;
     };
+    // An `env()` reference is resolved by the CASCADE against the window's
+    // live context, not here: it has to survive parsing as `Dynamic`.
+    if EnvVariable::from_dynamic_id(dyn_prop.dynamic_id.as_str()).is_some() {
+        return CssDeclaration::Dynamic(dyn_prop);
+    }
     // `dynamic_id` is stored without the leading `--`; trim defensively either way.
     let name = dyn_prop.dynamic_id.as_str().trim_start_matches("--");
     if let Some(raw) = custom_props.get(name) {
@@ -2066,6 +2071,23 @@ fn parse_declaration_resilient<'a>(
     let mut declarations = Vec::new();
 
     if let Some(combined_key) = CombinedCssPropertyType::from_str(unparsed_css_key, css_key_map) {
+        // `padding: env(safe-area-inset-top, 4px)` - unlike `var()`, an
+        // `env()` on a shorthand is NOT ambiguous: the fallback expands to
+        // the longhands and every one of them reads the same variable.
+        if let Some(env) = check_if_value_is_css_env(unparsed_css_value) {
+            let (env_var, fallback) = env?;
+            match parse_combined_css_property(combined_key, fallback) {
+                Ok(parsed_props) => {
+                    declarations.extend(
+                        parsed_props
+                            .into_iter()
+                            .map(|p| env_declaration(env_var, p)),
+                    );
+                }
+                Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
+            }
+            return Ok(declarations);
+        }
         if check_if_value_is_css_var(unparsed_css_value).is_some() {
             return Err(CssParseErrorInner::VarOnShorthandProperty {
                 key: combined_key,
@@ -2081,7 +2103,13 @@ fn parse_declaration_resilient<'a>(
             Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
         }
     } else if let Some(normal_key) = CssPropertyType::from_str(unparsed_css_key, css_key_map) {
-        if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
+        if let Some(env) = check_if_value_is_css_env(unparsed_css_value) {
+            let (env_var, fallback) = env?;
+            match parse_css_property(normal_key, fallback) {
+                Ok(parsed_fallback) => declarations.push(env_declaration(env_var, parsed_fallback)),
+                Err(e) => return Err(CssParseErrorInner::DynamicCssParseError(e.into())),
+            }
+        } else if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
             let (css_var_id, css_var_default) = css_var?;
             match parse_css_property(normal_key, css_var_default) {
                 Ok(parsed_default) => {
@@ -2143,6 +2171,52 @@ pub fn parse_css_declaration<'a>(
             }
         }
     }
+}
+
+/// The declaration an `env()` value becomes: a `Dynamic` tagged with the
+/// variable (resolved by the cascade against the live insets) when the
+/// engine defines the name, or the fallback itself, statically, when it does
+/// not - CSS's "unknown environment variable, use the fallback".
+fn env_declaration(env_var: Option<EnvVariable>, fallback: CssProperty) -> CssDeclaration {
+    match env_var {
+        Some(v) => CssDeclaration::Dynamic(DynamicCssProperty {
+            dynamic_id: v.dynamic_id(),
+            default_value: fallback,
+        }),
+        None => CssDeclaration::Static(fallback),
+    }
+}
+
+/// Recognises `env(<name> [, <fallback>])`, returning the variable (`None`
+/// for a name the engine does not define) and the fallback text.
+///
+/// A known name without a fallback gets `0px` - the value browsers report
+/// for a safe-area inset on a device without one. An UNKNOWN name without a
+/// fallback is an error: CSS makes such a declaration invalid at
+/// computed-value time, and dropping it with a warning is the closest a
+/// parse-time decision can get.
+///
+/// Only a value that IS the `env()` call is recognised. `env()` nested in
+/// `calc()` or alongside other tokens (`10px env(...)`) is not - it falls
+/// through to the property's ordinary parser like before.
+fn check_if_value_is_css_env(
+    unparsed_css_value: &str,
+) -> Option<Result<(Option<EnvVariable>, &str), CssParseErrorInner<'_>>> {
+    const KNOWN_NAME_DEFAULT: &str = "0px";
+
+    let (_, brace_contents) = parse_parentheses(unparsed_css_value, &["env"]).ok()?;
+
+    let mut parts = brace_contents.splitn(2, ',');
+    let name = parts.next().unwrap_or("").trim();
+    let fallback = parts.next().map(str::trim).filter(|f| !f.is_empty());
+    let env_var = EnvVariable::from_css_name(name);
+
+    Some(match (env_var, fallback) {
+        (Some(v), Some(f)) => Ok((Some(v), f)),
+        (Some(v), None) => Ok((Some(v), KNOWN_NAME_DEFAULT)),
+        (None, Some(f)) => Ok((None, f)),
+        (None, None) => Err(DynamicCssParseError::InvalidBraceContents(brace_contents).into()),
+    })
 }
 
 fn check_if_value_is_css_var(
@@ -4360,5 +4434,152 @@ mod keyframes_tests {
             }
         }
         assert!(found_out && found_all);
+    }
+}
+
+/// `env()` — the CSS-facing half of the safe-area insets (ledger 10c-iv).
+///
+/// Until this landed `env(safe-area-inset-bottom)` was silently dropped as an
+/// invalid value (`parser2` had no `env` token at all). The parse contract:
+/// a known name becomes a `Dynamic` declaration tagged for the cascade, an
+/// unknown name is the fallback (statically) or nothing.
+#[cfg(test)]
+mod env_tests {
+    use super::*;
+    use crate::{
+        css::CssDeclaration,
+        dynamic_selector::{DynamicSelectorContext, EnvVariable},
+        props::property::{parse_css_property, CssPropertyType},
+    };
+
+    fn only_declaration(css: &str) -> CssDeclaration {
+        let (parsed, warnings) = new_from_str(css);
+        assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+        let rules: Vec<_> = parsed.rules().collect();
+        assert_eq!(rules.len(), 1, "one rule expected");
+        let decls = rules[0].declarations.as_ref();
+        assert_eq!(decls.len(), 1, "one declaration expected, got {decls:?}");
+        decls[0].clone()
+    }
+
+    #[test]
+    fn env_with_fallback_parses_to_a_dynamic_env_declaration() {
+        let d = only_declaration("div { padding-bottom: env(safe-area-inset-bottom, 7px); }");
+        assert_eq!(d.env_variable(), Some(EnvVariable::SafeAreaInsetBottom));
+        assert_eq!(d.get_type(), CssPropertyType::PaddingBottom);
+        assert!(d.is_cascade_resolvable());
+        assert!(d.depends_on_dynamic_context());
+        // Without a context the fallback is the value.
+        let seven = parse_css_property(CssPropertyType::PaddingBottom, "7px").unwrap();
+        assert_eq!(d.resolve_in_cascade(None), Some(seven));
+    }
+
+    #[test]
+    fn env_without_fallback_defaults_to_zero() {
+        let d = only_declaration("div { margin-top: env(safe-area-inset-top); }");
+        assert_eq!(d.env_variable(), Some(EnvVariable::SafeAreaInsetTop));
+        let zero = parse_css_property(CssPropertyType::MarginTop, "0px").unwrap();
+        assert_eq!(d.resolve_in_cascade(None), Some(zero));
+    }
+
+    #[test]
+    fn every_defined_name_round_trips_through_the_parser() {
+        for v in EnvVariable::ALL {
+            let css = format!("div {{ top: env({}, 1px); }}", v.as_css_name());
+            let d = only_declaration(&css);
+            assert_eq!(d.env_variable(), Some(v), "{css}");
+            assert_eq!(
+                EnvVariable::from_dynamic_id(v.dynamic_id().as_str()),
+                Some(v)
+            );
+        }
+        assert_eq!(EnvVariable::from_dynamic_id("my-var"), None);
+    }
+
+    #[test]
+    fn unknown_env_name_with_a_fallback_is_the_fallback_statically() {
+        let d = only_declaration("div { padding-bottom: env(no-such-thing, 7px); }");
+        assert_eq!(d.env_variable(), None);
+        let seven = parse_css_property(CssPropertyType::PaddingBottom, "7px").unwrap();
+        assert_eq!(d, CssDeclaration::Static(seven));
+    }
+
+    #[test]
+    fn unknown_env_name_without_a_fallback_is_dropped_with_a_warning() {
+        let (parsed, warnings) = new_from_str("div { padding-bottom: env(no-such-thing); }");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        let rules: Vec<_> = parsed.rules().collect();
+        assert!(
+            rules.iter().all(|r| r.declarations.as_ref().is_empty()),
+            "the declaration must not survive: {rules:?}"
+        );
+    }
+
+    #[test]
+    fn env_on_a_shorthand_expands_to_the_longhands() {
+        let (parsed, warnings) = new_from_str("div { padding: env(safe-area-inset-top, 4px); }");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let rules: Vec<_> = parsed.rules().collect();
+        let decls = rules[0].declarations.as_ref();
+        assert_eq!(decls.len(), 4, "{decls:?}");
+        for d in decls {
+            assert_eq!(d.env_variable(), Some(EnvVariable::SafeAreaInsetTop));
+        }
+        let types: Vec<_> = decls.iter().map(CssDeclaration::get_type).collect();
+        assert!(types.contains(&CssPropertyType::PaddingLeft));
+        assert!(types.contains(&CssPropertyType::PaddingBottom));
+    }
+
+    #[test]
+    fn env_is_not_mistaken_for_var_and_survives_var_substitution() {
+        // A `var()` next to it is still substituted at parse time; the env()
+        // must come out the other side still Dynamic.
+        let (parsed, warnings) = new_from_str(
+            ":root { --gap: 3px; } div { margin-left: var(--gap); \
+             padding-bottom: env(safe-area-inset-bottom, 7px); }",
+        );
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let div = parsed
+            .rules()
+            .find(|r| r.declarations.as_ref().len() == 2)
+            .expect("the div rule");
+        let decls = div.declarations.as_ref();
+        let three = parse_css_property(CssPropertyType::MarginLeft, "3px").unwrap();
+        assert_eq!(decls[0], CssDeclaration::Static(three));
+        assert_eq!(
+            decls[1].env_variable(),
+            Some(EnvVariable::SafeAreaInsetBottom)
+        );
+        assert!(div.depends_on_dynamic_context());
+    }
+
+    #[test]
+    fn resolve_in_cascade_reads_the_live_inset_and_keeps_the_declared_type() {
+        let d = only_declaration("div { padding-bottom: env(safe-area-inset-bottom, 7px); }");
+        let mut ctx = DynamicSelectorContext::default();
+        ctx.safe_area_bottom = 34.0;
+        let live = parse_css_property(CssPropertyType::PaddingBottom, "34px").unwrap();
+        assert_eq!(d.resolve_in_cascade(Some(&ctx)), Some(live));
+
+        // NaN = the platform reported no inset for that edge: the fallback.
+        ctx.safe_area_bottom = f32::NAN;
+        let seven = parse_css_property(CssPropertyType::PaddingBottom, "7px").unwrap();
+        assert_eq!(d.resolve_in_cascade(Some(&ctx)), Some(seven));
+
+        // A different edge on a different property: the value takes the
+        // PROPERTY's type, not the fallback's unit.
+        let w = only_declaration("div { width: env(safe-area-inset-left, 1em); }");
+        ctx.safe_area_left = 20.5;
+        let live_w = parse_css_property(CssPropertyType::Width, "20.5px").unwrap();
+        assert_eq!(w.resolve_in_cascade(Some(&ctx)), Some(live_w));
+    }
+
+    #[test]
+    fn plain_values_and_calc_wrapped_env_are_untouched_by_the_env_check() {
+        assert!(check_if_value_is_css_env("100px").is_none());
+        assert!(check_if_value_is_css_env("var(--x, 1px)").is_none());
+        // Not recognised (the value is not the env() call itself) - falls
+        // through to the ordinary parser, exactly as before this landed.
+        assert!(check_if_value_is_css_env("calc(20px + env(safe-area-inset-bottom))").is_none());
     }
 }
