@@ -732,6 +732,16 @@ jobs:
           cargo check -p azul-layout --no-default-features --features "xml"
           cargo check -p azul-layout --no-default-features --features "text_layout,font_loading,svg,xml"
 
+      # printpdf's exact azul-layout surface (its `html` feature): text layout,
+      # hyphenation, font loading, xml, pdf - and NO cpurender/svg. No other
+      # combination in this matrix enables `pdf` or `text_layout_hyphenation`,
+      # which is how the missing cpurender gates on `tray_icon` and
+      # `rasterize_svg_clip_to_r8` only surfaced in printpdf's own build.
+      # Keep in sync with printpdf/Cargo.toml (`text_layout`,
+      # `text_layout_hyphenation`, `html` feature lists).
+      - name: Check azul-layout with printpdf's feature set (no cpurender)
+        run: cargo check -p azul-layout --no-default-features --features "std,text_layout,text_layout_hyphenation,font_loading,xml,pdf"
+
   dll_windows_unit_tests:
     # Runs Windows backend unit tests.
     name: azul-dll unit tests (Windows backend)
