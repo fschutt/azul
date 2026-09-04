@@ -1216,7 +1216,7 @@ impl Runner {
                 .iter()
                 .any(|e| e.event_type == azul_core::events::EventType::KeyDown)
         {
-            let (r, changed) = self.run_keyboard_default_action();
+            let (r, changed) = self.run_keyboard_default_action(&synthetic_events);
             result = result.max(r);
             default_action_focus_changed = changed;
         }
@@ -1293,6 +1293,22 @@ impl Runner {
         // describing the PREVIOUS op. Flooring at "repaint" costs an extra
         // no-damage render and never hides one.
         result.max(ProcessEventResult::ShouldReRenderCurrentWindow)
+    }
+
+    /// A NON-primary seat's focus move (9b-ii-a-i-d): the same body as the
+    /// `SetSeatFocusTarget` arm minus the resolution - move only that seat's
+    /// entry and scroll it into view. No caret arming and no `:focus` restyle:
+    /// the text-edit session stays the primary's (9b-ii-a-i-d-ii) and seat
+    /// focus styling is the open 9b-ii-a-i-d-iii.
+    fn set_seat_focus(&mut self, seat: u64, new_focus: Option<DomNodeId>) -> ProcessEventResult {
+        use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
+        let now = self.now();
+        let lw = &mut self.layout_window;
+        lw.focus_manager.set_focused_node_for(seat, new_focus);
+        if let Some(n) = new_focus {
+            lw.scroll_node_into_view(n, ScrollIntoViewOptions::nearest(), now);
+        }
+        ProcessEventResult::ShouldReRenderCurrentWindow
     }
 
     /// Port of the DLL's `apply_system_change(SystemChange::SetFocus { .. })`:
@@ -1803,6 +1819,12 @@ impl Runner {
                     || seats_changed
                     || self.window_state.mouse_state != old.mouse_state
                     || self.window_state.keyboard_state != old.keyboard_state
+                    // The other seats' keyboards (9b-ii-a-i-d-v-a): the same
+                    // hole as `touch_state` above - a seat `key_down` op
+                    // mutated `keyboard_seats`, the gate said "nothing
+                    // changed", no pass ran, and the seat-Tab scenario
+                    // reported the seat's focus unmoved with no error.
+                    || self.window_state.keyboard_seats != old.keyboard_seats
                     || self.window_state.window_focused != old.window_focused
                     || self.window_state.flags.has_focus != old.flags.has_focus
                     || self.window_state.position != old.position;
@@ -3544,16 +3566,62 @@ impl Runner {
     ///
     /// Returns `(result, focus_changed)`; the caller uses `focus_changed` to
     /// decide whether to dispatch Blur/Focus and re-enter the pass.
-    fn run_keyboard_default_action(&mut self) -> (ProcessEventResult, bool) {
+    ///
+    /// Runs once per SEAT that has a `KeyDown` in `synthetic_events`, in
+    /// arrival order (9b-ii-a-i-d-v-a): each seat's own keyboard state and
+    /// own focus drive its action, the same loop the dll shell runs. Before
+    /// this the runner read only the primary's keyboard and focus, so a seat's
+    /// Tab in a scenario did nothing (the seat's keycode lives in ITS keyboard
+    /// state, which the primary-only read never saw).
+    fn run_keyboard_default_action(
+        &mut self,
+        synthetic_events: &[azul_core::events::SyntheticEvent],
+    ) -> (ProcessEventResult, bool) {
+        let mut seats: Vec<u64> = Vec::new();
+        for e in synthetic_events
+            .iter()
+            .filter(|e| e.event_type == azul_core::events::EventType::KeyDown)
+        {
+            let seat = azul_layout::managers::hover::seat_of_event(e);
+            if !seats.contains(&seat) {
+                seats.push(seat);
+            }
+        }
+        let mut result = ProcessEventResult::DoNothing;
+        let mut changed = false;
+        for seat in seats {
+            let (r, c) = self.run_keyboard_default_action_for_seat(seat);
+            result = result.max(r);
+            changed |= c;
+        }
+        (result, changed)
+    }
+
+    /// One seat's slice of [`Self::run_keyboard_default_action`]. The
+    /// returned `focus_changed` is only ever `true` for the PRIMARY seat: the
+    /// pass's Blur/Focus re-entry reads the primary's focus, and a seat's
+    /// focus move has no Blur/Focus dispatch in the runner (the dll's seat
+    /// drain owns that; 9b-ii-a-i-d-iii is the open styling/a11y half).
+    fn run_keyboard_default_action_for_seat(&mut self, seat: u64) -> (ProcessEventResult, bool) {
         use azul_core::events::DefaultAction;
         use azul_layout::default_actions::{
             default_action_to_focus_target, determine_keyboard_default_action_with_editing,
         };
         use azul_layout::managers::focus_cursor::resolve_focus_target;
 
-        let ks = self.window_state.keyboard_state.clone();
-        let focused = self.layout_window.focus_manager.get_focused_node().copied();
-        let editing_state = self.layout_window.build_editing_query_state(focused);
+        let is_primary = seat == azul_core::window::PRIMARY_POINTER_SEAT;
+        let ks = if is_primary {
+            self.window_state.keyboard_state.clone()
+        } else {
+            self.window_state
+                .keyboard_seat(seat)
+                .cloned()
+                .unwrap_or_else(|| self.window_state.keyboard_state.clone())
+        };
+        let focused = self.layout_window.focus_manager.focused_node_for(seat);
+        let editing_state = self
+            .layout_window
+            .build_editing_query_state_for_seat(seat, focused);
         let action = determine_keyboard_default_action_with_editing(
             &ks,
             focused,
@@ -3564,8 +3632,8 @@ impl Runner {
         #[cfg(feature = "std")]
         if std::env::var_os("AZ_ACT_DEBUG").is_some() {
             std::eprintln!(
-                "[act] key={:?} focused={:?} action={:?}",
-                ks.current_virtual_keycode, focused, action.action
+                "[act] seat={} key={:?} focused={:?} action={:?}",
+                seat, ks.current_virtual_keycode, focused, action.action
             );
         }
         if !action.has_action() {
@@ -3613,6 +3681,9 @@ impl Runner {
                 if new_focus == focused {
                     return (ProcessEventResult::DoNothing, false);
                 }
+                if !is_primary {
+                    return (self.set_seat_focus(seat, new_focus), false);
+                }
                 // `:focus-visible`: this is the KEYBOARD route, so the ring
                 // shows. Mirrors the dll shell's arm - the runner is a port of
                 // it, and a modality set in only one of the two would make the
@@ -3623,6 +3694,9 @@ impl Runner {
             DefaultAction::ClearFocus => {
                 if focused.is_none() {
                     return (ProcessEventResult::DoNothing, false);
+                }
+                if !is_primary {
+                    return (self.set_seat_focus(seat, None), false);
                 }
                 (self.set_focus(None, focused, false), true)
             }
@@ -3676,7 +3750,7 @@ impl Runner {
                 // a materialized preview paints on the next relayout.
                 if self
                     .layout_window
-                    .record_structural_default_action(&action.action)
+                    .record_structural_default_action_for_seat(seat, &action.action)
                     .is_some()
                 {
                     (ProcessEventResult::ShouldIncrementalRelayout, false)

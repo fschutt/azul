@@ -1,0 +1,55 @@
+{
+  "name": "seat_focus_tab_per_seat",
+  "description": "PER-SEAT KEYBOARD DEFAULT ACTION in the harness (9b-ii-a-i-d-v-a): a second seat's Tab walks THAT seat's focus ring from THAT seat's focus, and the primary's focus stays put; Escape on the seat clears only the seat's focus. Before the port the runner read only the primary's keyboard state and focus, so a seat's Tab (whose keycode lives in the seat's own keyboard state) did nothing at all.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"a\" contenteditable=\"true\">alpha</div>",
+        "<div id=\"b\" contenteditable=\"true\">bravo</div>",
+        "<div id=\"c\" contenteditable=\"true\">charlie</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#a, #b, #c { display: block; width: 200px; height: 40px; font-size: 14px; }",
+        "#b, #c { margin-top: 20px; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+
+    { "op": "click", "x": 20, "y": 140 },
+    { "op": "wait_frame" },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "#c" },
+
+    { "op": "mouse_move", "x": 20, "y": 20, "seat": 7 },
+    { "op": "mouse_down", "x": 20, "y": 20, "seat": 7 },
+    { "op": "mouse_up", "x": 20, "y": 20, "seat": 7 },
+    { "op": "wait_frame" },
+    { "op": "get_focus_state", "seat": 7 },
+    { "op": "assert_response", "contains": "#a" },
+
+    { "op": "key_down", "key": "tab", "seat": 7 },
+    { "op": "key_up", "key": "tab", "seat": 7 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 50 },
+    { "op": "get_focus_state", "seat": 7 },
+    { "op": "assert_response", "contains": "#b" },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "#c" },
+
+    { "op": "key_down", "key": "escape", "seat": 7 },
+    { "op": "key_up", "key": "escape", "seat": 7 },
+    { "op": "wait_frame" },
+    { "op": "get_focus_state", "seat": 7 },
+    { "op": "assert_response", "contains": "\"has_focus\":false" },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "#c" }
+  ]
+}
