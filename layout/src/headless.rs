@@ -75,7 +75,11 @@ pub struct CpuHitTester {
 
 /// A node's clip geometry together with the `viewBox`
 /// (`min_x`, `min_y`, `width`, `height`) it was authored in, if any.
-type ClipPath = (azul_core::svg::SvgMultiPolygon, Option<(f32, f32, f32, f32)>);
+///
+/// Deliberately NOT called `ClipPath`: `azul_css` already exports a
+/// `ClipPath` (the CSS property), and the C-API safety scanner rejects two
+/// types of the same name in different files as a collision.
+type HitClipGeometry = (azul_core::svg::SvgMultiPolygon, Option<(f32, f32, f32, f32)>);
 
 /// A single entry in the CPU hit test acceleration structure.
 #[derive(Debug, Clone)]
@@ -105,7 +109,7 @@ struct HitTestEntry {
     /// this, the transparent corners of a circular button stayed clickable and
     /// - worse - kept SHADOWING whatever was behind them, which is precisely
     /// the thing a clip-path is asked for.
-    clip_path: Option<ClipPath>,
+    clip_path: Option<HitClipGeometry>,
 }
 
 /// A scroll container (`PushScrollFrame` owner) for wheel-target resolution.
@@ -1046,7 +1050,7 @@ impl CpuHitTester {
 fn node_clip_path(
     styled_dom: &StyledDom,
     node_id: NodeId,
-) -> Option<ClipPath> {
+) -> Option<HitClipGeometry> {
     let node_data = styled_dom.node_data.as_container();
     let azul_core::dom::SvgNodeData::Path(path) = node_data.get(node_id)?.get_svg_data()? else {
         return None;
@@ -1080,7 +1084,7 @@ fn node_clip_path(
 fn point_in_clip_path(
     point: LogicalPosition,
     rect: &LogicalRect,
-    clip_path: Option<&ClipPath>,
+    clip_path: Option<&HitClipGeometry>,
 ) -> bool {
     let Some((path, view_box)) = clip_path else {
         return true;
