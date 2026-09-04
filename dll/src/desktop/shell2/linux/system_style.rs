@@ -27,7 +27,7 @@ use azul_css::props::basic::color::{parse_css_color, ColorU, OptionColorU};
 use azul_css::props::basic::pixel::{OptionPixelValue, PixelValue};
 use azul_css::system::{
     defaults, DesktopEnvironment, Platform, ScrollbarTrackClick, ScrollbarVisibility, SubpixelType,
-    SystemStyle, Theme, TitlebarButtonSide, ToolbarStyle,
+    SystemStyle, Theme, TitlebarButtonSide, TitlebarButtons, ToolbarStyle,
 };
 
 // ── D-Bus wire-protocol helpers (minimal, read-only) ─────────────────────
@@ -454,6 +454,17 @@ fn gsettings_get(schema: &str, key: &str) -> Option<String> {
 /// Populate additional Linux-specific fields in `style` via `gsettings` CLI
 /// queries and environment-variable fallbacks.
 fn discover_linux_extras(style: &mut SystemStyle) {
+    // Ask the desktop's OWN store first. XFCE keeps none of this in
+    // gsettings, and a machine that once ran KDE or GNOME still has THEIR
+    // schemas populated - reading those is how an XFCE desktop themed
+    // Mint-Y-Aqua ended up rendering as Breeze dark with breeze-dark icons.
+    let source = linux_settings_source(&azul_css::system::detect_linux_desktop_env());
+    if source == LinuxSettingsSource::Xfconf && xfce_extras(style) {
+        apply_env_cursor_fallbacks(style);
+        gtk_ini_extras(style);
+        return;
+    }
+
     // Icon theme
     if let Some(icon) = gsettings_get("org.gnome.desktop.interface", "icon-theme") {
         style.linux.icon_theme = OptionString::Some(icon.into());
@@ -489,18 +500,9 @@ fn discover_linux_extras(style: &mut SystemStyle) {
         style.linux.titlebar_button_layout = OptionString::Some(layout.into());
     }
     // Env-var fallbacks (work on ALL Linux WMs)
-    if style.linux.cursor_theme.is_none() {
-        if let Ok(t) = std::env::var("XCURSOR_THEME") {
-            style.linux.cursor_theme = OptionString::Some(t.into());
-        }
-    }
-    if style.linux.cursor_size == 0 {
-        if let Ok(s) = std::env::var("XCURSOR_SIZE") {
-            if let Ok(sz) = s.parse::<u32>() {
-                style.linux.cursor_size = sz;
-            }
-        }
-    }
+    apply_env_cursor_fallbacks(style);
+    // The GTK config file is the floor under every desktop and every bare WM.
+    gtk_ini_extras(style);
 
     // ── Animation metrics ────────────────────────────────────────────
     if let Some(anim_s) = gsettings_get("org.gnome.desktop.interface", "enable-animations") {
@@ -768,12 +770,324 @@ fn kde_color_sources() -> Vec<KdeIni> {
 /// and the controls are on the RIGHT — so "is the left half non-empty" and
 /// "does the string start with ':'" both answer LEFT for a desktop whose
 /// buttons are plainly on the right.
+/// Which store this desktop keeps its appearance settings in.
+///
+/// Detection used to know the desktop and then ask a DIFFERENT desktop's
+/// store anyway: on Linux Mint XFCE the dump read
+/// `platform Linux(Other("XFCE"))` and `settings_source gsettings:gnome` on
+/// the next line, because the GNOME schemas were installed and still held
+/// what a KDE session had written months earlier. The result was Breeze DARK
+/// with Noto Sans and breeze-dark icons on a desktop themed Mint-Y-Aqua LIGHT
+/// with Ubuntu 10. A desktop's own store is the only authority on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LinuxSettingsSource {
+    /// KDE Plasma: `kdeglobals` + the `*.colors` scheme files.
+    KdeConfig,
+    /// GNOME and the forks that kept its KEYS and renamed its SCHEMAS -
+    /// Cinnamon, MATE, Unity, Budgie. See [`schema_family`].
+    Gsettings,
+    /// XFCE: xfconf, which is what `xfsettingsd` publishes to the session as
+    /// XSETTINGS and therefore what every GTK app on that desktop obeys.
+    Xfconf,
+    /// LXQt: `~/.config/lxqt/lxqt.conf`.
+    LxqtConfig,
+    /// Tiling and riced sessions (Hyprland, Sway, i3, river, ...). They have
+    /// no settings daemon of their own; the chain ends at the GTK config
+    /// file and the environment, which is exactly what their users set.
+    Riced,
+}
+
+/// The desktops whose settings live in GNOME's schemas under another name.
+const GSETTINGS_DESKTOPS: &[&str] = &[
+    "cinnamon", "mate", "unity", "budgie", "gnome-classic", "gnome-flashback", "pantheon",
+];
+
+/// Riced/tiling sessions - no settings daemon, so the GTK file and the
+/// environment are the whole story.
+const RICED_DESKTOPS: &[&str] = &[
+    "hyprland", "sway", "i3", "river", "wayfire", "awesome", "bspwm", "dwm", "qtile", "xmonad",
+    "openbox", "fluxbox", "icewm", "herbstluftwm", "spectrwm", "niri", "labwc", "none+i3",
+];
+
+/// Resolve the store from the DESKTOP, not from whichever store happens to
+/// answer first.
+pub(crate) fn linux_settings_source(de: &DesktopEnvironment) -> LinuxSettingsSource {
+    match de {
+        DesktopEnvironment::Kde => LinuxSettingsSource::KdeConfig,
+        DesktopEnvironment::Gnome => LinuxSettingsSource::Gsettings,
+        DesktopEnvironment::Other(name) => {
+            let n = name.as_str().to_ascii_lowercase();
+            if n.contains("xfce") {
+                LinuxSettingsSource::Xfconf
+            } else if n.contains("lxqt") {
+                LinuxSettingsSource::LxqtConfig
+            } else if GSETTINGS_DESKTOPS.iter().any(|d| n.contains(d)) {
+                LinuxSettingsSource::Gsettings
+            } else if RICED_DESKTOPS.iter().any(|d| n.contains(d)) {
+                LinuxSettingsSource::Riced
+            } else {
+                // An unknown session still gets a native answer: the riced
+                // chain ends at the GTK config file, which is where a user
+                // on an unknown WM sets the theme.
+                LinuxSettingsSource::Riced
+            }
+        }
+    }
+}
+
+/// Is this GTK/Qt theme name a dark theme?
+///
+/// The rule every toolkit uses: the name says so. `Mint-Y-Aqua` is light,
+/// `Mint-Y-Dark-Aqua` is dark; matching on anything looser (an "a" in
+/// "Adwaita") would flip half the light themes.
+pub(crate) fn theme_name_is_dark(name: &str) -> bool {
+    name.to_ascii_lowercase().contains("dark")
+}
+
+/// Read one xfconf property. `xfconf-query` prints the bare value and exits
+/// non-zero when the property does not exist.
+fn xfconf_get(channel: &str, prop: &str) -> Option<String> {
+    use std::process::{Command, Stdio};
+
+    let out = Command::new("xfconf-query")
+        .args(["-c", channel, "-p", prop])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if v.is_empty() || v.contains("does not exist") {
+        None
+    } else {
+        Some(v)
+    }
+}
+
+/// xfwm4 writes its button layout as single LETTERS split by `|`, the title
+/// filler: `O`=window menu, `H`=hide (minimize), `M`=maximize, `C`=close,
+/// `S`=shade, `T`=stick. The stock layout is `O|HMC` - menu on the left,
+/// controls on the right. [`titlebar_side_from_layout`] looks for the WORD
+/// "close" (GNOME's `icon:minimize,maximize,close`) and so reports every
+/// xfwm4 layout as the default side, whatever the user set.
+pub(crate) fn titlebar_from_xfwm_layout(layout: &str) -> (TitlebarButtonSide, TitlebarButtons) {
+    let (left, _right) = layout.split_once('|').unwrap_or((layout, ""));
+    let side = if left.contains('C') {
+        TitlebarButtonSide::Left
+    } else {
+        TitlebarButtonSide::Right
+    };
+    let buttons = TitlebarButtons {
+        has_close: layout.contains('C'),
+        has_minimize: layout.contains('H'),
+        has_maximize: layout.contains('M'),
+        ..TitlebarButtons::default()
+    };
+    (side, buttons)
+}
+
+/// The GTK config file every desktop and every bare WM shares.
+///
+/// This is the universal floor under the DE-specific stores: a Hyprland or
+/// Sway user with no settings daemon still has `gtk-theme-name` here, and so
+/// does a session whose daemon we cannot reach. Parsed once.
+fn gtk_settings_ini() -> &'static alloc::collections::BTreeMap<String, String> {
+    static CACHE: std::sync::OnceLock<alloc::collections::BTreeMap<String, String>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        let mut map = alloc::collections::BTreeMap::new();
+        let home = std::env::var("HOME").unwrap_or_default();
+        let candidates = [
+            std::env::var("GTK_CONFIG_HOME").unwrap_or_default(),
+            alloc::format!("{home}/.config/gtk-4.0/settings.ini"),
+            alloc::format!("{home}/.config/gtk-3.0/settings.ini"),
+        ];
+        for path in candidates.iter().filter(|p| !p.is_empty()) {
+            let Ok(text) = std::fs::read_to_string(path) else {
+                continue;
+            };
+            for line in text.lines() {
+                let line = line.trim();
+                if line.starts_with('[') || line.starts_with('#') {
+                    continue;
+                }
+                if let Some((k, v)) = line.split_once('=') {
+                    // First file wins: gtk-4.0 is more specific than gtk-3.0.
+                    map.entry(k.trim().to_string())
+                        .or_insert_with(|| v.trim().to_string());
+                }
+            }
+        }
+        map
+    })
+}
+
+fn gtk_ini_get(key: &str) -> Option<String> {
+    gtk_settings_ini().get(key).cloned()
+}
+
 fn titlebar_side_from_layout(layout: &str) -> TitlebarButtonSide {
     let (left, _right) = layout.split_once(':').unwrap_or((layout, ""));
     if left.contains("close") {
         TitlebarButtonSide::Left
     } else {
         TitlebarButtonSide::Right
+    }
+}
+
+/// XFCE's own store.
+///
+/// `xfsettingsd` publishes these to the session as XSETTINGS, so they are
+/// what every GTK app on an XFCE desktop actually renders with - and none of
+/// them are in gsettings. Returns `Err` when xfconf does not answer at all
+/// (no `xfconf-query`, no daemon), so the caller can fall through.
+fn discover_xfce_style() -> Result<SystemStyle, ()> {
+    // The theme name is the probe: if xfconf cannot answer this, it is not
+    // answering anything and a fallback is honest.
+    let theme_name = xfconf_get("xsettings", "/Net/ThemeName").ok_or(())?;
+
+    // WHICH theme decides light vs dark: the WINDOW MANAGER's, i.e. the one
+    // drawing the titlebar (USER RULING, 2026-09-04 - "azwriter should use
+    // what the titlebar uses"). These disagree in practice: this Mint 22.2
+    // XFCE session runs xfwm4 `Mint-Y-Aqua` (light titlebars) while
+    // `gtk-application-prefer-dark-theme=true` and gsettings `color-scheme`
+    // still say prefer-dark, left over from a KDE session. An app that
+    // followed the GTK flag would paint a dark window under a light titlebar.
+    let polarity_theme =
+        xfconf_get("xfwm4", "/general/theme").unwrap_or_else(|| theme_name.clone());
+
+    let mut style = if theme_name_is_dark(&polarity_theme) {
+        defaults::gnome_adwaita_dark()
+    } else {
+        defaults::gnome_adwaita_light()
+    };
+
+    if let Some(font) = xfconf_get("xsettings", "/Gtk/FontName") {
+        if let Some((name, size)) = parse_font_name_and_size(&font) {
+            style.fonts.ui_font = OptionString::Some(name.into());
+            style.fonts.ui_font_size = OptionF32::Some(size);
+        } else {
+            style.fonts.ui_font = OptionString::Some(font.into());
+        }
+    }
+    if let Some(mono) = xfconf_get("xsettings", "/Gtk/MonospaceFontName") {
+        if let Some((name, size)) = parse_font_name_and_size(&mono) {
+            style.fonts.monospace_font = OptionString::Some(name.into());
+            style.fonts.monospace_font_size = OptionF32::Some(size);
+        } else {
+            style.fonts.monospace_font = OptionString::Some(mono.into());
+        }
+    }
+    // The titlebar font is xfwm4's, not xsettings'.
+    if let Some(title) = xfconf_get("xfwm4", "/general/title_font") {
+        if let Some((name, size)) = parse_font_name_and_size(&title) {
+            style.fonts.title_font = OptionString::Some(name.into());
+            style.fonts.title_font_size = OptionF32::Some(size);
+        } else {
+            style.fonts.title_font = OptionString::Some(title.into());
+        }
+    }
+
+    Ok(style)
+}
+
+/// The XFCE half of [`discover_linux_extras`] - icon theme, cursor and the
+/// titlebar buttons, all from xfconf.
+///
+/// Returns `false` when xfconf answered nothing, so the caller can fall back.
+fn xfce_extras(style: &mut SystemStyle) -> bool {
+    let mut answered = false;
+
+    if let Some(icon) = xfconf_get("xsettings", "/Net/IconThemeName") {
+        style.linux.icon_theme = OptionString::Some(icon.into());
+        answered = true;
+    }
+    if let Some(theme) = xfconf_get("xsettings", "/Net/ThemeName") {
+        style.linux.gtk_theme = OptionString::Some(theme.into());
+        answered = true;
+    }
+    if let Some(cursor) = xfconf_get("xsettings", "/Gtk/CursorThemeName") {
+        style.linux.cursor_theme = OptionString::Some(cursor.into());
+        answered = true;
+    }
+    if let Some(size) = xfconf_get("xsettings", "/Gtk/CursorThemeSize") {
+        if let Ok(sz) = size.parse::<u32>() {
+            if sz > 0 {
+                style.linux.cursor_size = sz;
+            }
+        }
+    }
+    if let Some(layout) = xfconf_get("xfwm4", "/general/button_layout") {
+        let (side, buttons) = titlebar_from_xfwm_layout(&layout);
+        style.metrics.titlebar.button_side = side;
+        style.metrics.titlebar.buttons = buttons;
+        style.linux.titlebar_button_layout = OptionString::Some(layout.into());
+        answered = true;
+    }
+
+    answered
+}
+
+/// `XCURSOR_THEME` / `XCURSOR_SIZE` - honoured by every Linux WM, and the
+/// only cursor answer a bare tiling session gives.
+fn apply_env_cursor_fallbacks(style: &mut SystemStyle) {
+    if style.linux.cursor_theme.is_none() {
+        if let Ok(t) = std::env::var("XCURSOR_THEME") {
+            style.linux.cursor_theme = OptionString::Some(t.into());
+        }
+    }
+    if style.linux.cursor_size == 0 {
+        if let Ok(s) = std::env::var("XCURSOR_SIZE") {
+            if let Ok(sz) = s.parse::<u32>() {
+                style.linux.cursor_size = sz;
+            }
+        }
+    }
+}
+
+/// The universal floor: whatever the GTK config file says, for the fields
+/// nothing above it answered. This is what makes a bare WM - Hyprland, Sway,
+/// i3, or an unknown session - load natively instead of falling back to a
+/// hardcoded Adwaita.
+fn gtk_ini_extras(style: &mut SystemStyle) {
+    if style.linux.icon_theme.is_none() {
+        if let Some(v) = gtk_ini_get("gtk-icon-theme-name") {
+            style.linux.icon_theme = OptionString::Some(v.into());
+        }
+    }
+    if style.linux.gtk_theme.is_none() {
+        if let Some(v) = gtk_ini_get("gtk-theme-name") {
+            style.linux.gtk_theme = OptionString::Some(v.into());
+        }
+    }
+    if style.linux.cursor_theme.is_none() {
+        if let Some(v) = gtk_ini_get("gtk-cursor-theme-name") {
+            style.linux.cursor_theme = OptionString::Some(v.into());
+        }
+    }
+    if style.linux.cursor_size == 0 {
+        if let Some(sz) = gtk_ini_get("gtk-cursor-theme-size").and_then(|v| v.parse::<u32>().ok()) {
+            style.linux.cursor_size = sz;
+        }
+    }
+    if style.fonts.ui_font.is_none() {
+        if let Some(font) = gtk_ini_get("gtk-font-name") {
+            if let Some((name, size)) = parse_font_name_and_size(&font) {
+                style.fonts.ui_font = OptionString::Some(name.into());
+                style.fonts.ui_font_size = OptionF32::Some(size);
+            }
+        }
+    }
+    if style.linux.titlebar_button_layout.is_none() {
+        if let Some(layout) = gtk_ini_get("gtk-decoration-layout") {
+            style.metrics.titlebar.button_side = titlebar_side_from_layout(&layout);
+            style.metrics.titlebar.buttons.has_close = layout.contains("close");
+            style.metrics.titlebar.buttons.has_minimize = layout.contains("minimize");
+            style.metrics.titlebar.buttons.has_maximize = layout.contains("maximize");
+            style.linux.titlebar_button_layout = OptionString::Some(layout.into());
+        }
     }
 }
 
@@ -1736,41 +2050,25 @@ pub(crate) fn discover() -> SystemStyle {
     // ── 1. Try XDG Desktop Portal (D-Bus) ───────────────────────────
     let portal_result = query_xdg_portal();
 
-    if let Some((color_scheme, accent_rgb)) = portal_result {
+    if let Some((color_scheme, _)) = portal_result {
         crate::plog_debug!(
             "system style: xdg-desktop-portal color-scheme={}",
             color_scheme
         );
-        let mut style = match color_scheme {
-            1 => defaults::gnome_adwaita_dark(),  // prefer-dark
-            2 => defaults::gnome_adwaita_light(), // prefer-light
-            _ => defaults::gnome_adwaita_light(), // no preference
-        };
-
-        if let Some((r, g, b)) = accent_rgb {
-            style.colors.accent = OptionColorU::Some(ColorU::new_rgb(
-                (r.clamp(0.0, 1.0) * 255.0) as u8,
-                (g.clamp(0.0, 1.0) * 255.0) as u8,
-                (b.clamp(0.0, 1.0) * 255.0) as u8,
-            ));
-        }
-
-        // Even with portal success, fill in extras from gsettings
-        discover_linux_extras(&mut style);
-        style.platform = Platform::Linux(azul_css::system::detect_linux_desktop_env());
-        style.language = detect_language_linux();
-        style.os_version = detect_linux_version();
-        style.prefers_reduced_motion = detect_gnome_reduced_motion();
-        style.prefers_high_contrast = detect_gnome_high_contrast();
-        style.app_specific_stylesheet = load_app_specific_stylesheet().map(Box::new);
-        return style;
+    } else {
+        // Portal probe unavailable or rejected (e.g. the raw-D-Bus handshake) —
+        // non-fatal. Visible only with AZ_LOG on.
+        crate::plog_debug!(
+            "system style: xdg-desktop-portal unavailable; falling back to CLI/defaults"
+        );
     }
 
-    // Portal probe unavailable or rejected (e.g. the raw-D-Bus handshake) —
-    // non-fatal; fall back to CLI/defaults. Visible only with AZ_LOG on.
-    crate::plog_debug!(
-        "system style: xdg-desktop-portal unavailable; falling back to CLI/defaults"
-    );
+    // NOTE: the portal used to RETURN here with a stock Adwaita palette, so on
+    // any machine with an xdg-desktop-portal installed no desktop-specific
+    // discovery ever ran and every font, theme and colour was a GNOME default
+    // nobody had chosen. The portal answers exactly two questions - the
+    // light/dark preference and the accent - so it now refines the desktop's
+    // own answer (below) instead of replacing it.
 
     // ── 2. CLI-based discovery ──────────────────────────────────────
     // `AZ_RICING=force` reorders the chain so riced-desktop sources
@@ -1782,27 +2080,76 @@ pub(crate) fn discover() -> SystemStyle {
         azul_css::system::RicingMode::Force,
     );
 
+    // Did the desktop's own store answer, or are we on built-in defaults?
+    // The portal is only allowed to speak for the second case.
+    let mut desktop_answered = false;
     let mut style = if force_riced {
-        discover_riced_style()
+        let found = discover_riced_style()
             .or_else(|_| discover_kde_style())
-            .or_else(|_| discover_gnome_style())
-            .unwrap_or_else(|_| defaults::gnome_adwaita_light())
+            .or_else(|_| discover_gnome_style());
+        desktop_answered = found.is_ok();
+        found.unwrap_or_else(|_| defaults::gnome_adwaita_light())
     } else {
         // Normal priority: KDE > GNOME > riced > defaults
         let desktop_env = azul_css::system::detect_linux_desktop_env();
-        match &desktop_env {
-            DesktopEnvironment::Kde => discover_kde_style()
+        // The desktop's OWN store leads. Everything after it is a fallback
+        // for a desktop that did not answer - never a different desktop's
+        // settings winning over one that did. A machine that once ran KDE
+        // keeps `kdeglobals`, and one with GNOME installed keeps its
+        // schemas, both fully populated and both wrong for the session the
+        // user is actually in.
+        let found = match linux_settings_source(&desktop_env) {
+            LinuxSettingsSource::KdeConfig => {
+                discover_kde_style().or_else(|_| discover_gnome_style())
+            }
+            LinuxSettingsSource::Gsettings => {
+                discover_gnome_style().or_else(|_| discover_kde_style())
+            }
+            LinuxSettingsSource::Xfconf => discover_xfce_style()
                 .or_else(|_| discover_gnome_style())
-                .unwrap_or_else(|_| defaults::gnome_adwaita_light()),
-            DesktopEnvironment::Gnome => discover_gnome_style()
-                .or_else(|_| discover_kde_style())
-                .unwrap_or_else(|_| defaults::gnome_adwaita_light()),
-            DesktopEnvironment::Other(_) => discover_riced_style()
+                .or_else(|_| discover_riced_style()),
+            LinuxSettingsSource::LxqtConfig | LinuxSettingsSource::Riced => discover_riced_style()
                 .or_else(|_| discover_gnome_style())
-                .or_else(|_| discover_kde_style())
-                .unwrap_or_else(|_| defaults::gnome_adwaita_light()),
-        }
+                .or_else(|_| discover_kde_style()),
+        };
+        desktop_answered = found.is_ok();
+        found.unwrap_or_else(|_| defaults::gnome_adwaita_light())
     };
+
+    // The portal refines only what the desktop did NOT answer for itself.
+    // Every desktop store above reads its own light/dark switch, and on XFCE
+    // the titlebar theme is the ruling one - a portal that reports
+    // "prefer-dark" from a stale GTK flag must not repaint a light session.
+    if let Some((color_scheme, accent_rgb)) = portal_result.filter(|_| !desktop_answered) {
+        match color_scheme {
+            1 if style.theme != Theme::Dark => {
+                let fonts = style.fonts.clone();
+                let linux = style.linux.clone();
+                let metrics = style.metrics.clone();
+                style = defaults::gnome_adwaita_dark();
+                style.fonts = fonts;
+                style.linux = linux;
+                style.metrics = metrics;
+            }
+            2 if style.theme != Theme::Light => {
+                let fonts = style.fonts.clone();
+                let linux = style.linux.clone();
+                let metrics = style.metrics.clone();
+                style = defaults::gnome_adwaita_light();
+                style.fonts = fonts;
+                style.linux = linux;
+                style.metrics = metrics;
+            }
+            _ => {}
+        }
+        if let Some((r, g, b)) = accent_rgb {
+            style.colors.accent = OptionColorU::Some(ColorU::new_rgb(
+                (r.clamp(0.0, 1.0) * 255.0) as u8,
+                (g.clamp(0.0, 1.0) * 255.0) as u8,
+                (b.clamp(0.0, 1.0) * 255.0) as u8,
+            ));
+        }
+    }
 
     // ── 3. Fill in extras and metadata ──────────────────────────────
     discover_linux_extras(&mut style);
@@ -2010,15 +2357,29 @@ pub fn dump_discovered_style() -> String {
     // Which desktop-settings family actually answered. A Cinnamon/MATE
     // session answers on its OWN schemas; probing with a key that exists in
     // only one of them is what distinguishes "detected" from "fell back".
-    let settings_source = if gsettings_get_raw("org.gnome.desktop.interface", "font-name").is_some()
-    {
-        "gsettings:gnome"
-    } else if gsettings_get_raw("org.cinnamon.desktop.interface", "font-name").is_some() {
-        "gsettings:cinnamon"
-    } else if gsettings_get_raw("org.mate.interface", "font-name").is_some() {
-        "gsettings:mate"
-    } else {
-        "none"
+    let resolved = linux_settings_source(&azul_css::system::detect_linux_desktop_env());
+    let settings_source = match resolved {
+        LinuxSettingsSource::KdeConfig => "kdeglobals".to_string(),
+        LinuxSettingsSource::Xfconf => {
+            if xfconf_get("xsettings", "/Net/ThemeName").is_some() {
+                "xfconf".to_string()
+            } else {
+                "xfconf (no answer -> fallback)".to_string()
+            }
+        }
+        LinuxSettingsSource::LxqtConfig => "lxqt".to_string(),
+        LinuxSettingsSource::Riced => "riced/gtk-ini".to_string(),
+        LinuxSettingsSource::Gsettings => {
+            if gsettings_get_raw("org.gnome.desktop.interface", "font-name").is_some() {
+                "gsettings:gnome".to_string()
+            } else if gsettings_get_raw("org.cinnamon.desktop.interface", "font-name").is_some() {
+                "gsettings:cinnamon".to_string()
+            } else if gsettings_get_raw("org.mate.interface", "font-name").is_some() {
+                "gsettings:mate".to_string()
+            } else {
+                "none".to_string()
+            }
+        }
     };
     let _ = writeln!(o, "platform            {:?}", s.platform);
     let _ = writeln!(o, "settings_source     {settings_source}");
@@ -2294,5 +2655,78 @@ mod kde_ini_tests {
         let wm = schema_family("org.gnome.desktop.wm.preferences");
         assert!(wm.contains(&"org.cinnamon.desktop.wm.preferences".to_string()));
         assert!(wm.contains(&"org.mate.Marco.general".to_string()));
+    }
+
+    // ── XFCE / xfconf ────────────────────────────────────────────────
+    //
+    // Observed on Linux Mint 22.2 XFCE (Xorg 21.1.11), 2026-09-04: the dump
+    // said `platform Linux(Other("XFCE"))` and, on the very next line,
+    // `settings_source gsettings:gnome`. Detection KNEW the desktop and then
+    // read a different desktop's settings — the machine still had KDE's
+    // schemas populated, so azul rendered Breeze DARK with Noto Sans and
+    // breeze-dark icons on a desktop themed Mint-Y-Aqua LIGHT with Ubuntu 10.
+    // XFCE keeps none of that in gsettings; xfconf is its store.
+
+    #[test]
+    fn a_theme_name_says_whether_it_is_dark() {
+        // The real theme on the test machine - light, and NOT dark just
+        // because a fuzzy match found some substring.
+        assert!(!theme_name_is_dark("Mint-Y-Aqua"));
+        assert!(!theme_name_is_dark("Breeze"));
+        assert!(!theme_name_is_dark("Adwaita"));
+        // The dark spellings XFCE themes actually ship.
+        assert!(theme_name_is_dark("Mint-Y-Dark-Aqua"));
+        assert!(theme_name_is_dark("Adwaita-dark"));
+        assert!(theme_name_is_dark("Breeze-Dark"));
+    }
+
+    #[test]
+    fn the_xfwm4_button_layout_is_not_the_gnome_one() {
+        // xfwm4 writes single LETTERS split by `|` (the title filler):
+        // O=menu, H=hide/minimize, M=maximize, C=close, S=shade, T=stick.
+        // `titlebar_side_from_layout` looks for the WORD "close" and would
+        // report every xfwm4 layout as buttons-on-the-right by default.
+        let (side, buttons) = titlebar_from_xfwm_layout("O|HMC");
+        assert_eq!(side, TitlebarButtonSide::Right);
+        assert!(buttons.has_close && buttons.has_minimize && buttons.has_maximize);
+
+        // Buttons moved to the left: close is left of the filler.
+        let (side, _) = titlebar_from_xfwm_layout("CMH|O");
+        assert_eq!(side, TitlebarButtonSide::Left);
+
+        // A layout that drops maximize must not draw one.
+        let (_, buttons) = titlebar_from_xfwm_layout("O|HC");
+        assert!(buttons.has_close && buttons.has_minimize && !buttons.has_maximize);
+    }
+
+    #[test]
+    fn xfce_reads_xfconf_and_not_the_gnome_schemas() {
+        // The whole defect in one assertion: on an XFCE desktop the settings
+        // source must be xfconf. It is what xfsettingsd publishes and what
+        // every GTK app on that session actually obeys; the GNOME schemas may
+        // be present and populated by a DIFFERENT desktop the user once ran.
+        assert_eq!(
+            linux_settings_source(&DesktopEnvironment::Other("XFCE".into())),
+            LinuxSettingsSource::Xfconf
+        );
+        assert_eq!(
+            linux_settings_source(&DesktopEnvironment::Other("xfce".into())),
+            LinuxSettingsSource::Xfconf,
+            "the desktop name is not case-normalised anywhere upstream"
+        );
+        // The desktops that DO answer on gsettings keep answering there.
+        assert_eq!(
+            linux_settings_source(&DesktopEnvironment::Gnome),
+            LinuxSettingsSource::Gsettings
+        );
+        assert_eq!(
+            linux_settings_source(&DesktopEnvironment::Other("Cinnamon".into())),
+            LinuxSettingsSource::Gsettings,
+            "Cinnamon is a GNOME fork - schema_family already maps its names"
+        );
+        assert_eq!(
+            linux_settings_source(&DesktopEnvironment::Kde),
+            LinuxSettingsSource::KdeConfig
+        );
     }
 }
