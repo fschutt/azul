@@ -558,8 +558,22 @@ impl X11Window {
         // to the WM via _NET_WM_MOVERESIZE (root coords come straight from
         // the button event; the implicit grab must be released first or the
         // WM cannot take over the pointer).
+        // ...but NOT while maximized or fullscreen. A maximized window has no
+        // resizable edge, so the request is a no-op at the WM - while the
+        // `return` below still swallows the press before it can reach
+        // `record_input_sample`, killing the DragStart AND the DoubleClick
+        // the titlebar needs. Maximized, the band's top 8 px sit at screen
+        // y = 0, which is exactly where a user aims for the titlebar: every
+        // drag and every double-click on AzWriter (it starts maximized and
+        // undecorated) was eaten here.
+        let frame_is_resizable = !matches!(
+            self.common.current_window_state().flags.frame,
+            azul_core::window::WindowFrame::Maximized
+                | azul_core::window::WindowFrame::Fullscreen
+        );
         if is_down
             && button == MouseButton::Left
+            && frame_is_resizable
             && self.common.current_window_state().flags.decorations
                 == azul_core::window::WindowDecorations::None
         {

@@ -7692,6 +7692,17 @@ impl PlatformWindow for X11Window {
     fn sync_window_state(&mut self) {
         X11Window::sync_window_state(self);
     }
+
+    /// Hand the drag to the window manager via `_NET_WM_MOVERESIZE`.
+    ///
+    /// The implementation is the inherent one below; this forwarder is what
+    /// makes it REACHABLE. Without it the call in `dispatch_events_propagated`
+    /// bound to the trait's old no-op default and dragging an AzWriter window
+    /// by its titlebar did nothing, while the real code sat here looking
+    /// finished. Same shape as `sync_window_state` above.
+    fn handle_begin_interactive_move(&mut self) {
+        X11Window::handle_begin_interactive_move(self);
+    }
 }
 
 impl X11Window {
