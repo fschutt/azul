@@ -19693,49 +19693,6 @@ impl LayoutWindow {
                 content.len()
             )
         });
-        let mut acc = ClipboardExtract::default();
-        for r in &ranges {
-            let sr = r.start.cluster_id.source_run as usize;
-            let er = r.end.cluster_id.source_run as usize;
-            if sr == er {
-                if let Some(InlineContent::Text(run)) = content.get(sr) {
-                    let a = cursor_byte_offset_in_run(&run.text, &r.start);
-                    let b = cursor_byte_offset_in_run(&run.text, &r.end);
-                    let (lo, hi) = (a.min(b), a.max(b));
-                    if hi <= run.text.len() && lo < hi {
-                        acc.push(&run.text[lo..hi], &run.style);
-                    }
-                }
-            } else {
-                // Multi-run: walk runs in document order, taking the tail of the
-                // first run, all middle runs, and the head of the last. This is
-                // the branch that carries real formatting — one run per
-                // differently-styled span.
-                let (first_idx, first_cur, last_idx, last_cur) = if sr <= er {
-                    (sr, r.start, er, r.end)
-                } else {
-                    (er, r.end, sr, r.start)
-                };
-                for ri in first_idx..=last_idx {
-                    if let Some(InlineContent::Text(run)) = content.get(ri) {
-                        if ri == first_idx {
-                            let off = cursor_byte_offset_in_run(&run.text, &first_cur)
-                                .min(run.text.len());
-                            acc.push(&run.text[off..], &run.style);
-                        } else if ri == last_idx {
-                            let off =
-                                cursor_byte_offset_in_run(&run.text, &last_cur).min(run.text.len());
-                            acc.push(&run.text[..off], &run.style);
-                        } else {
-                            acc.push(&run.text, &run.style);
-                        }
-                    }
-                }
-            }
-        }
-
-        let out = acc.finish();
-            ));
         let out = Self::extract_clipboard_ranges(&content, &ranges);
         if out.is_none() {
             copy_trace(|| {

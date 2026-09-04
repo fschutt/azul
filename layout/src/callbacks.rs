@@ -1996,6 +1996,8 @@ impl CallbackInfo {
         };
         self.trigger_virtual_view_rerender(node_id.dom, node);
         true
+    }
+
     /// Declare the current scroll gesture finished, so `ScrollEnd` fires.
     ///
     /// Called by the scroll-physics timer when it runs dry. Routed as a
