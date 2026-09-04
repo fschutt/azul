@@ -917,7 +917,7 @@ impl RemillTranspiler {
     /// that lands + the triple/datalayout normalization is fixed, this
     /// can flip back to default. Until then subprocess is the default.
     fn use_native_remill(&self) -> bool {
-        cfg!(feature = "web-transpiler-static") && std::env::var_os("AZ_NATIVE_REMILL").is_some()
+        cfg!(feature = "web-transpiler-static") && super::lift_env::lift_env().native_remill
     }
 
     /// Return the full toolchain or a structured TranspileError naming
@@ -1072,7 +1072,7 @@ impl RemillTranspiler {
         // so the pre-lifted Docker base image's cache is reused across CPUs and
         // re-lifts when the source ref changes. Dirty/dev builds fall back to
         // byte-keying (catches every recompile). `bytes` here is post-rewrite.
-        let cache_path = if !use_native && std::env::var_os("AZ_LIFT_CACHE").is_some() {
+        let cache_path = if !use_native && super::lift_env::lift_env().lift_cache {
             Some(lift_cache_path(&bytes, lift_addr, fn_name))
         } else {
             None
@@ -1585,7 +1585,7 @@ impl RemillTranspiler {
             // the metadata makes opt conservatively assume reg/mem may alias;
             // correctness over the lost forwarding. (strip_noalias_from_sub_args
             // only handled `noalias` on sub_ ARGS, not these per-access scopes.)
-            if std::env::var_os("AZ_KEEP_ALIAS_SCOPE").is_none() {
+            if !super::lift_env::lift_env().keep_alias_scope {
                 if let Ok(ir) = std::fs::read_to_string(&linked_ir_path) {
                     let (stripped, n) = strip_alias_scope_metadata(&ir);
                     if n > 0 {
@@ -1629,7 +1629,7 @@ impl RemillTranspiler {
             // `add sp,#N` and leaks the guest SP into the caller's frame —
             // which cumulatively drifts create_from's SP-relative cache base
             // toward NULL (the M12 node_count-corruption / 768 MiB OOB).
-            if std::env::var_os("AZ_NO_FIX_SP").is_none() {
+            if !super::lift_env::lift_env().no_fix_sp {
                 if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
                     let (fixed, n) = enforce_sp_preservation(&opt_ir);
                     if n > 0 {
@@ -1642,7 +1642,7 @@ impl RemillTranspiler {
             // `store volatile i64` guest writes; direct ring stores work here like AZ_SP_TRACE — no
             // memory-model break / LinkError, unlike instrumenting patched.ll's pre-opt __remill calls).
             // Logs (ptr,val) to the 0xD0000 ring (counter 0xCFFF0) → catches the hashbrown ctrl write-back.
-            if let Ok(target) = std::env::var("AZ_WRITE_TRACE") {
+            if let Ok(target) = super::lift_env::lift_env().write_trace.clone().ok_or(()) {
                 let matched = target == "ALL"
                     || target
                         .split(',')
@@ -1661,7 +1661,7 @@ impl RemillTranspiler {
             // guest read (the hashbrown ctrl-group probe load) to the 0xE0000 ring (counter 0xDFFF0). The find
             // spins on it → ring tail = the addr the find reads ctrl from. Compare vs the AZ_WRITE_TRACE ctrl
             // write-back addr/value to prove the find reads a STALE/wrong self.table.ctrl (the deep bug).
-            if let Ok(target) = std::env::var("AZ_READ_TRACE") {
+            if let Ok(target) = super::lift_env::lift_env().read_trace.clone().ok_or(()) {
                 let matched = target == "ALL"
                     || target
                         .split(',')
@@ -1681,7 +1681,7 @@ impl RemillTranspiler {
             // Captures the runtime VALUES the lift assigns to the guest GPRs in program order → compare the
             // resize's &self.table base (X19) vs the find's (X26) + their input chain (X23, X20-X28) against a
             // native lldb dump at the same PCs → the first divergent reg brackets the mis-lifted instruction.
-            if let Ok(target) = std::env::var("AZ_REG_TRACE") {
+            if let Ok(target) = super::lift_env::lift_env().reg_trace.clone().ok_or(()) {
                 let matched = target == "ALL"
                     || target
                         .split(',')
@@ -1712,7 +1712,7 @@ impl RemillTranspiler {
             // empty self-loops become traps, log the value `v` that routes INTO
             // each (the `icmp eq i64 %v, 0` operand) to 0x40078, so a post-trap
             // peek reveals WHAT non-zero value opt folded the loop-exit on.
-            if let Ok(target) = std::env::var("AZ_LOG_SELFLOOP_VAL") {
+            if let Ok(target) = super::lift_env::lift_env().log_selfloop_val.clone().ok_or(()) {
                 let matched = target == "ALL"
                     || target
                         .split(',')
@@ -1730,7 +1730,7 @@ impl RemillTranspiler {
                     }
                 }
             }
-            if std::env::var_os("AZ_NO_TRAP_SELFLOOP").is_none() {
+            if !super::lift_env::lift_env().no_trap_selfloop {
                 if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
                     let (fixed, n) = rewrite_empty_self_loops(&opt_ir);
                     if n > 0 {
@@ -1743,7 +1743,7 @@ impl RemillTranspiler {
             // comma-separated substring matching this dep's stem, instrument
             // the post-opt IR in place (then llc compiles the instrumented
             // version). See `inject_store_logging`.
-            if let Ok(target) = std::env::var("AZ_LOG_STORES") {
+            if let Ok(target) = super::lift_env::lift_env().log_stores.clone().ok_or(()) {
                 let is_wrapper =
                     export_as.starts_with("AzStartup_") || export_as.contains("AzBoundary_");
                 let matched = if target == "ALL" {
@@ -1807,7 +1807,7 @@ impl RemillTranspiler {
             // that traps after AZ_FUEL_LIMIT block-executions. Run with
             // AZ_WASM_DEBUG=1 so the trap's named stack pinpoints the
             // looping fn. See `inject_fuel`.
-            if let Ok(target) = std::env::var("AZ_FUEL") {
+            if let Ok(target) = super::lift_env::lift_env().fuel.clone().ok_or(()) {
                 let is_wrapper =
                     export_as.starts_with("AzStartup_") || export_as.contains("AzBoundary_");
                 let matched = (target == "ALL" && !is_wrapper)
@@ -2044,7 +2044,7 @@ impl RemillTranspiler {
         }
         // [g129 diag] AZ_WASM_LD_MLLVM=<comma-sep flags> forwards `-mllvm <flag>` to the LTO
         // backend (e.g. "--enable-dse-partial-store-merging=false") to isolate LTO opt miscompiles.
-        if let Ok(mllvm) = std::env::var("AZ_WASM_LD_MLLVM") {
+        if let Ok(mllvm) = super::lift_env::lift_env().wasm_ld_mllvm.clone().ok_or(()) {
             for f in mllvm.split(',').filter(|s| !s.is_empty()) {
                 args.push("-mllvm".to_string());
                 args.push(f.to_string());
@@ -2962,7 +2962,7 @@ impl RemillTranspiler {
         // web-transpiler-static; the dispatcher .o is plain wasm-linkable
         // and `visited` is populated on the sequential path, so it belongs
         // here too.) AZ_NO_INDIRECT_DISPATCH=1 disables.
-        if std::env::var_os("AZ_NO_INDIRECT_DISPATCH").is_none() {
+        if !super::lift_env::lift_env().no_indirect_dispatch {
             let cs = self.dispatcher_csynths(visited.iter().copied());
             if let Some(o) = self.emit_indirect_dispatcher_obj(&cs) {
                 object_paths.push(o);
@@ -3705,8 +3705,8 @@ impl RemillTranspiler {
             //   AZ_REMILL_MERGED_COMPILE=1 forces ON regardless of size.
             //   AZ_REMILL_DISABLE_AUTO_MERGE=1 forces OFF (regression-test path).
             const MERGED_AUTO_THRESHOLD: usize = 30;
-            let env_force_on = std::env::var_os("AZ_REMILL_MERGED_COMPILE").is_some();
-            let env_force_off = std::env::var_os("AZ_REMILL_DISABLE_AUTO_MERGE").is_some();
+            let env_force_on = super::lift_env::lift_env().merged_compile;
+            let env_force_off = super::lift_env::lift_env().disable_auto_merge;
             let auto_on = targets.len() <= MERGED_AUTO_THRESHOLD;
             let merged_mode =
                 self.use_native_remill() && !env_force_off && (env_force_on || auto_on);
@@ -3844,12 +3844,12 @@ impl RemillTranspiler {
         // call them. Skipped via AZ_NO_INDIRECT_DISPATCH=1. See
         // [`Self::emit_indirect_dispatcher_obj`].
         {
-            let env_force_on_d = std::env::var_os("AZ_REMILL_MERGED_COMPILE").is_some();
-            let env_force_off_d = std::env::var_os("AZ_REMILL_DISABLE_AUTO_MERGE").is_some();
+            let env_force_on_d = super::lift_env::lift_env().merged_compile;
+            let env_force_off_d = super::lift_env::lift_env().disable_auto_merge;
             let merged_d = self.use_native_remill()
                 && !env_force_off_d
                 && (env_force_on_d || targets.len() <= 30);
-            if !merged_d && std::env::var_os("AZ_NO_INDIRECT_DISPATCH").is_none() {
+            if !merged_d && !super::lift_env::lift_env().no_indirect_dispatch {
                 let cs = self.dispatcher_csynths(targets.iter().map(|t| t.addr));
                 if let Some(o) = self.emit_indirect_dispatcher_obj(&cs) {
                     object_paths.push(o);
@@ -4701,7 +4701,7 @@ fn collect_synth_data_pages(
         // Find which image this page belongs to.
         let Some(synth_page) = table.native_to_synth(native_page) else {
             skipped += 1;
-            if std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
+            if super::lift_env::lift_env().wasm_mirror_trace {
                 eprintln!(
                     "[azul-web] mirror SKIP native_page=0x{:x} — not in any tracked image",
                     native_page,
@@ -4831,7 +4831,7 @@ fn collect_synth_data_pages(
         // No precise ranges for this page — fall back to whole-page
         // mirror (the legacy M9-after-review path).
         fallback_pages += 1;
-        if std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
+        if super::lift_env::lift_env().wasm_mirror_trace {
             eprintln!(
                 "[azul-web] mirror native_page=0x{:x} → synth=0x{:x} (whole-page fallback)",
                 native_page, synth_page,
@@ -4878,7 +4878,7 @@ fn collect_synth_data_pages(
                 bytes[chunk_start..chunk_start + 8].copy_from_slice(&synth_bytes);
                 translated_in_page += 1;
                 pending_targets.push(value as usize & !0xFFF);
-            } else if std::env::var_os("AZ_TRACE_STALE_PTR").is_some()
+            } else if super::lift_env::lift_env().trace_stale_ptr
                 && value >= 0x1_0000_0000
                 && value < 0x2_0000_0000_0000
             {
@@ -4978,7 +4978,7 @@ fn collect_synth_data_pages(
         );
     }
     let out = trimmed;
-    if skipped > 0 && std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
+    if skipped > 0 && super::lift_env::lift_env().wasm_mirror_trace {
         eprintln!(
             "[azul-web] mirror: skipped {} accessed pages (not in any tracked image)",
             skipped,
@@ -6857,8 +6857,7 @@ fn workspace_root() -> PathBuf {
 }
 
 fn discover_remill_lift() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("REMILL_LIFT_BIN") {
-        let pb = PathBuf::from(p);
+    if let Some(pb) = super::lift_env::lift_env().remill_lift_bin.clone() {
         if pb.is_file() {
             return Some(pb);
         }
@@ -6903,8 +6902,7 @@ fn discover_remill_lift() -> Option<PathBuf> {
 }
 
 fn discover_llc() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("LLC") {
-        let pb = PathBuf::from(p);
+    if let Some(pb) = super::lift_env::lift_env().llc.clone() {
         if pb.is_file() {
             return Some(pb);
         }
@@ -6934,8 +6932,7 @@ fn discover_llc() -> Option<PathBuf> {
 }
 
 fn discover_opt() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("LLVM_OPT") {
-        let pb = PathBuf::from(p);
+    if let Some(pb) = super::lift_env::lift_env().llvm_opt.clone() {
         if pb.is_file() {
             return Some(pb);
         }
@@ -6964,8 +6961,7 @@ fn discover_opt() -> Option<PathBuf> {
 }
 
 fn discover_llvm_link() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("LLVM_LINK") {
-        let pb = PathBuf::from(p);
+    if let Some(pb) = super::lift_env::lift_env().llvm_link.clone() {
         if pb.is_file() {
             return Some(pb);
         }
@@ -6994,8 +6990,7 @@ fn discover_llvm_link() -> Option<PathBuf> {
 }
 
 fn discover_wasm_ld() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("WASM_LD") {
-        let pb = PathBuf::from(p);
+    if let Some(pb) = super::lift_env::lift_env().wasm_ld.clone() {
         if pb.is_file() {
             return Some(pb);
         }
@@ -7024,8 +7019,7 @@ fn discover_wasm_ld() -> Option<PathBuf> {
 }
 
 fn discover_wasm_opt() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("WASM_OPT") {
-        let pb = PathBuf::from(p);
+    if let Some(pb) = super::lift_env::lift_env().wasm_opt.clone() {
         if pb.is_file() {
             return Some(pb);
         }
@@ -7460,7 +7454,7 @@ fn obj_cache_path(
     stem: &str,
     use_native: bool,
 ) -> Option<PathBuf> {
-    if std::env::var_os("AZ_LIFT_CACHE").is_none() || super::lift_env::lift_env().no_lift_cache
+    if !super::lift_env::lift_env().lift_cache || super::lift_env::lift_env().no_lift_cache
     {
         return None;
     }
@@ -7502,14 +7496,14 @@ fn obj_cache_path(
         h,
         &[
             use_native as u8,
-            std::env::var_os("AZ_NO_FIX_SP").is_some() as u8,
-            std::env::var_os("AZ_NO_TRAP_SELFLOOP").is_some() as u8,
+            super::lift_env::lift_env().no_fix_sp as u8,
+            super::lift_env::lift_env().no_trap_selfloop as u8,
             // AZ_KEEP_ALIAS_SCOPE toggles the post-link alias-metadata strip
             // (default-on); it changes the opt input → must key the object.
-            std::env::var_os("AZ_KEEP_ALIAS_SCOPE").is_some() as u8,
+            super::lift_env::lift_env().keep_alias_scope as u8,
             // AZ_FULL_CS_RESTORE toggles unconditional X19-X28 restore in
             // enforce_sp_preservation → changes the post-opt IR → key it.
-            std::env::var_os("AZ_FULL_CS_RESTORE").is_some() as u8,
+            super::lift_env::lift_env().full_cs_restore as u8,
         ],
     );
     let dir = lift_cache_root();
@@ -8142,7 +8136,7 @@ fn reloc_translate(
 fn llvm_opt_flag() -> &'static str {
     use std::sync::OnceLock;
     static FLAG: OnceLock<String> = OnceLock::new();
-    FLAG.get_or_init(|| match std::env::var("AZ_OPT_LEVEL").as_deref() {
+    FLAG.get_or_init(|| match super::lift_env::lift_env().opt_level.clone().ok_or(()).as_deref() {
         Ok("0") => "-O0".to_string(),
         Ok("1") => "-O1".to_string(),
         Ok("s") | Ok("S") => "-Os".to_string(),
@@ -8161,7 +8155,7 @@ fn opt_flag_for(fn_name: &str) -> &'static str {
     use std::sync::OnceLock;
     static LOW: OnceLock<Vec<String>> = OnceLock::new();
     let low = LOW.get_or_init(|| {
-        std::env::var("AZ_LOWOPT_FNS")
+        super::lift_env::lift_env().lowopt_fns.clone().ok_or(())
             .unwrap_or_default()
             .split(',')
             .filter(|s| !s.is_empty())
@@ -8180,11 +8174,11 @@ fn opt_flag_for(fn_name: &str) -> &'static str {
 /// binary search over the limit (the obj cache keys on it, so only the
 /// matched fn re-lifts) pinpoints the exact corrupting opt pass.
 fn opt_bisect_arg(fn_name: &str) -> Option<String> {
-    let pat = std::env::var("AZ_BISECT_FN").ok()?;
+    let pat = super::lift_env::lift_env().bisect_fn.clone()?;
     if pat.is_empty() || !fn_name.contains(&pat) {
         return None;
     }
-    let n = std::env::var("AZ_BISECT_LIMIT").ok()?;
+    let n = super::lift_env::lift_env().bisect_limit.clone()?;
     Some(format!("-opt-bisect-limit={}", n.trim()))
 }
 
@@ -8706,7 +8700,7 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
     // AAPCS64 geometry — meaningless on Windows-x64. Compile the gate to a const `false` on x86 so
     // the block is dead-code-eliminated rather than emitting wrong-offset stores when toggled there.
     #[cfg(target_arch = "aarch64")]
-    let sp_trace = std::env::var_os("AZ_SP_TRACE").is_some();
+    let sp_trace = super::lift_env::lift_env().sp_trace;
     #[cfg(not(target_arch = "aarch64"))]
     let sp_trace = false;
     let mut k: u32 = 0;
@@ -8813,7 +8807,7 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
                 // callee-saved GPRs (indices 0..=9) UNCONDITIONALLY (snapshot), not
                 // leak-gated — a stronger diagnostic for clobbers that don't even leak
                 // SP; default off, may re-break shape_text's tail-jump path.
-                let full_gpr = j <= 9 && std::env::var_os("AZ_FULL_CS_RESTORE").is_some();
+                let full_gpr = j <= 9 && super::lift_env::lift_env().full_cs_restore;
                 if full_gpr {
                     out.push_str(&format!(
                         "{indent}store i64 %azv_{k}_{j}, ptr %azg_{k}_{j}, align 8\n"
@@ -9069,7 +9063,7 @@ fn instrument_reg_stores(opt_ir: &str) -> (String, u32) {
     // so the FIRST 8191 reg-stores are preserved (slot 8191 absorbs the overflow). Use this to
     // capture a function's ENTRY + early blocks (e.g. an input-vec arg read + a loop preheader)
     // when a later runaway loop would otherwise overwrite the ring. Default = wrap (tail trajectory).
-    let nowrap = std::env::var_os("AZ_REG_TRACE_NOWRAP").is_some();
+    let nowrap = super::lift_env::lift_env().reg_trace_nowrap;
     let mut k: u32 = 0;
     for line in opt_ir.lines() {
         if let Some((reg_id, val_op)) = parse_reg_store(line) {
@@ -10849,7 +10843,7 @@ fn tag_state_accesses(ir: &str) -> String {
     // of guest mem ops across an inline-cloned alias scope), but the fix is a BARRIER, not (only) disabling
     // the scope. NEXT: isolate AZ_FUEL-barrier-alone vs scope; a minimal barrier pass (a volatile fence per
     // guest store, like the write-tracer minus logging) is the likely real fix. See handoff g189.
-    let disable_host_scope = std::env::var("AZ_NO_HOST_SCOPE").is_ok();
+    let disable_host_scope = super::lift_env::lift_env().no_host_scope;
 
     for line in ir.lines() {
         if disable_host_scope {

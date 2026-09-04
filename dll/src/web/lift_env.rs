@@ -60,6 +60,55 @@ pub struct LiftEnv {
     pub preflight: bool,
     pub remill_debug: bool,
     pub skip_wasm_opt: bool,
+    // ---- transform toggles: each disables (or forces) a DEFAULT-ON transform.
+    // They exist to A/B a regression against the transform, and each is folded
+    // into the object cache key so a flipped switch never serves a stale object.
+    pub no_fix_sp: bool,
+    pub no_trap_selfloop: bool,
+    pub no_indirect_dispatch: bool,
+    pub full_cs_restore: bool,
+    pub keep_alias_scope: bool,
+    pub no_host_scope: bool,
+
+    // ---- in-wasm recorders: emit tracing code into the lifted output.
+    // Never on in a shipped bundle; all excluded from the cache key so an
+    // instrumented object is not reused for a clean build.
+    pub write_trace: Option<String>,
+    pub read_trace: Option<String>,
+    pub reg_trace: Option<String>,
+    pub reg_trace_nowrap: bool,
+    pub sp_trace: bool,
+    pub log_stores: Option<String>,
+    pub log_selfloop_val: Option<String>,
+    pub lswin_lo: Option<u64>,
+    pub lswin_hi: Option<u64>,
+    pub lsid_lo: Option<u64>,
+    pub fuel: Option<String>,
+    pub fuel_limit: Option<u64>,
+    pub tag_unreachable: bool,
+    pub wasm_mirror_trace: bool,
+
+    // ---- opt bisect rig: pins which LLVM pass miscompiles a function.
+    pub opt_level: Option<String>,
+    pub lowopt_fns: Option<String>,
+    pub bisect_fn: Option<String>,
+    pub bisect_limit: Option<String>,
+    pub lto_level: Option<String>,
+    pub wasm_ld_mllvm: Option<String>,
+
+    // ---- pipeline mode ----
+    pub native_remill: bool,
+    pub merged_compile: bool,
+    pub disable_auto_merge: bool,
+    pub enable_shards: bool,
+
+    // ---- toolchain overrides (paths, not behaviour) ----
+    pub remill_lift_bin: Option<PathBuf>,
+    pub llc: Option<PathBuf>,
+    pub llvm_opt: Option<PathBuf>,
+    pub llvm_link: Option<PathBuf>,
+    pub wasm_ld: Option<PathBuf>,
+    pub wasm_opt: Option<PathBuf>,
 }
 
 impl LiftEnv {
@@ -87,6 +136,46 @@ impl LiftEnv {
             preflight: flag("AZ_PREFLIGHT"),
             remill_debug: flag("AZ_REMILL_DEBUG"),
             skip_wasm_opt: flag("AZ_REMILL_SKIP_WASM_OPT"),
+            no_fix_sp: flag("AZ_NO_FIX_SP"),
+            no_trap_selfloop: flag("AZ_NO_TRAP_SELFLOOP"),
+            no_indirect_dispatch: flag("AZ_NO_INDIRECT_DISPATCH"),
+            full_cs_restore: flag("AZ_FULL_CS_RESTORE"),
+            keep_alias_scope: flag("AZ_KEEP_ALIAS_SCOPE"),
+            no_host_scope: flag("AZ_NO_HOST_SCOPE"),
+
+            write_trace: std::env::var("AZ_WRITE_TRACE").ok(),
+            read_trace: std::env::var("AZ_READ_TRACE").ok(),
+            reg_trace: std::env::var("AZ_REG_TRACE").ok(),
+            reg_trace_nowrap: flag("AZ_REG_TRACE_NOWRAP"),
+            sp_trace: flag("AZ_SP_TRACE"),
+            log_stores: std::env::var("AZ_LOG_STORES").ok(),
+            log_selfloop_val: std::env::var("AZ_LOG_SELFLOOP_VAL").ok(),
+            lswin_lo: num("AZ_LSWIN_LO"),
+            lswin_hi: num("AZ_LSWIN_HI"),
+            lsid_lo: num("AZ_LSID_LO"),
+            fuel: std::env::var("AZ_FUEL").ok(),
+            fuel_limit: num("AZ_FUEL_LIMIT"),
+            tag_unreachable: flag("AZ_TAG_UNREACHABLE"),
+            wasm_mirror_trace: flag("AZ_WASM_MIRROR_TRACE"),
+
+            opt_level: std::env::var("AZ_OPT_LEVEL").ok(),
+            lowopt_fns: std::env::var("AZ_LOWOPT_FNS").ok(),
+            bisect_fn: std::env::var("AZ_BISECT_FN").ok(),
+            bisect_limit: std::env::var("AZ_BISECT_LIMIT").ok(),
+            lto_level: std::env::var("AZ_LTO_LEVEL").ok().filter(|s| !s.is_empty()),
+            wasm_ld_mllvm: std::env::var("AZ_WASM_LD_MLLVM").ok(),
+
+            native_remill: flag("AZ_NATIVE_REMILL"),
+            merged_compile: flag("AZ_REMILL_MERGED_COMPILE"),
+            disable_auto_merge: flag("AZ_REMILL_DISABLE_AUTO_MERGE"),
+            enable_shards: flag("AZ_ENABLE_SHARDS"),
+
+            remill_lift_bin: std::env::var_os("REMILL_LIFT_BIN").map(PathBuf::from),
+            llc: std::env::var_os("LLC").map(PathBuf::from),
+            llvm_opt: std::env::var_os("LLVM_OPT").map(PathBuf::from),
+            llvm_link: std::env::var_os("LLVM_LINK").map(PathBuf::from),
+            wasm_ld: std::env::var_os("WASM_LD").map(PathBuf::from),
+            wasm_opt: std::env::var_os("WASM_OPT").map(PathBuf::from),
         }
     }
 

@@ -82,7 +82,7 @@ pub fn get() -> Option<&'static SymbolTable> {
 /// flip: default = sharded; `AZ_BUNDLED_LEGACY=1` keeps the old
 /// behavior.
 pub fn shards_enabled() -> bool {
-    std::env::var_os("AZ_ENABLE_SHARDS").is_some()
+    super::lift_env::lift_env().enable_shards
         && std::env::var_os("AZ_BUNDLED_LEGACY").is_none()
 }
 
