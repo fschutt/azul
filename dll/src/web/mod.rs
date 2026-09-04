@@ -1392,7 +1392,7 @@ pub fn run_web(
         let preflight = transpiler_remill::preflight_entries();
         let fatal = lift_audit::run(
             &artifacts,
-            transpiler::default_transpiler().is_available(),
+            transpiler_remill::subprocess_tools_available(),
             transpiler_remill::lift_failure_count(),
             &preflight,
         );

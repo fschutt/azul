@@ -853,6 +853,23 @@ pub struct RemillTranspiler {
     object_cache: std::sync::Mutex<std::collections::HashMap<(usize, String), PathBuf>>,
 }
 
+/// Whether the subprocess toolchain is complete, WITHOUT building a
+/// transpiler to ask.
+///
+/// `RemillTranspiler::drop` wipes the scratch directory, and that directory is
+/// shared by every instance in the process (it is keyed on the pid). So
+/// constructing one purely to call `is_available()` deleted the scratch tree
+/// out from under the real transpilers as the temporary was dropped - masked
+/// locally only because the debug runs set AZ_REMILL_KEEP_SCRATCH, which
+/// returns early from that Drop.
+pub fn subprocess_tools_available() -> bool {
+    discover_remill_lift().is_some()
+        && discover_llc().is_some()
+        && discover_opt().is_some()
+        && discover_llvm_link().is_some()
+        && discover_wasm_ld().is_some()
+}
+
 impl RemillTranspiler {
     pub fn new() -> Self {
         let scratch_dir =
