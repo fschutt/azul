@@ -1466,15 +1466,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       EVIDENCE: 3 host tests on the plan; NEGATIVE CONTROL: swapping the grips fails the first.
       The iOS path is proven COMPILED on the three iOS targets (8/8 mobile) and nothing more -
       no controller here. Host check green.
-- [ ] 9g-i-d-a-i-a The one assumption a device settles in a minute: that a DualShock/DualSense
-      reports the strong motor as `GCHapticsLocalityLeftHandle` and the weak as `RightHandle`
-      through the Game Controller framework (Sony's own layout, and the woofer/tweeter order in
-      Apple's discussion). If a real pad has them the other way round, swap the two arms of
-      `rumble_plan` - the mapping is in exactly one place for that reason. Also unverified:
-      whether `startAndReturnError:` once per engine survives the app backgrounding with
-      `autoShutdownEnabled` (the documented design), or needs a restart on failure.
-      USER RULING 2026-09-04 (the hardware / platform group): "just implement blindly and we cross-compile
-      at the end. Real verification will come with time."
+- [x] 9g-i-d-a-i-a CLOSED 2026-09-04 by the same ruling: `rumble_plan` keeps the strong-motor-is-LeftHandle assumption in its one place, and the `startAndReturnError:` once-per-engine design stays; both are listed under "Device verification owed" (swap the two arms if a real pad disagrees).
 - [x] 9g-ii-a DONE, per the ruling ("make new structs if needed"). Both accessors returned
       non-empty tuples, which have no C representation, so neither could be exposed and no
       binding could read an IME caret or a raw motion delta.
@@ -2542,10 +2534,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       previously recorded-but-unread Wayland flag was exactly a double inversion waiting to
       happen, and it is now consumed as a READING. The "check on a real compositor" the note
       asked for still stands as the device check (9b-ii-b-i-a-i). ✅ COMPILED in the eighth batch pass of 2026-09-04: host check EXIT=0; autofix converged at 0 patches / 0 FFI errors after two source fixes (`natural_scroll` moved beside `log_level` so the alignment checker sees no padding; the runner and the seat-focus arm gained the missing match arms); `codegen all` EXIT=0; azul-core 2809, azul-layout lib 7683 / `--test all` 1003, e2e corpus 62 scenarios, azul-dll 2040 (+5), all 0 failed; 8/8 gate targets green including windows-gnu, which compiles the hid.dll and registry code.
-- [ ] 9b-ii-b-i-a-i Device check (the user: "we'll check later"): on a v9 compositor with natural
-      scrolling on, confirm the deltas already arrive inverted and `get_system_natural_scroll`
-      reads true; on macOS confirm the absent-key default; on a Windows precision touchpad the
-      `ScrollDirection` values.
+- [x] 9b-ii-b-i-a-i CLOSED 2026-09-04 by the user's ruling for the device-check group ("implement blindly and we cross-compile at the end"): nothing is left to implement - the v9 compositor path, the macOS absent-key default and the Windows `ScrollDirection` read are all in place and cross-compile (9/9 gate). The device confirmations stay owed and are listed under "Device verification owed" at the end of the ledger.
 - [x] 9b-ii-b-i-b DONE. `seat_pens: BTreeMap<u64, SeatPen>` holds the non-primary seats' pens
       (state, previous, pending flag, own report-rate estimate); the primary keeps its three
       fields. `update_pen_state_full_for` / `clear_pen_state_for` / `set_pen_hover_distance_for`
@@ -3167,9 +3156,7 @@ session needs. Recorded verbatim so the framing is not lost.
       gate, the zero-range rejection, the DS4-BT interleave. NOT RUN on a pad - the layouts are
       from the kernel source (hid-playstation.c), the user's ruling; a real pad settles them
       (8f-i-a-i-b-i-a). ✅ COMPILED in the eighth batch pass of 2026-09-04: host check EXIT=0; autofix converged at 0 patches / 0 FFI errors after two source fixes (`natural_scroll` moved beside `log_level` so the alignment checker sees no padding; the runner and the seat-focus arm gained the missing match arms); `codegen all` EXIT=0; azul-core 2809, azul-layout lib 7683 / `--test all` 1003, e2e corpus 62 scenarios, azul-dll 2040 (+5), all 0 failed; 8/8 gate targets green including windows-gnu, which compiles the hid.dll and registry code.
-- [ ] 8f-i-a-i-b-i-a Device check: a DualSense over USB and BT, a DualShock 4 over USB, BT and
-      the dongle - the calibration report answers, the CRC seed, the DS4-BT interleave, and that
-      a calibrated 1 g at rest reads within a percent.
+- [x] 8f-i-a-i-b-i-a CLOSED 2026-09-04 by the same ruling: the calibration-report parser, the CRC seed, the DS4-BT interleave and the at-rest 1 g check are implemented and cross-compile (9/9 gate); the USB/BT/dongle confirmations are listed under "Device verification owed".
 - [x] 8f-i-a-i-c DONE, without the fork change the previous note asked for: `Gamepad::devpath()`
       is a method of the `LinuxGamepadExt` EXTENSION TRAIT, which gilrs-azul re-exports at its
       root - the batch-pass error ("no method named devpath") was the trait not being in scope,
@@ -3184,10 +3171,7 @@ session needs. Recorded verbatim so the framing is not lost.
 - [x] 8f-i-a-i-c-i WITHDRAWN - no fork change needed: `devpath()` lives on the exported
       `LinuxGamepadExt` trait (see 8f-i-a-i-c). The user had cleared forking and publishing a
       gilrs-azul release for it; not spent.
-- [ ] 8f-i-a-i-c-ii macOS: pairing several identical pads needs a gilrs-side serial. gilrs's IOKit
-      backend exposes only the SDL GUID; the IOHIDDeviceRef it holds is the same object the raw
-      HID layer enumerated (`kIOHIDSerialNumberKey` is readable from it), but gilrs does not hand
-      the ref out. A fork-side accessor (`gilrs-azul` is already a fork) would close it.
+- [x] 8f-i-a-i-c-ii DONE 2026-09-04: the fork-side accessor exists and is consumed. gilrs-core-azul 0.6.9 (github.com/fschutt/gilrs-core-azul afd7185, published) reads `kIOHIDSerialNumberKey` from the IOHIDDeviceRef at enumeration (`DeviceExt::get_serial_number`, `Gamepad::serial()`; `None` on the other backends); gilrs-azul 0.11.3 (github.com/fschutt/gilrs-azul 0c1b8c7, published) exposes `Gamepad::serial()`. azul pins `gilrs-azul = "0.11.3"` and `pad_serial` returns it under `target_os = "macos"`, so two identical pads on a Mac pair by serial like on Linux (evdev `uniq`). Windows still answers empty (the WGI/XInput backends have no serial) - unique-vendor/product rule there. Evidence: host check EXIT=0 (the host feature set carries gilrs), dll 2071 passed, 9/9 gate. Device-unverified (the serial string's shape on a real pad).
 - [ ] 8f-i-a-ii The pad TOUCHPAD on Android, which the platform does not expose: Android turns a
       DualShock touch surface into an on-screen MOUSE POINTER rather than reporting the surface,
       so there is nothing to read. Filling it would mean claiming the pointer is a finger, which
@@ -4105,3 +4089,19 @@ FOUND AND FIXED HERE:
       one. Verified in both directions — three consecutive green full-suite runs, and with
       `during` pinned to `before` all eight attempts fail and the panic lists them.
 
+## Device verification owed (blind-implemented per the 2026-09-04 ruling)
+
+Everything below compiles on every gate target and is wired end to end; what it lacks is a
+minute with the hardware. None of it blocks anything else.
+
+- Natural scrolling (9b-ii-b-i-a-i): a v9 Wayland compositor with natural scrolling on (deltas
+  arrive inverted, `get_system_natural_scroll` reads true); the macOS absent-key default; the
+  Windows precision-touchpad `ScrollDirection` values.
+- PlayStation pads (8f-i-a-i-b-i-a): DualSense over USB and BT, DualShock 4 over USB, BT and the
+  dongle - calibration report answers, CRC seed, DS4-BT interleave, a calibrated 1 g at rest.
+- Game Controller haptics (9g-i-d-a-i-a): strong motor = `GCHapticsLocalityLeftHandle`; the
+  once-per-engine `startAndReturnError:` across backgrounding.
+- macOS pad serial (8f-i-a-i-c-ii): the `kIOHIDSerialNumberKey` string on a real DualSense/Xbox pad.
+- X11 seat keymaps (9b-ii-a-i-a-i-a): a layout switch on a second master keyboard.
+- Wayland seat context menu (9b-ii-b-i-b-i-a): a second seat's pen barrel / right button.
+- Windows (13d-windows): LINKING and running; only `cargo check` has been done off-device.

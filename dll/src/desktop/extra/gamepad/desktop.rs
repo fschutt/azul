@@ -423,8 +423,11 @@ fn sysfs_uniq_path(devpath: &str) -> Option<String> {
 /// through sysfs beside the pad's event node, which gilrs exposes through
 /// the `LinuxGamepadExt` extension trait (`devpath()` - a trait method, so
 /// it needs the trait in scope, which is what the first attempt lacked).
-/// The other desktop backends have no gilrs-side serial and answer empty,
-/// leaving the unique-vendor/product rule.
+/// On macOS it is IOKit's `kIOHIDSerialNumberKey`, read by the gilrs-azul
+/// fork (`Gamepad::serial`, 0.11.3 / gilrs-core-azul 0.6.9 - 8f-i-a-i-c-ii):
+/// the same IOHIDDeviceRef the raw HID layer enumerated, so the two agree on
+/// the string. Windows has no gilrs-side serial and answers empty, leaving
+/// the unique-vendor/product rule.
 #[allow(unused_variables)]
 fn pad_serial(pad: &gilrs::Gamepad<'_>) -> String {
     #[cfg(target_os = "linux")]
@@ -434,6 +437,12 @@ fn pad_serial(pad: &gilrs::Gamepad<'_>) -> String {
             if let Ok(uniq) = std::fs::read_to_string(path) {
                 return uniq.trim().to_owned();
             }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(serial) = pad.serial() {
+            return serial.trim().to_owned();
         }
     }
     String::new()

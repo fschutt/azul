@@ -3302,9 +3302,9 @@ dependencies = [
 
 [[package]]
 name = "gilrs-azul"
-version = "0.11.2"
+version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd9e034983882b288d6fbea3c8b0f10fc409acc4a2944841a469c6bb203e18fc"
+checksum = "37804ea0b01f69aab7c7a2f4f7a3f23a40891c5a53ff491645014dafe4211b4d"
 dependencies = [
  "fnv",
  "gilrs-core-azul",
@@ -3315,9 +3315,9 @@ dependencies = [
 
 [[package]]
 name = "gilrs-core-azul"
-version = "0.6.8"
+version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b400c60c9a81e38ce41bd8d0638f3f15dc87c6f2a42ee9a923b1a864261e1b6"
+checksum = "60527d23d4b6eefdc91485f9c4d91746a6da876821fb7c7576d61f4753710fa8"
 dependencies = [
  "inotify",
  "js-sys",

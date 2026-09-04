@@ -198,7 +198,7 @@ rclip-core = { version = "0.1", optional = true }
 tfd = { version = "0.1.0", default-features = false, optional = true }
 # Gamepad input (P6 feature 6) — desktop backend (Win/Linux/macOS). Mobile
 # uses GCController / InputDevice instead, so gilrs is desktop-only.
-gilrs = { package = "gilrs-azul", version = "0.11", optional = true }
+gilrs = { package = "gilrs-azul", version = "0.11.3", optional = true }
 
 
 [target.'cfg(target_os = "linux")'.dependencies]
