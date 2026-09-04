@@ -164,6 +164,14 @@ pub struct AppState {
     /// the writeback registration (no stale result can land); true
     /// mid-compute abort needs chunked pagination — a recorded refinement.
     pub pagination_thread: Option<(u64, ThreadId)>,
+    /// Marker of the status bar's word-count segment
+    /// (`StatusBarSegment::with_marker`). A fresh `Uuid::short()` per app
+    /// state, so `on_text_changed` can find the label with
+    /// `get_node_id_by_marker` and rewrite it in place on every keystroke -
+    /// no `RefreshDom`, no full relayout. (The inter-widget fast path: the
+    /// components talk to each other through the UUID, not through a
+    /// re-render of the whole window.)
+    pub word_count_marker: AzString,
 }
 
 impl Default for AppState {
@@ -186,6 +194,7 @@ impl Default for AppState {
             exact_page_count: None,
             pages_vv_node: None,
             pagination_thread: None,
+            word_count_marker: azul::uuid::Uuid::short(),
         }
     }
 }
@@ -710,6 +719,35 @@ pub(crate) fn apply_format_axis(
     } else {
         Update::DoNothing
     }
+}
+
+/// `On::TextChanged` on the page host: the engine committed a text edit
+/// (a typed character, a deletion, a paste, the Enter split), and the
+/// committed text is already what `get_unsynced_text_edits` reads - unlike
+/// `On::TextInput`, which fires BEFORE a typed character lands. Folds the
+/// edit into the IR and rewrites the status bar's word count in place
+/// (`StatusBar::update_segment_label` through the segment's marker), so the
+/// count keeps up with typing without a `RefreshDom` per keystroke.
+pub extern "C" fn on_text_changed(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let (marker, label) = {
+        let Some(mut state) = data.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        if sync_ir_text_from_engine(&mut state, &mut info) {
+            state.document.refresh_derived();
+            state.document.dirty = true;
+        }
+        (
+            state.word_count_marker.clone(),
+            AzString::from(format!("{} WORDS", state.document.word_count())),
+        )
+    };
+    if let Some(node) = info.get_node_id_by_marker(marker).into_option() {
+        // Unchanged text is a no-op inside; only a new count re-renders the
+        // label, and only the label.
+        azul::widgets::StatusBar::update_segment_label(info, node, label);
+    }
+    Update::DoNothing
 }
 
 pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> Update {

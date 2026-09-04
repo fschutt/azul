@@ -294,6 +294,14 @@ extern "C" fn pages_virtual_view(
                 app.clone(),
                 crate::on_document_edit,
             )
+            // Post-commit text notifications: the word count follows typing
+            // (`TextChanged` fires AFTER the character lands; `TextInput`
+            // would read the text one keystroke behind).
+            .with_callback(
+                EventFilter::Focus(FocusEventFilter::TextChanged),
+                app.clone(),
+                crate::on_text_changed,
+            )
             // Focus anchor: startup focus targets this class so the caret
             // exists the moment the window opens (classic office-suite behavior). The window
             // includes page 0 at startup by construction.
@@ -356,7 +364,10 @@ pub fn status_bar(
     let words = state.document.word_count();
     let segments = vec![
         StatusBarSegment::new(AzString::from(format!("PAGE 1 OF {page_count}"))),
-        StatusBarSegment::new(AzString::from(format!("{words} WORDS"))),
+        // Marked: `crate::on_text_changed` rewrites this label in place on
+        // every committed keystroke (the inter-widget fast path).
+        StatusBarSegment::new(AzString::from(format!("{words} WORDS")))
+            .with_marker(state.word_count_marker.clone()),
         StatusBarSegment::new(s("")).with_icon(s("spellcheck")),
         StatusBarSegment::new(s("ENGLISH (UNITED STATES)")),
     ];
