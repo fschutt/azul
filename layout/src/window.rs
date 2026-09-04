@@ -19286,6 +19286,84 @@ impl LayoutWindow {
     /// ## Returns
     /// * `Some(ClipboardContent)` - If there is a selection with text
     /// * `None` - If no selection or no text layouts found
+    /// The styled runs under `ranges` of `content` (9b-ii-a-i-d-ii-b-iii): a
+    /// single-run range takes its slice, a multi-run range the tail of the
+    /// first run, every middle run and the head of the last - one run per
+    /// differently-styled span. Shared by the primary's and a seat's copy.
+    #[must_use]
+    pub fn extract_clipboard_ranges(
+        content: &[InlineContent],
+        ranges: &[SelectionRange],
+    ) -> Option<crate::managers::selection::ClipboardContent> {
+        use crate::text3::edit::cursor_byte_offset_in_run;
+        let mut acc = ClipboardExtract::default();
+        for r in ranges {
+            let sr = r.start.cluster_id.source_run as usize;
+            let er = r.end.cluster_id.source_run as usize;
+            if sr == er {
+                if let Some(InlineContent::Text(run)) = content.get(sr) {
+                    let a = cursor_byte_offset_in_run(&run.text, &r.start);
+                    let b = cursor_byte_offset_in_run(&run.text, &r.end);
+                    let (lo, hi) = (a.min(b), a.max(b));
+                    if hi <= run.text.len() && lo < hi {
+                        acc.push(&run.text[lo..hi], &run.style);
+                    }
+                }
+            } else {
+                // Multi-run: walk runs in document order, taking the tail of the
+                // first run, all middle runs, and the head of the last. This is
+                // the branch that carries real formatting — one run per
+                // differently-styled span.
+                let (first_idx, first_cur, last_idx, last_cur) = if sr <= er {
+                    (sr, r.start, er, r.end)
+                } else {
+                    (er, r.end, sr, r.start)
+                };
+                for ri in first_idx..=last_idx {
+                    if let Some(InlineContent::Text(run)) = content.get(ri) {
+                        if ri == first_idx {
+                            let off = cursor_byte_offset_in_run(&run.text, &first_cur)
+                                .min(run.text.len());
+                            acc.push(&run.text[off..], &run.style);
+                        } else if ri == last_idx {
+                            let off =
+                                cursor_byte_offset_in_run(&run.text, &last_cur).min(run.text.len());
+                            acc.push(&run.text[..off], &run.style);
+                        } else {
+                            acc.push(&run.text, &run.style);
+                        }
+                    }
+                }
+            }
+        }
+
+        acc.finish()
+    }
+
+    /// Seat `seat_id`'s selection as styled clipboard content
+    /// (9b-ii-a-i-d-ii-b-iii): what its Copy / Cut put on the clipboard, with
+    /// the runs' formatting like the primary's. `None` for a bare caret.
+    #[must_use]
+    pub fn seat_selected_content_for_clipboard(
+        &self,
+        seat_id: u64,
+    ) -> Option<crate::managers::selection::ClipboardContent> {
+        let caret = self.text_edit_manager.seat_caret(seat_id)?;
+        let Selection::Range(range) = caret.selection() else {
+            return None;
+        };
+        let node_id = caret.node.node.into_crate_internal()?;
+        let mut content = self.get_text_before_textinput(caret.node.dom, node_id);
+        if content.is_empty() {
+            if let Some(host) = self.find_contenteditable_host(caret.node.dom, node_id) {
+                if host != node_id {
+                    content = self.get_text_before_textinput(caret.node.dom, host);
+                }
+            }
+        }
+        Self::extract_clipboard_ranges(&content, &[range])
+    }
+
     pub fn get_selected_content_for_clipboard(
         &self,
         dom_id: &DomId,
@@ -19476,6 +19554,8 @@ impl LayoutWindow {
         }
 
         let out = acc.finish();
+            ));
+        let out = Self::extract_clipboard_ranges(&content, &ranges);
         if out.is_none() {
             copy_trace(|| {
                 format!(

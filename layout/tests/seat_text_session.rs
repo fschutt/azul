@@ -576,3 +576,29 @@ fn a_seats_composition_raises_its_own_events() {
     );
     assert_eq!(lw.text_edit_manager.take_pending_composition(), None);
 }
+
+/// 9b-ii-a-i-d-ii-b-iii: a seat's Copy carries the selection's styled runs,
+/// through the same extraction the primary's copy uses.
+#[test]
+fn a_seats_copy_carries_styled_runs() {
+    let mut lw = two_fields();
+    primary_edits(&mut lw, TEXT_A, 0);
+    lw.focus_manager.set_focused_node_for(SEAT, Some(node(TEXT_B)));
+    assert!(lw.seat_selected_content_for_clipboard(SEAT).is_none(), "a bare caret copies nothing");
+    assert!(lw.select_all_for_seat(SEAT, node(TEXT_B)));
+    let content = lw
+        .seat_selected_content_for_clipboard(SEAT)
+        .expect("the seat's selection as clipboard content");
+    assert_eq!(content.plain_text.as_str(), "bbb");
+    assert!(
+        !content.styled_runs.as_ref().is_empty(),
+        "the selection's run comes with its style"
+    );
+    assert_eq!(
+        lw.seat_selected_text(SEAT).as_deref(),
+        Some("bbb"),
+        "the plain-text reading agrees"
+    );
+    // The primary's own copy path is unaffected: no selection there.
+    assert!(lw.get_selected_content_for_clipboard(&DomId::ROOT_ID).is_none());
+}

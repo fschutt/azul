@@ -7102,12 +7102,12 @@ pub trait PlatformWindow {
                         }
                     }
                     KeyboardShortcut::Copy | KeyboardShortcut::Cut => {
-                        let Some(text) = layout_window.seat_selected_text(*seat_id) else {
+                        // The seat's selection with its runs' formatting
+                        // (9b-ii-a-i-d-ii-b-iii), as the primary's copy carries.
+                        let Some(content) =
+                            layout_window.seat_selected_content_for_clipboard(*seat_id)
+                        else {
                             return ProcessEventResult::DoNothing;
-                        };
-                        let content = azul_layout::managers::selection::ClipboardContent {
-                            plain_text: text.into(),
-                            styled_runs: azul_layout::managers::selection::StyledTextRunVec::from_const_slice(&[]),
                         };
                         let committed = clipboard_content_to_payload(&content)
                             .is_some_and(|payload| set_system_clipboard(&payload));
@@ -7134,6 +7134,11 @@ pub trait PlatformWindow {
                             return ProcessEventResult::DoNothing;
                         };
                         let text = clipboard_content.plain_text.as_str().to_string();
+                        // The styled content is readable by the app's paste
+                        // handler (`get_clipboard_content`), as for the primary.
+                        layout_window
+                            .clipboard_manager
+                            .set_paste_content(clipboard_content);
                         let affected = layout_window.record_text_input_for_seat(*seat_id, &text);
                         if affected.is_empty() {
                             ProcessEventResult::DoNothing

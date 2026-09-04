@@ -2340,10 +2340,19 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       at byte 1 of another field, the editing query reads mid-block for the seat, and a seat
       caret at byte 0 reads block-start. Evidence: host check EXIT=0; azul-core 2809, azul-layout
       lib 7683 / `--test all` 1010 (+1), e2e 62 scenarios, azul-dll 2071, 0 failed; 8/8 gate.
-- [ ] 9b-ii-a-i-d-ii-b-iii A seat's rich (styled) Copy / Paste: the seat path carries plain text
-      only; the primary's `get_selected_content_for_clipboard` / `set_paste_content` styled path
-      reads the multi-cursor. Extend `seat_selected_text` to styled runs when a seat's selection
-      needs to round-trip formatting.
+- [x] 9b-ii-a-i-d-ii-b-iii DONE. The multi-run extraction inside
+      `get_selected_content_for_clipboard` is now `extract_clipboard_ranges(content, ranges)` (the
+      primary's branch calls it; behaviour unchanged) and `seat_selected_content_for_clipboard(seat)`
+      feeds it the seat's anchored range on the seat's node (with the same empty-content fallback
+      to the contenteditable host), so a seat's Copy / Cut put the selection's STYLED runs on the
+      clipboard exactly as the primary's do; the seat's Paste also stores the clipboard content in
+      the `ClipboardManager` so the app's paste handler (`get_clipboard_content`) can read the
+      styled runs, as it does after the primary's paste. WHY the gap existed: the seat shortcut
+      arm was written against `seat_selected_text`, a plain-text slice, while the styled
+      extraction was inlined in the primary's copy fn. Test: the seat's select-all yields
+      "bbb" with a styled run, a bare caret yields nothing, and the primary's own copy path is
+      untouched. Evidence: host check EXIT=0; azul-core 2810, azul-layout lib 7684 / `--test all`
+      1018 (+1), e2e 62 scenarios, azul-dll 2071, 0 failed; 8/8 gate.
 - [x] 9b-ii-a-i-d-ii-c DONE. PRODUCER: a `zwp_text_input_v3` per non-primary seat
       (`try_init_seat_text_inputs`, from the seat bind and from the manager's arrival, through the
       factored `get_text_input_for_seat`) on the shared listener; every handler resolves its seat
