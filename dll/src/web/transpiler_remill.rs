@@ -11732,8 +11732,27 @@ fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileEr
 /// reported as a transient failure, so the existing retry path re-runs the
 /// tool instead of failing the function.
 /// In-flight `Command::spawn()` calls, for the watchdog below.
-static SPAWN_INFLIGHT: std::sync::Mutex<Vec<(std::time::Instant, String)>> =
-    std::sync::Mutex::new(Vec::new());
+/// Keyed by a monotonic id, NOT by position: entries retire out of order, and
+/// `Vec::remove` shifts every later index, so a positional scheme retires the
+/// wrong entry (or silently none). A leaked entry then ages past the limit and
+/// aborts a perfectly healthy run, while a genuinely stuck spawn can have its
+/// entry retired by someone else and go unnoticed - both failure directions at
+/// once.
+static SPAWN_INFLIGHT: std::sync::Mutex<
+    std::collections::BTreeMap<u64, (std::time::Instant, String)>,
+> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+static SPAWN_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Retires its entry on every exit path, including the `?` on a failed spawn.
+struct SpawnWatch(u64);
+impl Drop for SpawnWatch {
+    fn drop(&mut self) {
+        SPAWN_INFLIGHT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
+    }
+}
 
 /// Abort loudly if a spawn wedges, instead of hanging until CI times out.
 ///
@@ -11766,7 +11785,7 @@ fn start_spawn_watchdog() {
             std::thread::sleep(std::time::Duration::from_secs(15));
             let stuck = {
                 let g = SPAWN_INFLIGHT.lock().unwrap_or_else(|e| e.into_inner());
-                g.iter()
+                g.values()
                     .find(|(t, _)| t.elapsed() > limit)
                     .map(|(t, w)| (t.elapsed(), w.clone()))
             };
@@ -11801,22 +11820,19 @@ impl PipeDeadlined for Command {
     start_spawn_watchdog();
     // Registered BEFORE spawn: the wait for the global CreateProcess lock is
     // part of what can wedge, so timing must start here, not after.
-    let watch_slot = {
-        let mut g = SPAWN_INFLIGHT.lock().unwrap_or_else(|e| e.into_inner());
-        g.push((std::time::Instant::now(), format!("{:?}", cmd.get_program())));
-        g.len() - 1
+    let _watch = {
+        let id = SPAWN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        SPAWN_INFLIGHT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, (std::time::Instant::now(), format!("{:?}", cmd.get_program())));
+        SpawnWatch(id)
     };
     let mut child = cmd
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
-    {
-        let mut g = SPAWN_INFLIGHT.lock().unwrap_or_else(|e| e.into_inner());
-        if watch_slot < g.len() {
-            g.remove(watch_slot);
-        }
-    }
     let mut so = child.stdout.take();
     let mut se = child.stderr.take();
     let (tx_o, rx_o) = std::sync::mpsc::channel();
