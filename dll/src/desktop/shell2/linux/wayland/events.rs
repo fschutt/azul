@@ -2690,23 +2690,47 @@ pub(super) static SEAT_PRIMARY_SELECTION_SOURCE_LISTENER: zwp_primary_selection_
         cancelled: seat_primary_selection_source_cancelled,
     };
 
-/// A seat device's offers are not read: destroy them as they arrive.
+/// A seat device's offer (9b-ii-b-i-b-i-a-i-a): same no-op mime listener as
+/// the primary's; the read asks for UTF-8 plain text when the seat pastes.
 extern "C" fn seat_primary_selection_data_offer(
     data: *mut c_void,
     _dev: *mut zwp_primary_selection_device_v1,
     offer: *mut zwp_primary_selection_offer_v1,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    unsafe { destroy_primary_offer(window, offer) };
+    unsafe {
+        (window.wayland.wl_proxy_add_listener)(
+            offer as *mut wl_proxy,
+            &PRIMARY_SELECTION_OFFER_LISTENER as *const _ as *const _,
+            data,
+        );
+    }
 }
 
+/// The seat's current primary selection changed: the device says which
+/// seat, the offer (or NULL) is what a middle click on that seat pastes.
 extern "C" fn seat_primary_selection_selection(
-    _data: *mut c_void,
-    _dev: *mut zwp_primary_selection_device_v1,
-    _id: *mut zwp_primary_selection_offer_v1,
+    data: *mut c_void,
+    dev: *mut zwp_primary_selection_device_v1,
+    id: *mut zwp_primary_selection_offer_v1,
 ) {
-    // The offer object was already destroyed in `data_offer`; `id` is either
-    // that (dead) proxy or NULL, so there is nothing to do here.
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let Some(seat_id) = window
+        .seat_primary_selection_devices
+        .iter()
+        .find(|(_, d)| **d == dev)
+        .map(|(s, _)| *s)
+    else {
+        unsafe { destroy_primary_offer(window, id) };
+        return;
+    };
+    let old = window.seat_primary_offers.remove(&seat_id).unwrap_or(std::ptr::null_mut());
+    if !old.is_null() && old != id {
+        unsafe { destroy_primary_offer(window, old) };
+    }
+    if !id.is_null() {
+        window.seat_primary_offers.insert(seat_id, id);
+    }
 }
 
 /// The text a SEAT's source serves is keyed by the source proxy, since one

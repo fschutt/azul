@@ -544,6 +544,11 @@ pub struct WaylandWindow {
     /// What each seat source serves, keyed by the source proxy address (the
     /// `send` callback only gets the source).
     seat_primary_texts: std::collections::BTreeMap<usize, String>,
+    /// The current primary-selection OFFER per seat (the seat device's
+    /// `selection` event), what that seat's middle click pastes
+    /// (9b-ii-b-i-b-i-a-i-a).
+    seat_primary_offers:
+        std::collections::BTreeMap<u64, *mut defines::zwp_primary_selection_offer_v1>,
     /// One cursor surface per non-primary seat, created on first use like the
     /// primary's `pointer_state.cursor_surface`. A `wl_surface` takes the
     /// "cursor" role once; giving every pointer its own keeps the roles
@@ -2023,6 +2028,7 @@ impl WaylandWindow {
             seat_primary_selection_devices: std::collections::BTreeMap::new(),
             seat_primary_selection_sources: std::collections::BTreeMap::new(),
             seat_primary_texts: std::collections::BTreeMap::new(),
+            seat_primary_offers: std::collections::BTreeMap::new(),
             seat_cursor_surfaces: std::collections::BTreeMap::new(),
             seat_over_popup: std::collections::BTreeSet::new(),
             xdg_wm_base: std::ptr::null_mut(),
@@ -4548,9 +4554,42 @@ impl WaylandWindow {
         }
     }
 
-    /// A seat left (`handle_seat_gone`): its source and device go with it
-    /// (`zwp_primary_selection_device_v1.destroy` is request 1).
+    /// The text a SEAT's middle click pastes (9b-ii-b-i-b-i-a-i-a). When the
+    /// seat's current selection is our OWN source, its text is served
+    /// directly - reading our own offer through a pipe on this thread would
+    /// wait for a `send` this same thread has to answer (the primary path's
+    /// `native_primary_text` shortcut, per seat); `cancelled` clears it, so
+    /// a live source is the current selection.
+    fn read_seat_primary_selection(&self, seat_id: u64) -> Option<String> {
+        if let Some(src) = self.seat_primary_selection_sources.get(&seat_id) {
+            if let Some(text) = self.seat_primary_texts.get(&(*src as usize)) {
+                return Some(text.clone());
+            }
+        }
+        let offer = *self.seat_primary_offers.get(&seat_id)?;
+        if offer.is_null() {
+            return None;
+        }
+        let bytes = unsafe {
+            events::receive_from_offer(
+                self,
+                offer as *mut defines::wl_proxy,
+                events::PRIMARY_OFFER_RECEIVE_OPCODE,
+                "text/plain;charset=utf-8",
+            )
+        };
+        if bytes.is_empty() {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// A seat left (`handle_seat_gone`): its offer, source and device go with
+    /// it (`zwp_primary_selection_device_v1.destroy` is request 1).
     fn drop_seat_primary_selection(&mut self, seat_id: u64) {
+        if let Some(offer) = self.seat_primary_offers.remove(&seat_id) {
+            unsafe { events::destroy_primary_offer(self, offer) };
+        }
         self.drop_seat_primary_source(seat_id);
         if let Some(dev) = self.seat_primary_selection_devices.remove(&seat_id) {
             if !dev.is_null() {
@@ -5979,6 +6018,23 @@ impl WaylandWindow {
             state == 1,
         );
         self.update_seat_hit_test_at(seat_id, position);
+        // Middle-click paste on a SEAT (9b-ii-b-i-b-i-a-i-a): the seat's own
+        // primary selection is inserted at the SEAT's caret, recorded BEFORE
+        // the pass so the pass applies it - the primary's idiom, per seat.
+        let seat_editing = self
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| lw.text_edit_manager.seat_caret(seat_id).is_some());
+        if primary_paste_wanted(mouse_button, state == 1, seat_editing) {
+            if let Some(text) = self.read_seat_primary_selection(seat_id) {
+                if !text.is_empty() {
+                    if let Some(ref mut lw) = self.common.layout_window {
+                        let _ = lw.record_text_input_for_seat(seat_id, &text);
+                    }
+                }
+            }
+        }
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
         // The left release that ends a seat's selection gesture claims that
