@@ -3184,9 +3184,8 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                     return Update::DoNothing;
                 };
 
-                let mut node_local_dataset = match info.get_dataset(node_first_child) {
-                    None => return Update::DoNothing,
-                    Some(s) => s,
+                let Some(mut node_local_dataset) = info.get_dataset(node_first_child) else {
+                    return Update::DoNothing;
                 };
 
                 let Some(node_graph_node_id) =

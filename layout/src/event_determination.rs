@@ -303,7 +303,7 @@ impl EventProvider for DocumentEditEventProvider {
 /// Shared between the primary seat (`FullWindowState::mouse_state`) and every
 /// additional one in `pointer_seats` (9b-ii), so a second cursor gets exactly
 /// the semantics the first has - the same press-target rule for Click, the
-/// same ContextMenu on right release - rather than a reduced copy that drifts.
+/// same `ContextMenu` on right release - rather than a reduced copy that drifts.
 /// `target` is the node under THIS seat's cursor; `input_id` is the hover
 /// history that produced it and is what the click rule reads.
 #[allow(clippy::too_many_arguments)]

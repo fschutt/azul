@@ -221,7 +221,7 @@ fn fetch_remote(url: &str) -> Result<Vec<u8>, FetchError> {
 }
 
 #[cfg(all(feature = "std", not(feature = "http")))]
-fn fetch_remote(_url: &str) -> Result<Vec<u8>, FetchError> {
+const fn fetch_remote(_url: &str) -> Result<Vec<u8>, FetchError> {
     Err(FetchError::HttpUnavailable)
 }
 

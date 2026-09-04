@@ -1389,7 +1389,7 @@ extern "C" fn on_hex_committed(
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 0..=255 first
-fn channel_value(v: f32) -> u8 {
+const fn channel_value(v: f32) -> u8 {
     v.round().clamp(0.0, 255.0) as u8
 }
 

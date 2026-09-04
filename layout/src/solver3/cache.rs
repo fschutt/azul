@@ -551,8 +551,8 @@ pub struct LayoutCache {
     /// alone served the pre-key list back and made animations invisible.
     /// The fourth (`u64`) is the scroll GEOMETRY fingerprint
     /// (`scroll_geometry_fingerprint`): scrollbar necessity/track layout and
-    /// the VirtualView placeholder consume the ScrollManager snapshot, and a
-    /// VirtualView's published virtual size arrives ONLY through it — matching
+    /// the `VirtualView` placeholder consume the `ScrollManager` snapshot, and a
+    /// `VirtualView`'s published virtual size arrives ONLY through it — matching
     /// without it served the pre-publication list (no scrollbar) forever. Live
     /// scroll OFFSETS are deliberately excluded: they are GPU-animated so that
     /// scrolling never re-emits the list.

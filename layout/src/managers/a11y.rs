@@ -94,13 +94,13 @@ pub fn is_exposed_to_accessibility(node_data: &NodeData) -> bool {
 /// slider.dom().with_accessibility_name("Volume")
 /// ```
 ///
-/// — replaced the node's real role with `Role::Unknown`, which VoiceOver skips
+/// — replaced the node's real role with `Role::Unknown`, which `VoiceOver` skips
 /// exactly the way it skips `GenericContainer`. Naming a control DELETED it
 /// from the accessibility tree, so the more accessibility an app declared the
-/// less of it a screen reader could reach: 25 of AzWidgets' 691 nodes were
+/// less of it a screen reader could reach: 25 of `AzWidgets`' 691 nodes were
 /// `Unknown` for this reason alone.
 #[must_use]
-pub fn accessibility_role_is_specified(role: &AccessibilityRole) -> bool {
+pub const fn accessibility_role_is_specified(role: &AccessibilityRole) -> bool {
     !matches!(role, AccessibilityRole::Unknown)
 }
 
@@ -125,10 +125,10 @@ pub struct CursorA11yInfo {
 /// the `catch_unwind` the shells wrap the adapter in cannot save the process.
 /// An update that would trip one of these is never handed over; the caller
 /// rebuilds the full tree (incremental path) or keeps the last good state
-/// (full path). This is the 2026-08-29 AzWriter crash class: focus parked in a
+/// (full path). This is the 2026-08-29 `AzWriter` crash class: focus parked in a
 /// DOM that two `RefreshDom` relayouts had rebuilt.
 #[cfg(feature = "a11y")]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum A11yUpdateError {
     /// An incremental update (no `tree`) arrived before any full tree.
     NoTreeYet,
@@ -258,7 +258,7 @@ pub struct A11yManager {
     /// The last update [`Self::publish`] refused (diagnostics, tests).
     pub last_rejection: Option<A11yUpdateError>,
     /// Scroll offsets moved since the last full rebuild — bounds and
-    /// scroll_x/y in the delivered tree are stale until one runs.
+    /// `scroll_x/y` in the delivered tree are stale until one runs.
     pub scroll_dirty: bool,
     /// When the last scroll-driven rebuild ran (see
     /// [`Self::scroll_rebuild_due`]).
@@ -318,7 +318,7 @@ impl A11yManager {
             }
             Err(e) => {
                 self.last_tree_update = prev;
-                self.last_rejection = Some(e.clone());
+                self.last_rejection = Some(e);
                 Err(e)
             }
         }
@@ -356,10 +356,10 @@ impl A11yManager {
         Some(update)
     }
 
-    /// A scroll offset changed: bounds and scroll_x/y in the delivered tree
+    /// A scroll offset changed: bounds and `scroll_x/y` in the delivered tree
     /// are stale. The fast scroll path never re-lays out, so nothing else
     /// would ever rebuild the tree — screen readers saw pre-scroll rects.
-    pub fn mark_scroll_dirty(&mut self) {
+    pub const fn mark_scroll_dirty(&mut self) {
         self.scroll_dirty = true;
     }
 
@@ -404,7 +404,7 @@ impl A11yManager {
         scroll_manager: &crate::managers::scroll_state::ScrollManager,
     ) -> LogicalPosition {
         let mut acc = LogicalPosition::zero();
-        let mut cur = node_hierarchy.get(dom_idx).and_then(|i| i.parent_id());
+        let mut cur = node_hierarchy.get(dom_idx).and_then(NodeHierarchyItem::parent_id);
         let mut guard = 0usize;
         while let Some(parent) = cur {
             guard += 1;
@@ -415,7 +415,7 @@ impl A11yManager {
                 acc.x += off.x;
                 acc.y += off.y;
             }
-            cur = node_hierarchy.get(parent.index()).and_then(|i| i.parent_id());
+            cur = node_hierarchy.get(parent.index()).and_then(NodeHierarchyItem::parent_id);
         }
         acc
     }
@@ -470,13 +470,13 @@ impl A11yManager {
     #[must_use]
     pub fn update_tree(
         root_id: A11yNodeId,
-        layout_results: &std::collections::BTreeMap<DomId, DomLayoutResult>,
+        layout_results: &BTreeMap<DomId, DomLayoutResult>,
         scroll_manager: &crate::managers::scroll_state::ScrollManager,
         window_title: &AzString,
         window_size: LogicalSize,
         focused_node: Option<DomNodeId>,
         hidpi_factor: f32,
-        dirty_text_overrides: &std::collections::BTreeMap<(DomId, NodeId), String>,
+        dirty_text_overrides: &BTreeMap<(DomId, NodeId), String>,
         cursor_info: Option<CursorA11yInfo>,
     ) -> TreeUpdate {
         let mut nodes = Vec::new();
@@ -2807,8 +2807,10 @@ mod autotest_generated {
             (NodeType::Input, Role::TextInput),
             (NodeType::H1, Role::Heading),
         ] {
-            let mut a11y = AccessibilityInfo::default();
-            a11y.accessibility_name = OptionString::Some(AzString::from("Accent colour"));
+            let a11y = AccessibilityInfo {
+                accessibility_name: OptionString::Some(AzString::from("Accent colour")),
+                ..Default::default()
+            };
             assert_eq!(
                 a11y.role,
                 AccessibilityRole::Unknown,

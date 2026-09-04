@@ -100,7 +100,7 @@ pub struct FocusManager {
     /// Key events of a seat target ITS node; click-to-focus and the Tab walk
     /// move ITS entry. The text-edit session, the `:focus` restyle and the
     /// a11y focus stay the primary's (follow-ups, see the ledger).
-    pub seat_focus: std::collections::BTreeMap<u64, DomNodeId>,
+    pub seat_focus: BTreeMap<u64, DomNodeId>,
 }
 
 /// How many times [`FocusManager::pending_contenteditable_focus`] may be put
@@ -114,7 +114,7 @@ pub const MAX_PENDING_FOCUS_RETRIES: u8 = 2;
 /// answers in `None`: "the app asked to clear focus", "the selector matched
 /// nothing", and "the tab order is empty" — and every caller applied all of
 /// them as a clear. A focus request that merely MISSED (a selector against a
-/// VirtualView that had not materialized yet, a Tab press with nothing
+/// `VirtualView` that had not materialized yet, a Tab press with nothing
 /// tabbable) therefore DESTROYED the current focus/caret as a side effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusResolution {
@@ -150,7 +150,7 @@ impl FocusManager {
             pending_contenteditable_focus: None,
             deferred_focus_target: None,
             pending_focus_retries: 0,
-            seat_focus: std::collections::BTreeMap::new(),
+            seat_focus: BTreeMap::new(),
         }
     }
 
@@ -306,7 +306,7 @@ impl FocusManager {
     /// spend a retry: mid-pass absence is not a failed attempt, and burning
     /// the bounded budget on it locked in the (0,0)+Trailing fallback - the
     /// device caret landing MID-TEXT ('4|2') when tabbing into a filled
-    /// NumberInput (2026-08-31).
+    /// `NumberInput` (2026-08-31).
     pub const fn rearm_pending_contenteditable_focus_transient(
         &mut self,
         pending: PendingContentEditableFocus,
@@ -479,7 +479,7 @@ fn collect_tab_order(
                 return false;
             }
             let mut guard = 0usize;
-            while let Some(parent) = hierarchy.get(n).and_then(|h| h.parent_id()) {
+            while let Some(parent) = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
                 guard += 1;
                 if guard > 65_536 {
                     break;
@@ -682,7 +682,7 @@ fn nested_dom_ids(layout_results: &BTreeMap<DomId, DomLayoutResult>, host: DomId
         let Some(lr) = layout_results.get(&current) else {
             continue;
         };
-        for item in lr.display_list.items.iter() {
+        for item in &lr.display_list.items {
             if let DisplayListItem::VirtualView { child_dom_id, .. } = item {
                 if *child_dom_id != host && !out.contains(child_dom_id) {
                     out.push(*child_dom_id);
@@ -2454,7 +2454,7 @@ fn spatial_navigation_containers(
                 });
             }
         }
-        match hierarchy.get(node).and_then(|h| h.parent_id()) {
+        match hierarchy.get(node).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
             Some(parent) => node = parent,
             None => break,
         }

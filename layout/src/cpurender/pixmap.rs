@@ -1282,7 +1282,7 @@ pub fn svg_path_to_agg(
 /// px, to be used as `(x + off) * scale`-style closures by the caller.
 #[must_use]
 pub fn svg_user_space_mapping(
-    bounds: &azul_core::geom::LogicalRect,
+    bounds: &LogicalRect,
     view_box: Option<(f32, f32, f32, f32)>,
     dpi_factor: f32,
 ) -> (f32, f32, f32, f32) {

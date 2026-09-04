@@ -236,7 +236,7 @@ impl FullWindowState {
 
     /// One seat's keyboard (9b-ii-a-i): the primary's own for seat 0.
     #[must_use]
-    pub fn keyboard_seat(&self, seat_id: u64) -> Option<&azul_core::window::KeyboardState> {
+    pub fn keyboard_seat(&self, seat_id: u64) -> Option<&KeyboardState> {
         if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
             return Some(&self.keyboard_state);
         }
@@ -248,7 +248,7 @@ impl FullWindowState {
     }
 
     /// One seat's keyboard for writing, created (sorted by id) on first use.
-    pub fn keyboard_seat_mut(&mut self, seat_id: u64) -> &mut azul_core::window::KeyboardState {
+    pub fn keyboard_seat_mut(&mut self, seat_id: u64) -> &mut KeyboardState {
         use azul_core::window::{KeyboardSeat, KeyboardSeatVec, KeyboardState};
         if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
             return &mut self.keyboard_state;
@@ -293,7 +293,7 @@ impl FullWindowState {
     /// Every keyboard, the primary's first.
     pub fn keyboard_seats_with_primary(
         &self,
-    ) -> impl Iterator<Item = (u64, &azul_core::window::KeyboardState)> {
+    ) -> impl Iterator<Item = (u64, &KeyboardState)> {
         core::iter::once((azul_core::window::PRIMARY_POINTER_SEAT, &self.keyboard_state)).chain(
             self.keyboard_seats
                 .as_ref()

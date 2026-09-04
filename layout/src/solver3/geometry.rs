@@ -67,7 +67,7 @@ impl ContainingBlock {
     /// default: it is what `AvailableSpace::default()` is, and what every
     /// pre-typed consumer effectively assumed ("no constraint, natural size").
     #[must_use]
-    pub fn from_flattened(size: LogicalSize) -> Self {
+    pub const fn from_flattened(size: LogicalSize) -> Self {
         Self {
             width: axis_from_flattened(
                 size.width,
@@ -89,7 +89,7 @@ impl ContainingBlock {
     /// never had a semantic channel, so a non-finite height reads as
     /// max-content like [`Self::from_flattened`].
     #[must_use]
-    pub fn from_flattened_with_width_type(
+    pub const fn from_flattened_with_width_type(
         size: LogicalSize,
         width_type: crate::text3::cache::AvailableSpace,
     ) -> Self {
@@ -140,7 +140,7 @@ impl ContainingBlock {
 /// f32 loads inside large sizing functions, and every constructor above is
 /// called from them.
 #[inline(never)]
-fn axis_from_flattened(
+const fn axis_from_flattened(
     v: f32,
     indefinite_kind: crate::text3::cache::AvailableSpace,
 ) -> crate::text3::cache::AvailableSpace {

@@ -86,7 +86,7 @@ pub fn focusable_under_pointer(
 /// Wayland a `wl_seat`'s keyboard to that seat - so a seat's keys resolve
 /// against that seat's focus (9b-ii-a-i-d).
 #[must_use]
-pub fn seat_of_event(event: &SyntheticEvent) -> u64 {
+pub const fn seat_of_event(event: &SyntheticEvent) -> u64 {
     match &event.data {
         EventData::Mouse(m) => m.seat_id,
         EventData::Scroll(s) => s.seat_id,

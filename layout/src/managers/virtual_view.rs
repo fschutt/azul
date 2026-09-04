@@ -520,7 +520,7 @@ pub struct VirtualViewDebugInfo {
 
 impl VirtualViewState {
     /// Creates a new `VirtualViewState` with the given nested DOM ID
-    fn new(nested_dom_id: DomId) -> Self {
+    const fn new(nested_dom_id: DomId) -> Self {
         Self {
             materialized: None,
             virtual_rect: None,

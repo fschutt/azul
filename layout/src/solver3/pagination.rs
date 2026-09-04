@@ -110,7 +110,7 @@ azul_css::impl_vec_debug!(MarginBoxContent, MarginBoxContentVec);
 impl MarginBoxContent {
     /// `Combined` from a Rust vector.
     #[must_use]
-    pub fn combined(parts: Vec<MarginBoxContent>) -> Self {
+    pub fn combined(parts: Vec<Self>) -> Self {
         Self::Combined(parts.into())
     }
 
@@ -741,8 +741,6 @@ impl TableHeaderTracker {
     }
 }
 
-/// Page margins in logical px (CSS order).
-
 /// ONE page's complete setup — size (orientation = which side is longer),
 /// margins, and header/footer decoration. The classic office suites "page setup" unit.
 #[derive(Debug, Clone, PartialEq)]
@@ -753,6 +751,7 @@ pub struct PageSetup {
     pub header_footer: HeaderFooterConfig,
     /// Full page size INCLUDING margins (swap the sides for landscape).
     pub page_size: azul_core::geom::LogicalSize,
+    /// Page margins in logical px (CSS order).
     pub margins: PageMargins,
 }
 

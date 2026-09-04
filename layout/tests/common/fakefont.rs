@@ -920,7 +920,7 @@ fn push_i64(b: &mut Vec<u8>, v: i64) {
 
 /// Zero-pad `v` up to the next multiple of 4 bytes.
 fn pad4(v: &mut Vec<u8>) {
-    while v.len() % 4 != 0 {
+    while !v.len().is_multiple_of(4) {
         v.push(0);
     }
 }
