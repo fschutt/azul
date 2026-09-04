@@ -303,3 +303,70 @@ fn a_seats_select_all_copy_text_and_cut_act_on_its_own_field() {
     // Select-all is a seat-only helper: the primary keeps its cross-block path.
     assert!(!lw.select_all_for_seat(azul_core::window::PRIMARY_POINTER_SEAT, node(TEXT_A)));
 }
+
+/// A seat's Enter (9b-ii-a-i-d-ii-b-ii): the structural split is recorded at
+/// the SEAT's caret in the seat's node, and the editing query that decides
+/// whether Backspace merges blocks reads the seat's caret - both while the
+/// primary's caret sits in another field.
+#[test]
+fn a_seats_enter_splits_at_its_own_caret() {
+    use azul_core::events::{
+        DefaultAction, SelectionDirection, SelectionMode, SelectionOp, SelectionStep,
+    };
+    use azul_layout::managers::changeset::{DocumentOperation, NodePosition};
+
+    let mut lw = two_fields();
+    primary_edits(&mut lw, TEXT_A, 1);
+    // The seat focuses field B's HOST (the contenteditable div), as a click
+    // would; its caret lives in the text child.
+    const DIV_B: usize = 3;
+    lw.focus_manager.set_focused_node_for(SEAT, Some(node(DIV_B)));
+    let left = SelectionOp::new(
+        SelectionDirection::Backward,
+        SelectionStep::Character,
+        SelectionMode::Move,
+    );
+    assert!(lw.apply_selection_op_for_seat(SEAT, node(TEXT_B), &left));
+    assert_eq!(seat_caret_byte(&lw), Some((TEXT_B, 2)));
+
+    // The editing query answers for the SEAT's caret (mid-block), not the
+    // primary's.
+    let q = lw
+        .build_editing_query_state_for_seat(SEAT, Some(node(DIV_B)))
+        .expect("the host is contenteditable");
+    assert!(q.is_contenteditable);
+    assert!(!q.cursor_at_block_start);
+    assert!(!q.cursor_at_block_end);
+
+    // Enter: split the host at the seat's caret - text child 0, byte 2.
+    let id = lw
+        .record_structural_default_action_for_seat(
+            SEAT,
+            &DefaultAction::SplitBlockAtCursor { target: node(DIV_B) },
+        )
+        .expect("a split is recorded");
+    let pending = lw
+        .pending_document_edit
+        .as_ref()
+        .expect("the recorded edit awaits the app");
+    assert_eq!(pending.id, id);
+    match &pending.operation {
+        DocumentOperation::SplitNode(split) => {
+            assert_eq!(split.node, node(DIV_B));
+            assert_eq!(split.at, NodePosition::in_text_child(0, 2));
+        }
+        other => panic!("expected a split, got {other:?}"),
+    }
+    assert_eq!(
+        lw.text_edit_manager.get_primary_cursor().map(|c| c.cluster_id.start_byte_in_run),
+        Some(1),
+        "the primary's caret in A is untouched"
+    );
+
+    // And a seat caret at the block's start makes Backspace a merge question.
+    lw.text_edit_manager.set_seat_caret(SEAT, node(TEXT_B), at(0));
+    let q = lw
+        .build_editing_query_state_for_seat(SEAT, Some(node(DIV_B)))
+        .expect("the host is contenteditable");
+    assert!(q.cursor_at_block_start);
+}

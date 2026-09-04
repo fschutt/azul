@@ -2852,6 +2852,31 @@ impl LayoutWindow {
         &self,
         focused_node: Option<DomNodeId>,
     ) -> Option<crate::default_actions::EditingQueryState> {
+        self.build_editing_query_state_for_seat(
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            focused_node,
+        )
+    }
+
+    /// The caret a seat's key acts on (9b-ii-a-i-d-ii-b-ii): the primary's
+    /// multi-cursor for seat 0, the seat's own caret otherwise.
+    #[must_use]
+    pub fn cursor_of_seat(&self, seat_id: u64) -> Option<TextCursor> {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.text_edit_manager.get_primary_cursor()
+        } else {
+            self.text_edit_manager.seat_caret(seat_id).map(|c| c.cursor)
+        }
+    }
+
+    /// `build_editing_query_state` read against seat `seat_id`'s caret
+    /// (9b-ii-a-i-d-ii-b-ii): whether ITS caret sits at the block's start /
+    /// end decides whether its Backspace / Delete merge blocks.
+    pub fn build_editing_query_state_for_seat(
+        &self,
+        seat_id: u64,
+        focused_node: Option<DomNodeId>,
+    ) -> Option<crate::default_actions::EditingQueryState> {
         let focus = focused_node?;
         let node_id = focus.node.into_crate_internal()?;
         let host = self.find_contenteditable_host(focus.dom, node_id)?;
@@ -2883,10 +2908,9 @@ impl LayoutWindow {
         // content (overlay-first via get_text_before_textinput). Conservative
         // on multi-run content: a caret we cannot prove at the boundary keeps
         // Backspace/Delete on the plain per-IFC text path — safe fallback.
-        let (at_start, at_end) =
-            self.text_edit_manager
-                .get_primary_cursor()
-                .map_or((false, false), |cursor| {
+        let (at_start, at_end) = self
+            .cursor_of_seat(seat_id)
+            .map_or((false, false), |cursor| {
                     let content = self.get_text_before_textinput(focus.dom, node_id);
                     let at_start = cursor.cluster_id.source_run == 0
                         && cursor.cluster_id.start_byte_in_run == 0;
@@ -3153,6 +3177,19 @@ impl LayoutWindow {
         &mut self,
         action: &azul_core::events::DefaultAction,
     ) -> Option<u64> {
+        self.record_structural_default_action_for_seat(
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            action,
+        )
+    }
+
+    /// `record_structural_default_action` for the key of seat `seat_id`
+    /// (9b-ii-a-i-d-ii-b-ii): a second seat's Enter splits at ITS caret.
+    pub fn record_structural_default_action_for_seat(
+        &mut self,
+        seat_id: u64,
+        action: &azul_core::events::DefaultAction,
+    ) -> Option<u64> {
         use crate::managers::changeset::{
             DocOpMergeNodes, DocOpSplitNode, DocumentChangeset, DocumentOperation,
         };
@@ -3200,7 +3237,7 @@ impl LayoutWindow {
                 // is text — the byte inside it. Splitting a <ul> between
                 // <li>s, a <div> between subtrees, or a <p> mid-word is the
                 // SAME operation with a different position.
-                let at = self.caret_node_position(target.dom, node_id)?;
+                let at = self.caret_node_position_for_seat(seat_id, target.dom, node_id)?;
                 (
                     target,
                     DocumentOperation::SplitNode(DocOpSplitNode { node: target, at }),
@@ -3386,8 +3423,9 @@ impl LayoutWindow {
     /// node to the direct child), plus the byte inside it iff that child is
     /// a text node. A caret on the node itself (no children / element-level
     /// caret) yields `before_child(current index)` — a pure boundary.
-    fn caret_node_position(
+    fn caret_node_position_for_seat(
         &self,
+        seat_id: u64,
         dom_id: DomId,
         node_id: NodeId,
     ) -> Option<crate::managers::changeset::NodePosition> {
@@ -3396,15 +3434,21 @@ impl LayoutWindow {
         let hierarchy = lr.styled_dom.node_hierarchy.as_container();
         let node_data = lr.styled_dom.node_data.as_container();
 
-        let cursor = self.text_edit_manager.get_primary_cursor()?;
+        // The SEAT's caret (9b-ii-a-i-d-ii-b-ii); the primary's for seat 0.
+        let cursor = self.cursor_of_seat(seat_id)?;
         // Which node does the caret live on? (initialize_editing puts it on
         // the text child; element-level editing puts it on the node itself.)
-        let caret_node = self
-            .text_edit_manager
-            .multi_cursor
-            .as_ref()
-            .and_then(|mc| mc.node_id.node.into_crate_internal())
-            .unwrap_or(node_id);
+        let caret_node = if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.text_edit_manager
+                .multi_cursor
+                .as_ref()
+                .and_then(|mc| mc.node_id.node.into_crate_internal())
+        } else {
+            self.text_edit_manager
+                .seat_caret(seat_id)
+                .and_then(|c| c.node.node.into_crate_internal())
+        }
+        .unwrap_or(node_id);
 
         // Walk the caret's node up to the DIRECT child of `node`.
         let mut direct_child = caret_node;

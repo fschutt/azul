@@ -10862,7 +10862,7 @@ pub trait PlatformWindow {
                     // of activation / plain text ops.
                     let editing_state = self
                         .get_layout_window()
-                        .and_then(|lw| lw.build_editing_query_state(focused_node));
+                        .and_then(|lw| lw.build_editing_query_state_for_seat(key_seat, focused_node));
                     let default_action_result = azul_layout::default_actions::determine_keyboard_default_action_with_editing(
                         keyboard_state, focused_node, layout_results, prevent_default,
                         editing_state.as_ref(),
@@ -10999,7 +10999,8 @@ pub trait PlatformWindow {
                                 // relayout (O3-render), so charge one.
                                 if let Some(lw) = self.get_layout_window_mut() {
                                     if lw
-                                        .record_structural_default_action(
+                                        .record_structural_default_action_for_seat(
+                                            key_seat,
                                             &default_action_result.action,
                                         )
                                         .is_some()

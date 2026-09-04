@@ -2266,11 +2266,22 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       not routed through the seat helper. Evidence: host check EXIT=0; azul-core 2809,
       azul-layout lib 7683 / `--test all` 1009 (+1), e2e 62 scenarios, azul-dll 2071, 0 failed;
       8/8 gate (the shell arm compiles on every target).
-- [ ] 9b-ii-a-i-d-ii-b-ii STRUCTURAL edits per seat: Enter (`SplitBlockAtCursor`), Backspace at a
-      block start (`MergeWithPrevious`) and Delete at a block end (`MergeWithNext`) go through
-      `record_default_action_as_structural_edit`, whose `caret_node_position` reads the PRIMARY's
-      caret; the default-action site knows the key seat (d-i) but the layout side does not.
-      Thread the seat through and read the seat's caret for the split position.
+- [x] 9b-ii-a-i-d-ii-b-ii DONE. Three readers of the primary's caret on the structural path now
+      take the seat: `build_editing_query_state_for_seat` (whether the caret sits at the block's
+      start / end - what turns a seat's Backspace / Delete into a merge), `caret_node_position_for_seat`
+      (the split position: the seat's caret in the seat's caret NODE, walked up to the host's
+      direct child), and `record_structural_default_action_for_seat`, all through one
+      `cursor_of_seat` (the multi-cursor for seat 0, the `SeatCaret` otherwise); the primary's
+      entry points delegate with seat 0. The merges themselves (`merge_join_position`) never read a
+      caret, and the resume point is derived from the operation, so nothing else had to change.
+      The shell's default-action site passes its `key_seat` (from d-i) to both. WHY the gap
+      existed: the layout side of the default-action path had no seat parameter, so a second
+      seat's Enter split the host at the PRIMARY's caret - which may sit in another field
+      entirely, walking up to the wrong direct child. Test: the seat's Enter records
+      `SplitNode { at: in_text_child(0, 2) }` at the seat's caret while the primary's caret sits
+      at byte 1 of another field, the editing query reads mid-block for the seat, and a seat
+      caret at byte 0 reads block-start. Evidence: host check EXIT=0; azul-core 2809, azul-layout
+      lib 7683 / `--test all` 1010 (+1), e2e 62 scenarios, azul-dll 2071, 0 failed; 8/8 gate.
 - [ ] 9b-ii-a-i-d-ii-b-iii A seat's rich (styled) Copy / Paste: the seat path carries plain text
       only; the primary's `get_selected_content_for_clipboard` / `set_paste_content` styled path
       reads the multi-cursor. Extend `seat_selected_text` to styled runs when a seat's selection
