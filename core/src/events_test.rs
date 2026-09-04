@@ -2199,7 +2199,8 @@ mod autotest_generated {
             EventType::BiometricResult => EventType::ScreenColorPicked,
             EventType::ScreenColorPicked => EventType::KeyringResult,
             EventType::KeyringResult => EventType::DocumentEdit,
-            EventType::DocumentEdit => EventType::DeviceConnected,
+            EventType::DocumentEdit => EventType::TextChanged,
+            EventType::TextChanged => EventType::DeviceConnected,
             EventType::DeviceConnected => EventType::DeviceDisconnected,
             EventType::DeviceDisconnected => EventType::PenSqueeze,
             EventType::PenSqueeze => EventType::PenDoubleTap,
@@ -2331,6 +2332,7 @@ mod autotest_generated {
             (EventType::PenEnter, EventData::None),
             (EventType::PenLeave, EventData::None),
             (EventType::DocumentEdit, EventData::None),
+            (EventType::TextChanged, EventData::None),
             // ── Added by 13f ──────────────────────────────────────────────
             // THIRTY-SIX of the 104 `EventType`s were absent from this list,
             // so the ratchet was green over 65% of the enum and silent about
