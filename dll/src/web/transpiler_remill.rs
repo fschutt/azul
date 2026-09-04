@@ -11727,6 +11727,92 @@ fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileEr
     }
 }
 
+/// `Command::output()` with a deadline that also covers the PIPE READS.
+///
+/// A lift run wedged for 43 minutes with zero CPU: ten idle worker threads, the
+/// walk thread in an unclassified wait, and NO child processes left alive. The
+/// tool had exited; what never finished was reading its stdout to EOF, which
+/// happens on Windows when a concurrently-spawned sibling inherits the pipe's
+/// write handle. `output()` waits for EOF, so the walk stops forever and the
+/// whole lift (hours of work) is lost with nothing in the log.
+///
+/// Bounding the child alone is not enough, precisely because the child is
+/// already gone in that state - the reads are what hang. So readers run on
+/// their own threads and are collected through channels with the same
+/// deadline; on expiry the child is killed and the threads are abandoned
+/// rather than joined (joining is the thing that blocks). A timeout is
+/// reported as a transient failure, so the existing retry path re-runs the
+/// tool instead of failing the function.
+trait PipeDeadlined {
+    fn pipe_deadlined(&mut self) -> std::io::Result<std::process::Output>;
+}
+
+impl PipeDeadlined for Command {
+    fn pipe_deadlined(&mut self) -> std::io::Result<std::process::Output> {
+        let timeout = std::time::Duration::from_secs(
+            std::env::var("AZ_TOOL_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(900),
+        );
+        let cmd = self;
+    use std::io::Read as _;
+    let mut child = cmd
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let mut so = child.stdout.take();
+    let mut se = child.stderr.take();
+    let (tx_o, rx_o) = std::sync::mpsc::channel();
+    let (tx_e, rx_e) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut v = Vec::new();
+        if let Some(s) = so.as_mut() {
+            let _ = s.read_to_end(&mut v);
+        }
+        let _ = tx_o.send(v);
+    });
+    std::thread::spawn(move || {
+        let mut v = Vec::new();
+        if let Some(s) = se.as_mut() {
+            let _ = s.read_to_end(&mut v);
+        }
+        let _ = tx_e.send(v);
+    });
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait()? {
+            Some(s) => break s,
+            None => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "tool exceeded its deadline",
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+        }
+    };
+    let left = deadline.saturating_duration_since(std::time::Instant::now());
+    let stdout = rx_o.recv_timeout(left).unwrap_or_default();
+    let left = deadline.saturating_duration_since(std::time::Instant::now());
+    let stderr = match rx_e.recv_timeout(left) {
+        Ok(v) => v,
+        Err(_) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "tool exited but its output never reached EOF",
+            ))
+        }
+    };
+        Ok(std::process::Output { status, stdout, stderr })
+    }
+}
+
 fn run_tool_once(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileError> {
     // Windows: CreateProcess caps the command line at 32,767 chars,
     // but `--bytes <hex>` for a 64 KiB fn is ~128 K chars (macOS
@@ -11775,7 +11861,7 @@ fn run_tool_once(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), Transp
             let rsp_arg = format!("@{}", path.display());
             let out = Command::new(prog)
                 .arg(&rsp_arg)
-                .output()
+                .pipe_deadlined()
                 .map_err(|e| TranspileError {
                     fn_name: fn_name.to_string(),
                     reason: format!("spawn {}: {e}", prog.display()),
@@ -11816,7 +11902,7 @@ fn run_tool_once(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), Transp
             let flagfile_arg = format!("--flagfile={}", path.display());
             let out = Command::new(prog)
                 .arg(&flagfile_arg)
-                .output()
+                .pipe_deadlined()
                 .map_err(|e| TranspileError {
                     fn_name: fn_name.to_string(),
                     reason: format!("spawn {}: {e}", prog.display()),
@@ -11845,7 +11931,7 @@ fn run_tool_once(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), Transp
     }
     let out = Command::new(prog)
         .args(args)
-        .output()
+        .pipe_deadlined()
         .map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
             reason: format!("spawn {}: {e}", prog.display()),
