@@ -2938,6 +2938,9 @@ impl HeadlessWindow {
 // === PlatformWindow Trait Implementation ===
 
 impl PlatformWindow for HeadlessWindow {
+    /// Headless has no window manager to hand a drag to.
+    fn handle_begin_interactive_move(&mut self) {}
+
     fn regenerate_layout_once(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {

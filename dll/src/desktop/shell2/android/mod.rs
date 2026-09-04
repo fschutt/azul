@@ -528,6 +528,10 @@ impl PlatformWindow for AndroidWindow {
     /// "requested on API 26+", the closest this backend can answer
     /// synchronously, corrected by the framework's answer within a frame. A
     /// release always leaves no lock held.
+    /// Mobile windows are managed by the system shell and are never dragged
+    /// by the application.
+    fn handle_begin_interactive_move(&mut self) {}
+
     fn handle_set_pointer_lock(&mut self, locked: bool) -> bool {
         let dispatched = set_pointer_capture(locked);
         locked && dispatched

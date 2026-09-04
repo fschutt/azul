@@ -9829,6 +9829,9 @@ impl WaylandPopup {
 }
 
 impl PlatformWindow for WaylandPopup {
+    /// A popup is positioned by its parent surface, never dragged by a user.
+    fn handle_begin_interactive_move(&mut self) {}
+
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
         let scale = self
             .common

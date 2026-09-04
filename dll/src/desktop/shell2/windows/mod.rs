@@ -7088,6 +7088,17 @@ impl Win32Window {
 // PlatformWindow Trait Implementation
 
 impl PlatformWindow for Win32Window {
+    /// Hand the drag to the window manager (`WM_NCLBUTTONDOWN` + `HTCAPTION`).
+    ///
+    /// Forwarder to the inherent implementation, which was unreachable for
+    /// exactly the same reason X11's was - written into `impl Win32Window`
+    /// instead of here, so the trait's old no-op default ran and a CSD
+    /// titlebar drag did nothing. NOT verified on a Windows box (found by the
+    /// X11 audit and fixed for parity).
+    fn handle_begin_interactive_move(&mut self) {
+        Win32Window::handle_begin_interactive_move(self);
+    }
+
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
         crate::desktop::eyedropper::windows::capture(self)
     }
