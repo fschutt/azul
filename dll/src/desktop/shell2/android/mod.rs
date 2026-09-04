@@ -39,6 +39,7 @@ use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
 use crate::{impl_platform_window_getters, log_debug, log_error, log_info};
 
 pub mod accessibility;
+pub mod clipboard;
 
 #[cfg(feature = "android-activity")]
 use android_activity::{

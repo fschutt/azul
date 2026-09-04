@@ -290,6 +290,7 @@ impl StyledNodeState {
             dragging: false,
             drag_over: false,
             placeholder: false,
+            seat_focused: false,
         }
     }
 

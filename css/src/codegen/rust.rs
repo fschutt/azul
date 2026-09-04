@@ -388,6 +388,7 @@ pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
         CssPathPseudoSelector::Hover => "CssPathPseudoSelector::Hover".to_string(),
         CssPathPseudoSelector::Active => "CssPathPseudoSelector::Active".to_string(),
         CssPathPseudoSelector::Focus => "CssPathPseudoSelector::Focus".to_string(),
+        CssPathPseudoSelector::SeatFocus => "CssPathPseudoSelector::SeatFocus".to_string(),
         CssPathPseudoSelector::Backdrop => "CssPathPseudoSelector::Backdrop".to_string(),
         CssPathPseudoSelector::Lang(lang) => format!(
             "CssPathPseudoSelector::Lang(AzString::from_const_str(\"{}\"))",

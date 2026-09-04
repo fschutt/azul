@@ -4055,6 +4055,8 @@ FOUND AND FIXED HERE:
       one. Verified in both directions — three consecutive green full-suite runs, and with
       `during` pinned to `before` all eight attempts fail and the panic lists them.
 
+- [x] 11d DONE 2026-09-04 (blind Android): Android had NO arm in `get_system_clipboard` / `set_system_clipboard` - it fell through to the catch-all that answers `None` / `false`, so Paste found nothing AND Cut was inert (its deletion is gated on the copy reporting success), on a platform that has had a clipboard since API 1. Wired: `android/clipboard.rs` (`read_payload` / `write_payload` / `get_clipboard_content` / `write_to_clipboard` / `has_text`) over three new `NativeTextBridge` statics (`getClipboardText` via `coerceToText` so a URI or Intent clip still pastes, `getClipboardHtml` gated on `ClipDescription.MIMETYPE_TEXT_HTML`, `setClipboard` publishing `newHtmlText` when the payload carries markup and `newPlainText` otherwise, each catching `Throwable` and answering false so an oversized Binder transaction never reports success). `ClipData` speaks MIME types, so the payload is tagged `Platform::Unix` and `text/plain` / `text/html` resolve through the shared flavor table with no Android-specific arm downstream. Evidence: `cargo check -p azul-dll --release --target aarch64-linux-android` EXIT=0; `javac` of all bridge sources against android-34 EXIT=0. Platform limits documented in the module: reads are focus-gated since API 29 and toast since API 31, so `None` can mean "not focused" as well as "empty".
+
 ## Device verification owed (blind-implemented per the 2026-09-04 ruling)
 
 Everything below compiles on every gate target and is wired end to end; what it lacks is a

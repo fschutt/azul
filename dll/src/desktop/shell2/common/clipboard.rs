@@ -79,11 +79,20 @@ pub fn get_system_clipboard() -> Option<ClipboardPayload> {
     {
         crate::desktop::shell2::ios::clipboard::read_payload()
     }
+    // Android had no arm here at all and fell through to the `None` below,
+    // so Paste found nothing on a platform that has had a clipboard since
+    // API 1. `ClipData` speaks MIME types, so the payload is tagged
+    // `Platform::Unix` like X11 and Wayland.
+    #[cfg(target_os = "android")]
+    {
+        crate::desktop::shell2::android::clipboard::read_payload()
+    }
     #[cfg(not(any(
         target_os = "windows",
         target_os = "macos",
         target_os = "linux",
-        target_os = "ios"
+        target_os = "ios",
+        target_os = "android"
     )))]
     {
         None
@@ -128,11 +137,21 @@ pub fn set_system_clipboard(payload: &ClipboardPayload) -> bool {
     {
         crate::desktop::shell2::ios::clipboard::write_payload(payload)
     }
+    // See the read side: Android had no arm and answered `false`, which
+    // `CutToClipboard` reads as "the copy failed, do not delete" - so Cut
+    // was inert too, not just Copy. A clip carries one HTML representation
+    // plus its plain-text coercion, so the fan-out lands as
+    // `ClipData.newHtmlText` when the payload has markup.
+    #[cfg(target_os = "android")]
+    {
+        crate::desktop::shell2::android::clipboard::write_payload(payload)
+    }
     #[cfg(not(any(
         target_os = "windows",
         target_os = "macos",
         target_os = "linux",
-        target_os = "ios"
+        target_os = "ios",
+        target_os = "android"
     )))]
     {
         let _ = payload;

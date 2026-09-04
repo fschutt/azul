@@ -27,6 +27,9 @@
 package com.azul.text;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipDescription;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Insets;
 import android.os.Build;
@@ -434,6 +437,97 @@ public final class NativeTextBridge {
             }
         });
         return true;
+    }
+
+    /**
+     * The primary clip as plain text, or null.
+     *
+     * `coerceToText` rather than `getText`: a clip whose item is a URI or an
+     * Intent still has a text form, and a paste that silently dropped those
+     * would look like an empty clipboard. Since Android 10 the system returns
+     * null here unless this app holds focus, so null means "empty, or not
+     * ours to read" - the Rust side treats both as nothing to paste.
+     */
+    public static String getClipboardText(Activity activity) {
+        if (activity == null) {
+            return null;
+        }
+        try {
+            ClipboardManager cm =
+                    (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm == null) {
+                return null;
+            }
+            ClipData clip = cm.getPrimaryClip();
+            if (clip == null || clip.getItemCount() == 0) {
+                return null;
+            }
+            CharSequence text = clip.getItemAt(0).coerceToText(activity);
+            return text == null ? null : text.toString();
+        } catch (Throwable t) {
+            Log.w("azul", "NativeTextBridge.getClipboardText: " + t);
+            return null;
+        }
+    }
+
+    /**
+     * The primary clip's HTML markup, or null when the source published none.
+     *
+     * Checked against the description first: asking a plain-text clip for its
+     * HTML returns null anyway, but the MIME check keeps the common case from
+     * touching the item at all.
+     */
+    public static String getClipboardHtml(Activity activity) {
+        if (activity == null) {
+            return null;
+        }
+        try {
+            ClipboardManager cm =
+                    (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm == null) {
+                return null;
+            }
+            ClipData clip = cm.getPrimaryClip();
+            if (clip == null || clip.getItemCount() == 0) {
+                return null;
+            }
+            ClipDescription desc = clip.getDescription();
+            if (desc != null && !desc.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML)) {
+                return null;
+            }
+            return clip.getItemAt(0).getHtmlText();
+        } catch (Throwable t) {
+            Log.w("azul", "NativeTextBridge.getClipboardHtml: " + t);
+            return null;
+        }
+    }
+
+    /**
+     * Publish the primary clip. `html` may be null for a plain clip.
+     *
+     * Returns false on any failure, because the caller gates Cut's deletion
+     * on it: the clipboard is a Binder transaction and an oversized clip
+     * throws in the system server, so "it did not land" has to be reportable.
+     */
+    public static boolean setClipboard(Activity activity, String text, String html) {
+        if (activity == null || text == null) {
+            return false;
+        }
+        try {
+            ClipboardManager cm =
+                    (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm == null) {
+                return false;
+            }
+            ClipData clip = html == null
+                    ? ClipData.newPlainText("azul", text)
+                    : ClipData.newHtmlText("azul", text, html);
+            cm.setPrimaryClip(clip);
+            return true;
+        } catch (Throwable t) {
+            Log.w("azul", "NativeTextBridge.setClipboard: " + t);
+            return false;
+        }
     }
 
     /**

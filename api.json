@@ -16738,6 +16738,9 @@
                                 },
                                 "pre_state": {
                                     "type": "NodeStateSnapshot"
+                                },
+                                "seat_id": {
+                                    "type": "u64"
                                 }
                             }
                         ],
@@ -40803,6 +40806,9 @@
                                 },
                                 "placeholder": {
                                     "type": "bool"
+                                },
+                                "seat_focused": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -48138,6 +48144,7 @@
                                 "Hover": {},
                                 "Active": {},
                                 "Focus": {},
+                                "SeatFocus": {},
                                 "Disabled": {},
                                 "CheckedTrue": {},
                                 "CheckedFalse": {},
@@ -79652,6 +79659,7 @@
                                 "Hover": {},
                                 "Active": {},
                                 "Focus": {},
+                                "SeatFocus": {},
                                 "Lang": {
                                     "type": "String"
                                 },
