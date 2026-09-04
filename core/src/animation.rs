@@ -20,7 +20,7 @@
 //! causing snapping. Springs integrate from the current `(value, velocity)`, allowing
 //! smooth retargeting.
 
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::{collections::BTreeMap, string::String, vec::Vec};
 
 use azul_css::props::basic::animation::AnimationInterpolationFunction;
 

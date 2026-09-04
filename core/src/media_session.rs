@@ -27,6 +27,8 @@
 //! Publishing on a platform with no sink is a no-op, not an error: the same
 //! call site has to be correct everywhere.
 
+use alloc::vec::Vec;
+
 use azul_css::AzString;
 
 /// What the player is doing right now.

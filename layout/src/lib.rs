@@ -440,6 +440,11 @@ pub mod cpurender;
 /// Default keyboard actions (copy, paste, select-all, undo, etc.).
 #[cfg(feature = "text_layout")]
 pub mod default_actions;
+/// HTML form constraint validation (`required`, `minlength`, `pattern`, ...).
+///
+/// Needs `text_layout` for `crate::window::DomLayoutResult` and `std` because
+/// `regex-lite` declares `compile_error!` without its own `std` feature.
+#[cfg(all(feature = "text_layout", feature = "std"))]
 pub mod form;
 /// Apply structural `DocumentOperation`s to a plain XML tree.
 ///

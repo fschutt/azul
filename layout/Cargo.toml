@@ -57,9 +57,13 @@ autotests = false
 [dependencies]
 azul-css                = { version = "0.0.14", path = "../css", default-features = false, features = ["parser"] }
 azul-core               = { version = "0.0.14", path = "../core", default-features = false }
-# `pattern` form validation (11b-i-b). MINIMAL on purpose (user ruling): only the
-# string API, no std unless the crate has it; no dependencies of its own.
-regex-lite              = { version = "0.1.9", default-features = false, features = ["string"] }
+# `pattern` form validation (11b-i-b). MINIMAL on purpose: only the string API,
+# no dependencies of its own. NOT optional-on-std, though -- regex-lite's own
+# lib.rs is `#[cfg(not(feature = "std"))] compile_error!("'std' is currently a
+# required feature")`, so it cannot be built without std at all. It is therefore
+# an optional dep enabled by `text_layout` (which implies std), matching the
+# `form` module's own gate.
+regex-lite              = { version = "0.1.9", default-features = false, features = ["string"], optional = true }
 image                   = { version = "0.25", default-features = false, optional = true }
 # Explicit override to disable SIMD features that were broken in older versions
 # See: https://github.com/image-rs/image/issues/2705
@@ -219,7 +223,7 @@ allocator_mimalloc = ["dep:libmimalloc-sys"]
 allocator_jemalloc = ["dep:tikv-jemalloc-sys"]
 
 # Standard library support
-std = ["azul-core/std", "regex-lite/std"]
+std = ["azul-core/std", "regex-lite?/std"]
 
 # String formatting utilities (strfmt crate)
 strfmt = ["dep:strfmt", "std"]
@@ -240,7 +244,10 @@ text_layout = [
     "dep:allsorts",
     "dep:tinyvec",
     "dep:unicode-segmentation",
-    "dep:unicode-bidi"
+    "dep:unicode-bidi",
+    # `form` is the only consumer of regex-lite, and it is gated on this
+    # feature. text_layout implies std, which regex-lite requires.
+    "dep:regex-lite"
 ]
 
 # Automatic hyphenation (adds ~25 deps: bincode, fst, hyphenation_commons, pocket-resources)

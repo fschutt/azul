@@ -2,7 +2,7 @@
 //! scroll state tracking, and pipeline/document identification. These types
 //! feed into the event dispatch system.
 
-use alloc::collections::BTreeMap;
+use alloc::{collections::BTreeMap, vec::Vec};
 use core::{
     fmt,
     sync::atomic::{AtomicU32, Ordering as AtomicOrdering},
