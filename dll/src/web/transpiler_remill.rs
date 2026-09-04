@@ -11691,6 +11691,18 @@ pub struct ResolvedBranchExtern {
 fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileError> {
     #[cfg(target_os = "windows")]
     {
+        // Exit codes that mean "Windows could not start this process right now",
+        // not "the tool rejected our input", so re-running is the correct
+        // response rather than failing the function:
+        //   0xC0000142 STATUS_DLL_INIT_FAILED - the child launched but a DLL
+        //              failed to initialise, which is what desktop-heap /
+        //              handle exhaustion looks like from the parent.
+        //   0xC0000017 STATUS_NO_MEMORY - no kernel memory for the new process.
+        // Both come from the SAME pressure as the spawn hang the watchdog
+        // covers (see start_spawn_watchdog): a full lift creates ~100k
+        // processes. Here Windows refuses and reports; there it stalls
+        // instead, which no retry can see. Neither code has appeared in a
+        // recorded run, so this path is a safety net, not a hot path.
         const TRANSIENT: &[i64] = &[0xC000_0142u32 as i32 as i64, 0xC000_0017u32 as i32 as i64];
         let mut last_err = None;
         for attempt in 0..4 {
@@ -11708,7 +11720,7 @@ fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileEr
                             attempt + 1,
                             e.reason.lines().next().unwrap_or("")
                         );
-                        // brief backoff lets the spawn-storm drain
+                        // Back off so the process-creation pressure eases before retrying.
                         std::thread::sleep(std::time::Duration::from_millis(
                             150 * (attempt as u64 + 1),
                         ));
