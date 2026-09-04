@@ -2502,10 +2502,17 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       X primary selection: both are the primary's paths (`get_first_hovered_node`,
       `publish_primary_selection`). The context menu needs the seat's hovered node; the primary
       selection is a single-owner protocol object and probably stays the primary's.
-- [ ] 9b-ii-b-i-b-i-b `tablet_info` (vendor / product / name) is ONE record overwritten by every
-      `tablet_added`, so a second seat's tablet reports the last-announced tablet's identity as its
-      pen's `device_id`. Key the static info by `zwp_tablet_v2` proxy and resolve a tool's tablet
-      from `proximity_in`'s tablet argument.
+- [x] 9b-ii-b-i-b-i-b DONE. `tablets: HashMap<zwp_tablet_v2 proxy, TabletStatic>` filled by the
+      `name` / `id` / `path` events per tablet (`tablet_info` stays the LAST-announced record, the
+      fallback for the pad entry and for a tool never in proximity, and follows a remaining tablet
+      when one is removed); `tool_proximity_in` now reads its `tablet` argument, remembers the
+      tool's tablet (`tablet_tool_tablets`) and stamps the tablet's vid/pid composite into the
+      pending pen (`TabletPenPending::device_id`), so both frame handlers report the tablet the
+      tool is actually over (`pen_device_id`, falling back to the last-announced when a frame
+      arrives before the tablet was described); the device list gives each tool its own tablet's
+      name / vendor / path. WHY the gap existed: the tablet listener predates multiple tablets,
+      let alone seats - one record, overwritten. Blind like the rest of the Wayland tablet work:
+      the Linux target checks green, host check EXIT=0, azul-dll 2071, 8/8 gate.
 - [x] 9b-ii-c DONE - as a FIELD, not a new op: `mouse_move` / `mouse_down` / `mouse_up` take
       `"seat": N` (default 0, the ordinary mouse), applied through `FullWindowState::pointer_seat_mut`,
       whose seat 0 IS `mouse_state` - so the three appliers have ONE code path and a seat op is

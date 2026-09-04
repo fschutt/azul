@@ -79,6 +79,11 @@ pub struct TabletPenPending {
     pub distance: f32,
     /// Airbrush wheel (`slider`), normalized. 0.0 = not reported.
     pub tangential: f32,
+    /// The TABLET this tool came into proximity over (9b-ii-b-i-b-i-b): its
+    /// USB vid/pid composite, resolved from `proximity_in`'s tablet argument.
+    /// `0` = not resolved; the frame then falls back to the last-announced
+    /// tablet's identity.
+    pub device_id: u64,
 }
 
 /// Descriptive (one-shot, pre-first-proximity) data of one `zwp_tablet_tool_v2`.
@@ -1505,25 +1510,31 @@ static ZWP_TABLET_SEAT_LISTENER: zwp_tablet_seat_v2_listener = zwp_tablet_seat_v
 // `done`). The Wayland spelling of the "which tablet is this" information
 // `xinput list` shows on X11; kept on the window so the pad/pen state can
 // carry a real device identity and an app can name the hardware.
-extern "C" fn tablet_name(data: *mut c_void, _t: *mut zwp_tablet_v2, name: *const c_char) {
+// Each tablet's static record is keyed by its proxy (9b-ii-b-i-b-i-b);
+// `tablet_info` stays the LAST-announced one, the fallback for consumers that
+// have no tablet to ask (the pad, a tool never in proximity).
+extern "C" fn tablet_name(data: *mut c_void, t: *mut zwp_tablet_v2, name: *const c_char) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     if !name.is_null() {
-        window.tablet_info.name = unsafe { CStr::from_ptr(name) }
-            .to_string_lossy()
-            .into_owned();
+        let name = unsafe { CStr::from_ptr(name) }.to_string_lossy().into_owned();
+        window.tablets.entry(t as usize).or_default().name = name.clone();
+        window.tablet_info.name = name;
     }
 }
-extern "C" fn tablet_id(data: *mut c_void, _t: *mut zwp_tablet_v2, vid: u32, pid: u32) {
+extern "C" fn tablet_id(data: *mut c_void, t: *mut zwp_tablet_v2, vid: u32, pid: u32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let entry = window.tablets.entry(t as usize).or_default();
+    entry.vendor_id = vid;
+    entry.product_id = pid;
     window.tablet_info.vendor_id = vid;
     window.tablet_info.product_id = pid;
 }
-extern "C" fn tablet_path(data: *mut c_void, _t: *mut zwp_tablet_v2, path: *const c_char) {
+extern "C" fn tablet_path(data: *mut c_void, t: *mut zwp_tablet_v2, path: *const c_char) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     if !path.is_null() {
-        window.tablet_info.path = unsafe { CStr::from_ptr(path) }
-            .to_string_lossy()
-            .into_owned();
+        let path = unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned();
+        window.tablets.entry(t as usize).or_default().path = path.clone();
+        window.tablet_info.path = path;
     }
 }
 extern "C" fn tablet_done(data: *mut c_void, _t: *mut zwp_tablet_v2) {
@@ -1532,9 +1543,17 @@ extern "C" fn tablet_done(data: *mut c_void, _t: *mut zwp_tablet_v2) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.sync_tablet_devices();
 }
-extern "C" fn tablet_removed(data: *mut c_void, _t: *mut zwp_tablet_v2) {
+extern "C" fn tablet_removed(data: *mut c_void, t: *mut zwp_tablet_v2) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.tablet_info = TabletStatic::default();
+    window.tablets.remove(&(t as usize));
+    window.tablet_tool_tablets.retain(|_, tablet| *tablet != t as usize);
+    // The fallback record follows whatever tablet is still here.
+    window.tablet_info = window
+        .tablets
+        .values()
+        .next()
+        .cloned()
+        .unwrap_or_default();
     window.sync_tablet_devices();
 }
 extern "C" fn tablet_noop_bustype(_d: *mut c_void, _t: *mut zwp_tablet_v2, _b: u32) {}
@@ -1580,6 +1599,7 @@ extern "C" fn tool_removed(data: *mut c_void, t: *mut zwp_tablet_tool_v2) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.tablet_tools.remove(&(t as usize));
     window.tablet_tool_seats.remove(&(t as usize));
+    window.tablet_tool_tablets.remove(&(t as usize));
     window.sync_tablet_devices();
 }
 extern "C" fn tool_capability(data: *mut c_void, t: *mut zwp_tablet_tool_v2, capability: u32) {
@@ -1606,14 +1626,22 @@ extern "C" fn tool_proximity_in(
     data: *mut c_void,
     t: *mut zwp_tablet_tool_v2,
     serial: u32,
-    _tablet: *mut zwp_tablet_v2,
+    tablet: *mut zwp_tablet_v2,
     _surface: *mut wl_surface,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     // Proximity is user input: a copy made with only the pen in hand needs
     // this serial for wl_data_device.set_selection.
     window.last_input_serial = serial;
+    // WHICH tablet the tool is over (9b-ii-b-i-b-i-b): its identity travels
+    // with the pen from here on, so a second seat's pen reports its own
+    // tablet and not the last one announced.
+    let device_id = window.tablet_composite_id(tablet);
+    if !tablet.is_null() {
+        window.tablet_tool_tablets.insert(t as usize, tablet as usize);
+    }
     let stat = *tool_static_mut(window, t);
+    window.pen_pending_mut(t).device_id = device_id;
     window.pen_pending_mut(t).in_proximity = true;
     window.pen_pending_mut(t).is_eraser = stat.is_eraser;
     window.pen_pending_mut(t).tool_id = if stat.serial != 0 {

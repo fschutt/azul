@@ -666,6 +666,12 @@ pub struct WaylandWindow {
     tablet_tools: std::collections::HashMap<usize, events::TabletToolStatic>,
     /// Identity (name + USB ids) of the announced `zwp_tablet_v2` device.
     tablet_info: events::TabletStatic,
+    /// Every announced tablet's static record, by `zwp_tablet_v2` proxy
+    /// (9b-ii-b-i-b-i-b); `tablet_info` is the last-announced fallback.
+    tablets: std::collections::HashMap<usize, events::TabletStatic>,
+    /// Which tablet each tool was last in proximity over (tool proxy ->
+    /// tablet proxy).
+    tablet_tool_tablets: std::collections::HashMap<usize, usize>,
     /// Announced `zwp_tablet_pad_v2` (button count, ring/strip); `None` = no pad.
     tablet_pad_static: Option<events::TabletPadStatic>,
     // False until the first poll rebinds all proxy listeners to the stable boxed `self`.
@@ -2061,6 +2067,8 @@ impl WaylandWindow {
             tablet_pad: events::TabletPadPending::default(),
             tablet_tools: std::collections::HashMap::new(),
             tablet_info: events::TabletStatic::default(),
+            tablets: std::collections::HashMap::new(),
+            tablet_tool_tablets: std::collections::HashMap::new(),
             tablet_pad_static: None,
             frame_callback_pending: false,
             frame_callback_armed_at: None,
@@ -3808,24 +3816,50 @@ impl WaylandWindow {
     /// `removed` listeners and again after the layout window is created —
     /// the descriptive burst usually arrives during the initial roundtrips,
     /// before any layout window exists to hold the result.
+    /// The USB vid/pid composite of the tablet behind `tablet` (`0` when the
+    /// proxy is unknown or has not been described yet).
+    pub(super) fn tablet_composite_id(&self, tablet: *mut defines::zwp_tablet_v2) -> u64 {
+        self.tablets
+            .get(&(tablet as usize))
+            .map_or(0, |t| ((t.vendor_id as u64) << 32) | t.product_id as u64)
+    }
+
+    /// A pen frame's tablet identity: the tablet the tool came into
+    /// proximity over, else the last-announced tablet's.
+    fn pen_device_id(&self, p: &events::TabletPenPending) -> u64 {
+        if p.device_id != 0 {
+            p.device_id
+        } else {
+            ((self.tablet_info.vendor_id as u64) << 32) | self.tablet_info.product_id as u64
+        }
+    }
+
     pub(super) fn sync_tablet_devices(&mut self) {
         use azul_layout::managers::gesture as gest;
         let mut devices = Vec::new();
         let composite_id =
             ((self.tablet_info.vendor_id as u64) << 32) | self.tablet_info.product_id as u64;
-        for stat in self.tablet_tools.values() {
+        for (tool, stat) in &self.tablet_tools {
+            // The tool's OWN tablet when it has been in proximity over one
+            // (9b-ii-b-i-b-i-b); the last-announced tablet otherwise.
+            let info = self
+                .tablet_tool_tablets
+                .get(tool)
+                .and_then(|tablet| self.tablets.get(tablet))
+                .unwrap_or(&self.tablet_info);
+            let tool_composite = ((info.vendor_id as u64) << 32) | info.product_id as u64;
             devices.push(gest::TabletDeviceInfo {
-                name: self.tablet_info.name.clone().into(),
-                vendor_name: gest::tablet_usb_vendor_name(self.tablet_info.vendor_id).into(),
-                vendor_id: self.tablet_info.vendor_id,
-                product_id: self.tablet_info.product_id,
+                name: info.name.clone().into(),
+                vendor_name: gest::tablet_usb_vendor_name(info.vendor_id).into(),
+                vendor_id: info.vendor_id,
+                product_id: info.product_id,
                 kind: if stat.is_eraser {
                     gest::TabletToolKind::Eraser
                 } else {
                     gest::TabletToolKind::Stylus
                 },
                 // Matches what the pen bridge reports as PenState.device_id.
-                device_id: composite_id,
+                device_id: tool_composite,
                 capabilities: stat.capabilities,
                 // zwp_tablet_tool_v2.pressure is always 0..=65535 on the wire.
                 pressure_max: if stat.capabilities & gest::TABLET_CAP_PRESSURE != 0 {
@@ -3837,7 +3871,7 @@ impl WaylandWindow {
                 physical_width_mm: 0.0,
                 physical_height_mm: 0.0,
                 num_buttons: 0,
-                path: self.tablet_info.path.clone().into(),
+                path: info.path.clone().into(),
             });
         }
         if let Some(pad) = self.tablet_pad_static {
@@ -3983,6 +4017,7 @@ impl WaylandWindow {
             return;
         }
 
+        let device_id = self.pen_device_id(&p);
         if let Some(lw) = self.common.layout_window.as_mut() {
             lw.gesture_drag_manager.update_pen_state_full_for(
                 seat_id,
@@ -3992,7 +4027,7 @@ impl WaylandWindow {
                 p.in_contact,
                 p.is_eraser,
                 p.barrel_button,
-                ((self.tablet_info.vendor_id as u64) << 32) | self.tablet_info.product_id as u64,
+                device_id,
                 p.tangential,
                 p.rotation,
                 p.tool_id as u32,
@@ -4054,6 +4089,7 @@ impl WaylandWindow {
         };
         let now_left = p.in_contact;
         let now_right = p.barrel_button;
+        let device_id = self.pen_device_id(&p);
 
         // 1) Full-fidelity pen state for CallbackInfo::get_pen_state().
         if let Some(lw) = self.common.layout_window.as_mut() {
@@ -4064,10 +4100,11 @@ impl WaylandWindow {
                 p.in_contact,
                 p.is_eraser,
                 p.barrel_button,
-                // Device identity = the TABLET's USB vid/pid; the per-tool
+                // Device identity = the TABLET's USB vid/pid - the tablet this
+                // tool came into proximity over (9b-ii-b-i-b-i-b); the per-tool
                 // hardware serial goes in tool_id (truncated — Wintab tool
                 // ids are 32-bit as well).
-                ((self.tablet_info.vendor_id as u64) << 32) | self.tablet_info.product_id as u64,
+                device_id,
                 p.tangential,
                 p.rotation,
                 p.tool_id as u32,
