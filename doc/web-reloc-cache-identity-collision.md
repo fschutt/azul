@@ -1,6 +1,10 @@
 # The relocation cache translated cross-function targets by the wrong delta
 
-Status: root cause identified and evidenced · fix specified, not yet implemented.
+Status: fixed. The probe-space membership test landed, the sign-flip class was
+retired as a side effect of it, and the `near:` fingerprint widening was
+dropped in favour of refusing ambiguous names outright - a short content
+fingerprint cannot separate same-source monomorphization copies, which share
+their prologues.
 
 ## What went wrong
 

@@ -2096,9 +2096,9 @@ pub unsafe extern "C" fn AzStartup_relayout(state: u32) -> u32 {
 /// **M8.5a partial dispatch**: extracts `node_idx` from event_bytes,
 /// looks up the App's `cb_fn_cache` for the cb fn-addr at that
 /// node, resolves to a table index via [`__az_resolve_callback`],
-/// invokes via [`__az_call_indirect`]. Patches aren't emitted yet
-/// (M8.5b adds the diff loop); the return value reports the
-/// Update enum the user callback produced as a debugging signal.
+/// invokes via [`__az_call_indirect`]. The return value reports the
+/// Update enum the user callback produced as a debugging signal;
+/// patches themselves go out via `AzStartup_buildCounterPatch`.
 ///
 /// For M8.5a there's no real hit-test or cb-fn-cache population —
 /// `node_idx` IS treated as the cb fn-addr lookup key (test

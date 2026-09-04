@@ -618,8 +618,8 @@ async function azBootstrap() {
             // derefs a garbage pointer field — `[[State.R14]+48]+16` where the +48
             // field is garbage. Font-INDEPENDENT (layout, not text-shaping); it was
             // latent until the REC_MARKER fix let the text-shaping recursion lift at
-            // all. Re-enable (drop the `false &&`) once the solver no longer traps →
-            // then real geometric hit-test over solved rects. try/catch = defence.
+            // all. The gate is live again (real geometric hit-test over solved
+            // rects); try/catch stays as defence.
             if (initRc === 0 && domPtr &&
                 typeof azMini.AzStartup_hydrateStyledDom === 'function') {
                 // A wasm trap in hydrateStyledDom MUST NOT abort bootstrap (the

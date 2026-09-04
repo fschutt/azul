@@ -4059,25 +4059,11 @@ fn inject_user_binary_data_segments(
         let eg = super::symbol_table::find_hashbrown_empty_group_ranges();
         let mut appended = 0usize;
         let mut bytes = 0usize;
-        // [g212 DIAG] When set, log native/synth/trunc for every EMPTY_GROUP run so we can
-        // compare against the AZ_READ_TRACE ctrl-read address and learn WHICH offset the
-        // lifted probe actually reads (synth-packed vs low-32 truncation).
-        let eg_trace = std::env::var_os("AZ_EMPTY_GROUP_TRACE").is_some();
         for &(target, len) in eg {
             if let Some(synth) = table.native_to_synth(target) {
                 segments.push((synth as u32, vec![0xFFu8; len]));
                 appended += 1;
                 bytes += len;
-                if eg_trace {
-                    eprintln!(
-                        "[azul-web] EG-RUN {}: native=0x{:x} synth=0x{:x} trunc=0x{:x} len={}",
-                        output_stem,
-                        target,
-                        synth,
-                        (target as u64) & 0xFFFF_FFFF,
-                        len,
-                    );
-                }
             }
         }
         if appended > 0 {
@@ -4655,13 +4641,6 @@ fn collect_synth_data_pages(
     let mut precise_pages = 0usize;
     let mut precise_bytes_kept = 0usize;
     let mut fallback_pages = 0usize;
-    // M12.5d diagnostic: when set, ignore precise ranges and mirror
-    // every accessed page in full (4 KiB, zero-trimmed). Tests the
-    // hypothesis that the cascade reads const-pool data via patterns
-    // `scan_arm64_adrp_accesses` doesn't recognize — those addresses
-    // read back zero under precise-only mirroring (0 whole-page
-    // fallbacks observed in the cascade build).
-    let force_whole_page = std::env::var_os("AZ_FORCE_WHOLE_PAGE").is_some();
     // M12.7: pages reached only INDIRECTLY via a mirrored pointer (never a
     // direct `adrp`) — e.g. hashbrown's static EMPTY_GROUP, pointed at by the
     // empty-table singleton's rebased `ctrl`. Such a page is not in
@@ -4686,10 +4665,7 @@ fn collect_synth_data_pages(
         // M10-E1: if we have precise ranges for this page, mirror
         // just those byte windows instead of the whole 4 KiB. The
         // ranges' bytes get pointer-translated below.
-        if let Some(ranges) = ranges_by_page
-            .get(&native_page)
-            .filter(|_| !force_whole_page)
-        {
+        if let Some(ranges) = ranges_by_page.get(&native_page) {
             // Build a bitmap of which bytes are needed within the page
             // (handles overlapping / adjacent ranges naturally).
             let mut needed = [false; PAGE_SIZE];
@@ -7507,7 +7483,7 @@ fn lift_cache_root() -> PathBuf {
 /// fingerprint (so an engine change auto-invalidates). Lives in
 /// `$TMPDIR/az-lift-cache` by default (override the root with
 /// `AZ_LIFT_CACHE_DIR=<abs path>`; persists across server restarts; clear with
-/// `rm -rf` or `AZ_LIFT_CACHE_CLEAR=1`). Disable entirely with
+/// `rm -rf` the cache dir; there is no clear-on-start knob). Disable entirely with
 /// `AZ_NO_LIFT_CACHE=1`.
 /// The azul source build identity embedded at compile time by `dll/build.rs`
 /// (short git hash, `-dirty` on an uncommitted tree, or `unknown` without git).
