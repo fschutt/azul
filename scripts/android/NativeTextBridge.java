@@ -285,6 +285,20 @@ public final class NativeTextBridge {
          * SOURCE_TOUCHPAD event with absolute surface positions per pointer
          * (8f-i-a-ii). Mouse events (SOURCE_MOUSE_RELATIVE) fall through.
          */
+        /**
+         * The framework's answer to {@link #setPointerCapture}, and the
+         * notice that a capture was taken away (window focus lost). Fed to
+         * Rust so the window's pointer-lock flag says what is actually held
+         * (9d-android-a); the flag going false reaches the app as
+         * PointerLockChange from the state diff, and nothing re-captures
+         * behind the user's back.
+         */
+        @Override
+        public void onPointerCaptureChange(boolean hasCapture) {
+            super.onPointerCaptureChange(hasCapture);
+            nativeOnPointerCaptureChanged(nativePtr, hasCapture ? 1 : 0);
+        }
+
         @Override
         public boolean onCapturedPointerEvent(MotionEvent event) {
             if (com.azul.gamepad.AzulGamepad.onCapturedPointer(event)) {
@@ -375,8 +389,8 @@ public final class NativeTextBridge {
      * the grab behind {@code CallbackInfo::set_pointer_lock} here. The view
      * must be focused and the window must have focus for the capture to
      * take; the framework answers that asynchronously through
-     * {@code onPointerCaptureChange}, which is NOT fed back yet (logged as
-     * 9d-android-a).
+     * {@code onPointerCaptureChange}, which AzulInputView feeds back to Rust
+     * (9d-android-a).
      *
      * @return true when the request was dispatched (API 26+, view installed).
      */
@@ -541,4 +555,6 @@ public final class NativeTextBridge {
     // a byte — declaring it boolean here would read one byte of a four-byte
     // return.
     static native int nativeIsComposing(long nativePtr);
+
+    private static native void nativeOnPointerCaptureChanged(long nativePtr, int hasCapture);
 }

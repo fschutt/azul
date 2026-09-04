@@ -139,6 +139,12 @@ pub struct AndroidWindow {
     /// pass must not run from the IME's thread while the loop may be mid-layout.
     /// Same shape as the a11y action queue and the theme queue above.
     pending_ime_commits: std::sync::Mutex<Vec<String>>,
+    /// The framework's word on pointer capture (`View.onPointerCaptureChange`,
+    /// 9d-android-a): `Some(held)` until the loop applies it to
+    /// `mouse_state.is_cursor_locked` and runs the pass that emits
+    /// `PointerLockChange`. Queued for the same reason as the IME commits:
+    /// the callback arrives on the UI thread, never mid-pass.
+    pending_pointer_capture: std::sync::Mutex<Option<bool>>,
 
     /// A frame must be re-rastered and posted, but the layout is UNCHANGED.
     ///
@@ -234,6 +240,7 @@ impl AndroidWindow {
             buffer_frames: std::collections::BTreeMap::new(),
             damage_history: std::collections::VecDeque::new(),
             pending_ime_commits: std::sync::Mutex::new(Vec::new()),
+            pending_pointer_capture: std::sync::Mutex::new(None),
             pending_selection_actions: std::sync::Mutex::new(Vec::new()),
             selection_toolbar_shown: false,
             needs_rerender: false,
@@ -509,10 +516,11 @@ impl PlatformWindow for AndroidWindow {
     /// Android's pointer lock is pointer CAPTURE (`View.requestPointerCapture`,
     /// API 26) on the input view; the JNI hop is `set_pointer_capture`. The
     /// capture takes only if the window is focused, and the framework reports
-    /// that asynchronously (`onPointerCaptureChange`), which is not fed back
-    /// yet (9d-android-a) - so `true` here means "requested on API 26+", the
-    /// closest this backend can answer synchronously. A release always leaves
-    /// no lock held.
+    /// that asynchronously (`onPointerCaptureChange`), which the loop applies
+    /// to the flag afterwards (9d-android-a) - so `true` here means
+    /// "requested on API 26+", the closest this backend can answer
+    /// synchronously, corrected by the framework's answer within a frame. A
+    /// release always leaves no lock held.
     fn handle_set_pointer_lock(&mut self, locked: bool) -> bool {
         let dispatched = set_pointer_capture(locked);
         locked && dispatched
@@ -864,6 +872,34 @@ pub fn android_main(app: AndroidApp) {
         // subtree, the `DocumentEdit` the app subscribes to. Staging without a
         // pass — which is what this did — left the text recorded and never
         // applied, so the IME composed, committed, and nothing appeared.
+        // Pointer capture as the framework reports it (9d-android-a): the
+        // request in handle_set_pointer_lock answered "requested"; this is
+        // the truth, including a capture the system took away on focus loss.
+        // Applied through the OS-sourced state update so the diff emits
+        // PointerLockChange, and only when it differs from what is held.
+        {
+            let reported = window
+                .pending_pointer_capture
+                .lock()
+                .ok()
+                .and_then(|mut c| c.take());
+            if let Some(has_capture) = reported {
+                let held = window
+                    .common
+                    .current_window_state()
+                    .mouse_state
+                    .is_cursor_locked;
+                if held != has_capture {
+                    window.snapshot_window_state_baseline("android.pointer_capture");
+                    window
+                        .common
+                        .update_window_state(event::WindowStateSource::Os, |ws| {
+                            ws.mouse_state.is_cursor_locked = has_capture;
+                        });
+                    let _ = window.process_window_events(0);
+                }
+            }
+        }
         {
             let commits: Vec<String> = window
                 .pending_ime_commits
@@ -3709,6 +3745,24 @@ pub mod text_bridge {
 
     /// Whether a composition is currently open — the Java side asks so it can
     /// answer `InputConnection.getComposingText` without duplicating state.
+    /// `AzulInputView.onPointerCaptureChange` (9d-android-a): queue the
+    /// framework's answer for the loop; see `pending_pointer_capture`.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeOnPointerCaptureChanged(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+        has_capture: i32,
+    ) {
+        with_window(native_ptr, |w| {
+            if let Ok(mut c) = w.pending_pointer_capture.lock() {
+                *c = Some(has_capture != 0);
+            }
+            // Wake the loop like the IME push does; the drain runs the pass.
+            w.common.request_regeneration(RelayoutReason::RefreshDom);
+        });
+    }
+
     #[no_mangle]
     pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeIsComposing(
         _env: *mut core::ffi::c_void,
