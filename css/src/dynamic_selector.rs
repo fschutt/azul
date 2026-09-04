@@ -1193,7 +1193,7 @@ pub enum EnvVariable {
     SafeAreaInsetRight,
     SafeAreaInsetBottom,
     SafeAreaInsetLeft,
-    /// The VirtualKeyboard API's `env(keyboard-inset-height)`.
+    /// The `VirtualKeyboard` API's `env(keyboard-inset-height)`.
     KeyboardInsetHeight,
 }
 
