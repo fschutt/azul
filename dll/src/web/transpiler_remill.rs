@@ -891,7 +891,7 @@ impl RemillTranspiler {
     /// debugging. Default behavior wipes them — the build cycle of
     /// the M8.9 audit left ~95 MB of stale scratch dirs around.
     fn should_keep_scratch() -> bool {
-        std::env::var_os("AZ_REMILL_KEEP_SCRATCH").is_some()
+        super::lift_env::lift_env().keep_scratch
     }
 
     /// Whether the in-process remill+LLVM+LLD pipeline should be used
@@ -1102,7 +1102,7 @@ impl RemillTranspiler {
                     // FRESH result is used. This is the instrument that turns
                     // "which constants are addresses?" from hypothesis into
                     // measurement; expensive (full remill per fn), debug-only.
-                    if std::env::var_os("AZ_RELOC_VERIFY").is_some() {
+                    if super::lift_env::lift_env().reloc_verify {
                         // fall through to the fresh lift below, then compare
                         let fresh = self.lift_fn_fresh(
                             fn_name, fn_addr, &bytes, lift_addr, &lifted_ir_path,
@@ -1962,7 +1962,7 @@ impl RemillTranspiler {
         // per-layout (ImportMemory) and azul-mini.wasm (OwnMemory)
         // need this for __az_call_indirect to work.
         let import_table = true;
-        let debug_link = std::env::var_os("AZ_WASM_DEBUG").is_some();
+        let debug_link = super::lift_env::lift_env().wasm_debug;
         if self.use_native_remill() {
             #[cfg(feature = "web-transpiler-static")]
             {
@@ -3543,7 +3543,7 @@ impl RemillTranspiler {
         // Debug: verify all targets have unique addr — a duplicate
         // would explain "wasm-ld: error: duplicate symbol: sub_<X>"
         // (two .o files defining sub_<canonical_X>).
-        if std::env::var_os("AZ_REMILL_DEBUG").is_some() {
+        if super::lift_env::lift_env().remill_debug {
             let mut seen_addrs: HashSet<usize> = HashSet::new();
             for t in &targets {
                 if !seen_addrs.insert(t.addr) {
@@ -3822,7 +3822,7 @@ impl RemillTranspiler {
 
         // Debug: log any duplicate paths (same .o file in object_paths
         // twice would explain a wasm-ld "duplicate symbol" error).
-        if std::env::var_os("AZ_REMILL_DEBUG").is_some() {
+        if super::lift_env::lift_env().remill_debug {
             let mut seen: HashSet<PathBuf> = HashSet::new();
             for p in &object_paths {
                 if !seen.insert(p.clone()) {
@@ -7054,7 +7054,7 @@ fn discover_wasm_opt() -> Option<PathBuf> {
 /// debugging codegen and you don't want wasm-opt's rewrites in
 /// the way.
 fn postprocess_wasm_opt(input_path: &Path, fn_name: &str) -> Option<Vec<u8>> {
-    if std::env::var_os("AZ_REMILL_SKIP_WASM_OPT").is_some() {
+    if super::lift_env::lift_env().skip_wasm_opt {
         return None;
     }
     let wasm_opt = discover_wasm_opt()?;
@@ -7261,7 +7261,7 @@ pub static PREFLIGHT_UD2_SITES: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);
 
 fn preflight_enabled() -> bool {
-    std::env::var_os("AZ_PREFLIGHT").is_some()
+    super::lift_env::lift_env().preflight
 }
 
 /// Count `call … @__remill_error(` and `call … @__remill_missing_block(`
@@ -7460,7 +7460,7 @@ fn obj_cache_path(
     stem: &str,
     use_native: bool,
 ) -> Option<PathBuf> {
-    if std::env::var_os("AZ_LIFT_CACHE").is_none() || std::env::var_os("AZ_NO_LIFT_CACHE").is_some()
+    if std::env::var_os("AZ_LIFT_CACHE").is_none() || super::lift_env::lift_env().no_lift_cache
     {
         return None;
     }
@@ -11853,10 +11853,7 @@ impl Drop for SpawnWatch {
 fn start_spawn_watchdog() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        let secs: u64 = std::env::var("AZ_SPAWN_WATCHDOG_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(300);
+        let secs: u64 = super::lift_env::lift_env().spawn_watchdog_secs;
         if secs == 0 {
             return;
         }
@@ -11889,12 +11886,8 @@ trait PipeDeadlined {
 
 impl PipeDeadlined for Command {
     fn pipe_deadlined(&mut self) -> std::io::Result<std::process::Output> {
-        let timeout = std::time::Duration::from_secs(
-            std::env::var("AZ_TOOL_TIMEOUT_SECS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(900),
-        );
+        let timeout =
+            std::time::Duration::from_secs(super::lift_env::lift_env().tool_timeout_secs);
         let cmd = self;
     use std::io::Read as _;
     start_spawn_watchdog();

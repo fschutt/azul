@@ -33,6 +33,7 @@ pub mod transpiler;
 #[cfg(feature = "web-transpiler")]
 pub mod lift_audit;
 #[cfg(feature = "web-transpiler")]
+pub mod lift_env;
 pub mod transpiler_remill;
 
 /// Whether M10-D per-fn WASM sharding is active. Always `false` when the
@@ -1009,6 +1010,9 @@ pub fn run_web(
     web_config: config::WebConfig,
 ) -> Result<(), WindowError> {
     eprintln!("[azul-web] Starting web backend...");
+    // Name the non-default knobs once, up front: what a bundle was built
+    // with is otherwise unrecoverable from the log after the fact.
+    eprintln!("[azul-web] lift env: {}", lift_env::lift_env().summary());
 
     // M8.7a: validate the App can be hydrated on the wasm client.
     // RefAny needs a registered JSON serializer (AZ_REFLECT_JSON);
