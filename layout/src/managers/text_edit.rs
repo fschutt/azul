@@ -442,6 +442,13 @@ pub struct TextEditManager {
     pub display_list_dirty: bool,
     /// Caret / selection tween bookkeeping (see [`TextTweenState`]).
     pub tween: TextTweenState,
+    /// The OTHER seats' carets (9b-ii-a-i-d-ii): a second seat typing into
+    /// its own focused node inserts at ITS caret, not the primary's. Seat 0
+    /// is the primary and lives in `multi_cursor`. One caret per seat, on the
+    /// node that seat last edited; shifted across every edit of that node
+    /// like a peer caret, cleared when the node unmounts. Not yet DRAWN
+    /// (9b-ii-a-i-d-ii-a).
+    pub seat_carets: BTreeMap<u64, SeatCaret>,
     /// The value the currently focused editable node had WHEN IT GAINED FOCUS.
     ///
     /// `Change` is not "the value was edited" - `TextInput` already reports
@@ -471,6 +478,13 @@ pub struct TextEditManager {
     /// BEFORE a typed character lands, so a model synced from `Input` is one
     /// keystroke behind).
     pub pending_text_changed: Vec<DomNodeId>,
+}
+
+/// A non-primary seat's caret: the node it sits in and where.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SeatCaret {
+    pub node: DomNodeId,
+    pub cursor: TextCursor,
 }
 
 impl Default for TextEditManager {
@@ -588,6 +602,7 @@ impl TextEditManager {
             handle_drag: None,
             display_list_dirty: false,
             tween: TextTweenState::default(),
+            seat_carets: BTreeMap::new(),
             pending_edit_notifications: Vec::new(),
             pending_text_changed: Vec::new(),
             value_at_focus: None,
@@ -641,6 +656,59 @@ impl TextEditManager {
         self.multi_cursor
             .as_ref()
             .and_then(MultiCursorState::get_primary_cursor)
+    }
+
+    /// Seat `seat_id`'s caret (9b-ii-a-i-d-ii); the primary's for seat 0,
+    /// on the multi-cursor's node.
+    #[must_use]
+    pub fn seat_caret(&self, seat_id: u64) -> Option<SeatCaret> {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            let mc = self.multi_cursor.as_ref()?;
+            return mc.get_primary_cursor().map(|cursor| SeatCaret {
+                node: mc.node_id,
+                cursor,
+            });
+        }
+        self.seat_carets.get(&seat_id).copied()
+    }
+
+    /// Place seat `seat_id`'s caret (non-primary seats only; the primary's
+    /// caret is the multi-cursor's).
+    pub fn set_seat_caret(&mut self, seat_id: u64, node: DomNodeId, cursor: TextCursor) {
+        if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+            self.seat_carets.insert(seat_id, SeatCaret { node, cursor });
+        }
+    }
+
+    /// Forget seat `seat_id`'s caret.
+    pub fn clear_seat_caret(&mut self, seat_id: u64) {
+        self.seat_carets.remove(&seat_id);
+    }
+
+    /// Shift every non-primary seat caret on `node` across an edit of that
+    /// node - the peer-caret rule (U3) applied to seats. `except` is the
+    /// seat whose own edit this is: its caret was already set from the edit
+    /// result.
+    pub fn shift_seat_carets_across(
+        &mut self,
+        node: DomNodeId,
+        changes: &[azul_core::selection::RunTextChange],
+        except: Option<u64>,
+    ) {
+        if changes.is_empty() {
+            return;
+        }
+        for (seat, caret) in &mut self.seat_carets {
+            if Some(*seat) == except || caret.node != node {
+                continue;
+            }
+            for change in changes {
+                if change.run == caret.cursor.cluster_id.source_run {
+                    caret.cursor.cluster_id.start_byte_in_run =
+                        change.transform(caret.cursor.cluster_id.start_byte_in_run);
+                }
+            }
+        }
     }
 
     /// Whether the cursor should be drawn (editing active AND blink visible).
@@ -1218,6 +1286,26 @@ impl crate::managers::NodeIdRemap for TextEditManager {
     /// node is gone; here we additionally drop the whole editing session, since a
     /// cursor whose IFC root no longer exists is not an editing session.
     fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
+        // The other seats' carets (9b-ii-a-i-d-ii): follow the node, drop on
+        // an unmounted one - the same rule as the primary's below.
+        self.seat_carets.retain(|_, caret| {
+            if caret.node.dom != dom {
+                return true;
+            }
+            match caret
+                .node
+                .node
+                .into_crate_internal()
+                .and_then(|old| map.resolve(old))
+            {
+                Some(new_id) => {
+                    caret.node.node = NodeHierarchyItemId::from_crate_internal(Some(new_id));
+                    true
+                }
+                None => false,
+            }
+        });
+
         // The tween's caret/selection geometry belongs to the session's node.
         // Resolve that anchor BEFORE the session below can be dropped — and
         // fall back to the session for state that was installed by writing

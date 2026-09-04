@@ -268,6 +268,8 @@ mod ribbon_tab_whitespace;
 mod root_box_sizing_regression;
 #[path = "safe_area_inset.rs"]
 mod safe_area_inset;
+#[path = "seat_text_session.rs"]
+mod seat_text_session;
 #[path = "selection_handles.rs"]
 mod selection_handles;
 #[path = "session_regression.rs"]

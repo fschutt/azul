@@ -4731,7 +4731,8 @@ impl WaylandWindow {
                 if let Ok(text) = std::str::from_utf8(raw) {
                     if !text.is_empty() && !text.chars().all(char::is_control) {
                         if let Some(ref mut layout_window) = self.common.layout_window {
-                            layout_window.record_text_input(text);
+                            // This seat's text lands in ITS focused node (9b-ii-a-i-d-ii).
+                            layout_window.record_text_input_for_seat(seat_id, text);
                         }
                     }
                 }

@@ -2205,11 +2205,39 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       its paired pointer seat on both producers. WHY the gap existed: focus predates seats and
       was one field read from ~270 sites; the "product question" note was refuted by the ruling.
       Tests: the manager's independence and remap. ✅ COMPILED in the eighth batch pass of 2026-09-04: host check EXIT=0; autofix converged at 0 patches / 0 FFI errors after two source fixes (`natural_scroll` moved beside `log_level` so the alignment checker sees no padding; the runner and the seat-focus arm gained the missing match arms); `codegen all` EXIT=0; azul-core 2809, azul-layout lib 7683 / `--test all` 1003, e2e corpus 62 scenarios, azul-dll 2040 (+5), all 0 failed; 8/8 gate targets green including windows-gnu, which compiles the hid.dll and registry code.
-- [ ] 9b-ii-a-i-d-ii The TEXT-EDIT SESSION per seat: caret, blink timer, IME, `record_text_input`,
-      `ime_document` and the soft keyboard all read `focused_node` (the primary's), so a second
-      seat's typing still lands in the primary's field even though its focus is its own. Needs
-      `TextEditManager` keyed by seat (the primary as seat 0) and `SetSeatFocus` starting a seat's
-      session; peer carets already have owners (`SelectionOwner`) to hang a seat on.
+- [x] 9b-ii-a-i-d-ii DONE - a seat's TYPING lands in its own field at its own caret. The queued
+      edit carries its seat (`QueuedTextEdit::seat_id`, `record_input_for_seat`), the window has
+      `record_text_input_for_seat` (`record_text_input` = seat 0), and `apply_one_text_changeset`
+      applies a non-primary seat's edit at THAT seat's caret (`TextEditManager::seat_carets`, a
+      `SeatCaret { node, cursor }` per seat; none yet in that node = the end of its text, where a
+      fresh focus puts the primary's too), then sets the seat's caret from the edit result and
+      shifts every other caret on the node across the change - the primary's via
+      `shift_all_across`, the other seats' via `shift_seat_carets_across` - the U3 peer rule
+      applied to seats. The primary's blink reset, cursor-rect undo positions and multi-cursor
+      update stay the primary's. Seat carets follow a DOM rebuild (`remap_node_ids`, unmounted =
+      cleared). Producers: the X11 `handle_seat_key_event` and Wayland `handle_seat_key` text
+      paths now feed the seat, which is exactly where a second person's keystrokes used to land
+      in the primary's field. WHY the gap existed: the edit pipeline read one focused node and one
+      caret; per-seat focus (d-i) made the node per seat but the caret and the record path were
+      still singular. Tests (`seat_text_session.rs`): a seat appends to its own field while the
+      primary edits another at byte 0, its caret follows and its second keystroke continues there,
+      the primary's field and caret are untouched; both carets shift across each other's edits in
+      one field; a seat without focus types into nothing. Evidence: host check EXIT=0; azul-layout
+      lib 7683 / `--test all` 1006 (+3), e2e 62 scenarios, azul-dll 2071, 0 failed; 8/8 gate.
+- [ ] 9b-ii-a-i-d-ii-a The seat caret is tracked but not DRAWN: the display list emits the
+      primary caret (and peer carets from the multi-cursor's node only). Draw `seat_carets` in the
+      owner colour scheme the peer carets use, blinking on the primary's clock.
+- [ ] 9b-ii-a-i-d-ii-b A seat's Backspace, Delete, arrows, Enter and shortcuts still act on the
+      PRIMARY's session: the input interpreter's caret ops (`ApplySelectionOp`, `SplitBlock`,
+      `DeleteAtCursor`) resolve against `multi_cursor`, not the seat's caret, even though d-i
+      routes the key to the seat's focus. Needs the seat threaded through `SystemChange` for those
+      ops, or a per-seat `MultiCursorState`. Only plain text insertion is per seat today.
+- [ ] 9b-ii-a-i-d-ii-c IME / preedit per seat: `ime_document`, `preedit_text` and the composition
+      phase are the primary's; a second seat's input method composes into the primary's field.
+      Wayland has one text-input per seat, so the producer exists; the engine side does not.
+- [ ] 9b-ii-a-i-d-ii-d Undo attribution: a seat's edits enter the one document undo stack with
+      `Uninitialized` cursor positions; Cmd+Z on any seat undoes them in order. Fine for a shared
+      document, wrong if per-person undo is wanted - a product question, logged not guessed.
 - [ ] 9b-ii-a-i-d-iii `:focus` styling and the a11y focus are single: a seat's focused node gets
       no ring / no `:focus` restyle (`apply_focus_restyle` runs for the primary only) and
       accesskit sees one focus. A per-seat ring needs a pseudo-class per seat or a seat-coloured

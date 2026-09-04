@@ -15287,6 +15287,17 @@ impl LayoutWindow {
         &mut self,
         text_input: &str,
     ) -> BTreeMap<DomNodeId, (Vec<EventFilter>, bool)> {
+        self.record_text_input_for_seat(azul_core::window::PRIMARY_POINTER_SEAT, text_input)
+    }
+
+    /// `record_text_input` for the keyboard of seat `seat_id` (9b-ii-a-i-d-ii):
+    /// the text goes to THAT seat's focused node and is applied at that
+    /// seat's own caret, so a second person's typing lands in their field.
+    pub fn record_text_input_for_seat(
+        &mut self,
+        seat_id: u64,
+        text_input: &str,
+    ) -> BTreeMap<DomNodeId, (Vec<EventFilter>, bool)> {
         use std::collections::BTreeMap;
 
         use crate::managers::text_input::TextInputSource;
@@ -15297,8 +15308,8 @@ impl LayoutWindow {
             return affected_nodes;
         }
 
-        // Get focused node
-        let Some(focused_node) = self.focus_manager.get_focused_node().copied() else {
+        // The SEAT's focused node - the primary's for seat 0.
+        let Some(focused_node) = self.focus_manager.focused_node_for(seat_id) else {
             return affected_nodes;
         };
 
@@ -15311,7 +15322,8 @@ impl LayoutWindow {
         let old_text = self.extract_text_from_inline_content(&old_inline_content);
 
         // Record the changeset in TextInputManager (but DON'T apply changes yet)
-        self.text_input_manager.record_input(
+        self.text_input_manager.record_input_for_seat(
+            seat_id,
             focused_node,
             text_input.to_string(),
             old_text,
@@ -15347,7 +15359,7 @@ impl LayoutWindow {
         let mut needs_relayout = false;
 
         while let Some(queued) = self.text_input_manager.take_next_changeset() {
-            let result = self.apply_one_text_changeset(queued.edit);
+            let result = self.apply_one_text_changeset(queued.edit, queued.seat_id);
             needs_relayout |= result.needs_relayout;
             for node in result.dirty_nodes {
                 if !dirty_nodes.contains(&node) {
@@ -15364,9 +15376,19 @@ impl LayoutWindow {
 
     /// One queued edit. The entry is ALREADY popped, so every early-out here
     /// simply skips it rather than clearing the queue behind the loop's back.
-    fn apply_one_text_changeset(&mut self, changeset: PendingTextEdit) -> TextChangesetResult {
+    fn apply_one_text_changeset(
+        &mut self,
+        changeset: PendingTextEdit,
+        seat_id: u64,
+    ) -> TextChangesetResult {
         use crate::managers::changeset::{TextOpInsertText, TextOperation};
         use crate::text3::edit::{edit_text, TextEdit};
+
+        // A non-primary seat's edit (9b-ii-a-i-d-ii) is applied at THAT
+        // seat's caret - never at the primary's, which may sit in another
+        // node entirely; a seat without a caret in this node starts at the
+        // end of its text, where a fresh focus puts the primary's too.
+        let is_primary_seat = seat_id == azul_core::window::PRIMARY_POINTER_SEAT;
 
         let empty = TextChangesetResult {
             dirty_nodes: Vec::new(),
@@ -15446,13 +15468,28 @@ impl LayoutWindow {
         }
 
         // Get current cursor/selection — prefer non-empty MultiCursorState, fall back to legacy
-        let mc_selections = self
-            .text_edit_manager
-            .multi_cursor
-            .as_ref()
-            .map(azul_core::selection::MultiCursorState::to_selections)
-            .unwrap_or_default();
-        let current_selection = if !mc_selections.is_empty() {
+        let mc_selections = if is_primary_seat {
+            self.text_edit_manager
+                .multi_cursor
+                .as_ref()
+                .map(azul_core::selection::MultiCursorState::to_selections)
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let seat_cursor = if is_primary_seat {
+            None
+        } else {
+            Some(
+                self.text_edit_manager
+                    .seat_caret(seat_id)
+                    .filter(|c| c.node == changeset.node)
+                    .map_or_else(|| Self::end_of_content_cursor(&content), |c| c.cursor),
+            )
+        };
+        let current_selection = if let Some(cursor) = seat_cursor {
+            vec![Selection::Cursor(cursor)]
+        } else if !mc_selections.is_empty() {
             mc_selections
         } else if let Some(cursor) = self.text_edit_manager.get_primary_cursor() {
             vec![Selection::Cursor(cursor)]
@@ -15522,11 +15559,29 @@ impl LayoutWindow {
             };
 
         // Update cursors from edit result
-        if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
-            mc.update_from_edit_result(&new_selections);
-            // Peers' carets move with the text the edit changed (U3-a).
-            mc.shift_peers_across(&crate::text3::edit::run_text_changes(&content, &new_content));
+        let changes = crate::text3::edit::run_text_changes(&content, &new_content);
+        if is_primary_seat {
+            if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+                mc.update_from_edit_result(&new_selections);
+                // Peers' carets move with the text the edit changed (U3-a).
+                mc.shift_peers_across(&changes);
+            }
+        } else {
+            // The seat's own caret follows its edit; the primary's caret and
+            // peers on this node shift across it like across any edit.
+            if let Some(Selection::Cursor(cursor)) = new_selections.first() {
+                self.text_edit_manager
+                    .set_seat_caret(seat_id, changeset.node, *cursor);
+            }
+            if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+                if mc.node_id == changeset.node {
+                    mc.shift_all_across(&changes);
+                }
+            }
         }
+        // The other seats' carets on this node move too (9b-ii-a-i-d-ii).
+        self.text_edit_manager
+            .shift_seat_carets_across(changeset.node, &changes, Some(seat_id));
         // No legacy cursor manager sync needed -- multi_cursor is the source of truth
 
         // MWA-C-undo_redo: styled pre/post snapshots so undo/redo restore
@@ -15547,14 +15602,19 @@ impl LayoutWindow {
         // Record this operation to the undo/redo manager AFTER successful mutation
 
         // Get the new cursor position after edit using the layout's cursor rect
-        let new_cursor = self
-            .get_focused_cursor_rect()
-            .map_or(CursorPosition::Uninitialized, |r| {
-                CursorPosition::InWindow(r.origin)
-            });
+        // (the primary's caret rect; meaningless for another seat's edit)
+        let new_cursor = if is_primary_seat {
+            self.get_focused_cursor_rect()
+                .map_or(CursorPosition::Uninitialized, |r| {
+                    CursorPosition::InWindow(r.origin)
+                })
+        } else {
+            CursorPosition::Uninitialized
+        };
 
         let old_cursor_pos = old_cursor
             .as_ref()
+            .filter(|_| is_primary_seat)
             .map_or(CursorPosition::Uninitialized, |_| {
                 // The old cursor position was before the edit — the layout may
                 // have already updated so we use the same rect as new_cursor.
@@ -15585,8 +15645,11 @@ impl LayoutWindow {
         // solid while the user types (W3C/native behavior) — previously the
         // caret kept blinking mid-keystroke because reset ran only on
         // click/focus/user-API.
-        let now = Instant::now();
-        self.text_edit_manager.blink.reset_blink_on_input(now);
+        // The blink is the primary caret's (9b-ii-a-i-d-ii).
+        if is_primary_seat {
+            let now = Instant::now();
+            self.text_edit_manager.blink.reset_blink_on_input(now);
+        }
 
         // Check if any dirty text node needs ancestor relayout (text size changed)
         let needs_relayout = self.content_overlay.any_text_needs_ancestor_relayout();
@@ -15602,6 +15665,27 @@ impl LayoutWindow {
     /// Determine which nodes need to be marked dirty after a text edit
     ///
     /// Returns the edited node + its parent (if it exists)
+    /// A caret after the last byte of the last run of `content` - where a
+    /// seat without a caret in a node starts typing (9b-ii-a-i-d-ii).
+    #[allow(clippy::cast_possible_truncation)] // run text is bounded far below u32
+    fn end_of_content_cursor(content: &[InlineContent]) -> TextCursor {
+        let mut last_run: u32 = 0;
+        let mut last_len: u32 = 0;
+        for (i, item) in content.iter().enumerate() {
+            if let InlineContent::Text(run) = item {
+                last_run = i as u32;
+                last_len = run.text.len() as u32;
+            }
+        }
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: last_run,
+                start_byte_in_run: last_len,
+            },
+            affinity: CursorAffinity::Leading,
+        }
+    }
+
     fn determine_dirty_text_nodes(&self, dom_id: DomId, node_id: NodeId) -> Vec<DomNodeId> {
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
             return Vec::new();

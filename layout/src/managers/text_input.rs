@@ -125,6 +125,9 @@ pub struct QueuedTextEdit {
     pub edit: PendingTextEdit,
     /// Where this particular edit came from.
     pub source: TextInputSource,
+    /// Which SEAT typed it (9b-ii-a-i-d-ii): the edit is applied at that
+    /// seat's caret. Seat 0 is the primary.
+    pub seat_id: u64,
 }
 
 /// FIFO of recorded-but-not-yet-applied text edits, oldest first.
@@ -291,7 +294,26 @@ impl TextInputManager {
         old_text: String,
         source: TextInputSource,
     ) -> DomNodeId {
+        self.record_input_for_seat(
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            node,
+            inserted_text,
+            old_text,
+            source,
+        )
+    }
+
+    /// `record_input` for the text seat `seat_id` typed (9b-ii-a-i-d-ii).
+    pub fn record_input_for_seat(
+        &mut self,
+        seat_id: u64,
+        node: DomNodeId,
+        inserted_text: String,
+        old_text: String,
+        source: TextInputSource,
+    ) -> DomNodeId {
         self.pending_changesets.push(QueuedTextEdit {
+            seat_id,
             edit: PendingTextEdit {
                 node,
                 inserted_text: inserted_text.into(),
@@ -357,6 +379,7 @@ impl TextInputManager {
             front.edit = changeset;
         } else {
             self.pending_changesets.push(QueuedTextEdit {
+                seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
                 edit: changeset,
                 source: TextInputSource::Programmatic,
             });
@@ -1112,6 +1135,7 @@ mod autotest_generated {
         // hand-building the queue entry demands one.
         let mut m = TextInputManager::new();
         m.pending_changesets.push(QueuedTextEdit {
+            seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
             edit: edit("old", "ins"),
             source: TextInputSource::Keyboard,
         });
