@@ -14,7 +14,7 @@ use azul_core::geom::LogicalSize;
 use azul_core::id::NodeId;
 use azul_core::selection::{
     CursorAffinity, GraphemeClusterId, IdentifiedSelection, MultiCursorState, Selection,
-    SelectionId, SelectionRange, TextCursor,
+    SelectionId, SelectionOwner, SelectionRange, TextCursor,
 };
 use azul_core::styled_dom::{NodeHierarchyItemId, StyledDom};
 use azul_layout::callbacks::ExternalSystemCallbacks;
@@ -89,6 +89,8 @@ fn select(lw: &mut LayoutWindow, dom: DomId, node: NodeId, start: TextCursor, en
     mc.selections = vec![IdentifiedSelection {
         id: SelectionId::new(),
         selection: Selection::Range(SelectionRange { start, end }),
+        // The engine's own selection: the person at this machine (U1).
+        owner: SelectionOwner::LOCAL,
     }];
     lw.text_edit_manager.multi_cursor = Some(mc);
 }
