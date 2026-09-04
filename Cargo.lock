@@ -734,7 +734,7 @@ dependencies = [
  "gl-context-loader",
  "libm",
  "proptest",
- "rust-fontconfig",
+ "rust-fontconfig 5.0.0",
  "serde",
  "serde_json",
  "url",
@@ -819,7 +819,7 @@ dependencies = [
  "pyo3-log",
  "rclip-core",
  "rich-clipboard",
- "rust-fontconfig",
+ "rust-fontconfig 5.0.0",
  "security-framework",
  "serde",
  "serde_json",
@@ -865,7 +865,7 @@ dependencies = [
  "quote",
  "rayon",
  "regex",
- "rust-fontconfig",
+ "rust-fontconfig 5.0.0",
  "rustls",
  "rustls-rustcrypto",
  "serde",
@@ -940,7 +940,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "png",
  "roxmltree 0.21.1",
- "rust-fontconfig",
+ "rust-fontconfig 5.0.0",
  "rustls",
  "rustls-rustcrypto",
  "serde",
@@ -6259,7 +6259,7 @@ dependencies = [
  "getrandom 0.4.3",
  "image",
  "lopdf",
- "rust-fontconfig",
+ "rust-fontconfig 4.6.0",
  "serde",
  "serde_derive",
  "serde_json",
@@ -7042,6 +7042,17 @@ name = "rust-fontconfig"
 version = "4.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1738b9f962e0c1740976aa5f59c004d132a05c0be99cab3e096a9354a5ab4684"
+dependencies = [
+ "allsorts-azul",
+ "mmapio",
+ "xmlparser",
+]
+
+[[package]]
+name = "rust-fontconfig"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65891c2639e01103a60309be01deb83d1707a291b03ef3f5fe4162693ac053b0"
 dependencies = [
  "allsorts-azul",
  "bincode 1.3.3",

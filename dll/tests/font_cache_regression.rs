@@ -35,7 +35,9 @@ use azul_core::refany::RefAny;
 use azul_core::resources::AppConfig;
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::registry::FcFontRegistry;
-use rust_fontconfig::{FcFont, FcFontCache, FcPattern, OperatingSystem};
+use rust_fontconfig::{
+    FcFallbackConfig, FcFont, FcFontCache, FcPattern, GenericFamily, OperatingSystem,
+};
 
 use azul::desktop::shell2::common::layout::should_request_fonts;
 use azul::desktop::shell2::common::PlatformWindow;
@@ -163,7 +165,7 @@ fn incomplete_build_with_nonempty_cache_still_loads_system_fonts() {
              real coverage here.\n\
              =====================================================================\n",
             OperatingSystem::current(),
-            OperatingSystem::current().get_sans_serif_fonts(&[]),
+            platform_sans_serif_families(),
         );
         return;
     };
@@ -284,10 +286,17 @@ fn installed_platform_ui_family() -> Option<String> {
         .into_iter()
         .filter_map(|(p, _)| p.family.clone())
         .collect();
-    OperatingSystem::current()
-        .get_sans_serif_fonts(&[])
+    platform_sans_serif_families()
         .into_iter()
         .find(|f| installed.contains(f))
+}
+
+/// The per-OS `sans-serif` table (rust-fontconfig's own defaults for this
+/// platform, without any fonts.conf aliases - the families the crate
+/// DECLARES as this OS's UI fonts).
+fn platform_sans_serif_families() -> Vec<String> {
+    FcFallbackConfig::os_defaults(OperatingSystem::current())
+        .expand_generic(GenericFamily::SansSerif, &[])
 }
 
 // ---------------------------------------------------------------------------

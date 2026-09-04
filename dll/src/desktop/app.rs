@@ -555,20 +555,20 @@ impl AppInternal {
         let (fc_cache, font_registry) = {
             // Create the async font registry (returns immediately).
             //
-            // The scan directories and parse-priority families are INJECTED
-            // (rust-fontconfig >= 4.6): the crate no longer decides on its
-            // own where fonts live or which families matter — the embedder
-            // does, and `os_defaults()` is the explicitly-chosen fallback
-            // tier carrying the old per-OS tables. This is the seam through
-            // which a host can later scan portable-app font dirs, or put the
-            // DESKTOP-CONFIGURED family first (SystemStyle is detected after
+            // `new()` builds BOTH configs from the system (rust-fontconfig
+            // >= 5.0): the scan directories are the OS defaults plus the
+            // `<dir>`s of the system fonts.conf, and the fallback config is
+            // that file's `<alias><prefer>` lists - what the DESKTOP says
+            // `sans-serif` means - merged over the per-OS tables, with
+            // `FONTCONFIG_FILE` / `FONTCONFIG_PATH` honoured. azul used to
+            // parse fonts.conf itself and splice the aliases into every
+            // font stack; that is the crate's job now, ONE model of what a
+            // generic expands to. `new_with_configs` stays the seam for a
+            // host that wants to scan portable-app font dirs or put the
+            // desktop-configured family first (SystemStyle is detected after
             // this point today; the first-layout `request_fonts` warmup in
             // shell2/common/layout.rs already front-loads the detected fonts).
-            let registry = FcFontRegistry::new_with_config(
-                rust_fontconfig::config::FcScanConfig::os_defaults(
-                    rust_fontconfig::OperatingSystem::current(),
-                ),
-            );
+            let registry = FcFontRegistry::new();
 
             // Try to load on-disk font cache (~10-20ms if cache exists, 0ms otherwise)
             let had_cache = registry.load_from_disk_cache();
