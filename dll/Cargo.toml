@@ -433,6 +433,7 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_System_SystemServices",
     "Win32_System_Com_StructuredStorage",
     "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Shell",
 ] }
 # Direct windows-core dep so the `#[implement(IDropTarget)]` macro's
@@ -891,6 +892,10 @@ allocator_jemalloc = ["dep:tikv-jemallocator"]
 # Phase 1+: will add remill-rs, wasm-encoder as optional deps.
 # Can be combined with link-static (Rust app) or used standalone (C binary).
 web = [
+    # dll/src/web/html_render.rs calls log:: unconditionally; without this the
+    # web feature only builds when something else happens to enable `logging`
+    # (link-dynamic never compiles that file, which is why it went unnoticed).
+    "logging",
     "azul-core",
     "azul-css",
     "azul-layout",

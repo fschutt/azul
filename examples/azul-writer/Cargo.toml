@@ -15,7 +15,11 @@ description = """
 publish = false
 
 [dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# Desktop/production links DYNAMICALLY: the same binary is copied into the
+# container and the engine arrives as libazul*.so from the base image (see
+# Dockerfile). `link-static` exists only for LOCAL lift debugging on a host
+# without a prebuilt libazul - see the `web-lift-static` feature below.
+azul = { path = "../../dll", package = "azul-dll", default-features = false }
 pulldown-cmark = { version = "0.9", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -58,6 +62,12 @@ path = "src/main.rs"
 flate2 = "1"
 
 [features]
+default = ["link-dynamic"]
+link-dynamic = ["azul/link-dynamic"]
+# LOCAL DEBUG ONLY - compiles the engine into the binary so the x86 lifter has
+# a self-contained image, for hosts with no libazul to link against. Production
+# uses the default dynamic build + the Dockerfile prelift flow.
+web-lift-static = ["azul/link-static", "azul/web", "azul/web-transpiler"]
 # Engine telemetry (opt-in at runtime via AZ_TELEMETRY): frame durations +
 # solver/raster spans from real runs, e.g. driving the app through e2e tests
 # to find where it stutters.
