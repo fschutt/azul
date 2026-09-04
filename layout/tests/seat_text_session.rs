@@ -487,3 +487,29 @@ fn a_seats_composition_is_shaped_at_its_caret_and_underlined() {
     lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
     assert_eq!(underlines(&lw), 0, "nothing composes any more");
 }
+
+/// 9b-ii-a-i-d-ii-c-ii: the rectangle a seat's input method is told about is
+/// the SEAT caret's, in its own field, not the primary's.
+#[test]
+fn a_seats_caret_rect_is_the_seats_not_the_primarys() {
+    let mut lw = two_fields();
+    primary_edits(&mut lw, TEXT_A, 0);
+    lw.text_edit_manager.set_seat_caret(SEAT, node(TEXT_B), at(2));
+    let primary = lw
+        .get_focused_cursor_rect_viewport()
+        .expect("the primary's caret has a rectangle");
+    let seat = lw
+        .seat_cursor_rect_viewport(SEAT)
+        .expect("the seat's caret has a rectangle");
+    assert_eq!(
+        lw.seat_cursor_rect_viewport(azul_core::window::PRIMARY_POINTER_SEAT),
+        Some(primary),
+        "seat 0 is the primary"
+    );
+    assert!(
+        seat.origin.y > primary.origin.y,
+        "field B lies below field A: seat {seat:?} vs primary {primary:?}"
+    );
+    assert!(seat.origin.x > primary.origin.x, "byte 2 of B sits right of byte 0 of A");
+    assert!(lw.seat_cursor_rect_viewport(99).is_none(), "no caret, no rectangle");
+}

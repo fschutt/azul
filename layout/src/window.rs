@@ -12160,14 +12160,20 @@ impl LayoutWindow {
     }
 
     pub fn get_focused_cursor_rect(&self) -> Option<LogicalRect> {
+        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        let cursor = self.text_edit_manager.get_primary_cursor()?;
+        self.cursor_rect_for(session_node, &cursor)
+    }
+
+    /// `get_focused_cursor_rect` for any caret: `cursor` in `session_node`'s
+    /// inline layout, in layout coordinates (9b-ii-a-i-d-ii-c-ii).
+    #[must_use]
+    pub fn cursor_rect_for(&self, session_node: DomNodeId, cursor: &TextCursor) -> Option<LogicalRect> {
+        let cursor = *cursor;
         // Keyed on the SESSION's node, not the focused node: focus lands on the
         // contenteditable container while the caret is anchored on the IFC root
         // inside it, so matching the focused node returned None for every
         // nested editable — and with it, no caret reveal.
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
-
-        // Get the text cursor
-        let cursor = self.text_edit_manager.get_primary_cursor()?;
 
         let (inline_layout, origin) = self.session_inline_geometry(session_node)?;
 
@@ -12951,8 +12957,33 @@ impl LayoutWindow {
     ///
     /// For scroll-into-view calculations (absolute coordinates), use `get_focused_cursor_rect()`.
     pub fn get_focused_cursor_rect_viewport(&self) -> Option<LogicalRect> {
+        let cursor_rect = self.get_focused_cursor_rect()?;
+        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
+        self.cursor_rect_viewport_for(session_node, cursor_rect)
+    }
+
+    /// Seat `seat_id`'s caret rectangle in viewport coordinates
+    /// (9b-ii-a-i-d-ii-c-ii): where that seat's input method opens its
+    /// candidate window. The primary's for seat 0.
+    #[must_use]
+    pub fn seat_cursor_rect_viewport(&self, seat_id: u64) -> Option<LogicalRect> {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            return self.get_focused_cursor_rect_viewport();
+        }
+        let caret = self.text_edit_manager.seat_caret(seat_id)?;
+        let rect = self.cursor_rect_for(caret.node, &caret.cursor)?;
+        self.cursor_rect_viewport_for(caret.node, rect)
+    }
+
+    /// `get_focused_cursor_rect_viewport`'s scroll and transform walk for any
+    /// caret rectangle of `session_node`.
+    #[must_use]
+    pub fn cursor_rect_viewport_for(
+        &self,
+        session_node: DomNodeId,
+        mut cursor_rect: LogicalRect,
+    ) -> Option<LogicalRect> {
         // Start with absolute position
-        let mut cursor_rect = self.get_focused_cursor_rect()?;
 
         // Correct the SAME layout node the rect was measured on, in the
         // session's OWN dom. This used to walk `layout_cache.tree` (the ROOT
@@ -12961,7 +12992,6 @@ impl LayoutWindow {
         // unrelated root node happened to share that index, or bailed to None
         // — so every IME candidate window inside a virtualized view was placed
         // at the wrong spot on screen.
-        let session_node = self.text_edit_manager.multi_cursor.as_ref()?.node_id;
         let (layout_result, layout_idx) = self.session_geometry_node(session_node)?;
         let layout_tree = &layout_result.layout_tree;
 

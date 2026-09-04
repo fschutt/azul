@@ -2368,9 +2368,19 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [ ] 9b-ii-a-i-d-ii-c-i Composition EVENTS per seat: `CompositionStart` / `Update` / `End` come
       from `pending_composition`, which is the primary's; a seat's IME composes silently as far as
       callbacks are concerned. Needs the seat on the composition phase and on the event.
-- [ ] 9b-ii-a-i-d-ii-c-ii The IME popup position for a seat: `set_cursor_rectangle` is sent for
-      the primary's caret only (`sync_ime_position_to_os`), so a second seat's candidate window
-      opens at the primary's caret. Needs the seat caret's rect per text input.
+- [x] 9b-ii-a-i-d-ii-c-ii DONE. The focused-caret rectangle helpers became caret-agnostic
+      (`cursor_rect_for(node, cursor)` and `cursor_rect_viewport_for(node, rect)`, the focused
+      pair now thin wrappers over them) and `seat_cursor_rect_viewport(seat)` answers for a seat's
+      caret in its own node, through the same scroll and GPU-transform walk. The Wayland side
+      sends `set_cursor_rectangle` + `commit` on each enabled seat's text input from
+      `sync_seat_text_inputs` (`sync_seat_ime_position`, remembering the last rectangle per seat
+      so an unchanged one is not re-sent every pass, forgotten on disable). WHY the gap existed:
+      the IME rectangle path started at `get_focused_cursor_rect`, which reads the multi-cursor,
+      so the only rectangle any text input could be told was the primary's. Test: with the primary
+      at byte 0 of field A and the seat at byte 2 of field B, the seat's rectangle lies below and
+      right of the primary's, seat 0 answers the primary's, a seat without a caret has none.
+      Evidence: host check EXIT=0; azul-core 2810, azul-layout lib 7684 / `--test all` 1016 (+1),
+      e2e 62 scenarios, azul-dll 2071, 0 failed; 8/8 gate. Wayland half blind.
 - [ ] 9b-ii-a-i-d-ii-c-iii Two seats composing in ONE node: the last shaped composition wins the
       text-cache splice (both underline). Rare; log, do not guess.
 - [ ] 9b-ii-a-i-d-ii-d Undo attribution: a seat's edits enter the one document undo stack with

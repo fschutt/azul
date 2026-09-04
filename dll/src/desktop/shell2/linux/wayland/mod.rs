@@ -509,6 +509,9 @@ pub struct WaylandWindow {
     seat_text_input_pending: std::collections::BTreeMap<u64, events::TextInputPendingState>,
     /// The seats whose text input is currently enabled (the seat has a caret).
     seat_text_input_enabled: std::collections::BTreeSet<u64>,
+    /// The caret rectangle last sent to each seat's text input
+    /// (9b-ii-a-i-d-ii-c-ii), so an unchanged one is not re-sent every pass.
+    seat_ime_rects: std::collections::BTreeMap<u64, azul_core::geom::LogicalRect>,
     pub display: *mut defines::wl_display,
     registry: *mut defines::wl_registry,
     compositor: *mut defines::wl_compositor,
@@ -1997,6 +2000,7 @@ impl WaylandWindow {
             seat_text_inputs: std::collections::BTreeMap::new(),
             seat_text_input_pending: std::collections::BTreeMap::new(),
             seat_text_input_enabled: std::collections::BTreeSet::new(),
+            seat_ime_rects: std::collections::BTreeMap::new(),
             display,
             event_queue,
             registry,
@@ -10112,7 +10116,49 @@ impl WaylandWindow {
                 self.seat_text_input_enable(seat_id);
             } else if !editing && enabled {
                 self.seat_text_input_disable(seat_id);
+                self.seat_ime_rects.remove(&seat_id);
             }
+            if self.seat_text_input_enabled.contains(&seat_id) {
+                self.sync_seat_ime_position(seat_id);
+            }
+        }
+    }
+
+    /// Tell seat `seat_id`'s input method where ITS caret is
+    /// (9b-ii-a-i-d-ii-c-ii), as `sync_ime_position_to_os` does for the
+    /// primary's - so a second seat's candidate window opens at the second
+    /// seat's caret. Only when the rectangle changed.
+    fn sync_seat_ime_position(&mut self, seat_id: u64) {
+        let Some(&text_input) = self.seat_text_inputs.get(&seat_id) else {
+            return;
+        };
+        let Some(rect) = self
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.seat_cursor_rect_viewport(seat_id))
+        else {
+            return;
+        };
+        if self.seat_ime_rects.get(&seat_id) == Some(&rect) {
+            return;
+        }
+        self.seat_ime_rects.insert(seat_id, rect);
+        type MarshalFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32, i32, i32, i32, i32);
+        let marshal: MarshalFn = unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
+        type CommitFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
+        let commit: CommitFn = unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
+        unsafe {
+            marshal(
+                text_input as *mut defines::wl_proxy,
+                defines::ZWP_TEXT_INPUT_V3_SET_CURSOR_RECTANGLE,
+                rect.origin.x as i32,
+                rect.origin.y as i32,
+                rect.size.width.max(1.0) as i32,
+                rect.size.height.max(1.0) as i32,
+            );
+            commit(text_input as *mut defines::wl_proxy, defines::ZWP_TEXT_INPUT_V3_COMMIT);
+            (self.wayland.wl_display_flush)(self.display);
         }
     }
 
