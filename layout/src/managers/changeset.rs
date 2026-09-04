@@ -555,6 +555,17 @@ impl TextChangeset {
     }
 }
 
+/// Gated on `xml`: the body of `apply_to_dom` - and its return type - is
+/// `crate::document_edit`, which `layout/src/lib.rs` declares as
+/// `#[cfg(all(feature = "text_layout", feature = "xml"))] pub mod
+/// document_edit;`. `managers` is already `#[cfg(feature = "text_layout")]`,
+/// so `xml` is the only half of that gate still missing here.
+///
+/// What an `xml`-less build loses: the Path-2 convenience method only. Apps
+/// with their own document model are unaffected - they apply the
+/// `DocumentOperation` themselves; it is the built-in "apply this changeset to
+/// a plain `Dom`" helper that disappears.
+#[cfg(feature = "xml")]
 impl DocumentChangeset {
     /// Apply this changeset to an app-model [`Dom`](azul_core::dom::Dom) -
     /// the Path-2 helper [`crate::document_edit::apply_document_operation`]
