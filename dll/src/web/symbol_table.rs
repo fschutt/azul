@@ -360,6 +360,11 @@ pub struct SymbolTable {
     /// Canonical names carried by more than one canonical address
     /// (duplicate monomorphizations) — see [`Self::name_is_ambiguous`].
     ambiguous_names: HashSet<String>,
+    /// `synthetic_addr -> canonical_addr`, so [`Self::lookup_by_synth`] is a
+    /// map probe rather than a scan of every entry. Filled by
+    /// [`Self::assign_synthetic_addresses`], which is what assigns the
+    /// synthetic addresses in the first place.
+    by_synth: BTreeMap<usize, usize>,
 }
 
 /// One image's `__DATA.__thread_vars` + TLS-image geometry (live, slid
@@ -720,6 +725,7 @@ impl SymbolTable {
             image_bytes,
             tlv_regions,
             ambiguous_names,
+            by_synth: BTreeMap::new(),
         };
 
         // Assign per-image synthetic bases so lifted code uses
@@ -939,6 +945,16 @@ impl SymbolTable {
 
         self.image_rebases = rebases;
         self.synth_chain = synth_chain;
+
+        // Build the synth -> canonical index now that every synthetic_addr is
+        // final. FIRST entry wins on a collision: the scan this replaces used
+        // `values().find(..)`, which returns the first match in by_addr order,
+        // and two entries CAN share a synthetic_addr (the reloc cache hit
+        // exactly that case).
+        self.by_synth.clear();
+        for e in self.by_addr.values() {
+            self.by_synth.entry(e.synthetic_addr).or_insert(e.canonical_addr);
+        }
     }
 
     /// M9-review: read accessor for the per-image rebase records.
@@ -963,14 +979,24 @@ impl SymbolTable {
         Some(cur)
     }
 
-    /// M9-review: look up an entry by its `synthetic_addr` (since
-    /// `by_addr` is keyed by `canonical_addr`). Linear scan; O(n)
-    /// but only called by helper-IR emission per branch extern, not
-    /// on a hot path.
+    /// Look up an entry by its `synthetic_addr` (`by_addr` is keyed by
+    /// `canonical_addr`). This IS a hot path, contrary to what the comment
+    /// here used to claim: helper-IR emission calls it per branch extern, in
+    /// every pool worker and again in the walk, so on a 36k-symbol table it
+    /// was tens of thousands of linear scans over the whole map.
     pub fn lookup_by_synth(&self, synth_addr: usize) -> Option<&SymbolEntry> {
-        self.by_addr
-            .values()
-            .find(|e| e.synthetic_addr == synth_addr)
+        if let Some(canon) = self.by_synth.get(&synth_addr) {
+            return self.by_addr.get(canon);
+        }
+        // Before assign_synthetic_addresses has run the index is empty; fall
+        // back so behaviour is unchanged rather than silently returning None.
+        if self.by_synth.is_empty() {
+            return self
+                .by_addr
+                .values()
+                .find(|e| e.synthetic_addr == synth_addr);
+        }
+        None
     }
 
     /// M9-review: generic native-address → synthetic-offset
