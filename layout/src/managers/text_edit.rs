@@ -764,24 +764,32 @@ impl TextEditManager {
         changes: &[azul_core::selection::RunTextChange],
         except: Option<u64>,
     ) {
-        if changes.is_empty() {
+        let diff = azul_core::selection::RunTextDiff {
+            remap: None,
+            changes: changes.to_vec(),
+        };
+        self.shift_seat_carets_across_diff(node, &diff, except);
+    }
+
+    /// `shift_seat_carets_across` for a diff that may also have changed the
+    /// run count (U3-a-i).
+    pub fn shift_seat_carets_across_diff(
+        &mut self,
+        node: DomNodeId,
+        diff: &azul_core::selection::RunTextDiff,
+        except: Option<u64>,
+    ) {
+        if diff.is_empty() {
             return;
         }
         for (seat, caret) in &mut self.seat_carets {
             if Some(*seat) == except || caret.node != node {
                 continue;
             }
-            for change in changes {
-                if change.run == caret.cursor.cluster_id.source_run {
-                    caret.cursor.cluster_id.start_byte_in_run =
-                        change.transform(caret.cursor.cluster_id.start_byte_in_run);
-                }
-                if let Some(anchor) = caret.anchor.as_mut() {
-                    if change.run == anchor.cluster_id.source_run {
-                        anchor.cluster_id.start_byte_in_run =
-                            change.transform(anchor.cluster_id.start_byte_in_run);
-                    }
-                }
+            caret.cursor = diff.map_cursor(caret.cursor);
+            if let Some(anchor) = caret.anchor {
+                let mapped = diff.map_cursor(anchor);
+                caret.anchor = if mapped == caret.cursor { None } else { Some(mapped) };
             }
         }
     }

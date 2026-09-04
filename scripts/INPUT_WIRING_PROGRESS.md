@@ -2798,11 +2798,23 @@ session needs. Recorded verbatim so the framing is not lost.
       spatial-navigation scenario RED under its negative control; the 8-target gate 8/8 after one
       iOS fix (objc2 `error: _` wants a typed NSError; explicit out-pointers now); the Android
       Java classes compile against android-34.
-- [ ] U3-a-i Peer shift across an edit that changes the run COUNT: a delete spanning two
-      styled runs merges them, a styled paste splits one; `run_text_changes` answers nothing
-      then, so peers on the affected runs stay where they were until the next snapshot. Needs
-      a run-mapping (old run -> new run + byte base) computed alongside the edit, which
-      `edit_text_outcome` knows and currently discards.
+- [x] U3-a-i DONE. `RunTextDiff { remap: Option<RunRemap>, changes }` is what an edit now
+      reports (`run_text_diff`): when the run count is unchanged it is the old per-run byte
+      changes; when it changed, a `RunRemap` from the runs common to both generations (aligned by
+      equal prefix and suffix runs) - the old and new middle run lengths, the byte change between
+      the CONCATENATED middle texts, and the length of the run before the middle. `map_cursor`
+      keeps a caret before the middle, moves a caret after it by the count delta, and maps a
+      caret in the middle through the concatenated text into the new run layout (a vanished
+      middle lands at the end of the run before it). Every consumer applies the diff:
+      `shift_peers_across_diff` / `shift_all_across_diff` on the multi-cursor,
+      `shift_seat_carets_across_diff` for seat carets (anchors too), the insert, the two delete
+      paths and the U3-b snapshot compare. WHY the gap existed: `run_text_changes` answered
+      nothing for unequal run counts by design, and `edit_text_outcome` discarded the alignment it
+      knew. Tests: core (merge, split, spanning delete, vanished middle, through the multi-cursor)
+      and layout (`run_remap.rs`: the spanning delete lands the peer on its own 'l', a split and
+      its reverse, equal counts unchanged). Evidence: host check EXIT=0; azul-core 2810 (+1),
+      azul-layout lib 7684 / `--test all` 1014 (+3), e2e 62 scenarios, azul-dll 2071, 0 failed;
+      8/8 gate.
 - [x] U3-b DONE (the user's question, 2026-09-03: "isn't this already the case where we
       preserve the caret position ... across layout() RefreshDom events?" - it was not: the
       engine preserved the caret's NODE across a refresh and kept its (run, byte) verbatim, so

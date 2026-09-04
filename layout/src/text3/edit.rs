@@ -133,6 +133,53 @@ pub fn run_text_changes(
 }
 
 /// Byte length of the text in the run at `run_idx`, or 0 for non-text / missing runs.
+/// The full caret-moving description of an edit (U3-a, U3-a-i): the byte
+/// changes per run when the run count is unchanged, else a `RunRemap` from
+/// the runs common to both ends plus the change to the concatenated middle.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)] // run text is bounded far below u32
+pub fn run_text_diff(old: &[InlineContent], new: &[InlineContent]) -> azul_core::selection::RunTextDiff {
+    use azul_core::selection::{RunRemap, RunTextChange, RunTextDiff};
+    if old.len() == new.len() {
+        return RunTextDiff {
+            remap: None,
+            changes: run_text_changes(old, new),
+        };
+    }
+    fn text_of(c: &InlineContent) -> &str {
+        match c {
+            InlineContent::Text(r) => &r.text,
+            _ => "",
+        }
+    }
+    let shorter = old.len().min(new.len());
+    let mut prefix = 0;
+    while prefix < shorter && old[prefix] == new[prefix] {
+        prefix += 1;
+    }
+    let mut suffix = 0;
+    while suffix < shorter - prefix && old[old.len() - 1 - suffix] == new[new.len() - 1 - suffix] {
+        suffix += 1;
+    }
+    let old_mid = &old[prefix..old.len() - suffix];
+    let new_mid = &new[prefix..new.len() - suffix];
+    let concat_old: String = old_mid.iter().map(text_of).collect();
+    let concat_new: String = new_mid.iter().map(text_of).collect();
+    RunTextDiff {
+        remap: Some(RunRemap {
+            first: prefix as u32,
+            old_lens: old_mid.iter().map(|c| text_of(c).len() as u32).collect(),
+            new_lens: new_mid.iter().map(|c| text_of(c).len() as u32).collect(),
+            middle: RunTextChange::between(0, &concat_old, &concat_new),
+            prev_len: prefix
+                .checked_sub(1)
+                .and_then(|i| new.get(i))
+                .map(|c| text_of(c).len() as u32),
+        }),
+        changes: Vec::new(),
+    }
+}
+
 fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
     match content.get(run_idx as usize) {
         Some(InlineContent::Text(run)) => run.text.len(),

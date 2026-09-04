@@ -4272,10 +4272,10 @@ impl LayoutWindow {
         let now = self.get_text_before_textinput(dom_id, node_id);
         if let Some((snapshot_key, before)) = self.caret_text_snapshot.as_ref() {
             if *snapshot_key == key {
-                let changes = crate::text3::edit::run_text_changes(before, &now);
+                let changes = crate::text3::edit::run_text_diff(before, &now);
                 if !changes.is_empty() {
                     if let Some(mc) = self.text_edit_manager.multi_cursor.as_mut() {
-                        mc.shift_all_across(&changes);
+                        mc.shift_all_across_diff(&changes);
                     }
                     self.text_edit_manager.mark_dirty();
                 }
@@ -10174,7 +10174,7 @@ impl LayoutWindow {
                         } => (content, selections),
                         crate::text3::edit::EditOutcome::NoOp(_) => return false,
                     };
-                let changes = crate::text3::edit::run_text_changes(&content, &new_content);
+                let changes = crate::text3::edit::run_text_diff(&content, &new_content);
                 self.record_delete_undo(target, node_id, content, new_content.clone(), &current);
                 if let Some(Selection::Cursor(cursor)) = new_selections.first() {
                     self.text_edit_manager
@@ -10182,11 +10182,11 @@ impl LayoutWindow {
                 }
                 if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
                     if mc.node_id == target {
-                        mc.shift_all_across(&changes);
+                        mc.shift_all_across_diff(&changes);
                     }
                 }
                 self.text_edit_manager
-                    .shift_seat_carets_across(target, &changes, Some(seat_id));
+                    .shift_seat_carets_across_diff(target, &changes, Some(seat_id));
                 self.update_text_cache_after_edit(dom_id, node_id, new_content);
                 self.regenerate_display_list_for_dom(dom_id);
                 true
@@ -15836,12 +15836,13 @@ impl LayoutWindow {
             };
 
         // Update cursors from edit result
-        let changes = crate::text3::edit::run_text_changes(&content, &new_content);
+        let changes = crate::text3::edit::run_text_diff(&content, &new_content);
         if is_primary_seat {
             if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
                 mc.update_from_edit_result(&new_selections);
-                // Peers' carets move with the text the edit changed (U3-a).
-                mc.shift_peers_across(&changes);
+                // Peers' carets move with the text the edit changed (U3-a),
+                // across a run merge / split too (U3-a-i).
+                mc.shift_peers_across_diff(&changes);
             }
         } else {
             // The seat's own caret follows its edit; the primary's caret and
@@ -15852,13 +15853,13 @@ impl LayoutWindow {
             }
             if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
                 if mc.node_id == changeset.node {
-                    mc.shift_all_across(&changes);
+                    mc.shift_all_across_diff(&changes);
                 }
             }
         }
         // The other seats' carets on this node move too (9b-ii-a-i-d-ii).
         self.text_edit_manager
-            .shift_seat_carets_across(changeset.node, &changes, Some(seat_id));
+            .shift_seat_carets_across_diff(changeset.node, &changes, Some(seat_id));
         // No legacy cursor manager sync needed -- multi_cursor is the source of truth
 
         // MWA-C-undo_redo: styled pre/post snapshots so undo/redo restore
@@ -19142,7 +19143,7 @@ impl LayoutWindow {
             };
         // What the delete did to the text, taken while `content` is still
         // ours - it is moved into the undo record below (U3-a).
-        let peer_changes = crate::text3::edit::run_text_changes(&content, &new_content);
+        let peer_changes = crate::text3::edit::run_text_diff(&content, &new_content);
 
         // MWA-C-undo_redo: deletions (Backspace / Delete / Cut all route
         // here) were never recorded — only insertions were undoable. Record
@@ -19154,8 +19155,9 @@ impl LayoutWindow {
         // Update multi-cursor state
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
             mc.update_from_edit_result(&new_selections);
-            // Peers' carets move with the text the delete removed (U3-a).
-            mc.shift_peers_across(&peer_changes);
+            // Peers' carets move with the text the delete removed (U3-a),
+            // across a merged run too (U3-a-i).
+            mc.shift_peers_across_diff(&peer_changes);
         }
         // No legacy cursor manager sync needed -- multi_cursor is the source of truth
 

@@ -266,6 +266,8 @@ mod ribbon_group_overlap;
 mod ribbon_tab_whitespace;
 #[path = "root_box_sizing_regression.rs"]
 mod root_box_sizing_regression;
+#[path = "run_remap.rs"]
+mod run_remap;
 #[path = "safe_area_inset.rs"]
 mod safe_area_inset;
 #[path = "seat_text_session.rs"]

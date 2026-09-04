@@ -611,6 +611,42 @@ impl MultiCursorState {
         self.shift_across(changes, true);
     }
 
+    /// `shift_peers_across` for a diff that may also have changed the run
+    /// count (U3-a-i).
+    pub fn shift_peers_across_diff(&mut self, diff: &RunTextDiff) {
+        self.shift_across_diff(diff, false);
+    }
+
+    /// `shift_all_across` for a diff that may also have changed the run
+    /// count (U3-a-i).
+    pub fn shift_all_across_diff(&mut self, diff: &RunTextDiff) {
+        self.shift_across_diff(diff, true);
+    }
+
+    fn shift_across_diff(&mut self, diff: &RunTextDiff, include_local: bool) {
+        if diff.is_empty() {
+            return;
+        }
+        for sel in self
+            .selections
+            .iter_mut()
+            .filter(|s| include_local || !s.owner.is_local())
+        {
+            sel.selection = match sel.selection {
+                Selection::Cursor(c) => Selection::Cursor(diff.map_cursor(c)),
+                Selection::Range(r) => {
+                    let start = diff.map_cursor(r.start);
+                    let end = diff.map_cursor(r.end);
+                    if start == end {
+                        Selection::Cursor(start)
+                    } else {
+                        Selection::Range(SelectionRange { start, end })
+                    }
+                }
+            };
+        }
+    }
+
     fn shift_across(&mut self, changes: &[RunTextChange], include_local: bool) {
         if changes.is_empty() {
             return;
@@ -1065,6 +1101,128 @@ pub struct TextSelection {
 /// One contiguous change to a run's text (U3-a): bytes `start..end` of the
 /// OLD text were replaced by `inserted` bytes. The shape every caret shift is
 /// computed from, whoever made the change.
+/// An edit that changed the RUN COUNT of a node's inline content (U3-a-i):
+/// a delete spanning two styled runs merged them, a styled paste split one.
+/// The runs before `first` and the runs after the changed middle are the
+/// same in both generations (aligned by common prefix and suffix); a caret
+/// in the middle is mapped through the concatenated middle text, a caret
+/// after it keeps its byte and moves its run index by the count delta.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunRemap {
+    /// The first old run index that differs.
+    pub first: u32,
+    /// Text lengths of the old middle runs `first ..`.
+    pub old_lens: Vec<u32>,
+    /// Text lengths of the new middle runs `first ..`.
+    pub new_lens: Vec<u32>,
+    /// The byte change between the concatenated old and new middle texts,
+    /// if they differ (`run` is meaningless here).
+    pub middle: Option<RunTextChange>,
+    /// Length of the unchanged run just before the middle, when there is
+    /// one: where a caret lands when the whole middle vanished.
+    pub prev_len: Option<u32>,
+}
+
+impl RunRemap {
+    /// Where a caret of the old generation sits in the new one.
+    #[must_use]
+    pub fn map_cursor(&self, c: TextCursor) -> TextCursor {
+        let run = c.cluster_id.source_run;
+        let first = self.first;
+        let old_end = first + self.old_lens.len() as u32;
+        let new_end = first + self.new_lens.len() as u32;
+        if run < first {
+            return c;
+        }
+        if run >= old_end {
+            return TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: run - old_end + new_end,
+                    start_byte_in_run: c.cluster_id.start_byte_in_run,
+                },
+                affinity: c.affinity,
+            };
+        }
+        // In the middle: through the concatenated text.
+        let mut global: u32 = self.old_lens[..(run - first) as usize].iter().sum();
+        global = global.saturating_add(c.cluster_id.start_byte_in_run);
+        if let Some(m) = &self.middle {
+            global = m.transform(global);
+        }
+        let total_new: u32 = self.new_lens.iter().sum();
+        global = global.min(total_new);
+        if self.new_lens.is_empty() {
+            // The middle vanished: the end of the run before it, or the
+            // start of what follows.
+            return match (first.checked_sub(1), self.prev_len) {
+                (Some(prev), Some(len)) => TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: prev,
+                        start_byte_in_run: len,
+                    },
+                    affinity: c.affinity,
+                },
+                _ => TextCursor {
+                    cluster_id: GraphemeClusterId {
+                        source_run: first,
+                        start_byte_in_run: 0,
+                    },
+                    affinity: c.affinity,
+                },
+            };
+        }
+        let mut offset = global;
+        let mut target = first;
+        for (i, len) in self.new_lens.iter().enumerate() {
+            let last = i + 1 == self.new_lens.len();
+            if offset <= *len || last {
+                target = first + i as u32;
+                break;
+            }
+            offset -= len;
+        }
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: target,
+                start_byte_in_run: offset,
+            },
+            affinity: c.affinity,
+        }
+    }
+}
+
+/// What an edit did to a node's text, for moving carets across it (U3-a,
+/// U3-a-i): a run remap when the run count changed, then byte changes
+/// within runs.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RunTextDiff {
+    pub remap: Option<RunRemap>,
+    pub changes: Vec<RunTextChange>,
+}
+
+impl RunTextDiff {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.remap.is_none() && self.changes.is_empty()
+    }
+
+    /// A caret of the old generation in the new one: the remap first, then
+    /// the byte changes of its (new) run.
+    #[must_use]
+    pub fn map_cursor(&self, c: TextCursor) -> TextCursor {
+        let mut c = match &self.remap {
+            Some(remap) => remap.map_cursor(c),
+            None => c,
+        };
+        for change in &self.changes {
+            if change.run == c.cluster_id.source_run {
+                c.cluster_id.start_byte_in_run = change.transform(c.cluster_id.start_byte_in_run);
+            }
+        }
+        c
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RunTextChange {
     /// The run (`GraphemeClusterId::source_run`) whose text changed.

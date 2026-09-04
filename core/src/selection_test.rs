@@ -1754,6 +1754,69 @@ mod peer_shift_tests {
         assert_eq!(RunTextChange::between(0, "\u{e9}", "\u{e8}"), Some(change(0, 2, 2)));
     }
 
+    /// U3-a-i: a merge of two runs, a split of one, and a delete spanning
+    /// runs all move a peer caret to the same text it was at.
+    #[test]
+    fn a_run_remap_carries_carets_across_merges_splits_and_spanning_deletes() {
+        use crate::selection::{RunRemap, RunTextDiff};
+        let at = |run: u32, byte: u32| TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: run,
+                start_byte_in_run: byte,
+            },
+            affinity: CursorAffinity::Leading,
+        };
+        // ["ab", "cd", "ef"] -> ["abcd", "ef"]: runs 0..2 merged.
+        let merge = RunRemap {
+            first: 0,
+            old_lens: vec![2, 2],
+            new_lens: vec![4],
+            middle: None,
+            prev_len: None,
+        };
+        assert_eq!(merge.map_cursor(at(1, 1)), at(0, 3), "'d' is byte 3 of the merged run");
+        assert_eq!(merge.map_cursor(at(2, 1)), at(1, 1), "the run after moves down by one");
+        // ["abcd", "ef"] -> ["ab", "cd", "ef"]: run 0 split.
+        let split = RunRemap {
+            first: 0,
+            old_lens: vec![4],
+            new_lens: vec![2, 2],
+            middle: None,
+            prev_len: None,
+        };
+        assert_eq!(split.map_cursor(at(0, 3)), at(1, 1));
+        assert_eq!(split.map_cursor(at(0, 2)), at(0, 2), "a boundary caret stays at the end of the first piece");
+        assert_eq!(split.map_cursor(at(1, 0)), at(2, 0));
+        // ["hello", "world"] -> ["heorld"]: "llo" + "w" deleted across the seam.
+        let spanning = RunRemap {
+            first: 0,
+            old_lens: vec![5, 5],
+            new_lens: vec![6],
+            middle: RunTextChange::between(0, "helloworld", "heorld"),
+            prev_len: None,
+        };
+        assert_eq!(spanning.map_cursor(at(1, 3)), at(0, 4), "the 'l' of \"world\" is byte 4 of \"heorld\"");
+        assert_eq!(spanning.map_cursor(at(0, 4)), at(0, 2), "inside the deleted span collapses to its start");
+        // The whole middle vanished: land at the end of the run before it.
+        let gone = RunRemap {
+            first: 1,
+            old_lens: vec![3],
+            new_lens: vec![],
+            middle: RunTextChange::between(0, "xyz", ""),
+            prev_len: Some(5),
+        };
+        assert_eq!(gone.map_cursor(at(1, 2)), at(0, 5));
+        assert_eq!(gone.map_cursor(at(2, 1)), at(1, 1));
+
+        // Through the multi-cursor: Bob's caret and Carol's range both move.
+        let (mut mc, bob) = with_peer_at(Selection::Cursor(at(1, 1)));
+        mc.shift_peers_across_diff(&RunTextDiff {
+            remap: Some(merge.clone()),
+            changes: Vec::new(),
+        });
+        assert_eq!(peer(&mc, bob), Selection::Cursor(at(0, 3)));
+    }
+
     #[test]
     fn a_change_before_the_caret_shifts_it_and_one_after_does_not() {
         // "hello world", Bob at 6 (before "world").
