@@ -352,6 +352,11 @@ pub mod log_filter;
 pub mod form;
 /// Menu system: context menus, dropdown menus, and menu bars.
 pub mod menu;
+/// Media playback POD types — the `PlaybackState` the six media events
+/// describe (11c).
+///
+/// Stateful manager lives in `azul_layout::managers::media_player`.
+pub mod media_player;
 /// The system media session — what the desktop's media widget shows. The
 /// app-facing half of the media-key transport in `dll/desktop/extra/media_keys`.
 pub mod media_session;

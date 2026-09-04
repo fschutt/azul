@@ -2463,20 +2463,16 @@ mod autotest_generated {
             ]
         );
 
-        // Unmapped event types produce an empty filter list (never a panic).
-        //
-        // Submit / Change / Reset / Invalid left this list when they gained
-        // filters. The media six are still here: they have no playback state
-        // machine to fire from, so giving them filters would advertise events
-        // that cannot happen.
-        for ty in [
-            EventType::Play,
-            EventType::Pause,
-            EventType::Ended,
-            EventType::TimeUpdate,
-            EventType::VolumeChange,
-            EventType::MediaError,
-        ] {
+        // The unmapped-pin loop is EMPTY now (11c). It used to hold the media
+        // six — Play / Pause / Ended / TimeUpdate / VolumeChange / MediaError
+        // — with the note that they had no playback state machine to fire
+        // from, so giving them filters would advertise events that cannot
+        // happen. `azul_layout::managers::media_player` is that state machine,
+        // so they moved to the POSITIVE loop below; Submit / Change / Reset /
+        // Invalid left the same way earlier. A type left here would have to be
+        // one that genuinely cannot be produced.
+        let genuinely_unmapped: [EventType; 0] = [];
+        for ty in genuinely_unmapped {
             assert!(
                 event_type_to_filters(ty, &EventData::None).is_empty(),
                 "{ty:?} is unmapped and must yield no filters"
@@ -2512,11 +2508,89 @@ mod autotest_generated {
             EventType::TouchMove,
             EventType::TouchEnd,
             EventType::TouchCancel,
+            // The media six (11c). They were the last entries in the unmapped
+            // pin above: six `EventType`s with NO filter in any family, so
+            // planning fell through `_ => vec![]` and every one of them
+            // dispatched to nothing. What unblocked them is
+            // `azul_layout::managers::media_player::MediaPlayerManager` —
+            // `{ playing, position, duration, volume, muted }` plus a
+            // transport — which is the thing that can honestly raise them.
+            EventType::Play,
+            EventType::Pause,
+            EventType::Ended,
+            EventType::TimeUpdate,
+            EventType::VolumeChange,
+            EventType::MediaError,
         ] {
             assert!(
                 !event_type_to_filters(ty, &EventData::None).is_empty(),
                 "{ty:?} must map to its gesture filters"
             );
+        }
+    }
+
+    /// The media six reach BOTH their homes (11c).
+    ///
+    /// `External` is the family they belong to — a player's state change is
+    /// not hovered, not focused and not hit-tested, it is reported IN from
+    /// outside, the same shape as a monitor being unplugged. `Window` is the
+    /// mirror, so an app that already listens window-wide hears them without
+    /// learning a second family.
+    ///
+    /// This pins the whole chain, not just the enum: `event_type_to_filters`
+    /// is DERIVED by probing `ALL_EXTERNAL` / `ALL_WINDOW` against the
+    /// matcher, so a variant that exists but is missing from its probe list
+    /// (the failure this arc hit repeatedly) fails right here.
+    #[test]
+    fn the_media_events_plan_their_external_and_window_filters() {
+        use crate::events::{ExternalEventFilter as X, WindowEventFilter as W};
+
+        for (ty, external, window) in [
+            (EventType::Play, X::Play, W::Play),
+            (EventType::Pause, X::Pause, W::Pause),
+            (EventType::Ended, X::Ended, W::Ended),
+            (EventType::TimeUpdate, X::TimeUpdate, W::TimeUpdate),
+            (EventType::VolumeChange, X::VolumeChange, W::VolumeChange),
+            (EventType::MediaError, X::MediaError, W::MediaError),
+        ] {
+            let planned = event_type_to_filters(ty, &EventData::None);
+            assert!(
+                planned.contains(&EventFilter::External(external)),
+                "{ty:?} must plan {external:?}, got {planned:?}",
+            );
+            assert!(
+                planned.contains(&EventFilter::Window(window)),
+                "{ty:?} must plan {window:?}, got {planned:?}",
+            );
+        }
+    }
+
+    /// A media filter must not answer for a DIFFERENT media event.
+    ///
+    /// Six near-identical arms in two tables is exactly where a copy-paste
+    /// pairs `Pause` with `EventType::Play`; the cross-product catches it.
+    #[test]
+    fn each_media_filter_answers_for_exactly_one_event_type() {
+        use crate::events::ExternalEventFilter as X;
+
+        let pairs = [
+            (EventType::Play, X::Play),
+            (EventType::Pause, X::Pause),
+            (EventType::Ended, X::Ended),
+            (EventType::TimeUpdate, X::TimeUpdate),
+            (EventType::VolumeChange, X::VolumeChange),
+            (EventType::MediaError, X::MediaError),
+        ];
+        for (ty, _) in pairs {
+            let planned = event_type_to_filters(ty, &EventData::None);
+            for (other_ty, other_filter) in pairs {
+                let expected = other_ty == ty;
+                assert_eq!(
+                    planned.contains(&EventFilter::External(other_filter)),
+                    expected,
+                    "{ty:?} planning {other_filter:?}: expected {expected}",
+                );
+            }
         }
     }
 

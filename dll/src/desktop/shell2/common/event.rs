@@ -5074,6 +5074,18 @@ pub trait PlatformWindow {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
+            CallbackChange::MediaTransport { node, op } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.media_player_manager.apply(*node, *op);
+                }
+                // The transition is queued on the manager; the EventProvider
+                // drain turns it into Play/Pause/Ended/TimeUpdate/
+                // VolumeChange/MediaError on the next pass. Nothing needs
+                // repainting on account of the state change alone — whatever
+                // the app draws from it, it draws from its own callback.
+                ProcessEventResult::DoNothing
+            }
+
             CallbackChange::SettleScrollGesture => {
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.scroll_manager.settle_scroll_gesture();
@@ -8345,8 +8357,14 @@ pub trait PlatformWindow {
                                 }
                             }
                         }
-                        EventFilter::Application(_) => {
-                            // Application events: same as window (fire on all matching nodes)
+                        EventFilter::External(_) | EventFilter::Application(_) => {
+                            // Application AND External events: same as window
+                            // (fire on all matching nodes). External is media
+                            // playback state (11c) — reported by a player, not
+                            // hit-tested, so there is no target node to
+                            // propagate through; the event's `target` still
+                            // names the media node for callbacks that serve
+                            // more than one player.
                             for (dom_id, lr) in &layout_window.layout_results {
                                 let ndc = lr.styled_dom.node_data.as_container();
                                 for node_idx in 0..ndc.len() {
@@ -9738,6 +9756,10 @@ pub trait PlatformWindow {
                 &w.gesture_drag_manager,
                 // Media seeks (9h-i-a-i-a): same rule, same slice.
                 &w.media_session_manager,
+                // Media playback state (11c): the six media events had no
+                // player to fire from at all; being absent from THIS slice is
+                // what would keep the new filters unreachable.
+                &w.media_player_manager,
             )
         });
 
@@ -9754,7 +9776,7 @@ pub trait PlatformWindow {
         if let Some(p) = document_edit_provider.as_ref() {
             event_providers.push(p as &dyn azul_core::events::EventProvider);
         }
-        if let Some((tm, sm, gm, geo, pm, bm, km, ed, scroll, te, dev, dial, media)) =
+        if let Some((tm, sm, gm, geo, pm, bm, km, ed, scroll, te, dev, dial, media, player)) =
             providers_ref
         {
             event_providers.push(tm as &dyn azul_core::events::EventProvider);
@@ -9770,6 +9792,7 @@ pub trait PlatformWindow {
             event_providers.push(dev as &dyn azul_core::events::EventProvider);
             event_providers.push(dial as &dyn azul_core::events::EventProvider);
             event_providers.push(media as &dyn azul_core::events::EventProvider);
+            event_providers.push(player as &dyn azul_core::events::EventProvider);
         }
 
         // Get current timestamp
@@ -9886,6 +9909,10 @@ pub trait PlatformWindow {
             w.biometric_manager.clear_pending_event();
             w.keyring_manager.clear_pending_event();
             w.eyedropper_manager.clear_pending_event();
+            // Media playback (11c): `get_pending_events` takes `&self`, so a
+            // transition left queued would re-emit its event on every pass
+            // for the life of the window.
+            w.media_player_manager.clear_pending_event();
             // The three providers wired by the input arc. Each drains its own
             // queue: `get_pending_events` takes `&self`, so a phase left
             // pending would re-emit on every pass for the life of the gesture

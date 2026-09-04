@@ -3586,16 +3586,67 @@ session needs. Recorded verbatim so the framing is not lost.
       11b-i-a (Reset), 11b-i-b (`pattern` through regex-lite), 11b-i-c (validity exposed) are all
       done, so the form family is produced, planned, matched and readable end to end. The "original
       note" below it is history.
-- [!] 11c BLOCKED — REVISIT AT THE END. Media: `Play`/`Pause`/`Ended`/`TimeUpdate`/`VolumeChange`/
-      `MediaError`. Verified, not assumed: `dll/src/unified/` has a decoder (`decode_mp4_h264`), an
-      encoder (`VideoEncoder`), a sink (`AudioSink::play(frame)`) and a screen recorder — but NO PLAYER.
-      There is no transport, no `is_playing`, no position, no duration, no volume. Every one of these six
-      events describes a state change in a player that does not exist, so there is nothing to emit them
-      from and no honest way to fake it. They correctly remain in the `events_test.rs` unmapped pin.
-      **Prerequisite: a playback state machine** — `{ playing, position, duration, volume }` plus a
-      transport API — which is a feature, not wiring, and outside this arc. BLOCKED on a real playback state
-      machine — `dll/src/unified/audio.rs:62` is `pub fn play(&self, _frame: AudioFrame) {}`. Build the state
-      machine first, then emit.
+- [x] 11c DONE 2026-09-04. Media: `Play`/`Pause`/`Ended`/`TimeUpdate`/`VolumeChange`/`MediaError`.
+      **Was BLOCKED, and the block was real**: `dll/src/unified/` has a decoder (`decode_mp4_h264`),
+      an encoder (`VideoEncoder`), a sink (`AudioSink::play(frame)`) and a screen recorder — but NO
+      PLAYER. No transport, no `is_playing`, no position, no duration, no volume. All six events
+      described a state change in something that did not exist, so they stayed in the
+      `events_test.rs` unmapped pin (`_ => vec![]` → empty filter list → dispatch to nothing) and
+      there was no honest way to fake it. The stated prerequisite was "a playback state machine —
+      `{ playing, position, duration, volume }` plus a transport API".
+      **What unblocked it: that state machine now exists.**
+      - `layout/src/managers/media_player.rs` — `MediaPlayerManager`, per-`DomNodeId`
+        `PlaybackState { position_s, duration_s, volume, playing, muted }` plus the transport
+        (`play`/`pause`/`toggle`/`seek`/`set_volume`/`set_muted`/`set_duration`/`advance`/
+        `report_error`, all through one `apply(node, MediaTransportOp)` seam). Emit-on-TRANSITION
+        (a second `play` is not a second `Play`); `advance` clamps at `duration_s`, clears
+        `playing` and raises `Ended` EXACTLY ONCE (the cleared flag is what makes "once" structural,
+        not a latch); `TimeUpdate` is THROTTLED to 250 ms of media time — the web's ~4/s budget —
+        because a playing video would otherwise raise one per frame for its whole length.
+        Queued like `sensors.rs`: `pending` + a `clear_pending_event` the event pass calls.
+        `NodeIdRemap` because it is node-keyed.
+      - `core/src/media_player.rs` — `PlaybackState` (repr(C), fields ordered by descending
+        alignment) + `OptionPlaybackState`, so a callback can READ the state back.
+      - The clock is the APP's: nothing in azul decodes on a schedule, so `advance(dt)` is driven
+        from a `Timer` or the decoder thread through `CallbackInfo::media_advance` rather than
+        inventing an engine-side tick. Stated, not hidden.
+      - **Filter family (USER RULING 2026-09-04): a new `External` family**, "since these are
+        external events received that don't fit" — a player's state change is not hovered, not
+        focused, not hit-tested; it is reported IN, the same shape as a monitor being unplugged.
+        `ExternalEventFilter` + `EventFilter::External(..)` (both APPENDED at the tail for ABI),
+        `matches_external_filter`, `ALL_EXTERNAL`, a planning probe, and dispatch arms in the shell
+        and the e2e runner. The `Window` mirror the ruling named as the floor is wired too, so an
+        app already listening window-wide hears them without learning a second family; both
+        families are probe-listed, so neither can be planned-but-dead.
+      - App-facing transport: 15 `CallbackInfo` methods (`media_play`/`media_pause`/`media_toggle`/
+        `media_seek`/`media_set_volume`/`media_set_muted`/`media_set_duration`/`media_advance`/
+        `media_report_error`, plus `get_media_state` → `OptionPlaybackState` and the five scalars),
+        each routed as `CallbackChange::MediaTransport { node, op }` with arms in
+        `shell2/common/event.rs` and `e2e/runner.rs`. Through api.json via `autofix add` one at a
+        time + the patch loop to `Generated 0 patches` + `codegen all`.
+      EVIDENCE: the unmapped-pin loop in `core/src/events_test.rs` is now EMPTY (the media six moved
+      to the positive loop), plus two new tests — `the_media_events_plan_their_external_and_window_filters`
+      and `each_media_filter_answers_for_exactly_one_event_type` (a cross-product, because six
+      near-identical arms in two tables is exactly where a copy-paste mispairs `Pause` with
+      `EventType::Play`). 15 state-machine unit tests in `media_player.rs`.
+      `cargo check -p azul-dll --release --no-default-features --features "std,logging,link-static,a11y"`
+      EXIT=0; `cargo test -p azul-core --release --lib` EXIT=0 (2812 passed);
+      `cargo test -p azul-layout --release --lib` 7708 passed, 1 PRE-EXISTING failure — see 11c-i.
+- [x] 11c-i The `azul-layout` **lib TEST target was RED before this item** and nobody could see it:
+      `--lib` on a `cargo check` never builds the test target, so it had drifted 18 errors deep.
+      Two causes, both from the seat wave: four `UndoableOperation` initializers in test helpers
+      (`undo_redo.rs` ×3, `managers/mod.rs` ×1) never gained the new `seat_id` field, and
+      `mod seat_attribution_tests` was pasted in without its `use`s or its `ts()` helper AND carried
+      a verbatim duplicate of `undo_redo_tests::push_undo_clears_redo_but_reinstate_preserves_it`
+      calling an `op()` that is not in its scope. Fixed here because 11c's own unit tests could not
+      otherwise be RUN — the same "green report over a target that never built" shape the arc keeps
+      hitting.
+- [!] 11c-ii NOT FIXED, LOGGED NOT GUESSED: with the test target building again,
+      `window::tests::env_safe_area_inset_resolves_to_the_live_inset_and_follows_a_change` FAILS
+      (`left: 17.0, right: 44.0` — "10px content + the 34px inset"). Verified pre-existing: stashed
+      every 11c change, applied ONLY the test-build fix, and it still fails. Unrelated to media
+      (it is `env(safe-area-inset-*)` resolution), so it is not fixed here — it needs whoever owns
+      the safe-area work, and it was invisible for as long as the test target did not compile.
 
 ## Step 12 — headless/test surface
 

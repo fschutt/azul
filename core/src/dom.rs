@@ -29,8 +29,8 @@ use azul_css::{
 // Re-exported from a11y.rs and events.rs
 pub use crate::a11y::*;
 pub use crate::events::{
-    ApplicationEventFilter, ComponentEventFilter, EventFilter, FocusEventFilter, HoverEventFilter,
-    WindowEventFilter,
+    ApplicationEventFilter, ComponentEventFilter, EventFilter, ExternalEventFilter,
+    FocusEventFilter, HoverEventFilter, WindowEventFilter,
 };
 pub use crate::id::{Node, NodeHierarchy, NodeId};
 use crate::{

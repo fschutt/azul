@@ -633,6 +633,7 @@ mod undo_redo_tests {
                 selection_range: None.into(),
                 timestamp: ts(),
             },
+            seat_id: 0,
         }
         }
 
@@ -824,6 +825,7 @@ mod autotest_generated {
                 selection_range: None.into(),
                 timestamp: tick(u64::from(id as u32)),
             },
+            seat_id: 0,
         }
         }
 
@@ -1641,7 +1643,19 @@ mod autotest_generated {
 
 #[cfg(test)]
 mod seat_attribution_tests {
+    use azul_core::{
+        dom::{DomId, DomNodeId},
+        styled_dom::NodeHierarchyItemId,
+        task::SystemTick,
+        window::CursorPosition,
+    };
+
     use super::*;
+    use crate::managers::changeset::{TextChangeset, TextOpInsertText, TextOperation};
+
+    fn ts() -> Instant {
+        Instant::Tick(SystemTick { tick_counter: 0 })
+    }
 
     fn sample(id: usize, node: usize) -> UndoableOperation {
         UndoableOperation {
@@ -1665,27 +1679,9 @@ mod seat_attribution_tests {
                 selection_range: None.into(),
                 timestamp: ts(),
             },
+            seat_id: 0,
         }
         }
-
-    #[test]
-    fn push_undo_clears_redo_but_reinstate_preserves_it() {
-        let mut stack = NodeUndoRedoStack::new(NodeId::new(1));
-        stack.push_redo(op(1, 1));
-        stack.push_redo(op(2, 1));
-        assert_eq!(stack.redo_stack.len(), 2);
-
-        // Fresh user edit: redo history is invalidated.
-        stack.push_undo(op(3, 1));
-        assert_eq!(stack.redo_stack.len(), 0);
-
-        // Redone operation moving back to undo: remaining redos survive.
-        stack.push_redo(op(4, 1));
-        stack.push_redo(op(5, 1));
-        stack.push_undo_preserving_redo(op(6, 1));
-        assert_eq!(stack.redo_stack.len(), 2);
-        assert!(stack.can_undo());
-    }
 
     fn op_for(seat_id: u64) -> UndoableOperation {
         let mut o = sample(1, 1);

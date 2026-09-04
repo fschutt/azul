@@ -822,6 +822,8 @@ impl Runner {
                 &lw.biometric_manager,
                 &lw.keyring_manager,
                 &lw.media_session_manager,
+                // Media playback (11c) — the six media events fire from here.
+                &lw.media_player_manager,
             ];
             azul_layout::event_determination::determine_all_events(
                 &self.window_state,
@@ -850,6 +852,7 @@ impl Runner {
             lw.keyring_manager.clear_pending_event();
             lw.gesture_drag_manager.clear_pen_event_pending();
             lw.gesture_drag_manager.clear_native_gesture();
+            lw.media_player_manager.clear_pending_event();
         }
 
         if synthetic_events.is_empty() {
@@ -1531,9 +1534,14 @@ impl Runner {
                                 }
                             }
                         }
-                        EventFilter::Window(_) | EventFilter::Application(_) => {
-                            // Window / Application events fire on EVERY node
-                            // carrying a matching callback.
+                        EventFilter::Window(_)
+                        | EventFilter::Application(_)
+                        | EventFilter::External(_) => {
+                            // Window / Application / External events fire on
+                            // EVERY node carrying a matching callback. External
+                            // (media, 11c) joins them because a player's state
+                            // change is not hit-tested: there is no node under
+                            // a `TimeUpdate`.
                             for (dom_id, lr) in &lw.layout_results {
                                 let ndc = lr.styled_dom.node_data.as_container();
                                 for node_idx in 0..ndc.len() {
@@ -1690,6 +1698,13 @@ impl Runner {
             // e2e scenario would never see `ScrollEnd` and could not pin it.
             CallbackChange::SettleScrollGesture => {
                 self.layout_window.scroll_manager.settle_scroll_gesture();
+                ProcessEventResult::DoNothing
+            }
+
+            // The headless runner drives the same state machine as a shell,
+            // so an e2e scenario can pin the six media events.
+            CallbackChange::MediaTransport { node, op } => {
+                self.layout_window.media_player_manager.apply(*node, *op);
                 ProcessEventResult::DoNothing
             }
 

@@ -456,6 +456,17 @@ pub enum CallbackChange {
     /// forever and `ScrollEnd` never fired for it. The physics timer running
     /// dry IS the end of a wheel gesture, and is the only signal that exists.
     SettleScrollGesture,
+    /// Drive the media playback state machine for one node (11c).
+    ///
+    /// Routed as a change rather than mutating the manager inline for the
+    /// same reason as `SettleScrollGesture`: a callback holds only its own
+    /// downcast state, and the change queue is the seam that reaches
+    /// `LayoutWindow` from inside a callback. Applying it emits whatever
+    /// transition it caused, so the six media events arrive on the next pass.
+    MediaTransport {
+        node: DomNodeId,
+        op: crate::managers::media_player::MediaTransportOp,
+    },
     /// Re-render EVERY `VirtualView` on the existing DOM (no node id needed).
     /// For shared-dataset changes that arrive out-of-band (e.g. a background
     /// tile-fetch writeback): the views re-read their cloned dataset in place.
@@ -1993,6 +2004,170 @@ impl CallbackInfo {
     /// the seam that reaches `LayoutWindow` from inside a callback.
     pub fn settle_scroll_gesture(&mut self) {
         self.push_change(CallbackChange::SettleScrollGesture);
+    }
+
+    // -- Media transport (11c) -------------------------------------------
+    //
+    // `EventType::{Play, Pause, Ended, TimeUpdate, VolumeChange, MediaError}`
+    // shipped with no player behind them: the unified layer has a decoder, an
+    // encoder and an audio sink, but no transport, no position, no duration
+    // and no volume, so the six events described a state machine that did not
+    // exist. These verbs ARE that state machine's driver - the app says what
+    // its player is doing, azul owns the transitions and raises the events
+    // (`EventFilter::External(..)`, mirrored on `EventFilter::Window(..)`).
+    //
+    // Every verb is routed as a `CallbackChange` for the same reason as
+    // `settle_scroll_gesture`: a callback holds only its own downcast state.
+
+    /// Start playback on `node`. Raises `Play` unless it was already playing.
+    pub fn media_play(&mut self, node: DomNodeId) {
+        self.push_change(CallbackChange::MediaTransport {
+            node,
+            op: crate::managers::media_player::MediaTransportOp::Play,
+        });
+    }
+
+    /// Pause playback on `node`. Raises `Pause` unless it was already paused.
+    pub fn media_pause(&mut self, node: DomNodeId) {
+        self.push_change(CallbackChange::MediaTransport {
+            node,
+            op: crate::managers::media_player::MediaTransportOp::Pause,
+        });
+    }
+
+    /// Play if paused, pause if playing. Raises whichever of the two applies.
+    pub fn media_toggle(&mut self, node: DomNodeId) {
+        self.push_change(CallbackChange::MediaTransport {
+            node,
+            op: crate::managers::media_player::MediaTransportOp::Toggle,
+        });
+    }
+
+    /// Move the playback position to `position_s` seconds, clamped into the
+    /// known duration. Raises `TimeUpdate` when the position actually moves.
+    pub fn media_seek(&mut self, node: DomNodeId, position_s: f32) {
+        self.push_change(CallbackChange::MediaTransport {
+            node,
+            op: crate::managers::media_player::MediaTransportOp::Seek(position_s),
+        });
+    }
+
+    /// Set the output gain, clamped to `0.0..=1.0`. Raises `VolumeChange`
+    /// only when the value actually changes.
+    pub fn media_set_volume(&mut self, node: DomNodeId, volume: f32) {
+        self.push_change(CallbackChange::MediaTransport {
+            node,
+            op: crate::managers::media_player::MediaTransportOp::SetVolume(volume),
+        });
+    }
+
+    /// Mute or unmute without disturbing the volume level. Reported as
+    /// `VolumeChange`, which is how the web spells a mute change too.
+    pub fn media_set_muted(&mut self, node: DomNodeId, muted: bool) {
+        self.push_change(CallbackChange::MediaTransport {
+            node,
+            op: crate::managers::media_player::MediaTransportOp::SetMuted(muted),
+        });
+    }
+
+    /// Tell azul how long the media is, once the app knows (metadata, or a
+    /// decoder header parse). `0.0` means unknown, and an unknown duration
+    /// means playback can never reach an end, so `Ended` never fires.
+    pub fn media_set_duration(&mut self, node: DomNodeId, duration_s: f32) {
+        self.push_change(CallbackChange::MediaTransport {
+            node,
+            op: crate::managers::media_player::MediaTransportOp::SetDuration(duration_s),
+        });
+    }
+
+    /// Advance the media clock by `dt_s` seconds.
+    ///
+    /// The app owns the clock: nothing in azul decodes on a schedule, so
+    /// there is no honest engine-side tick to drive playback from. Call this
+    /// from a `Timer` or from the decoder thread's write-back. Raises a
+    /// throttled `TimeUpdate` (one per 250 ms of media time) and exactly one
+    /// `Ended` on reaching a known duration.
+    pub fn media_advance(&mut self, node: DomNodeId, dt_s: f32) {
+        self.push_change(CallbackChange::MediaTransport {
+            node,
+            op: crate::managers::media_player::MediaTransportOp::Advance(dt_s),
+        });
+    }
+
+    /// Report that the app's media pipeline failed. Stops the transport and
+    /// raises `MediaError`.
+    pub fn media_report_error(&mut self, node: DomNodeId) {
+        self.push_change(CallbackChange::MediaTransport {
+            node,
+            op: crate::managers::media_player::MediaTransportOp::ReportError,
+        });
+    }
+
+    /// Everything about `node`'s playback in one call - the primary read
+    /// API, so a callback handling `Play` / `TimeUpdate` / `VolumeChange`
+    /// can ask the engine what the state IS instead of shadowing every
+    /// value it set. The six media events carry no payload; this is where
+    /// the payload lives.
+    ///
+    /// `None` for a node no transport call has ever named: "this is not a
+    /// media node" is a real answer, and it is not the same as a default
+    /// state.
+    #[must_use]
+    pub fn get_media_state(
+        &self,
+        node: DomNodeId,
+    ) -> azul_core::media_player::OptionPlaybackState {
+        match self.get_layout_window().media_player_manager.state(node) {
+            Some(s) => azul_core::media_player::OptionPlaybackState::Some(s),
+            None => azul_core::media_player::OptionPlaybackState::None,
+        }
+    }
+
+    /// Whether `node` is currently playing. `false` for a node no transport
+    /// call has ever named. The scalar shortcut for
+    /// [`CallbackInfo::get_media_state`].
+    #[must_use]
+    pub fn is_media_playing(&self, node: DomNodeId) -> bool {
+        self.get_layout_window()
+            .media_player_manager
+            .state(node)
+            .is_some_and(|s| s.playing)
+    }
+
+    /// `node`'s playback position in seconds, `0.0` if it has none.
+    #[must_use]
+    pub fn get_media_position(&self, node: DomNodeId) -> f32 {
+        self.get_layout_window()
+            .media_player_manager
+            .state(node)
+            .map_or(0.0, |s| s.position_s)
+    }
+
+    /// `node`'s media length in seconds, `0.0` when it is unknown.
+    #[must_use]
+    pub fn get_media_duration(&self, node: DomNodeId) -> f32 {
+        self.get_layout_window()
+            .media_player_manager
+            .state(node)
+            .map_or(0.0, |s| s.duration_s)
+    }
+
+    /// `node`'s output gain, `1.0` for a node with no state yet.
+    #[must_use]
+    pub fn get_media_volume(&self, node: DomNodeId) -> f32 {
+        self.get_layout_window()
+            .media_player_manager
+            .state(node)
+            .map_or(1.0, |s| s.volume)
+    }
+
+    /// Whether `node` is muted (independently of its volume level).
+    #[must_use]
+    pub fn is_media_muted(&self, node: DomNodeId) -> bool {
+        self.get_layout_window()
+            .media_player_manager
+            .state(node)
+            .is_some_and(|s| s.muted)
     }
 
     // Dom Tree Navigation

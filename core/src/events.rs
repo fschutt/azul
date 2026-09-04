@@ -1655,6 +1655,9 @@ fn matches_filter_phase(
         EventFilter::Application(application_filter) => {
             matches_application_filter(application_filter, event, current_phase)
         }
+        EventFilter::External(external_filter) => {
+            matches_external_filter(external_filter, event, current_phase)
+        }
     }
 }
 
@@ -1988,6 +1991,30 @@ fn matches_application_filter(
     }
 }
 
+/// Check if an external filter matches the event (11c).
+///
+/// Media events are not hit-tested: the player is not a device with a
+/// position, so there is no node "under" a `TimeUpdate`. Like the window and
+/// application tables this therefore ignores the phase; the event's `target`
+/// still names the media node, for callbacks that serve more than one.
+// Exhaustive (filter, event-type) truth table — see matches_hover_filter.
+#[allow(clippy::match_same_arms)]
+const fn matches_external_filter(
+    filter: ExternalEventFilter,
+    event: &SyntheticEvent,
+    _phase: EventPhase,
+) -> bool {
+    matches!(
+        (filter, &event.event_type),
+        (ExternalEventFilter::Play, EventType::Play)
+            | (ExternalEventFilter::Pause, EventType::Pause)
+            | (ExternalEventFilter::Ended, EventType::Ended)
+            | (ExternalEventFilter::TimeUpdate, EventType::TimeUpdate)
+            | (ExternalEventFilter::VolumeChange, EventType::VolumeChange)
+            | (ExternalEventFilter::MediaError, EventType::MediaError)
+    )
+}
+
 /// Check if a window filter matches the event.
 // Exhaustive (filter, event-type) truth table — see matches_hover_filter.
 #[allow(clippy::match_same_arms)]
@@ -2117,6 +2144,14 @@ fn matches_window_filter(
         (WindowEventFilter::HidReport, EventType::HidReport) => true,
         (WindowEventFilter::DialRotate, EventType::DialRotate) => true,
         (WindowEventFilter::DialClick, EventType::DialClick) => true,
+        // Media (11c). These six `EventType`s shipped with no filter in ANY
+        // family, so they planned an empty list and dispatched to nothing.
+        (WindowEventFilter::Play, EventType::Play) => true,
+        (WindowEventFilter::Pause, EventType::Pause) => true,
+        (WindowEventFilter::Ended, EventType::Ended) => true,
+        (WindowEventFilter::TimeUpdate, EventType::TimeUpdate) => true,
+        (WindowEventFilter::VolumeChange, EventType::VolumeChange) => true,
+        (WindowEventFilter::MediaError, EventType::MediaError) => true,
         _ => false,
     }
 }
@@ -3098,6 +3133,26 @@ pub enum WindowEventFilter {
     /// The pointer lock was taken, released, or ended by the platform
     /// (9d-ii-c). Window-level: the lock belongs to the window, not a node.
     PointerLockChange,
+    /// Media playback started (11c). APPENDED at the end for ABI stability.
+    ///
+    /// The window mirror of [`ExternalEventFilter::Play`]. Media state is
+    /// reported by an EXTERNAL player, not by a device the window hit-tests,
+    /// so `External` is its home; this pair exists because a media event
+    /// belongs to the window in exactly the sense a monitor being unplugged
+    /// does, and an app that already listens window-wide should not have to
+    /// learn a second family to hear it.
+    Play,
+    /// Media playback paused. APPENDED at the end.
+    Pause,
+    /// Media playback reached the end. APPENDED at the end.
+    Ended,
+    /// The media position advanced (throttled — see
+    /// `managers::media_player::TIME_UPDATE_INTERVAL_S`). APPENDED at the end.
+    TimeUpdate,
+    /// The media volume or mute state changed. APPENDED at the end.
+    VolumeChange,
+    /// The media pipeline failed. APPENDED at the end.
+    MediaError,
 }
 
 impl WindowEventFilter {
@@ -3190,6 +3245,15 @@ impl WindowEventFilter {
             Self::ForwardMouseUp => Some(HoverEventFilter::ForwardMouseUp),
             // Window-only: no position to hit-test, so no hover twin.
             Self::RawMouseMotion | Self::ModifiersChanged | Self::HidReport => None,
+            // Media state (11c) has no hover twin either: it is reported by an
+            // external player, and there is no pointer position that could
+            // decide which node it "happened over".
+            Self::Play
+            | Self::Pause
+            | Self::Ended
+            | Self::TimeUpdate
+            | Self::VolumeChange
+            | Self::MediaError => None,
         }
     }
 }
@@ -3244,6 +3308,39 @@ pub enum ApplicationEventFilter {
     SystemAudioChange,
 }
 
+/// Events reported by something OUTSIDE the input pipeline (11c).
+///
+/// The other four families answer "where did this land?" — hovered, focused,
+/// window-wide, on this component. A media player answers none of those: the
+/// state change happens in an external player (a decoder thread, a platform
+/// media service, the app's own transport calls) and is then reported IN. It
+/// is the same shape as a monitor being unplugged, one level closer to the
+/// app.
+///
+/// Dispatched like a window filter: every node carrying a matching callback
+/// is invoked, and the event's `target` names the media node so a callback
+/// serving several players can tell them apart.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum ExternalEventFilter {
+    /// Media playback started.
+    Play,
+    /// Media playback paused.
+    Pause,
+    /// Media playback reached the end of its known duration. Fires exactly
+    /// once per arrival at the end (reaching it also stops the transport).
+    Ended,
+    /// The media position advanced. THROTTLED to one event per 250 ms of
+    /// media time (`managers::media_player::TIME_UPDATE_INTERVAL_S`) — the
+    /// web's ~4/s budget — because a playing video would otherwise raise one
+    /// per frame for its entire length.
+    TimeUpdate,
+    /// The media volume or mute state changed.
+    VolumeChange,
+    /// The media pipeline reported a failure; the transport is stopped.
+    MediaError,
+}
+
 /// Sets the target for what events can reach the callbacks specifically.
 ///
 /// This determines the condition under which an event is fired, such as whether
@@ -3270,6 +3367,11 @@ pub enum EventFilter {
     Component(ComponentEventFilter),
     /// Something happened with the application (started, shutdown, device plugged in).
     Application(ApplicationEventFilter),
+    /// Something was reported by an external source that the hit test cannot
+    /// place — media playback state, today. APPENDED at the end for ABI
+    /// stability (`EventFilter` is `repr(C, u8)`; a variant inserted anywhere
+    /// but the tail would renumber every discriminant after it).
+    External(ExternalEventFilter),
 }
 
 impl EventFilter {
@@ -3658,6 +3760,14 @@ static ALL_WINDOW: &[WindowEventFilter] = &[
     WindowEventFilter::KeyringResult,
     WindowEventFilter::DialRotate,
     WindowEventFilter::DialClick,
+    // Media (11c). Planning is DERIVED by probing this list, so a filter the
+    // list does not name can never be planned, whatever its matcher says.
+    WindowEventFilter::Play,
+    WindowEventFilter::Pause,
+    WindowEventFilter::Ended,
+    WindowEventFilter::TimeUpdate,
+    WindowEventFilter::VolumeChange,
+    WindowEventFilter::MediaError,
 ];
 
 /// Every `ComponentEventFilter` variant, so planning can be derived from
@@ -3729,6 +3839,16 @@ static ALL_COMPONENT: &[ComponentEventFilter] = &[
     ComponentEventFilter::Docked,
 ];
 
+/// Every `ExternalEventFilter`, for planning to probe. See [`ALL_COMPONENT`].
+static ALL_EXTERNAL: &[ExternalEventFilter] = &[
+    ExternalEventFilter::Play,
+    ExternalEventFilter::Pause,
+    ExternalEventFilter::Ended,
+    ExternalEventFilter::TimeUpdate,
+    ExternalEventFilter::VolumeChange,
+    ExternalEventFilter::MediaError,
+];
+
 /// Every `ApplicationEventFilter`, for planning to probe. See [`ALL_COMPONENT`].
 static ALL_APPLICATION: &[ApplicationEventFilter] = &[
     ApplicationEventFilter::DeviceConnected,
@@ -3786,6 +3906,11 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
     for f in ALL_APPLICATION {
         if matches_filter_phase(EventFilter::Application(*f), &probe, EventPhase::Bubble) {
             out.push(EventFilter::Application(*f));
+        }
+    }
+    for f in ALL_EXTERNAL {
+        if matches_filter_phase(EventFilter::External(*f), &probe, EventPhase::Bubble) {
+            out.push(EventFilter::External(*f));
         }
     }
     out
@@ -4150,6 +4275,34 @@ fn event_type_to_filters_legacy_hint(
             EF::Window(W::ScreenColorPicked),
         ],
         E::KeyringResult => vec![EF::Hover(H::KeyringResult), EF::Window(W::KeyringResult)],
+
+        // Media (11c): the External family is the home — a player is not
+        // hovered, focused or hit-tested — plus the Window mirror, which is
+        // where every other externally-reported change already lives.
+        E::Play => vec![
+            EF::External(ExternalEventFilter::Play),
+            EF::Window(W::Play),
+        ],
+        E::Pause => vec![
+            EF::External(ExternalEventFilter::Pause),
+            EF::Window(W::Pause),
+        ],
+        E::Ended => vec![
+            EF::External(ExternalEventFilter::Ended),
+            EF::Window(W::Ended),
+        ],
+        E::TimeUpdate => vec![
+            EF::External(ExternalEventFilter::TimeUpdate),
+            EF::Window(W::TimeUpdate),
+        ],
+        E::VolumeChange => vec![
+            EF::External(ExternalEventFilter::VolumeChange),
+            EF::Window(W::VolumeChange),
+        ],
+        E::MediaError => vec![
+            EF::External(ExternalEventFilter::MediaError),
+            EF::Window(W::MediaError),
+        ],
 
         // MWA-C-clipboard: W3C clipboard events — fire on the focused
         // element before the OS default action (preventDefault suppresses

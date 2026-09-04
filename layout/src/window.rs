@@ -940,6 +940,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         eyedropper_manager: _,
         sensor_manager: _,
         gamepad_manager: _,
+        // One small entry per media node the app has driven, plus a queue
+        // cleared every event pass. Bounded by players, not by document size.
+        media_player_manager: _,
         device_event_manager: _,
         hid_manager: _,
         haptic_manager: _,
@@ -1436,6 +1439,12 @@ pub struct LayoutWindow {
     /// (gilrs / `GCController` / `InputDevice`) parks per-pad states in the async
     /// channel the layout pass folds in here.
     pub gamepad_manager: crate::managers::gamepad::GamepadManager,
+    /// Media playback state per media node (11c): `{ playing, position,
+    /// duration, volume, muted }` plus the transport that mutates it. Driven
+    /// by the app through the `CallbackInfo::media_*` verbs — azul decodes
+    /// nothing on a schedule, so the app owns the media clock — and drained
+    /// as an `EventProvider` into the six media events.
+    pub media_player_manager: crate::managers::media_player::MediaPlayerManager,
     /// Application-level hotplug queue — devices and monitors arriving or
     /// leaving. Pushed by the platform shells, drained into the
     /// `ApplicationEventFilter` family.
@@ -2015,6 +2024,7 @@ impl LayoutWindow {
             eyedropper_manager: crate::managers::eyedropper::EyedropperManager::new(),
             sensor_manager: crate::managers::sensors::SensorManager::new(),
             gamepad_manager: crate::managers::gamepad::GamepadManager::new(),
+            media_player_manager: crate::managers::media_player::MediaPlayerManager::new(),
             device_event_manager: crate::managers::device_events::DeviceEventManager::new(),
             hid_manager: azul_core::hid::HidManager::new(),
             haptic_manager: azul_core::haptics::HapticManager::new(),
@@ -20225,6 +20235,10 @@ impl LayoutWindow {
             text_input_manager,
             undo_redo_manager,
             permission_manager,
+            // Keyed by the media node (11c): a rebuild renumbers the arena, so
+            // without this the playback state would re-attach to a different
+            // element and an unmounted player would leak forever.
+            media_player_manager,
 
             // --- NODE-KEYED: plain caches owned directly by the window -------
             text_constraints_cache,
@@ -20427,6 +20441,7 @@ impl LayoutWindow {
         text_input_manager.remap_node_ids(dom, map);
         undo_redo_manager.remap_node_ids(dom, map);
         permission_manager.remap_node_ids(dom, map);
+        media_player_manager.remap_node_ids(dom, map);
 
         // Window-owned caches (same contract: absent from `map` == unmounted).
         crate::managers::remap_dom_keys(&mut text_constraints_cache.constraints, dom, map);

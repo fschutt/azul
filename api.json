@@ -4035,7 +4035,13 @@
                                 "DialRotate": {},
                                 "DialClick": {},
                                 "MouseMove": {},
-                                "PointerLockChange": {}
+                                "PointerLockChange": {},
+                                "Play": {},
+                                "Pause": {},
+                                "Ended": {},
+                                "TimeUpdate": {},
+                                "VolumeChange": {},
+                                "MediaError": {}
                             }
                         ],
                         "repr": "C"
@@ -15301,6 +15307,271 @@
                                     "type": "OptionPaginationInfo"
                                 },
                                 "fn_body": "object.query_pagination(unsafe { &*styled_dom }, page_size, page_config)"
+                            },
+                            "media_play": {
+                                "doc": [
+                                    "Start playback on `node`. Raises `Play` unless it was already playing."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "fn_body": "object.media_play(node)"
+                            },
+                            "media_pause": {
+                                "doc": [
+                                    "Pause playback on `node`. Raises `Pause` unless it was already paused."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "fn_body": "object.media_pause(node)"
+                            },
+                            "media_toggle": {
+                                "doc": [
+                                    "Play if paused, pause if playing. Raises whichever of the two applies."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "fn_body": "object.media_toggle(node)"
+                            },
+                            "media_seek": {
+                                "doc": [
+                                    "Move the playback position to `position_s` seconds, clamped into the",
+                                    "known duration. Raises `TimeUpdate` when the position actually moves."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    },
+                                    {
+                                        "position_s": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.media_seek(node, position_s)"
+                            },
+                            "media_set_volume": {
+                                "doc": [
+                                    "Set the output gain, clamped to `0.0..=1.0`. Raises `VolumeChange`",
+                                    "only when the value actually changes."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    },
+                                    {
+                                        "volume": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.media_set_volume(node, volume)"
+                            },
+                            "media_set_muted": {
+                                "doc": [
+                                    "Mute or unmute without disturbing the volume level. Reported as",
+                                    "`VolumeChange`, which is how the web spells a mute change too."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    },
+                                    {
+                                        "muted": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.media_set_muted(node, muted)"
+                            },
+                            "media_set_duration": {
+                                "doc": [
+                                    "Tell azul how long the media is, once the app knows (metadata, or a",
+                                    "decoder header parse). `0.0` means unknown, and an unknown duration",
+                                    "means playback can never reach an end, so `Ended` never fires."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    },
+                                    {
+                                        "duration_s": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.media_set_duration(node, duration_s)"
+                            },
+                            "media_advance": {
+                                "doc": [
+                                    "Advance the media clock by `dt_s` seconds.",
+                                    "",
+                                    "The app owns the clock: nothing in azul decodes on a schedule, so",
+                                    "there is no honest engine-side tick to drive playback from. Call this",
+                                    "from a `Timer` or from the decoder thread's write-back. Raises a",
+                                    "throttled `TimeUpdate` (one per 250 ms of media time) and exactly one",
+                                    "`Ended` on reaching a known duration."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    },
+                                    {
+                                        "dt_s": "f32"
+                                    }
+                                ],
+                                "fn_body": "object.media_advance(node, dt_s)"
+                            },
+                            "media_report_error": {
+                                "doc": [
+                                    "Report that the app's media pipeline failed. Stops the transport and",
+                                    "raises `MediaError`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "fn_body": "object.media_report_error(node)"
+                            },
+                            "get_media_state": {
+                                "doc": [
+                                    "Everything about `node`'s playback in one call - the primary read",
+                                    "API, so a callback handling `Play` / `TimeUpdate` / `VolumeChange`",
+                                    "can ask the engine what the state IS instead of shadowing every",
+                                    "value it set. The six media events carry no payload; this is where",
+                                    "the payload lives.",
+                                    "",
+                                    "`None` for a node no transport call has ever named: \"this is not a",
+                                    "media node\" is a real answer, and it is not the same as a default",
+                                    "state."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionPlaybackState"
+                                },
+                                "fn_body": "object.get_media_state(node)"
+                            },
+                            "is_media_playing": {
+                                "doc": [
+                                    "Whether `node` is currently playing. `false` for a node no transport",
+                                    "call has ever named. The scalar shortcut for",
+                                    "[`CallbackInfo::get_media_state`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_media_playing(node)"
+                            },
+                            "get_media_position": {
+                                "doc": [
+                                    "`node`'s playback position in seconds, `0.0` if it has none."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.get_media_position(node)"
+                            },
+                            "get_media_duration": {
+                                "doc": [
+                                    "`node`'s media length in seconds, `0.0` when it is unknown."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.get_media_duration(node)"
+                            },
+                            "get_media_volume": {
+                                "doc": [
+                                    "`node`'s output gain, `1.0` for a node with no state yet."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "f32"
+                                },
+                                "fn_body": "object.get_media_volume(node)"
+                            },
+                            "is_media_muted": {
+                                "doc": [
+                                    "Whether `node` is muted (independently of its volume level)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "node": "DomNodeId"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_media_muted(node)"
                             }
                         },
                         "repr": "C"
@@ -41145,6 +41416,9 @@
                                 },
                                 "Application": {
                                     "type": "ApplicationEventFilter"
+                                },
+                                "External": {
+                                    "type": "ExternalEventFilter"
                                 }
                             }
                         ],
@@ -50071,6 +50345,30 @@
                                 "Auto": {},
                                 "Focus": {},
                                 "Scroll": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ExternalEventFilter": {
+                        "external": "azul_core::events::ExternalEventFilter",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Play": {},
+                                "Pause": {},
+                                "Ended": {},
+                                "TimeUpdate": {},
+                                "VolumeChange": {},
+                                "MediaError": {}
                             }
                         ],
                         "repr": "C"
@@ -114714,6 +115012,24 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionPlaybackState": {
+                        "external": "azul_core::media_player::OptionPlaybackState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "PlaybackState"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -124558,6 +124874,38 @@
                                 },
                                 "volume": {
                                     "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PlaybackState": {
+                        "external": "azul_core::media_player::PlaybackState",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "position_s": {
+                                    "type": "f32"
+                                },
+                                "duration_s": {
+                                    "type": "f32"
+                                },
+                                "volume": {
+                                    "type": "f32"
+                                },
+                                "playing": {
+                                    "type": "bool"
+                                },
+                                "muted": {
+                                    "type": "bool"
                                 }
                             }
                         ],

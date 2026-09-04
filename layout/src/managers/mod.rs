@@ -43,6 +43,8 @@ pub mod geolocation;
 pub mod gesture;
 pub mod hid;
 pub mod media_keys;
+/// Media playback state machine (11c): the transport + the six media events.
+pub mod media_player;
 /// Cross-thread "raise this window" requests (9h-i-a-ii).
 pub mod window_activation;
 pub mod gpu_state;
@@ -330,6 +332,7 @@ mod preceding_sibling_remap_tests {
                 selection_range: None.into(),
                 timestamp: now(),
             },
+            seat_id: 0,
         }
     }
 
