@@ -1098,6 +1098,20 @@ pub fn run_web(
             mini_extra_roots.push((sym.name.clone(), sym.addr, sym.size));
         }
     }
+    // Base-image prelift: seed the ENTIRE api.json export surface as roots, not
+    // just this binary's reachable subset, so the baked cache warms the whole
+    // library and a derived app lifts only its own callbacks. Gated on prelift
+    // because a normal serve only needs what the app reaches.
+    if web_config.prelift {
+        if let Some(table) = symbol_table::get() {
+            let surface = table.api_surface_roots();
+            eprintln!(
+                "[azul-web] prelift: seeding {} api.json export(s) as lift roots",
+                surface.len(),
+            );
+            mini_extra_roots.extend(surface);
+        }
+    }
     let mini_wasm = lift_eventloop_mini_wasm(&mini_extra_roots);
     eprintln!("[azul-web] azul-mini.wasm: {} bytes", mini_wasm.len());
 

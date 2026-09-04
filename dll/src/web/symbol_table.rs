@@ -494,6 +494,32 @@ impl SymbolTable {
         self.by_addr.iter()
     }
 
+    /// Every api.json C-ABI export as a `(name, addr, size)` lift root.
+    ///
+    /// The web base image must pre-lift the WHOLE public surface, not one
+    /// app's reachable subset, so a derived app finds its dependencies warm in
+    /// the cache and only lifts its own callbacks. Those exports are the
+    /// `Az`-prefixed functions codegen emits from api.json; seeding the walk
+    /// with all of them pulls in their entire transitive closure - exactly the
+    /// library surface any app could reach. The walk's classifier still decides
+    /// Leaf / BoundaryImport / Recursable per entry.
+    pub fn api_surface_roots(&self) -> Vec<(String, usize, usize)> {
+        let mut seen = std::collections::HashSet::new();
+        let mut roots = Vec::new();
+        for (_, e) in self.by_addr.iter() {
+            if !matches!(e.kind, SymKind::Function) || e.size == 0 {
+                continue;
+            }
+            if !e.canonical_name.starts_with("Az") {
+                continue;
+            }
+            if seen.insert(e.canonical_addr) {
+                roots.push((e.canonical_name.clone(), e.canonical_addr, e.size));
+            }
+        }
+        roots
+    }
+
     /// M9-3b: enumerate every loaded image's `__TEXT.__cstring`,
     /// `__TEXT.__const`, `__DATA.__data`, and `__DATA.__const`
     /// segments and return the subset whose runtime address truncated
