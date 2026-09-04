@@ -870,6 +870,53 @@ pub fn subprocess_tools_available() -> bool {
         && discover_wasm_ld().is_some()
 }
 
+/// Read a lift output and apply the x87 -> double demotion, rewriting the
+/// on-disk copy so scratch artifacts and cache templates match what actually
+/// compiles (llc asserts on fp80 memory ops). One implementation for the
+/// single-shot lift and the batch reader, so they cannot drift.
+fn read_and_demote(lifted_ir_path: &Path, fn_name: &str) -> Result<String, TranspileError> {
+    let ir = std::fs::read_to_string(lifted_ir_path).map_err(|e| TranspileError {
+        fn_name: fn_name.to_string(),
+        reason: format!("read lifted IR: {e}"),
+    })?;
+    match demote_x86_fp80(&ir) {
+        Some(demoted) => {
+            eprintln!(
+                "[azul-web]   x87 demotion: {} — x86_fp80 -> double (wasm has no 80-bit float)",
+                fn_name,
+            );
+            let _ = std::fs::write(lifted_ir_path, &demoted);
+            Ok(demoted)
+        }
+        None => Ok(ir),
+    }
+}
+
+struct BatchJob {
+    lift_addr: u64,
+    ir_out: PathBuf,
+    bytes: Vec<u8>,
+    fn_addr: usize,
+}
+
+enum LiftPrep {
+    Ready(String),
+    Fresh(LiftPrepCtx),
+}
+
+struct LiftPrepCtx {
+    /// Post-rewrite machine bytes (guest pre-lift + IAT-call rewriting
+    /// applied) - what the lifter is handed, and what every cache key and
+    /// fingerprint in the finish step is computed over.
+    bytes: Vec<u8>,
+    ir_path: PathBuf,
+    cache_path: Option<PathBuf>,
+    #[cfg(target_arch = "x86_64")]
+    reloc_canon: Option<RelocCanon>,
+    #[cfg(not(target_arch = "x86_64"))]
+    reloc_canon: Option<()>,
+}
+
 impl RemillTranspiler {
     pub fn new() -> Self {
         let scratch_dir =
@@ -1028,6 +1075,171 @@ impl RemillTranspiler {
     /// targets). Used by `produce_object_for` for the per-fn path;
     /// batched-lift call sites bypass this and use
     /// `native_remill::lift_batch` directly to share LoadArchSemantics.
+    /// What `lift_prepare` decided for one function: either a cache satisfied
+    /// it (IR in hand, preflight already recorded), or it must be lifted fresh
+    /// and here is everything the lift and the post-lift bookkeeping need.
+    /// Splitting at exactly this point is what lets a wave of functions share
+    /// ONE remill process: prepare each, batch the Fresh ones, finish each.
+    #[allow(clippy::large_enum_variant)]
+    /// Lift a WAVE of functions with one remill process (--batch_manifest),
+    /// filling `out` with each success. A function that fails here is simply
+    /// not inserted: the walk retries it individually through lift_fn, which
+    /// reproduces the per-function error attribution exactly.
+    ///
+    /// Cache semantics are identical to the one-at-a-time path because the
+    /// SAME lift_prepare / lift_store_finish run per function - only the
+    /// process boundary moved. When the reloc cache is storing templates, the
+    /// probe lifts (same bytes at a probe address) ride a second manifest
+    /// instead of spawning per function.
+    fn prelift_wave(
+        &self,
+        wave: &[(String, usize, usize, u64)],
+        out: &mut std::collections::HashMap<usize, String>,
+    ) {
+        struct Pending {
+            name: String,
+            addr: usize,
+            size: usize,
+            lift_addr: u64,
+            ctx: LiftPrepCtx,
+        }
+        let mut pending: Vec<Pending> = Vec::new();
+        for (name, addr, size, lift_addr) in wave {
+            match self.lift_prepare(name, *addr, *size, *lift_addr) {
+                Ok(LiftPrep::Ready(ir)) => {
+                    out.insert(*addr, ir);
+                }
+                Ok(LiftPrep::Fresh(ctx)) => pending.push(Pending {
+                    name: name.clone(),
+                    addr: *addr,
+                    size: *size,
+                    lift_addr: *lift_addr,
+                    ctx,
+                }),
+                // Leave it to the individual retry, which surfaces the error.
+                Err(_) => {}
+            }
+        }
+        if pending.is_empty() {
+            return;
+        }
+        let jobs: Vec<BatchJob> = pending
+            .iter()
+            .map(|p| BatchJob {
+                lift_addr: p.lift_addr,
+                ir_out: p.ctx.ir_path.clone(),
+                bytes: p.ctx.bytes.clone(),
+                fn_addr: p.addr,
+            })
+            .collect();
+        if self.run_lift_batch(&jobs).is_err() {
+            return; // every entry falls back to the individual path
+        }
+        // Probe lifts for the reloc templates, batched the same way. Only
+        // entries that will actually store a template need one.
+        #[cfg(target_arch = "x86_64")]
+        let probe_irs: std::collections::HashMap<usize, String> = {
+            let probe_jobs: Vec<BatchJob> = pending
+                .iter()
+                .filter(|p| p.ctx.reloc_canon.is_some())
+                .map(|p| BatchJob {
+                    lift_addr: p.lift_addr.wrapping_add(0x4000_0000),
+                    ir_out: self.scratch_dir.join(format!(
+                        "{}_{:x}.probe.ll",
+                        sanitize_filename(&p.name),
+                        p.addr
+                    )),
+                    bytes: p.ctx.bytes.clone(),
+                    fn_addr: p.addr,
+                })
+                .collect();
+            let mut m = std::collections::HashMap::new();
+            if !probe_jobs.is_empty() && self.run_lift_batch(&probe_jobs).is_ok() {
+                for j in &probe_jobs {
+                    if let Ok(p_ir) = read_and_demote(&j.ir_out, "probe") {
+                        m.insert(j.fn_addr, p_ir);
+                    }
+                    let _ = std::fs::remove_file(&j.ir_out);
+                }
+            }
+            m
+        };
+        #[cfg(not(target_arch = "x86_64"))]
+        let probe_irs: std::collections::HashMap<usize, String> = Default::default();
+        for p in pending {
+            let Ok(ir) = read_and_demote(&p.ctx.ir_path, &p.name) else {
+                continue; // individual retry will re-lift and report
+            };
+            if let Ok(done) = self.lift_store_finish(
+                &p.name,
+                p.addr,
+                p.size,
+                p.lift_addr,
+                &p.ctx,
+                ir,
+                probe_irs.get(&p.addr).cloned(),
+            ) {
+                out.insert(p.addr, done);
+            }
+        }
+    }
+
+    /// One `remill-lift --batch_manifest` invocation for `jobs`.
+    fn run_lift_batch(&self, jobs: &[BatchJob]) -> Result<(), TranspileError> {
+        let arch_tag = host_arch_tag().ok_or_else(|| TranspileError {
+            fn_name: "batch".into(),
+            reason: "unsupported host architecture".into(),
+        })?;
+        let tools = self.tools("batch")?;
+        let mut manifest = String::new();
+        for j in jobs {
+            let ir_out = j.ir_out.to_str().ok_or_else(|| TranspileError {
+                fn_name: "batch".into(),
+                reason: "non-utf8 scratch path".into(),
+            })?;
+            // The manifest is whitespace-split; a path with spaces cannot be
+            // encoded, so such an environment falls back to per-fn lifts.
+            if ir_out.contains(char::is_whitespace) {
+                return Err(TranspileError {
+                    fn_name: "batch".into(),
+                    reason: "scratch path contains whitespace".into(),
+                });
+            }
+            let extra = build_extra_data(&j.bytes, j.fn_addr, j.lift_addr);
+            use std::fmt::Write as _;
+            let _ = writeln!(
+                manifest,
+                "{:x} {} {} {}",
+                j.lift_addr,
+                ir_out,
+                bytes_to_hex(&j.bytes),
+                if extra.is_empty() { "-" } else { &extra },
+            );
+        }
+        let mpath = self
+            .scratch_dir
+            .join(format!("wave_{}.manifest", std::process::id()));
+        std::fs::write(&mpath, &manifest).map_err(|e| TranspileError {
+            fn_name: "batch".into(),
+            reason: format!("write manifest: {e}"),
+        })?;
+        let mstr = mpath.to_str().expect("scratch path is utf-8");
+        let r = run_tool(
+            tools.remill_lift,
+            &[
+                "--arch",
+                arch_tag,
+                "--os",
+                host_os_tag(),
+                "--batch_manifest",
+                mstr,
+            ],
+            "batch",
+        );
+        let _ = std::fs::remove_file(&mpath);
+        r
+    }
+
     fn lift_fn(
         &self,
         fn_name: &str,
@@ -1035,6 +1247,23 @@ impl RemillTranspiler {
         fn_size: usize,
         lift_addr: u64,
     ) -> Result<String, TranspileError> {
+        match self.lift_prepare(fn_name, fn_addr, fn_size, lift_addr)? {
+            LiftPrep::Ready(ir) => Ok(ir),
+            LiftPrep::Fresh(ctx) => {
+                let ir =
+                    self.lift_fn_fresh(fn_name, fn_addr, &ctx.bytes, lift_addr, &ctx.ir_path)?;
+                self.lift_store_finish(fn_name, fn_addr, fn_size, lift_addr, &ctx, ir, None)
+            }
+        }
+    }
+
+    fn lift_prepare(
+        &self,
+        fn_name: &str,
+        fn_addr: usize,
+        fn_size: usize,
+        lift_addr: u64,
+    ) -> Result<LiftPrep, TranspileError> {
         let use_native = self.use_native_remill();
         std::fs::create_dir_all(&self.scratch_dir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -1130,12 +1359,12 @@ impl RemillTranspiler {
                             RELOC_VERIFY_OKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         }
                         preflight_scan(fn_name, &fresh, count_ud2_pairs(&bytes));
-                        return Ok(fresh);
+                        return Ok(LiftPrep::Ready(fresh));
                     }
                     RELOC_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let _ = std::fs::write(&lifted_ir_path, &translated);
                     preflight_scan(fn_name, &translated, count_ud2_pairs(&bytes));
-                    return Ok(translated);
+                    return Ok(LiftPrep::Ready(translated));
                 }
             }
         }
@@ -1144,7 +1373,7 @@ impl RemillTranspiler {
                 // Mirror into scratch so downstream stem-based reads work.
                 let _ = std::fs::write(&lifted_ir_path, &ir);
                 preflight_scan(fn_name, &ir, count_ud2_pairs(&bytes));
-                return Ok(ir);
+                return Ok(LiftPrep::Ready(ir));
             }
         }
         if use_native {
@@ -1160,7 +1389,7 @@ impl RemillTranspiler {
                     reason: format!("write lifted IR: {e}"),
                 })?;
                 preflight_scan(fn_name, &ir, count_ud2_pairs(&bytes));
-                return Ok(ir);
+                return Ok(LiftPrep::Ready(ir));
             }
             #[cfg(not(feature = "web-transpiler-static"))]
             unreachable!("use_native_remill() returns false without the feature");
@@ -1169,7 +1398,35 @@ impl RemillTranspiler {
         // Counted here, not in lift_fn_fresh: the v6 probe lift at store time
         // would otherwise double every "fresh lift" in the telemetry.
         RELOC_CACHE_LIFTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let ir = self.lift_fn_fresh(fn_name, fn_addr, &bytes, lift_addr, &lifted_ir_path)?;
+        #[cfg(not(target_arch = "x86_64"))]
+        let reloc_canon = None;
+        return Ok(LiftPrep::Fresh(LiftPrepCtx {
+            bytes,
+            ir_path: lifted_ir_path,
+            cache_path,
+            reloc_canon,
+        }));
+    }
+
+    /// Everything that happens AFTER a fresh lift produced `ir`: exact-bytes
+    /// cache store, the relocation-template probe (a second lift of the same
+    /// bytes at a probe address; `probe_ir` supplies it when a wave already
+    /// batched that lift), template store, and the preflight record.
+    fn lift_store_finish(
+        &self,
+        fn_name: &str,
+        fn_addr: usize,
+        fn_size: usize,
+        lift_addr: u64,
+        ctx: &LiftPrepCtx,
+        ir: String,
+        probe_ir: Option<String>,
+    ) -> Result<String, TranspileError> {
+        let bytes = &ctx.bytes;
+        let cache_path = &ctx.cache_path;
+        let reloc_canon = &ctx.reloc_canon;
+        let stem = format!("{}_{:x}", sanitize_filename(fn_name), fn_addr);
+        let _ = (&stem, fn_size, lift_addr);
         // Store the freshly-lifted IR in the on-disk cache for future runs.
         if let Some(ref cp) = cache_path {
             if let Some(parent) = cp.parent() {
@@ -1188,10 +1445,15 @@ impl RemillTranspiler {
         if let Some(ref rc) = reloc_canon {
             let probe_addr = lift_addr.wrapping_add(0x4000_0000);
             let probe_path = self.scratch_dir.join(format!("{}.probe.ll", stem));
-            if let Ok(probe_ir) =
-                self.lift_fn_fresh(fn_name, fn_addr, &bytes, probe_addr, &probe_path)
-            {
-                let _ = std::fs::remove_file(&probe_path);
+            let probe_result = match probe_ir {
+                Some(p) => Ok(p),
+                None => {
+                    let r = self.lift_fn_fresh(fn_name, fn_addr, bytes, probe_addr, &probe_path);
+                    let _ = std::fs::remove_file(&probe_path);
+                    r
+                }
+            };
+            if let Ok(probe_ir) = probe_result {
                 if let Some(manifest) = reloc_templateize(
                     &ir,
                     &probe_ir,
@@ -1260,24 +1522,7 @@ impl RemillTranspiler {
             args.push(&extra_data);
         }
         run_tool(tools.remill_lift, &args, fn_name)?;
-        let ir = std::fs::read_to_string(lifted_ir_path).map_err(|e| TranspileError {
-            fn_name: fn_name.to_string(),
-            reason: format!("read lifted IR: {e}"),
-        })?;
-        // x87 -> double before anything downstream sees the IR (llc asserts
-        // on fp80 memory ops). The on-disk copy is rewritten too so scratch
-        // artifacts and cache templates match what actually compiles.
-        match demote_x86_fp80(&ir) {
-            Some(demoted) => {
-                eprintln!(
-                    "[azul-web]   x87 demotion: {} — x86_fp80 -> double (wasm has no 80-bit float)",
-                    fn_name,
-                );
-                let _ = std::fs::write(lifted_ir_path, &demoted);
-                Ok(demoted)
-            }
-            None => Ok(ir),
-        }
+        read_and_demote(lifted_ir_path, fn_name)
     }
 
     /// Post-lift pipeline: takes a `raw_lifted_ir` (from `lift_fn` for
@@ -2289,6 +2534,11 @@ impl RemillTranspiler {
 
         let mut visited: HashSet<usize> = HashSet::new();
         let mut queue: VecDeque<TransitiveLiftTarget> = VecDeque::new();
+        // IRs produced ahead of the walk by prelift_wave: one remill process
+        // per wave instead of one per function. Consumed (removed) when the
+        // walk reaches the function; a miss falls through to the individual
+        // lift, so a batch failure only costs the batching.
+        let mut prelifted: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
         let mut object_paths: Vec<PathBuf> = Vec::new();
         let mut exports: Vec<String> = Vec::new();
         // Functions that defeated remill and were Leaf-stubbed (see the
@@ -2459,6 +2709,52 @@ impl RemillTranspiler {
             if !visited.insert(addr) {
                 continue;
             }
+            // Build the next lift wave: this target plus up to batch-1 queued,
+            // unvisited, not-yet-prelifted functions, lifted with ONE remill
+            // process. lift_addr is derived exactly as the body below derives
+            // it. Entries whose object is already cached cost one wasted lift;
+            // visited/prelifted dedup bounds everything else.
+            let wave_n = super::lift_env::lift_env().lift_batch;
+            if wave_n > 1 && !prelifted.contains_key(&addr) {
+                let wla = |a: usize| -> u64 {
+                    symbol_table::get()
+                        .and_then(|t| {
+                            t.lookup(a)
+                                .map(|e| e.synthetic_addr)
+                                .or_else(|| t.native_to_synth(a))
+                        })
+                        .map(|s| s as u64)
+                        .unwrap_or(a as u64)
+                };
+                let mut wave: Vec<(String, usize, usize, u64)> =
+                    vec![(name.clone(), addr, size, wla(addr))];
+                let mut in_wave: HashSet<usize> = HashSet::new();
+                in_wave.insert(addr);
+                for qt in queue.iter() {
+                    if wave.len() >= wave_n {
+                        break;
+                    }
+                    let (qn, qa, qs) = match qt {
+                        TransitiveLiftTarget::Root(r) => {
+                            (r.fn_name.clone(), r.fn_addr, r.fn_size)
+                        }
+                        TransitiveLiftTarget::Dep { name, addr, size } => {
+                            (name.clone(), *addr, *size)
+                        }
+                    };
+                    if visited.contains(&qa)
+                        || in_wave.contains(&qa)
+                        || prelifted.contains_key(&qa)
+                    {
+                        continue;
+                    }
+                    in_wave.insert(qa);
+                    wave.push((qn, qa, qs, wla(qa)));
+                }
+                if wave.len() > 1 {
+                    self.prelift_wave(&wave, &mut prelifted);
+                }
+            }
             // Set when this iteration lifts fresh; consumed by the dep walk.
             let mut walk_ir: Option<String> = None;
             lifted_count += 1;
@@ -2570,6 +2866,9 @@ impl RemillTranspiler {
             let cached = self.object_cache.lock().unwrap().get(&cache_key).cloned();
             let obj = match cached {
                 Some(p) => {
+                    // A wave may have prelifted this before the cache probe
+                    // ran; drop the IR so the map stays bounded.
+                    prelifted.remove(&addr);
                     eprintln!(
                         "[azul-web]   transitive[{}]: cached {} addr=0x{:016x} → {}",
                         lifted_count,
@@ -2598,7 +2897,11 @@ impl RemillTranspiler {
                     // worker pool that drains before the link. On
                     // translated-cache runs the in-loop half is nearly free,
                     // so the walk collapses to discovery speed.
-                    match self.lift_fn(&name, addr, size, lift_addr) {
+                    match prelifted
+                        .remove(&addr)
+                        .map(Ok)
+                        .unwrap_or_else(|| self.lift_fn(&name, addr, size, lift_addr))
+                    {
                         Ok(raw_ir) => {
                             walk_ir = Some(raw_ir.clone());
                             let obj_idx = object_paths.len();
