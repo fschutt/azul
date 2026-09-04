@@ -200,7 +200,8 @@ fn main() {
             None, // content_overlay
             None, // system_style
             get_system_time_fn,
-            &[],
+            &[],                // css_dirty
+            &BTreeMap::new(),   // virtual_view_sizes
         )
         .expect("layout failed");
         let dl_items = display_list.items.len();

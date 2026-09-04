@@ -54,6 +54,8 @@
 //! A dash means the platform has no native equivalent and the backend walks
 //! [`HapticPattern::fallback`] to reach one it does.
 
+use alloc::vec::Vec;
+
 /// A haptic pattern to play, named by INTENT rather than by waveform.
 ///
 /// See the module docs for the per-platform mapping and for why this names
