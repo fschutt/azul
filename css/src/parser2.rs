@@ -1515,7 +1515,7 @@ fn new_from_str_inner<'a>(
         name: String,
         stops: Vec<crate::css::KeyframeStop>,
         selectors: Vec<String>,
-        props: Vec<crate::props::property::CssProperty>,
+        props: Vec<CssProperty>,
         in_stop: bool,
     }
 
@@ -4561,8 +4561,10 @@ mod env_tests {
     #[test]
     fn resolve_in_cascade_reads_the_live_inset_and_keeps_the_declared_type() {
         let d = only_declaration("div { padding-bottom: env(safe-area-inset-bottom, 7px); }");
-        let mut ctx = DynamicSelectorContext::default();
-        ctx.safe_area_bottom = 34.0;
+        let mut ctx = DynamicSelectorContext {
+            safe_area_bottom: 34.0,
+            ..Default::default()
+        };
         let live = parse_css_property(CssPropertyType::PaddingBottom, "34px").unwrap();
         assert_eq!(d.resolve_in_cascade(Some(&ctx)), Some(live));
 

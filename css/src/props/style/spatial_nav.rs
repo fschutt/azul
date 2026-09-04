@@ -125,7 +125,7 @@ pub enum CssSpatialNavigationActionParseErrorOwned {
     InvalidValue(AzString),
 }
 
-impl<'a> CssSpatialNavigationActionParseError<'a> {
+impl CssSpatialNavigationActionParseError<'_> {
     #[must_use]
     pub fn to_contained(&self) -> CssSpatialNavigationActionParseErrorOwned {
         match self {
@@ -176,7 +176,7 @@ pub enum CssSpatialNavigationContainParseErrorOwned {
     InvalidValue(AzString),
 }
 
-impl<'a> CssSpatialNavigationContainParseError<'a> {
+impl CssSpatialNavigationContainParseError<'_> {
     #[must_use]
     pub fn to_contained(&self) -> CssSpatialNavigationContainParseErrorOwned {
         match self {
