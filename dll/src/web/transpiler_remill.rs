@@ -1039,7 +1039,13 @@ impl RemillTranspiler {
             fn_name: fn_name.to_string(),
             reason: "unsupported host architecture for remill (need aarch64 or x86_64)".into(),
         })?;
-        let stem = sanitize_filename(fn_name);
+        // Keyed on (name, ADDRESS): a fn_name does not identify a function -
+        // multiply-monomorphized generics share one, which the object path
+        // already accounts for by keying on export_as. Keyed on the name alone,
+        // two such functions wrote the SAME .lifted.ll, so whichever finished
+        // last decided what the other's dep discovery read, and parallel lifts
+        // would race on one path outright.
+        let stem = format!("{}_{:x}", sanitize_filename(fn_name), fn_addr);
         let lifted_ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
         // On-disk lift cache (subprocess path only). OPT-IN via AZ_LIFT_CACHE=1,
         // default OFF: a hit skips the remill-lift-17 subprocess (the slowest
@@ -1291,17 +1297,6 @@ impl RemillTranspiler {
         // the first and both paths get pushed into object_paths,
         // producing a wasm-ld "duplicate symbol" error.
         let stem = sanitize_filename(export_as);
-        // Stash the raw lifted IR for debugging (key on fn_name + addr
-        // so the dump is identifiable in scratch listings).
-        let _ = std::fs::write(
-            self.scratch_dir.join(format!(
-                "{}_{:x}.lifted.ll",
-                sanitize_filename(fn_name),
-                fn_addr
-            )),
-            raw_lifted_ir,
-        );
-
         // M6 — IR cleanup phase.
         //
         // 1. Patch the lifted IR to mark `sub_<entry>` as `alwaysinline`.
@@ -2696,7 +2691,7 @@ impl RemillTranspiler {
             // that same-named monomorphizations overwrite), so the walk
             // found a different dep set on every run — observed as export
             // counts drifting between identical builds.
-            let stem = sanitize_filename(&name);
+            let stem = format!("{}_{:x}", sanitize_filename(&name), addr);
             let lifted_ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
             let lifted_ir = match walk_ir.take().map_or_else(
                 || std::fs::read_to_string(&lifted_ir_path),
