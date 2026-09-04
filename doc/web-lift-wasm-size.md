@@ -105,3 +105,91 @@ Expected: roughly half the surviving stores in a typical lifted function.
   state-store passes are the prerequisite.
 - Stubbing panics for the ~6%.
 - `zf` needs real liveness (584 genuine readers), unlike the zero-load flags.
+
+---
+
+# Code splitting: making the lift unit smaller than the function
+
+The passes above make each lifted function cheaper. This is the other axis:
+**lift and ship fewer of them.**
+
+## Why granularity is fixed at Rust compile time, not lift time
+
+The lifter's unit of work is a **symbol** — an `(address, size)` pair from the
+PE symbol table. The discovery walk starts at roots and follows call edges, and
+whatever it reaches, it lifts *whole*. Everything rustc inlined into a function
+is inside that unit and cannot be excluded: there is no such thing as lifting
+half a function.
+
+So a 907 KB wasm object is all-or-nothing. If it contains one cold error path
+that no web user ever hits, that path still costs its full lifted size, because
+after inlining it is not addressable as anything separate.
+
+Measured on the AzWriter run — 5,235 functions, 94.8 MB of objects:
+
+| slice | wasm | share |
+|---|---|---|
+| top 10 functions | 6.6 MB | 7% |
+| top 100 | 25.1 MB | 26% |
+| top 500 (9.5% of functions) | 48.7 MB | **51%** |
+| top 1000 | 63.6 MB | 67% |
+| the 122 functions over 100 KB | 27.4 MB | 29% |
+| the 1,888 functions under 5 KB | 5.1 MB | 5% |
+
+Half the payload lives in 500 functions. Those are exactly the
+heavily-inlined, heavily-monomorphized ones — and the ones most likely to
+contain cold paths welded to hot ones.
+
+## The boundary
+
+`#[inline(never)] #[no_mangle] pub extern "C"` on an internal helper produces a
+**distinct symbol with its own address and size**. That single change buys
+three separate things:
+
+1. **Strip.** A boundary the discovery walk never reaches is never lifted at
+   all. Cold paths behind a call become invisible unless something calls them.
+2. **Split.** `FnClass::BoundaryImport` already turns a function into a wasm
+   *import* instead of lifted code. Point that import at a JS loader that
+   fetches a second module on first call, and it is genuine lazy code
+   splitting — `azul-mini.wasm` ships the hot core, the rest arrives on demand.
+3. **Shrink the caller.** Pulling a cold path out stops rustc inlining it in,
+   so the whale itself gets smaller. This is the effect that compounds: the
+   38 KB native whale is 38 KB *because* everything got inlined into it.
+
+A fourth benefit falls out: **cache granularity**. The reloc-canonical cache
+keys on a function's bytes. A 907 KB whale re-lifts whenever anything inside it
+changes; ten 90 KB functions re-lift only the one that actually changed.
+Smaller units directly improve the "only re-lift what we touched" behaviour.
+
+## Where to cut
+
+Two different licences apply, and they must not be confused:
+
+- **Cold-path boundaries** (strip / split) are a size decision. Wrong guess =
+  a lazy fetch on a path we thought was cold. Cheap to be wrong.
+- **Browser-substitution boundaries** (replace the body with a JS round-trip —
+  unicode tables, shaping, image decode) are a *semantic* decision. The browser
+  must compute the same answer, or layout silently diverges. Expensive to be
+  wrong; each one needs its output proven equivalent, not assumed.
+
+Candidates, cheapest first: error/panic formatting paths, `Debug`/`Display`
+impls on engine types, PDF and DOCX export (not needed to render a document),
+font-fallback chains, rarely-used CSS property parsing.
+
+## Caveats worth stating before cutting
+
+- `extern "C"` changes the ABI: it loses Rust's niche optimisations and can
+  force aggregates through memory. On a hot path that is a real regression.
+  `#[inline(never)]` alone keeps the Rust ABI but the symbol can still be
+  merged by ICF — only `#[no_mangle]` guarantees a distinct addressable symbol.
+- A boundary inside a hot loop costs a real call per iteration.
+- So: cut on paths measured cold, and re-measure both size *and* frame time.
+
+## Sequencing
+
+1. State-store DSE (done — 28% on the measured function).
+2. Panic/fmt stubbing (~6%).
+3. Cold-path boundaries in the top-500 list: strip first, since it needs no
+   runtime machinery, only a boundary the walk does not reach.
+4. Lazy split via `BoundaryImport` + a JS module loader.
+5. Browser substitution, each with an equivalence test.
