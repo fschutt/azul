@@ -1854,13 +1854,21 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
             // Touch: ev.detail = touch tracking id; merge into touch_state.
             let is_up = evtype == defines::XI_TouchEnd;
             let id = ev.detail as u64;
-            use azul_core::window::{TouchPoint, TouchPointVec};
+            // The touch's master pointer is its seat (9b-ii-a-i-c), as for
+            // pointer events: the virtual core pointer is the primary.
+            let seat_id = if ev.deviceid == defines::XI_VIRTUAL_CORE_POINTER {
+                azul_core::window::PRIMARY_POINTER_SEAT
+            } else {
+                ev.deviceid as u64
+            };
+            use azul_core::window::{touch_point_key, TouchPoint, TouchPointVec};
             let ts = win.common.touch_state_mut();
             let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
-            pts.retain(|p| p.id != id);
+            pts.retain(|p| !(p.seat_id == seat_id && p.id == id));
             if !is_up {
                 pts.push(TouchPoint {
                     id,
+                    seat_id,
                     position: pos,
                     force: 0.5,
                     // Contact geometry: 0.0 = not reported by this backend.
@@ -1879,14 +1887,15 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
                 let now = azul_core::task::Instant::from(std::time::Instant::now());
                 let screen = win.to_logical_pos(ev.root_x as f32, ev.root_y as f32);
                 let window_position = win.common.current_window_state().position;
+                let key = touch_point_key(seat_id, id);
                 if let Some(lw) = win.common.layout_window.as_mut() {
                     if evtype == defines::XI_TouchBegin {
                         lw.gesture_drag_manager
-                            .touch_down(id, pos, now, window_position, screen);
+                            .touch_down(key, pos, now, window_position, screen);
                     } else if is_up {
-                        lw.gesture_drag_manager.touch_up(id, pos, now, screen);
+                        lw.gesture_drag_manager.touch_up(key, pos, now, screen);
                     } else {
-                        lw.gesture_drag_manager.touch_move(id, pos, now, screen);
+                        lw.gesture_drag_manager.touch_move(key, pos, now, screen);
                     }
                 }
             }

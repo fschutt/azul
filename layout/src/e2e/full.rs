@@ -16608,6 +16608,7 @@ pub fn process_debug_event(
                 .into_library_owned_vec();
             points.retain(|p| p.id != *id);
             points.push(azul_core::window::TouchPoint {
+                seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
                 id: *id,
                 position: LogicalPosition { x: *x, y: *y },
                 force: *force,
@@ -16635,6 +16636,7 @@ pub fn process_debug_event(
                 p.force = *force;
             } else {
                 points.push(azul_core::window::TouchPoint {
+                    seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
                     id: *id,
                     position: LogicalPosition { x: *x, y: *y },
                     force: *force,

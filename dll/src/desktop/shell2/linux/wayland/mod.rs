@@ -3680,20 +3680,28 @@ impl WaylandWindow {
     }
 
     pub fn handle_touch_point(&mut self, id: i32, x: f64, y: f64) {
-        use azul_core::window::{TouchPoint, TouchPointVec};
+        self.handle_touch_point_for_seat(azul_core::window::PRIMARY_POINTER_SEAT, id, x, y);
+    }
+
+    /// A contact down or moving on seat `seat_id`'s touchscreen (9b-ii-a-i-c):
+    /// the point is keyed by (seat, id), and the gesture session by the
+    /// seat-namespaced `touch_point_key`, so two seats' finger 0 never meet.
+    pub fn handle_touch_point_for_seat(&mut self, seat_id: u64, id: i32, x: f64, y: f64) {
+        use azul_core::window::{touch_point_key, TouchPoint, TouchPointVec};
         let pos = LogicalPosition::new(x as f32, y as f32);
         self.snapshot_window_state_baseline("wayland.handle_touch_point");
         let ts = self.common.touch_state_mut();
         let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
-        let is_new = !pts.iter().any(|p| p.id == id as u64);
-        if let Some(p) = pts.iter_mut().find(|p| p.id == id as u64) {
+        let mine = |p: &TouchPoint| p.seat_id == seat_id && p.id == id as u64;
+        let is_new = !pts.iter().any(|p| mine(p));
+        if let Some(p) = pts.iter_mut().find(|p| mine(p)) {
             p.position = pos;
         } else {
             pts.push(TouchPoint {
                 id: id as u64,
+                seat_id,
                 position: pos,
                 force: 1.0,
-                // Contact geometry: 0.0 = not reported by this backend.
                 major: 0.0,
                 minor: 0.0,
                 orientation_rad: 0.0,
@@ -3702,19 +3710,16 @@ impl WaylandWindow {
         }
         ts.touch_points = TouchPointVec::from_vec(pts);
         ts.num_touches = ts.touch_points.len();
-        // MWA-B4: per-finger gesture sessions — without them, two-finger
-        // pinch/rotate were structurally undetectable (touch only filled
-        // touch_state). Screen position = surface-local estimate (the
-        // compositor exposes no global coordinates on Wayland).
         {
             let now = azul_core::task::Instant::from(std::time::Instant::now());
             let window_position = self.common.current_window_state().position;
+            let key = touch_point_key(seat_id, id as u64);
             if let Some(lw) = self.common.layout_window.as_mut() {
                 if is_new {
                     lw.gesture_drag_manager
-                        .touch_down(id as u64, pos, now, window_position, pos);
+                        .touch_down(key, pos, now, window_position, pos);
                 } else {
-                    lw.gesture_drag_manager.touch_move(id as u64, pos, now, pos);
+                    lw.gesture_drag_manager.touch_move(key, pos, now, pos);
                 }
             }
         }
@@ -3722,42 +3727,58 @@ impl WaylandWindow {
         self.handle_process_event_result(result);
     }
 
-    /// Remove a touch point (up) by id, then process.
     pub fn handle_touch_up(&mut self, id: i32) {
-        use azul_core::window::{TouchPoint, TouchPointVec};
+        self.handle_touch_up_for_seat(azul_core::window::PRIMARY_POINTER_SEAT, id);
+    }
+
+    pub fn handle_touch_up_for_seat(&mut self, seat_id: u64, id: i32) {
+        use azul_core::window::{touch_point_key, TouchPoint, TouchPointVec};
         self.snapshot_window_state_baseline("wayland.handle_touch_up");
         let ts = self.common.touch_state_mut();
         let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
-        let last_pos = pts.iter().find(|p| p.id == id as u64).map(|p| p.position);
-        pts.retain(|p| p.id != id as u64);
+        let mine = |p: &TouchPoint| p.seat_id == seat_id && p.id == id as u64;
+        let last_pos = pts.iter().find(|p| mine(p)).map(|p| p.position);
+        pts.retain(|p| !mine(p));
         ts.touch_points = TouchPointVec::from_vec(pts);
         ts.num_touches = ts.touch_points.len();
-        // MWA-B4: end this finger's gesture session.
         if let Some(pos) = last_pos {
             let now = azul_core::task::Instant::from(std::time::Instant::now());
             if let Some(lw) = self.common.layout_window.as_mut() {
-                lw.gesture_drag_manager.touch_up(id as u64, pos, now, pos);
+                lw.gesture_drag_manager
+                    .touch_up(touch_point_key(seat_id, id as u64), pos, now, pos);
             }
         }
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
     }
 
-    /// Clear all touch points (cancel — compositor took over the sequence).
     pub fn handle_touch_cancel(&mut self) {
-        use azul_core::window::TouchPointVec;
+        self.handle_touch_cancel_for_seat(azul_core::window::PRIMARY_POINTER_SEAT);
+    }
+
+    /// `wl_touch.cancel` on one seat, or that seat's touchscreen going away:
+    /// only ITS contacts are dropped and ITS gesture sessions ended - the
+    /// other seats' fingers stay down.
+    pub fn handle_touch_cancel_for_seat(&mut self, seat_id: u64) {
+        use azul_core::window::{touch_point_key, TouchPoint, TouchPointVec};
         self.snapshot_window_state_baseline("wayland.handle_touch_cancel");
         let ts = self.common.touch_state_mut();
-        ts.touch_points = TouchPointVec::from_vec(Vec::new());
-        ts.num_touches = 0;
-        // MWA-B4: end every gesture session for the cancelled sequence.
+        let mut pts: Vec<TouchPoint> = ts.touch_points.clone().into_library_owned_vec();
+        let gone: Vec<TouchPoint> = pts.iter().copied().filter(|p| p.seat_id == seat_id).collect();
+        pts.retain(|p| p.seat_id != seat_id);
+        ts.touch_points = TouchPointVec::from_vec(pts);
+        ts.num_touches = ts.touch_points.len();
         if let Some(lw) = self.common.layout_window.as_mut() {
-            lw.gesture_drag_manager.touch_cancel_all();
+            let now = azul_core::task::Instant::from(std::time::Instant::now());
+            for p in gone {
+                lw.gesture_drag_manager.touch_up(
+                    touch_point_key(seat_id, p.id),
+                    p.position,
+                    now.clone(),
+                    p.position,
+                );
+            }
         }
-        // Same contract as handle_touch_point / handle_touch_up: without the pass
-        // the cancel's own touch_state delta was erased by the next handler's
-        // snapshot, so a compositor-stolen gesture left the app mid-drag (and the
-        // repaint that routing the result brings never happened either).
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
     }

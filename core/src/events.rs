@@ -535,6 +535,8 @@ pub struct TouchEventData {
     pub position: LogicalPosition,
     /// Touch force/pressure (0.0 - 1.0)
     pub force: f32,
+    /// The SEAT whose touchscreen this is (9b-ii-a-i-c); ids are per seat.
+    pub seat_id: u64,
 }
 
 /// Type-specific event data for clipboard events.
@@ -3399,6 +3401,7 @@ pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<Synt
     let seat_of = |e: &SyntheticEvent| match &e.data {
         EventData::Mouse(m) => m.seat_id,
         EventData::Scroll(s) => s.seat_id,
+        EventData::Touch(t) => t.seat_id,
         _ => crate::window::PRIMARY_POINTER_SEAT,
     };
     events.sort_by_key(|e| (e.target.dom, e.target.node, e.event_type, seat_of(e)));

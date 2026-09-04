@@ -791,25 +791,33 @@ pub fn determine_all_events(
         let current_points = current_state.touch_state.touch_points.as_ref();
 
         if !previous_points.is_empty() || !current_points.is_empty() {
-            let target_of = |id: u64| {
+            // A contact is (seat, id) (9b-ii-a-i-c): two seats' finger 0 are
+            // two contacts, and the hover key is namespaced the same way.
+            let target_of = |p: &azul_core::window::TouchPoint| {
                 hover_manager
-                    .hover_node_full_for(&InputPointId::Touch(id))
+                    .hover_node_full_for(&InputPointId::Touch(
+                        azul_core::window::touch_point_key(p.seat_id, p.id),
+                    ))
                     .unwrap_or(mouse_target)
+            };
+            let same = |a: &azul_core::window::TouchPoint, b: &azul_core::window::TouchPoint| {
+                a.seat_id == b.seat_id && a.id == b.id
             };
             let touch_data = |p: &azul_core::window::TouchPoint| {
                 EventData::Touch(TouchEventData {
                     id: p.id,
                     position: p.position,
                     force: p.force,
+                    seat_id: p.seat_id,
                 })
             };
 
             for point in current_points {
-                match previous_points.iter().find(|q| q.id == point.id) {
+                match previous_points.iter().find(|q| same(q, point)) {
                     None => events.push(SyntheticEvent::new(
                         EventType::TouchStart,
                         EventSource::User,
-                        target_of(point.id),
+                        target_of(point),
                         timestamp.clone(),
                         touch_data(point),
                     )),
@@ -817,7 +825,7 @@ pub fn determine_all_events(
                         events.push(SyntheticEvent::new(
                             EventType::TouchMove,
                             EventSource::User,
-                            target_of(point.id),
+                            target_of(point),
                             timestamp.clone(),
                             touch_data(point),
                         ));
@@ -826,11 +834,11 @@ pub fn determine_all_events(
                 }
             }
             for point in previous_points {
-                if !current_points.iter().any(|p| p.id == point.id) {
+                if !current_points.iter().any(|p| same(p, point)) {
                     events.push(SyntheticEvent::new(
                         EventType::TouchEnd,
                         EventSource::User,
-                        target_of(point.id),
+                        target_of(point),
                         timestamp.clone(),
                         touch_data(point),
                     ));
@@ -1757,11 +1765,21 @@ mod tests {
     }
 
     fn state_with_touch(points: &[(u64, f32, f32)]) -> FullWindowState {
+        state_with_seat_touch(
+            &points
+                .iter()
+                .map(|(id, x, y)| (azul_core::window::PRIMARY_POINTER_SEAT, *id, *x, *y))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    fn state_with_seat_touch(points: &[(u64, u64, f32, f32)]) -> FullWindowState {
         use azul_core::window::{TouchPoint, TouchPointVec};
         let mut s = default_state();
         let pts: Vec<TouchPoint> = points
             .iter()
-            .map(|(id, x, y)| TouchPoint {
+            .map(|(seat_id, id, x, y)| TouchPoint {
+                seat_id: *seat_id,
                 id: *id,
                 position: LogicalPosition::new(*x, *y),
                 force: 0.5,
@@ -1775,6 +1793,47 @@ mod tests {
         s.touch_state.num_touches = pts.len();
         s.touch_state.touch_points = TouchPointVec::from_vec(pts);
         s
+    }
+
+    /// 9b-ii-a-i-c: a contact is (seat, id). Two seats' finger 0 are two
+    /// starts stamped with their seats; one seat lifting its finger ends
+    /// only its own contact, and the other's held finger stays quiet.
+    #[test]
+    fn touch_contacts_are_keyed_by_seat_and_id() {
+        let seat = 7u64;
+        let both = state_with_seat_touch(&[(0, 0, 10.0, 20.0), (seat, 0, 30.0, 40.0)]);
+        let events = run_determine(&both, &default_state());
+        let mut starts: Vec<(u64, u64)> = events
+            .iter()
+            .filter(|e| e.event_type == EventType::TouchStart)
+            .filter_map(|e| match &e.data {
+                EventData::Touch(t) => Some((t.seat_id, t.id)),
+                _ => None,
+            })
+            .collect();
+        starts.sort_unstable();
+        assert_eq!(starts, vec![(0, 0), (seat, 0)], "two seats, two contacts, same raw id");
+
+        // Seat 0 lifts; the other seat's finger 0 is untouched.
+        let only_seat = state_with_seat_touch(&[(seat, 0, 30.0, 40.0)]);
+        let events = run_determine(&only_seat, &both);
+        let ends: Vec<u64> = events
+            .iter()
+            .filter(|e| e.event_type == EventType::TouchEnd)
+            .filter_map(|e| match &e.data {
+                EventData::Touch(t) => Some(t.seat_id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ends, vec![0], "only the primary's contact ended");
+        assert_eq!(n_of(&events, EventType::TouchStart), 0);
+        assert_eq!(n_of(&events, EventType::TouchMove), 0);
+
+        // The hover keys never collide: the primary keeps its raw id.
+        use azul_core::window::touch_point_key;
+        assert_eq!(touch_point_key(0, 5), 5);
+        assert_ne!(touch_point_key(seat, 0), touch_point_key(0, 0));
+        assert_ne!(touch_point_key(seat, 0), touch_point_key(seat + 1, 0));
     }
 
     #[test]

@@ -1015,7 +1015,7 @@ pub(super) extern "C" fn registry_global_remove_handler(
 // wl_touch listeners -> touch_state (x/y are wl_fixed_t, /256.0 to logical).
 pub(super) extern "C" fn touch_down_handler(
     data: *mut c_void,
-    _touch: *mut wl_touch,
+    touch: *mut wl_touch,
     _serial: u32,
     _time: u32,
     _surface: *mut wl_surface,
@@ -1024,33 +1024,38 @@ pub(super) extern "C" fn touch_down_handler(
     y: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.handle_touch_point(id, x as f64 / 256.0, y as f64 / 256.0);
+    // Which seat's touchscreen (9b-ii-a-i-c): ids are per seat.
+    let seat_id = window.seats.seat_id_for_touch(touch.cast());
+    window.handle_touch_point_for_seat(seat_id, id, x as f64 / 256.0, y as f64 / 256.0);
 }
 pub(super) extern "C" fn touch_up_handler(
     data: *mut c_void,
-    _touch: *mut wl_touch,
+    touch: *mut wl_touch,
     _serial: u32,
     _time: u32,
     id: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.handle_touch_up(id);
+    let seat_id = window.seats.seat_id_for_touch(touch.cast());
+    window.handle_touch_up_for_seat(seat_id, id);
 }
 pub(super) extern "C" fn touch_motion_handler(
     data: *mut c_void,
-    _touch: *mut wl_touch,
+    touch: *mut wl_touch,
     _time: u32,
     id: i32,
     x: i32,
     y: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.handle_touch_point(id, x as f64 / 256.0, y as f64 / 256.0);
+    let seat_id = window.seats.seat_id_for_touch(touch.cast());
+    window.handle_touch_point_for_seat(seat_id, id, x as f64 / 256.0, y as f64 / 256.0);
 }
 extern "C" fn touch_frame_handler(_data: *mut c_void, _touch: *mut wl_touch) {}
-pub(super) extern "C" fn touch_cancel_handler(data: *mut c_void, _touch: *mut wl_touch) {
+pub(super) extern "C" fn touch_cancel_handler(data: *mut c_void, touch: *mut wl_touch) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.handle_touch_cancel();
+    let seat_id = window.seats.seat_id_for_touch(touch.cast());
+    window.handle_touch_cancel_for_seat(seat_id);
 }
 /// `wl_touch.shape` — the contact ellipse for one touch point.
 ///
@@ -2722,12 +2727,27 @@ pub(super) extern "C" fn seat_capabilities_handler(
             }
             _ => {}
         }
-        if capabilities & WL_SEAT_CAPABILITY_TOUCH != 0 {
-            log_debug!(
-                LogCategory::Input,
-                "[Wayland] seat {} has touch capability; not bound (9b-ii-a-i-c)",
-                seat_id
-            );
+        // This seat's TOUCHSCREEN (9b-ii-a-i-c): a `wl_touch` of its own on
+        // the shared listener; the handlers route by the object.
+        let has_touch = capabilities & WL_SEAT_CAPABILITY_TOUCH != 0;
+        match (has_touch, window.seats.touch_of(seat.cast())) {
+            (true, None) => {
+                let touch = unsafe { (window.wayland.wl_seat_get_touch)(seat) };
+                unsafe { (window.wayland.wl_touch_add_listener)(touch, &WL_TOUCH_LISTENER, data) };
+                window.track_listener(touch);
+                window.seats.set_touch(seat.cast(), Some(touch.cast()));
+                if let Some(ref mut lw) = window.common.layout_window {
+                    lw.device_event_manager.note_device(true);
+                }
+            }
+            (false, Some(_)) => {
+                window.seats.set_touch(seat.cast(), None);
+                window.handle_touch_cancel_for_seat(seat_id);
+                if let Some(ref mut lw) = window.common.layout_window {
+                    lw.device_event_manager.note_device(false);
+                }
+            }
+            _ => {}
         }
         return;
     }

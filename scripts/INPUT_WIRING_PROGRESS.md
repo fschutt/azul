@@ -2185,9 +2185,27 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       key path but not the repeat path, which was one fd on the window. Blind by design (no
       compositor here), like the rest of the Wayland seat work: the Linux target checks green, host
       check EXIT=0, azul-dll 2071, 8/8 gate. A device check belongs with 9b-ii-a-i-b's.
-- [ ] 9b-ii-a-i-c TOUCH per seat: `TouchState` is one list; a second seat's touchscreen would mix
-      its ids into the primary's. Same shape as the keyboard seats (`TouchSeatVec`), gated on a
-      producer that has one - X11 XI2 touch events carry the master, Wayland `wl_touch` is per seat.
+- [x] 9b-ii-a-i-c DONE - not as a `TouchSeatVec` but as a SEAT TAG: a contact is (`seat_id`,
+      `id`). `TouchPoint::seat_id` (beside `id`, so the C layout stays padding-free; api.json
+      through the drift pass, one field) and `TouchEventData::seat_id`; the event diff matches
+      contacts by both and stamps the seat, `seat_of_event` and the coalescing key read it, and the
+      hover / gesture keys are namespaced by `touch_point_key(seat, id)` (the raw id for the
+      primary, so every existing key, test and e2e op is untouched; a namespaced value for any
+      other seat, so two seats' finger 0 never share a session). PRODUCERS: Wayland binds a
+      `wl_touch` per non-primary seat (`SeatEntry::touch`, `seat_id_for_touch`; the old branch
+      logged "not bound"), the shared listener routes by the object into
+      `handle_touch_{point,up,cancel}_for_seat` (the primary's calls are the seat-0 wrappers), and a
+      seat's cancel or its touchscreen going away drops ITS contacts and ends ITS gesture sessions
+      only; X11 stamps the touch event's master pointer as its seat, the virtual core pointer being
+      the primary, exactly as the pointer path does. Every other platform's constructor stamps the
+      primary. WHY a tag and not a vec: the touch list already carries per-contact identity, and
+      every consumer (diff, hover, gestures) keys on that identity - a second list would have
+      duplicated all of them for no gain. Test: two seats' finger 0 are two `TouchStart`s with
+      their seats, the primary lifting ends only its own contact, the keys never collide.
+      Evidence: host check EXIT=0; azul-core 2809, azul-layout lib 7684 (+1) / `--test all` 1011,
+      e2e 62 scenarios, azul-dll 2071, 0 failed; 8/8 gate. Blind on the compositor / X server
+      side like the other seat items. Pinch / rotate BETWEEN seats is not a gesture (each seat's
+      contacts form their own sessions) - by design, not a gap.
 - [~] 9b-ii-a-i-d Per-seat FOCUS. X11 MPX gives every master keyboard its own focus; azul has one
       focused node, so today every seat types into the same field. A per-seat focus is a product
       question (two people editing two fields of one window), not a wiring gap; logged, not guessed.

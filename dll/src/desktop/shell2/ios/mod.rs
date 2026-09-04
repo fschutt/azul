@@ -383,6 +383,7 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
                 };
 
                 points.push(TouchPoint {
+                    seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
                     id: id_u64,
                     position: touch_pos,
                     force: normalized,
@@ -424,6 +425,7 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
                                 let f: f64 = msg_send![t, force];
                                 let maxf: f64 = msg_send![t, maximumPossibleForce];
                                 out.push(TouchPoint {
+                                    seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
                                     id: id_u64,
                                     position: LogicalPosition::new(p.x as f32, p.y as f32),
                                     force: if maxf > 0.0 { (f / maxf) as f32 } else { 0.5 },

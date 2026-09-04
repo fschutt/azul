@@ -6003,6 +6003,9 @@
                                 "id": {
                                     "type": "u64"
                                 },
+                                "seat_id": {
+                                    "type": "u64"
+                                },
                                 "position": {
                                     "type": "LogicalPosition"
                                 },

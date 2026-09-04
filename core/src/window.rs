@@ -1099,6 +1099,12 @@ pub enum TouchToolType {
 pub struct TouchPoint {
     /// Unique identifier for this touch point (persists across move events)
     pub id: u64,
+    /// Which SEAT's touchscreen this contact is on (9b-ii-a-i-c): a second
+    /// seat's fingers have their own id space (Wayland `wl_touch` ids are per
+    /// seat, X11 touch events carry their master pointer), so a contact is
+    /// identified by (`seat_id`, `id`). `PRIMARY_POINTER_SEAT` for the one
+    /// touchscreen every other platform has.
+    pub seat_id: u64,
     /// Current position of the touch point in logical coordinates
     pub position: LogicalPosition,
     /// Force/pressure of the touch (0.0 = no pressure, 1.0 = maximum pressure)
@@ -1120,6 +1126,19 @@ pub struct TouchPoint {
     pub orientation_rad: f32,
     /// What is touching. `Unknown` where the platform does not classify.
     pub tool_type: TouchToolType,
+}
+
+/// The one `u64` a touch contact is tracked under in the hover manager and
+/// the gesture sessions (9b-ii-a-i-c): the raw id for the primary seat, so
+/// every existing key stays what it was, and a seat-namespaced value for
+/// any other seat, so two seats' finger `0` never share a session.
+#[must_use]
+pub const fn touch_point_key(seat_id: u64, id: u64) -> u64 {
+    if seat_id == PRIMARY_POINTER_SEAT {
+        id
+    } else {
+        0x8000_0000_0000_0000 | (seat_id.rotate_left(32) ^ id)
+    }
 }
 
 impl_option!(

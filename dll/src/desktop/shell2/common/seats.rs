@@ -28,6 +28,9 @@ pub struct SeatEntry<P> {
     pub pointer: Option<P>,
     /// The seat's `wl_keyboard` while it advertises one (9b-ii-a-i-b).
     pub keyboard: Option<P>,
+    /// This seat's touch object (`wl_touch`), when it has a touchscreen
+    /// (9b-ii-a-i-c).
+    pub touch: Option<P>,
     /// The bound interface version.
     pub version: u32,
 }
@@ -62,6 +65,7 @@ impl<P: Copy + PartialEq> SeatTable<P> {
             seat,
             pointer: None,
             keyboard: None,
+            touch: None,
             version,
         });
         self.seat_id_at(self.entries.len() - 1)
@@ -139,6 +143,28 @@ impl<P: Copy + PartialEq> SeatTable<P> {
     pub fn set_keyboard(&mut self, seat: P, keyboard: Option<P>) {
         if let Some(i) = self.index_of_seat(seat) {
             self.entries[i].keyboard = keyboard;
+        }
+    }
+
+    /// The seat a `wl_touch` belongs to (9b-ii-a-i-c); the primary when the
+    /// object is not one of the tracked seats' (the primary's touch is not
+    /// in this table).
+    #[must_use]
+    pub fn seat_id_for_touch(&self, touch: P) -> u64 {
+        self.entries
+            .iter()
+            .position(|e| e.touch == Some(touch))
+            .map_or(PRIMARY_POINTER_SEAT, |i| self.seat_id_at(i))
+    }
+
+    #[must_use]
+    pub fn touch_of(&self, seat: P) -> Option<P> {
+        self.index_of_seat(seat).and_then(|i| self.entries[i].touch)
+    }
+
+    pub fn set_touch(&mut self, seat: P, touch: Option<P>) {
+        if let Some(i) = self.index_of_seat(seat) {
+            self.entries[i].touch = touch;
         }
     }
 

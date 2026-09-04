@@ -1923,6 +1923,7 @@ mod autotest_generated {
                 id: u64::MAX,
                 position: LogicalPosition::zero(),
                 force: f32::NAN,
+                seat_id: crate::window::PRIMARY_POINTER_SEAT,
             }),
             EventData::Clipboard(ClipboardEventData { content: None }),
         ] {

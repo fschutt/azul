@@ -1314,6 +1314,7 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                             0.5 // TouchPoint sentinel for "pressure not available"
                         };
                         touch_points.push(azul_core::window::TouchPoint {
+                            seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
                             id: p.pointer_id() as u64,
                             position: pos,
                             force,

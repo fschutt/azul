@@ -3628,6 +3628,7 @@ impl Win32Window {
                 // already the axis TouchPoint uses, unlike Wayland's.
                 let orientation_rad = (ti.orientation as f32).to_radians();
                 pts.push(TouchPoint {
+                    seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
                     id: pointer_id as u64,
                     position: pos,
                     force,
