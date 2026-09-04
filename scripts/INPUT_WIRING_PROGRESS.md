@@ -2483,11 +2483,29 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       api.json untouched (autofix: 0 modifications); layout lib 7679 and `--test all` 999 tests
       green after the one break - eight test literals of `InputSession` without `seat_id` -
       was fixed (d42e0d757); dll lib tests green; the 8-target gate 8/8.
-- [ ] 9b-ii-b-i-b-i Wayland binds ONE `zwp_tablet_seat_v2` - the primary `wl_seat`'s - so a
-      second seat's tablet never reports at all. A tablet seat per bound seat (the seat table
-      of 9b-ii-a already carries the `wl_seat` proxies) with the tablet listeners' user data
-      naming the seat, then `update_pen_state_full_for(seat_id, ..)` in `handle_tablet_frame`.
-      The engine side is ready; this is the protocol binding.
+- [x] 9b-ii-b-i-b-i DONE. A `zwp_tablet_seat_v2` per non-primary `wl_seat`
+      (`try_init_seat_tablets`, run from the seat bind AND from the tablet manager's arrival, so
+      it does not matter which global comes last; `seat_tablet_seats` by seat id) on the shared
+      tablet-seat listener; `tool_added` records which seat announced each tool
+      (`tablet_tool_seats`, cleared on `removed`), the twelve tool handlers accumulate into
+      `pen_pending_mut(tool)` - the primary's `tablet_pen` or the tool's seat's own
+      `seat_tablet_pens` entry - and `frame` routes to `handle_tablet_frame_for_seat`, which writes
+      the seat's pen state (`update_pen_state_full_for` and the `_for` twins the engine already
+      had), the seat's pointer state (source, position, contact = left, barrel = right) and the
+      seat's hit test; the seat's gesture sessions follow from the pointer-seat diff exactly as a
+      second mouse's do. WHY the gap existed: one `get_tablet_seat(primary wl_seat)` call, and
+      tool handlers ignoring their tool argument. Blind by design, like the other Wayland seat
+      items: the Linux target checks green, host check EXIT=0, azul-dll 2071, 8/8 gate. The
+      `missing_copy_implementations` deny lint fires when an opaque proxy type reaches a `pub`
+      signature - the routing fns are `pub(super)` for that reason.
+- [ ] 9b-ii-b-i-b-i-a A seat's pen right-click opens no context menu and its left-up publishes no
+      X primary selection: both are the primary's paths (`get_first_hovered_node`,
+      `publish_primary_selection`). The context menu needs the seat's hovered node; the primary
+      selection is a single-owner protocol object and probably stays the primary's.
+- [ ] 9b-ii-b-i-b-i-b `tablet_info` (vendor / product / name) is ONE record overwritten by every
+      `tablet_added`, so a second seat's tablet reports the last-announced tablet's identity as its
+      pen's `device_id`. Key the static info by `zwp_tablet_v2` proxy and resolve a tool's tablet
+      from `proximity_in`'s tablet argument.
 - [x] 9b-ii-c DONE - as a FIELD, not a new op: `mouse_move` / `mouse_down` / `mouse_up` take
       `"seat": N` (default 0, the ordinary mouse), applied through `FullWindowState::pointer_seat_mut`,
       whose seat 0 IS `mouse_state` - so the three appliers have ONE code path and a seat op is

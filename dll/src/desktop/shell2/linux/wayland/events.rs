@@ -570,6 +570,9 @@ pub(super) extern "C" fn registry_global_handler(
                     name,
                     seat_id
                 );
+                // Its tablet seat too, if the tablet manager is already here
+                // (9b-ii-b-i-b-i); otherwise the manager's arrival binds it.
+                unsafe { try_init_seat_tablets(window, data) };
             }
         }
         "zwp_relative_pointer_manager_v1" => {
@@ -1109,6 +1112,9 @@ static WL_TOUCH_LISTENER: wl_touch_listener = wl_touch_listener {
 /// Once both the tablet manager + the seat are bound, get the tablet seat and
 /// start listening. Idempotent; called from both registry arms (any order).
 pub(super) unsafe fn try_init_tablet(window: &mut WaylandWindow, data: *mut c_void) {
+    // Every OTHER seat's tablet seat too (9b-ii-b-i-b-i) - whichever of the
+    // manager and the seats arrived last, this runs after both.
+    try_init_seat_tablets(window, data);
     if window.tablet_initialized || window.tablet_manager.is_null() || window.seat.is_null() {
         return;
     }
@@ -1118,6 +1124,44 @@ pub(super) unsafe fn try_init_tablet(window: &mut WaylandWindow, data: *mut c_vo
     (window.wayland.zwp_tablet_seat_v2_add_listener)(seat, &ZWP_TABLET_SEAT_LISTENER, data);
     window.track_listener(seat);
     window.tablet_initialized = true;
+}
+
+/// A `zwp_tablet_seat_v2` for every non-primary `wl_seat` that has none yet
+/// (9b-ii-b-i-b-i). The tablet seat listener is shared; `tool_added` records
+/// which seat announced each tool, and the tool events route by that.
+pub(super) unsafe fn try_init_seat_tablets(window: &mut WaylandWindow, data: *mut c_void) {
+    if window.tablet_manager.is_null() {
+        return;
+    }
+    let pending: Vec<(u64, *mut wl_seat)> = window
+        .seats
+        .iter()
+        .filter(|(seat_id, _)| *seat_id != azul_core::window::PRIMARY_POINTER_SEAT)
+        .filter(|(seat_id, _)| !window.seat_tablet_seats.contains_key(seat_id))
+        .map(|(seat_id, entry)| (seat_id, entry.seat.cast::<wl_seat>()))
+        .collect();
+    for (seat_id, wl_seat) in pending {
+        if wl_seat.is_null() {
+            continue;
+        }
+        let tablet_seat =
+            (window.wayland.zwp_tablet_manager_v2_get_tablet_seat)(window.tablet_manager, wl_seat);
+        if tablet_seat.is_null() {
+            continue;
+        }
+        (window.wayland.zwp_tablet_seat_v2_add_listener)(tablet_seat, &ZWP_TABLET_SEAT_LISTENER, data);
+        window.track_listener(tablet_seat);
+        window.seat_tablet_seats.insert(seat_id, tablet_seat);
+    }
+}
+
+/// The seat a tablet seat proxy belongs to; the primary for the primary's.
+fn seat_of_tablet_seat(window: &WaylandWindow, tablet_seat: *mut zwp_tablet_seat_v2) -> u64 {
+    window
+        .seat_tablet_seats
+        .iter()
+        .find(|(_, ts)| **ts == tablet_seat)
+        .map_or(azul_core::window::PRIMARY_POINTER_SEAT, |(seat_id, _)| *seat_id)
 }
 
 extern "C" fn tablet_seat_tablet_added(
@@ -1138,10 +1182,16 @@ extern "C" fn tablet_seat_tablet_added(
 }
 extern "C" fn tablet_seat_tool_added(
     data: *mut c_void,
-    _seat: *mut zwp_tablet_seat_v2,
+    seat: *mut zwp_tablet_seat_v2,
     id: *mut zwp_tablet_tool_v2,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // Remember which seat this tool belongs to (9b-ii-b-i-b-i): its events
+    // accumulate into that seat's pen and frame into that seat's pointer.
+    let seat_id = seat_of_tablet_seat(window, seat);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        window.tablet_tool_seats.insert(id as usize, seat_id);
+    }
     unsafe {
         (window.wayland.zwp_tablet_tool_v2_add_listener)(id, &ZWP_TABLET_TOOL_LISTENER, data)
     };
@@ -1529,6 +1579,7 @@ extern "C" fn tool_hw_wacom(data: *mut c_void, t: *mut zwp_tablet_tool_v2, hi: u
 extern "C" fn tool_removed(data: *mut c_void, t: *mut zwp_tablet_tool_v2) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.tablet_tools.remove(&(t as usize));
+    window.tablet_tool_seats.remove(&(t as usize));
     window.sync_tablet_devices();
 }
 extern "C" fn tool_capability(data: *mut c_void, t: *mut zwp_tablet_tool_v2, capability: u32) {
@@ -1563,61 +1614,61 @@ extern "C" fn tool_proximity_in(
     // this serial for wl_data_device.set_selection.
     window.last_input_serial = serial;
     let stat = *tool_static_mut(window, t);
-    window.tablet_pen.in_proximity = true;
-    window.tablet_pen.is_eraser = stat.is_eraser;
-    window.tablet_pen.tool_id = if stat.serial != 0 {
+    window.pen_pending_mut(t).in_proximity = true;
+    window.pen_pending_mut(t).is_eraser = stat.is_eraser;
+    window.pen_pending_mut(t).tool_id = if stat.serial != 0 {
         stat.serial
     } else {
         stat.wacom_id
     };
 }
-extern "C" fn tool_proximity_out(data: *mut c_void, _t: *mut zwp_tablet_tool_v2) {
+extern "C" fn tool_proximity_out(data: *mut c_void, t: *mut zwp_tablet_tool_v2) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.tablet_pen.in_proximity = false;
-    window.tablet_pen.in_contact = false;
-    window.tablet_pen.pressure = 0.0;
-    window.tablet_pen.barrel_button = false;
+    window.pen_pending_mut(t).in_proximity = false;
+    window.pen_pending_mut(t).in_contact = false;
+    window.pen_pending_mut(t).pressure = 0.0;
+    window.pen_pending_mut(t).barrel_button = false;
 }
-extern "C" fn tool_down(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, serial: u32) {
+extern "C" fn tool_down(data: *mut c_void, t: *mut zwp_tablet_tool_v2, serial: u32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.last_input_serial = serial;
-    window.tablet_pen.in_contact = true;
+    window.pen_pending_mut(t).in_contact = true;
 }
-extern "C" fn tool_up(data: *mut c_void, _t: *mut zwp_tablet_tool_v2) {
+extern "C" fn tool_up(data: *mut c_void, t: *mut zwp_tablet_tool_v2) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.tablet_pen.in_contact = false;
+    window.pen_pending_mut(t).in_contact = false;
 }
-extern "C" fn tool_motion(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, x: i32, y: i32) {
+extern "C" fn tool_motion(data: *mut c_void, t: *mut zwp_tablet_tool_v2, x: i32, y: i32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.tablet_pen.position =
+    window.pen_pending_mut(t).position =
         azul_core::geom::LogicalPosition::new(x as f32 / 256.0, y as f32 / 256.0);
 }
-extern "C" fn tool_pressure(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, pressure: u32) {
+extern "C" fn tool_pressure(data: *mut c_void, t: *mut zwp_tablet_tool_v2, pressure: u32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.tablet_pen.pressure = pressure as f32 / 65535.0;
+    window.pen_pending_mut(t).pressure = pressure as f32 / 65535.0;
 }
-extern "C" fn tool_distance(d: *mut c_void, _t: *mut zwp_tablet_tool_v2, distance: u32) {
+extern "C" fn tool_distance(d: *mut c_void, t: *mut zwp_tablet_tool_v2, distance: u32) {
     // Hover distance, normalized. The protocol sends it as an unsigned 16-bit
     // fraction of the tool's maximum sensing range, so the scale is the
     // device's, not millimetres — an app compares it, it does not measure with
     // it. Reported only between proximity_in and proximity_out.
     let window = unsafe { &mut *(d as *mut WaylandWindow) };
-    window.tablet_pen.distance = f32::from(distance as u16) / f32::from(u16::MAX);
+    window.pen_pending_mut(t).distance = f32::from(distance as u16) / f32::from(u16::MAX);
 }
-extern "C" fn tool_tilt(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, tx: i32, ty: i32) {
+extern "C" fn tool_tilt(data: *mut c_void, t: *mut zwp_tablet_tool_v2, tx: i32, ty: i32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.tablet_pen.tilt_x = tx as f32 / 256.0;
-    window.tablet_pen.tilt_y = ty as f32 / 256.0;
+    window.pen_pending_mut(t).tilt_x = tx as f32 / 256.0;
+    window.pen_pending_mut(t).tilt_y = ty as f32 / 256.0;
 }
-extern "C" fn tool_rotation(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, degrees: i32) {
+extern "C" fn tool_rotation(data: *mut c_void, t: *mut zwp_tablet_tool_v2, degrees: i32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.tablet_pen.rotation = (degrees as f32 / 256.0) * core::f32::consts::PI / 180.0;
+    window.pen_pending_mut(t).rotation = (degrees as f32 / 256.0) * core::f32::consts::PI / 180.0;
 }
-extern "C" fn tool_slider(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, position: i32) {
+extern "C" fn tool_slider(data: *mut c_void, t: *mut zwp_tablet_tool_v2, position: i32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     // Protocol: normalized -65535..=65535; an airbrush wheel rests at 0.
     // Maps to `PenState.tangential_pressure` (W3C tangentialPressure).
-    window.tablet_pen.tangential = (position as f32 / 65535.0).clamp(-1.0, 1.0);
+    window.pen_pending_mut(t).tangential = (position as f32 / 65535.0).clamp(-1.0, 1.0);
 }
 extern "C" fn tool_wheel(
     _d: *mut c_void,
@@ -1628,7 +1679,7 @@ extern "C" fn tool_wheel(
 }
 extern "C" fn tool_button(
     data: *mut c_void,
-    _t: *mut zwp_tablet_tool_v2,
+    t: *mut zwp_tablet_tool_v2,
     serial: u32,
     button: u32,
     state: u32,
@@ -1643,12 +1694,12 @@ extern "C" fn tool_button(
     const BTN_STYLUS: u32 = 0x14b;
     const BTN_STYLUS2: u32 = 0x14c;
     if button == BTN_STYLUS || button == BTN_STYLUS2 {
-        window.tablet_pen.barrel_button = state == 1;
+        window.pen_pending_mut(t).barrel_button = state == 1;
     }
 }
-extern "C" fn tool_frame(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, _time: u32) {
+extern "C" fn tool_frame(data: *mut c_void, t: *mut zwp_tablet_tool_v2, _time: u32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.handle_tablet_frame();
+    window.handle_tablet_frame_for_tool(t);
 }
 static ZWP_TABLET_TOOL_LISTENER: zwp_tablet_tool_v2_listener = zwp_tablet_tool_v2_listener {
     type_: tool_type,

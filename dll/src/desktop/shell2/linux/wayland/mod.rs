@@ -556,6 +556,15 @@ pub struct WaylandWindow {
     tablet_manager: *mut defines::zwp_tablet_manager_v2,
     tablet_seat: *mut defines::zwp_tablet_seat_v2,
     tablet_initialized: bool,
+    /// The other seats' `zwp_tablet_seat_v2` (9b-ii-b-i-b-i), by seat id: a
+    /// second `wl_seat`'s tablet reports through its own tablet seat.
+    seat_tablet_seats: std::collections::BTreeMap<u64, *mut defines::zwp_tablet_seat_v2>,
+    /// Which seat announced each tool (`zwp_tablet_tool_v2` pointer -> seat
+    /// id); a tool not in here is the primary's.
+    tablet_tool_seats: std::collections::HashMap<usize, u64>,
+    /// The other seats' pending pen state, one per seat; the primary's is
+    /// `tablet_pen`.
+    seat_tablet_pens: std::collections::BTreeMap<u64, events::TabletPenPending>,
     /// `zwp_relative_pointer_manager_v1` global, or null when the compositor
     /// has none. Supplies the deltas a pointer lock leaves behind.
     relative_pointer_manager: *mut defines::zwp_relative_pointer_manager_v1,
@@ -2016,6 +2025,9 @@ impl WaylandWindow {
             tablet_manager: std::ptr::null_mut(),
             tablet_seat: std::ptr::null_mut(),
             tablet_initialized: false,
+            seat_tablet_seats: std::collections::BTreeMap::new(),
+            tablet_tool_seats: std::collections::HashMap::new(),
+            seat_tablet_pens: std::collections::BTreeMap::new(),
             relative_pointer_manager: std::ptr::null_mut(),
             relative_pointer: std::ptr::null_mut(),
             pointer_constraints: std::ptr::null_mut(),
@@ -3915,6 +3927,108 @@ impl WaylandWindow {
     /// position. Deliberate v1 limits: no scrollbar / CSD-resize-edge
     /// interaction and no popup routing from the pen — those stay
     /// pointer-only until a pen needs them.
+    /// The seat a tablet tool belongs to (9b-ii-b-i-b-i): the one whose tablet
+    /// seat announced it; the primary for a tool nobody recorded.
+    pub(super) fn seat_of_tablet_tool(&self, tool: *mut defines::zwp_tablet_tool_v2) -> u64 {
+        self.tablet_tool_seats
+            .get(&(tool as usize))
+            .copied()
+            .unwrap_or(azul_core::window::PRIMARY_POINTER_SEAT)
+    }
+
+    /// The pending pen state a tool's events accumulate into: the primary's
+    /// `tablet_pen`, or the tool's seat's own.
+    pub(super) fn pen_pending_mut(
+        &mut self,
+        tool: *mut defines::zwp_tablet_tool_v2,
+    ) -> &mut events::TabletPenPending {
+        let seat_id = self.seat_of_tablet_tool(tool);
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            &mut self.tablet_pen
+        } else {
+            self.seat_tablet_pens.entry(seat_id).or_default()
+        }
+    }
+
+    /// `zwp_tablet_tool_v2.frame` for whichever seat the tool belongs to.
+    pub(super) fn handle_tablet_frame_for_tool(&mut self, tool: *mut defines::zwp_tablet_tool_v2) {
+        let seat_id = self.seat_of_tablet_tool(tool);
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.handle_tablet_frame();
+        } else {
+            self.handle_tablet_frame_for_seat(seat_id);
+        }
+    }
+
+    /// The non-primary twin of `handle_tablet_frame` (9b-ii-b-i-b-i): the
+    /// seat's pen state, pointer state and hit test move; its gesture
+    /// sessions follow from the pointer-seat diff (`feed_seat_gesture_sessions`)
+    /// like a second mouse's. No context menu and no X primary selection
+    /// here - both are the primary's (9b-ii-b-i-b-i-a).
+    pub fn handle_tablet_frame_for_seat(&mut self, seat_id: u64) {
+        let Some(p) = self.seat_tablet_pens.get(&seat_id).copied() else {
+            return;
+        };
+        self.snapshot_window_state_baseline("wayland.handle_tablet_frame.seat");
+
+        if !p.in_proximity {
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.gesture_drag_manager.clear_pen_state_for(seat_id);
+            }
+            let ms = self.common.pointer_seat_mut(seat_id);
+            ms.left_down = false;
+            ms.right_down = false;
+            let result = self.process_window_events(0);
+            self.handle_process_event_result(result);
+            return;
+        }
+
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            lw.gesture_drag_manager.update_pen_state_full_for(
+                seat_id,
+                p.position,
+                p.pressure,
+                (p.tilt_x, p.tilt_y),
+                p.in_contact,
+                p.is_eraser,
+                p.barrel_button,
+                ((self.tablet_info.vendor_id as u64) << 32) | self.tablet_info.product_id as u64,
+                p.tangential,
+                p.rotation,
+                p.tool_id as u32,
+            );
+            lw.gesture_drag_manager
+                .set_pen_hover_distance_for(seat_id, p.distance);
+            lw.gesture_drag_manager.set_pen_tool_kind_for(
+                seat_id,
+                if p.is_eraser {
+                    azul_layout::managers::gesture::TabletToolKind::Eraser
+                } else {
+                    azul_layout::managers::gesture::TabletToolKind::Stylus
+                },
+            );
+        }
+
+        {
+            let ms = self.common.pointer_seat_mut(seat_id);
+            ms.pointer_source = if p.is_eraser {
+                azul_core::events::PointerSource::Eraser
+            } else {
+                azul_core::events::PointerSource::Pen
+            };
+            ms.cursor_position = CursorPosition::InWindow(p.position);
+            ms.left_down = p.in_contact;
+            ms.right_down = p.barrel_button;
+        }
+        {
+            use crate::desktop::shell2::common::event::PlatformWindow;
+            self.update_seat_hit_test_at(seat_id, p.position);
+        }
+
+        let result = self.process_window_events(0);
+        self.handle_process_event_result(result);
+    }
+
     pub fn handle_tablet_frame(&mut self) {
         let p = self.tablet_pen;
         self.snapshot_window_state_baseline("wayland.handle_tablet_frame");
