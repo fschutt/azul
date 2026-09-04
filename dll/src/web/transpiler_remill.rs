@@ -3433,7 +3433,19 @@ impl RemillTranspiler {
                 });
             }
             // Scan this fn's bytes for BL/B targets.
-            let bytes_slice = unsafe { std::slice::from_raw_parts(addr as *const u8, size) };
+            //
+            // Scan the bytes AS THE LIFTER WILL SEE THEM. On Windows an import
+            // is called indirectly through the IAT (`call [rip+disp]`), which a
+            // direct-branch scan cannot follow; `rewrite_iat_calls` turns those
+            // into direct calls, and remill is handed that rewritten copy. Scanning
+            // the raw bytes here therefore missed every cross-image callee reached
+            // through an import - this walk discovers deps from the SCAN alone, so
+            // the miss is silent and the callee simply never gets lifted.
+            let raw = unsafe { std::slice::from_raw_parts(addr as *const u8, size) };
+            let mut scan_bytes = raw.to_vec();
+            #[cfg(target_arch = "x86_64")]
+            x86_scan::rewrite_iat_calls(&mut scan_bytes, addr, addr as u64);
+            let bytes_slice: &[u8] = &scan_bytes;
             let mut bl_targets = scan_guest_branch_targets(bytes_slice, addr);
             // ALSO scan `adrp+add` code-address materializations (function
             // POINTERS taken for vtables / callback structs, e.g. azul_core::task::
