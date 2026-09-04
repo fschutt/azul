@@ -198,8 +198,20 @@ pub fn level_enabled(level: Level) -> bool {
 }
 
 /// Whether passing records should also be echoed to stderr.
+///
+/// Lazily initialises from the environment like [`enabled`] and
+/// [`level_enabled`] do. It used to be a bare load, which made the answer
+/// depend on whether something had already gone through the level gate: a
+/// caller that reaches `log_gate::emit` directly rather than through a
+/// `log_*!` macro never triggers `init_from_env`, so `AZ_LOG=debug` had not
+/// been read yet, `STDERR_ECHO` was still its `false` default, and the record
+/// was written to NO sink at all. That is what
+/// `a_record_reaches_stderr_exactly_once` catches ("got 0").
 #[must_use]
 pub fn stderr_echo() -> bool {
+    if !INITIALISED.load(Ordering::Relaxed) {
+        init_from_env();
+    }
     STDERR_ECHO.load(Ordering::Relaxed)
 }
 
