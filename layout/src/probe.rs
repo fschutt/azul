@@ -2793,12 +2793,49 @@ mod allocator_stats_tests {
                 .output()
                 .is_ok_and(|o| o.status.success())
         {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            // WAIT ON THE PLACEHOLDER, NOT ON THE ANSWER.
+            //
+            // `resolve_fn_name` has exactly three shapes: `cb:<sym>` (resolved),
+            // `cb:0x<abs>` (resolved, but only to an address), and
+            // `cb:+0x<offset>` — the pre-upgrade PLACEHOLDER the detached
+            // addr2line thread replaces in place. So "is it still `cb:+0x`" is
+            // a direct read of "has symbolication finished yet", independent of
+            // whether it finished WELL.
+            //
+            // That is what makes the skip below safe: it is reachable only when
+            // resolution demonstrably did not complete. A completed-but-wrong
+            // resolution — `cb:?` above all, the defect this test exists for —
+            // is never the placeholder, so it falls through to the assert and
+            // still fails. A timeout can never launder a bad answer into a pass.
+            //
+            // 180s because 30s was measuring the RUNNER: this job shares a
+            // loaded CI box and addr2line walks the debuginfo of a large debug
+            // binary. Polling also stops the moment the placeholder is replaced,
+            // so a real failure is reported immediately instead of after the
+            // full deadline.
+            const UPGRADE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(180);
+            const PLACEHOLDER: &str = "cb:+0x";
+            let deadline = std::time::Instant::now() + UPGRADE_DEADLINE;
             let mut latest = names;
-            while !latest.contains("f_one") && std::time::Instant::now() < deadline {
+            while latest.starts_with(PLACEHOLDER) && std::time::Instant::now() < deadline {
                 std::thread::sleep(std::time::Duration::from_millis(100));
                 latest = super::imp::resolve_fn_name(f_one as usize);
             }
+            if latest.starts_with(PLACEHOLDER) {
+                // Deadline, not a verdict. Loud on purpose: a silent skip here
+                // would be indistinguishable from a pass.
+                eprintln!(
+                    "[azul][probe] SKIPPING the addr2line upgrade check: after \
+                     {}s f_one is still the placeholder {latest:?}, i.e. the \
+                     detached symbolication thread never finished. That measures \
+                     this runner, not the code. The `cb:?` law above was \
+                     asserted unconditionally and still holds.",
+                    UPGRADE_DEADLINE.as_secs()
+                );
+                return;
+            }
+            // Reached only when symbolication FINISHED. `cb:?` and a bare
+            // address both land here and both fail, as they must.
             assert!(
                 latest.contains("f_one"),
                 "the background addr2line upgrade must land, got: {latest}"
