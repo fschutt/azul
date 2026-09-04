@@ -1505,12 +1505,18 @@ impl RemillTranspiler {
 
         // Compile to wasm32 object.
         //
-        // Native path (M8.9 Phase 2a, gated on AZ_NATIVE_REMILL=1):
-        // concatenate patched_ir + helper_ir text-side (stripping
-        // helper's `target datalayout` / `target triple` headers so
-        // LLVM's parseIR doesn't see duplicates), then call
-        // `az_remill_compile_to_wasm32_obj` which runs opt -O2 + llc
-        // -mtriple=wasm32 in-process.
+        // Native path (gated on AZ_NATIVE_REMILL): hand both modules to
+        // `az_remill_compile_to_wasm32_obj`, which links them with
+        // llvm::Linker::linkInModule and then runs opt -O2 + llc
+        // -mtriple=wasm32 in-process — one process, no intermediate files.
+        //
+        // NOT by concatenating the two IR texts, which is what this comment
+        // used to describe. The modules are only superficially mergeable:
+        // both define the SAME metadata ids (!90001..!90005, chosen identical
+        // so the linker uniques them structurally) and both define
+        // `attributes #1` with DIFFERENT contents — the helper's carries the
+        // wasm-import-module/name of a real import. Concatenated, every #1 in
+        // the helper would silently rebind to the other module's group.
         //
         // Subprocess path: `llvm-link` merges patched_ir + helper_ir,
         // `opt -O2` cleans + inlines, `llc -mtriple=wasm32` emits the
