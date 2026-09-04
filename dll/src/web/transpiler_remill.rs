@@ -7148,21 +7148,33 @@ fn engine_fingerprint() -> u64 {
                 which_remill_lift()
             });
         let Some(path) = path else { return 0 };
-        let Ok(meta) = std::fs::metadata(&path) else {
-            return 0;
-        };
-        let len = meta.len();
-        let mtime = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        // Fold len + mtime into one u64 (FNV-ish).
+        // The cached OBJECT is opt's and llc's product, not remill's, so an LLVM
+        // upgrade has to invalidate it too - fingerprinting the lifter alone let a
+        // new toolchain serve objects built by the old one.
         let mut h: u64 = super::FNV_OFFSET_BASIS;
-        for b in len.to_le_bytes().iter().chain(mtime.to_le_bytes().iter()) {
-            h ^= *b as u64;
-            h = h.wrapping_mul(super::FNV_PRIME);
+        let mut fold = |p: &std::path::Path| {
+            let Ok(meta) = std::fs::metadata(p) else { return };
+            let mtime = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            for b in meta
+                .len()
+                .to_le_bytes()
+                .iter()
+                .chain(mtime.to_le_bytes().iter())
+            {
+                h ^= *b as u64;
+                h = h.wrapping_mul(super::FNV_PRIME);
+            }
+        };
+        fold(&path);
+        for tool in [discover_llc(), discover_opt()] {
+            if let Some(p) = tool {
+                fold(&p);
+            }
         }
         h
     })
@@ -7504,7 +7516,17 @@ fn lift_cache_path(rewritten_bytes: &[u8], lift_addr: u64, fn_name: &str) -> Pat
     // carry the cache version + engine fingerprint so a toolchain/format change
     // still invalidates; the ref key drops `lift_addr` + machine bytes (both
     // arch-specific) and uses the arch-neutral fn-name hash instead.
-    let key = if build_id == "unknown" || build_id.ends_with("-dirty") {
+    // ...but the fn-name hash is only a valid identity while the name identifies
+    // ONE function. Duplicate monomorphizations share a canonical_name (the same
+    // ambiguity that made the reloc cache splice the wrong callee), so under the
+    // ref key the second copy would be served the FIRST copy's IR - silently wrong
+    // code, since the bodies differ in their embedded displacements. Those names
+    // fall back to the byte key; every unambiguous name keeps arch-neutral reuse,
+    // which is what lets one prelift serve every arch.
+    let ambiguous_name = symbol_table::get()
+        .map(|t| t.name_is_ambiguous(fn_name))
+        .unwrap_or(false);
+    let key = if build_id == "unknown" || build_id.ends_with("-dirty") || ambiguous_name {
         format!(
             "{}_{:x}_v{}_e{:x}",
             super::fnv1a64_hex(rewritten_bytes),
