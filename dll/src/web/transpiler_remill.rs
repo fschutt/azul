@@ -2049,7 +2049,21 @@ impl RemillTranspiler {
             args.push("--import-memory".to_string());
         }
         args.push(format!("--initial-memory={}", initial_memory_bytes));
+        // Dependency wrappers are never called from JS - the dispatcher calls
+        // `@sub_<synth>` directly, and nothing in the loader or the product
+        // resolves an `__az_dep_` name. Exporting them pins one wrapper per
+        // lifted function (each carrying a State alloca and prologue), so
+        // --gc-sections cannot strip a single one, and adds an --export flag
+        // per function to an already enormous link line.
+        //
+        // They stay exported under AZ_WASM_DEBUG because fmt-lab calls lifted
+        // functions in isolation through exactly these names - that is the
+        // cheapest tool for debugging a single lifted function, and it needs a
+        // saved wasm that still has them.
         for e in exports {
+            if !debug_link && e.starts_with("__az_dep_") {
+                continue;
+            }
             args.push(format!("--export={}", e));
         }
         for p in objects {
