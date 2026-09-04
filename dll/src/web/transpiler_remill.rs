@@ -11743,6 +11743,59 @@ fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileEr
 /// rather than joined (joining is the thing that blocks). A timeout is
 /// reported as a transient failure, so the existing retry path re-runs the
 /// tool instead of failing the function.
+/// In-flight `Command::spawn()` calls, for the watchdog below.
+static SPAWN_INFLIGHT: std::sync::Mutex<Vec<(std::time::Instant, String)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Abort loudly if a spawn wedges, instead of hanging until CI times out.
+///
+/// Rust serializes `CreateProcess` behind ONE global lock (so a child cannot
+/// inherit a sibling's stdio handles). A single wedged spawn therefore stops
+/// every thread: run 35 froze with 36,545 functions lifted, zero CPU for 43
+/// minutes, ten workers and the walk all parked and no child alive - eight
+/// workers had written their .helper.ll/.patched.ll and were entering spawn,
+/// while 122 objects had completed in the minute before.
+///
+/// The trigger is spawn VOLUME: a full lift shells out ~100k times (remill,
+/// opt, llc per function) and real-time AV scans every one; when a scan stalls
+/// CreateProcess the global lock is held forever.
+///
+/// Nothing can recover that, so the honest response is to name the cause and
+/// die - turning a silent multi-hour hang into an actionable CI failure.
+/// AZ_SPAWN_WATCHDOG_SECS=0 disables it.
+fn start_spawn_watchdog() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let secs: u64 = std::env::var("AZ_SPAWN_WATCHDOG_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(300);
+        if secs == 0 {
+            return;
+        }
+        let limit = std::time::Duration::from_secs(secs);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(15));
+            let stuck = {
+                let g = SPAWN_INFLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+                g.iter()
+                    .find(|(t, _)| t.elapsed() > limit)
+                    .map(|(t, w)| (t.elapsed(), w.clone()))
+            };
+            if let Some((waited, what)) = stuck {
+                eprintln!("[azul-web] FATAL: subprocess spawn stuck {waited:?} ({what}).");
+                eprintln!("[azul-web] All threads are blocked behind the same global");
+                eprintln!("[azul-web] CreateProcess lock, so the lift cannot progress.");
+                eprintln!("[azul-web] Most likely real-time AV scanning the ~100k tool");
+                eprintln!("[azul-web] spawns a full lift performs: exclude the LLVM/remill");
+                eprintln!("[azul-web] binaries and the scratch dir, or lower AZ_LIFT_JOBS.");
+                eprintln!("[azul-web] Aborting so this fails fast instead of hanging.");
+                std::process::abort();
+            }
+        });
+    });
+}
+
 trait PipeDeadlined {
     fn pipe_deadlined(&mut self) -> std::io::Result<std::process::Output>;
 }
@@ -11757,11 +11810,25 @@ impl PipeDeadlined for Command {
         );
         let cmd = self;
     use std::io::Read as _;
+    start_spawn_watchdog();
+    // Registered BEFORE spawn: the wait for the global CreateProcess lock is
+    // part of what can wedge, so timing must start here, not after.
+    let watch_slot = {
+        let mut g = SPAWN_INFLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+        g.push((std::time::Instant::now(), format!("{:?}", cmd.get_program())));
+        g.len() - 1
+    };
     let mut child = cmd
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
+    {
+        let mut g = SPAWN_INFLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+        if watch_slot < g.len() {
+            g.remove(watch_slot);
+        }
+    }
     let mut so = child.stdout.take();
     let mut se = child.stderr.take();
     let (tx_o, rx_o) = std::sync::mpsc::channel();
