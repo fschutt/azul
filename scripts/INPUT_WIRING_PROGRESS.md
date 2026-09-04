@@ -2172,9 +2172,19 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       layout lib 7681 and `--test all` (the inset and registry tests among them, after three test
       fixes), dll 2035 tests green; the 8-target gate green - the Linux target after the seventh
       batch's one visibility fix, the other seven first time.
-- [ ] 9b-ii-a-i-b-i Key REPEAT for a second seat: `key_repeat_fd` / `key_repeat_keycode` are one
-      timer, the primary's, so a second seat's held key types once. Needs a timerfd per seat
-      (or one timer with a seat tag) fed from that seat's `repeat_info`.
+- [x] 9b-ii-a-i-b-i DONE. A timerfd PER SEAT keyboard: `SeatKeyboard` carries `repeat_fd`,
+      `repeat_keycode`, `repeat_rate_ms` / `repeat_delay_ms` (the primary's defaults until the
+      seat's own `wl_keyboard.repeat_info` arrives - the handler used to DROP every non-primary
+      seat's rate, now it writes the seat's), `arm_repeat` / `disarm_repeat` (the primary's timer
+      arithmetic), and `Drop` closes the fd with the seat. `handle_seat_key` arms on a press of a
+      key the SEAT's keymap says repeats (`xkb_keymap_key_repeats` on `seat_kb.xkb.keymap`, the
+      modifier fallback without one) and disarms on its release; the poll loop pushes every seat's
+      fd beside the primary's and, when one fires, replays the seat's key as a press on that seat
+      (`handle_seat_key`, whose key-state change marks it a repeat); keyboard leave disarms, since
+      the compositor sends no release. WHY the gap existed: the keyboard-per-seat item copied the
+      key path but not the repeat path, which was one fd on the window. Blind by design (no
+      compositor here), like the rest of the Wayland seat work: the Linux target checks green, host
+      check EXIT=0, azul-dll 2071, 8/8 gate. A device check belongs with 9b-ii-a-i-b's.
 - [ ] 9b-ii-a-i-c TOUCH per seat: `TouchState` is one list; a second seat's touchscreen would mix
       its ids into the primary's. Same shape as the keyboard seats (`TouchSeatVec`), gated on a
       producer that has one - X11 XI2 touch events carry the master, Wayland `wl_touch` is per seat.

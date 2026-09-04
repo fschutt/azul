@@ -3573,18 +3573,23 @@ extern "C" fn keyboard_repeat_info_handler(
     // rate = characters per second (0 = repeat disabled), delay = ms before
     // the first repeat. Was an empty stub → no key repeat at all on Wayland.
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    // One repeat timer, the primary's (9b-ii-a-i-b-i): a second seat's
-    // repeat rate has nowhere to go yet.
-    if window.seats.seat_id_for_keyboard(keyboard.cast()) != azul_core::window::PRIMARY_POINTER_SEAT
-    {
-        return;
-    }
-    window.key_repeat_rate_ms = if rate > 0 {
+    let rate_ms = if rate > 0 {
         (1000 / rate.max(1)) as u32
     } else {
         0
     };
-    window.key_repeat_delay_ms = delay.max(0) as u32;
+    let delay_ms = delay.max(0) as u32;
+    let seat_id = window.seats.seat_id_for_keyboard(keyboard.cast());
+    if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+        window.key_repeat_rate_ms = rate_ms;
+        window.key_repeat_delay_ms = delay_ms;
+    } else {
+        // Another seat's keyboard has its own rate and delay, and its own
+        // timer to apply them to (9b-ii-a-i-b-i).
+        let kb = window.seat_keyboard_mut(seat_id);
+        kb.repeat_rate_ms = rate_ms;
+        kb.repeat_delay_ms = delay_ms;
+    }
 }
 
 /// Keycode translation from XKB keysym to Azul `VirtualKeyCode` — the ONLY

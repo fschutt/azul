@@ -412,6 +412,16 @@ pub(super) struct SeatAxisFrame {
 pub(super) struct SeatKeyboard {
     pub(super) xkb: events::WaylandKeyboardState,
     pub(super) pressed_key_vks: std::collections::BTreeMap<u32, azul_core::window::VirtualKeyCode>,
+    /// This seat's key-repeat timer (9b-ii-a-i-b-i): a timerfd of its own,
+    /// fed from ITS `wl_keyboard.repeat_info`, so a second person's held key
+    /// repeats like the first's. `-1` when the fd could not be created.
+    pub(super) repeat_fd: i32,
+    /// The scancode currently repeating on this seat, if any.
+    pub(super) repeat_keycode: Option<u32>,
+    /// Milliseconds between repeats (`0` = the compositor said "no repeat").
+    pub(super) repeat_rate_ms: u32,
+    /// Milliseconds before the first repeat.
+    pub(super) repeat_delay_ms: u32,
 }
 
 impl SeatKeyboard {
@@ -419,6 +429,65 @@ impl SeatKeyboard {
         Self {
             xkb: events::WaylandKeyboardState::new(),
             pressed_key_vks: std::collections::BTreeMap::new(),
+            repeat_fd: unsafe {
+                libc::timerfd_create(
+                    libc::CLOCK_MONOTONIC,
+                    libc::TFD_NONBLOCK | libc::TFD_CLOEXEC,
+                )
+            },
+            repeat_keycode: None,
+            // The same defaults as the primary's, until `repeat_info` arrives.
+            repeat_rate_ms: 40,
+            repeat_delay_ms: 400,
+        }
+    }
+
+    /// Start (or re-start for another key) this seat's repeat timer.
+    fn arm_repeat(&mut self, keycode: u32) {
+        if self.repeat_fd < 0 || self.repeat_rate_ms == 0 {
+            return;
+        }
+        if self.repeat_keycode == Some(keycode) {
+            return;
+        }
+        self.repeat_keycode = Some(keycode);
+        let delay = i64::from(self.repeat_delay_ms.max(1));
+        let interval = i64::from(self.repeat_rate_ms.max(1));
+        let spec = libc::itimerspec {
+            it_value: libc::timespec {
+                tv_sec: (delay / 1000) as libc::time_t,
+                tv_nsec: ((delay % 1000) * 1_000_000) as libc::c_long,
+            },
+            it_interval: libc::timespec {
+                tv_sec: (interval / 1000) as libc::time_t,
+                tv_nsec: ((interval % 1000) * 1_000_000) as libc::c_long,
+            },
+        };
+        unsafe {
+            libc::timerfd_settime(self.repeat_fd, 0, &spec, std::ptr::null_mut());
+        }
+    }
+
+    /// Stop this seat's repeat timer.
+    fn disarm_repeat(&mut self) {
+        self.repeat_keycode = None;
+        if self.repeat_fd < 0 {
+            return;
+        }
+        let spec: libc::itimerspec = unsafe { std::mem::zeroed() };
+        unsafe {
+            libc::timerfd_settime(self.repeat_fd, 0, &spec, std::ptr::null_mut());
+        }
+    }
+}
+
+impl Drop for SeatKeyboard {
+    fn drop(&mut self) {
+        // The seat's timer goes with the seat (`seat_keyboards.remove`).
+        if self.repeat_fd >= 0 {
+            unsafe {
+                libc::close(self.repeat_fd);
+            }
         }
     }
 }
@@ -2842,6 +2911,21 @@ impl WaylandWindow {
                     revents: 0,
                 });
             }
+            // The other seats' repeat timers (9b-ii-a-i-b-i): one fd each.
+            let seat_repeat_idx: Vec<(u64, usize)> = self
+                .seat_keyboards
+                .iter()
+                .filter(|(_, kb)| kb.repeat_fd >= 0)
+                .map(|(seat_id, kb)| {
+                    let idx = pollfds.len();
+                    pollfds.push(libc::pollfd {
+                        fd: kb.repeat_fd,
+                        events: libc::POLLIN,
+                        revents: 0,
+                    });
+                    (*seat_id, idx)
+                })
+                .collect();
 
             // Background threads (e.g. MapWidget tile fetches) have NO fd in the
             // poll set, so their completion can't wake poll(). While any thread is
@@ -2993,6 +3077,23 @@ impl WaylandWindow {
                     );
                     if let Some(keycode) = self.key_repeat_keycode {
                         self.handle_key(keycode, 1);
+                    }
+                }
+                // A seat's timer fired: replay ITS key as a press on that seat
+                // (9b-ii-a-i-b-i); the seat's key state marks it a repeat.
+                for (seat_id, idx) in &seat_repeat_idx {
+                    if *idx >= pollfds.len() || pollfds[*idx].revents & libc::POLLIN == 0 {
+                        continue;
+                    }
+                    let Some(kb) = self.seat_keyboards.get(seat_id) else {
+                        continue;
+                    };
+                    let fd = kb.repeat_fd;
+                    let keycode = kb.repeat_keycode;
+                    let mut expirations: u64 = 0;
+                    libc::read(fd, &mut expirations as *mut u64 as *mut libc::c_void, 8);
+                    if let Some(keycode) = keycode {
+                        self.handle_seat_key(*seat_id, keycode, WL_KEYBOARD_KEY_STATE_PRESSED);
                     }
                 }
             }
@@ -4713,6 +4814,44 @@ impl WaylandWindow {
                 is_pressed,
             );
         }
+        // Key repeat on THIS seat's own timer (9b-ii-a-i-b-i), from ITS keymap's
+        // per-key repeat flag, with the primary's modifier fallback when there
+        // is no keymap to ask.
+        {
+            let keymap = self
+                .seat_keyboards
+                .get(&seat_id)
+                .map_or(std::ptr::null_mut(), |k| k.xkb.keymap);
+            let repeats = match (Some(self.xkb.xkb_keymap_key_repeats), keymap.is_null()) {
+                (Some(key_repeats), false) => unsafe { key_repeats(keymap, xkb_keycode) != 0 },
+                _ => {
+                    use azul_core::window::VirtualKeyCode as VK;
+                    !matches!(
+                        virtual_keycode,
+                        Some(
+                            VK::LShift
+                                | VK::RShift
+                                | VK::LControl
+                                | VK::RControl
+                                | VK::LAlt
+                                | VK::RAlt
+                                | VK::LWin
+                                | VK::RWin
+                                | VK::Capital
+                                | VK::Numlock
+                                | VK::Scroll
+                        )
+                    )
+                }
+            };
+            if let Some(seat_kb) = self.seat_keyboards.get_mut(&seat_id) {
+                if is_pressed && repeats {
+                    seat_kb.arm_repeat(key);
+                } else if !is_pressed && seat_kb.repeat_keycode == Some(key) {
+                    seat_kb.disarm_repeat();
+                }
+            }
+        }
 
         if is_pressed {
             let mut buffer = [0i8; 32];
@@ -4778,6 +4917,8 @@ impl WaylandWindow {
     pub(super) fn handle_seat_keyboard_leave(&mut self, seat_id: u64) {
         self.snapshot_window_state_baseline("wayland.seat.keyboard_leave");
         if let Some(seat_kb) = self.seat_keyboards.get_mut(&seat_id) {
+            // Focus is gone - the compositor will not send the key release.
+            seat_kb.disarm_repeat();
             seat_kb.pressed_key_vks.clear();
         }
         self.common.update_unsynced_state(|ws| {
