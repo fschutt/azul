@@ -9840,6 +9840,18 @@ impl LayoutWindow {
         target: DomNodeId,
         op: &azul_core::events::SelectionOp,
     ) -> bool {
+        self.apply_selection_op_for_seat(azul_core::window::PRIMARY_POINTER_SEAT, target, op)
+    }
+
+    /// `apply_selection_op` for the caret of seat `seat_id` (9b-ii-a-i-d-ii-b):
+    /// a second seat's arrows, Shift+arrows, Backspace and Delete act on ITS
+    /// caret in ITS node, never on the primary's session.
+    pub fn apply_selection_op_for_seat(
+        &mut self,
+        seat_id: u64,
+        target: DomNodeId,
+        op: &azul_core::events::SelectionOp,
+    ) -> bool {
         use azul_core::events::{SelectionDirection, SelectionMode, SelectionStep};
 
         let dom_id = target.dom;
@@ -9871,6 +9883,17 @@ impl LayoutWindow {
         // before `text_edit_manager` is borrowed mutably — the closures
         // below can then resolve without touching `self`.
         let dense = self.get_dense_for_node(dom_id, ifc_node).cloned();
+
+        if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+            return self.apply_seat_selection_op(
+                seat_id,
+                target,
+                node_id,
+                op,
+                &layout,
+                dense.as_deref(),
+            );
+        }
 
         match op.mode {
             SelectionMode::Move | SelectionMode::Extend => {
@@ -9920,6 +9943,125 @@ impl LayoutWindow {
     }
 
     /// Helper: Move cursor using a movement function and return the new cursor if it changed
+    /// The non-primary half of `apply_selection_op_for_seat` (9b-ii-a-i-d-ii-b).
+    /// A seat without a caret in `target` starts at the end of its text (where
+    /// its first keystroke would land too). Move collapses an anchored
+    /// selection to its edge on a character step, as the multi-cursor does;
+    /// Extend keeps the anchor; Delete removes the selection, or one step -
+    /// a word / line step first extends to that boundary - then the other
+    /// carets on the node shift across the change.
+    fn apply_seat_selection_op(
+        &mut self,
+        seat_id: u64,
+        target: DomNodeId,
+        node_id: NodeId,
+        op: &azul_core::events::SelectionOp,
+        layout: &UnifiedLayout,
+        dense: Option<&crate::text3::dense::DenseText>,
+    ) -> bool {
+        use azul_core::events::{SelectionDirection, SelectionMode, SelectionStep};
+
+        let dom_id = target.dom;
+        let content = self.get_text_before_textinput(dom_id, node_id);
+        // A seat with no caret here starts at the end of the text - in the
+        // SHAPED layout's own terms (a trailing cursor on the last cluster),
+        // which is what the step resolver can walk from; the byte-past-the-end
+        // form the edit path uses is not a cluster it knows.
+        let end = dense
+            .and_then(crate::text3::dense::DenseText::last_cluster_cursor)
+            .or_else(|| layout.get_last_cluster_cursor())
+            .unwrap_or_else(|| Self::end_of_content_cursor(&content));
+        let mut caret = self
+            .text_edit_manager
+            .seat_caret(seat_id)
+            .filter(|c| c.node == target)
+            .unwrap_or(crate::managers::text_edit::SeatCaret {
+                node: target,
+                cursor: end,
+                anchor: None,
+            });
+        let step = |c: &TextCursor| Self::resolve_step_with(dense, layout, c, op.direction, op.step);
+
+        match op.mode {
+            SelectionMode::Move => {
+                for _ in 0..op.repeat.max(1) {
+                    match caret.anchor {
+                        Some(anchor) if matches!(op.step, SelectionStep::Character) => {
+                            // Collapse to the selection's edge in the direction.
+                            let (lo, hi) = if anchor <= caret.cursor {
+                                (anchor, caret.cursor)
+                            } else {
+                                (caret.cursor, anchor)
+                            };
+                            caret.cursor = match op.direction {
+                                SelectionDirection::Backward => lo,
+                                SelectionDirection::Forward => hi,
+                            };
+                            caret.anchor = None;
+                        }
+                        _ => {
+                            caret.cursor = step(&caret.cursor);
+                            caret.anchor = None;
+                        }
+                    }
+                }
+                self.text_edit_manager
+                    .set_seat_selection(seat_id, target, caret.cursor, None);
+                self.regenerate_display_list_for_dom(dom_id);
+                true
+            }
+            SelectionMode::Extend => {
+                let anchor = caret.anchor.unwrap_or(caret.cursor);
+                for _ in 0..op.repeat.max(1) {
+                    caret.cursor = step(&caret.cursor);
+                }
+                self.text_edit_manager
+                    .set_seat_selection(seat_id, target, caret.cursor, Some(anchor));
+                self.regenerate_display_list_for_dom(dom_id);
+                true
+            }
+            SelectionMode::Delete => {
+                if caret.anchor.is_none() && !matches!(op.step, SelectionStep::Character) {
+                    let anchor = caret.cursor;
+                    for _ in 0..op.repeat.max(1) {
+                        caret.cursor = step(&caret.cursor);
+                    }
+                    caret.anchor = Some(anchor);
+                }
+                let selection = caret.selection();
+                let edit = match op.direction {
+                    SelectionDirection::Forward => crate::text3::edit::TextEdit::DeleteForward,
+                    SelectionDirection::Backward => crate::text3::edit::TextEdit::DeleteBackward,
+                };
+                let current = [selection];
+                let (new_content, new_selections) =
+                    match crate::text3::edit::edit_text_outcome(&content, &current, &edit) {
+                        crate::text3::edit::EditOutcome::Applied {
+                            content,
+                            selections,
+                        } => (content, selections),
+                        crate::text3::edit::EditOutcome::NoOp(_) => return false,
+                    };
+                let changes = crate::text3::edit::run_text_changes(&content, &new_content);
+                self.record_delete_undo(target, node_id, content, new_content.clone(), &current);
+                if let Some(Selection::Cursor(cursor)) = new_selections.first() {
+                    self.text_edit_manager
+                        .set_seat_selection(seat_id, target, *cursor, None);
+                }
+                if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
+                    if mc.node_id == target {
+                        mc.shift_all_across(&changes);
+                    }
+                }
+                self.text_edit_manager
+                    .shift_seat_carets_across(target, &changes, Some(seat_id));
+                self.update_text_cache_after_edit(dom_id, node_id, new_content);
+                self.regenerate_display_list_for_dom(dom_id);
+                true
+            }
+        }
+    }
+
     pub fn move_cursor_in_node<F>(
         &self,
         dom_id: DomId,
@@ -15477,18 +15619,21 @@ impl LayoutWindow {
         } else {
             Vec::new()
         };
-        let seat_cursor = if is_primary_seat {
+        let seat_selection = if is_primary_seat {
             None
         } else {
             Some(
                 self.text_edit_manager
                     .seat_caret(seat_id)
                     .filter(|c| c.node == changeset.node)
-                    .map_or_else(|| Self::end_of_content_cursor(&content), |c| c.cursor),
+                    .map_or_else(
+                        || Selection::Cursor(Self::end_of_content_cursor(&content)),
+                        |c| c.selection(),
+                    ),
             )
         };
-        let current_selection = if let Some(cursor) = seat_cursor {
-            vec![Selection::Cursor(cursor)]
+        let current_selection = if let Some(selection) = seat_selection {
+            vec![selection]
         } else if !mc_selections.is_empty() {
             mc_selections
         } else if let Some(cursor) = self.text_edit_manager.get_primary_cursor() {
@@ -18753,6 +18898,75 @@ impl LayoutWindow {
     /// ## Returns
     /// * `Some(Vec<DomNodeId>)` - Affected nodes if deletion occurred
     /// * `None` - If no cursor/selection exists or deletion failed
+    /// The undo record of a delete, shared by the primary's `delete_selection`
+    /// and a seat's delete op (9b-ii-a-i-d-ii-b).
+    fn record_delete_undo(
+        &mut self,
+        target: DomNodeId,
+        node_id: NodeId,
+        content: Vec<InlineContent>,
+        new_content: Vec<InlineContent>,
+        current_selections: &[Selection],
+    ) {
+        use crate::managers::changeset::{TextOpDeleteText, TextOperation};
+        use crate::managers::undo_redo::NodeStateSnapshot;
+
+        let pre_text = self.extract_text_from_inline_content(&content);
+        let old_cursor = current_selections.first().and_then(|sel| match sel {
+            Selection::Cursor(c) => Some(*c),
+            Selection::Range(_) => None,
+        });
+        let old_range = current_selections.first().and_then(|sel| match sel {
+            Selection::Range(r) => Some(*r),
+            Selection::Cursor(_) => None,
+        });
+        let record_range = old_range.unwrap_or_else(|| {
+            let anchor = old_cursor.unwrap_or(TextCursor {
+                cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: 0,
+                },
+                affinity: CursorAffinity::Leading,
+            });
+            SelectionRange {
+                start: anchor,
+                end: anchor,
+            }
+        });
+        let timestamp = {
+            #[cfg(feature = "std")]
+            {
+                Instant::now()
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
+            }
+        };
+        let pre_state = NodeStateSnapshot {
+            node_id,
+            text_content: pre_text.into(),
+            cursor_position: old_cursor.into(),
+            selection_range: old_range.into(),
+            timestamp,
+        };
+        // Deletions never pass through the text-input record pipeline, so
+        // the commit queues the host's Input notification here.
+        self.record_text_edit_undo(
+            target,
+            pre_state,
+            content,
+            new_content,
+            TextOperation::DeleteText(TextOpDeleteText {
+                range: record_range,
+                deleted_text: "".into(),
+                new_cursor: CursorPosition::Uninitialized,
+            }),
+            TextEditNotify::QueueInput,
+        );
+
+    }
+
     pub fn delete_selection(&mut self, target: DomNodeId, forward: bool) -> Option<Vec<DomNodeId>> {
         let dom_id = target.dom;
         // `target` is the focused HOST (the undo stack's key); the content
@@ -18800,64 +19014,7 @@ impl LayoutWindow {
         // a DeleteText operation with styled pre/post snapshots; the actual
         // undo/redo restore uses the snapshots (keyed by changeset id),
         // deleted_text/range are informational for the C-API inspect fns.
-        {
-            use crate::managers::changeset::{TextOpDeleteText, TextOperation};
-            use crate::managers::undo_redo::NodeStateSnapshot;
-
-            let pre_text = self.extract_text_from_inline_content(&content);
-            let old_cursor = current_selections.first().and_then(|sel| match sel {
-                Selection::Cursor(c) => Some(*c),
-                Selection::Range(_) => None,
-            });
-            let old_range = current_selections.first().and_then(|sel| match sel {
-                Selection::Range(r) => Some(*r),
-                Selection::Cursor(_) => None,
-            });
-            let record_range = old_range.unwrap_or_else(|| {
-                let anchor = old_cursor.unwrap_or(TextCursor {
-                    cluster_id: GraphemeClusterId {
-                        source_run: 0,
-                        start_byte_in_run: 0,
-                    },
-                    affinity: CursorAffinity::Leading,
-                });
-                SelectionRange {
-                    start: anchor,
-                    end: anchor,
-                }
-            });
-            let timestamp = {
-                #[cfg(feature = "std")]
-                {
-                    Instant::now()
-                }
-                #[cfg(not(feature = "std"))]
-                {
-                    azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
-                }
-            };
-            let pre_state = NodeStateSnapshot {
-                node_id,
-                text_content: pre_text.into(),
-                cursor_position: old_cursor.into(),
-                selection_range: old_range.into(),
-                timestamp,
-            };
-            // Deletions never pass through the text-input record pipeline, so
-            // the commit queues the host's Input notification here.
-            self.record_text_edit_undo(
-                target,
-                pre_state,
-                content,
-                new_content.clone(),
-                TextOperation::DeleteText(TextOpDeleteText {
-                    range: record_range,
-                    deleted_text: "".into(),
-                    new_cursor: CursorPosition::Uninitialized,
-                }),
-                TextEditNotify::QueueInput,
-            );
-        }
+        self.record_delete_undo(target, node_id, content, new_content.clone(), &current_selections);
 
         // Update multi-cursor state
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {

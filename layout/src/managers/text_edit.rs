@@ -480,11 +480,28 @@ pub struct TextEditManager {
     pub pending_text_changed: Vec<DomNodeId>,
 }
 
-/// A non-primary seat's caret: the node it sits in and where.
+/// A non-primary seat's caret: the node it sits in and where. With an
+/// `anchor` it is a SELECTION from the anchor to the cursor (a seat's
+/// Shift+arrow, 9b-ii-a-i-d-ii-b).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SeatCaret {
     pub node: DomNodeId,
     pub cursor: TextCursor,
+    pub anchor: Option<TextCursor>,
+}
+
+impl SeatCaret {
+    /// The caret as a selection: a range when anchored, else the cursor.
+    #[must_use]
+    pub fn selection(&self) -> Selection {
+        match self.anchor {
+            Some(anchor) if anchor != self.cursor => Selection::Range(SelectionRange {
+                start: anchor,
+                end: self.cursor,
+            }),
+            _ => Selection::Cursor(self.cursor),
+        }
+    }
 }
 
 impl Default for TextEditManager {
@@ -667,6 +684,7 @@ impl TextEditManager {
             return mc.get_primary_cursor().map(|cursor| SeatCaret {
                 node: mc.node_id,
                 cursor,
+                anchor: None,
             });
         }
         self.seat_carets.get(&seat_id).copied()
@@ -675,8 +693,27 @@ impl TextEditManager {
     /// Place seat `seat_id`'s caret (non-primary seats only; the primary's
     /// caret is the multi-cursor's).
     pub fn set_seat_caret(&mut self, seat_id: u64, node: DomNodeId, cursor: TextCursor) {
+        self.set_seat_selection(seat_id, node, cursor, None);
+    }
+
+    /// Place seat `seat_id`'s caret with an anchor: a selection from `anchor`
+    /// to `cursor` (9b-ii-a-i-d-ii-b).
+    pub fn set_seat_selection(
+        &mut self,
+        seat_id: u64,
+        node: DomNodeId,
+        cursor: TextCursor,
+        anchor: Option<TextCursor>,
+    ) {
         if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
-            self.seat_carets.insert(seat_id, SeatCaret { node, cursor });
+            self.seat_carets.insert(
+                seat_id,
+                SeatCaret {
+                    node,
+                    cursor,
+                    anchor: anchor.filter(|a| *a != cursor),
+                },
+            );
         }
     }
 
@@ -706,6 +743,12 @@ impl TextEditManager {
                 if change.run == caret.cursor.cluster_id.source_run {
                     caret.cursor.cluster_id.start_byte_in_run =
                         change.transform(caret.cursor.cluster_id.start_byte_in_run);
+                }
+                if let Some(anchor) = caret.anchor.as_mut() {
+                    if change.run == anchor.cluster_id.source_run {
+                        anchor.cluster_id.start_byte_in_run =
+                            change.transform(anchor.cluster_id.start_byte_in_run);
+                    }
                 }
             }
         }

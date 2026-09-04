@@ -3449,6 +3449,7 @@ mod autotest_generated {
                 Some(InternalEventAction::AddAndSkip(SystemChange::ApplySelectionOp {
                     target: t,
                     op,
+                    ..
                 })) => {
                     assert_eq!(t, target);
                     op
@@ -3661,6 +3662,7 @@ mod autotest_generated {
             },
             SystemChange::ApplySelectionOp {
                 target: dnid(0, 1),
+                seat_id: crate::window::PRIMARY_POINTER_SEAT,
                 op: SelectionOp::new(
                     SelectionDirection::Forward,
                     SelectionStep::Character,

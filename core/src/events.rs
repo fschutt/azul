@@ -4197,7 +4197,13 @@ pub enum SystemChange {
     ///
     /// Replaces the old `ArrowKeyNavigation` and `DeleteTextSelection` variants.
     /// Every keyboard shortcut maps to a single `SelectionOp` — see its docs.
-    ApplySelectionOp { target: DomNodeId, op: SelectionOp },
+    ApplySelectionOp {
+        target: DomNodeId,
+        op: SelectionOp,
+        /// The SEAT whose key this was (9b-ii-a-i-d-ii-b): the op acts on that
+        /// seat's caret. Seat 0 is the primary.
+        seat_id: u64,
+    },
 
     // === Keyboard Shortcuts ===
     /// Copy selected text to system clipboard (Ctrl+C / Cmd+C).
@@ -5404,6 +5410,7 @@ fn handle_key_down(
         SystemChange::ApplySelectionOp {
             target,
             op: selection_op,
+            seat_id: kbd.seat_id,
         },
     ))
 }

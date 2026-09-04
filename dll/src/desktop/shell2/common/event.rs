@@ -6647,9 +6647,14 @@ pub trait PlatformWindow {
                 ProcessEventResult::DoNothing
             }
 
-            SystemChange::ApplySelectionOp { target, op } => {
+            SystemChange::ApplySelectionOp {
+                target,
+                op,
+                seat_id,
+            } => {
                 if let Some(layout_window) = self.get_layout_window_mut() {
-                    if layout_window.apply_selection_op(*target, op) {
+                    // The op acts on the KEY SEAT's caret (9b-ii-a-i-d-ii-b).
+                    if layout_window.apply_selection_op_for_seat(*seat_id, *target, op) {
                         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
                     }
                 }

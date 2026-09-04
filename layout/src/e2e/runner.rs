@@ -967,8 +967,15 @@ impl Runner {
             };
             for change in &pre_filter.system_changes {
                 match change {
-                    SystemChange::ApplySelectionOp { target, op } => {
-                        if self.layout_window.apply_selection_op(*target, op) {
+                    SystemChange::ApplySelectionOp {
+                        target,
+                        op,
+                        seat_id,
+                    } => {
+                        if self
+                            .layout_window
+                            .apply_selection_op_for_seat(*seat_id, *target, op)
+                        {
                             result = result
                                 .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
                         }

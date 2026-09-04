@@ -2227,11 +2227,32 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [ ] 9b-ii-a-i-d-ii-a The seat caret is tracked but not DRAWN: the display list emits the
       primary caret (and peer carets from the multi-cursor's node only). Draw `seat_carets` in the
       owner colour scheme the peer carets use, blinking on the primary's clock.
-- [ ] 9b-ii-a-i-d-ii-b A seat's Backspace, Delete, arrows, Enter and shortcuts still act on the
-      PRIMARY's session: the input interpreter's caret ops (`ApplySelectionOp`, `SplitBlock`,
-      `DeleteAtCursor`) resolve against `multi_cursor`, not the seat's caret, even though d-i
-      routes the key to the seat's focus. Needs the seat threaded through `SystemChange` for those
-      ops, or a per-seat `MultiCursorState`. Only plain text insertion is per seat today.
+- [x] 9b-ii-a-i-d-ii-b DONE for the caret OPS: `SystemChange::ApplySelectionOp` carries its
+      `seat_id` (stamped from the key event by `handle_key_down`), the shell and the runner apply
+      it through `apply_selection_op_for_seat`, and a non-primary seat's Move / Extend / Delete act
+      on ITS caret in ITS node: a `SeatCaret` now has an `anchor`, so Shift+arrows make a seat
+      selection and typing over it replaces it; Move collapses an anchored selection to its edge on
+      a character step (the multi-cursor's rule); Delete removes the selection or one step (a word
+      / line step extends first), records the same undo entry as the primary's delete (the undo
+      block of `delete_selection` was factored into `record_delete_undo` for both), and shifts the
+      primary's and the other seats' carets on the node across the change. A seat with no caret in
+      the node starts at the layout's LAST-CLUSTER cursor (a trailing cursor, the shaped layout's
+      own end-of-text form), because the byte-past-the-end cursor the edit path uses is not a
+      cluster the step resolver can walk from - the primary showed the same 4 -> 1 jump from a
+      stale layout. FOUND ON THE WAY, fixed in the shared primitive: `edit_text_outcome` decided
+      "applied" from the byte and run deltas, so overwriting a one-character selection with one
+      character was reported `EverySelectionMissed` and dropped - for the primary too; it now
+      compares content. Tests: seat Left / Backspace / Shift+Right / overwrite / no-op Delete with
+      the primary's caret and field untouched throughout, plus the primitive's regression.
+      Evidence: host check EXIT=0; azul-core 2809, azul-layout lib 7683 / `--test all` 1008 (+2),
+      e2e 62 scenarios, azul-dll 2071, 0 failed; 8/8 gate. Still the primary's: the SHORTCUT
+      changes (ii-b-i).
+- [ ] 9b-ii-a-i-d-ii-b-i A seat's SHORTCUTS: `CutToClipboard`, `CopyToClipboard`,
+      `PasteFromClipboard`, `SelectAllText`, `UndoTextEdit` / `RedoTextEdit`, `SelectNextOccurrence`
+      and the Enter split (`SplitBlockAtCursor`) carry a `target` but no seat, and their arms read
+      the multi-cursor - a second seat's Ctrl+A selects the primary's field. Same recipe as the
+      ops: a `seat_id` on each change and a seat branch in the arm; Cut / Copy need the seat's
+      selection extracted (`get_selected_content_for_clipboard` reads the multi-cursor).
 - [ ] 9b-ii-a-i-d-ii-c IME / preedit per seat: `ime_document`, `preedit_text` and the composition
       phase are the primary's; a second seat's input method composes into the primary's field.
       Wayland has one text-input per seat, so the producer exists; the engine side does not.

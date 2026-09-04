@@ -222,9 +222,14 @@ pub fn edit_text_outcome(
         let new_run_len = run_text_len(&temp_content, edit_run);
         let byte_offset_change = new_run_len as i32 - old_run_len as i32;
         let run_count_change = temp_content.len() as i32 - old_run_count as i32;
-        // A splice that moved neither a byte nor a run boundary did nothing —
-        // the silent-fallthrough tail of `insert_text` / a delete at the edge.
-        any_applied |= byte_offset_change != 0 || run_count_change != 0;
+        // "Applied" is decided on the CONTENT, not on the byte / run deltas.
+        // The deltas catch the silent-fallthrough tail of `insert_text` and a
+        // delete at the edge, but overwriting a one-character selection with
+        // one character moves neither a byte nor a run boundary - and that
+        // used to read as a miss, so the whole edit came back as
+        // `EverySelectionMissed` and was dropped (found by a seat's Shift+Right,
+        // type "Z" over "b", 9b-ii-a-i-d-ii-b).
+        any_applied |= temp_content != new_content;
 
         // Adjust all previously-processed cursors in the same run that come after this position
         adjust_cursors(&mut new_selections, edit_run, edit_byte, byte_offset_change);

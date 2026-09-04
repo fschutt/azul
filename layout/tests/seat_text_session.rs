@@ -179,3 +179,92 @@ fn a_seat_without_focus_types_into_nothing() {
     assert_eq!(text_of(&lw, TEXT_A), "aaa", "and certainly not the primary's field");
     assert_eq!(seat_caret_byte(&lw), None);
 }
+
+/// The step resolver reads the SHAPED layout, which this harness does not
+/// re-run after an edit, so every arrow here moves within the original
+/// "bbb" - the same constraint the primary's tests live under.
+#[test]
+fn a_seats_backspace_arrows_and_shift_selection_act_on_its_own_caret() {
+    use azul_core::events::{SelectionDirection, SelectionMode, SelectionOp, SelectionStep};
+    let op = |direction, mode| SelectionOp::new(direction, SelectionStep::Character, mode);
+
+    let mut lw = two_fields();
+    primary_edits(&mut lw, TEXT_A, 0);
+    lw.focus_manager.set_focused_node_for(SEAT, Some(node(TEXT_B)));
+
+    // Left arrow: a seat with no caret in B starts at its end (3) and moves to 2.
+    assert!(lw.apply_selection_op_for_seat(
+        SEAT,
+        node(TEXT_B),
+        &op(SelectionDirection::Backward, SelectionMode::Move)
+    ));
+    assert_eq!(seat_caret_byte(&lw), Some((TEXT_B, 2)));
+    assert_eq!(
+        lw.text_edit_manager.get_primary_cursor().map(|c| c.cluster_id.start_byte_in_run),
+        Some(0),
+        "the primary's caret in A is not consulted"
+    );
+
+    // Backspace: the seat's own caret, in its own field.
+    assert!(lw.apply_selection_op_for_seat(
+        SEAT,
+        node(TEXT_B),
+        &op(SelectionDirection::Backward, SelectionMode::Delete)
+    ));
+    assert_eq!(text_of(&lw, TEXT_B), "bb");
+    assert_eq!(seat_caret_byte(&lw), Some((TEXT_B, 1)));
+    assert_eq!(text_of(&lw, TEXT_A), "aaa", "the primary's field is untouched");
+
+    // Shift+Right selects the second "b"; typing replaces the selection.
+    assert!(lw.apply_selection_op_for_seat(
+        SEAT,
+        node(TEXT_B),
+        &op(SelectionDirection::Forward, SelectionMode::Extend)
+    ));
+    let caret = lw.text_edit_manager.seat_caret(SEAT).unwrap();
+    assert_eq!(caret.anchor.map(|a| a.cluster_id.start_byte_in_run), Some(1));
+    assert_eq!(caret.cursor.cluster_id.start_byte_in_run, 2);
+    let _ = lw.record_text_input_for_seat(SEAT, "Z");
+    let _ = lw.apply_text_changeset();
+    assert_eq!(text_of(&lw, TEXT_B), "bZ");
+    assert_eq!(seat_caret_byte(&lw), Some((TEXT_B, 2)));
+    assert!(lw.text_edit_manager.seat_caret(SEAT).unwrap().anchor.is_none());
+
+    // Delete forward at the end is a no-op that reports so.
+    assert!(!lw.apply_selection_op_for_seat(
+        SEAT,
+        node(TEXT_B),
+        &op(SelectionDirection::Forward, SelectionMode::Delete)
+    ));
+    assert_eq!(text_of(&lw, TEXT_B), "bZ");
+
+    // The primary's own Backspace at byte 0 of A is a no-op too, and the
+    // seat's caret is not consulted for it.
+    assert!(!lw.apply_selection_op(
+        node(TEXT_A),
+        &op(SelectionDirection::Backward, SelectionMode::Delete)
+    ));
+    assert_eq!(text_of(&lw, TEXT_A), "aaa");
+    assert_eq!(seat_caret_byte(&lw), Some((TEXT_B, 2)));
+}
+
+/// The edit primitive used to decide "applied" from the byte and run
+/// deltas, so overwriting one selected character with one character - no
+/// delta either way - was reported as `EverySelectionMissed` and dropped.
+#[test]
+fn overwriting_a_one_character_selection_with_one_character_is_applied() {
+    use azul_core::selection::{Selection, SelectionRange};
+    use azul_layout::text3::edit::{edit_text_outcome, EditOutcome, TextEdit};
+    let lw = two_fields();
+    let content = lw.get_text_before_textinput(DomId::ROOT_ID, NodeId::new(TEXT_B));
+    let selection = Selection::Range(SelectionRange {
+        start: at(1),
+        end: at(2),
+    });
+    match edit_text_outcome(&content, &[selection], &TextEdit::Insert("Z".into())) {
+        EditOutcome::Applied { content, .. } => {
+            assert_eq!(lw.extract_text_from_inline_content(&content), "bZb");
+        }
+        EditOutcome::NoOp(reason) => panic!("a same-length replacement was dropped: {reason:?}"),
+    }
+}
