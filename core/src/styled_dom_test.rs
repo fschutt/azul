@@ -89,6 +89,7 @@ mod autotest_generated {
             dragging: all,
             drag_over: all,
             placeholder: all,
+            seat_focused: all,
         }
     }
 
