@@ -1,0 +1,52 @@
+# Size budgets for the SHIPPED libazul artifacts, in bytes.
+#
+# WHY THIS FILE EXISTS: CI already printed artifact sizes in half a dozen
+# places - `after local-symbol strip:`, `$before -> $after bytes`, and into the
+# release HTML - but nothing ever FAILED on a size regression. Reporting is not
+# a ratchet: a change that adds 40 MB to libazul.so lands green and is found
+# months later. This file turns the reporting into a gate.
+#
+# FORMAT:  <target-triple-or-*>  <basename-glob>  <max_bytes>
+# The first line whose target AND glob both match wins, so put specific
+# targets above `*`. Blank lines and `#` comments are ignored.
+#
+# PROVENANCE: every number below is 1.5x the size that artifact actually had in
+# the shipped 0.2.0 release (queried from the GitHub release assets), rounded
+# up. 1.5x is deliberately loose for a FIRST gate: the tree has moved several
+# hundred commits since 0.2.0, so these are a ceiling that catches a runaway
+# regression without failing honest growth. `check_artifact_size.sh` prints
+# each artifact as a percentage of its budget - once a few CI runs have
+# reported real current numbers, tighten these to ~1.15x and this becomes a
+# real ratchet.
+#
+# RAISING A BUDGET IS A DELIBERATE, REVIEWABLE COMMIT. That is the point: the
+# size change shows up in the diff with a reason next to it, instead of
+# silently in a release artifact.
+
+# --- Linux, cross-compiled (the `build_binaries` matrix) -------------------
+i686-unknown-linux-gnu          *azul*.so       62000000   # 0.2.0: 40810244
+aarch64-unknown-linux-gnu       *azul*.so       52000000   # 0.2.0: 34228712
+armv7-unknown-linux-gnueabihf   *azul*.so       53000000   # 0.2.0: 35047524
+powerpc64-unknown-linux-gnu     *azul*.so       76000000   # 0.2.0: 50546888
+s390x-unknown-linux-gnu         *azul*.so       66000000   # 0.2.0: 43603672
+riscv64gc-unknown-linux-gnu     *azul*.so       52000000   # 0.2.0: 34506720
+
+# --- Windows / macOS -------------------------------------------------------
+i686-pc-windows-msvc            *azul*.dll      51000000   # 0.2.0 azuldbg.dll: 33751552
+x86_64-apple-darwin             *azul*.dylib    45000000   # 0.2.0 libazuldbg.dylib: 29570896
+
+# --- Host builds (x86_64 linux), for jobs that opt in ----------------------
+*                               libazuldbg.so   66000000   # 0.2.0: 43543648
+*                               libazul.so      51000000   # 0.2.0 azul.so: 33970016
+*                               libazuldbg.dylib 45000000  # 0.2.0: 29570896
+*                               libazul.dylib   45000000
+*                               azul.so         51000000   # 0.2.0: 33970016 (the C lib)
+*                               azuldbg.dll     51000000   # 0.2.0: 33751552
+*                               azul.dll        51000000   # sized against azuldbg.dll
+*                               azul.pyd        59000000   # 0.2.0: 38763008
+*                               azul.cpython*.so 75000000  # 0.2.0: 49466680
+
+# The static archives (`*azul*.a` / `azul*.lib`) are NOT gated yet: the 0.2.0
+# release only published them gzipped, so there is no honest raw number to set
+# a budget from. `check_artifact_size.sh` reports them as UNGATED with their
+# real size - take those numbers from a CI run and add lines here.

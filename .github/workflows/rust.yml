@@ -986,6 +986,20 @@ jobs:
                  target/${{ matrix.target }}/prod-release/azul*.lib
           bash scripts/strip_staticlib.sh --optional "$@"
 
+      # The sizes were already printed in half a dozen places and nothing ever
+      # failed on them, so a size regression could only be caught by someone
+      # downloading a release. Budgets live in scripts/artifact_size_budgets.txt;
+      # raising one is a deliberate, reviewable commit.
+      - name: Artifact size gate
+        if: steps.cache-valid.outputs.skip != 'true' && (success() || matrix.experimental)
+        shell: bash
+        run: |
+          shopt -s nullglob
+          bash scripts/check_artifact_size.sh --target ${{ matrix.target }} \
+            target/${{ matrix.target }}/prod-release/*azul*.${{ matrix.artifact_ext }} \
+            target/${{ matrix.target }}/prod-release/*azul*.a \
+            target/${{ matrix.target }}/prod-release/azul*.lib
+
       - name: Upload Artifacts
         if: ${{ success() || matrix.experimental }}
         uses: actions/upload-artifact@v7
@@ -2297,6 +2311,19 @@ jobs:
           ls -la target/prod-release/ 2>/dev/null | head -30 || echo "Not found"
           echo "=== target/codegen ==="
           ls -la target/codegen/ 2>/dev/null | head -20 || echo "Not found"
+
+      # Same gate as the cross-compile matrix, on the host-built artifacts.
+      # Budgets: scripts/artifact_size_budgets.txt.
+      - name: Artifact size gate
+        shell: bash
+        run: |
+          shopt -s nullglob
+          bash scripts/check_artifact_size.sh \
+            target/prod-release/libazul.so target/prod-release/libazuldbg.so \
+            target/prod-release/azul.so target/prod-release/libazul.a \
+            target/prod-release/libazul.dylib target/prod-release/libazuldbg.dylib \
+            target/prod-release/azul.dll target/prod-release/azuldbg.dll \
+            target/prod-release/azul.lib target/prod-release/azul.pyd
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v7
