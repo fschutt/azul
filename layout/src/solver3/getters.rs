@@ -2992,6 +2992,7 @@ pub fn get_style_properties_cached(
 /// # Panics
 ///
 /// Panics only on an internal indexing invariant (an in-range `get().unwrap()` over the font-family list).
+#[must_use] 
 pub fn get_style_properties(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -3019,7 +3020,7 @@ pub fn get_style_properties_for_state(
     dom_id: NodeId,
     system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
     viewport_size: PhysicalSize,
-    node_state: &azul_core::styled_dom::StyledNodeState,
+    node_state: &StyledNodeState,
 ) -> StyleProperties {
     use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
 
@@ -5357,7 +5358,7 @@ pub fn resolve_font_chains_fast(
 /// Give every chain a face for each of the DOM's codepoints it cannot draw.
 ///
 /// Both resolvers leave gaps. `request_fonts_fast` walks the stack's plain OS
-/// expansion (the sans-serif list: Ubuntu, Arial, DejaVu Sans, Noto Sans,
+/// expansion (the sans-serif list: Ubuntu, Arial, `DejaVu` Sans, Noto Sans,
 /// Liberation Sans on Linux) and treats a codepoint no listed family covers
 /// as a miss for the shaper's .notdef — so Arabic in a `sans-serif` paragraph
 /// renders as boxes on any machine whose sans list has no Arabic face (Noto
@@ -5388,7 +5389,7 @@ fn extend_chains_to_cover(
     if wanted.is_empty() {
         return;
     }
-    for (key, chain) in resolved.chains.iter_mut() {
+    for (key, chain) in &mut resolved.chains {
         let FontChainKeyOrRef::Chain(key) = key else {
             continue;
         };

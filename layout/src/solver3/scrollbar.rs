@@ -172,7 +172,7 @@ pub fn compute_scrollbar_geometry(
 /// every scroll) — MUST call this, or the two disagree by a fraction of a
 /// pixel and the disagreement itself becomes a spurious damage event.
 #[must_use]
-pub fn quantize_thumb_offset(thumb_offset: f32) -> f32 {
+pub const fn quantize_thumb_offset(thumb_offset: f32) -> f32 {
     if thumb_offset.is_finite() {
         thumb_offset.round()
     } else {

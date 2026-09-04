@@ -1356,31 +1356,33 @@ mod autotest_generated {
     fn pending_pressed_is_an_edge_and_a_held_button_does_not_repeat() {
         use azul_core::gamepad::GamepadButton;
         let mut m = GamepadManager::new();
-        let mut st = GamepadState::default();
-        st.connected = true;
+        let mut st = GamepadState {
+            connected: true,
+            ..Default::default()
+        };
 
         // First sighting with the button already held counts as an edge:
         // there is no earlier bitset it could have gone down against.
         st.buttons = GamepadButton::DPadUp.bit();
-        m.set_state(st.clone());
+        m.set_state(st);
         assert_eq!(m.take_pending_pressed(), GamepadButton::DPadUp.bit());
         // Drained.
         assert_eq!(m.take_pending_pressed(), 0);
 
         // Still held over several polls -> no further edges.
         for _ in 0..5 {
-            m.set_state(st.clone());
+            m.set_state(st);
             assert_eq!(m.take_pending_pressed(), 0, "a held button must not re-fire");
         }
 
         // Release is not a press.
         st.buttons = 0;
-        m.set_state(st.clone());
+        m.set_state(st);
         assert_eq!(m.take_pending_pressed(), 0);
 
         // Pressed again -> one new edge.
         st.buttons = GamepadButton::DPadUp.bit();
-        m.set_state(st.clone());
+        m.set_state(st);
         assert_eq!(m.take_pending_pressed(), GamepadButton::DPadUp.bit());
     }
 
@@ -1390,14 +1392,18 @@ mod autotest_generated {
     fn pending_pressed_accumulates_until_drained() {
         use azul_core::gamepad::GamepadButton;
         let mut m = GamepadManager::new();
-        let mut a = GamepadState::default();
-        a.id = GamepadId { id: 0 };
-        a.connected = true;
-        a.buttons = GamepadButton::DPadLeft.bit();
-        let mut b = GamepadState::default();
-        b.id = GamepadId { id: 1 };
-        b.connected = true;
-        b.buttons = GamepadButton::DPadRight.bit();
+        let a = GamepadState {
+            id: GamepadId { id: 0 },
+            connected: true,
+            buttons: GamepadButton::DPadLeft.bit(),
+            ..Default::default()
+        };
+        let b = GamepadState {
+            id: GamepadId { id: 1 },
+            connected: true,
+            buttons: GamepadButton::DPadRight.bit(),
+            ..Default::default()
+        };
 
         m.set_state(a);
         m.set_state(b);

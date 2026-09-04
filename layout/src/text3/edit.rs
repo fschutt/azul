@@ -238,6 +238,7 @@ pub enum EditOutcome {
 /// [`edit_text`], but the no-op channel is explicit. Appliedness is tracked
 /// from the byte/run-count deltas already computed per selection — no content
 /// comparison. An insert of `""` counts as a miss (both deltas zero).
+#[must_use] 
 pub fn edit_text_outcome(
     content: &[InlineContent],
     selections: &[Selection],
@@ -712,8 +713,8 @@ fn insert_text_with_line_breaks(
 /// value, an overlay entry retiring, a reconcile swapping generations) and
 /// the cursor is only re-seated on the NEXT layout pass. Between those two
 /// moments an edit used to slice `text[..stale_byte]` and ABORT the process
-/// (device crash: AzWidgets Backspace, 2026-08-29). An edit against a stale
-/// cursor must degrade to a clamped edit, never a panic; the debug_asserts
+/// (device crash: `AzWidgets` Backspace, 2026-08-29). An edit against a stale
+/// cursor must degrade to a clamped edit, never a panic; the `debug_asserts`
 /// keep the PRODUCER of such a cursor loud in dev builds.
 fn sanitize_cursor(content: &[InlineContent], cursor: &TextCursor) -> TextCursor {
     let mut c = *cursor;
@@ -746,6 +747,7 @@ fn sanitize_cursor(content: &[InlineContent], cursor: &TextCursor) -> TextCursor
     c
 }
 
+#[must_use] 
 pub fn delete_backward(
     content: &[InlineContent],
     cursor: &TextCursor,

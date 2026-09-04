@@ -974,7 +974,7 @@ impl TextEditManager {
         } else {
             CompositionPhase::Start
         });
-        self.composition_text = text.clone();
+        self.composition_text.clone_from(&text);
         self.preedit_text = if text.is_empty() { None } else { Some(text) };
         self.preedit_cursor_begin = cursor_begin;
         self.preedit_cursor_end = cursor_end;
@@ -1123,12 +1123,12 @@ impl TextEditManager {
     /// One queue makes the order defined: a callback runs AFTER the focus
     /// change that triggered it, so the app's call is an override of the focus
     /// default rather than a coin flip.
-    pub fn request_soft_keyboard(&mut self, visible: bool) {
+    pub const fn request_soft_keyboard(&mut self, visible: bool) {
         self.pending_soft_keyboard = Some(visible);
     }
 
     /// Drain the on-screen keyboard request, if one was made this pass.
-    pub fn take_soft_keyboard_request(&mut self) -> Option<bool> {
+    pub const fn take_soft_keyboard_request(&mut self) -> Option<bool> {
         self.pending_soft_keyboard.take()
     }
 
@@ -1438,7 +1438,7 @@ impl TextEditManager {
     #[must_use]
     pub fn build_text_selections_map(
         &self,
-    ) -> std::collections::BTreeMap<DomId, azul_core::selection::TextSelection> {
+    ) -> BTreeMap<DomId, azul_core::selection::TextSelection> {
         let mut map = self.build_primary_text_selections_map();
         self.fold_seat_selections(&mut map);
         map
@@ -1450,7 +1450,7 @@ impl TextEditManager {
     /// with no primary selection gets a collapsed entry to hang them on.
     fn fold_seat_selections(
         &self,
-        map: &mut std::collections::BTreeMap<DomId, azul_core::selection::TextSelection>,
+        map: &mut BTreeMap<DomId, azul_core::selection::TextSelection>,
     ) {
         use azul_core::selection::{SelectionOwner, TextSelection};
         for (seat, caret) in &self.seat_carets {
@@ -1467,7 +1467,7 @@ impl TextEditManager {
                     node_id,
                     caret.cursor,
                     LogicalRect::zero(),
-                    azul_core::geom::LogicalPosition::zero(),
+                    LogicalPosition::zero(),
                 )
             });
             entry
@@ -1480,15 +1480,15 @@ impl TextEditManager {
 
     fn build_primary_text_selections_map(
         &self,
-    ) -> std::collections::BTreeMap<DomId, azul_core::selection::TextSelection> {
+    ) -> BTreeMap<DomId, azul_core::selection::TextSelection> {
         if let Some(cb) = &self.cross_block {
-            let mut map = std::collections::BTreeMap::new();
+            let mut map = BTreeMap::new();
             map.insert(cb.dom_id, cb.clone());
             return map;
         }
         use azul_core::selection::{SelectionAnchor, SelectionFocus, TextSelection};
 
-        let mut map = std::collections::BTreeMap::new();
+        let mut map = BTreeMap::new();
         let remote = self.remote_selection_ranges();
         let Some(session) = self.session_selection_ranges() else {
             // NO LOCAL RANGE, but somebody else may still have one - the usual
@@ -1510,7 +1510,7 @@ impl TextEditManager {
                     remote.node_id,
                     cursor,
                     LogicalRect::zero(),
-                    azul_core::geom::LogicalPosition::zero(),
+                    LogicalPosition::zero(),
                 );
                 sel.remote_ranges.insert(remote.node_id, remote.ranges);
                 map.insert(remote.dom_id, sel);
@@ -1519,9 +1519,9 @@ impl TextEditManager {
         };
         let range = session.primary;
 
-        let mut affected_nodes = std::collections::BTreeMap::new();
+        let mut affected_nodes = BTreeMap::new();
         affected_nodes.insert(session.node_id, session.ranges);
-        let mut remote_ranges = std::collections::BTreeMap::new();
+        let mut remote_ranges = BTreeMap::new();
         if let Some(remote) = remote {
             remote_ranges.insert(remote.node_id, remote.ranges);
         }
@@ -1534,12 +1534,12 @@ impl TextEditManager {
                     ifc_root_node_id: session.node_id,
                     cursor: range.start,
                     char_bounds: LogicalRect::zero(),
-                    mouse_position: azul_core::geom::LogicalPosition::zero(),
+                    mouse_position: LogicalPosition::zero(),
                 },
                 focus: SelectionFocus {
                     ifc_root_node_id: session.node_id,
                     cursor: range.end,
-                    mouse_position: azul_core::geom::LogicalPosition::zero(),
+                    mouse_position: LogicalPosition::zero(),
                 },
                 affected_nodes,
                 remote_ranges,
@@ -3458,7 +3458,7 @@ impl azul_core::events::EventProvider for TextEditManager {
     fn get_pending_events(
         &self,
         timestamp: Instant,
-    ) -> alloc::vec::Vec<SyntheticEvent> {
+    ) -> Vec<SyntheticEvent> {
         use azul_core::events::{
             CompositionEventData, EventData, EventSource, EventType, SyntheticEvent,
         };
@@ -3468,7 +3468,7 @@ impl azul_core::events::EventProvider for TextEditManager {
             CompositionPhase::Update => EventType::CompositionUpdate,
             CompositionPhase::End => EventType::CompositionEnd,
         };
-        let mut out = alloc::vec::Vec::new();
+        let mut out = Vec::new();
         if let Some(phase) = self.pending_composition {
             let begin = usize::try_from(self.preedit_cursor_begin).unwrap_or(0);
             let end = usize::try_from(self.preedit_cursor_end).unwrap_or(begin);
@@ -3516,7 +3516,7 @@ impl azul_core::events::EventProvider for TextEditManager {
 /// contains the marked text, and the selection seam the range is applied
 /// through resolves against a layout that no longer does once the preedit
 /// is un-shaped. So the caller ends (un-shapes) the composition FIRST and
-/// then applies the range this returns - the reading WebKit's
+/// then applies the range this returns - the reading `WebKit`'s
 /// `WebPage::setCompositionAsync` / `insertTextAsync` imply, where the
 /// replacement selection is set on the document and the composition is
 /// then confirmed before the new text lands.

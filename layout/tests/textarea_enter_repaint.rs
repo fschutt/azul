@@ -413,7 +413,7 @@ fn enter_at_end_of_a_wrapped_middle_line_keeps_the_caret() {
             }
             _ => None,
         })
-        .last()
+        .next_back()
         .expect("run 0 has clusters");
     drop(layout);
     h.start_editing(TextCursor {
@@ -476,7 +476,7 @@ fn assert_incremental_identity(h: &mut Harness, edit: &str) -> Option<Vec<Logica
     let needs_relayout = h.type_str(edit);
     let offsets = cpurender::ScrollOffsetMap::new();
 
-    let mut present_frame = |h: &mut Harness,
+    let present_frame = |h: &mut Harness,
                              base: &mut AzulPixmap,
                              prev: &azul_layout::solver3::display_list::DisplayList,
                              tag: &str| {

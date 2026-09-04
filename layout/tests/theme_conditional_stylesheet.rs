@@ -7,8 +7,8 @@
 //! time; they have to be an `@theme(dark)` override that the CASCADE picks up
 //! from the live `SystemStyle` on whatever pass comes next.
 //!
-//! This pins that end to end: one `StyledDom`, two system styles, two answers
-//! - and the light one asserted too, because a rule that "worked" by being
+//! This pins that end to end: one `StyledDom`, two system styles, two answers -
+//! and the light one asserted too, because a rule that "worked" by being
 //! applied unconditionally would pass a dark-only assertion.
 
 use std::sync::Arc;

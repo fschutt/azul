@@ -45,7 +45,7 @@ fn nodes_with_class(lw: &LayoutWindow, class: &str) -> Vec<NodeId> {
         .filter(|nid| {
             container[*nid].attributes().as_ref().iter().any(|a| {
                 a.as_class().is_some_and(|c| {
-                    let s: &str = c.as_ref();
+                    let s: &str = c;
                     s == class
                 })
             })

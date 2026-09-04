@@ -487,7 +487,7 @@ fn parse_xml_to_fast_dom_with_css(
                             match ti {
                                 0 => nd.set_tab_index(TabIndex::Auto),
                                 i if i > 0 => {
-                                    nd.set_tab_index(TabIndex::OverrideInParent(i as u32))
+                                    nd.set_tab_index(TabIndex::OverrideInParent(i as u32));
                                 }
                                 _ => nd.set_tab_index(TabIndex::NoKeyboardFocus),
                             }
@@ -545,7 +545,7 @@ fn parse_xml_to_fast_dom_with_css(
                             // `with_attribute(ContentEditable(false))` and the HTML
                             // loader disagreed on the same document.
                             Some(false) => {
-                                attr_vec.push(azul_core::dom::AttributeType::ContentEditable(false))
+                                attr_vec.push(azul_core::dom::AttributeType::ContentEditable(false));
                             }
                             None => {}
                         }

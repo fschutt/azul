@@ -217,7 +217,7 @@ impl_option!(
 /// A sequence of input samples forming one button press session
 /// One non-primary seat's pen (9b-ii-b-i-b): the same three fields the
 /// primary keeps on the manager, plus its own report-rate estimate.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct SeatPen {
     pub state: Option<PenState>,
     pub previous: Option<PenState>,
@@ -488,7 +488,7 @@ impl Default for PenState {
 /// barrel roll / tilt / pressure).
 ///
 /// Named for the hardware class, not a vendor: the protocol behind it is
-/// `zwp_tablet_pad_v2` on Wayland and XInput2 valuators on X11, and Huion,
+/// `zwp_tablet_pad_v2` on Wayland and `XInput2` valuators on X11, and Huion,
 /// XP-Pen, Gaomon and Apple's own tablets all report through it.
 ///
 /// Populated by the platform
@@ -715,6 +715,10 @@ pub const fn tablet_usb_vendor_name(vendor_id: u32) -> &'static str {
 /// - `active_drag`: The unified drag context (replaces individual drag states)
 ///
 #[derive(Debug, Clone, PartialEq)]
+// The bools are INDEPENDENT latches (per-input-source armed/pending state), not
+// the states of one machine; an enum would make illegal combinations of them
+// unrepresentable that are in fact legal.
+#[allow(clippy::struct_excessive_bools)]
 pub struct GestureAndDragManager {
     /// Configuration for gesture detection
     pub config: GestureDetectionConfig,
@@ -1330,7 +1334,7 @@ impl GestureAndDragManager {
     /// its own event — Wayland `zwp_tablet_tool_v2.distance` arrives between
     /// motion frames — so folding it into the motion path would mean either
     /// dropping it or inventing a motion sample to carry it.
-    pub fn set_pen_hover_distance(&mut self, distance: f32) {
+    pub const fn set_pen_hover_distance(&mut self, distance: f32) {
         if let Some(ref mut p) = self.pen_state {
             p.hover_distance = distance;
         }
@@ -1340,7 +1344,7 @@ impl GestureAndDragManager {
     ///
     /// Announced once per tool at proximity-in, not per sample, which is why
     /// it is a setter rather than a parameter.
-    pub fn set_pen_tool_kind(&mut self, kind: TabletToolKind) {
+    pub const fn set_pen_tool_kind(&mut self, kind: TabletToolKind) {
         if let Some(ref mut p) = self.pen_state {
             p.tool_kind = kind;
         }
@@ -1382,10 +1386,10 @@ impl GestureAndDragManager {
     /// Record a pen barrel gesture — a squeeze or a double-tap.
     ///
     /// Latched rather than dispatched directly because these arrive on their
-    /// own UIKit channel, outside the touch stream, so there is no pen sample
+    /// own `UIKit` channel, outside the touch stream, so there is no pen sample
     /// to attach them to. The event-determination pass drains the latch and
     /// emits `PenSqueeze` / `PenDoubleTap`.
-    pub fn note_pen_barrel_gesture(&mut self, is_squeeze: bool) {
+    pub const fn note_pen_barrel_gesture(&mut self, is_squeeze: bool) {
         if is_squeeze {
             self.pending_pen_squeeze = true;
         } else {

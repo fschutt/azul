@@ -482,7 +482,6 @@ fn clicking_a_page_after_scrolling_past_the_first_screenful_still_places_a_caret
         .map(NodeId::new)
         .filter(|id| matches!(nd[*id].get_node_type(), NodeType::P))
         .collect();
-    drop(lr);
     let visible = paras
         .into_iter()
         .filter_map(|p| h.window_rect(nested, p).map(|r| (p, r)))
@@ -537,7 +536,6 @@ fn focusing_a_blank_documents_editing_host_anchors_the_caret_on_its_empty_line()
     let pending =
         h.lw.focus_manager
             .pending_contenteditable_focus
-            .clone()
             .expect("focusing a contenteditable flags a deferred caret");
     assert_eq!(
         pending.container_node_id, host,

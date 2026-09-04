@@ -917,12 +917,12 @@ pub fn current_rss_bytes() -> (u64, u64) {
         }
         unsafe {
             let mut info: MachTaskBasicInfo = core::mem::zeroed();
-            let mut count = (core::mem::size_of::<MachTaskBasicInfo>() / 4) as u32;
+            let mut count = (size_of::<MachTaskBasicInfo>() / 4) as u32;
             let kr = task_info(
                 mach_task_self(),
                 MACH_TASK_BASIC_INFO,
-                &mut info as *mut _ as *mut core::ffi::c_void,
-                &mut count,
+                (&raw mut info).cast::<core::ffi::c_void>(),
+                &raw mut count,
             );
             if kr == 0 {
                 let rss = if pf != 0 { pf } else { info.resident_size };
@@ -1062,6 +1062,7 @@ pub(crate) fn windows_memory_counters() -> Option<WindowsMemoryCounters> {
 /// only reason `dll/tests/leak_regression.rs` is `cfg(target_os = "macos")`:
 /// the leak was never macOS-specific, the *instrument* was.
 #[cfg(feature = "probe")]
+#[must_use] 
 pub fn malloc_heap_bytes() -> u64 {
     #[cfg(target_os = "macos")]
     {
@@ -1172,12 +1173,12 @@ pub fn phys_footprint_bytes() -> u64 {
         }
         unsafe {
             let mut info: TaskVmInfo = core::mem::zeroed();
-            let mut count = (core::mem::size_of::<TaskVmInfo>() / 4) as u32;
+            let mut count = (size_of::<TaskVmInfo>() / 4) as u32;
             let kr = task_info(
                 mach_task_self(),
                 TASK_VM_INFO,
-                &mut info as *mut _ as *mut core::ffi::c_void,
-                &mut count,
+                (&raw mut info).cast::<core::ffi::c_void>(),
+                &raw mut count,
             );
             if kr == 0 {
                 info.phys_footprint

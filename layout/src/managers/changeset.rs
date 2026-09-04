@@ -555,6 +555,28 @@ impl TextChangeset {
     }
 }
 
+impl DocumentChangeset {
+    /// Apply this changeset to an app-model [`Dom`](azul_core::dom::Dom) -
+    /// the Path-2 helper [`crate::document_edit::apply_document_operation`]
+    /// as a method, so API consumers reach it without free-function plumbing.
+    ///
+    /// `host_path` is the root-to-host child-index path (empty = the model
+    /// root hosts the blocks). On success the returned
+    /// [`AppliedEdit`](crate::document_edit::AppliedEdit) carries the resume
+    /// point and the INVERSE operation to hand back to
+    /// `CallbackInfo::mark_document_edit_applied_with_inverse`.
+    ///
+    /// # Errors
+    /// The tree is left unchanged on error (host/target not found).
+    pub fn apply_to_dom(
+        &self,
+        model: &mut azul_core::dom::Dom,
+        host_path: U32Vec,
+    ) -> crate::document_edit::ResultAppliedEditDocumentEditError {
+        crate::document_edit::apply_document_operation(model, host_path.as_ref(), self).into()
+    }
+}
+
 #[cfg(test)]
 mod autotest_generated {
     use std::{collections::HashSet, thread};
@@ -1242,27 +1264,5 @@ mod autotest_generated {
             }),
             timestamp,
         )
-    }
-}
-
-impl DocumentChangeset {
-    /// Apply this changeset to an app-model [`Dom`](azul_core::dom::Dom) -
-    /// the Path-2 helper [`crate::document_edit::apply_document_operation`]
-    /// as a method, so API consumers reach it without free-function plumbing.
-    ///
-    /// `host_path` is the root-to-host child-index path (empty = the model
-    /// root hosts the blocks). On success the returned
-    /// [`AppliedEdit`](crate::document_edit::AppliedEdit) carries the resume
-    /// point and the INVERSE operation to hand back to
-    /// `CallbackInfo::mark_document_edit_applied_with_inverse`.
-    ///
-    /// # Errors
-    /// The tree is left unchanged on error (host/target not found).
-    pub fn apply_to_dom(
-        &self,
-        model: &mut azul_core::dom::Dom,
-        host_path: U32Vec,
-    ) -> crate::document_edit::ResultAppliedEditDocumentEditError {
-        crate::document_edit::apply_document_operation(model, host_path.as_ref(), self).into()
     }
 }

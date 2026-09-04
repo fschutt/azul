@@ -73,6 +73,10 @@ pub struct CpuHitTester {
     dom_placements: BTreeMap<DomId, LogicalRect>,
 }
 
+/// A node's clip geometry together with the `viewBox`
+/// (`min_x`, `min_y`, `width`, `height`) it was authored in, if any.
+type ClipPath = (azul_core::svg::SvgMultiPolygon, Option<(f32, f32, f32, f32)>);
+
 /// A single entry in the CPU hit test acceleration structure.
 #[derive(Debug, Clone)]
 struct HitTestEntry {
@@ -101,7 +105,7 @@ struct HitTestEntry {
     /// this, the transparent corners of a circular button stayed clickable and
     /// - worse - kept SHADOWING whatever was behind them, which is precisely
     /// the thing a clip-path is asked for.
-    clip_path: Option<(azul_core::svg::SvgMultiPolygon, Option<(f32, f32, f32, f32)>)>,
+    clip_path: Option<ClipPath>,
 }
 
 /// A scroll container (`PushScrollFrame` owner) for wheel-target resolution.
@@ -966,7 +970,7 @@ impl CpuHitTester {
     ///
     /// Returns `(dom, node, local_point)` triples in reverse paint order
     /// (topmost first) ACROSS DOMs as well as within one - a child DOM's hits
-    /// precede its host's, as they do in WebRender's result - where
+    /// precede its host's, as they do in `WebRender`'s result - where
     /// `local_point` is the query point mapped into
     /// that node's STATIC layout space — callers use it directly for
     /// node-relative points (caret placement, `point_relative_to_item`).
@@ -1040,9 +1044,9 @@ impl CpuHitTester {
 /// `None` for the overwhelming majority of nodes, which is why this is looked
 /// up once at build time rather than per hit test.
 fn node_clip_path(
-    styled_dom: &azul_core::styled_dom::StyledDom,
+    styled_dom: &StyledDom,
     node_id: NodeId,
-) -> Option<(azul_core::svg::SvgMultiPolygon, Option<(f32, f32, f32, f32)>)> {
+) -> Option<ClipPath> {
     let node_data = styled_dom.node_data.as_container();
     let azul_core::dom::SvgNodeData::Path(path) = node_data.get(node_id)?.get_svg_data()? else {
         return None;
@@ -1064,7 +1068,7 @@ fn node_clip_path(
             view_box = Some((*min_x, *min_y, *width, *height));
             break;
         }
-        cursor = hierarchy.get(id).and_then(|h| h.parent_id());
+        cursor = hierarchy.get(id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
     }
     Some((path.clone(), view_box))
 }
@@ -1076,7 +1080,7 @@ fn node_clip_path(
 fn point_in_clip_path(
     point: LogicalPosition,
     rect: &LogicalRect,
-    clip_path: Option<&(azul_core::svg::SvgMultiPolygon, Option<(f32, f32, f32, f32)>)>,
+    clip_path: Option<&ClipPath>,
 ) -> bool {
     let Some((path, view_box)) = clip_path else {
         return true;

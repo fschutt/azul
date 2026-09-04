@@ -222,7 +222,7 @@ pub struct ProgressBarState {
 /// The widget's PRIVATE `VirtualView` dataset: the whole [`ProgressBar`],
 /// downcast only inside this module ([`ProgressBar::update_progress`] and the
 /// `VirtualView` callback). Callers drive it exclusively through the public
-/// API - the "RefAny datasets are private to the widget module" rule from
+/// API - the "`RefAny` datasets are private to the widget module" rule from
 /// `architecture.md`.
 #[derive(Debug)]
 struct ProgressBarLocalDataset {
@@ -290,7 +290,7 @@ impl ProgressBar {
 
     /// Build the widget: a `VirtualView` node (explicitly sized to
     /// [`height`](Self::height)) whose callback renders [`render_bar`]
-    /// (Self::render_bar) into the node's bounds. The node carries the
+    /// (`Self::render_bar`) into the node's bounds. The node carries the
     /// widget's private dataset so [`update_progress`](Self::update_progress)
     /// can find and mutate it later - see the module docs for the fast path.
     #[must_use]

@@ -124,7 +124,7 @@ mod tests {
         );
         // The SURVIVORS must be the newest: dropping the newest instead would
         // freeze the device's apparent state at the overflow point.
-        let expected_first = (10 % 251) as u8;
+        let expected_first = 10_u8;
         assert_eq!(got[0].report_id, expected_first);
     }
 

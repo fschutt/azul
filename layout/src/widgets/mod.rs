@@ -91,7 +91,9 @@ macro_rules! impl_widget_callback {
 
         impl PartialOrd for $callback_value {
             fn partial_cmp(&self, other: &Self) -> Option<::core::cmp::Ordering> {
-                Some((self.cb as *const () as usize).cmp(&(other.cb as usize)))
+                // Defer to Ord below: the two bodies were identical, and one
+                // copy per widget callback type is 55 chances to diverge.
+                Some(self.cmp(other))
             }
         }
 

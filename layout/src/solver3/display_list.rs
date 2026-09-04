@@ -938,6 +938,7 @@ impl DisplayList {
     /// Generates a JSON representation of the display list for debugging.
     /// This includes clip chain analysis showing how clips are stacked.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[must_use] 
     pub fn to_debug_json(&self) -> String {
         use std::fmt::Write;
         let mut json = String::new();
@@ -5051,7 +5052,7 @@ where
         let width = border_info
             .widths
             .top
-            .and_then(azul_css::css::CssPropertyValue::get_property_owned)
+            .and_then(CssPropertyValue::get_property_owned)
             .map(|w| w.inner.to_pixels_internal(0.0, 16.0, 16.0))?;
         if !width.is_finite() || width <= 0.0 {
             return None;
@@ -5059,7 +5060,7 @@ where
         let color = border_info
             .colors
             .top
-            .and_then(azul_css::css::CssPropertyValue::get_property_owned)
+            .and_then(CssPropertyValue::get_property_owned)
             .map(|c| c.inner)?;
         if color.a == 0 {
             return None;
@@ -5089,7 +5090,7 @@ where
             {
                 return Some((*min_x, *min_y, *width, *height));
             }
-            cursor = hierarchy.get(id).and_then(|h| h.parent_id());
+            cursor = hierarchy.get(id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         None
     }
@@ -5680,7 +5681,7 @@ where
             // and NOT handed to the rectangle painter.
             let stroke = self.svg_stroke_for(dom_id, &border_info);
             let border_info = if stroke.is_some() {
-                let mut without_border = border_info.clone();
+                let mut without_border = border_info;
                 without_border.widths = StyleBorderWidths {
                     top: None,
                     right: None,
@@ -5689,7 +5690,7 @@ where
                 };
                 without_border
             } else {
-                border_info.clone()
+                border_info
             };
 
             // Use unified background/border painting
@@ -5704,7 +5705,7 @@ where
 
             // The stroke is NOT painted here: it must land OUTSIDE this
             // node's own clip mask. See `paint_svg_stroke`.
-            let _ = stroke;
+            drop(stroke);
         }
 
         // Seat focus ring (9b-ii-a-i-d-iii, the overlay half). `:focus` and
@@ -5717,7 +5718,7 @@ where
         if let Some(dom_node) = node.dom_node_id {
             if !self.ctx.seat_focus_rings.is_empty() {
                 let dom_id = self.ctx.styled_dom.dom_id;
-                let colors: Vec<azul_css::props::basic::color::ColorU> = self
+                let colors: Vec<ColorU> = self
                     .ctx
                     .seat_focus_rings
                     .iter()
@@ -5727,7 +5728,7 @@ where
                 for (i, color) in colors.into_iter().enumerate() {
                     // Several seats on one node: concentric rings, 3px apart.
                     let inset = 1.0 + 3.0 * i as f32;
-                    let t = 2.0;
+                    let thickness = 2.0;
                     let x = paint_rect.origin.x - inset;
                     let y = paint_rect.origin.y - inset;
                     let w = paint_rect.size.width + 2.0 * inset;
@@ -5736,10 +5737,23 @@ where
                     let strip = |sx: f32, sy: f32, sw: f32, sh: f32| {
                         LogicalRect::new(LogicalPosition::new(sx, sy), LogicalSize::new(sw, sh))
                     };
-                    builder.push_rect(strip(x, y, w, t), color, BorderRadius::default());
-                    builder.push_rect(strip(x, y + h - t, w, t), color, BorderRadius::default());
-                    builder.push_rect(strip(x, y + t, t, h - 2.0 * t), color, BorderRadius::default());
-                    builder.push_rect(strip(x + w - t, y + t, t, h - 2.0 * t), color, BorderRadius::default());
+                    let vertical = h - 2.0 * thickness;
+                    builder.push_rect(strip(x, y, w, thickness), color, BorderRadius::default());
+                    builder.push_rect(
+                        strip(x, y + h - thickness, w, thickness),
+                        color,
+                        BorderRadius::default(),
+                    );
+                    builder.push_rect(
+                        strip(x, y + thickness, thickness, vertical),
+                        color,
+                        BorderRadius::default(),
+                    );
+                    builder.push_rect(
+                        strip(x + w - thickness, y + thickness, thickness, vertical),
+                        color,
+                        BorderRadius::default(),
+                    );
                 }
             }
         }
@@ -6203,7 +6217,7 @@ where
         // report, 2026-08-31). Kept out of the cache, the prompt is decided
         // fresh on every emission, cached run or not.
         if let Some(rect) = self.get_paint_rect(node_index) {
-            self.maybe_paint_placeholder_prompt(builder, node_index, &rect)?;
+            self.maybe_paint_placeholder_prompt(builder, node_index, &rect);
         }
         if self.try_copy_cached_run(builder, node_index, EmitPhase::Content) {
             return Ok(());
@@ -6436,35 +6450,35 @@ where
     /// Deliberately NOT a DOM node: no hit area, no clusters, no focus
     /// participation, no show/hide state - the overlay-`<p>` design this
     /// replaces intercepted clicks meant for the editable and its
-    /// imperative visibility toggles latched (TextArea's prompt never
+    /// imperative visibility toggles latched (`TextArea`'s prompt never
     /// returned after blur, 2026-08-31).
     #[cfg(feature = "text_layout")]
     #[allow(clippy::cast_precision_loss)]
     fn maybe_paint_placeholder_prompt(
-        &mut self,
+        &self,
         builder: &mut DisplayListBuilder,
         node_index: usize,
         paint_rect: &LogicalRect,
-    ) -> Result<()> {
+    ) {
         let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) else {
-            return Ok(());
+            return;
         };
         let Some(dom_id) = node.dom_node_id else {
-            return Ok(());
+            return;
         };
         let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
         let Some(text) = node_data.get_placeholder() else {
-            return Ok(());
+            return;
         };
         #[cfg(feature = "std")]
         if std::env::var_os("AZ_PH_DEBUG").is_some() {
             std::eprintln!("[ph] attr present");
         }
         if text.trim().is_empty() {
-            return Ok(());
+            return;
         }
         if !super::getters::is_node_contenteditable_inherited(self.ctx.styled_dom, dom_id) {
-            return Ok(());
+            return;
         }
         #[cfg(feature = "std")]
         if std::env::var_os("AZ_PH_DEBUG").is_some() {
@@ -6530,14 +6544,14 @@ where
             }
         }
         if !content_empty {
-            return Ok(());
+            return;
         }
         #[cfg(feature = "std")]
         if std::env::var_os("AZ_PH_DEBUG").is_some() {
             std::eprintln!("[ph] empty ok");
         }
         if super::getters::is_focus_within_or_above(self.ctx.styled_dom, dom_id) {
-            return Ok(());
+            return;
         }
         #[cfg(feature = "std")]
         if std::env::var_os("AZ_PH_DEBUG").is_some() {
@@ -6549,7 +6563,7 @@ where
             .to_content_box(&bp.padding, &bp.border)
             .rect();
         if content_box.size.width <= 0.0 || content_box.size.height <= 0.0 {
-            return Ok(());
+            return;
         }
 
         // THE PROMPT'S OWN STYLE, through the real cascade: resolve the node
@@ -6558,7 +6572,7 @@ where
         // `on_placeholder(...)` declarations both land here. Everything the
         // rule does not set falls back to the host's own value, which is why
         // an unstyled prompt still inherits the field's font.
-        let style = std::sync::Arc::new(super::getters::get_style_properties_for_state(
+        let style = Arc::new(super::getters::get_style_properties_for_state(
             self.ctx.styled_dom,
             dom_id,
             self.ctx.system_style.as_ref(),
@@ -6606,7 +6620,7 @@ where
                 !self.ctx.font_manager.font_chain_cache.is_empty());
         }
         if glyphs.is_empty() {
-            return Ok(());
+            return;
         }
 
         // A declared `::placeholder` colour is used verbatim. With none, the
@@ -6615,7 +6629,7 @@ where
         let color = if prompt_color_declared {
             style.color
         } else {
-            azul_css::props::basic::ColorU {
+            ColorU {
                 a: style.color.a / 2,
                 ..style.color
             }
@@ -6636,7 +6650,7 @@ where
             if g.font_hash != run_hash && !run.is_empty() {
                 builder.push_text_run(
                     core::mem::take(&mut run),
-                    crate::text3::cache::FontHash { font_hash: run_hash },
+                    FontHash { font_hash: run_hash },
                     style.font_size_px,
                     color,
                     content_box,
@@ -6658,7 +6672,7 @@ where
         if !run.is_empty() {
             builder.push_text_run(
                 run,
-                crate::text3::cache::FontHash { font_hash: run_hash },
+                FontHash { font_hash: run_hash },
                 style.font_size_px,
                 color,
                 content_box,
@@ -6666,17 +6680,15 @@ where
                 None,
             );
         }
-        Ok(())
     }
 
     #[cfg(not(feature = "text_layout"))]
     fn maybe_paint_placeholder_prompt(
-        &mut self,
+        &self,
         _builder: &mut DisplayListBuilder,
         _node_index: usize,
         _paint_rect: &LogicalRect,
-    ) -> Result<()> {
-        Ok(())
+    ) {
     }
 
     /// Emits drawing commands for scrollbars. This is called AFTER popping the scroll frame
@@ -8957,6 +8969,7 @@ pub const REMOTE_SELECTION_ALPHA: u8 = 0x66;
 /// `REMOTE_SELECTION_ALPHA` outright: an app that deliberately picked a faint
 /// colour for a participant asked for it to be faint, and this must not make
 /// it louder.
+#[must_use] 
 pub fn remote_selection_tint(owner_color: ColorU) -> ColorU {
     ColorU {
         a: owner_color.a.min(REMOTE_SELECTION_ALPHA),
@@ -10358,26 +10371,22 @@ pub(crate) fn apply_clip_path(
     display_list.node_mapping.push(None);
 }
 
-/// Rasterize an `SvgMultiPolygon` clip path into an R8 image mask at the given paint rect size.
-///
-/// Returns `None` if the rect has zero size.
-#[cfg(feature = "cpurender")]
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_possible_wrap,
-    clippy::cast_sign_loss
-)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 /// The STROKE of a path, rasterised as an R8 coverage mask over `paint_rect`.
 ///
-/// The GPU backend's half of `DisplayListItem::StrokedPath`: WebRender has no
+/// The GPU backend's half of `DisplayListItem::StrokedPath`: `WebRender` has no
 /// vector rasteriser, so the stroke is painted as a colour through this mask.
 /// The CPU backend does not use it - it strokes the outline directly, which
 /// stays sharp at any zoom.
 ///
 /// Rasterised at 2x the logical box for the same reason an icon is: the mask
 /// is scaled to the element on screen, and a 1x mask is visibly soft on a
-/// HiDPI display.
+/// `HiDPI` display.
 #[cfg(feature = "cpurender")]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 fn rasterize_svg_stroke_to_r8(
     path: &azul_core::svg::SvgMultiPolygon,
     paint_rect: &LogicalRect,
@@ -10405,7 +10414,7 @@ fn rasterize_svg_stroke_to_r8(
     let my = |y: f32| f64::from((y + ty) * sy);
     let mut geometry = crate::cpurender::pixmap::svg_path_to_agg(path, &mx, &my);
 
-    let scale = f64::from((sx + sy) / 2.0);
+    let scale = f64::from(f32::midpoint(sx, sy));
     // Flattened before stroking, for the same reason the fill is: the stroker
     // walks VERTICES, and a raw curve command has none to offset.
     let mut flattened = agg_rust::conv_curve::ConvCurve::new(&mut geometry);
@@ -10444,6 +10453,10 @@ fn rasterize_svg_stroke_to_r8(
     })
 }
 
+/// Rasterize an `SvgMultiPolygon` clip path into an R8 image mask at the given
+/// paint rect size.
+///
+/// Returns `None` if the rect has zero size.
 fn rasterize_svg_clip_to_r8(
     svg_clip: &azul_core::svg::SvgMultiPolygon,
     paint_rect: &LogicalRect,

@@ -2091,7 +2091,7 @@ pub fn gpu_value_damage(
 /// `PushScrollFrame.clip_bounds` is the frame's clip in its PARENT's content
 /// space (`get_paint_rect` applies no scroll). Damage rects are consumed in
 /// viewport space, so a frame NESTED inside a scrolled ancestor — the
-/// TextInput's value `<p>` inside a scrolled page column — had its fallback
+/// `TextInput`'s value `<p>` inside a scrolled page column — had its fallback
 /// "repaint the whole clip" rect land `outer offset` pixels away from the
 /// field: the field kept its old horizontal offset while a correctly placed
 /// caret strip beside it rendered at the new one (the seam, 2026-08-31).
@@ -2160,6 +2160,7 @@ pub fn collect_scroll_shifts(
 /// an overlay that does not span the scroll axis (the vertical scrollbar
 /// during a horizontal pan) otherwise keeps a delta-wide stale copy per
 /// frame. Ineligible frames repaint their whole clip.
+#[derive(Debug)]
 pub struct ScrollShiftOutcome {
     /// Rects to re-raster.
     pub damage: Vec<LogicalRect>,
@@ -2652,7 +2653,7 @@ pub struct TranslateBlitResult {
 ///
 /// Extracted from the dll headless present so BOTH backends (the shells'
 /// `render_frame` and the e2e twin) execute the identical blit — before
-/// this, the twin had no notion of a TranslateHint at all, so every
+/// this, the twin had no notion of a `TranslateHint` at all, so every
 /// mover-blit bug was structurally untestable in the harness.
 ///
 /// One blit PER MOVER RECT (never the union — the gaps between movers are

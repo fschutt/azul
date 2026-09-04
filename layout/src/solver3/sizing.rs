@@ -1617,6 +1617,10 @@ fn shrink_to_fit_available_width(cb_w: Text3AvailableSpace, bp: &BoxProps) -> f3
     }
 }
 
+// `cb` stays by REFERENCE deliberately: see the sibling
+// `auto_block_inline_size_definite_or_max_content` - the M12.7 remill lift
+// mis-reads f32 loads passed by value out of `calculate_used_size_for_node`.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn auto_block_inline_size(cb: &LogicalSize, bp: &BoxProps) -> f32 {
     let aw = cb.width
         - bp.margin.left

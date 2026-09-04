@@ -278,14 +278,14 @@ static SYNTHESIZE_PINCH_FROM_CTRL_WHEEL: core::sync::atomic::AtomicBool =
 
 /// Install the app-global Ctrl+wheel pinch setting.
 pub fn set_global_synthesize_pinch_from_ctrl_wheel(enabled: bool) {
-    SYNTHESIZE_PINCH_FROM_CTRL_WHEEL.store(enabled, core::sync::atomic::Ordering::Relaxed);
+    SYNTHESIZE_PINCH_FROM_CTRL_WHEEL.store(enabled, Ordering::Relaxed);
 }
 
 /// Whether Ctrl+wheel should be synthesized into a pinch. Read by the Win32
 /// wheel handler; ignored on every other platform, which reports real pinch.
 #[must_use]
 pub fn synthesize_pinch_from_ctrl_wheel() -> bool {
-    SYNTHESIZE_PINCH_FROM_CTRL_WHEEL.load(core::sync::atomic::Ordering::Relaxed)
+    SYNTHESIZE_PINCH_FROM_CTRL_WHEEL.load(Ordering::Relaxed)
 }
 
 /// App-global `AppConfig::natural_scroll` (9b-ii-b-i-a), published by
@@ -306,14 +306,14 @@ pub fn set_global_natural_scroll(mode: azul_core::resources::NaturalScroll) {
         NaturalScroll::Enabled => 1,
         NaturalScroll::System => 2,
     };
-    NATURAL_SCROLL_MODE.store(v, core::sync::atomic::Ordering::Relaxed);
+    NATURAL_SCROLL_MODE.store(v, Ordering::Relaxed);
 }
 
 /// The app-global natural-scroll mode.
 #[must_use]
 pub fn natural_scroll_mode() -> azul_core::resources::NaturalScroll {
     use azul_core::resources::NaturalScroll;
-    match NATURAL_SCROLL_MODE.load(core::sync::atomic::Ordering::Relaxed) {
+    match NATURAL_SCROLL_MODE.load(Ordering::Relaxed) {
         1 => NaturalScroll::Enabled,
         2 => NaturalScroll::System,
         _ => NaturalScroll::Disabled,
@@ -327,13 +327,13 @@ pub fn set_global_system_natural_scroll(natural: Option<bool>) {
         Some(false) => 1,
         Some(true) => 2,
     };
-    SYSTEM_NATURAL_SCROLL.store(v, core::sync::atomic::Ordering::Relaxed);
+    SYSTEM_NATURAL_SCROLL.store(v, Ordering::Relaxed);
 }
 
 /// The platform's natural-scrolling preference, if a backend reported one.
 #[must_use]
 pub fn system_natural_scroll() -> Option<bool> {
-    match SYSTEM_NATURAL_SCROLL.load(core::sync::atomic::Ordering::Relaxed) {
+    match SYSTEM_NATURAL_SCROLL.load(Ordering::Relaxed) {
         1 => Some(false),
         2 => Some(true),
         _ => None,
@@ -347,13 +347,13 @@ static EXPOSE_SYSTEM_MEDIA_CONTROLS: core::sync::atomic::AtomicBool = core::sync
 
 /// Install the app-global MPRIS setting.
 pub fn set_global_expose_system_media_controls(enabled: bool) {
-    EXPOSE_SYSTEM_MEDIA_CONTROLS.store(enabled, core::sync::atomic::Ordering::Relaxed);
+    EXPOSE_SYSTEM_MEDIA_CONTROLS.store(enabled, Ordering::Relaxed);
 }
 
 /// Whether to publish an MPRIS player. Read by the Linux media-key backend.
 #[must_use]
 pub fn expose_system_media_controls() -> bool {
-    EXPOSE_SYSTEM_MEDIA_CONTROLS.load(core::sync::atomic::Ordering::Relaxed)
+    EXPOSE_SYSTEM_MEDIA_CONTROLS.load(Ordering::Relaxed)
 }
 
 /// Data for the tween timer: the shared "in flight" flag published by
@@ -1343,24 +1343,24 @@ pub struct LayoutWindow {
     /// ran and scrolled the field.
     pub text_selection_drag_anchor: Option<LogicalPosition>,
 
-    /// The node arenas of every VirtualView child dom as of the previous full
+    /// The node arenas of every `VirtualView` child dom as of the previous full
     /// pass, kept ONLY so re-materialization can reconcile instead of being a
     /// rebirth.
     ///
     /// The full-relayout funnel destroys `layout_results` wholesale before the
-    /// VirtualView callbacks run again, so by the time a child dom is
+    /// `VirtualView` callbacks run again, so by the time a child dom is
     /// re-materialized its old arena is gone — and with it any chance of
     /// mapping old `NodeId`s to new ones. Every manager keyed
     /// `(DomId, NodeId)` (overlay text, edit sessions, selections, focus,
     /// undo) then silently crossed the generation onto a LIVE BUT WRONG node:
     /// typing painted over the wrong paragraph, a drag-selection continued
-    /// against dangling cluster ids. Stashing (node_data, hierarchy) here —
+    /// against dangling cluster ids. Stashing (`node_data`, hierarchy) here —
     /// the exact inputs `reconcile_dom` needs, nothing more — lets
     /// `reconcile_rematerialized_child` drive the exhaustive
     /// [`Self::remap_node_ids`] driver for child doms the same way root
     /// migration does. Rebuilt from scratch each funnel pass; consumed
     /// (removed) per dom at re-materialization.
-    pub previous_child_arenas: std::collections::BTreeMap<
+    pub previous_child_arenas: BTreeMap<
         DomId,
         (
             Vec<azul_core::dom::NodeData>,
@@ -1599,7 +1599,7 @@ pub struct LayoutWindow {
     /// The window holds it so that EVERY path from a user `Dom` to a
     /// `StyledDom` can resolve icons - see [`Self::style_user_dom`]. Before
     /// this, only the shell's `regenerate_layout` had a provider in scope, so
-    /// the DOM a VirtualView callback returns was cascaded without one and its
+    /// the DOM a `VirtualView` callback returns was cascaded without one and its
     /// icons never resolved.
     ///
     /// `None` in a window whose app registered no icons at all, and in the
@@ -1636,7 +1636,7 @@ pub struct LayoutWindow {
     preedit_shaped_node: Option<(DomId, NodeId)>,
     /// Which node each non-primary seat's composition is spliced into
     /// (9b-ii-a-i-d-ii-c); the primary's is `preedit_shaped_node`.
-    seat_preedit_shaped: std::collections::BTreeMap<u64, (DomId, NodeId)>,
+    seat_preedit_shaped: BTreeMap<u64, (DomId, NodeId)>,
     /// Configurable input interpreter: maps raw events → `SystemChange` actions.
     /// Default: `default_input_interpreter` (standard desktop keybindings).
     /// Replace to implement vim, game controls, accessibility remaps, etc.
@@ -1697,9 +1697,7 @@ fn copy_trace(msg: impl FnOnce() -> String) {
         None,
     );
     #[cfg(not(feature = "e2e-server"))]
-    {
-        let _ = msg;
-    }
+    drop(msg);
 }
 
 impl LayoutWindow {
@@ -2013,7 +2011,7 @@ impl LayoutWindow {
             text_edit_manager: crate::managers::text_edit::TextEditManager::new(),
             last_revealed_caret_rect: None,
             text_selection_drag_anchor: None,
-            previous_child_arenas: std::collections::BTreeMap::new(),
+            previous_child_arenas: BTreeMap::new(),
             prev_left_down: false,
             file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
@@ -2079,7 +2077,7 @@ impl LayoutWindow {
             monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
             preedit_shaped_node: None,
-            seat_preedit_shaped: std::collections::BTreeMap::new(),
+            seat_preedit_shaped: BTreeMap::new(),
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
             custom_e2e_op: azul_core::events::CustomE2eOpCallback::default(),
@@ -2639,7 +2637,7 @@ impl LayoutWindow {
     /// Flatten-length of one inline item — the SAME accounting
     /// `overlay::flatten_inline_content` performs, so byte offsets built
     /// from it index the exact string `get_node_text_content` returns.
-    fn inline_item_flat_len(item: &crate::text3::cache::InlineContent) -> usize {
+    fn inline_item_flat_len(item: &InlineContent) -> usize {
         use crate::text3::cache::InlineContent as IC;
         match item {
             IC::Text(run) => run.text.len(),
@@ -2663,7 +2661,7 @@ impl LayoutWindow {
         &self,
         dom_id: DomId,
         node_id: NodeId,
-        cursor: &azul_core::selection::TextCursor,
+        cursor: &TextCursor,
     ) -> u32 {
         use crate::text3::cache::InlineContent as IC;
         let content = self.get_text_before_textinput(dom_id, node_id);
@@ -3033,8 +3031,8 @@ impl LayoutWindow {
     /// is baked into the display-list item as `content_offset`
     /// (`materialized_window_origin - scroll_offset`). The fast scroll path
     /// only re-renders — it applies the scroll-frame offsets the renderer
-    /// accumulates and rebuilds no display list — so for a VirtualView it
-    /// moved NOTHING. The scrollbar tracked the ScrollManager and the page
+    /// accumulates and rebuilds no display list — so for a `VirtualView` it
+    /// moved NOTHING. The scrollbar tracked the `ScrollManager` and the page
     /// stayed frozen underneath it, which is the "it only scrolls the
     /// scrollbar" report.
     ///
@@ -3042,7 +3040,7 @@ impl LayoutWindow {
     /// when the offset is already correct.
     ///
     /// NEGATIVE CONTROL: stop calling this on the lightweight scroll path and
-    /// a VirtualView freezes again while its scrollbar keeps moving.
+    /// a `VirtualView` freezes again while its scrollbar keeps moving.
     pub fn patch_virtual_view_content_offset(&mut self, dom_id: DomId, node_id: NodeId) -> bool {
         let Some(child_dom_id) = self.virtual_view_manager.get_nested_dom_id(dom_id, node_id)
         else {
@@ -3543,7 +3541,7 @@ impl LayoutWindow {
 
         // Only a TEXT child carries a byte offset; anything else is a
         // boundary before/after it (after = caret at the child's end).
-        if let Some(NodeType::Text(t)) = node_data.get(direct_child).map(|n| n.get_node_type()) {
+        if let Some(NodeType::Text(t)) = node_data.get(direct_child).map(azul_core::dom::NodeData::get_node_type) {
             // Affinity resolved against the text: a Trailing caret sits AFTER
             // its grapheme, so the raw start_byte_in_run is one cluster short
             // — an end-of-paragraph Enter split "hello worl|d", not
@@ -4345,7 +4343,7 @@ impl LayoutWindow {
         let mut target = anchor;
         for &idx in resume.node_path.as_ref() {
             if let Some(c) = nth_child(target, idx) {
-                target = c
+                target = c;
             } else {
                 target = anchor;
                 break;
@@ -5166,6 +5164,7 @@ impl LayoutWindow {
     /// window smaller than its insets collapses to zero rather than going
     /// negative. Only absolute (px) insets count - that is what every
     /// platform reports.
+    #[must_use] 
     pub fn inset_by_safe_area(
         full: &LogicalRect,
         insets: &azul_css::system::SafeAreaInsets,
@@ -5187,7 +5186,7 @@ impl LayoutWindow {
                 x: full.origin.x + left,
                 y: full.origin.y + top,
             },
-            size: azul_core::geom::LogicalSize {
+            size: LogicalSize {
                 width: (full.size.width - left - right).max(0.0),
                 height: (full.size.height - top - bottom).max(0.0),
             },
@@ -5830,7 +5829,7 @@ impl LayoutWindow {
         // of the DL cache key). Remember what this build consumed so the
         // publish-after-consume check below the VirtualView invokes can tell
         // whether a callback changed it mid-pass.
-        let pre_scroll_fp = crate::solver3::scroll_geometry_fingerprint(&scroll_offsets);
+        let pre_scroll_fp = solver3::scroll_geometry_fingerprint(&scroll_offsets);
 
         // Synchronize CSS transform / opacity keys with the current StyledDom
         // BEFORE building the display list. `display_list.rs` reads
@@ -6831,7 +6830,7 @@ impl LayoutWindow {
         // fresh snapshot and re-points the placeholders), so the very first
         // frame already shows the scrollbar instead of flashing bar-less.
         // Steady state republishes identical geometry and this is a no-op.
-        let post_scroll_fp = crate::solver3::scroll_geometry_fingerprint(
+        let post_scroll_fp = solver3::scroll_geometry_fingerprint(
             &self.scroll_manager.get_scroll_states_for_dom(dom_id),
         );
         if post_scroll_fp != pre_scroll_fp {
@@ -8579,10 +8578,10 @@ impl LayoutWindow {
         dom_id: DomId,
         node_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem],
         node: NodeId,
-        scroll_manager: &crate::managers::scroll_state::ScrollManager,
+        scroll_manager: &ScrollManager,
         layout_result: &DomLayoutResult,
     ) -> Option<u64> {
-        let mut cur = node_hierarchy.get(node.index()).and_then(|i| i.parent_id());
+        let mut cur = node_hierarchy.get(node.index()).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         let mut guard = 0usize;
         while let Some(parent) = cur {
             guard += 1;
@@ -8602,7 +8601,7 @@ impl LayoutWindow {
             }
             cur = node_hierarchy
                 .get(parent.index())
-                .and_then(|i| i.parent_id());
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         None
     }
@@ -8612,7 +8611,7 @@ impl LayoutWindow {
     /// it. `None` if the list has no such frame (a stale id, a list built
     /// before the frame existed).
     fn end_of_scroll_frame(
-        items: &[crate::solver3::display_list::DisplayListItem],
+        items: &[solver3::display_list::DisplayListItem],
         scroll_id: u64,
     ) -> Option<usize> {
         use crate::solver3::display_list::DisplayListItem as I;
@@ -9533,14 +9532,13 @@ impl LayoutWindow {
         ) else {
             return None;
         };
-        let new_focus = match resolved {
-            crate::managers::focus_cursor::FocusResolution::Resolved(n) => n,
-            // A target that STILL matches nothing is a genuine "no such
-            // focusable" answer now that layout exists — do not re-queue it,
-            // or it would re-run on every frame for the window's lifetime.
-            // (ClearRequested is unreachable here — NoFocus is never parked —
-            // and a resolve with layout present never defers.)
-            _ => return None,
+        // A target that STILL matches nothing is a genuine "no such focusable"
+        // answer now that layout exists — do not re-queue it, or it would
+        // re-run on every frame for the window's lifetime. (ClearRequested is
+        // unreachable here — NoFocus is never parked — and a resolve with
+        // layout present never defers.)
+        let crate::managers::focus_cursor::FocusResolution::Resolved(new_focus) = resolved else {
+            return None;
         };
 
         self.focus_manager.set_focused_node(Some(new_focus));
@@ -9807,7 +9805,7 @@ impl LayoutWindow {
     ///
     /// One accessor, so every focus route asks the same question.
     #[must_use]
-    pub fn focus_out_of_scope_doms(&self) -> std::collections::BTreeSet<DomId> {
+    pub fn focus_out_of_scope_doms(&self) -> BTreeSet<DomId> {
         self.transient_windows
             .open_windows()
             .iter()
@@ -9938,7 +9936,7 @@ impl LayoutWindow {
         // the 2026-08-31 "no caret until the blink tick" report). A live
         // session with focus in the same DOM is the truth available here;
         // the strict descendant refinement resumes once the result is back.
-        if self.layout_results.get(&edom).is_none() {
+        if !self.layout_results.contains_key(&edom) {
             return true;
         }
         self.node_is_self_or_descendant(edom, enode, fnode)
@@ -10074,17 +10072,14 @@ impl LayoutWindow {
             .unwrap_or(node_id);
         let (first, last) = {
             let dense = self.get_dense_for_node(dom_id, ifc_node);
-            match dense {
-                Some(d) => (d.first_cluster_cursor(), d.last_cluster_cursor()),
-                None => {
-                    let Some(layout) = self.get_inline_layout_for_node(dom_id, ifc_node) else {
-                        return false;
-                    };
-                    (
-                        layout.get_first_cluster_cursor(),
-                        layout.get_last_cluster_cursor(),
-                    )
-                }
+            if let Some(d) = dense { (d.first_cluster_cursor(), d.last_cluster_cursor()) } else {
+                let Some(layout) = self.get_inline_layout_for_node(dom_id, ifc_node) else {
+                    return false;
+                };
+                (
+                    layout.get_first_cluster_cursor(),
+                    layout.get_last_cluster_cursor(),
+                )
             }
         };
         let (Some(first), Some(last)) = (first, last) else {
@@ -10127,8 +10122,7 @@ impl LayoutWindow {
             core::mem::swap(&mut a, &mut b);
         }
         let mut out = String::new();
-        for run in a.0..=b.0 {
-            let text = runs[run];
+        for (run, text) in runs.iter().enumerate().take(b.0 + 1).skip(a.0) {
             let lo = if run == a.0 { a.1.min(text.len()) } else { 0 };
             let hi = if run == b.0 { b.1.min(text.len()) } else { text.len() };
             if lo < hi && text.is_char_boundary(lo) && text.is_char_boundary(hi) {
@@ -11951,7 +11945,7 @@ impl LayoutWindow {
             // A refused FULL tree keeps the last good state parked/delivered;
             // `last_rejection` records why (the e2e digest and the contract
             // tests read it). Nothing malformed reaches an adapter.
-            drop(self.a11y_manager.publish(tree_update));
+            let _ = self.a11y_manager.publish(tree_update);
         }
     }
 
@@ -12253,8 +12247,8 @@ impl LayoutWindow {
     /// The caret rect for a BYTE OFFSET in the focused editable, in absolute
     /// window coordinates (10b-i-a).
     ///
-    /// The shells' IME protocols speak in flat byte offsets - UIKit's
-    /// `caretRectForPosition:` and `firstRectForRange:`, AppKit's
+    /// The shells' IME protocols speak in flat byte offsets - `UIKit`'s
+    /// `caretRectForPosition:` and `firstRectForRange:`, `AppKit`'s
     /// `firstRectForCharacterRange:` - while the engine speaks in
     /// `TextCursor`s over grapheme clusters. This is the bridge, and its
     /// absence is why both shells answered every geometry question with the
@@ -12586,7 +12580,7 @@ impl LayoutWindow {
             start: drag.anchor,
             end: focus,
         };
-        if let Some(azul_core::selection::Selection::Range(current)) =
+        if let Some(Selection::Range(current)) =
             mc.get_primary().map(|p| p.selection)
         {
             if current == new_range {
@@ -12599,12 +12593,12 @@ impl LayoutWindow {
     }
 
     /// The finger lifted. Returns whether a handle drag was in progress.
-    pub fn end_selection_handle_drag(&mut self) -> bool {
+    pub const fn end_selection_handle_drag(&mut self) -> bool {
         self.text_edit_manager.handle_drag.take().is_some()
     }
 
     #[must_use]
-    pub fn selection_handle_drag_active(&self) -> bool {
+    pub const fn selection_handle_drag_active(&self) -> bool {
         self.text_edit_manager.handle_drag.is_some()
     }
 
@@ -12793,7 +12787,7 @@ impl LayoutWindow {
     ///
     /// Select the WORD under the caret (U2).
     ///
-    /// What UIKit's `select:` means and what a long-press on unselected text
+    /// What `UIKit`'s `select:` means and what a long-press on unselected text
     /// asks for - "select the word here", not "select everything". Answering
     /// it with select-all would be the wrong gesture entirely: the user asked
     /// for a word and would get the document.
@@ -14301,9 +14295,9 @@ impl LayoutWindow {
     /// then cascade.
     ///
     /// Every DOM the application produces goes through here - the one its
-    /// `layout()` callback returns AND the one a VirtualView callback returns.
+    /// `layout()` callback returns AND the one a `VirtualView` callback returns.
     /// That is the whole point of the method existing rather than each caller
-    /// pairing the two steps itself: the VirtualView path did not pair them,
+    /// pairing the two steps itself: the `VirtualView` path did not pair them,
     /// because the provider simply was not reachable from `LayoutWindow`, so
     /// an `<icon>` inside a virtual view was cascaded as an icon node and
     /// stayed one forever. Routing both through one method closes that by
@@ -14323,12 +14317,9 @@ impl LayoutWindow {
         // re-resolves an icon node later, so skipping it here would leave the
         // icon empty for the life of that DOM.
         let fallback;
-        let system_style = match self.system_style.as_deref() {
-            Some(s) => s,
-            None => {
-                fallback = azul_css::system::SystemStyle::default();
-                &fallback
-            }
+        let system_style = if let Some(s) = self.system_style.as_deref() { s } else {
+            fallback = azul_css::system::SystemStyle::default();
+            &fallback
         };
         azul_core::icon::styled_dom_resolving_icons(dom, provider, system_style)
     }
@@ -16313,7 +16304,7 @@ impl LayoutWindow {
                         })
                 };
                 if preserves_newlines {
-                    return crate::solver3::fc::split_text_for_whitespace(
+                    return solver3::fc::split_text_for_whitespace(
                         &layout_result.styled_dom,
                         node_id,
                         text.as_str(),
@@ -16455,7 +16446,7 @@ impl LayoutWindow {
             .into_iter()
             .find(|c| {
                 matches!(
-                    node_data.get(c.index()).map(|d| d.get_node_type()),
+                    node_data.get(c.index()).map(azul_core::dom::NodeData::get_node_type),
                     Some(NodeType::Text(_))
                 )
             })
@@ -16559,7 +16550,7 @@ impl LayoutWindow {
     /// What an IME needs and had no way to ask for. Android's
     /// `InputConnection.getTextBeforeCursor` / `getTextAfterCursor` /
     /// `getSelectedText` are what drive autocorrect, the suggestion strip,
-    /// swipe typing and "double-space inserts a period" — an InputConnection
+    /// swipe typing and "double-space inserts a period" — an `InputConnection`
     /// that answers them from an empty scratch buffer gets none of that, which
     /// is exactly the state the Android bridge shipped in.
     ///
@@ -17173,7 +17164,7 @@ impl LayoutWindow {
                                 warm.scrollbar_info = Some(plan.now_reqs);
                             }
                         }
-                        let now = Instant::from(std::time::Instant::now());
+                        let now = Instant::now();
                         if plan.now_reqs.needs_horizontal || plan.now_reqs.needs_vertical {
                             // Idempotent full pass: registers the node,
                             // computes thumb geometry, seeds activity so the
@@ -17543,7 +17534,7 @@ impl LayoutWindow {
         let seat_focus_rings = self.seat_focus_rings();
         // Same fingerprint `layout_document` keys its cache on - computed
         // BEFORE `cursor_locations` moves into the build below.
-        let dl_input_fp = crate::solver3::dl_input_fingerprint(
+        let dl_input_fp = solver3::dl_input_fingerprint(
             cursor_is_visible,
             &cursor_locations,
             &text_selections_map,
@@ -17676,7 +17667,7 @@ impl LayoutWindow {
                                 h,
                                 cached.1,
                                 gpu_cache.dl_emission_fingerprint(),
-                                crate::solver3::scroll_geometry_fingerprint(&scroll_offsets),
+                                solver3::scroll_geometry_fingerprint(&scroll_offsets),
                                 dl_input_fp,
                                 display_list,
                             );
@@ -19735,9 +19726,8 @@ impl LayoutWindow {
         if out.is_none() {
             copy_trace(|| {
                 format!(
-                    "[copy] every range resolved to zero bytes against {:?}/{:?}'s inline \
-                     content — the ranges and the runs disagree (dual text path?)",
-                    dom_id, node_id
+                    "[copy] every range resolved to zero bytes against {dom_id:?}/{node_id:?}'s inline \
+                     content — the ranges and the runs disagree (dual text path?)"
                 )
             });
         }
@@ -20144,7 +20134,7 @@ impl LayoutWindow {
     /// New node-keyed managers should implement [`crate::managers::NodeIdRemap`]
     /// and be driven from here.
     #[allow(clippy::too_many_lines)]
-    /// Map a re-materialized VirtualView child's manager state onto its new
+    /// Map a re-materialized `VirtualView` child's manager state onto its new
     /// arena. See the call site in `invoke_virtual_view_callback_impl` for why;
     /// see `previous_child_arenas` for where the old arena survives the
     /// full-relayout funnel's `layout_results.clear()`.
@@ -25283,7 +25273,7 @@ pub fn first_line_span(first: LogicalRect, last: LogicalRect) -> LogicalRect {
     }
     LogicalRect {
         origin: first.origin,
-        size: azul_core::geom::LogicalSize::new(
+        size: LogicalSize::new(
             // `max` with the caret's own width, so a zero-length range is still
             // a visible bar rather than a rect UIKit places off-screen.
             (last.origin.x - first.origin.x).max(first.size.width),
@@ -25392,7 +25382,7 @@ pub fn utf16_range_to_bytes(text: &str, location: usize, length: usize) -> (usiz
 /// - With a composition open, the selection lives INSIDE the marked text:
 ///   the IME's own `selectedRange` from `setMarkedText:`, which is relative to
 ///   the marked string, rebased onto the document and clamped to the marked
-///   span. That is what AppKit reads back to place the candidate window and
+///   span. That is what `AppKit` reads back to place the candidate window and
 ///   to decide which part of the composition a keystroke edits; reporting the
 ///   committed caret there instead put the candidate window a preedit-length
 ///   away from the text being composed.
@@ -25447,7 +25437,7 @@ pub enum ImeReplacement {
 ///
 /// The header's contract: "the receiver inserts aString replacing the
 /// content specified by replacementRange"; "if there is no marked text, the
-/// current selection is replaced". Every reference client (WebKit, Chromium,
+/// current selection is replaced". Every reference client (`WebKit`, Chromium,
 /// Flutter's embedder) reads the range as DOCUMENT content and selects it
 /// before acting, which is what `ReplaceCommitted` asks the caller to do.
 #[must_use]

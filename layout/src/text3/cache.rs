@@ -4079,7 +4079,7 @@ impl Eq for Stroke {}
 
 // Helper function to round f32 for comparison
 #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
-fn round_eq(a: f32, b: f32) -> bool {
+const fn round_eq(a: f32, b: f32) -> bool {
     (a.round() as isize) == (b.round() as isize)
 }
 
@@ -9176,7 +9176,7 @@ pub(crate) fn shape_placeholder_text<T: ParsedFontTrait>(
         return Vec::new();
     }
     let script = crate::text3::script::detect_script(text).unwrap_or(Script::Latin);
-    let language = crate::text3::script::script_to_language(script, text);
+    let language = script_to_language(script, text);
     match &style.font_stack {
         FontStack::Ref(font_ref) => font_ref
             .shape_text(text, script, language, BidiDirection::Ltr, style)

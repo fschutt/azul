@@ -133,7 +133,7 @@ pub fn next_capture_marker(kind: &str) -> AzString {
     format!(
         "azul-{}-{:x}",
         kind,
-        NEXT.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
+        NEXT.fetch_add(1, Ordering::Relaxed)
     )
     .into()
 }

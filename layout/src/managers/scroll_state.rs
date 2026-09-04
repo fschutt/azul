@@ -357,6 +357,10 @@ pub enum ScrollPhaseTransition {
 
 /// Manages all scroll state and animations for a window
 #[derive(Debug, Clone, Default)]
+// The bools are INDEPENDENT latches (per-axis / per-phase arming state), not the
+// states of one machine; folding them into enums would make legal combinations
+// unrepresentable.
+#[allow(clippy::struct_excessive_bools)]
 pub struct ScrollManager {
     /// Maps (`DomId`, `NodeId`) to their scroll state
     states: BTreeMap<(DomId, NodeId), AnimatedScrollState>,
@@ -527,15 +531,17 @@ impl ScrollManager {
     /// Creates a new empty `ScrollManager`
     #[must_use]
     pub fn new() -> Self {
-        let mut m = Self::default();
         // `AppConfig::natural_scroll` (9b-ii-b-i-a): `Enabled` flips in the
         // engine; `System` and `Disabled` do not - the platform already
         // applied the user's preference to the deltas it hands over, and
         // `System` only makes that preference readable.
-        m.natural_scroll = matches!(
-            crate::window::natural_scroll_mode(),
-            azul_core::resources::NaturalScroll::Enabled
-        );
+        let mut m = Self {
+            natural_scroll: matches!(
+                crate::window::natural_scroll_mode(),
+                azul_core::resources::NaturalScroll::Enabled
+            ),
+            ..Self::default()
+        };
         // Power-user / test override: this env var wins so the direction can
         // be flipped without a rebuild and so tests are hermetic.
         #[cfg(feature = "std")]

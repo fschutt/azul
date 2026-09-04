@@ -162,7 +162,6 @@ pub fn validate_form(
                 _ => {}
             }
         }
-        drop(push);
         if !state.is_valid() {
             failures.push(InvalidControl { node, state });
         }
@@ -268,7 +267,7 @@ pub fn input_purpose(
 /// a line break or an action key (Done / Go / Search).
 ///
 /// `TextArea` is the multiline control; everything else is single-line. The
-/// Android bridge hardcoded MULTI_LINE for every field, so a single-line input
+/// Android bridge hardcoded `MULTI_LINE` for every field, so a single-line input
 /// showed a newline key and had no way to dismiss the keyboard.
 #[must_use]
 pub fn is_multiline(
@@ -305,6 +304,7 @@ pub fn is_multiline(
 /// Disabled and readonly controls are NOT skipped here, unlike in validation:
 /// a reset clears a readonly field in a browser, because the reset is the
 /// app's action rather than the user's.
+#[must_use] 
 pub fn default_values(
     form: DomNodeId,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,

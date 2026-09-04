@@ -236,10 +236,7 @@ impl Eq for ThreadSenderInner {}
 #[cfg(feature = "std")]
 impl PartialOrd for ThreadSenderInner {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(
-            (std::ptr::from_ref(self.ptr.as_ref()) as usize)
-                .cmp(&(std::ptr::from_ref(other.ptr.as_ref()) as usize)),
-        )
+        Some(self.cmp(other))
     }
 }
 
@@ -888,11 +885,11 @@ pub extern "C" fn create_thread_libstd(
     let dropcheck = Arc::downgrade(&thread_check);
 
     let thread_handle = Some(thread::spawn(move || {
-        // Keep thread_check alive for the entire duration of the thread
-        // by binding it to a named variable (not `_` which drops immediately)
-        let _thread_check_guard = thread_check;
+        // `thread_check` is captured BY MOVE, so it stays alive for the whole
+        // body; dropping it here is what makes `dropcheck.upgrade()` start
+        // returning `None`, i.e. signals that the thread has finished.
         (callback.cb)(thread_initialize_data, sender_receiver, receiver_sender);
-        // _thread_check_guard gets dropped here, signals that the thread has finished
+        drop(thread_check);
     }));
 
     let thread_handle: Box<Option<JoinHandle<()>>> = Box::new(thread_handle);

@@ -247,7 +247,7 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// Per-participant caret colours (U1), keyed by `SelectionOwner`. Empty
     /// for a single-user app, where every caret falls back to `caret-color`.
     pub owner_colors:
-        alloc::collections::BTreeMap<azul_core::selection::SelectionOwner, azul_css::props::basic::color::ColorU>,
+        BTreeMap<azul_core::selection::SelectionOwner, azul_css::props::basic::color::ColorU>,
     /// Seat focus rings (9b-ii-a-i-d-iii, the overlay half): every node a
     /// NON-primary seat focuses, with that seat's colour - the same
     /// seat-coloured convention as the seat carets, painted as a 2px ring
@@ -292,7 +292,7 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// ever becomes a thing.
     /// What each `VirtualView` last MATERIALIZED, keyed by node.
     ///
-    /// A VirtualView is a replaced element, and until now its intrinsic size
+    /// A `VirtualView` is a replaced element, and until now its intrinsic size
     /// was the hardcoded 300x150 of a replaced element with no natural size -
     /// even though the callback reports exactly how big its content is
     /// (`VirtualViewReturn::materialized`). That report only ever reached
@@ -441,7 +441,7 @@ pub static SKIP_DISPLAY_LIST: core::sync::atomic::AtomicBool =
 ///
 /// The emitted list is a function of `scroll_offsets` too — scrollbar
 /// necessity and track layout read `children_rect.size` / `parent_rect`, and a
-/// VirtualView's published virtual size reaches the build ONLY through this
+/// `VirtualView`'s published virtual size reaches the build ONLY through this
 /// map (`get_scroll_states_for_dom` puts `virtual_scroll_size` into
 /// `children_rect`). It is therefore part of the DL cache key: without it the
 /// cache served the pre-publication list back on every later pass (a 13,000px
@@ -529,7 +529,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     dom_id: DomId,
     cursor_is_visible: bool,
     cursor_locations: Vec<crate::managers::text_edit::CursorLocation>,
-    owner_colors: alloc::collections::BTreeMap<
+    owner_colors: BTreeMap<
         azul_core::selection::SelectionOwner,
         azul_css::props::basic::color::ColorU,
     >,

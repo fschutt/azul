@@ -408,10 +408,14 @@ fn hover_and_focus_rules_reach_an_svg_shape() {
     };
 
     let resting = StyledNodeState::default();
-    let mut hovered = StyledNodeState::default();
-    hovered.hover = true;
-    let mut focused = StyledNodeState::default();
-    focused.focused = true;
+    let hovered = StyledNodeState {
+        hover: true,
+        ..Default::default()
+    };
+    let focused = StyledNodeState {
+        focused: true,
+        ..Default::default()
+    };
 
     assert_eq!(
         fill_in(resting),
@@ -486,8 +490,8 @@ fn a_curved_edge_is_antialiased_not_stepped() {
 ///
 /// This decides whether swapping a window control's glyph on hover needs a new
 /// imperative API or is just CSS. The hover state is set on every node under
-/// the pointer, so a child is only hovered when the pointer is over the CHILD
-/// - over the button's padding it is not - and a swap keyed on the icon's own
+/// the pointer, so a child is only hovered when the pointer is over the CHILD -
+/// over the button's padding it is not - and a swap keyed on the icon's own
 /// `:hover` would flicker. A descendant selector keyed on the BUTTON is the
 /// declarative answer, if the cascade supports one.
 #[test]
