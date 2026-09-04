@@ -892,6 +892,56 @@ fn read_and_demote(lifted_ir_path: &Path, fn_name: &str) -> Result<String, Trans
     }
 }
 
+struct WaveEntry {
+    name: String,
+    addr: usize,
+    size: usize,
+    lift_addr: u64,
+    ctx: LiftPrepCtx,
+}
+
+struct WaveInFlight {
+    pending: Vec<WaveEntry>,
+    child: std::process::Child,
+    manifest: PathBuf,
+    started: std::time::Instant,
+}
+
+/// Deadline-wait a batch child. No pipes are involved (its output went to a
+/// file), so the only hazard is a wedged child; on expiry it is killed and
+/// the wave falls back to individual lifts.
+fn wait_batch_child(mut child: std::process::Child, manifest: &Path) -> bool {
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_secs(lift_env_tool_timeout());
+    let ok = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status.success(),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break false;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            Err(_) => break false,
+        }
+    };
+    let _ = std::fs::remove_file(manifest);
+    if ok {
+        let _ = std::fs::remove_file(manifest.with_extension("log"));
+    } else if let Ok(tail) = std::fs::read_to_string(manifest.with_extension("log")) {
+        for l in tail.lines().rev().take(4) {
+            eprintln!("[azul-web]   batch stderr: {l}");
+        }
+    }
+    ok
+}
+
+fn lift_env_tool_timeout() -> u64 {
+    super::lift_env::lift_env().tool_timeout_secs
+}
+
 struct BatchJob {
     lift_addr: u64,
     ir_out: PathBuf,
@@ -1081,35 +1131,24 @@ impl RemillTranspiler {
     /// Splitting at exactly this point is what lets a wave of functions share
     /// ONE remill process: prepare each, batch the Fresh ones, finish each.
     #[allow(clippy::large_enum_variant)]
-    /// Lift a WAVE of functions with one remill process (--batch_manifest),
-    /// filling `out` with each success. A function that fails here is simply
-    /// not inserted: the walk retries it individually through lift_fn, which
-    /// reproduces the per-function error attribution exactly.
-    ///
-    /// Cache semantics are identical to the one-at-a-time path because the
-    /// SAME lift_prepare / lift_store_finish run per function - only the
-    /// process boundary moved. When the reloc cache is storing templates, the
-    /// probe lifts (same bytes at a probe address) ride a second manifest
-    /// instead of spawning per function.
-    fn prelift_wave(
+    /// Launch a wave: prepare every entry (cache hits land in `out`
+    /// immediately), then start ONE remill --batch_manifest process for the
+    /// misses WITHOUT waiting for it. The caller reaps it at the next wave
+    /// boundary, so the batch lifts wave N+1 while the walk and the object
+    /// pool consume wave N - the overlap is the speedup; a synchronous wave
+    /// merely rearranged the same serial time.
+    fn wave_launch(
         &self,
         wave: &[(String, usize, usize, u64)],
         out: &mut std::collections::HashMap<usize, String>,
-    ) {
-        struct Pending {
-            name: String,
-            addr: usize,
-            size: usize,
-            lift_addr: u64,
-            ctx: LiftPrepCtx,
-        }
-        let mut pending: Vec<Pending> = Vec::new();
+    ) -> Option<WaveInFlight> {
+        let mut pending: Vec<WaveEntry> = Vec::new();
         for (name, addr, size, lift_addr) in wave {
             match self.lift_prepare(name, *addr, *size, *lift_addr) {
                 Ok(LiftPrep::Ready(ir)) => {
                     out.insert(*addr, ir);
                 }
-                Ok(LiftPrep::Fresh(ctx)) => pending.push(Pending {
+                Ok(LiftPrep::Fresh(ctx)) => pending.push(WaveEntry {
                     name: name.clone(),
                     addr: *addr,
                     size: *size,
@@ -1121,7 +1160,7 @@ impl RemillTranspiler {
             }
         }
         if pending.is_empty() {
-            return;
+            return None;
         }
         let jobs: Vec<BatchJob> = pending
             .iter()
@@ -1132,11 +1171,56 @@ impl RemillTranspiler {
                 fn_addr: p.addr,
             })
             .collect();
-        if self.run_lift_batch(&jobs).is_err() {
-            return; // every entry falls back to the individual path
+        match self.spawn_batch_child(&jobs, "wave") {
+            Ok((child, manifest)) => Some(WaveInFlight {
+                pending,
+                child,
+                manifest,
+                started: std::time::Instant::now(),
+            }),
+            Err(e) => {
+                eprintln!(
+                    "[azul-web]   batch: {} fn(s) could not launch ({}) — per-fn lifts",
+                    jobs.len(),
+                    e.reason.lines().next().unwrap_or(""),
+                );
+                None // every entry falls back to the individual path
+            }
         }
-        // Probe lifts for the reloc templates, batched the same way. Only
-        // entries that will actually store a template need one.
+    }
+
+    /// Wait for a launched wave, then do the per-function bookkeeping: read
+    /// each IR, batch the reloc-probe lifts as a second child, store caches
+    /// and templates, and publish results into `out`. A function missing its
+    /// IR is simply not inserted - the walk retries it individually with full
+    /// error attribution.
+    fn wave_reap(
+        &self,
+        wave: WaveInFlight,
+        out: &mut std::collections::HashMap<usize, String>,
+    ) {
+        let WaveInFlight {
+            pending,
+            child,
+            manifest,
+            started,
+        } = wave;
+        let n = pending.len();
+        let ok = wait_batch_child(child, &manifest);
+        if ok {
+            eprintln!(
+                "[azul-web]   batch: {n} fn(s) in one remill process ({} ms)",
+                started.elapsed().as_millis(),
+            );
+        } else {
+            eprintln!(
+                "[azul-web]   batch: {n} fn(s) FAILED — falling back to per-fn lifts",
+            );
+            return;
+        }
+        // Probe lifts for the reloc templates: one more child, synchronous
+        // here - it overlaps the NEXT wave's primary child, which the walk
+        // launched before reaping this one.
         #[cfg(target_arch = "x86_64")]
         let probe_irs: std::collections::HashMap<usize, String> = {
             let probe_jobs: Vec<BatchJob> = pending
@@ -1154,26 +1238,28 @@ impl RemillTranspiler {
                 })
                 .collect();
             let mut m = std::collections::HashMap::new();
-            if !probe_jobs.is_empty() && self.run_lift_batch(&probe_jobs).is_ok() {
-                for j in &probe_jobs {
-                    if let Ok(p_ir) = read_and_demote(&j.ir_out, "probe") {
-                        m.insert(j.fn_addr, p_ir);
+            if !probe_jobs.is_empty() {
+                if let Ok((pc, pm)) = self.spawn_batch_child(&probe_jobs, "probe") {
+                    if wait_batch_child(pc, &pm) {
+                        for j in &probe_jobs {
+                            if let Ok(p_ir) = read_and_demote(&j.ir_out, "probe") {
+                                m.insert(j.fn_addr, p_ir);
+                            }
+                            let _ = std::fs::remove_file(&j.ir_out);
+                        }
                     }
-                    let _ = std::fs::remove_file(&j.ir_out);
                 }
             }
             m
         };
         #[cfg(not(target_arch = "x86_64"))]
         let probe_irs: std::collections::HashMap<usize, String> = Default::default();
-        let wave_total = wave.len();
-        let ready = out.len();
         let mut finished = 0usize;
         let mut failed = 0usize;
         for p in pending {
             let Ok(ir) = read_and_demote(&p.ctx.ir_path, &p.name) else {
                 failed += 1;
-                continue; // individual retry will re-lift and report
+                continue;
             };
             match self.lift_store_finish(
                 &p.name,
@@ -1192,7 +1278,7 @@ impl RemillTranspiler {
             }
         }
         eprintln!(
-            "[azul-web]   wave: {wave_total} fn(s) → {ready} cache, {finished} lifted{}",
+            "[azul-web]   wave: {n} lifted, {finished} finished{}",
             if failed > 0 {
                 format!(", {failed} failed → individual retry")
             } else {
@@ -1201,8 +1287,14 @@ impl RemillTranspiler {
         );
     }
 
-    /// One `remill-lift --batch_manifest` invocation for `jobs`.
-    fn run_lift_batch(&self, jobs: &[BatchJob]) -> Result<(), TranspileError> {
+    /// Write the manifest and SPAWN the batch child without waiting. Its
+    /// stdout/stderr go to a file, not pipes, so there is no reader to hang;
+    /// the deadline is enforced at reap time.
+    fn spawn_batch_child(
+        &self,
+        jobs: &[BatchJob],
+        tag: &str,
+    ) -> Result<(std::process::Child, PathBuf), TranspileError> {
         let arch_tag = host_arch_tag().ok_or_else(|| TranspileError {
             fn_name: "batch".into(),
             reason: "unsupported host architecture".into(),
@@ -1233,44 +1325,42 @@ impl RemillTranspiler {
                 if extra.is_empty() { "-" } else { &extra },
             );
         }
+        static WAVE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = WAVE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mpath = self
             .scratch_dir
-            .join(format!("wave_{}.manifest", std::process::id()));
+            .join(format!("{tag}_{seq}.manifest"));
         std::fs::write(&mpath, &manifest).map_err(|e| TranspileError {
             fn_name: "batch".into(),
             reason: format!("write manifest: {e}"),
         })?;
-        let mstr = mpath.to_str().expect("scratch path is utf-8");
-        let t0 = std::time::Instant::now();
-        let r = run_tool(
-            tools.remill_lift,
-            &[
+        let log = std::fs::File::create(mpath.with_extension("log")).map_err(|e| {
+            TranspileError {
+                fn_name: "batch".into(),
+                reason: format!("batch log: {e}"),
+            }
+        })?;
+        let child = Command::new(tools.remill_lift)
+            .args([
                 "--arch",
                 arch_tag,
                 "--os",
                 host_os_tag(),
                 "--batch_manifest",
-                mstr,
-            ],
-            "batch",
-        );
-        let _ = std::fs::remove_file(&mpath);
-        // Progress is deliberately logged on SUCCESS too: lifts mostly run in
-        // CI, where a long quiet stretch is indistinguishable from a hang. One
-        // line per wave keeps the log readable while proving forward motion.
-        match &r {
-            Ok(()) => eprintln!(
-                "[azul-web]   batch: {} fn(s) in one remill process ({} ms)",
-                jobs.len(),
-                t0.elapsed().as_millis(),
-            ),
-            Err(e) => eprintln!(
-                "[azul-web]   batch: {} fn(s) FAILED ({}) — falling back to per-fn lifts",
-                jobs.len(),
-                e.reason.lines().next().unwrap_or(""),
-            ),
-        }
-        r
+                mpath.to_str().expect("scratch path is utf-8"),
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(log.try_clone().map_err(|e| TranspileError {
+                fn_name: "batch".into(),
+                reason: format!("batch log: {e}"),
+            })?)
+            .stderr(log)
+            .spawn()
+            .map_err(|e| TranspileError {
+                fn_name: "batch".into(),
+                reason: format!("spawn batch: {e}"),
+            })?;
+        Ok((child, mpath))
     }
 
     fn lift_fn(
@@ -2572,6 +2662,10 @@ impl RemillTranspiler {
         // walk reaches the function; a miss falls through to the individual
         // lift, so a batch failure only costs the batching.
         let mut prelifted: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
+        // The wave in flight: launched before the previous wave is reaped, so
+        // one remill batch always runs WHILE the walk and the object pool
+        // consume the previous wave's results.
+        let mut wave_inflight: Option<WaveInFlight> = None;
         let mut object_paths: Vec<PathBuf> = Vec::new();
         let mut exports: Vec<String> = Vec::new();
         // Functions that defeated remill and were Leaf-stubbed (see the
@@ -2749,6 +2843,12 @@ impl RemillTranspiler {
             // visited/prelifted dedup bounds everything else.
             let wave_n = super::lift_env::lift_env().lift_batch;
             if wave_n > 1 && !prelifted.contains_key(&addr) {
+                // This target missed the prelift map, so the in-flight wave
+                // (which was built from queue state that included it) is the
+                // likely producer: reap it first.
+                if let Some(w) = wave_inflight.take() {
+                    self.wave_reap(w, &mut prelifted);
+                }
                 let wla = |a: usize| -> u64 {
                     symbol_table::get()
                         .and_then(|t| {
@@ -2759,33 +2859,57 @@ impl RemillTranspiler {
                         .map(|s| s as u64)
                         .unwrap_or(a as u64)
                 };
-                let mut wave: Vec<(String, usize, usize, u64)> =
-                    vec![(name.clone(), addr, size, wla(addr))];
-                let mut in_wave: HashSet<usize> = HashSet::new();
-                in_wave.insert(addr);
-                for qt in queue.iter() {
-                    if wave.len() >= wave_n {
-                        break;
+                let build_wave = |first: Option<(String, usize, usize)>,
+                                  queue: &VecDeque<TransitiveLiftTarget>,
+                                  visited: &HashSet<usize>,
+                                  prelifted: &std::collections::HashMap<usize, String>|
+                 -> Vec<(String, usize, usize, u64)> {
+                    let mut wave: Vec<(String, usize, usize, u64)> = Vec::new();
+                    let mut in_wave: HashSet<usize> = HashSet::new();
+                    if let Some((fname, faddr, fsize)) = first {
+                        in_wave.insert(faddr);
+                        wave.push((fname, faddr, fsize, wla(faddr)));
                     }
-                    let (qn, qa, qs) = match qt {
-                        TransitiveLiftTarget::Root(r) => {
-                            (r.fn_name.clone(), r.fn_addr, r.fn_size)
+                    for qt in queue.iter() {
+                        if wave.len() >= wave_n {
+                            break;
                         }
-                        TransitiveLiftTarget::Dep { name, addr, size } => {
-                            (name.clone(), *addr, *size)
+                        let (qn, qa, qs) = match qt {
+                            TransitiveLiftTarget::Root(r) => {
+                                (r.fn_name.clone(), r.fn_addr, r.fn_size)
+                            }
+                            TransitiveLiftTarget::Dep { name, addr, size } => {
+                                (name.clone(), *addr, *size)
+                            }
+                        };
+                        if visited.contains(&qa)
+                            || in_wave.contains(&qa)
+                            || prelifted.contains_key(&qa)
+                        {
+                            continue;
                         }
-                    };
-                    if visited.contains(&qa)
-                        || in_wave.contains(&qa)
-                        || prelifted.contains_key(&qa)
-                    {
-                        continue;
+                        in_wave.insert(qa);
+                        wave.push((qn, qa, qs, wla(qa)));
                     }
-                    in_wave.insert(qa);
-                    wave.push((qn, qa, qs, wla(qa)));
+                    wave
+                };
+                // Still missing (first wave, or this fn failed in its batch):
+                // lift a wave headed by the current target SYNCHRONOUSLY so
+                // the walk can proceed.
+                if !prelifted.contains_key(&addr) {
+                    let wave =
+                        build_wave(Some((name.clone(), addr, size)), &queue, &visited, &prelifted);
+                    if wave.len() > 1 {
+                        if let Some(w) = self.wave_launch(&wave, &mut prelifted) {
+                            self.wave_reap(w, &mut prelifted);
+                        }
+                    }
                 }
-                if wave.len() > 1 {
-                    self.prelift_wave(&wave, &mut prelifted);
+                // And put the NEXT wave in flight; it lifts while the walk and
+                // the pool consume everything reaped above.
+                let next = build_wave(None, &queue, &visited, &prelifted);
+                if next.len() > 1 {
+                    wave_inflight = self.wave_launch(&next, &mut prelifted);
                 }
             }
             // Set when this iteration lifts fresh; consumed by the dep walk.
@@ -3231,6 +3355,9 @@ impl RemillTranspiler {
 
         // Overlapped pool: the walk already fed every job to the live
         // workers; signal completion, join, then commit results in order.
+        if let Some(w) = wave_inflight.take() {
+            self.wave_reap(w, &mut prelifted);
+        }
         pool_done.store(true, std::sync::atomic::Ordering::SeqCst);
         if !job_meta.is_empty() {
             eprintln!(
