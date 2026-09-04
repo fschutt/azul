@@ -4057,6 +4057,14 @@ impl WaylandWindow {
             );
         }
 
+        // The barrel EDGE, read before the seat's state is overwritten below:
+        // a barrel press behaves like a right click (parity with the
+        // primary's handle_tablet_frame), resolved against THIS seat's hover.
+        let was_right = self
+            .common
+            .current_window_state()
+            .pointer_seat(seat_id)
+            .is_some_and(|s| s.right_down);
         {
             let ms = self.common.pointer_seat_mut(seat_id);
             ms.pointer_source = if p.is_eraser {
@@ -4073,8 +4081,23 @@ impl WaylandWindow {
             self.update_seat_hit_test_at(seat_id, p.position);
         }
 
+        // Barrel press over a node with a context menu opens it, from the
+        // SEAT's hovered node (9b-ii-b-i-b-i-a). Until this the seat's barrel
+        // opened nothing: the only opener read the primary's hover.
+        if p.barrel_button && !was_right {
+            if let Some(hit_node) = self.get_first_hovered_node_for(seat_id) {
+                if self.try_show_context_menu(hit_node, p.position) {
+                    self.request_redraw();
+                }
+            }
+        }
+
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
+        // No primary-selection publish on the seat's pen-up: the
+        // zwp_primary_selection device is ONE process-level object bound to one
+        // wl_seat and the text comes from the primary's edit session
+        // (9b-ii-b-i-b-i-a-i).
     }
 
     pub fn handle_tablet_frame(&mut self) {
@@ -5821,6 +5844,18 @@ impl WaylandWindow {
             .pointer_seat(seat_id)
             .and_then(|s| s.cursor_position.get_position())
             .unwrap_or_else(LogicalPosition::zero);
+        // Right press over a node with a context menu: the SEAT's hovered
+        // node (9b-ii-b-i-b-i-a), consumed like the primary's right click in
+        // handle_pointer_button. The seat's hover is current from its motion
+        // path (update_seat_hit_test_at on every seat enter/motion).
+        if state == 1 && mouse_button == MouseButton::Right {
+            if let Some(hit_node) = self.get_first_hovered_node_for(seat_id) {
+                if self.try_show_context_menu(hit_node, position) {
+                    self.request_redraw();
+                    return;
+                }
+            }
+        }
         self.snapshot_window_state_baseline("wayland.seat.pointer_button");
         apply_pointer_button_state(
             self.common.pointer_seat_mut(seat_id),
@@ -5944,11 +5979,19 @@ impl WaylandWindow {
     /// get_first_hovered_node pattern) — used for right-click context menus;
     /// the old `common.last_hovered_node` field had no writer anywhere.
     fn get_first_hovered_node(&self) -> Option<HitTestNode> {
+        self.get_first_hovered_node_for(azul_core::window::PRIMARY_POINTER_SEAT)
+    }
+
+    /// The deepest node under SEAT `seat_id`'s own pointer (9b-ii-b-i-b-i-a).
+    /// `InputPointId::for_seat` folds the primary into `Mouse`, so this is the
+    /// one getter for both; the context-menu paths of a seat's pen barrel and
+    /// a seat's right button resolve from here instead of the primary's hover.
+    fn get_first_hovered_node_for(&self, seat_id: u64) -> Option<HitTestNode> {
         self.common
             .layout_window
             .as_ref()?
             .hover_manager
-            .get_current(&InputPointId::Mouse)?
+            .get_current(&InputPointId::for_seat(seat_id))?
             .hovered_nodes
             .iter()
             .flat_map(|(dom_id, ht)| {
