@@ -268,6 +268,8 @@ mod ribbon_tab_whitespace;
 mod root_box_sizing_regression;
 #[path = "session_regression.rs"]
 mod session_regression;
+#[path = "statusbar_live_label.rs"]
+mod statusbar_live_label;
 #[path = "struct_sizes.rs"]
 mod struct_sizes;
 #[path = "svg_tessellation.rs"]

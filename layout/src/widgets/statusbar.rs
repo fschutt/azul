@@ -28,8 +28,9 @@
 //! application callbacks.
 
 use azul_core::{
-    callbacks::Update,
-    dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec},
+    callbacks::{Update, VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
+    dom::{Dom, DomNodeId, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec},
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     refany::RefAny,
 };
 #[allow(clippy::wildcard_imports)]
@@ -730,6 +731,14 @@ pub struct StatusBarSegment {
     pub label: AzString,
     /// Optional click handler.
     pub on_click: OptionButtonOnClick,
+    /// Optional marker (`Dom::with_marker`) that makes an INERT text segment
+    /// live-updatable: the label becomes a `VirtualView` whose node carries
+    /// this marker, so a callback anywhere can find it by
+    /// `CallbackInfo::get_node_id_by_marker` and rewrite the text with
+    /// [`StatusBar::update_segment_label`] - without a `RefreshDom`, a DOM
+    /// diff, or a round trip through the app's data model. Empty = plain
+    /// static text. Ignored for icon / clickable segments (those are buttons).
+    pub marker: AzString,
 }
 
 impl StatusBarSegment {
@@ -740,6 +749,7 @@ impl StatusBarSegment {
             icon: AzString::from_const_str(""),
             label,
             on_click: None.into(),
+            marker: AzString::from_const_str(""),
         }
     }
 
@@ -747,6 +757,15 @@ impl StatusBarSegment {
     #[must_use]
     pub fn with_icon(mut self, icon: AzString) -> Self {
         self.icon = icon;
+        self
+    }
+
+    /// Builder method: marks the segment for live label updates (see the
+    /// `marker` field). Use a unique string - a `Uuid::short()` the app keeps
+    /// in its state is the intended shape - so two bars never collide.
+    #[must_use]
+    pub fn with_marker(mut self, marker: AzString) -> Self {
+        self.marker = marker;
         self
     }
 
@@ -1066,6 +1085,47 @@ impl StatusBar {
         self
     }
 
+    /// Rewrites the text of a MARKED segment in place, from any callback.
+    ///
+    /// `node_id` is the segment label's `VirtualView` node - the one that
+    /// carries the marker given to [`StatusBarSegment::with_marker`], found
+    /// with `CallbackInfo::get_node_id_by_marker`. The label's private
+    /// dataset is downcast INSIDE this function, the new text stored, and the
+    /// node's view re-rendered (`CallbackInfo::trigger_virtual_view_rerender`)
+    /// at the size the new text measures to - so only this label re-renders,
+    /// the bar re-flows around it, and nothing else in the window is touched.
+    /// No `RefreshDom`, no DOM diff, no app-data-model round trip: this is
+    /// how a word count keeps up with typing (`AzWriter`'s status bar reads
+    /// the committed text from an `On::TextChanged` callback and lands it
+    /// here).
+    ///
+    /// Returns `false` (and changes nothing) when `node_id` does not name a
+    /// live marked segment: no layout result, no dataset, or a dataset of
+    /// some other widget's type. Returns `true` without re-rendering when the
+    /// text is unchanged, so calling it on every keystroke is free when
+    /// nothing moved.
+    pub fn update_segment_label(info: &mut CallbackInfo, node_id: DomNodeId, label: AzString) -> bool {
+        let Some(mut dataset) = info.get_dataset(node_id) else {
+            return false;
+        };
+        {
+            // Scoped: the downcast guard must drop before the re-render
+            // trigger runs the queue drain path.
+            let Some(mut state) = dataset.downcast_mut::<StatusBarLabelLocalDataset>() else {
+                return false;
+            };
+            if state.label == label {
+                return true;
+            }
+            state.label = label;
+        }
+        let Some(node) = node_id.node.into_crate_internal() else {
+            return false;
+        };
+        info.trigger_virtual_view_rerender(node_id.dom, node);
+        true
+    }
+
     /// Renders the status bar.
     #[must_use]
     pub fn dom(self) -> Dom {
@@ -1149,6 +1209,7 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
         icon,
         label,
         on_click,
+        marker,
     } = seg;
     if !icon.as_str().is_empty() || on_click.is_some() {
         // Icon and/or clickable: expand to a Button (flat chassis).
@@ -1162,16 +1223,110 @@ fn segment_dom(seg: StatusBarSegment, style: &StatusBarStyle) -> Dom {
             .dom()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SEGMENT));
     }
-    // Inert text segment.
+    let label_dom = if marker.as_str().is_empty() {
+        // Inert text segment. `<p>` so it has the same `div > p > text` shape
+        // as the clickable one (Button puts `label_style` on a `<p>` too).
+        crate::widgets::widget_p_with_text(label).with_css_props(style.segment_label_style.clone())
+    } else {
+        // Live segment: the `<p>` lives inside a `VirtualView` that this
+        // module can re-render in place (`StatusBar::update_segment_label`).
+        segment_label_view(label, marker, style)
+    };
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_SEGMENT))
         .with_css_props(style.segment_style.clone())
-        .with_children(DomVec::from_vec(vec![
-            // `<p>` so the inert segment has the same `div > p > text` shape as
-            // the clickable one (Button puts `label_style` on a `<p>` too).
-            crate::widgets::widget_p_with_text(label)
-                .with_css_props(style.segment_label_style.clone()),
-        ]))
+        .with_children(DomVec::from_vec(vec![label_dom]))
+}
+
+/// The dataset behind a marked segment's label `VirtualView`. Private to this
+/// module, like every widget dataset: the app talks to it through
+/// [`StatusBar::update_segment_label`] only.
+#[derive(Debug)]
+struct StatusBarLabelLocalDataset {
+    label: AzString,
+    /// `segment_label_style` plus what the label would have INHERITED from
+    /// the bar (the font family): the view's DOM is styled as a document of
+    /// its own, nothing cascades into it from the host node.
+    label_style: CssPropertyWithConditionsVec,
+}
+
+/// The `VirtualView` node that stands in for a marked segment's `<p>`.
+///
+/// Sized by its content: the node has no width or height of its own, so it
+/// takes the size the callback reports (`measure_dom_shrink_to_fit` of the
+/// `<p>`) - `display: inline-block` so it lays out in the segment's row like
+/// the `<p>` did, `overflow: hidden` so a report a hair wider than the box
+/// never grows a scrollbar. No padding on the node itself (the segment div
+/// keeps `segment_style`), so what the callback reports IS the box and the
+/// size converges in one extra pass, not two.
+fn segment_label_view(label: AzString, marker: AzString, style: &StatusBarStyle) -> Dom {
+    let mut label_style: Vec<Cond> = style.segment_label_style.as_ref().to_vec();
+    if let Some(family) = inherited_font_family(&style.bar_style) {
+        label_style.push(family);
+    }
+    let dataset = RefAny::new(StatusBarLabelLocalDataset {
+        label,
+        label_style: CssPropertyWithConditionsVec::from_vec(label_style),
+    });
+    Dom::create_virtual_view(
+        dataset.clone(),
+        VirtualViewCallback::create(statusbar_label_render_virtual_view),
+    )
+    // The SAME `RefAny` as the view's payload, on the node: `update_segment_label`
+    // reaches it through `CallbackInfo::get_dataset` (the progress bar's fast
+    // path is built the same way).
+    .with_dataset(Some(dataset).into())
+    .with_marker(Some(marker).into())
+    .with_css("display: inline-block; overflow: hidden;")
+}
+
+/// The font family a child of the bar would inherit: the LAST unconditional
+/// `font-family` in the bar's style (a later push wins, which is how an app
+/// pins its UI font onto the bar - `AzWriter`'s `push_ui_font`).
+fn inherited_font_family(bar_style: &CssPropertyWithConditionsVec) -> Option<Cond> {
+    bar_style
+        .as_ref()
+        .iter()
+        .rev()
+        .find(|c| c.apply_if.as_ref().is_empty() && matches!(c.property, P::FontFamily(_)))
+        .cloned()
+}
+
+/// The "no constraint" box a label is measured in: wider than any status-bar
+/// text, finite so a bug cannot turn into a NaN geometry.
+const LABEL_MEASURE_BOUND: f32 = 4096.0;
+
+/// [`segment_label_view`]'s callback: render the label the dataset currently
+/// holds, at the size the text asks for.
+extern "C" fn statusbar_label_render_virtual_view(
+    mut data: RefAny,
+    info: VirtualViewCallbackInfo,
+) -> VirtualViewReturn {
+    let dom = match data.downcast_ref::<StatusBarLabelLocalDataset>() {
+        // Foreign payload: render nothing rather than lie about bounds.
+        None => return VirtualViewReturn::default(),
+        Some(state) => crate::widgets::widget_p_with_text(state.label.clone())
+            .with_css_props(state.label_style.clone()),
+    };
+    // Shrink-to-fit, not the extent: a `<p>` is a block, and measured against
+    // a box it stretches to the box's width - the text's own width is the
+    // question. The bound is deliberately NOT the view's box: the box is
+    // whatever the LAST label needed, and a longer label measured inside it
+    // would wrap.
+    let measured = info.measure_dom_shrink_to_fit(
+        dom.clone(),
+        LogicalSize::new(LABEL_MEASURE_BOUND, LABEL_MEASURE_BOUND),
+    );
+    // A measurement of zero means there was no measure hook (or nothing to
+    // draw); reporting it would collapse the view to nothing.
+    let size = if measured.width > 0.0 && measured.height > 0.0 {
+        measured
+    } else {
+        info.bounds.get_logical_size()
+    };
+    let rect = LogicalRect::new(LogicalPosition::zero(), size);
+    // A label does not scroll, so all three rects are the same box.
+    VirtualViewReturn::with_dom(dom, rect, rect)
 }
 
 fn views_dom(switcher: StatusBarViewSwitcher, style: &StatusBarStyle) -> Dom {

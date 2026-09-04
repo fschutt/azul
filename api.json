@@ -60980,6 +60980,41 @@
                                 },
                                 "fn_body": "object.with_style(style)"
                             },
+                            "update_segment_label": {
+                                "doc": [
+                                    "Rewrites the text of a MARKED segment in place, from any callback - the widget",
+                                    "half of the inter-widget fast path (see `ProgressBar::update_progress`).",
+                                    "",
+                                    "`node_id` is the segment label's `VirtualView` node - the one that carries the",
+                                    "marker given to `StatusBarSegment::with_marker`, found with",
+                                    "`CallbackInfo::get_node_id_by_marker`. The label's PRIVATE dataset is updated and",
+                                    "only this node's view is re-rendered, at the size the new text measures to, so",
+                                    "the bar re-flows around it and nothing else in the window is touched. No",
+                                    "`RefreshDom`, no DOM diff, no app-data-model round trip: this is how a word count",
+                                    "keeps up with typing (read the committed text from an `On::TextChanged` callback",
+                                    "and land it here).",
+                                    "",
+                                    "Returns `false` (and changes nothing) when `node_id` does not name a live marked",
+                                    "segment. Returns `true` without re-rendering when the text is unchanged, so",
+                                    "calling it on every keystroke is free when nothing moved."
+                                ],
+                                "priority": 90.0,
+                                "fn_args": [
+                                    {
+                                        "callback_info": "CallbackInfo"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    },
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "{ let mut callback_info = callback_info; azul_layout::widgets::statusbar::StatusBar::update_segment_label(&mut callback_info, node_id, label) }"
+                            },
                             "dom": {
                                 "doc": [
                                     "Renders the status bar."
@@ -61238,6 +61273,17 @@
                                 },
                                 "on_click": {
                                     "type": "OptionButtonOnClick"
+                                },
+                                "marker": {
+                                    "type": "String",
+                                    "doc": [
+                                        "Optional marker (`Dom::with_marker`) that makes an INERT text segment live-updatable:",
+                                        "the label becomes a `VirtualView` whose node carries this marker, so a callback anywhere",
+                                        "can find it by `CallbackInfo::get_node_id_by_marker` and rewrite the text with",
+                                        "`StatusBar::update_segment_label` - without a `RefreshDom`, a DOM diff, or a round trip",
+                                        "through the app's data model. Empty = plain static text. Ignored for icon / clickable",
+                                        "segments (those are buttons)."
+                                    ]
                                 }
                             }
                         ],
@@ -61271,6 +61317,25 @@
                                     "type": "StatusBarSegment"
                                 },
                                 "fn_body": "object.with_icon(icon)"
+                            },
+                            "with_marker": {
+                                "doc": [
+                                    "Builder method: marks the segment for live label updates (see the `marker` field).",
+                                    "Use a unique string - a `Uuid::short()` the app keeps in its state is the intended",
+                                    "shape - so two bars never collide."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "marker": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarSegment"
+                                },
+                                "fn_body": "object.with_marker(marker)"
                             },
                             "set_on_click": {
                                 "doc": [
