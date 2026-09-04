@@ -69,6 +69,7 @@ impl WebConfig {
             auth_token: None,
             allow_public: false,
             max_connections: None,
+            prelift: false,
         }
     }
 }

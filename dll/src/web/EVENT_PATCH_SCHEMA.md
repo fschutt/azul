@@ -22,8 +22,13 @@ offset 24.
 | 8      | u32  | Y               | CSS-pixel integer coord. Resize events use this for height. |
 | 12     | u32  | BUTTON_OR_KEY   | Mouse: `e.button`; Keyboard: `e.keyCode`; Scroll/resize: 0. |
 | 16     | u32  | MODIFIERS       | Bitset: bit0=shift, bit1=ctrl, bit2=alt, bit3=meta. |
-| 20     | u32  | PAYLOAD_LEN     | Length of per-kind tail bytes starting at offset 24. |
+| 20     | u32  | PAYLOAD_LEN     | Length of per-kind tail bytes starting at offset 24. ALWAYS written (the buffer is bump-allocated, not zeroed). |
 | 24+    | u8[] | PAYLOAD         | Kind-specific. See below. |
+
+Sub-pixel values (the pointer-sample tail, raw motion deltas) travel as
+**24.8 fixed point**: `Math.round(v * 256)` as an `i32`, decoded with
+one integer load and an `f32` division (`fixed_point` in eventloop.rs).
+Never as f32 bits, for the reason below.
 
 **Why integer pixels (not f32 bits)**: `f32::from_bits` proved
 unreliable through remill's lift — integer coords sidestep that
@@ -46,6 +51,38 @@ conversion entirely. The JS encoder uses
 | 9    | EVT_FOCUSOUT | focus lost                             |
 | 10   | EVT_RESIZE   | window resize (x=w, y=h)               |
 | 11   | EVT_SCROLL   | scroll (x=scrollX, y=scrollY)          |
+| 12   | EVT_MOUSEENTER | pointer entered (target-routed, no bubble) |
+| 13   | EVT_MOUSELEAVE | pointer left (target-routed, no bubble)   |
+| 14   | EVT_CONTEXTMENU | right-click / contextmenu             |
+| 15   | EVT_MOUSEOVER | W3C `mouseover` = azul's `MouseOver` ENTRY event (G2-a-i) |
+| 16   | EVT_RAWMOUSEMOTION | relative motion while pointer-LOCKED (9d-i-a): x=dx, y=dy as 24.8 fixed-point i32, BUTTON_OR_KEY=pointerId. Broadcast. Dropped by wasm unless its `is_cursor_locked` is set. |
+| 17   | EVT_POINTERLOCKCHANGE | `document` pointerlockchange (9d-i-a): BUTTON_OR_KEY = 1 held / 0 released. Broadcast; sets `is_cursor_locked`. |
+
+`data-az-ev` names for the last two are `rawmousemotion` and
+`pointerlockchange` (`event_filter_to_js_name` in html_render.rs for
+`WindowEventFilter::RawMouseMotion` / `PointerLockChange`).
+
+### Pointer-sample tail (kinds 1, 2, 3 — 10e-i)
+
+`pointerdown` / `pointerup` / `pointermove` are bound as POINTER events
+and carry `getCoalescedEvents()` / `getPredictedEvents()` in the tail
+(`pointer_samples` in eventloop.rs). This is the web form of
+`TouchState::coalesced_points` / `predicted_points` (the lists iOS fills
+from `coalescedTouches` / `predictedTouches`); the wasm state keeps
+them in `EventloopState::pointer_samples`, rewritten per pointer
+dispatch and cleared after the up.
+
+| Offset (from 24) | Type | Field        | Notes                                    |
+|------------------|------|--------------|------------------------------------------|
+| 0                | u32  | n_coalesced  | ≤ 24. Samples captured BETWEEN the previous dispatch and this one, oldest first, WITHOUT the event's own position. Overflow keeps the NEWEST. |
+| 4                | u32  | n_predicted  | ≤ 4. Extrapolations, oldest first; never persist them. Overflow keeps the FIRST. |
+| 8+               | (i32, i32)[] | samples | `n_coalesced` then `n_predicted` pairs of 24.8 fixed-point CSS pixels. |
+
+`24 + 8 + 8 * (24 + 4) = 256`: a full tail fills the buffer exactly. A
+tail whose counts overrun the bytes sent, or the capacities, decodes to
+NOTHING (never a half stroke). An empty tail (`PAYLOAD_LEN = 0`) is the
+fallback for browsers without `getCoalescedEvents` and also what
+"nothing moved between frames" looks like.
 
 Deferred (Stage A.6 in the M11 plan): touch (TouchList encoding),
 drag (DataTransfer encoding), composition (IME data).
@@ -81,6 +118,7 @@ JS decodes via `azApplyPatches(ptr, len)` in `loader_js.rs`.
 | 10   | ScrollTo          | `x:i32 \| y:i32`                | `el.scrollTo(x, y)`             |
 | 11   | AddClass          | class name bytes                | `el.classList.add(name)`        |
 | 12   | RemoveClass       | class name bytes                | `el.classList.remove(name)`     |
+| 13   | PointerLock       | `locked:u8`                     | `requestPointerLock()` / `exitPointerLock()` on `#az-body`; the answer arrives as EVT_POINTERLOCKCHANGE (9d-i-a) |
 
 ## CallbackChange → patch-kind mapping (Sprint 7)
 
@@ -101,6 +139,7 @@ needs (Sprint 7 scope) are marked **bench**.
 | `OpenMenu`                       | 17 (deferred)| `<div class="az-menu">` overlay    |
 | `ShowTooltip` / `HideTooltip`    | 18/19 (deferred) | cursor-positioned `<div>`      |
 | `SetCopyContent` / `SetCutContent` | 21 (deferred) | `navigator.clipboard.writeText` |
+| `SetPointerLock`                 | 13 PointerLock | decoder wired (9d-i-a); the wasm producer waits on the real wasm-side `CallbackInfo` (S2) like every other change |
 | `InsertChildNode` / `DeleteNode` | 6 / 5 (via RefreshDom diff loop) | indirect — RefreshDom relayouts + diff produces kind=5/6 |
 | `SwitchRoute`                    | 22 (deferred)| `azNavigate(path)`                 |
 | `ModifyWindowState`              | (deferred)   | `document.title = ...` etc.        |
@@ -163,3 +202,9 @@ needs (Sprint 7 scope) are marked **bench**.
     Stage C.5.
   - **`AddThread` / `RemoveThread`**: no web threading; warn on
     encounter.
+  - **`SetPointerLock` producer**: the JS side (`azSetPointerLock`,
+    patch kind 13, `window.__azProbe.setPointerLock`) and the
+    reporting side (EVT_POINTERLOCKCHANGE → `is_cursor_locked`,
+    EVT_RAWMOUSEMOTION gated on it) are wired; a user callback's
+    `set_pointer_lock` only becomes reachable with S2's real
+    `CallbackInfo`, because today it has no change list to land in.

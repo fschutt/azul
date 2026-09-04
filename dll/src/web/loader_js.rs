@@ -61,6 +61,20 @@ var EVT_CONTEXTMENU = 14;
 // the two filters register the same kind and left MouseOver firing on every
 // move. Must match `event_kind::MOUSEOVER` in dll/src/web/eventloop.rs.
 var EVT_MOUSEOVER = 15;
+// 9d-i-a: the pointer-lock pair. RAWMOUSEMOTION carries movementX/Y as 24.8
+// fixed-point i32 in the X/Y slots and the pointerId in BUTTON_OR_KEY;
+// POINTERLOCKCHANGE carries 1 (held) / 0 (released) in BUTTON_OR_KEY. Both
+// are window-scoped broadcasts. Must match `event_kind` in eventloop.rs.
+var EVT_RAWMOUSEMOTION    = 16;
+var EVT_POINTERLOCKCHANGE = 17;
+
+// 10e-i / 9d-i-a: sub-pixel coordinates travel as 24.8 fixed point
+// (`Math.round(v * 256)`), never as f32 bits - `f32::from_bits` proved
+// unreliable through the lift. Capacities match `pointer_samples` in
+// eventloop.rs: 24 + 8 + 8 * (24 + 4) = 256, the whole event buffer.
+var AZ_FP_SCALE = 256;
+var AZ_MAX_COALESCED = 24;
+var AZ_MAX_PREDICTED = 4;
 
 var EVENT_BUFFER_SIZE = 256;
 var OUT_LEN_SIZE = 4;
@@ -586,6 +600,10 @@ async function azBootstrap() {
             state: azState,
             table: azTable,
             memory: azMemory,
+            // 9d-i-a: lets a headless probe drive the lock without a
+            // wasm-side producer for the PointerLock patch (see
+            // PATCH_KIND_POINTER_LOCK in eventloop.rs).
+            setPointerLock: azSetPointerLock,
         };
     }
 
@@ -718,6 +736,10 @@ function azEvNameToKind(name) {
         case 'contextmenu': return EVT_CONTEXTMENU;
         case 'input':       return EVT_KEYDOWN;     // text input dispatches via azDispatchWithText(EVT_KEYDOWN)
         case 'resize':      return EVT_RESIZE;
+        // 9d-i-a: html_render.rs emits these for WindowEventFilter::RawMouseMotion
+        // / PointerLockChange; the loader synthesises both (see azWireListeners).
+        case 'rawmousemotion':    return EVT_RAWMOUSEMOTION;
+        case 'pointerlockchange': return EVT_POINTERLOCKCHANGE;
         default:            return EVT_CLICK;
     }
 }
@@ -745,7 +767,40 @@ function azDispatchTargeted(kind, domEvent) {
     azDispatch(kind, domEvent, azNodeIdxFromTarget(domEvent));
 }
 
-function azDispatch(kind, domEvent, nodeIdxOverride) {
+// 10e-i / 9d-i-a: 24.8 fixed point, the wire form of a sub-pixel value.
+function azFixedPoint(v) {
+    return Math.round((v || 0) * AZ_FP_SCALE) | 0;
+}
+
+// 10e-i: write the coalesced/predicted sample tail at offset 24 and its
+// byte length at offset 20 (`pointer_samples` in eventloop.rs):
+//   n_coalesced:u32 | n_predicted:u32 | (x:i32, y:i32)*n_coalesced | (x:i32, y:i32)*n_predicted
+// Overflow keeps the NEWEST coalesced samples (the segment still being
+// drawn) and the FIRST predicted ones (a prediction is worth less the
+// further out it reaches). `samples` = null writes an empty tail.
+function azEncodePointerSamples(view, evtPtr, samples) {
+    var c = (samples && samples.coalesced) || [];
+    var p = (samples && samples.predicted) || [];
+    if (c.length > AZ_MAX_COALESCED) c = c.slice(c.length - AZ_MAX_COALESCED);
+    if (p.length > AZ_MAX_PREDICTED) p = p.slice(0, AZ_MAX_PREDICTED);
+    if (c.length === 0 && p.length === 0) {
+        view.setUint32(evtPtr + 20, 0, true);
+        return;
+    }
+    var off = evtPtr + 24;
+    view.setUint32(off, c.length, true);
+    view.setUint32(off + 4, p.length, true);
+    off += 8;
+    var all = c.concat(p);
+    for (var i = 0; i < all.length; i++) {
+        view.setInt32(off,     azFixedPoint(all[i][0]), true);
+        view.setInt32(off + 4, azFixedPoint(all[i][1]), true);
+        off += 8;
+    }
+    view.setUint32(evtPtr + 20, 8 + 8 * all.length, true);
+}
+
+function azDispatch(kind, domEvent, nodeIdxOverride, samples) {
     var evtPtr = azMini.AzStartup_alloc(EVENT_BUFFER_SIZE);
     var outLenPtr = azMini.AzStartup_alloc(OUT_LEN_SIZE);
     if (!evtPtr || !outLenPtr) {
@@ -763,11 +818,17 @@ function azDispatch(kind, domEvent, nodeIdxOverride) {
     // f32::from_bits proved unreliable through the remill lift —
     // integer coords sidestep that conversion entirely.
     var nodeIdx = (nodeIdxOverride === undefined) ? SENTINEL_NO_NODE : nodeIdxOverride;
+    // A pointermove reports button -1 ("no change"), which is not a button.
+    var button = (typeof domEvent.button === 'number' && domEvent.button > 0)
+        ? domEvent.button : (domEvent.keyCode || 0);
     view.setUint32(evtPtr + 0,  nodeIdx, true);
     view.setUint32(evtPtr + 4, Math.max(0, Math.floor(domEvent.clientX || 0)), true);
     view.setUint32(evtPtr + 8, Math.max(0, Math.floor(domEvent.clientY || 0)), true);
-    view.setUint32(evtPtr + 12, domEvent.button || domEvent.keyCode || 0, true);
+    view.setUint32(evtPtr + 12, button, true);
     view.setUint32(evtPtr + 16, azModifierBits(domEvent), true);
+    // Always written: the buffer is bump-allocated and NOT zeroed, so an
+    // unwritten length slot would be a previous dispatch's tail length.
+    azEncodePointerSamples(view, evtPtr, samples);
 
     var patchesPtr = azMini.AzStartup_dispatchEvent(
         azState, kind, evtPtr, EVENT_BUFFER_SIZE, outLenPtr
@@ -910,6 +971,10 @@ function azApplyPatches(ptr, len) {
                 if (el12) el12.classList.remove(cn12);
                 break;
             }
+            case 13: { // PointerLock — payload = locked:u8 (9d-i-a)
+                azSetPointerLock(payloadLen >= 1 && view.getUint8(payloadOff) !== 0);
+                break;
+            }
             default:
                 console.debug('[azul-web] unknown patch kind:', kind);
         }
@@ -928,9 +993,55 @@ function azWireListeners() {
     // variable-width TLV payloads beyond the fixed 256-byte header
     // (the M11 plan's Stage A.6 deferred work).
     document.body.addEventListener('click',     function(e) { azDispatch(EVT_CLICK,     e); });
-    document.body.addEventListener('mousedown', function(e) { azDispatch(EVT_MOUSEDOWN, e); });
-    document.body.addEventListener('mouseup',   function(e) { azDispatch(EVT_MOUSEUP,   e); });
     document.body.addEventListener('dblclick',  function(e) { azDispatch(EVT_DBLCLICK,  e); });
+    // 10e-i: the mouse* trio is bound as POINTER events. Same wire kinds
+    // (MOUSEDOWN/MOUSEUP/MOUSEMOVE — the html_render.rs names are
+    // unchanged), but a PointerEvent carries what a MouseEvent cannot:
+    // `getCoalescedEvents()` — the sub-frame positions the browser merged
+    // into this one, oldest first, the LAST being the event's own — and
+    // `getPredictedEvents()` — where it expects the pointer to go next.
+    // Both ride in the event tail (azEncodePointerSamples) and land in the
+    // wasm state's mirror of `TouchState::coalesced_points` /
+    // `predicted_points`, the same lists iOS fills from coalescedTouches.
+    var azPendingCoalesced = [];
+    var azPendingPredicted = [];
+    function azCollectSamples(e) {
+        var c = (typeof e.getCoalescedEvents === 'function') ? e.getCoalescedEvents() : null;
+        if (!c || c.length === 0) c = [e];
+        for (var i = 0; i < c.length; i++) {
+            azPendingCoalesced.push([c[i].clientX || 0, c[i].clientY || 0]);
+        }
+        // +1: the newest entry is the dispatched event's own position and is
+        // popped again in azTakeSamples.
+        if (azPendingCoalesced.length > AZ_MAX_COALESCED + 1) {
+            azPendingCoalesced.splice(0, azPendingCoalesced.length - (AZ_MAX_COALESCED + 1));
+        }
+        // Replaced, not accumulated: only the newest prediction means anything.
+        var p = (typeof e.getPredictedEvents === 'function') ? e.getPredictedEvents() : null;
+        azPendingPredicted = [];
+        for (var j = 0; p && j < p.length && j < AZ_MAX_PREDICTED; j++) {
+            azPendingPredicted.push([p[j].clientX || 0, p[j].clientY || 0]);
+        }
+    }
+    // Everything captured since the previous dispatch, minus the dispatched
+    // event's own sample — `TouchState::coalesced_points` does not repeat
+    // the current point either.
+    function azTakeSamples() {
+        var coalesced = azPendingCoalesced;
+        var predicted = azPendingPredicted;
+        azPendingCoalesced = [];
+        azPendingPredicted = [];
+        coalesced.pop();
+        return { coalesced: coalesced, predicted: predicted };
+    }
+    document.body.addEventListener('pointerdown', function(e) {
+        azCollectSamples(e);
+        azDispatch(EVT_MOUSEDOWN, e, undefined, azTakeSamples());
+    });
+    document.body.addEventListener('pointerup', function(e) {
+        azCollectSamples(e);
+        azDispatch(EVT_MOUSEUP, e, undefined, azTakeSamples());
+    });
     // S1 (2026-06-11): keyboard routes wasm-side to the focused node (or
     // broadcasts to kind-registered nodes); pass the DOM target as a hint
     // when the browser knows it (input fields).
@@ -942,18 +1053,39 @@ function azWireListeners() {
     document.body.addEventListener('focusin',   function(e) { azDispatchTargeted(EVT_FOCUSIN,   e); });
     document.body.addEventListener('focusout',  function(e) { azDispatchTargeted(EVT_FOCUSOUT,  e); });
     // S1: pointer-move, rAF-throttled — at most one dispatch per frame,
-    // always the most recent position.
+    // always the most recent position. 10e-i: the throttle no longer LOSES
+    // the positions it skips — every event's samples are collected as it
+    // arrives and the frame's dispatch carries all of them in its tail.
     var azPendingMove = null;
-    document.body.addEventListener('mousemove', function(e) {
+    document.body.addEventListener('pointermove', function(e) {
+        // 9d-i-a: while the pointer is locked, clientX/Y freeze and the
+        // motion is in movementX/Y — feed the raw-motion path as well.
+        if (azPointerLocked) azNoteRawMotion(e);
+        azCollectSamples(e);
         var first = azPendingMove === null;
         azPendingMove = e;
         if (first) {
             requestAnimationFrame(function() {
                 var ev = azPendingMove;
                 azPendingMove = null;
-                if (ev && azState) azDispatch(EVT_MOUSEMOVE, ev);
+                if (ev && azState) azDispatch(EVT_MOUSEMOVE, ev, undefined, azTakeSamples());
             });
         }
+    });
+    // 9d-i-a: the lock flag is what the BROWSER reports. `pointerlockchange`
+    // fires for a granted request, for exitPointerLock, for Escape, and for
+    // the browser taking the lock away on its own — every one of them lands
+    // in the wasm state's `is_cursor_locked` through the same event, so the
+    // flag can never claim a lock that is not held. A REFUSED request fires
+    // `pointerlockerror` and no change: nothing to report, the flag is
+    // already right.
+    document.addEventListener('pointerlockchange', function() {
+        azPointerLocked = document.pointerLockElement != null;
+        if (!azPointerLocked) { azRawDx = 0; azRawDy = 0; }
+        if (azState) azDispatchRaw(EVT_POINTERLOCKCHANGE, 0, 0, azPointerLocked ? 1 : 0);
+    });
+    document.addEventListener('pointerlockerror', function() {
+        console.warn('[azul-web] requestPointerLock was refused by the browser');
     });
     // S1: wheel = azul's Scroll event at the pointer position (desktop
     // parity: the wheel scrolls whatever node is under the cursor).
@@ -1002,6 +1134,85 @@ function azWireListeners() {
     window.addEventListener('resize', function(e) {
         azDispatchResize(window.innerWidth, window.innerHeight);
     });
+}
+
+// =====================================================================
+// 9d-i-a: pointer lock + raw motion (the web `handle_set_pointer_lock`
+// and X11's `handle_xi_raw_motion`, in one place).
+//
+// Request direction: the PointerLock patch (kind 13, the web form of
+// `CallbackChange::SetPointerLock`) calls azSetPointerLock, which asks
+// the browser and NOTHING ELSE — the flag only changes when the browser
+// answers through `pointerlockchange` (wired in azWireListeners).
+// Motion direction: while locked, every pointermove's movementX/Y is
+// accumulated and flushed once per frame as RAWMOUSEMOTION, which the
+// wasm side drops unless ITS lock flag is set (the X11 gate).
+// =====================================================================
+var azPointerLocked = false;
+var azRawDx = 0, azRawDy = 0, azRawDevice = 0, azRawArmed = false;
+
+function azSetPointerLock(locked) {
+    var el = document.getElementById('az-body') || document.body;
+    if (locked) {
+        if (!el || document.pointerLockElement === el) return;
+        if (typeof el.requestPointerLock !== 'function') {
+            console.warn('[azul-web] pointer lock is not available here');
+            return;
+        }
+        try {
+            // Newer browsers return a promise that rejects on refusal; older
+            // ones return undefined and fire pointerlockerror instead.
+            var r = el.requestPointerLock();
+            if (r && typeof r.catch === 'function') {
+                r.catch(function(err) {
+                    console.warn('[azul-web] requestPointerLock refused:', err && err.message);
+                });
+            }
+        } catch (err) {
+            console.warn('[azul-web] requestPointerLock threw:', err && err.message);
+        }
+    } else if (document.pointerLockElement && typeof document.exitPointerLock === 'function') {
+        document.exitPointerLock();
+    }
+}
+
+function azNoteRawMotion(e) {
+    azRawDx += e.movementX || 0;
+    azRawDy += e.movementY || 0;
+    azRawDevice = e.pointerId || 0;
+    if (azRawArmed) return;
+    azRawArmed = true;
+    requestAnimationFrame(function() {
+        azRawArmed = false;
+        var dx = azRawDx, dy = azRawDy;
+        azRawDx = 0; azRawDy = 0;
+        if ((dx !== 0 || dy !== 0) && azPointerLocked && azState) {
+            azDispatchRaw(EVT_RAWMOUSEMOTION, azFixedPoint(dx), azFixedPoint(dy), azRawDevice);
+        }
+    });
+}
+
+// Header-only dispatch with SIGNED x/y and an explicit BUTTON_OR_KEY, for
+// the events that have no DOM event object worth encoding: raw motion
+// (dx, dy, pointerId) and the lock flag (0, 0, held).
+function azDispatchRaw(kind, x, y, buttonOrKey) {
+    var evtPtr = azMini.AzStartup_alloc(EVENT_BUFFER_SIZE);
+    var outLenPtr = azMini.AzStartup_alloc(OUT_LEN_SIZE);
+    if (!evtPtr || !outLenPtr) return;
+    var view = new DataView(azMemory.buffer);
+    view.setUint32(evtPtr + 0,  SENTINEL_NO_NODE, true);
+    view.setInt32(evtPtr + 4,   x | 0, true);
+    view.setInt32(evtPtr + 8,   y | 0, true);
+    view.setUint32(evtPtr + 12, buttonOrKey >>> 0, true);
+    view.setUint32(evtPtr + 16, 0, true);
+    view.setUint32(evtPtr + 20, 0, true);
+    var patchesPtr = azMini.AzStartup_dispatchEvent(
+        azState, kind, evtPtr, EVENT_BUFFER_SIZE, outLenPtr,
+    );
+    var patchesLen = view.getUint32(outLenPtr, true);
+    if (patchesPtr && patchesLen) azApplyPatches(patchesPtr, patchesLen);
+    azMini.AzStartup_free(evtPtr, EVENT_BUFFER_SIZE);
+    azMini.AzStartup_free(outLenPtr, OUT_LEN_SIZE);
 }
 
 // M11 Sprint 4 — kind-specific encoders.
@@ -1161,6 +1372,8 @@ mod tests {
             ("MOUSELEAVE", event_kind::MOUSELEAVE),
             ("CONTEXTMENU", event_kind::CONTEXTMENU),
             ("MOUSEOVER", event_kind::MOUSEOVER),
+            ("RAWMOUSEMOTION", event_kind::RAWMOUSEMOTION),
+            ("POINTERLOCKCHANGE", event_kind::POINTERLOCKCHANGE),
         ] {
             // Matches `var EVT_NAME = N;` allowing the loader's alignment
             // padding between the name and the `=`.
@@ -1200,6 +1413,95 @@ mod tests {
         assert!(
             js.contains("addEventListener('mouseover'"),
             "nothing would produce the kind without a listener"
+        );
+    }
+
+    /// Reads `var NAME = N;` out of the loader, tolerating alignment padding.
+    fn js_var(js: &str, name: &str) -> u32 {
+        let decl = js
+            .lines()
+            .map(str::trim_start)
+            .find(|l| l.starts_with(&format!("var {name} ")) || l.starts_with(&format!("var {name}=")))
+            .unwrap_or_else(|| panic!("the loader declares no {name}"));
+        decl.split('=')
+            .nth(1)
+            .and_then(|rhs| rhs.trim().trim_end_matches(';').split_whitespace().next())
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_else(|| panic!("could not parse a value from {decl:?}"))
+    }
+
+    /// 10e-i: the sample tail is a second wire protocol split across the two
+    /// languages. Its capacities and its fixed-point scale are the parts a
+    /// mismatch would corrupt silently - a loader that packs 30 samples into
+    /// a decoder that accepts 24 loses the whole tail, not the last six.
+    #[test]
+    fn the_loader_sample_tail_matches_the_rust_codec() {
+        use crate::web::eventloop::{fixed_point, pointer_samples};
+        let js = generate_loader_js();
+        assert_eq!(js_var(&js, "AZ_MAX_COALESCED") as usize, pointer_samples::MAX_COALESCED);
+        assert_eq!(js_var(&js, "AZ_MAX_PREDICTED") as usize, pointer_samples::MAX_PREDICTED);
+        assert_eq!(js_var(&js, "AZ_FP_SCALE") as f32, fixed_point::SCALE);
+        assert_eq!(js_var(&js, "EVENT_BUFFER_SIZE"), crate::web::eventloop::EVENT_BYTES_LEN);
+    }
+
+    /// 10e-i: the mouse* trio is bound as POINTER events, because only a
+    /// PointerEvent carries the coalesced and predicted samples - and the
+    /// tail is populated from those two calls, not from the event alone.
+    #[test]
+    fn pointer_events_replace_the_mouse_trio_and_forward_their_samples() {
+        let js = generate_loader_js();
+        for bound in ["pointerdown", "pointerup", "pointermove"] {
+            assert!(
+                js.contains(&format!("addEventListener('{bound}'")),
+                "the loader must bind {bound}"
+            );
+        }
+        for gone in ["mousedown", "mouseup", "mousemove"] {
+            assert!(
+                !js.contains(&format!("addEventListener('{gone}'")),
+                "binding {gone} next to its pointer twin would dispatch every press twice"
+            );
+        }
+        assert!(js.contains("getCoalescedEvents()"), "coalesced samples are read off the event");
+        assert!(js.contains("getPredictedEvents()"), "predicted samples are read off the event");
+        assert!(
+            js.contains("azDispatch(EVT_MOUSEMOVE, ev, undefined, azTakeSamples())"),
+            "the frame's move dispatch must carry the samples the throttle skipped"
+        );
+    }
+
+    /// 9d-i-a: the lock is asked of the browser and REPORTED by the browser.
+    /// Every path that can change it (`pointerlockchange`) feeds the wasm
+    /// flag; the raw deltas come from movementX/Y; and the request direction
+    /// has its patch decoder (kind 13, next to Focus and ScrollTo).
+    #[test]
+    fn pointer_lock_is_requested_reported_and_fed_as_raw_motion() {
+        use crate::web::eventloop::PATCH_KIND_POINTER_LOCK;
+        let js = generate_loader_js();
+        assert!(js.contains("requestPointerLock()"), "set_pointer_lock(true) must ask the browser");
+        assert!(js.contains("exitPointerLock()"), "set_pointer_lock(false) must release");
+        assert!(
+            js.contains("addEventListener('pointerlockchange'"),
+            "the flag must track what the browser reports"
+        );
+        assert!(
+            js.contains("azDispatchRaw(EVT_POINTERLOCKCHANGE, 0, 0, azPointerLocked ? 1 : 0)"),
+            "every lock change must reach the wasm flag"
+        );
+        assert!(js.contains("e.movementX"), "raw deltas come from movementX");
+        assert!(js.contains("e.movementY"), "raw deltas come from movementY");
+        assert!(
+            js.contains("if (azPointerLocked) azNoteRawMotion(e);"),
+            "raw motion is only fed while locked (the X11 gate, JS side)"
+        );
+        assert!(
+            js.contains(&format!("case {PATCH_KIND_POINTER_LOCK}: {{ // PointerLock")),
+            "the PointerLock patch needs its decoder arm"
+        );
+        assert!(
+            js.contains("case 'rawmousemotion':    return EVT_RAWMOUSEMOTION;")
+                && js.contains("case 'pointerlockchange': return EVT_POINTERLOCKCHANGE;"),
+            "html_render's data-az-ev names must decode to the new kinds"
         );
     }
 }

@@ -577,9 +577,16 @@ impl RenderContext {
                 }
             }
         }
-        if let Some(computed) = cache.computed_values.get(node_idx) {
-            decls.extend(computed.iter().map(|(_t, p)| p.property.format_css()));
-        }
+        // `InheritedValues` is bucketed by value now, so a node's inherited
+        // set is assembled by `values_for` (`get` became a per-property
+        // lookup — `(node, prop_type)` — when the store changed shape).
+        decls.extend(
+            cache
+                .computed_values
+                .values_for(node_idx)
+                .iter()
+                .map(|(_t, p)| p.property.format_css()),
+        );
         if !decls.is_empty() {
             self.css_rules
                 .push(format!("#az_{} {{ {} }}", az_id, decls.join(" ")));
@@ -1026,6 +1033,14 @@ fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static s
             WindowEventFilter::VirtualKeyUp => "keyup",
             WindowEventFilter::FocusReceived => "focus",
             WindowEventFilter::FocusLost => "blur",
+            // 9d-i-a: the pointer-lock pair. Neither is a DOM event a node
+            // can listen for by itself - the loader synthesises both from
+            // `document`'s `pointerlockchange` and the locked `pointermove`'s
+            // `movementX/Y` - so the names only have to agree with
+            // `azEvNameToKind` in loader_js.rs, which is what registers the
+            // node for the broadcast.
+            WindowEventFilter::RawMouseMotion => "rawmousemotion",
+            WindowEventFilter::PointerLockChange => "pointerlockchange",
             _ => "click",
         },
         _ => "click",
