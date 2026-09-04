@@ -77,7 +77,8 @@ impl FragmentationContext {
 /// Canonical paged-media margin type (formerly defined in the now-removed
 /// `crate::fragmentation` module). Re-exported from the crate root as
 /// `azul_layout::PageMargins`.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[repr(C)] // crosses the C API in `PageSetup` (9g-ii-f-i)
 pub struct PageMargins {
     pub top: f32,
     pub right: f32,

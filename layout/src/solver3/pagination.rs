@@ -22,41 +22,56 @@
 //! See: <https://www.w3.org/TR/css-gcpm-3>/
 
 use azul_core::refany::{OptionRefAny, RefAny};
-use azul_css::{props::basic::ColorU, AzString};
+use azul_css::{impl_option_inner, props::basic::ColorU, AzString, OptionString};
+
+pub use azul_core::paged::PageMargins;
 
 /// Content that can appear in a page margin box.
 ///
 /// This enum represents the various types of content that CSS GCPM
 /// allows in margin boxes.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
+#[repr(C, u8)] // in the C API (9g-ii-f-i): a data-carrying enum
 pub enum MarginBoxContent {
     /// Empty margin box
     None,
     /// A running element referenced by name: `content: element(header)`
-    RunningElement(String),
+    RunningElement(AzString),
     /// A named string: `content: string(chapter)`
-    NamedString(String),
+    NamedString(AzString),
     /// Page counter: `content: counter(page)`
     PageCounter,
     /// Total pages counter: `content: counter(pages)`
     PagesCounter,
     /// Page counter with format: `content: counter(page, lower-roman)`
-    PageCounterFormatted { format: CounterFormat },
+    PageCounterFormatted(CounterFormat),
     /// Combined content (e.g., "Page " counter(page) " of " counter(pages))
-    Combined(Vec<MarginBoxContent>),
+    Combined(MarginBoxContentVec),
     /// Literal text
-    Text(String),
+    Text(AzString),
     /// Custom callback for dynamic content generation (9g-ii-f): the ordinary
     /// azul callback shape - a C function pointer plus the app's `RefAny`,
     /// which the callback downcasts - so a margin box's text can come from
     /// any binding language, not only a Rust closure.
-    Custom {
-        /// The generator; called once per occurrence per page.
-        callback: MarginBoxCallback,
-        /// The app's data, handed to `callback` (shared: a refcount bump per
-        /// clone of the content, never a deep copy).
-        data: RefAny,
-    },
+    Custom(MarginBoxCustom),
+}
+
+/// A margin box's custom generator with its data (9g-ii-f): one struct so the
+/// enum variant carries exactly one field, as the C API requires.
+#[derive(Clone, PartialEq)]
+#[repr(C)]
+pub struct MarginBoxCustom {
+    /// The generator; called once per occurrence per page.
+    pub callback: MarginBoxCallback,
+    /// The app's data, handed to `callback` (shared: a refcount bump per
+    /// clone of the content, never a deep copy).
+    pub data: RefAny,
+}
+
+impl core::fmt::Debug for MarginBoxCustom {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "MarginBoxCustom(<callback>)")
+    }
 }
 
 /// The C shape of a margin-box content generator (9g-ii-f): the app's data
@@ -74,14 +89,44 @@ pub struct MarginBoxCallback {
 
 azul_core::impl_callback!(MarginBoxCallback, MarginBoxCallbackType);
 
+azul_css::impl_option!(
+    MarginBoxContent,
+    OptionMarginBoxContent,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+azul_css::impl_vec!(
+    MarginBoxContent,
+    MarginBoxContentVec,
+    MarginBoxContentVecDestructor,
+    MarginBoxContentVecDestructorType,
+    MarginBoxContentVecSlice,
+    OptionMarginBoxContent
+);
+azul_css::impl_vec_clone!(MarginBoxContent, MarginBoxContentVec, MarginBoxContentVecDestructor);
+azul_css::impl_vec_partialeq!(MarginBoxContent, MarginBoxContentVec);
+azul_css::impl_vec_debug!(MarginBoxContent, MarginBoxContentVec);
+
 impl MarginBoxContent {
+    /// `Combined` from a Rust vector.
+    #[must_use]
+    pub fn combined(parts: Vec<MarginBoxContent>) -> Self {
+        Self::Combined(parts.into())
+    }
+
+    /// Literal text.
+    #[must_use]
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text(AzString::from(text.into()))
+    }
+
     /// A custom generator from a C callback and the data it downcasts.
     #[must_use]
     pub fn custom(cb: MarginBoxCallbackType, data: RefAny) -> Self {
-        Self::Custom {
+        Self::Custom(MarginBoxCustom {
             callback: MarginBoxCallback::from(cb),
             data,
-        }
+        })
     }
 }
 
@@ -93,19 +138,20 @@ impl std::fmt::Debug for MarginBoxContent {
             Self::NamedString(s) => f.debug_tuple("NamedString").field(s).finish(),
             Self::PageCounter => write!(f, "PageCounter"),
             Self::PagesCounter => write!(f, "PagesCounter"),
-            Self::PageCounterFormatted { format } => f
+            Self::PageCounterFormatted(format) => f
                 .debug_struct("PageCounterFormatted")
                 .field("format", format)
                 .finish(),
             Self::Combined(v) => f.debug_tuple("Combined").field(v).finish(),
             Self::Text(s) => f.debug_tuple("Text").field(s).finish(),
-            Self::Custom { .. } => write!(f, "Custom(<callback>)"),
+            Self::Custom(_) => write!(f, "Custom(<callback>)"),
         }
     }
 }
 
 /// Counter formatting styles (subset of CSS list-style-type).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)] // in the C API (9g-ii-f-i)
 pub enum CounterFormat {
     Decimal,
     DecimalLeadingZero,
@@ -186,24 +232,25 @@ const DEFAULT_HEADER_FOOTER_FONT_SIZE: f32 = 10.0;
 ///
 /// This is a simplified interface for the common case of adding
 /// headers and footers, consumed by the display-list slicer via its `SlicerConfig`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)] // in the C API through `PageSetup` (9g-ii-f-i); widest fields first
 pub struct HeaderFooterConfig {
-    /// Whether to show a header on each page
-    pub show_header: bool,
-    /// Whether to show a footer on each page
-    pub show_footer: bool,
-    /// Height of the header area (if shown)
-    pub header_height: f32,
-    /// Height of the footer area (if shown)  
-    pub footer_height: f32,
     /// Content generator for the header
     pub header_content: MarginBoxContent,
     /// Content generator for the footer
     pub footer_content: MarginBoxContent,
+    /// Height of the header area (if shown)
+    pub header_height: f32,
+    /// Height of the footer area (if shown)  
+    pub footer_height: f32,
     /// Font size for header/footer text
     pub font_size: f32,
     /// Text color for header/footer
     pub text_color: ColorU,
+    /// Whether to show a header on each page
+    pub show_header: bool,
+    /// Whether to show a footer on each page
+    pub show_footer: bool,
     /// Whether to skip header/footer on first page
     pub skip_first_page: bool,
 }
@@ -235,10 +282,10 @@ impl HeaderFooterConfig {
     pub fn with_page_numbers() -> Self {
         Self {
             show_footer: true,
-            footer_content: MarginBoxContent::Combined(vec![
-                MarginBoxContent::Text("Page ".to_string()),
+            footer_content: MarginBoxContent::combined(vec![
+                MarginBoxContent::Text("Page ".into()),
                 MarginBoxContent::PageCounter,
-                MarginBoxContent::Text(" of ".to_string()),
+                MarginBoxContent::Text(" of ".into()),
                 MarginBoxContent::PagesCounter,
             ]),
             ..Default::default()
@@ -251,14 +298,14 @@ impl HeaderFooterConfig {
         Self {
             show_header: true,
             show_footer: true,
-            header_content: MarginBoxContent::Combined(vec![
-                MarginBoxContent::Text("Page ".to_string()),
+            header_content: MarginBoxContent::combined(vec![
+                MarginBoxContent::Text("Page ".into()),
                 MarginBoxContent::PageCounter,
             ]),
-            footer_content: MarginBoxContent::Combined(vec![
-                MarginBoxContent::Text("Page ".to_string()),
+            footer_content: MarginBoxContent::combined(vec![
+                MarginBoxContent::Text("Page ".into()),
                 MarginBoxContent::PageCounter,
-                MarginBoxContent::Text(" of ".to_string()),
+                MarginBoxContent::Text(" of ".into()),
                 MarginBoxContent::PagesCounter,
             ]),
             ..Default::default()
@@ -269,7 +316,7 @@ impl HeaderFooterConfig {
     #[must_use]
     pub fn with_header_text(mut self, text: impl Into<String>) -> Self {
         self.show_header = true;
-        self.header_content = MarginBoxContent::Text(text.into());
+        self.header_content = MarginBoxContent::text(text);
         self
     }
 
@@ -277,7 +324,7 @@ impl HeaderFooterConfig {
     #[must_use]
     pub fn with_footer_text(mut self, text: impl Into<String>) -> Self {
         self.show_footer = true;
-        self.footer_content = MarginBoxContent::Text(text.into());
+        self.footer_content = MarginBoxContent::text(text);
         self
     }
 
@@ -289,7 +336,7 @@ impl HeaderFooterConfig {
     pub fn generate_content(&self, content: &MarginBoxContent, info: PageInfo) -> String {
         match content {
             MarginBoxContent::None => String::new(),
-            MarginBoxContent::Text(s) => s.clone(),
+            MarginBoxContent::Text(s) => s.as_str().to_string(),
             MarginBoxContent::PageCounter => info.page_number.to_string(),
             MarginBoxContent::PagesCounter => {
                 if info.total_pages > 0 {
@@ -298,24 +345,24 @@ impl HeaderFooterConfig {
                     "?".to_string()
                 }
             }
-            MarginBoxContent::PageCounterFormatted { format } => format.format(info.page_number),
+            MarginBoxContent::PageCounterFormatted(format) => format.format(info.page_number),
             MarginBoxContent::Combined(parts) => parts
                 .iter()
                 .map(|p| self.generate_content(p, info))
                 .collect(),
             MarginBoxContent::NamedString(name) => {
                 // TODO: Look up named string from document context
-                format!("[string:{name}]")
+                format!("[string:{}]", name.as_str())
             }
             MarginBoxContent::RunningElement(name) => {
                 // Running elements are rendered as display items, not text
-                format!("[element:{name}]")
+                format!("[element:{}]", name.as_str())
             }
-            MarginBoxContent::Custom { callback, data } => {
+            MarginBoxContent::Custom(custom) => {
                 // The callback gets its own handle to the shared data (a
                 // refcount bump), as every azul callback does.
-                let mut data = data.clone();
-                (callback.cb)(&mut data, info).as_str().to_string()
+                let mut data = custom.data.clone();
+                (custom.callback.cb)(&mut data, info).as_str().to_string()
             }
         }
     }
@@ -369,17 +416,34 @@ impl HeaderFooterConfig {
 ///
 /// let header_footer = config.to_header_footer_config();
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)] // `CallbackInfo::query_pagination`'s argument (9g-ii-f-i); widest fields first
 #[allow(clippy::struct_excessive_bools)] // independent header/footer toggle flags
 pub struct FakePageConfig {
+    /// office-suite-style per-page setup sequence (`None` = uniform pages from
+    /// the fields above).
+    pub page_sequence: OptionPageSequence,
+    /// Header text (static text, or None for page numbers only)
+    pub header_text: OptionString,
+    /// Footer text (static text, or None for page numbers only)
+    pub footer_text: OptionString,
+    /// Header height in points
+    pub header_height: f32,
+    /// Footer height in points
+    pub footer_height: f32,
+    /// Font size for header/footer text
+    pub font_size: f32,
+    /// Number format for page counters
+    pub number_format: CounterFormat,
+    /// Break-awareness policy for pagination (all-off default = plain
+    /// interval slicing; printpdf flips the flags on with a changelog entry).
+    pub break_policy: crate::solver3::page_breaks::BreakPolicy,
+    /// Text color for header/footer
+    pub text_color: ColorU,
     /// Show header on pages
     pub show_header: bool,
     /// Show footer on pages
     pub show_footer: bool,
-    /// Header text (static text, or None for page numbers only)
-    pub header_text: Option<String>,
-    /// Footer text (static text, or None for page numbers only)
-    pub footer_text: Option<String>,
     /// Include page number in header
     pub header_page_number: bool,
     /// Include page number in footer
@@ -388,24 +452,8 @@ pub struct FakePageConfig {
     pub header_total_pages: bool,
     /// Include total pages count ("of Y") in footer
     pub footer_total_pages: bool,
-    /// Number format for page counters
-    pub number_format: CounterFormat,
     /// Skip header/footer on first page
     pub skip_first_page: bool,
-    /// Header height in points
-    pub header_height: f32,
-    /// Footer height in points
-    pub footer_height: f32,
-    /// Font size for header/footer text
-    pub font_size: f32,
-    /// Text color for header/footer
-    pub text_color: ColorU,
-    /// Break-awareness policy for pagination (all-off default = plain
-    /// interval slicing; printpdf flips the flags on with a changelog entry).
-    pub break_policy: crate::solver3::page_breaks::BreakPolicy,
-    /// office-suite-style per-page setup sequence (`None` = uniform pages from
-    /// the fields above).
-    pub page_sequence: Option<PageSequence>,
 }
 
 impl Default for FakePageConfig {
@@ -413,8 +461,8 @@ impl Default for FakePageConfig {
         Self {
             show_header: false,
             show_footer: false,
-            header_text: None,
-            footer_text: None,
+            header_text: OptionString::None,
+            footer_text: OptionString::None,
             header_page_number: false,
             footer_page_number: false,
             header_total_pages: false,
@@ -431,7 +479,7 @@ impl Default for FakePageConfig {
                 a: 255,
             },
             break_policy: crate::solver3::page_breaks::BreakPolicy::default(),
-            page_sequence: None,
+            page_sequence: OptionPageSequence::None,
         }
     }
 }
@@ -475,7 +523,7 @@ impl FakePageConfig {
     #[must_use]
     pub fn with_header_text(mut self, text: impl Into<String>) -> Self {
         self.show_header = true;
-        self.header_text = Some(text.into());
+        self.header_text = OptionString::Some(AzString::from(text.into()));
         self
     }
 
@@ -483,7 +531,7 @@ impl FakePageConfig {
     #[must_use]
     pub fn with_footer_text(mut self, text: impl Into<String>) -> Self {
         self.show_footer = true;
-        self.footer_text = Some(text.into());
+        self.footer_text = OptionString::Some(AzString::from(text.into()));
         self
     }
 
@@ -551,7 +599,7 @@ impl FakePageConfig {
     /// Build the `MarginBoxContent` for the header.
     fn build_header_content(&self) -> MarginBoxContent {
         Self::build_margin_content(
-            self.header_text.as_deref(),
+            self.header_text.as_ref().map(AzString::as_str),
             self.header_page_number,
             self.header_total_pages,
             self.number_format,
@@ -561,7 +609,7 @@ impl FakePageConfig {
     /// Build the `MarginBoxContent` for the footer.
     fn build_footer_content(&self) -> MarginBoxContent {
         Self::build_margin_content(
-            self.footer_text.as_deref(),
+            self.footer_text.as_ref().map(AzString::as_str),
             self.footer_page_number,
             self.footer_total_pages,
             self.number_format,
@@ -578,24 +626,22 @@ impl FakePageConfig {
         let mut parts = Vec::new();
 
         if let Some(text) = text {
-            parts.push(MarginBoxContent::Text(text.to_string()));
+            parts.push(MarginBoxContent::Text(text.into()));
             if page_number {
-                parts.push(MarginBoxContent::Text(" - ".to_string()));
+                parts.push(MarginBoxContent::Text(" - ".into()));
             }
         }
 
         if page_number {
-            parts.push(MarginBoxContent::Text("Page ".to_string()));
+            parts.push(MarginBoxContent::Text("Page ".into()));
             if number_format == CounterFormat::Decimal {
                 parts.push(MarginBoxContent::PageCounter);
             } else {
-                parts.push(MarginBoxContent::PageCounterFormatted {
-                    format: number_format,
-                });
+                parts.push(MarginBoxContent::PageCounterFormatted(number_format));
             }
 
             if total_pages {
-                parts.push(MarginBoxContent::Text(" of ".to_string()));
+                parts.push(MarginBoxContent::Text(" of ".into()));
                 parts.push(MarginBoxContent::PagesCounter);
             }
         }
@@ -605,7 +651,7 @@ impl FakePageConfig {
         } else if parts.len() == 1 {
             parts.pop().unwrap()
         } else {
-            MarginBoxContent::Combined(parts)
+            MarginBoxContent::combined(parts)
         }
     }
 }
@@ -696,25 +742,49 @@ impl TableHeaderTracker {
 }
 
 /// Page margins in logical px (CSS order).
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct PageMargins {
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-    pub left: f32,
-}
 
 /// ONE page's complete setup — size (orientation = which side is longer),
 /// margins, and header/footer decoration. The classic office suites "page setup" unit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)] // in the C API through `PageSequence` (9g-ii-f-i); the 8-aligned config first
 pub struct PageSetup {
-    /// Full page size INCLUDING margins (swap the sides for landscape).
-    pub page_size: azul_core::geom::LogicalSize,
-    pub margins: PageMargins,
     /// Header/footer decoration for pages using this setup (heights count
     /// against the content area; text/numbering render per page).
     pub header_footer: HeaderFooterConfig,
+    /// Full page size INCLUDING margins (swap the sides for landscape).
+    pub page_size: azul_core::geom::LogicalSize,
+    pub margins: PageMargins,
 }
+
+azul_css::impl_option!(PageSetup, OptionPageSetup, copy = false, [Debug, Clone, PartialEq]);
+
+/// One page's explicit setup in a [`PageSequence`] (9g-ii-f-i): the C shape
+/// of what was a `BTreeMap<usize, PageSetup>` entry.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct PageSetupOverride {
+    /// Zero-based page index.
+    pub page: usize,
+    pub setup: PageSetup,
+}
+
+azul_css::impl_option!(
+    PageSetupOverride,
+    OptionPageSetupOverride,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+azul_css::impl_vec!(
+    PageSetupOverride,
+    PageSetupOverrideVec,
+    PageSetupOverrideVecDestructor,
+    PageSetupOverrideVecDestructorType,
+    PageSetupOverrideVecSlice,
+    OptionPageSetupOverride
+);
+azul_css::impl_vec_clone!(PageSetupOverride, PageSetupOverrideVec, PageSetupOverrideVecDestructor);
+azul_css::impl_vec_partialeq!(PageSetupOverride, PageSetupOverrideVec);
+azul_css::impl_vec_debug!(PageSetupOverride, PageSetupOverrideVec);
 
 impl PageSetup {
     /// Content height = page height − vertical margins − active header/footer.
@@ -756,19 +826,22 @@ impl PageSetup {
 /// (true landscape re-wrap) require laying out INTO the fragmentainer
 /// sequence with re-measure at boundaries — an engine stage; until then a
 /// non-uniform width falls back to the default width and says so once.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)] // in the C API through `FakePageConfig::page_sequence` (9g-ii-f-i)
 pub struct PageSequence {
     pub default: PageSetup,
     /// Explicit per-page overrides (0-based page index). Strongest.
-    pub overrides: std::collections::BTreeMap<usize, PageSetup>,
+    pub overrides: PageSetupOverrideVec,
     /// the classic office-suite "different first page".
-    pub first_page: Option<PageSetup>,
+    pub first_page: OptionPageSetup,
     /// the classic office-suite "different odd & even": odd = 0-based EVEN indices (page 1,
     /// 3, … in 1-based speech) — stored by the 1-based convention users
     /// think in: `odd_pages` applies to 1-based odd page numbers.
-    pub odd_pages: Option<PageSetup>,
-    pub even_pages: Option<PageSetup>,
+    pub odd_pages: OptionPageSetup,
+    pub even_pages: OptionPageSetup,
 }
+
+azul_css::impl_option!(PageSequence, OptionPageSequence, copy = false, [Debug, Clone, PartialEq]);
 
 impl PageSequence {
     /// A uniform sequence (every page identical).
@@ -776,31 +849,51 @@ impl PageSequence {
     pub const fn uniform(default: PageSetup) -> Self {
         Self {
             default,
-            overrides: std::collections::BTreeMap::new(),
-            first_page: None,
-            odd_pages: None,
-            even_pages: None,
+            overrides: PageSetupOverrideVec::from_const_slice(&[]),
+            first_page: OptionPageSetup::None,
+            odd_pages: OptionPageSetup::None,
+            even_pages: OptionPageSetup::None,
         }
+    }
+
+    /// Give page `page` (zero-based) its own setup, replacing an earlier
+    /// override of the same page.
+    pub fn set_override(&mut self, page: usize, setup: PageSetup) {
+        let mut entries = core::mem::take(&mut self.overrides).into_library_owned_vec();
+        match entries.iter_mut().find(|o| o.page == page) {
+            Some(existing) => existing.setup = setup,
+            None => entries.push(PageSetupOverride { page, setup }),
+        }
+        self.overrides = entries.into();
+    }
+
+    /// The explicit override for page `page`, if one was set.
+    #[must_use]
+    pub fn override_for(&self, page: usize) -> Option<&PageSetup> {
+        self.overrides
+            .iter()
+            .find(|o| o.page == page)
+            .map(|o| &o.setup)
     }
 
     /// The setup for 0-based page `index`:
     /// override > first > odd/even (1-based parity) > default.
     #[must_use]
     pub fn setup_for_page(&self, index: usize) -> &PageSetup {
-        if let Some(explicit) = self.overrides.get(&index) {
+        if let Some(explicit) = self.override_for(index) {
             return explicit;
         }
         if index == 0 {
-            if let Some(first) = &self.first_page {
+            if let Some(first) = self.first_page.as_ref() {
                 return first;
             }
         }
         let one_based = index + 1;
         if one_based % 2 == 1 {
-            if let Some(odd) = &self.odd_pages {
+            if let Some(odd) = self.odd_pages.as_ref() {
                 return odd;
             }
-        } else if let Some(even) = &self.even_pages {
+        } else if let Some(even) = self.even_pages.as_ref() {
             return even;
         }
         &self.default
@@ -814,10 +907,11 @@ impl PageSequence {
         let w = self.default.content_width();
         let all = self
             .overrides
-            .values()
-            .chain(self.first_page.iter())
-            .chain(self.odd_pages.iter())
-            .chain(self.even_pages.iter())
+            .iter()
+            .map(|o| &o.setup)
+            .chain(self.first_page.as_ref())
+            .chain(self.odd_pages.as_ref())
+            .chain(self.even_pages.as_ref())
             .all(|s| (s.content_width() - w).abs() < 0.5);
         if !all {
             static ANNOUNCE: std::sync::Once = std::sync::Once::new();
@@ -850,11 +944,12 @@ impl PageSequence {
         let parity_uniform = {
             let w = self.default.content_width();
             self.odd_pages
-                .iter()
-                .chain(self.even_pages.iter())
+                .as_ref()
+                .into_iter()
+                .chain(self.even_pages.as_ref())
                 .all(|s| (s.content_width() - w).abs() < 0.5)
         };
-        let last_override = self.overrides.keys().next_back().copied().unwrap_or(0);
+        let last_override = self.overrides.iter().map(|o| o.page).max().unwrap_or(0);
         for page in 0..max_scan.max(1) {
             let w = self.setup_for_page(page).content_width();
             match out.last_mut() {
@@ -1487,7 +1582,7 @@ mod autotest_generated {
         let info = PageInfo::new(4, 9);
         assert_eq!(cfg.generate_content(&MarginBoxContent::None, info), "");
         assert_eq!(
-            cfg.generate_content(&MarginBoxContent::Text(String::new()), info),
+            cfg.generate_content(&MarginBoxContent::text(""), info),
             ""
         );
         assert_eq!(
@@ -1500,9 +1595,7 @@ mod autotest_generated {
         );
         assert_eq!(
             cfg.generate_content(
-                &MarginBoxContent::PageCounterFormatted {
-                    format: CounterFormat::LowerRoman
-                },
+                &MarginBoxContent::PageCounterFormatted(CounterFormat::LowerRoman),
                 info
             ),
             "iv"
@@ -1522,7 +1615,7 @@ mod autotest_generated {
     fn header_footer_generate_content_of_an_empty_combined_is_empty() {
         let cfg = HeaderFooterConfig::default();
         assert_eq!(
-            cfg.generate_content(&MarginBoxContent::Combined(Vec::new()), PageInfo::new(1, 1)),
+            cfg.generate_content(&MarginBoxContent::combined(Vec::new()), PageInfo::new(1, 1)),
             ""
         );
     }
@@ -1536,7 +1629,7 @@ mod autotest_generated {
         let cfg = HeaderFooterConfig::default();
         let mut content = MarginBoxContent::PageCounter;
         for _ in 0..128 {
-            content = MarginBoxContent::Combined(vec![content]);
+            content = MarginBoxContent::combined(vec![content]);
         }
         assert_eq!(cfg.generate_content(&content, PageInfo::new(42, 99)), "42");
     }
@@ -1555,10 +1648,10 @@ mod autotest_generated {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
 
         // Nested inside a Combined, it is still invoked (once per occurrence).
-        let combined = MarginBoxContent::Combined(vec![
-            MarginBoxContent::Text("[".to_string()),
+        let combined = MarginBoxContent::combined(vec![
+            MarginBoxContent::Text("[".into()),
             content,
-            MarginBoxContent::Text("]".to_string()),
+            MarginBoxContent::Text("]".into()),
         ]);
         assert_eq!(
             cfg.generate_content(&combined, PageInfo::new(2, 5)),
@@ -1671,7 +1764,7 @@ mod autotest_generated {
         match decimal.to_header_footer_config().header_content {
             MarginBoxContent::Combined(parts) => {
                 assert_eq!(parts.len(), 2);
-                assert!(matches!(parts[1], MarginBoxContent::PageCounter));
+                assert!(matches!(parts.as_ref()[1], MarginBoxContent::PageCounter));
             }
             other => panic!("expected Combined, got {other:?}"),
         }
@@ -1681,10 +1774,8 @@ mod autotest_generated {
         match roman.to_header_footer_config().header_content {
             MarginBoxContent::Combined(parts) => {
                 assert!(matches!(
-                    parts[1],
-                    MarginBoxContent::PageCounterFormatted {
-                        format: CounterFormat::UpperRoman
-                    }
+                    parts.as_ref()[1],
+                    MarginBoxContent::PageCounterFormatted(CounterFormat::UpperRoman)
                 ));
             }
             other => panic!("expected Combined, got {other:?}"),
@@ -1710,7 +1801,7 @@ mod autotest_generated {
         let hf = FakePageConfig::new()
             .with_footer_text("plain")
             .to_header_footer_config();
-        assert!(matches!(hf.footer_content, MarginBoxContent::Text(ref s) if s == "plain"));
+        assert!(matches!(hf.footer_content, MarginBoxContent::Text(ref s) if s.as_str() == "plain"));
         assert_eq!(hf.footer_text(PageInfo::new(1, 1)), "plain");
     }
 
@@ -1846,7 +1937,7 @@ mod autotest_generated {
         ));
         assert!(matches!(
             FakePageConfig::build_margin_content(Some("t"), false, false, CounterFormat::Decimal),
-            MarginBoxContent::Text(ref s) if s == "t"
+            MarginBoxContent::Text(ref s) if s.as_str() == "t"
         ));
         assert!(matches!(
             FakePageConfig::build_margin_content(Some(""), false, true, CounterFormat::Decimal),
@@ -1860,12 +1951,12 @@ mod autotest_generated {
         ) {
             MarginBoxContent::Combined(parts) => {
                 assert_eq!(parts.len(), 6, "text + sep + label + counter + of + total");
-                assert!(matches!(parts[1], MarginBoxContent::Text(ref s) if s == " - "));
+                assert!(matches!(parts.as_ref()[1], MarginBoxContent::Text(ref s) if s.as_str() == " - "));
                 assert!(matches!(
-                    parts[3],
-                    MarginBoxContent::PageCounterFormatted { .. }
+                    parts.as_ref()[3],
+                    MarginBoxContent::PageCounterFormatted(..)
                 ));
-                assert!(matches!(parts[5], MarginBoxContent::PagesCounter));
+                assert!(matches!(parts.as_ref()[5], MarginBoxContent::PagesCounter));
             }
             other => panic!("expected Combined, got {other:?}"),
         }
@@ -1876,8 +1967,8 @@ mod autotest_generated {
         // Guards against the classic copy-paste bug: header building from the
         // footer's flags (or vice versa).
         let mut cfg = FakePageConfig::new();
-        cfg.header_text = Some("H".to_string());
-        cfg.footer_text = Some("F".to_string());
+        cfg.header_text = OptionString::Some("H".into());
+        cfg.footer_text = OptionString::Some("F".into());
         cfg.header_page_number = true;
         cfg.footer_page_number = false;
         let hf = HeaderFooterConfig::default();

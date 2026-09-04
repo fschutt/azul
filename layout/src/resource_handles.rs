@@ -310,7 +310,7 @@ impl PaginationSnapshot {
             .is_some_and(|b| {
                 matches!(
                     b.kind,
-                    crate::solver3::page_breaks::BreakKind::Avoided { .. }
+                    crate::solver3::page_breaks::BreakKind::Avoided(..)
                 )
             })
     }
@@ -320,7 +320,7 @@ impl PaginationSnapshot {
     #[must_use]
     pub fn page_of_y(&self, y: f32) -> usize {
         self.as_info()
-            .map_or(0, |i| crate::solver3::page_breaks::page_of_y(&i.breaks, y))
+            .map_or(0, |i| crate::solver3::page_breaks::page_of_y(i.breaks.as_ref(), y))
     }
 }
 

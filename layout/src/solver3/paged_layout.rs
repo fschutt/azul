@@ -575,7 +575,7 @@ where
         page_width,
         table_headers,
         break_policy: page_config.break_policy,
-        page_sequence: page_config.page_sequence,
+        page_sequence: page_config.page_sequence.into_option(),
     };
 
     // Step 3: Analyze the breaks, THEN paginate against them — the analysis
@@ -694,7 +694,7 @@ where
         .max(1);
     Ok(page_breaks::PaginationInfo {
         page_count,
-        breaks: result.breaks,
+        breaks: result.breaks.into(),
         total_content_height: result.total_content_height,
     })
 }
@@ -1083,7 +1083,7 @@ fn materialize_sequence_tail(
         let differs = (setup.content_width() - out.default.content_width()).abs() >= 0.5
             || (setup.content_height() - out.default.content_height()).abs() >= 0.5;
         if differs {
-            out.overrides.insert(local, setup.clone());
+            out.set_override(local, setup.clone());
         }
     }
     out
@@ -1168,7 +1168,7 @@ where
         let mut text_cache = TextLayoutCache::new();
         let frag = FragmentationContext::new_paged(content_size);
         let mut cfg = page_config.clone();
-        cfg.page_sequence = Some(materialize_sequence_tail(
+        cfg.page_sequence = crate::solver3::pagination::OptionPageSequence::Some(materialize_sequence_tail(
             sequence,
             sec.first_page,
             sec.page_count.unwrap_or(SECTION_SCAN).min(SECTION_SCAN),
@@ -1231,7 +1231,11 @@ where
 
         let mut trimmed = info;
         trimmed.page_count = budget;
-        trimmed.breaks.truncate(budget.saturating_sub(1));
+        trimmed.breaks = {
+            let mut v = trimmed.breaks.into_library_owned_vec();
+            v.truncate(budget.saturating_sub(1));
+            v.into()
+        };
         trimmed.total_content_height = cut_y;
         out.sections.push(SectionPagination {
             first_page: sec.first_page,
@@ -2011,7 +2015,7 @@ mod autotest_generated {
     fn width_sections_partition_by_content_width() {
         use crate::solver3::pagination::PageSequence;
         let mut seq = PageSequence::uniform(setup(600.0, 400.0));
-        seq.overrides.insert(0, setup(300.0, 400.0));
+        seq.set_override(0, setup(300.0, 400.0));
         let sections = seq.width_sections(64);
         assert_eq!(sections.len(), 2);
         assert_eq!(sections[0].first_page, 0);
@@ -2055,7 +2059,7 @@ mod autotest_generated {
 
         // Page 0: 300 wide → divs 150 tall. Later pages: 600 wide → 300 tall.
         let mut seq = PageSequence::uniform(setup(600.0, 400.0));
-        seq.overrides.insert(0, setup(300.0, 400.0));
+        seq.set_override(0, setup(300.0, 400.0));
 
         let sectioned = compute_sectioned_pagination(
             &aspect_doc(8),
@@ -2158,7 +2162,7 @@ pub fn pagination_to_dom_breaks(
             .map(|b| StructuralBreak {
                 y: b.y,
                 kind: b.kind,
-                causing_node: b.causing_node,
+                causing_node: b.causing_node.into_option(),
                 path: spine_path_at_y(tree, positions, styled_dom, b.y),
                 line_start: spine_line_start_at_y(tree, positions, styled_dom, b.y),
             })

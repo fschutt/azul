@@ -15268,6 +15268,36 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.is_node_focused_for_seat(seat_id, node_id)"
+                            },
+                            "query_pagination": {
+                                "doc": [
+                                    "#28: \"what WOULD the page breaks be for this content at this page",
+                                    "size?\" - a SPECULATIVE pagination query answered from the window's",
+                                    "live caches (shaping shared read-only, nothing committed, nothing",
+                                    "polluted). The result is bbox-level only: break positions, page",
+                                    "count, total content height. See [`LayoutWindow::query_pagination`]",
+                                    "for the cache-fork mechanics. Intended for app-side lazy pagination:",
+                                    "lay out a monitor-height prefix eagerly, estimate the page count,",
+                                    "then correct asynchronously with this query."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "styled_dom": "*const StyledDom"
+                                    },
+                                    {
+                                        "page_size": "LogicalSize"
+                                    },
+                                    {
+                                        "page_config": "FakePageConfig"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionPaginationInfo"
+                                },
+                                "fn_body": "object.query_pagination(unsafe { &*styled_dom }, page_size, page_config)"
                             }
                         },
                         "repr": "C"
@@ -107814,6 +107844,633 @@
                             ],
                             "returns": null
                         }
+                    },
+                    "PageSetupOverrideVec": {
+                        "external": "azul_layout::solver3::pagination::PageSetupOverrideVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PageSetupOverride",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "PageSetupOverrideVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `PageSetupOverrideVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "PageSetupOverrideVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `PageSetupOverrideVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageSetupOverrideVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "page_setup_override_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "page_setup_override_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "page_setup_override_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `PageSetupOverrideVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "PageSetupOverride"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageSetupOverrideVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `PageSetupOverrideVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const PageSetupOverride"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageSetupOverrideVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionPageSetupOverride"
+                                },
+                                "fn_body": "page_setup_override_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `PageSetupOverrideVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageSetupOverrideVecSlice"
+                                },
+                                "fn_body": "page_setup_override_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageSetupOverrideVecSlice"
+                                },
+                                "fn_body": "page_setup_override_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "MarginBoxContentVec": {
+                        "external": "azul_layout::solver3::pagination::MarginBoxContentVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "MarginBoxContent",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "MarginBoxContentVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `MarginBoxContentVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "MarginBoxContentVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `MarginBoxContentVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MarginBoxContentVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "margin_box_content_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "margin_box_content_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "margin_box_content_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `MarginBoxContentVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "MarginBoxContent"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MarginBoxContentVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `MarginBoxContentVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const MarginBoxContent"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MarginBoxContentVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionMarginBoxContent"
+                                },
+                                "fn_body": "margin_box_content_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `MarginBoxContentVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MarginBoxContentVecSlice"
+                                },
+                                "fn_body": "margin_box_content_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MarginBoxContentVecSlice"
+                                },
+                                "fn_body": "margin_box_content_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PageBreakPositionVecDestructor": {
+                        "external": "azul_layout::solver3::page_breaks::PageBreakPositionVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "PageBreakPositionVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PageBreakPositionVec": {
+                        "external": "azul_layout::solver3::page_breaks::PageBreakPositionVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PageBreakPosition",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "PageBreakPositionVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `PageBreakPositionVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "PageBreakPositionVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `PageBreakPositionVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageBreakPositionVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "page_break_position_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "page_break_position_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "page_break_position_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `PageBreakPositionVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "PageBreakPosition"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageBreakPositionVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `PageBreakPositionVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const PageBreakPosition"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageBreakPositionVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionPageBreakPosition"
+                                },
+                                "fn_body": "page_break_position_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `PageBreakPositionVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageBreakPositionVecSlice"
+                                },
+                                "fn_body": "page_break_position_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageBreakPositionVecSlice"
+                                },
+                                "fn_body": "page_break_position_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PageSetupOverrideVecDestructor": {
+                        "external": "azul_layout::solver3::pagination::PageSetupOverrideVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "PageSetupOverrideVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PageSetupOverrideVecDestructorType": {
+                        "external": "azul_layout::solver3::pagination::PageSetupOverrideVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "PageSetupOverrideVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "PageBreakPositionVecDestructorType": {
+                        "external": "azul_layout::solver3::page_breaks::PageBreakPositionVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "PageBreakPositionVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "MarginBoxContentVecDestructorType": {
+                        "external": "azul_layout::solver3::pagination::MarginBoxContentVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "MarginBoxContentVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "MarginBoxContentVecDestructor": {
+                        "external": "azul_layout::solver3::pagination::MarginBoxContentVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "MarginBoxContentVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -113895,6 +114552,152 @@
                                     "type": "KeyboardSeat",
                                     "doc": [
                                         "Some value of type KeyboardSeat"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionPaginationInfo": {
+                        "external": "azul_layout::solver3::page_breaks::OptionPaginationInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "PaginationInfo"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionPageSetup": {
+                        "external": "azul_layout::solver3::pagination::OptionPageSetup",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "PageSetup"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionNodeId": {
+                        "external": "azul_core::id::OptionNodeId",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "NodeId"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionPageSequence": {
+                        "external": "azul_layout::solver3::pagination::OptionPageSequence",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "PageSequence"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionMarginBoxContent": {
+                        "external": "azul_layout::solver3::pagination::OptionMarginBoxContent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "MarginBoxContent",
+                                    "doc": [
+                                        "Some value of type MarginBoxContent"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionPageSetupOverride": {
+                        "external": "azul_layout::solver3::pagination::OptionPageSetupOverride",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "PageSetupOverride",
+                                    "doc": [
+                                        "Some value of type PageSetupOverride"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionPageBreakPosition": {
+                        "external": "azul_layout::solver3::page_breaks::OptionPageBreakPosition",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "PageBreakPosition",
+                                    "doc": [
+                                        "Some value of type PageBreakPosition"
                                     ]
                                 }
                             }
@@ -122151,6 +122954,543 @@
                                     "type": "PaginationSnapshot"
                                 },
                                 "fn_body": "object.compute_pagination(styled_dom, page_width_px, page_height_px, &font_cache, &image_cache)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PageBreakPositionVecSlice": {
+                        "external": "azul_layout::solver3::page_breaks::PageBreakPositionVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PageBreakPosition",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PageBreakPosition": {
+                        "external": "azul_layout::solver3::page_breaks::PageBreakPosition",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "causing_node": {
+                                    "type": "OptionNodeId"
+                                },
+                                "y": {
+                                    "type": "f32"
+                                },
+                                "kind": {
+                                    "type": "BreakKind"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FakePageConfig": {
+                        "external": "azul_layout::solver3::pagination::FakePageConfig",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "page_sequence": {
+                                    "type": "OptionPageSequence"
+                                },
+                                "header_text": {
+                                    "type": "OptionString"
+                                },
+                                "footer_text": {
+                                    "type": "OptionString"
+                                },
+                                "header_height": {
+                                    "type": "f32"
+                                },
+                                "footer_height": {
+                                    "type": "f32"
+                                },
+                                "font_size": {
+                                    "type": "f32"
+                                },
+                                "number_format": {
+                                    "type": "CounterFormat"
+                                },
+                                "break_policy": {
+                                    "type": "BreakPolicy"
+                                },
+                                "text_color": {
+                                    "type": "ColorU"
+                                },
+                                "show_header": {
+                                    "type": "bool"
+                                },
+                                "show_footer": {
+                                    "type": "bool"
+                                },
+                                "header_page_number": {
+                                    "type": "bool"
+                                },
+                                "footer_page_number": {
+                                    "type": "bool"
+                                },
+                                "header_total_pages": {
+                                    "type": "bool"
+                                },
+                                "footer_total_pages": {
+                                    "type": "bool"
+                                },
+                                "skip_first_page": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "HeaderFooterConfig": {
+                        "external": "azul_layout::solver3::pagination::HeaderFooterConfig",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "header_content": {
+                                    "type": "MarginBoxContent"
+                                },
+                                "footer_content": {
+                                    "type": "MarginBoxContent"
+                                },
+                                "header_height": {
+                                    "type": "f32"
+                                },
+                                "footer_height": {
+                                    "type": "f32"
+                                },
+                                "font_size": {
+                                    "type": "f32"
+                                },
+                                "text_color": {
+                                    "type": "ColorU"
+                                },
+                                "show_header": {
+                                    "type": "bool"
+                                },
+                                "show_footer": {
+                                    "type": "bool"
+                                },
+                                "skip_first_page": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "CounterFormat": {
+                        "external": "azul_layout::solver3::pagination::CounterFormat",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Decimal": {},
+                                "DecimalLeadingZero": {},
+                                "LowerRoman": {},
+                                "UpperRoman": {},
+                                "LowerAlpha": {},
+                                "UpperAlpha": {},
+                                "LowerGreek": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PaginationInfo": {
+                        "external": "azul_layout::solver3::page_breaks::PaginationInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "breaks": {
+                                    "type": "PageBreakPositionVec"
+                                },
+                                "page_count": {
+                                    "type": "usize"
+                                },
+                                "total_content_height": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BreakPolicy": {
+                        "external": "azul_layout::solver3::page_breaks::BreakPolicy",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "max_push_distance": {
+                                    "type": "f32"
+                                },
+                                "honor_break_inside": {
+                                    "type": "bool"
+                                },
+                                "widows_orphans": {
+                                    "type": "bool"
+                                },
+                                "atomic_lines": {
+                                    "type": "bool"
+                                },
+                                "atomic_table_rows": {
+                                    "type": "bool"
+                                },
+                                "repeat_table_headers": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PageSetup": {
+                        "external": "azul_layout::solver3::pagination::PageSetup",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "header_footer": {
+                                    "type": "HeaderFooterConfig"
+                                },
+                                "page_size": {
+                                    "type": "LogicalSize"
+                                },
+                                "margins": {
+                                    "type": "PageMargins"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PageSequence": {
+                        "external": "azul_layout::solver3::pagination::PageSequence",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "default": {
+                                    "type": "PageSetup"
+                                },
+                                "overrides": {
+                                    "type": "PageSetupOverrideVec"
+                                },
+                                "first_page": {
+                                    "type": "OptionPageSetup"
+                                },
+                                "odd_pages": {
+                                    "type": "OptionPageSetup"
+                                },
+                                "even_pages": {
+                                    "type": "OptionPageSetup"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PageMargins": {
+                        "external": "azul_core::paged::PageMargins",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "Default",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "top": {
+                                    "type": "f32"
+                                },
+                                "right": {
+                                    "type": "f32"
+                                },
+                                "bottom": {
+                                    "type": "f32"
+                                },
+                                "left": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MarginBoxContent": {
+                        "external": "azul_layout::solver3::pagination::MarginBoxContent",
+                        "custom_impls": [
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "RunningElement": {
+                                    "type": "String"
+                                },
+                                "NamedString": {
+                                    "type": "String"
+                                },
+                                "PageCounter": {},
+                                "PagesCounter": {},
+                                "PageCounterFormatted": {
+                                    "type": "CounterFormat"
+                                },
+                                "Combined": {
+                                    "type": "MarginBoxContentVec"
+                                },
+                                "Text": {
+                                    "type": "String"
+                                },
+                                "Custom": {
+                                    "type": "MarginBoxCustom"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PageSetupOverrideVecSlice": {
+                        "external": "azul_layout::solver3::pagination::PageSetupOverrideVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PageSetupOverride",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MarginBoxContentVecSlice": {
+                        "external": "azul_layout::solver3::pagination::MarginBoxContentVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "MarginBoxContent",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PageSetupOverride": {
+                        "external": "azul_layout::solver3::pagination::PageSetupOverride",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "page": {
+                                    "type": "usize"
+                                },
+                                "setup": {
+                                    "type": "PageSetup"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BreakKind": {
+                        "external": "azul_layout::solver3::page_breaks::BreakKind",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Forced": {},
+                                "Interval": {},
+                                "Avoided": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "MarginBoxCustom": {
+                        "external": "azul_layout::solver3::pagination::MarginBoxCustom",
+                        "custom_impls": [
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "callback": {
+                                    "type": "MarginBoxCallback"
+                                },
+                                "data": {
+                                    "type": "RefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PageInfo": {
+                        "external": "azul_layout::solver3::pagination::PageInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "page_number": {
+                                    "type": "usize"
+                                },
+                                "total_pages": {
+                                    "type": "usize"
+                                },
+                                "is_first": {
+                                    "type": "bool"
+                                },
+                                "is_last": {
+                                    "type": "bool"
+                                },
+                                "is_left": {
+                                    "type": "bool"
+                                },
+                                "is_right": {
+                                    "type": "bool"
+                                },
+                                "is_blank": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MarginBoxCallback": {
+                        "external": "azul_layout::solver3::pagination::MarginBoxCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "MarginBoxCallbackType"
+                                },
+                                "ctx": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "MarginBoxCallbackType": {
+                        "external": "azul_layout::solver3::pagination::MarginBoxCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny",
+                                    "ref_kind": "refmut"
+                                },
+                                {
+                                    "type": "PageInfo"
+                                }
+                            ],
+                            "returns": {
+                                "type": "String"
                             }
                         },
                         "repr": "C"

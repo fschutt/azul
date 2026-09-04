@@ -19,7 +19,8 @@
 //!    old interval loop `y += normal` never terminate. Interval generation now
 //!    stops after the first-page break when the normal height is not positive.
 
-use azul_core::dom::NodeId;
+use azul_core::{dom::NodeId, id::OptionNodeId};
+use azul_css::impl_option_inner;
 
 use crate::solver3::display_list::{calculate_display_list_height, DisplayList, SlicerConfig};
 
@@ -34,20 +35,22 @@ pub enum BreakKind {
     Interval,
     /// The page was full at `pushed_from`, but the break moved UP to honor an
     /// avoid-rule (`break-inside: avoid`, line atomicity, widows/orphans).
-    Avoided { pushed_from: f32 },
+    Avoided(f32),
 }
 
 /// One page boundary in document space.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)] // in the C API through `PaginationInfo` (9g-ii-f-i); the 8-aligned
+// option first so it is not padded after two 4-byte fields
 pub struct PageBreakPosition {
+    /// For [`BreakKind::Forced`]: the node whose break property caused it,
+    /// when known. `None` in the display-list-only path - the display list
+    /// records only the Y positions of forced breaks.
+    pub causing_node: OptionNodeId,
     /// Document-space Y where the page ENDS (content at or below `y` belongs
     /// to the next page).
     pub y: f32,
     pub kind: BreakKind,
-    /// For [`BreakKind::Forced`]: the node whose break property caused it,
-    /// when known. `None` in the display-list-only path — the display list
-    /// records only the Y positions of forced breaks.
-    pub causing_node: Option<NodeId>,
 }
 
 /// Page geometry the break computation needs.
@@ -107,7 +110,12 @@ const MERGE_WINDOW_PX: f32 = 1.0;
 /// changelog entry, never silently).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(clippy::struct_excessive_bools)] // independent feature flags; mirrors the C-ABI struct layout
+#[repr(C)] // in the C API through `FakePageConfig` (9g-ii-f-i); the f32 first
 pub struct BreakPolicy {
+    /// Upper bound on how far a break may be pushed UP to satisfy
+    /// avoid-rules, as a fraction of the page height (guards pathological
+    /// cascades; beyond it the plain candidate snap applies).
+    pub max_push_distance: f32,
     /// Honor `break-inside: avoid` (push boxes below the break intact).
     pub honor_break_inside: bool,
     /// Honor `widows` / `orphans` line constraints.
@@ -118,10 +126,6 @@ pub struct BreakPolicy {
     pub atomic_table_rows: bool,
     /// Repeat `<thead>` on continuation pages.
     pub repeat_table_headers: bool,
-    /// Upper bound on how far a break may be pushed UP to satisfy
-    /// avoid-rules, as a fraction of the page height (guards pathological
-    /// cascades; beyond it the plain candidate snap applies).
-    pub max_push_distance: f32,
 }
 
 impl Default for BreakPolicy {
@@ -373,7 +377,7 @@ fn compute_page_breaks_impl(
                     breaks.push(PageBreakPosition {
                         y: fb.y,
                         kind: BreakKind::Forced,
-                        causing_node: fb.causing_node,
+                        causing_node: fb.causing_node.into(),
                     });
                     prev_end = fb.y;
                     page_height = normal;
@@ -394,12 +398,12 @@ fn compute_page_breaks_impl(
         let kind = if (adjusted - naive).abs() < f32::EPSILON {
             BreakKind::Interval
         } else {
-            BreakKind::Avoided { pushed_from: naive }
+            BreakKind::Avoided(naive)
         };
         breaks.push(PageBreakPosition {
             y: adjusted,
             kind,
-            causing_node: None,
+            causing_node: OptionNodeId::None,
         });
         prev_end = adjusted;
         page_height = normal;
@@ -423,7 +427,7 @@ fn compute_page_breaks_impl(
             breaks.push(PageBreakPosition {
                 y: fb.y,
                 kind: BreakKind::Forced,
-                causing_node: fb.causing_node,
+                causing_node: fb.causing_node.into(),
             });
             prev_end = fb.y;
         }
@@ -710,11 +714,36 @@ pub fn page_of_y(breaks: &[PageBreakPosition], y: f32) -> usize {
 /// to draw page chrome and schedule lazy page materialization, with NO
 /// per-page display list generated.
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)] // `CallbackInfo::query_pagination`'s answer (9g-ii-f-i)
 pub struct PaginationInfo {
-    pub breaks: Vec<PageBreakPosition>,
+    pub breaks: PageBreakPositionVec,
     pub page_count: usize,
     pub total_content_height: f32,
 }
+
+azul_css::impl_option!(
+    PageBreakPosition,
+    OptionPageBreakPosition,
+    [Debug, Copy, Clone, PartialEq]
+);
+azul_css::impl_vec!(
+    PageBreakPosition,
+    PageBreakPositionVec,
+    PageBreakPositionVecDestructor,
+    PageBreakPositionVecDestructorType,
+    PageBreakPositionVecSlice,
+    OptionPageBreakPosition
+);
+azul_css::impl_vec_clone!(PageBreakPosition, PageBreakPositionVec, PageBreakPositionVecDestructor);
+azul_css::impl_vec_partialeq!(PageBreakPosition, PageBreakPositionVec);
+azul_css::impl_vec_debug!(PageBreakPosition, PageBreakPositionVec);
+
+azul_css::impl_option!(
+    PaginationInfo,
+    OptionPaginationInfo,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 /// Compute page breaks for a display list: CSS-forced breaks
 /// (`DisplayList::forced_page_breaks`) plus regular interval breaks wherever
@@ -779,7 +808,7 @@ pub fn compute_page_breaks_from_forced(
             breaks.push(PageBreakPosition {
                 y: fb.y,
                 kind: BreakKind::Forced,
-                causing_node: fb.causing_node,
+                causing_node: fb.causing_node.into(),
             });
         }
     }
@@ -794,7 +823,7 @@ pub fn compute_page_breaks_from_forced(
         breaks.push(PageBreakPosition {
             y,
             kind: BreakKind::Interval,
-            causing_node: None,
+            causing_node: OptionNodeId::None,
         });
         // `!(normal > 0.0)` semantics kept explicitly: NaN must also stop.
         if normal <= 0.0 || normal.is_nan() {
@@ -1148,7 +1177,7 @@ mod tests {
             "the break must land at the avoid-box top, got {breaks:?}"
         );
         assert!(
-            matches!(breaks[0].kind, BreakKind::Avoided { pushed_from } if (pushed_from - 100.0).abs() < 0.01)
+            matches!(breaks[0].kind, BreakKind::Avoided(pushed_from) if (pushed_from - 100.0).abs() < 0.01)
         );
         // Following pages re-flow from the moved break.
         assert_eq!(breaks[1].y, 180.0);
@@ -1207,7 +1236,7 @@ mod tests {
         };
         let breaks = breaks_with(&styled, &dl, &policy, 100.0, 100.0);
         assert_eq!(breaks[0].y, 90.0, "{breaks:?}");
-        assert!(matches!(breaks[0].kind, BreakKind::Avoided { .. }));
+        assert!(matches!(breaks[0].kind, BreakKind::Avoided(..)));
     }
 
     #[test]
@@ -1245,7 +1274,7 @@ mod tests {
             &policy,
         );
         assert_eq!(breaks[0].y, 84.0, "{breaks:?}");
-        assert!(matches!(breaks[0].kind, BreakKind::Avoided { .. }));
+        assert!(matches!(breaks[0].kind, BreakKind::Avoided(..)));
     }
 
     #[test]
@@ -1284,7 +1313,7 @@ mod tests {
             &policy,
         );
         assert_eq!(breaks[0].y, 84.0, "{breaks:?}");
-        assert!(matches!(breaks[0].kind, BreakKind::Avoided { .. }));
+        assert!(matches!(breaks[0].kind, BreakKind::Avoided(..)));
     }
 
     #[test]
@@ -1445,7 +1474,7 @@ mod tests {
             &policy,
         );
         assert_eq!(breaks[0].y, 80.0, "{breaks:?}");
-        assert!(matches!(breaks[0].kind, BreakKind::Avoided { .. }));
+        assert!(matches!(breaks[0].kind, BreakKind::Avoided(..)));
 
         // Monolith rule: a row TALLER than the page still tears.
         let (styled, dl) = table_fixture(20.0, 300.0, 2);
@@ -1485,14 +1514,14 @@ mod tests {
         // Default 100-high pages, but PAGE 2 (0-based index 1) is 150 high:
         // breaks at 100, 250, 350, 450 (the classic office-suite "page 345 is different").
         let mut seq = PageSequence::uniform(setup(100.0));
-        seq.overrides.insert(1, setup(150.0));
+        seq.set_override(1, setup(150.0));
         let breaks = compute_page_breaks_with_sequence(&input, &seq, &BreakPolicy::default());
         assert_eq!(ys(&breaks), vec![100.0, 250.0, 350.0, 450.0], "{breaks:?}");
 
         // Odd/even parity: 1-based odd pages 100 high, even pages 60 high:
         // breaks 100, 160, 260, 320, 420, 480 (alternating).
         let mut seq = PageSequence::uniform(setup(100.0));
-        seq.even_pages = Some(setup(60.0));
+        seq.even_pages = crate::solver3::pagination::OptionPageSetup::Some(setup(60.0));
         let breaks = compute_page_breaks_with_sequence(&input, &seq, &BreakPolicy::default());
         assert_eq!(
             ys(&breaks),
@@ -1502,7 +1531,7 @@ mod tests {
 
         // Different-first-page: first 40 high, rest 100: 40, 140, 240, …
         let mut seq = PageSequence::uniform(setup(100.0));
-        seq.first_page = Some(setup(40.0));
+        seq.first_page = crate::solver3::pagination::OptionPageSetup::Some(setup(40.0));
         let breaks = compute_page_breaks_with_sequence(&input, &seq, &BreakPolicy::default());
         assert_eq!(
             ys(&breaks),
@@ -1512,8 +1541,8 @@ mod tests {
 
         // Precedence: explicit override BEATS parity on the same index.
         let mut seq = PageSequence::uniform(setup(100.0));
-        seq.even_pages = Some(setup(60.0));
-        seq.overrides.insert(1, setup(150.0)); // page 2 (even) overridden
+        seq.even_pages = crate::solver3::pagination::OptionPageSetup::Some(setup(60.0));
+        seq.set_override(1, setup(150.0)); // page 2 (even) overridden
         let breaks = compute_page_breaks_with_sequence(&input, &seq, &BreakPolicy::default());
         assert_eq!(breaks[1].y, 250.0, "override wins over parity: {breaks:?}");
     }
@@ -1589,7 +1618,7 @@ mod tests {
         let b = |y: f32, kind: BreakKind| PageBreakPosition {
             y,
             kind,
-            causing_node: None,
+            causing_node: OptionNodeId::None,
         };
         let breaks = [
             b(100.0, BreakKind::Interval),
@@ -1625,7 +1654,7 @@ mod tests {
         let b = |y: f32| PageBreakPosition {
             y,
             kind: BreakKind::Interval,
-            causing_node: None,
+            causing_node: OptionNodeId::None,
         };
         // Break at 0 and duplicate breaks produce no empty page.
         assert_eq!(

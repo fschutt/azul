@@ -1612,11 +1612,24 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       more. NOT YET IN api.json: `query_pagination` itself is not exposed (nothing references the
       family from an exposed type), so autofix at the eighth batch's end pass will not pull it in
       by itself - exposing the family is a separate, now UNBLOCKED item (9g-ii-f-i). ✅ COMPILED in the eighth batch pass of 2026-09-04: host check EXIT=0; autofix converged at 0 patches / 0 FFI errors after two source fixes (`natural_scroll` moved beside `log_level` so the alignment checker sees no padding; the runner and the seat-focus arm gained the missing match arms); `codegen all` EXIT=0; azul-core 2809, azul-layout lib 7683 / `--test all` 1003, e2e corpus 62 scenarios, azul-dll 2040 (+5), all 0 failed; 8/8 gate targets green including windows-gnu, which compiles the hid.dll and registry code.
-- [ ] 9g-ii-f-i Expose the pagination family (`CallbackInfo::query_pagination`, `FakePageConfig`,
-      `PageSequence`, `MarginBoxContent`, `MarginBoxCallback`, `PageInfo`, `PaginationInfo`)
-      through api.json via `autofix add CallbackInfo.query_pagination` once the batch compiles;
-      unblocked by 9g-ii-f. `FakePageConfig`/`PageSequence` still hold `String`/`Vec` fields that
-      autofix will want as `AzString`/vec types - do that conversion when exposing, not before.
+- [x] 9g-ii-f-i DONE. `CallbackInfo::query_pagination` is in api.json with the whole family
+      behind it - 35 types, all through `autofix add` + the drift loop (0 patches, 0 FFI errors),
+      filed under `pdf` beside `Pdf` (the print path these types were written for) via the
+      override table, plus `vec` / `option`. The conversion the note asked for, done at the
+      SOURCE: `FakePageConfig` (`OptionString` texts, `OptionPageSequence`), `HeaderFooterConfig`,
+      `PageSetup`, `PageSequence` (the `BTreeMap<usize, PageSetup>` became `PageSetupOverrideVec`
+      with `set_override` / `override_for`), `MarginBoxContent` (`AzString` texts,
+      `MarginBoxContentVec`, and `Custom(MarginBoxCustom)` - the FFI rule is ONE field per
+      variant), `PaginationInfo` (`PageBreakPositionVec`), `PageBreakPosition` (`OptionNodeId`,
+      new in core), `BreakKind::Avoided(f32)` and `PageCounterFormatted(CounterFormat)` as tuple
+      variants (codegen builds data variants positionally), `BreakPolicy` / `CounterFormat` /
+      `PageInfo` `#[repr(C)]`, every struct ordered widest-first for the alignment checker, and
+      the duplicate `PageMargins` unified onto `azul_core::paged::PageMargins`. WHY the gap
+      existed: the family was Rust-first (a boxed closure, a `BTreeMap`, `String`s) - 9g-ii-f
+      removed the closure, this removed the rest. Evidence: host check EXIT=0; `codegen all`
+      EXIT=0; azul-core 2809, azul-layout lib 7683 / `--test all` 1003 (the pagination and DOM
+      break tests among them), e2e 62 scenarios, azul-dll 2071 (+31, the generated vec / option
+      tests), 0 failed; 8/8 gate targets green.
 
 
 ### Follow-ups opened by 9e

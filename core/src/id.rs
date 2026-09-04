@@ -728,3 +728,11 @@ impl_node_iterator!(Children, |node: &Node| node.next_sibling);
 #[cfg(test)]
 #[path = "id_test.rs"]
 mod id_test;
+
+// A node reference that may be absent, C-representable (9g-ii-f-i): what a
+// page break carries as its `causing_node` across the FFI boundary.
+azul_css::impl_option!(
+    NodeId,
+    OptionNodeId,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);

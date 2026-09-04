@@ -2987,17 +2987,14 @@ impl CallbackInfo {
         styled_dom: &StyledDom,
         page_size: LogicalSize,
         page_config: crate::solver3::pagination::FakePageConfig,
-    ) -> Option<crate::solver3::page_breaks::PaginationInfo> {
+    ) -> crate::solver3::page_breaks::OptionPaginationInfo {
         // No ImageCache travels with CallbackInfo; an empty one matches what
         // app-side pagination (miniword) passes today. Callers that need
         // image-sized pagination can use `LayoutWindow::query_pagination`
         // directly with a real cache.
-        self.get_layout_window().query_pagination(
-            styled_dom,
-            page_size,
-            page_config,
-            &ImageCache::default(),
-        )
+        self.get_layout_window()
+            .query_pagination(styled_dom, page_size, page_config, &ImageCache::default())
+            .into()
     }
 
     /// Internal helper: Get the inline text layout for a given node

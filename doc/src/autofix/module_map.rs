@@ -542,6 +542,28 @@ pub fn should_exclude_path(path: &std::path::Path) -> bool {
 /// this table, so an entry here never steals `OptionTabletPadState` from
 /// `option`.
 const DIFFICULT_TYPE_MODULES: &[(&str, &str)] = &[
+    // The pagination family behind `CallbackInfo::query_pagination`
+    // (9g-ii-f-i): paged-media page setup, headers / footers, margin-box
+    // content, break policy and the break positions that come back. The
+    // keyword pass scattered it over css ("margin", "break", "counter") and
+    // misc; it belongs with `Pdf`, the print path these types were written
+    // for (printpdf flips the break flags on). Spelled in full where a prefix
+    // would reach further: "Page" alone would capture PageInfo-unrelated
+    // names; "PageSetup" deliberately covers PageSetupOverride.
+    ("BreakKind", "pdf"),
+    ("BreakPolicy", "pdf"),
+    ("CounterFormat", "pdf"),
+    ("FakePageConfig", "pdf"),
+    ("HeaderFooterConfig", "pdf"),
+    ("MarginBoxContent", "pdf"),
+    ("MarginBoxCallback", "pdf"),
+    ("MarginBoxCustom", "pdf"),
+    ("PageBreakPosition", "pdf"),
+    ("PageInfo", "pdf"),
+    ("PageMargins", "pdf"),
+    ("PageSequence", "pdf"),
+    ("PageSetup", "pdf"),
+    ("PaginationInfo", "pdf"),
     // `AppConfig::natural_scroll` (9b-ii-b-i-a) belongs beside AppConfig, not
     // in `image` where the keyword pass filed it.
     ("NaturalScroll", "app"),

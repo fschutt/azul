@@ -168,6 +168,7 @@ fn forced_break_carries_its_causing_node() {
     );
     let causing = forced[0]
         .causing_node
+        .into_option()
         .expect("forced break must carry the node whose break property caused it");
     let node_data = &styled_dom.node_data.as_container()[causing];
     assert!(
@@ -314,7 +315,7 @@ fn materialized_breaks_reproduce_the_estimated_boundaries() {
         pagination_a.breaks
     );
     assert!(
-        (pagination_a.breaks[0].y - 300.0).abs() < 1.0,
+        (pagination_a.breaks.as_ref()[0].y - 300.0).abs() < 1.0,
         "the break must land on the page boundary at 300: {:?}",
         pagination_a.breaks
     );
@@ -362,7 +363,7 @@ fn materialized_breaks_reproduce_the_estimated_boundaries() {
     // Same boundary, now forced.
     assert_eq!(pagination_a.page_count, pagination_b.page_count);
     assert_eq!(pagination_b.breaks.len(), 1, "{:?}", pagination_b.breaks);
-    let b = &pagination_b.breaks[0];
+    let b = &pagination_b.breaks.as_ref()[0];
     assert!(
         (b.y - 300.0).abs() < 1.0 && b.kind == BreakKind::Forced,
         "the materialized boundary is the SAME Y, now forced: {b:?}"
@@ -665,7 +666,7 @@ fn deletion_shifts_the_window_via_breaks_delta() {
     // straight from the new spans, and it is >= first_changed_page (the
     // shifted region), so the window re-derives from the signal alone.
     let caret_y_new = 550.0; // inside the last remaining block
-    let spans = azul_layout::page_spans(&new_info.breaks, 600.0);
+    let spans = azul_layout::page_spans(new_info.breaks.as_ref(), 600.0);
     let caret_page = spans
         .iter()
         .position(|&(start, end)| caret_y_new >= start && caret_y_new < end)
