@@ -17,7 +17,7 @@ use azul::widgets::{
     RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonRow, RibbonTab,
 };
 
-use azul::css::SystemStyle;
+use azul::css::{ColorU, SystemStyle};
 
 use crate::palette::Palette;
 use crate::AppState;
@@ -326,40 +326,48 @@ fn home_tab(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -
     // else because the desktop theme did. They are the one part of this app's
     // chrome that is deliberately NOT themed (user ruling) - the preview has
     // to show what the style will actually be.
+    //
+    // What that ruling does NOT license is illegibility: on a dark session
+    // these inks were painted straight onto the charcoal ribbon and the Title
+    // sample vanished into it. `sample_ink` keeps the hue and lifts only the
+    // lightness, and only until it clears WCAG AA against this palette's
+    // chrome - so on a light desktop every preview is byte-identical to before.
+    let ink =
+        |r: u8, g: u8, b: u8| Palette::hex(crate::palette::sample_ink(ColorU { r, g, b, a: 255 }, pal));
     let cells = vec![
         cell(
-            "font-size: 14px; color: #444444;".to_string(),
+            format!("font-size: 14px; color: {};", ink(68, 68, 68)),
             "AaBbCcDc",
             "\u{00b6} Normal",
         ),
         cell(
-            "font-size: 14px; color: #444444;".to_string(),
+            format!("font-size: 14px; color: {};", ink(68, 68, 68)),
             "AaBbCcDc",
             "\u{00b6} No Spac...",
         ),
         cell(
-            "font-size: 15px; color: #2e74b5;".to_string(),
+            format!("font-size: 15px; color: {};", ink(46, 116, 181)),
             "AaBbCc",
             "Heading 1",
         ),
         cell(
-            "font-size: 14px; color: #2e74b5;".to_string(),
+            format!("font-size: 14px; color: {};", ink(46, 116, 181)),
             "AaBbCcD",
             "Heading 2",
         ),
-        cell("font-size: 19px; color: #262626;".to_string(), "AaB", "Title"),
+        cell(format!("font-size: 19px; color: {};", ink(38, 38, 38)), "AaB", "Title"),
         cell(
-            "font-size: 13px; color: #5a5a5a;".to_string(),
+            format!("font-size: 13px; color: {};", ink(90, 90, 90)),
             "AaBbCcD",
             "Subtitle",
         ),
         cell(
-            "font-size: 13px; color: #808080;".to_string(),
+            format!("font-size: 13px; color: {};", ink(128, 128, 128)),
             "AaBbCcDi",
             "Subtle Em...",
         ),
         cell(
-            "font-size: 13px; color: #4472c4;".to_string(),
+            format!("font-size: 13px; color: {};", ink(68, 114, 196)),
             "AaBbCcDi",
             "Emphasis",
         ),
