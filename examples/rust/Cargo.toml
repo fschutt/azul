@@ -83,10 +83,14 @@ path = "src/anim.rs"
 name = "transitions"
 path = "src/transitions.rs"
 
+# Also needs `link-static`, for the same reason as `http_zip_demo` below: this
+# demo drives `azul::desktop::icu`, which lives behind `cabi_internal` and so
+# exists only in the static build. Without this the lean `link-dynamic` build
+# fails with "could not find `desktop` in `azul`".
 [[example]]
 name = "icu_demo"
 path = "src/icu_demo.rs"
-required-features = ["icu"]
+required-features = ["icu", "link-static"]
 
 [[example]]
 name = "fluent_demo"
