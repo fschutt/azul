@@ -4616,6 +4616,15 @@ fn seed_tlv_mirror_ranges(
 }
 
 #[cfg(feature = "web-transpiler")]
+/// Whether to log pointer-like values that belong to no tracked image.
+///
+/// Read ONCE: the check sits inside the per-8-byte-slot mirror loop, so a
+/// `var_os` call there is performed millions of times per run.
+fn trace_stale_ptr() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| trace_stale_ptr())
+}
+
 fn collect_synth_data_pages(
     table: &super::symbol_table::SymbolTable,
     accessed_pages: &std::collections::HashSet<usize>,
@@ -4763,7 +4772,7 @@ fn collect_synth_data_pages(
                         run[chunk_start..chunk_start + 8].copy_from_slice(&synth_bytes);
                         translated_in_run += 1;
                         pending_targets.push(value as usize & !0xFFF);
-                    } else if std::env::var_os("AZ_TRACE_STALE_PTR").is_some()
+                    } else if trace_stale_ptr()
                         && value >= 0x1_0000_0000
                         && value < 0x2_0000_0000_0000
                     {
@@ -7473,7 +7482,14 @@ fn obj_cache_path(
         ],
     );
     let dir = lift_cache_root();
-    let _ = std::fs::create_dir_all(&dir);
+    // Created once per process, not once per function: this is called for every
+    // lift and the directory is the same every time.
+    {
+        static MADE: std::sync::Once = std::sync::Once::new();
+        MADE.call_once(|| {
+            let _ = std::fs::create_dir_all(&dir);
+        });
+    }
     Some(dir.join(format!(
         "{:016x}_v{}_e{:x}.o",
         h,
@@ -11599,6 +11615,7 @@ fn rewrite_sub_names_to_canonical(
     _fn_addr: usize,
     _lift_addr: u64,
 ) -> String {
+    use std::fmt::Write as _;
     // M9-review: `lift_addr` is now `entry.synthetic_addr` (passed
     // to remill via `--address=`), so the IR's `sub_<hex>` values
     // are already in synthetic-address space. No more lift→host
@@ -11643,7 +11660,10 @@ fn rewrite_sub_names_to_canonical(
             Ok(raw_synth) => {
                 // Synth-space stub chain follow.
                 let canonical_synth = table.resolve_synth(raw_synth).unwrap_or(raw_synth);
-                out.push_str(&format!("@sub_{:x}", canonical_synth));
+                // write! into `out` rather than allocating a String per token:
+                // this fires for every @sub_ reference in every lifted function.
+                out.push_str("@sub_");
+                let _ = write!(out, "{canonical_synth:x}");
             }
             Err(_) => {
                 // Hex didn't parse — leave the original token intact.
