@@ -2471,7 +2471,12 @@ pub enum DebugEvent {
 
     // Focus and Cursor State
     /// Get the current focus state (which node has keyboard focus)
-    GetFocusState,
+    /// Which node has focus - the primary's by default, or SEAT `seat`'s own
+    /// focus (9b-ii-a-i-d-iv), so a scenario can put two seats on two fields.
+    GetFocusState {
+        #[serde(default)]
+        seat: u64,
+    },
     /// Get the current cursor state (position, blink state)
     GetCursorState,
 
@@ -16812,11 +16817,12 @@ pub fn process_debug_event(
             send_ok(request, None, None);
         }
 
-        DebugEvent::GetFocusState => {
+        DebugEvent::GetFocusState { seat } => {
             let layout_window = callback_info.get_layout_window();
             let focus_manager = &layout_window.focus_manager;
 
-            let response = if let Some(focused_node) = focus_manager.get_focused_node() {
+            // The SEAT's focus (9b-ii-a-i-d-iv); seat 0 is the primary's.
+            let response = if let Some(focused_node) = focus_manager.focused_node_for(*seat) {
                 let dom_id = focused_node.dom;
                 let internal_node_id = focused_node.node.into_crate_internal();
 

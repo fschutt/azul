@@ -916,9 +916,12 @@ impl Runner {
             use azul_core::events::{InputInterpreterInfo, InputInterpreterState, SystemChange};
             let pre_filter = {
                 let lw = &self.layout_window;
+                // The other seats' focus, so a seat's key resolves against
+                // its own field here too (9b-ii-a-i-d-iv).
+                let seat_focus =
+                    azul_core::events::seat_focus_of_events(&synthetic_events, &lw.focus_manager);
                 let info = InputInterpreterInfo {
-                    // The harness drives the primary seat only (9b-ii-a-i-d-iv).
-                    seat_focus: &[],
+                    seat_focus: &seat_focus,
                     events: &synthetic_events,
                     hit_test: hit_test_for_dispatch.as_ref(),
                     keyboard_state: &self.window_state.keyboard_state,
@@ -1161,7 +1164,24 @@ impl Runner {
                 )
             });
 
-            if let Some(new_focus_target) = clicked_focusable_node {
+            if press_seat != azul_core::window::PRIMARY_POINTER_SEAT {
+                // The DLL's `SystemChange::SetSeatFocus` (9b-ii-a-i-d-iv): a second
+                // seat's press moves ITS focus onto the focusable under ITS
+                // cursor, or to nothing; the primary's focus, caret and ring
+                // are untouched.
+                let seat_old = self.layout_window.focus_manager.focused_node_for(press_seat);
+                if seat_old != clicked_focusable_node {
+                    use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
+                    let now = self.now();
+                    let lw = &mut self.layout_window;
+                    lw.focus_manager
+                        .set_focused_node_for(press_seat, clicked_focusable_node);
+                    if let Some(node) = clicked_focusable_node {
+                        lw.scroll_node_into_view(node, ScrollIntoViewOptions::nearest(), now);
+                    }
+                    result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                }
+            } else if let Some(new_focus_target) = clicked_focusable_node {
                 if old_focus.and_then(|f| f.node.into_crate_internal())
                     != new_focus_target.node.into_crate_internal()
                 {

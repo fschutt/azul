@@ -2410,9 +2410,22 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       no ring / no `:focus` restyle (`apply_focus_restyle` runs for the primary only) and
       accesskit sees one focus. A per-seat ring needs a pseudo-class per seat or a seat-coloured
       overlay; a11y has no multi-focus model at all - log, do not invent.
-- [ ] 9b-ii-a-i-d-iv The e2e runner and the headless ops drive the primary seat only
-      (`seat_focus: &[]`, `CallbackChange::SetSeatFocusTarget` falls to its `_` arm); a seat-focus
-      scenario needs a headless "press on seat N" op plus the runner's port of `SetSeatFocus`.
+- [x] 9b-ii-a-i-d-iv DONE. The headless runner now drives every seat's focus: its interpreter
+      info carries `seat_focus_of_events` (a seat's key resolves against its own field here as in
+      the shell), its click-to-focus port branches like the DLL's `SetSeatFocus` (a non-primary
+      seat's press moves ITS focus onto the focusable under ITS cursor or to nothing, the primary's
+      focus / caret / ring untouched), and `get_focus_state` takes an optional `seat` so a scenario
+      can ask each seat. The seat press ops already existed (9b-ii-c). New scenario
+      `seat-focus-per-seat.json` (two contenteditable fields: the primary clicks A, seat 7 presses
+      B - seat 7 answers `#b`, the primary still `#a`; seat 7 presses empty space - seat 7 has no
+      focus, the primary still `#a`), PROVEN LIVE by a negative control (asserting the primary
+      moved to `#b` fails at exactly that step). The existing `seat-second-cursor-click.json`
+      asserted the pre-ruling shared-focus rule (a seat's press moved THE focus to r3) and was
+      rewritten to the per-seat rule per the user's standing ruling that a red test stating
+      correct behaviour beats a green one encoding the old one. WHY the gap existed: the runner
+      was ported before per-seat focus and hard-coded `seat_focus: &[]`. Evidence: host check
+      EXIT=0; azul-core 2810, azul-layout lib 7684 / `--test all` 1018, e2e corpus 63 scenarios
+      (+1), azul-dll 2071, 0 failed; 8/8 gate.
 - [ ] 9b-ii-a-i-d-v One default action per dispatch pass: when the primary's and a seat's KeyDown
       land in the SAME pass, the first KeyDown's seat wins and the other seat's Tab is dropped.
       Rare (two people hitting Tab in one frame), but a per-seat default-action loop is the fix.
