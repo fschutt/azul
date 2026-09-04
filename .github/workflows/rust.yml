@@ -5552,40 +5552,50 @@ jobs:
       - name: Every include_bytes!/include_str! must live inside the package
         run: |
           set -euo pipefail
-          for crate in azul-core azul-layout; do
-            cargo package -p "$crate" --allow-dirty --no-verify >/dev/null
-          done
           python3 - <<'PY'
-          import pathlib, re, subprocess, sys, tarfile, tempfile, json
+          import json, pathlib, re, subprocess, sys
 
-          md = json.loads(subprocess.run(["cargo","metadata","--format-version=1","--no-deps"],
-                                         capture_output=True, text=True, check=True).stdout)
-          target = pathlib.Path(md["target_directory"]) / "package"
+          # `cargo package --list` answers "which files ship?" from the manifest
+          # alone. Building the .crate instead would make this step depend on the
+          # CURRENTLY PUBLISHED azul-core resolving against the local azul-layout,
+          # which is false for most of a release cycle: publish-crates.sh ships
+          # azul-css -> azul-core -> azul-layout in order, so azul-layout only
+          # ever resolves against an azul-core that went out in the same run.
+          md = json.loads(subprocess.run(
+              ["cargo", "metadata", "--format-version=1", "--no-deps"],
+              capture_output=True, text=True, check=True).stdout)
+          roots = {p["name"]: pathlib.Path(p["manifest_path"]).parent
+                   for p in md["packages"]}
 
           bad = False
-          for tar_path in sorted(target.glob("azul-*.crate")):
-              with tarfile.open(tar_path) as tf:
-                  names = set(tf.getnames())
-                  root = tar_path.name[:-len(".crate")]
-                  for member in tf.getmembers():
-                      if not member.name.endswith(".rs"):
-                          continue
-                      src = tf.extractfile(member).read().decode("utf-8", "replace")
-                      here = pathlib.PurePosixPath(member.name).parent
-                      for macro, rel in re.findall(r'include_(bytes|str)!\s*\(\s*"([^"]+)"', src):
-                          resolved = str(pathlib.PurePosixPath(*(here / rel).parts))
-                          parts = []
-                          for p in (here / rel).parts:
-                              if p == "..":
-                                  if parts: parts.pop()
-                              else:
-                                  parts.append(p)
-                          resolved = "/".join(parts)
-                          if resolved not in names:
-                              print(f"::error::{tar_path.name}: {member.name} include_{macro}!(\"{rel}\") "
-                                    f"resolves outside the package ({resolved}) - it will not ship.")
-                              bad = True
-              print(f"checked {tar_path.name}")
+          for crate in ("azul-core", "azul-layout"):
+              root = roots[crate]
+              listing = subprocess.run(
+                  ["cargo", "package", "-p", crate, "--list", "--allow-dirty"],
+                  capture_output=True, text=True, check=True).stdout
+              names = {ln.strip() for ln in listing.splitlines() if ln.strip()}
+              for rel_name in sorted(n for n in names if n.endswith(".rs")):
+                  f = root / rel_name
+                  if not f.is_file():
+                      continue
+                  src = f.read_text(encoding="utf-8", errors="replace")
+                  here = pathlib.PurePosixPath(rel_name).parent
+                  for macro, rel in re.findall(
+                          r'include_(bytes|str)!\s*\(\s*"([^"]+)"', src):
+                      parts = []
+                      for part in (here / rel).parts:
+                          if part == "..":
+                              if parts:
+                                  parts.pop()
+                          else:
+                              parts.append(part)
+                      resolved = "/".join(parts)
+                      if resolved not in names:
+                          print(f"::error::{crate}: {rel_name} "
+                                f"include_{macro}!(\"{rel}\") resolves outside the "
+                                f"package ({resolved}) - it will not ship.")
+                          bad = True
+              print(f"checked {crate} ({len(names)} packaged files)")
           sys.exit(1 if bad else 0)
           PY
 
