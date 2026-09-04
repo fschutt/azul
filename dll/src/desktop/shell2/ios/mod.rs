@@ -1926,6 +1926,10 @@ impl IOSWindow {
 }
 
 impl PlatformWindow for IOSWindow {
+    /// Mobile windows are managed by the system shell and are never dragged
+    /// by the application.
+    fn handle_begin_interactive_move(&mut self) {}
+
     fn regenerate_layout_once(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {

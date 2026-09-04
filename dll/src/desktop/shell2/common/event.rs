@@ -4196,10 +4196,36 @@ pub trait PlatformWindow {
     /// compositor manage the window move. This is the only way to move windows on Wayland.
     /// On other platforms: no-op (use `set_window_position` via `ModifyWindowState` instead).
     ///
-    /// Default implementation does nothing (appropriate for macOS, Win32, X11).
-    fn handle_begin_interactive_move(&mut self) {
-        // No-op on non-Wayland platforms
+    /// Hand a title-bar drag to the window manager AND close the gesture
+    /// session that started it.
+    ///
+    /// Both halves are mandatory. The WM takes its own pointer grab, so the
+    /// `ButtonRelease` that ends the drag goes to IT and never comes back
+    /// here - the session opened by the press would stay open forever, and
+    /// the next press on the bar was folded into that stale session instead
+    /// of starting a new gesture. Dragging then worked only every OTHER
+    /// attempt (measured on Mint XFCE at a fixed x: y=4 dragged, y=10 dead,
+    /// y=14 dragged, y=18 dead, ...), which reads to a user as "only some
+    /// parts of the title bar are draggable". The backends already clear the
+    /// button flags at the hand-off for exactly this reason; the session is
+    /// the piece they missed.
+    fn hand_drag_to_window_manager(&mut self) {
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.gesture_drag_manager.end_current_session();
+        }
+        self.handle_begin_interactive_move();
     }
+
+    /// REQUIRED, deliberately: this had a `{}` default and it silently ate
+    /// two backends. X11 and Win32 both WROTE the method - `x11/mod.rs` and
+    /// `windows/mod.rs` each have a full `_NET_WM_MOVERESIZE` /
+    /// `WM_NCLBUTTONDOWN` implementation - but put it in their INHERENT
+    /// `impl` block instead of their `impl PlatformWindow`, so the call in
+    /// `dispatch_events_propagated` resolved to this default, dragging a
+    /// window by its client-drawn titlebar did nothing on both, and the dead
+    /// code sat there looking correct. With no default, a backend that
+    /// forgets does not compile.
+    fn handle_begin_interactive_move(&mut self);
 
     /// Drop the pointer lock because the window lost focus.
     ///
@@ -6133,7 +6159,7 @@ pub trait PlatformWindow {
 
             // === Window Move ===
             CallbackChange::BeginInteractiveMove => {
-                self.handle_begin_interactive_move();
+                self.hand_drag_to_window_manager();
                 ProcessEventResult::DoNothing
             }
 
@@ -8182,7 +8208,7 @@ pub trait PlatformWindow {
                         continue;
                     }
                 }
-                self.handle_begin_interactive_move();
+                self.hand_drag_to_window_manager();
             } else {
                 // Double-click on a drag region toggles the frame, the way
                 // double-clicking a native title bar does.
@@ -8192,8 +8218,16 @@ pub trait PlatformWindow {
                 } else {
                     azul_core::window::WindowFrame::Maximized
                 };
+                // `flags` is an OS-SYNCED field (see `os_synced_fields`), so
+                // this has to go through `update_window_state`, which advances
+                // the baseline and lets `sync_window_state` actually send the
+                // `_NET_WM_STATE` request. The old call was
+                // `update_unsynced_state`, whose own assert forbids exactly
+                // this write - so a debug build (or any run with AZ_VALIDATE)
+                // PANICKED on a titlebar double-click, and release builds
+                // changed the belief without telling the window manager.
                 self.get_common_mut()
-                    .update_unsynced_state(|ws| ws.flags.frame = next);
+                    .update_window_state(WindowStateSource::App, |ws| ws.flags.frame = next);
             }
         }
 
