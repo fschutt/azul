@@ -1172,17 +1172,16 @@ impl Runner {
                 // seat's press moves ITS focus onto the focusable under ITS
                 // cursor, or to nothing; the primary's focus, caret and ring
                 // are untouched.
+                //
+                // Through `set_seat_focus` rather than a second copy of its
+                // body, which is why this was broken: the copy moved the seat's
+                // focus and scrolled it into view but never ran the
+                // `:seat-focus` restyle the method carries, so a seat's CLICK
+                // changed focus without restyling anything and only the
+                // `set_seat_focus` OP could make the pseudo-class paint.
                 let seat_old = self.layout_window.focus_manager.focused_node_for(press_seat);
                 if seat_old != clicked_focusable_node {
-                    use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
-                    let now = self.now();
-                    let lw = &mut self.layout_window;
-                    lw.focus_manager
-                        .set_focused_node_for(press_seat, clicked_focusable_node);
-                    if let Some(node) = clicked_focusable_node {
-                        lw.scroll_node_into_view(node, ScrollIntoViewOptions::nearest(), now);
-                    }
-                    result = result.max(ProcessEventResult::ShouldReRenderCurrentWindow);
+                    result = result.max(self.set_seat_focus(press_seat, clicked_focusable_node));
                 }
             } else if let Some(new_focus_target) = clicked_focusable_node {
                 if old_focus.and_then(|f| f.node.into_crate_internal())
@@ -1300,9 +1299,9 @@ impl Runner {
 
     /// A NON-primary seat's focus move (9b-ii-a-i-d): the same body as the
     /// `SetSeatFocusTarget` arm minus the resolution - move only that seat's
-    /// entry and scroll it into view. No caret arming and no `:focus` restyle:
-    /// the text-edit session stays the primary's (9b-ii-a-i-d-ii) and seat
-    /// focus styling is the open 9b-ii-a-i-d-iii.
+    /// entry, scroll it into view and restyle `:seat-focus`. No caret arming
+    /// and no `:focus` restyle: the text-edit session stays the primary's
+    /// (9b-ii-a-i-d-ii) and `:focus` is the primary's pseudo-class alone.
     fn set_seat_focus(&mut self, seat: u64, new_focus: Option<DomNodeId>) -> ProcessEventResult {
         use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
         let now = self.now();
