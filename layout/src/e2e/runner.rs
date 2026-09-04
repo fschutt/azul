@@ -811,7 +811,7 @@ impl Runner {
             .unwrap_or_else(|| self.window_state.clone());
         let timestamp = self.now();
         let wheel_delta = self.layout_window.scroll_manager.pending_wheel_event;
-        let synthetic_events = {
+        let mut synthetic_events = {
             let lw = &self.layout_window;
             let providers: Vec<&dyn azul_core::events::EventProvider> = vec![
                 &lw.text_input_manager,
@@ -838,6 +838,50 @@ impl Runner {
                 timestamp,
             )
         };
+
+        // PRESS-TARGET CAPTURE: the node a button was pressed on gets that
+        // button's release even when the pointer released elsewhere. The DLL
+        // does this immediately after determination (shell2/common/event.rs),
+        // and `HoverManager::apply_press_target_capture` says to "call once
+        // per pass, after `determine_all_events`, before dispatch" — this
+        // runner is a port of that pass and had not been given the call, so
+        // `press_targets` stayed empty here and the Click synthesis in
+        // `event_determination`, which is guarded on
+        // `press_target_for(seat).is_some()`, never fired. A pointer click
+        // therefore ran no handler in the harness while the device was fine.
+        {
+            let lw = &mut self.layout_window;
+            let layout_results = &lw.layout_results;
+            let in_release_path =
+                |press: azul_core::dom::DomNodeId, release: azul_core::dom::DomNodeId| -> bool {
+                    // Is `press` the release target or one of its DOM ancestors
+                    // (i.e. already on the release's propagation path)?
+                    if press.dom != release.dom {
+                        return false;
+                    }
+                    let (Some(press_node), Some(mut current)) = (
+                        press.node.into_crate_internal(),
+                        release.node.into_crate_internal(),
+                    ) else {
+                        return false;
+                    };
+                    let Some(lr) = layout_results.get(&release.dom) else {
+                        return false;
+                    };
+                    let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+                    loop {
+                        if current == press_node {
+                            return true;
+                        }
+                        match hierarchy.get(current).and_then(|n| n.parent_id()) {
+                            Some(parent) => current = parent,
+                            None => return false,
+                        }
+                    }
+                };
+            lw.hover_manager
+                .apply_press_target_capture(&mut synthetic_events, &in_release_path);
+        }
 
         // Clear the one-shot pending-event flags now that this pass has
         // collected them — one event per change, not one per frame (the DLL
