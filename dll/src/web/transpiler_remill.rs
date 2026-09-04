@@ -1166,11 +1166,16 @@ impl RemillTranspiler {
         };
         #[cfg(not(target_arch = "x86_64"))]
         let probe_irs: std::collections::HashMap<usize, String> = Default::default();
+        let wave_total = wave.len();
+        let ready = out.len();
+        let mut finished = 0usize;
+        let mut failed = 0usize;
         for p in pending {
             let Ok(ir) = read_and_demote(&p.ctx.ir_path, &p.name) else {
+                failed += 1;
                 continue; // individual retry will re-lift and report
             };
-            if let Ok(done) = self.lift_store_finish(
+            match self.lift_store_finish(
                 &p.name,
                 p.addr,
                 p.size,
@@ -1179,9 +1184,21 @@ impl RemillTranspiler {
                 ir,
                 probe_irs.get(&p.addr).cloned(),
             ) {
-                out.insert(p.addr, done);
+                Ok(done) => {
+                    out.insert(p.addr, done);
+                    finished += 1;
+                }
+                Err(_) => failed += 1,
             }
         }
+        eprintln!(
+            "[azul-web]   wave: {wave_total} fn(s) → {ready} cache, {finished} lifted{}",
+            if failed > 0 {
+                format!(", {failed} failed → individual retry")
+            } else {
+                String::new()
+            },
+        );
     }
 
     /// One `remill-lift --batch_manifest` invocation for `jobs`.
@@ -1224,6 +1241,7 @@ impl RemillTranspiler {
             reason: format!("write manifest: {e}"),
         })?;
         let mstr = mpath.to_str().expect("scratch path is utf-8");
+        let t0 = std::time::Instant::now();
         let r = run_tool(
             tools.remill_lift,
             &[
@@ -1237,6 +1255,21 @@ impl RemillTranspiler {
             "batch",
         );
         let _ = std::fs::remove_file(&mpath);
+        // Progress is deliberately logged on SUCCESS too: lifts mostly run in
+        // CI, where a long quiet stretch is indistinguishable from a hang. One
+        // line per wave keeps the log readable while proving forward motion.
+        match &r {
+            Ok(()) => eprintln!(
+                "[azul-web]   batch: {} fn(s) in one remill process ({} ms)",
+                jobs.len(),
+                t0.elapsed().as_millis(),
+            ),
+            Err(e) => eprintln!(
+                "[azul-web]   batch: {} fn(s) FAILED ({}) — falling back to per-fn lifts",
+                jobs.len(),
+                e.reason.lines().next().unwrap_or(""),
+            ),
+        }
         r
     }
 
@@ -7501,21 +7534,16 @@ fn engine_fingerprint() -> u64 {
         // The cached OBJECT is opt's and llc's product, not remill's, so an LLVM
         // upgrade has to invalidate it too - fingerprinting the lifter alone let a
         // new toolchain serve objects built by the old one.
+        //
+        // CONTENT hash, deliberately not len+mtime: lifts mostly run in CI,
+        // where every image build stamps fresh mtimes on byte-identical
+        // binaries - under an mtime key the baked prelift cache could never
+        // hit across builds, silently defeating its purpose. Reading a few
+        // hundred MB once per process is noise next to a lift.
         let mut h: u64 = super::FNV_OFFSET_BASIS;
         let mut fold = |p: &std::path::Path| {
-            let Ok(meta) = std::fs::metadata(p) else { return };
-            let mtime = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            for b in meta
-                .len()
-                .to_le_bytes()
-                .iter()
-                .chain(mtime.to_le_bytes().iter())
-            {
+            let Ok(bytes) = std::fs::read(p) else { return };
+            for b in &bytes {
                 h ^= *b as u64;
                 h = h.wrapping_mul(super::FNV_PRIME);
             }
@@ -7526,6 +7554,9 @@ fn engine_fingerprint() -> u64 {
                 fold(&p);
             }
         }
+        eprintln!(
+            "[azul-web] engine fingerprint {h:016x} (content of remill-lift + llc + opt)"
+        );
         h
     })
 }
