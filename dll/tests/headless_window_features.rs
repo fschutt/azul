@@ -183,10 +183,13 @@ fn touch_points_are_recorded_on_window_state() {
     // The contact-ellipse fields (`major`/`minor`/`orientation_rad`) and
     // `tool_type` were added to `TouchPoint` after this test was written, and
     // it was never updated - so `cargo check --tests -p azul-dll` has been RED
-    // on every target since. `0.0` is the documented "not reported" value and
+    // on every target since. `seat_id` (9b-ii-a-i-c) landed the same way and
+    // broke it again; a synthetic pinch is on the one touchscreen the primary
+    // seat owns. `0.0` is the documented "not reported" value and
     // a synthetic pinch has no contact geometry to report.
     let p1 = TouchPoint {
         id: 1,
+        seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
         position: LogicalPosition::new(100.0, 200.0),
         force: 0.5,
         major: 0.0,
@@ -196,6 +199,7 @@ fn touch_points_are_recorded_on_window_state() {
     };
     let p2 = TouchPoint {
         id: 2,
+        seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
         position: LogicalPosition::new(150.0, 220.0),
         force: 0.7,
         major: 0.0,
