@@ -513,7 +513,9 @@ pub mod transient;
 /// Render an icon-registry entry to RGBA pixels, for the system tray.
 /// Goes through the same `<icon>` resolution + CPU renderer, so every icon
 /// kind (and any future DOM-expressible one) works without a special case.
-#[cfg(all(feature = "text_layout", feature = "std"))]
+/// The renderer IS the module's job, so it is gated with `cpurender`: a
+/// text-layout-only consumer (printpdf) has no tray to draw for.
+#[cfg(all(feature = "text_layout", feature = "std", feature = "cpurender"))]
 pub mod tray_icon;
 /// Window layout management: relayout, event processing, state sync.
 #[cfg(feature = "text_layout")]

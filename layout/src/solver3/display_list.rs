@@ -10242,6 +10242,7 @@ fn rasterize_svg_stroke_to_r8(
     })
 }
 
+#[cfg(feature = "cpurender")]
 fn rasterize_svg_clip_to_r8(
     svg_clip: &azul_core::svg::SvgMultiPolygon,
     paint_rect: &LogicalRect,
