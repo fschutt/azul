@@ -534,6 +534,16 @@ pub struct WaylandWindow {
     /// (9b-ii-a-ii): `wl_pointer.set_cursor` is only honoured with the serial
     /// of the enter it answers, so a seat's cursor image needs its own.
     seat_serials: std::collections::BTreeMap<u64, u32>,
+    /// One `zwp_primary_selection_device_v1` per NON-primary seat
+    /// (9b-ii-b-i-b-i-a-i), bound by `try_init_seat_primary_selections`.
+    seat_primary_selection_devices:
+        std::collections::BTreeMap<u64, *mut defines::zwp_primary_selection_device_v1>,
+    /// The live source per seat, replaced on every publish.
+    seat_primary_selection_sources:
+        std::collections::BTreeMap<u64, *mut defines::zwp_primary_selection_source_v1>,
+    /// What each seat source serves, keyed by the source proxy address (the
+    /// `send` callback only gets the source).
+    seat_primary_texts: std::collections::BTreeMap<usize, String>,
     /// One cursor surface per non-primary seat, created on first use like the
     /// primary's `pointer_state.cursor_surface`. A `wl_surface` takes the
     /// "cursor" role once; giving every pointer its own keeps the roles
@@ -2010,6 +2020,9 @@ impl WaylandWindow {
             seats: crate::desktop::shell2::common::seats::SeatTable::new(),
             seat_axis: std::collections::BTreeMap::new(),
             seat_serials: std::collections::BTreeMap::new(),
+            seat_primary_selection_devices: std::collections::BTreeMap::new(),
+            seat_primary_selection_sources: std::collections::BTreeMap::new(),
+            seat_primary_texts: std::collections::BTreeMap::new(),
             seat_cursor_surfaces: std::collections::BTreeMap::new(),
             seat_over_popup: std::collections::BTreeSet::new(),
             xdg_wm_base: std::ptr::null_mut(),
@@ -4060,11 +4073,11 @@ impl WaylandWindow {
         // The barrel EDGE, read before the seat's state is overwritten below:
         // a barrel press behaves like a right click (parity with the
         // primary's handle_tablet_frame), resolved against THIS seat's hover.
-        let was_right = self
+        let (was_left, was_right) = self
             .common
             .current_window_state()
             .pointer_seat(seat_id)
-            .is_some_and(|s| s.right_down);
+            .map_or((false, false), |s| (s.left_down, s.right_down));
         {
             let ms = self.common.pointer_seat_mut(seat_id);
             ms.pointer_source = if p.is_eraser {
@@ -4094,10 +4107,11 @@ impl WaylandWindow {
 
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
-        // No primary-selection publish on the seat's pen-up: the
-        // zwp_primary_selection device is ONE process-level object bound to one
-        // wl_seat and the text comes from the primary's edit session
-        // (9b-ii-b-i-b-i-a-i).
+        // The pen-up that ends a seat's selection gesture claims that SEAT's
+        // PRIMARY through the seat's own device (9b-ii-b-i-b-i-a-i).
+        if was_left && !p.in_contact {
+            self.publish_seat_primary_selection(seat_id);
+        }
     }
 
     pub fn handle_tablet_frame(&mut self) {
@@ -4449,6 +4463,107 @@ impl WaylandWindow {
     ///
     /// On Wayland as on X11, *selecting* text is itself a primary-selection
     /// claim — no copy involved — and middle-click pastes it.
+    /// A SEAT's select-to-copy (9b-ii-b-i-b-i-a-i): its own selection
+    /// (`seat_selected_text`), its own serial and its own primary-selection
+    /// device, so it never clobbers the primary's PRIMARY. Same shape as
+    /// `wayland_set_primary_selection`, per seat.
+    fn publish_seat_primary_selection(&mut self, seat_id: u64) {
+        let Some(text) = self
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.seat_selected_text(seat_id))
+            .filter(|t| !t.is_empty())
+        else {
+            return;
+        };
+        let Some(&device) = self.seat_primary_selection_devices.get(&seat_id) else {
+            return;
+        };
+        let serial = self.seat_serials.get(&seat_id).copied().unwrap_or(0);
+        if self.primary_selection_manager.is_null() || device.is_null() || serial == 0 {
+            return;
+        }
+        self.drop_seat_primary_source(seat_id);
+        unsafe {
+            type CreateSrcCtor = unsafe extern "C" fn(
+                *mut defines::wl_proxy,
+                u32,
+                *const defines::wl_interface,
+                *mut std::ffi::c_void,
+            ) -> *mut defines::wl_proxy;
+            let ctor: CreateSrcCtor =
+                std::mem::transmute(self.wayland.wl_proxy_marshal_constructor);
+            let src = ctor(
+                self.primary_selection_manager as *mut defines::wl_proxy,
+                0,
+                defines::get_primary_selection_source_v1_interface(),
+                std::ptr::null_mut(),
+            );
+            if src.is_null() {
+                return;
+            }
+            let offer: unsafe extern "C" fn(
+                *mut defines::wl_proxy,
+                u32,
+                *const std::os::raw::c_char,
+            ) = std::mem::transmute(self.wayland.wl_proxy_marshal);
+            for mime in ["text/plain;charset=utf-8", "UTF8_STRING", "text/plain"] {
+                let Ok(c) = std::ffi::CString::new(mime) else {
+                    continue;
+                };
+                offer(src, 0, c.as_ptr());
+            }
+            (self.wayland.wl_proxy_add_listener)(
+                src,
+                &events::SEAT_PRIMARY_SELECTION_SOURCE_LISTENER as *const _ as *const _,
+                self as *mut Self as *mut _,
+            );
+            let set_selection: unsafe extern "C" fn(
+                *mut defines::wl_proxy,
+                u32,
+                *mut defines::wl_proxy,
+                u32,
+            ) = std::mem::transmute(self.wayland.wl_proxy_marshal);
+            set_selection(device as *mut defines::wl_proxy, 0, src, serial);
+            (self.wayland.wl_display_flush)(self.display);
+            let src = src as *mut defines::zwp_primary_selection_source_v1;
+            self.seat_primary_texts.insert(src as usize, text);
+            self.seat_primary_selection_sources.insert(seat_id, src);
+        }
+    }
+
+    /// Destroy a seat's live primary-selection source, if any.
+    fn drop_seat_primary_source(&mut self, seat_id: u64) {
+        if let Some(src) = self.seat_primary_selection_sources.remove(&seat_id) {
+            self.seat_primary_texts.remove(&(src as usize));
+            if !src.is_null() {
+                unsafe {
+                    let destroy: unsafe extern "C" fn(*mut defines::wl_proxy, u32) =
+                        std::mem::transmute(self.wayland.wl_proxy_marshal);
+                    destroy(src as *mut defines::wl_proxy, 1);
+                    (self.wayland.wl_proxy_destroy)(src as *mut defines::wl_proxy);
+                }
+            }
+        }
+    }
+
+    /// A seat left (`handle_seat_gone`): its source and device go with it
+    /// (`zwp_primary_selection_device_v1.destroy` is request 1).
+    fn drop_seat_primary_selection(&mut self, seat_id: u64) {
+        self.drop_seat_primary_source(seat_id);
+        if let Some(dev) = self.seat_primary_selection_devices.remove(&seat_id) {
+            if !dev.is_null() {
+                unsafe {
+                    let destroy: unsafe extern "C" fn(*mut defines::wl_proxy, u32) =
+                        std::mem::transmute(self.wayland.wl_proxy_marshal);
+                    destroy(dev as *mut defines::wl_proxy, 1);
+                    (self.wayland.wl_proxy_destroy)(dev as *mut defines::wl_proxy);
+                }
+            }
+        }
+    }
+
     fn publish_primary_selection(&mut self) {
         let text = {
             let Some(lw) = self.common.layout_window.as_ref() else {
@@ -5866,6 +5981,11 @@ impl WaylandWindow {
         self.update_seat_hit_test_at(seat_id, position);
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
+        // The left release that ends a seat's selection gesture claims that
+        // SEAT's PRIMARY (9b-ii-b-i-b-i-a-i), like the primary's path does.
+        if state == 0 && mouse_button == MouseButton::Left {
+            self.publish_seat_primary_selection(seat_id);
+        }
         self.request_redraw();
     }
 
@@ -5874,6 +5994,7 @@ impl WaylandWindow {
     /// now is diffed against a default state) releases whatever it held.
     pub(super) fn handle_seat_gone(&mut self, seat_id: u64) {
         self.seat_serials.remove(&seat_id);
+        self.drop_seat_primary_selection(seat_id);
         self.seat_over_popup.remove(&seat_id);
         self.seat_axis.remove(&seat_id);
         if let Some(sf) = self.seat_cursor_surfaces.remove(&seat_id) {

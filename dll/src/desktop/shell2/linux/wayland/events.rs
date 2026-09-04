@@ -578,6 +578,10 @@ pub(super) extern "C" fn registry_global_handler(
                 // Its tablet seat too, if the tablet manager is already here
                 // (9b-ii-b-i-b-i); otherwise the manager's arrival binds it.
                 unsafe { try_init_seat_tablets(window, data) };
+                // And its own primary-selection device (9b-ii-b-i-b-i-a-i):
+                // the protocol hands out one per wl_seat, so a seat's
+                // select-to-copy never clobbers the primary's.
+                unsafe { try_init_seat_primary_selections(window, data) };
                 // And its text input (9b-ii-a-i-d-ii-c), same rule.
                 unsafe { try_init_seat_text_inputs(window, data) };
             }
@@ -656,6 +660,7 @@ pub(super) extern "C" fn registry_global_handler(
                 ) as *mut _
             };
             unsafe { try_init_primary_selection(window, data) };
+            unsafe { try_init_seat_primary_selections(window, data) };
         }
         "wl_output" => {
             let output = unsafe {
@@ -2617,6 +2622,127 @@ pub(super) unsafe fn try_init_primary_selection(window: &mut WaylandWindow, data
 
 /// A fresh offer was announced. Listen on it so the compositor's `offer`
 /// events have somewhere to go; `selection` below decides whether we keep it.
+/// A primary-selection device for every NON-primary seat that lacks one
+/// (9b-ii-b-i-b-i-a-i). Called when a seat appears and when the manager
+/// arrives, so the order of the two globals does not matter. The device's
+/// offers are not read (a seat's middle-click paste stays the primary's,
+/// 9b-ii-b-i-b-i-a-i-a); the listener only destroys what the compositor
+/// hands it, so nothing leaks.
+pub(super) unsafe fn try_init_seat_primary_selections(window: &mut WaylandWindow, data: *mut c_void) {
+    if window.primary_selection_manager.is_null() {
+        return;
+    }
+    let pending: Vec<(u64, *mut wl_seat)> = window
+        .seats
+        .iter()
+        .filter(|(id, _)| *id != azul_core::window::PRIMARY_POINTER_SEAT)
+        .filter(|(id, _)| !window.seat_primary_selection_devices.contains_key(id))
+        .map(|(id, e)| (id, e.seat.cast::<wl_seat>()))
+        .collect();
+    for (seat_id, seat) in pending {
+        if seat.is_null() {
+            continue;
+        }
+        type GetDeviceCtor = unsafe extern "C" fn(
+            *mut wl_proxy,
+            u32,
+            *const wl_interface,
+            *mut c_void,
+            *mut wl_seat,
+        ) -> *mut wl_proxy;
+        let ctor: GetDeviceCtor = std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
+        let dev = ctor(
+            window.primary_selection_manager as *mut wl_proxy,
+            1,
+            get_primary_selection_device_v1_interface(),
+            std::ptr::null_mut(),
+            seat,
+        );
+        if dev.is_null() {
+            continue;
+        }
+        (window.wayland.wl_proxy_add_listener)(
+            dev,
+            &SEAT_PRIMARY_SELECTION_DEVICE_LISTENER as *const _ as *const _,
+            data,
+        );
+        window.track_listener(dev);
+        window
+            .seat_primary_selection_devices
+            .insert(seat_id, dev as *mut zwp_primary_selection_device_v1);
+        log_debug!(
+            LogCategory::Platform,
+            "[Wayland] primary selection bound for pointer seat {}",
+            seat_id
+        );
+    }
+}
+
+static SEAT_PRIMARY_SELECTION_DEVICE_LISTENER: zwp_primary_selection_device_v1_listener =
+    zwp_primary_selection_device_v1_listener {
+        data_offer: seat_primary_selection_data_offer,
+        selection: seat_primary_selection_selection,
+    };
+
+pub(super) static SEAT_PRIMARY_SELECTION_SOURCE_LISTENER: zwp_primary_selection_source_v1_listener =
+    zwp_primary_selection_source_v1_listener {
+        send: seat_primary_selection_source_send,
+        cancelled: seat_primary_selection_source_cancelled,
+    };
+
+/// A seat device's offers are not read: destroy them as they arrive.
+extern "C" fn seat_primary_selection_data_offer(
+    data: *mut c_void,
+    _dev: *mut zwp_primary_selection_device_v1,
+    offer: *mut zwp_primary_selection_offer_v1,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    unsafe { destroy_primary_offer(window, offer) };
+}
+
+extern "C" fn seat_primary_selection_selection(
+    _data: *mut c_void,
+    _dev: *mut zwp_primary_selection_device_v1,
+    _id: *mut zwp_primary_selection_offer_v1,
+) {
+    // The offer object was already destroyed in `data_offer`; `id` is either
+    // that (dead) proxy or NULL, so there is nothing to do here.
+}
+
+/// The text a SEAT's source serves is keyed by the source proxy, since one
+/// window carries one source per seat (9b-ii-b-i-b-i-a-i).
+extern "C" fn seat_primary_selection_source_send(
+    data: *mut c_void,
+    source: *mut zwp_primary_selection_source_v1,
+    _mime: *const c_char,
+    fd: i32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let text = window
+        .seat_primary_texts
+        .get(&(source as usize))
+        .cloned()
+        .unwrap_or_default();
+    write_all_then_close(fd, text.as_bytes());
+}
+
+extern "C" fn seat_primary_selection_source_cancelled(
+    data: *mut c_void,
+    source: *mut zwp_primary_selection_source_v1,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.seat_primary_texts.remove(&(source as usize));
+    window
+        .seat_primary_selection_sources
+        .retain(|_, s| *s != source);
+    unsafe {
+        let destroy: unsafe extern "C" fn(*mut wl_proxy, u32) =
+            std::mem::transmute(window.wayland.wl_proxy_marshal);
+        destroy(source as *mut wl_proxy, PRIMARY_SOURCE_DESTROY_OPCODE);
+        (window.wayland.wl_proxy_destroy)(source as *mut wl_proxy);
+    }
+}
+
 extern "C" fn primary_selection_data_offer(
     data: *mut c_void,
     _dev: *mut zwp_primary_selection_device_v1,
