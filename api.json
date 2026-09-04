@@ -8057,6 +8057,38 @@
                                     "type": "LogicalSize"
                                 },
                                 "fn_body": "object.measure_dom(dom, available)"
+                            },
+                            "measure_dom_shrink_to_fit": {
+                                "doc": [
+                                    "Measure a DOM headlessly at the size its CONTENT asks for: as wide as",
+                                    "its max-content width (no wider than `bound`), and as tall as that",
+                                    "makes it. The natural-size counterpart of `measure_dom`, whose block",
+                                    "root stretches to whatever width it is given - so a label measured",
+                                    "that way reports the box, not the text.",
+                                    "",
+                                    "This is what a content-sized view returns as its `materialized` rect:",
+                                    "a text label, a badge, a popup panel. Pass a generous `bound` (a few",
+                                    "thousand pixels) for \"unconstrained\"; a `VirtualView` with `width: auto`",
+                                    "is then laid out at the size it reports. Two cold layout passes per",
+                                    "call.",
+                                    "",
+                                    "Returns `LogicalSize::zero()` when no measure hook was injected."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "dom": "Dom"
+                                    },
+                                    {
+                                        "bound": "LogicalSize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LogicalSize"
+                                },
+                                "fn_body": "object.measure_dom_shrink_to_fit(dom, bound)"
                             }
                         },
                         "repr": "C"
@@ -11819,10 +11851,6 @@
                             },
                             "measure_dom": {
                                 "doc": [
-                                    "Deepest node currently under the mouse pointer (MWA-B8). Anchor for",
-                                    "drag auto-scroll when there is no focused node - node drags and OS",
-                                    "file hovers scroll the container under the pointer, not the focused",
-                                    "text field.",
                                     "Measure a DOM headlessly: style + lay it out against `available`",
                                     "constraints (this window's fonts / system style) without touching the",
                                     "live layout. Returns the union of all node bounds - use a very tall",
@@ -11846,6 +11874,38 @@
                                     "type": "LogicalSize"
                                 },
                                 "fn_body": "object.measure_dom(dom, available)"
+                            },
+                            "measure_dom_shrink_to_fit": {
+                                "doc": [
+                                    "Measure a DOM headlessly at the size its CONTENT asks for: as wide as",
+                                    "its max-content width (no wider than `bound`), and as tall as that",
+                                    "makes it. The natural-size counterpart of `measure_dom`, whose block",
+                                    "root stretches to whatever width it is given - so a label measured",
+                                    "that way reports the box, not the text.",
+                                    "",
+                                    "This is what a content-sized view returns as its `materialized` rect:",
+                                    "a text label, a badge, a popup panel. Pass a generous `bound` (a few",
+                                    "thousand pixels) for \"unconstrained\"; a `VirtualView` with `width: auto`",
+                                    "is then laid out at the size it reports. Two cold layout passes per",
+                                    "call.",
+                                    "",
+                                    "Returns `LogicalSize::zero()` when no measure hook was injected."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "dom": "Dom"
+                                    },
+                                    {
+                                        "bound": "LogicalSize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "LogicalSize"
+                                },
+                                "fn_body": "object.measure_dom_shrink_to_fit(dom, bound)"
                             },
                             "commit_undo_snapshot": {
                                 "doc": [

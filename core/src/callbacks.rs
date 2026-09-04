@@ -484,10 +484,27 @@ pub struct VirtualViewCallbackInfo {
     _abi_mut: *mut c_void,
 }
 
-/// Trampoline signature for [`VirtualViewCallbackInfo::measure_dom`]:
-/// `(layout_window_ctx, dom, available) -> content extent`. The `Dom` is
-/// passed by pointer and CONSUMED (moved out) by the trampoline.
-pub type MeasureDomFn = extern "C" fn(*mut c_void, *mut Dom, LogicalSize) -> LogicalSize;
+/// Trampoline signature for [`VirtualViewCallbackInfo::measure_dom`] and
+/// [`VirtualViewCallbackInfo::measure_dom_shrink_to_fit`]:
+/// `(layout_window_ctx, dom, available, mode) -> content extent`. The `Dom`
+/// is passed by pointer and CONSUMED (moved out) by the trampoline.
+pub type MeasureDomFn =
+    extern "C" fn(*mut c_void, *mut Dom, LogicalSize, MeasureDomMode) -> LogicalSize;
+
+/// Which question a [`MeasureDomFn`] answers about a DOM.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub enum MeasureDomMode {
+    /// Lay the DOM out against the given box and report the union of every
+    /// node's bounds. A block root stretches to the box's width, so this
+    /// reports the box's width for any block content - the right answer for
+    /// "how tall is this item at this width".
+    Extent,
+    /// Lay the DOM out at its own max-content width (no wider than the given
+    /// box) and report that - "how big does this content want to be", the
+    /// answer a label or a popup needs.
+    ShrinkToFit,
+}
 
 impl Clone for VirtualViewCallbackInfo {
     #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
@@ -577,6 +594,36 @@ impl VirtualViewCallbackInfo {
             self.measure_dom_ctx,
             core::ptr::from_mut::<Dom>(&mut dom),
             available,
+            MeasureDomMode::Extent,
+        )
+    }
+
+    /// Measure a DOM headlessly at the size its CONTENT asks for: as wide as
+    /// its max-content width (no wider than `bound`), and as tall as that
+    /// makes it. The natural-size counterpart of [`Self::measure_dom`],
+    /// whose block root stretches to whatever width it is given - so a
+    /// label measured that way reports the box, not the text.
+    ///
+    /// This is what a content-sized view returns as its `materialized`
+    /// rect: a text label, a badge, a popup panel. Pass a generous `bound`
+    /// (a few thousand pixels) for "unconstrained"; the view is then laid
+    /// out at the size it reports (a `VirtualView` with `width: auto` is
+    /// sized by what it returns).
+    ///
+    /// Returns `LogicalSize::zero()` when no measure hook was injected.
+    #[must_use]
+    pub fn measure_dom_shrink_to_fit(&self, dom: Dom, bound: LogicalSize) -> LogicalSize {
+        if self.measure_dom_fn.is_null() {
+            return LogicalSize::zero();
+        }
+        // SAFETY: see `measure_dom`.
+        let f: MeasureDomFn = unsafe { core::mem::transmute(self.measure_dom_fn) };
+        let mut dom = core::mem::ManuallyDrop::new(dom);
+        f(
+            self.measure_dom_ctx,
+            core::ptr::from_mut::<Dom>(&mut dom),
+            bound,
+            MeasureDomMode::ShrinkToFit,
         )
     }
 

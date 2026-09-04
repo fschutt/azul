@@ -5040,6 +5040,23 @@ impl CallbackInfo {
         self.get_layout_window().measure_dom(dom, available)
     }
 
+    /// Measure a DOM headlessly at the size its CONTENT asks for: as wide as
+    /// its max-content width (no wider than `bound`), and as tall as that
+    /// makes it. The natural-size counterpart of [`Self::measure_dom`],
+    /// whose block root stretches to the width it is given - so a label
+    /// measured that way reports the box, not the text. Use it to size a
+    /// popup, a tooltip, or a content-sized `VirtualView` before placing it.
+    /// Two cold layout passes per call.
+    #[cfg(feature = "std")]
+    #[must_use]
+    pub fn measure_dom_shrink_to_fit(
+        &self,
+        dom: azul_core::dom::Dom,
+        bound: LogicalSize,
+    ) -> LogicalSize {
+        self.get_layout_window().measure_dom_shrink_to_fit(dom, bound)
+    }
+
     /// Deepest node currently under the mouse pointer (MWA-B8). Anchor for
     /// drag auto-scroll when there is no focused node - node drags and OS
     /// file hovers scroll the container under the pointer, not the focused

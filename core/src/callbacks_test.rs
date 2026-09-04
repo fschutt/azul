@@ -423,6 +423,8 @@ mod autotest_generated {
     // ---- measure_dom --------------------------------------------------------
 
     static MEASURE_CALLS: AtomicUsize = AtomicUsize::new(0);
+    /// The `MeasureDomMode` the trampoline saw last (0 = Extent, 1 = ShrinkToFit).
+    static LAST_MEASURE_MODE: AtomicUsize = AtomicUsize::new(usize::MAX);
 
     /// Test trampoline. Per the `MeasureDomFn` contract the `Dom` is passed by
     /// pointer and **consumed** (moved out) here.
@@ -430,8 +432,16 @@ mod autotest_generated {
         ctx: *mut c_void,
         dom: *mut Dom,
         available: LogicalSize,
+        mode: MeasureDomMode,
     ) -> LogicalSize {
         MEASURE_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
+        LAST_MEASURE_MODE.store(
+            match mode {
+                MeasureDomMode::Extent => 0,
+                MeasureDomMode::ShrinkToFit => 1,
+            },
+            AtomicOrdering::SeqCst,
+        );
         // SAFETY: `measure_dom` always passes a valid, owned-but-ManuallyDrop
         // Dom; taking it by value here is exactly the documented contract.
         let dom = unsafe { core::ptr::read(dom) };
@@ -501,6 +511,31 @@ mod autotest_generated {
 
         let inf = info.measure_dom(Dom::create_body(), LogicalSize::new(f32::INFINITY, 4.0));
         assert!(inf.width.is_infinite());
+    }
+
+    #[test]
+    fn measure_dom_shrink_to_fit_reaches_the_same_hook_in_its_own_mode() {
+        let fonts = FcFontCache::default();
+        let images = ImageCache::default();
+        let mut info = vv_info(&fonts, &images, bounds_1x1());
+
+        // No hook: zero, like `measure_dom`.
+        assert_eq!(
+            info.measure_dom_shrink_to_fit(Dom::create_body(), LogicalSize::new(50.0, 50.0)),
+            LogicalSize::zero()
+        );
+
+        info.set_measure_dom_fn(test_measure_dom_fn, core::ptr::null_mut());
+        // The two entry points share one hook and differ only in the mode
+        // they pass; a mode-blind trampoline would answer both the same way.
+        // (Other tests share the statics, so each assertion reads its own
+        // store back immediately.)
+        let fit = info.measure_dom_shrink_to_fit(Dom::create_body(), LogicalSize::new(3.0, 8.0));
+        assert_eq!(fit, LogicalSize::new(6.0, 4.0));
+        assert_eq!(LAST_MEASURE_MODE.load(AtomicOrdering::SeqCst), 1);
+        let extent = info.measure_dom(Dom::create_body(), LogicalSize::new(3.0, 8.0));
+        assert_eq!(extent, fit);
+        assert_eq!(LAST_MEASURE_MODE.load(AtomicOrdering::SeqCst), 0);
     }
 
     #[test]

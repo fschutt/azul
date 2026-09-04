@@ -154,24 +154,32 @@ fn new_id_namespace() -> IdNamespace {
     IdNamespace(id)
 }
 
-/// Trampoline for `VirtualViewCallbackInfo::measure_dom` (headless item
-/// sizing): `ctx` is the invoking `LayoutWindow`, `dom` was `ManuallyDrop`'d
-/// by the caller and is moved out here exactly once.
+/// Trampoline for `VirtualViewCallbackInfo::measure_dom` /
+/// `measure_dom_shrink_to_fit` (headless item sizing): `ctx` is the invoking
+/// `LayoutWindow`, `dom` was `ManuallyDrop`'d by the caller and is moved out
+/// here exactly once. `mode` picks the extent (block root stretched to the
+/// box) or the shrink-to-fit (max-content width) answer.
 #[cfg(feature = "std")]
 extern "C" fn virtual_view_measure_dom_trampoline(
     ctx: *mut core::ffi::c_void,
     dom: *mut Dom,
     available: LogicalSize,
+    mode: azul_core::callbacks::MeasureDomMode,
 ) -> LogicalSize {
     if ctx.is_null() || dom.is_null() {
         return LogicalSize::zero();
     }
     // SAFETY: ctx is the LayoutWindow that constructed the callback info
     // (same liveness contract as CallbackInfo's internal window pointer);
-    // measure_dom only needs &self and works on scratch caches.
+    // both measure paths only need &self and work on scratch caches.
     let lw = unsafe { &*(ctx as *const LayoutWindow) };
     let dom = unsafe { core::ptr::read(dom) };
-    lw.measure_dom(dom, available)
+    match mode {
+        azul_core::callbacks::MeasureDomMode::Extent => lw.measure_dom(dom, available),
+        azul_core::callbacks::MeasureDomMode::ShrinkToFit => {
+            lw.measure_dom_shrink_to_fit(dom, available)
+        }
+    }
 }
 
 // ============================================================================
@@ -4165,6 +4173,17 @@ impl LayoutWindow {
     ) -> LogicalSize {
         self.scratch_layout(styled_dom, available)
             .map_or_else(LogicalSize::zero, |cache| Self::scratch_extent(&cache))
+    }
+
+    /// [`Self::measure_styled_dom_shrink_to_fit`] for an unstyled user DOM
+    /// (styled the way [`Self::measure_dom`] styles it). This is what a
+    /// content-sized `VirtualView` - a label, a badge, a popup - reports as
+    /// its materialized rect. A failed layout measures as zero.
+    #[cfg(feature = "std")]
+    pub fn measure_dom_shrink_to_fit(&self, dom: Dom, bound: LogicalSize) -> LogicalSize {
+        let styled_dom = self.style_user_dom(dom);
+        self.measure_styled_dom_shrink_to_fit(&styled_dom, bound)
+            .unwrap_or_else(LogicalSize::zero)
     }
 
     /// Measure a DOM the way a popup wants to be measured: as wide as its
