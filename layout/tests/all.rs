@@ -354,6 +354,8 @@ mod scroll_id_identity;
 mod scroll_shift_ghost;
 #[path = "textinput_seed_style.rs"]
 mod textinput_seed_style;
+#[path = "text_ack_survives_relayout.rs"]
+mod text_ack_survives_relayout;
 #[path = "typed_script_font_fallback.rs"]
 mod typed_script_font_fallback;
 #[path = "a11y_consumer_contract.rs"]

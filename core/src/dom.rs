@@ -1321,6 +1321,12 @@ pub enum On {
     /// the contenteditable root). APPENDED at the enum tail for ABI
     /// stability.
     DocumentEdit,
+    /// The focused editable's text was COMMITTED (typing, IME, deletion,
+    /// paste, undo/redo) - the post-commit counterpart of `TextInput`, which
+    /// fires before the pending insertion is applied. Read the committed
+    /// text through `get_unsynced_text_edits`. APPENDED at the enum tail for
+    /// ABI stability.
+    TextChanged,
 }
 
 /// Contains the necessary information to render an embedded `VirtualView` node.

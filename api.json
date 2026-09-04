@@ -38996,6 +38996,16 @@
                                         "changeset via the window's pending-document-edit accessor, ack with mark_document_edit_applied.",
                                         "A re-render without an ack rejects (drops) the edit. APPENDED at the enum tail for ABI stability."
                                     ]
+                                },
+                                "TextChanged": {
+                                    "doc": [
+                                        "The text of an editable node under the focused element CHANGED - fired once per commit,",
+                                        "AFTER the edit is applied, for typed characters, deletions, paste and the Enter split alike.",
+                                        "`TextInput` is the `beforeinput` of this pair: it fires BEFORE a typed character lands, so a",
+                                        "model that reads `get_unsynced_text_edits` from a `TextInput` callback is one keystroke behind.",
+                                        "Read the committed text from THIS callback instead (a live word count, a mirror of the text).",
+                                        "APPENDED at the enum tail for ABI stability."
+                                    ]
                                 }
                             }
                         ],

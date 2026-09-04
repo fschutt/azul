@@ -779,6 +779,20 @@ pub enum EventType {
     /// `EventData::DocumentEdit`; the full changeset is read via
     /// `CallbackInfo` / `LayoutWindow::get_pending_document_edit()`.
     DocumentEdit,
+
+    /// The text of an editable node CHANGED - fired once per commit, AFTER
+    /// the edit is applied (typing, IME commit, deletion, paste, undo/redo:
+    /// everything that writes the text overlay).
+    ///
+    /// `Input` is the `beforeinput` of this pair: it fires BEFORE the
+    /// pending insertion is applied so a listener can `prevent_default`,
+    /// which means a model that reads `get_unsynced_text_edits` from an
+    /// `Input` callback is always one keystroke behind. A listener that
+    /// wants the committed text - a word counter, a dirty flag, a live
+    /// preview - listens here instead; the edits are already in the sync
+    /// channel when this runs. Deletions used to be the only edits notified
+    /// post-commit (through a second `Input`); this is the uniform spelling.
+    TextChanged,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1481,6 +1495,7 @@ fn matches_focus_filter(
         (ScrollEnd, EventType::ScrollEnd) => true,
         (TextInput, EventType::Input) => true,
         (FocusEventFilter::DocumentEdit, EventType::DocumentEdit) => true,
+        (FocusEventFilter::TextChanged, EventType::TextChanged) => true,
         (VirtualKeyDown, EventType::KeyDown) => true,
         (VirtualKeyUp, EventType::KeyUp) => true,
         (FocusReceived, EventType::Focus) => true,
@@ -2289,6 +2304,11 @@ pub enum FocusEventFilter {
     /// element and awaits the app's apply-and-ack (see
     /// `EventType::DocumentEdit`). APPENDED at the end for ABI stability.
     DocumentEdit,
+    /// The focused editable's text was committed (see
+    /// `EventType::TextChanged`): the post-commit counterpart of `TextInput`,
+    /// which fires before the pending insertion is applied. APPENDED at the
+    /// end for ABI stability.
+    TextChanged,
 }
 
 /// Event filter that fires when any action fires on the entire window
@@ -2677,6 +2697,7 @@ impl From<On> for EventFilter {
             Scroll => Self::Hover(HoverEventFilter::Scroll),
             TextInput => Self::Focus(FocusEventFilter::TextInput), // focus!
             On::DocumentEdit => Self::Focus(FocusEventFilter::DocumentEdit), // focus!
+            On::TextChanged => Self::Focus(FocusEventFilter::TextChanged), // focus!
             VirtualKeyDown => Self::Window(WindowEventFilter::VirtualKeyDown), // window!
             VirtualKeyUp => Self::Window(WindowEventFilter::VirtualKeyUp), // window!
             HoveredFile => Self::Hover(HoverEventFilter::HoveredFile),
@@ -2888,6 +2909,7 @@ static ALL_FOCUS: &[FocusEventFilter] = &[
     FocusEventFilter::Cut,
     FocusEventFilter::Paste,
     FocusEventFilter::DocumentEdit,
+    FocusEventFilter::TextChanged,
 ];
 
 /// Every `WindowEventFilter` variant, so planning can be derived from matching.

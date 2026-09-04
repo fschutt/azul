@@ -3976,6 +3976,7 @@ fn planning_and_matching_agree_for_every_event_and_filter() {
         FocusEventFilter::Cut,
         FocusEventFilter::Paste,
         FocusEventFilter::DocumentEdit,
+        FocusEventFilter::TextChanged,
     ];
     const WINDOW: &[WindowEventFilter] = &[
         WindowEventFilter::MouseOver,
@@ -4139,6 +4140,7 @@ fn planning_and_matching_agree_for_every_event_and_filter() {
         EventType::ScreenColorPicked,
         EventType::KeyringResult,
         EventType::DocumentEdit,
+        EventType::TextChanged,
     ];
 
     let target = DomNodeId {

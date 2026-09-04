@@ -3161,6 +3161,79 @@ pub trait PlatformWindow {
         self.arm_scroll_physics_timer_if_needed();
     }
 
+    /// Deliver the text notifications a pass left in the layout window — the
+    /// second thing every pass ends with, next to
+    /// [`Self::arm_animation_drivers_if_needed`].
+    ///
+    /// Two queues, both filled by the commit paths themselves:
+    ///
+    /// - TEXT-EDIT notifications: edits committed OUTSIDE the text-input
+    ///   record pipeline (deletions, multi-cursor paste, the Enter line break)
+    ///   dispatch their `Input` event here, so widget mirrors observe every
+    ///   committed edit, not only insertions.
+    /// - TEXT-CHANGED notifications: every text node whose committed content
+    ///   changed (typed characters included — `Input` fires BEFORE a typed
+    ///   character lands) dispatches `TextChanged` here, after the commit, so
+    ///   a model that reads `get_unsynced_text_edits` from the callback sees
+    ///   the new text.
+    ///
+    /// Why a pass-end law and not a tail of `process_window_events`: the
+    /// commit paths run in more than one kind of pass. A `CreateTextInput`
+    /// change from an app timer, a thread writeback or the E2E harness
+    /// commits inside `process_timers_and_threads`, which never reached the
+    /// event pass's tail — the typed text landed, `TextChanged` never fired,
+    /// and a live label bound to it stayed at its initial value. The drain
+    /// must follow every pass that can commit text; that is the platform
+    /// input pass and the timer/thread pass (the frame path's
+    /// `regenerate_layout` cannot commit text).
+    ///
+    /// Returns the strongest result the dispatched callbacks asked for; an
+    /// `Update::RefreshDom` reply is folded into
+    /// `ShouldRegenerateDomCurrentWindow` exactly as a user callback's is.
+    fn dispatch_text_notifications(&mut self) -> ProcessEventResult {
+        use azul_core::{
+            callbacks::Update,
+            events::{EventData, EventSource, EventType, SyntheticEvent},
+        };
+
+        let mut result = ProcessEventResult::DoNothing;
+        let (edited, changed) = match self.get_layout_window_mut() {
+            Some(lw) => (
+                lw.take_text_edit_notifications(),
+                lw.take_text_changed_notifications(),
+            ),
+            None => return result,
+        };
+        if edited.is_empty() && changed.is_empty() {
+            return result;
+        }
+
+        let now = azul_core::task::Instant::now();
+        for (event_type, targets) in [(EventType::Input, edited), (EventType::TextChanged, changed)] {
+            if targets.is_empty() {
+                continue;
+            }
+            let events: Vec<_> = targets
+                .into_iter()
+                .map(|node| {
+                    SyntheticEvent::new(
+                        event_type,
+                        EventSource::User,
+                        node,
+                        now.clone(),
+                        EventData::None,
+                    )
+                })
+                .collect();
+            let (dispatch_result, update, _) = self.dispatch_events_propagated(&events);
+            result = result.max(dispatch_result);
+            if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+            }
+        }
+        result
+    }
+
     /// Rebuild the DOM and lay it out ONCE. Implemented per backend.
     ///
     /// Do NOT call this directly from a frame path — call
@@ -8847,7 +8920,7 @@ pub trait PlatformWindow {
             // C11: the DocumentEdit notification (if any) was collected by THIS
             // pass's determination and will be dispatched below — one event per
             // changeset. From here on, a re-render without an ack rejects the
-            // edit (drop honored in layout_and_generate_display_list).
+            // edit (drop honored in layout_new_generation).
             if synthetic_events
                 .iter()
                 .any(|e| e.event_type == azul_core::events::EventType::DocumentEdit)
@@ -9934,40 +10007,11 @@ pub trait PlatformWindow {
             }
         }
 
-        // TEXT-EDIT NOTIFICATIONS: edits committed OUTSIDE the text-input
-        // record pipeline this pass (deletions, multi-cursor paste, the Enter
-        // line break) dispatch their Input event here, so widget mirrors
-        // observe every committed edit, not only insertions.
-        {
-            let pending = self
-                .get_layout_window_mut()
-                .map(azul_layout::window::LayoutWindow::take_text_edit_notifications)
-                .unwrap_or_default();
-            if !pending.is_empty() {
-                let now = azul_core::task::Instant::now();
-                let edit_events: Vec<_> = pending
-                    .into_iter()
-                    .map(|host| {
-                        azul_core::events::SyntheticEvent::new(
-                            azul_core::events::EventType::Input,
-                            azul_core::events::EventSource::User,
-                            host,
-                            now.clone(),
-                            azul_core::events::EventData::None,
-                        )
-                    })
-                    .collect();
-                let (edit_result, edit_update, _) = self.dispatch_events_propagated(&edit_events);
-                result = result.max(edit_result);
-                if matches!(
-                    edit_update,
-                    azul_core::callbacks::Update::RefreshDom
-                        | azul_core::callbacks::Update::RefreshDomAllWindows
-                ) {
-                    result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-                }
-            }
-        }
+        // Post-commit text notifications (`Input` for edits committed outside
+        // the text-input record pipeline, `TextChanged` for every landed
+        // edit) - drained at the end of this pass like every other pass kind,
+        // see `dispatch_text_notifications`.
+        result = result.max(self.dispatch_text_notifications());
 
         // SYNTHETIC CLICK DISPATCH (for Enter/Space activation)
         // Process synthetic clicks from keyboard activation
@@ -10236,6 +10280,17 @@ pub trait PlatformWindow {
                 }
                 _ => {}
             }
+        }
+
+        // A timer or thread writeback that committed text (`CreateTextInput`
+        // from the E2E harness, an app timer editing a field) owes the
+        // post-commit notifications like any other pass; folded into the
+        // result below so a `RefreshDom` reply from a `TextChanged` callback
+        // is honoured as a rebuild.
+        let text_result = self.dispatch_text_notifications();
+        if text_result != ProcessEventResult::DoNothing {
+            max_changes_result = max_changes_result.max(text_result);
+            needs_redraw = true;
         }
 
         // Also sync window state after all changes

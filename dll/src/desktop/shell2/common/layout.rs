@@ -658,8 +658,11 @@ pub fn regenerate_layout(
         // cascade first).
         azul_layout::probe::emit_phase_heap("before_layout_dl");
         phases.mark("before_layout_dl_precascade");
+        // A NEW GENERATION even though the DOM object is the retained one: the
+        // layout callback ran above and rebuilt this DOM from the app's model,
+        // so text edits the app acked may retire here (`layout_new_generation`).
         layout_window
-            .layout_and_generate_display_list(
+            .layout_new_generation(
                 retained,
                 current_window_state,
                 renderer_resources,
@@ -1277,14 +1280,17 @@ pub fn regenerate_layout(
     // 4. Perform layout with solver3
     log_debug!(
         LogCategory::Layout,
-        "[regenerate_layout] Calling layout_and_generate_display_list"
+        "[regenerate_layout] Calling layout_new_generation"
     );
 
     azul_layout::probe::emit_phase_heap("before_layout_dl");
     phases.mark("before_layout_dl");
 
+    // The layout callback built `styled_dom` from the app's model: the one
+    // pass that may retire acked text edits and drop a notified-but-ignored
+    // structural edit (see `LayoutWindow::layout_new_generation`).
     layout_window
-        .layout_and_generate_display_list(
+        .layout_new_generation(
             styled_dom,
             current_window_state,
             renderer_resources,

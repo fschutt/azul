@@ -1383,8 +1383,11 @@ pub struct LayoutWindow {
     pub document_text_revision: u64,
     /// High-water mark of text revisions the APP has declared incorporated
     /// into its model ([`Self::mark_text_revision_synced`]). Overlay entries
-    /// at or below it are committed and GC'd at the layout tail without any
-    /// text comparison — normalization-proof, unlike the equality rule.
+    /// at or below it are committed and GC'd at the tail of the next
+    /// [`Self::layout_new_generation`] without any text comparison —
+    /// normalization-proof, unlike the equality rule. Until that re-render
+    /// they keep painting: a relayout of the DOM the app already rendered
+    /// never retires them.
     pub acked_text_revision: u64,
     /// Resume point of an ACKED structural edit, waiting for the app's
     /// re-render to land so the caret can be re-established against the NEW
@@ -2016,6 +2019,15 @@ impl LayoutWindow {
     /// # Errors
     ///
     /// Returns a `LayoutError` if layout fails.
+    ///
+    /// # Which entry point
+    ///
+    /// This is the RELAYOUT entry: `root_dom` is a DOM the app has already
+    /// rendered (the retained one, re-flowed for a resize, a restyle or a
+    /// line that grew while typing) — or the very first layout. A pass that
+    /// installs a DOM the app's layout callback JUST BUILT from its model goes
+    /// through [`Self::layout_new_generation`] instead; the two differ only in
+    /// what they may retire (see there).
     pub fn layout_and_generate_display_list(
         &mut self,
         root_dom: StyledDom,
@@ -2023,6 +2035,67 @@ impl LayoutWindow {
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<(), solver3::LayoutError> {
+        self.layout_and_generate_display_list_impl(
+            root_dom,
+            window_state,
+            renderer_resources,
+            system_callbacks,
+            debug_messages,
+            false,
+        )
+    }
+
+    /// [`Self::layout_and_generate_display_list`] for a NEW GENERATION: a
+    /// DOM the app's layout callback just produced from its own model (the
+    /// shells' `regenerate_layout`, the E2E runner's `regenerate_layout`).
+    ///
+    /// Two things retire ONLY here, because both mean "the app re-rendered":
+    ///
+    /// - text-overlay entries the app has ACKED
+    ///   ([`Self::mark_text_revision_synced`]) — the ack says the app's
+    ///   MODEL has the text; the overlay must still paint it until a DOM
+    ///   built from that model arrives, which is this pass. Retiring them
+    ///   on the relayout entry instead deleted the typed text from the
+    ///   screen: an app that acks from its `TextChanged` callback (without
+    ///   rebuilding — the live word count) had every acked entry dropped by
+    ///   the next line-growth relayout, which then laid out the DOM's
+    ///   PRE-EDIT text.
+    /// - a NOTIFIED structural edit the app neither applied nor rejected —
+    ///   the documented "re-rendered without acking = rejection" promise,
+    ///   which a relayout of the unchanged DOM is not.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if layout fails.
+    pub fn layout_new_generation(
+        &mut self,
+        root_dom: StyledDom,
+        window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> Result<(), solver3::LayoutError> {
+        self.layout_and_generate_display_list_impl(
+            root_dom,
+            window_state,
+            renderer_resources,
+            system_callbacks,
+            debug_messages,
+            true,
+        )
+    }
+
+    /// The one funnel behind both entry points; `new_generation` is the
+    /// [`Self::layout_new_generation`] distinction.
+    fn layout_and_generate_display_list_impl(
+        &mut self,
+        root_dom: StyledDom,
+        window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+        new_generation: bool,
     ) -> Result<(), solver3::LayoutError> {
         // E2E observability: this is the ONE funnel every layout pass goes
         // through — `regenerate_layout` and `incremental_relayout` in the
@@ -2052,9 +2125,11 @@ impl LayoutWindow {
         // with a warning and end its previews. The preview-materializing
         // relayout right after `record_document_edit` is NOT affected: the
         // notification hasn't been delivered at that point, so
-        // `document_edit_notified` is still `None`.
+        // `document_edit_notified` is still `None`. Nor is any other
+        // relayout of the same DOM (`new_generation == false`): only a DOM
+        // the app built AFTER hearing about the edit can be its answer.
         if let Some(pending) = &self.pending_document_edit {
-            if self.document_edit_notified == Some(pending.id) {
+            if new_generation && self.document_edit_notified == Some(pending.id) {
                 #[cfg(debug_assertions)]
                 eprintln!(
                     "[azul][document-edit] dropping un-acked structural edit #{} - the app \
@@ -2156,8 +2231,14 @@ impl LayoutWindow {
             for dom_id in doms {
                 // Explicitly acked revisions first (no text comparison),
                 // then the equality fallback for un-acked/un-stamped entries.
-                self.content_overlay
-                    .gc_acked_text(dom_id, self.acked_text_revision);
+                // The acked rule needs a DOM built from the model that acked
+                // (see `layout_new_generation`); the equality rule is safe on
+                // any pass, since dropping an entry the DOM already equals
+                // changes nothing on screen.
+                if new_generation {
+                    self.content_overlay
+                        .gc_acked_text(dom_id, self.acked_text_revision);
+                }
                 if let Some(lr) = self.layout_results.get(&dom_id) {
                     // Split borrow: overlay and layout_results are separate fields.
                     let styled_dom = &lr.styled_dom;
@@ -2349,7 +2430,7 @@ impl LayoutWindow {
     /// Current document TEXT revision — the stamp of the latest committed
     /// character-level edit (`0` = none yet). An app that folds azul's text
     /// state back into its own model records this value and acks it with
-    /// [`Self::mark_text_revision_synced`] after re-rendering.
+    /// [`Self::mark_text_revision_synced`] as soon as its model has the text.
     #[must_use]
     pub const fn document_text_revision(&self) -> u64 {
         self.document_text_revision
@@ -2359,10 +2440,16 @@ impl LayoutWindow {
     /// including `revision` (usually a value previously read from
     /// [`Self::document_text_revision`]). Monotonic; clamped to the current
     /// revision so a garbage ack cannot pre-commit FUTURE edits. Overlay
-    /// entries at or below the mark are dropped at the next layout tail
-    /// WITHOUT text comparison — so an app that normalizes text on ingest
-    /// (trimming, canonicalization) still converges, where the equality rule
-    /// would have kept the entry authoritative forever.
+    /// entries at or below the mark are dropped WITHOUT text comparison — so
+    /// an app that normalizes text on ingest (trimming, canonicalization)
+    /// still converges, where the equality rule would have kept the entry
+    /// authoritative forever.
+    ///
+    /// Safe to call at any time, in particular from a `TextChanged` callback
+    /// that does NOT re-render: an acked entry keeps painting until the app's
+    /// next re-render installs a DOM built from the model that acked it
+    /// ([`Self::layout_new_generation`]); a relayout of the unchanged DOM in
+    /// between never retires it.
     pub fn mark_text_revision_synced(&mut self, revision: u64) {
         let clamped = revision.min(self.document_text_revision);
         self.acked_text_revision = self.acked_text_revision.max(clamped);
@@ -2906,6 +2993,21 @@ impl LayoutWindow {
         let mut seen = BTreeSet::new();
         self.text_edit_manager
             .pending_edit_notifications
+            .drain(..)
+            .filter(|id| seen.insert(*id))
+            .collect()
+    }
+
+    /// Drain the post-commit text-change queue filled by
+    /// [`Self::update_text_cache_after_edit`] (deduplicated, order-preserving).
+    /// The host pass dispatches one `EventType::TextChanged` per returned
+    /// node AFTER the edit is applied - the `input` to `Input`'s
+    /// `beforeinput`. Focus events fire at the focused node whatever the
+    /// target, so the editing host's callback sees every node it owns.
+    pub fn take_text_changed_notifications(&mut self) -> Vec<DomNodeId> {
+        let mut seen = BTreeSet::new();
+        self.text_edit_manager
+            .pending_text_changed
             .drain(..)
             .filter(|id| seen.insert(*id))
             .collect()
@@ -15155,6 +15257,16 @@ impl LayoutWindow {
         );
 
         self.reshape_text_node(dom_id, node_id, new_inline_content);
+
+        // The commit is done: queue the post-commit `TextChanged` event. Every
+        // path that lands text goes through this writer, so the queue sees
+        // typed characters, deletions, paste and the Enter split alike. The
+        // host pass drains it after the pass, when `get_unsynced_text_edits`
+        // already reads what was just written.
+        self.text_edit_manager.pending_text_changed.push(DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        });
     }
 
     /// The descendants of `node_id` in the order [`Self::reshape_text_node`]
@@ -15788,8 +15900,20 @@ impl LayoutWindow {
             Some(dirty) => dirty.content.clone(),
             None => return,
         };
-        // Re-run text shaping and update layout cache
-        self.update_text_cache_after_edit(dom_id, node_id, content);
+        // Re-LAND, never re-COMMIT: this used to go through
+        // `update_text_cache_after_edit`, which is the commit writer - it
+        // bumped the document text revision and re-stamped the entry on every
+        // layout pass, so an entry the app had acked became "unsynced" again
+        // at the next relayout and could never retire by the acked rule, and
+        // (once the writer queued `TextChanged`) every relayout would have
+        // re-announced text that had not changed. The entry keeps its
+        // revision; only the shaped state is rebuilt. The size latch is
+        // re-derived exactly as a fresh entry's is: cleared here, set again
+        // by the re-shape if the text's extent differs from the laid-out one.
+        if let Some(entry) = self.content_overlay.text_for_node_mut(dom_id, node_id) {
+            entry.needs_ancestor_relayout = false;
+        }
+        self.reshape_text_node(dom_id, node_id, content);
         // Regenerate display list with updated text
         self.regenerate_display_list_for_dom(dom_id);
 

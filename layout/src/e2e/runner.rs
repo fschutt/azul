@@ -254,17 +254,32 @@ impl Runner {
     }
 
     /// Run the full layout pipeline for `styled_dom` and re-register scroll nodes.
-    fn layout(&mut self, styled_dom: StyledDom) {
+    ///
+    /// `new_generation` is the shells' distinction between `regenerate_layout`
+    /// (the app's layout callback built `styled_dom` from its model -
+    /// `LayoutWindow::layout_new_generation`) and a relayout of the DOM it
+    /// already rendered (`layout_and_generate_display_list`); only the former
+    /// may retire acked text edits.
+    fn layout(&mut self, styled_dom: StyledDom, new_generation: bool) {
         let mut dbg = Some(Vec::new());
-        self.layout_window
-            .layout_and_generate_display_list(
+        let laid_out = if new_generation {
+            self.layout_window.layout_new_generation(
                 styled_dom,
                 &self.window_state,
                 &self.renderer_resources,
                 &self.system_callbacks,
                 &mut dbg,
             )
-            .expect("layout_and_generate_display_list");
+        } else {
+            self.layout_window.layout_and_generate_display_list(
+                styled_dom,
+                &self.window_state,
+                &self.renderer_resources,
+                &self.system_callbacks,
+                &mut dbg,
+            )
+        };
+        laid_out.expect("layout_and_generate_display_list");
         // Same CRITICAL sync as the DLL paths (regenerate_layout's tail /
         // incremental_relayout): the cached state is the "old size" the resize
         // decision diffs against. Without it, every resize after the first
@@ -501,6 +516,10 @@ impl Runner {
         // contenteditable arms the caret blink) has to have armed it before the
         // pump looks, or the timer would always be one op late.
         result = result.max(self.pump_timers());
+        // The ops above committed text through `apply_user_change` (a
+        // `text_input` op is `CreateTextInput`), never through the event
+        // pass - the post-commit notifications they owe are drained here.
+        result = result.max(self.dispatch_text_notifications());
         if needs_update {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
         }
@@ -1200,29 +1219,9 @@ impl Runner {
             result = result.max(self.process_window_events(depth + 1));
         }
 
-        // TEXT-EDIT NOTIFICATIONS (port of the DLL's drain): edits committed
-        // outside the text-input record pipeline dispatch their Input event
-        // here, so `On::Input` observes deletions and line breaks too.
-        {
-            let pending = self.layout_window.take_text_edit_notifications();
-            if !pending.is_empty() {
-                let now = self.now();
-                let edit_events: Vec<_> = pending
-                    .into_iter()
-                    .map(|host| {
-                        azul_core::events::SyntheticEvent::new(
-                            azul_core::events::EventType::Input,
-                            azul_core::events::EventSource::User,
-                            host,
-                            now.clone(),
-                            azul_core::events::EventData::None,
-                        )
-                    })
-                    .collect();
-                let (edit_result, _edit_update, _) = self.dispatch_events_propagated(&edit_events);
-                result = result.max(edit_result);
-            }
-        }
+        // Post-commit text notifications, drained at the end of this pass
+        // like every other pass kind (port of the DLL's pass-end law).
+        result = result.max(self.dispatch_text_notifications());
 
         // Finalize pending focus changes (caret init for contenteditable) —
         // the DLL's end-of-pass `SystemChange::FinalizePendingFocusChanges`.
@@ -1287,6 +1286,52 @@ impl Runner {
     /// callbacks exist in an XML mount" — a scenario that mounts a component
     /// carrying callbacks would then silently take the default action anyway.
     #[allow(clippy::too_many_lines)]
+    /// Port of the DLL's `dispatch_text_notifications`: deliver the `Input`
+    /// (edits committed outside the text-input record pipeline) and
+    /// `TextChanged` (every landed edit, after the commit) notifications a
+    /// pass left in the layout window. Every pass that can commit text ends
+    /// with this - the event pass AND `service`, whose ops (`text_input`,
+    /// `key_down`) commit through `apply_user_change` without ever entering
+    /// the event pass; before, `TextChanged` never fired for a scripted
+    /// keystroke while it fired for a platform one.
+    fn dispatch_text_notifications(&mut self) -> ProcessEventResult {
+        use azul_core::{
+            callbacks::Update,
+            events::{EventData, EventSource, EventType, SyntheticEvent},
+        };
+
+        let mut result = ProcessEventResult::DoNothing;
+        let edited = self.layout_window.take_text_edit_notifications();
+        let changed = self.layout_window.take_text_changed_notifications();
+        if edited.is_empty() && changed.is_empty() {
+            return result;
+        }
+        let now = self.now();
+        for (event_type, targets) in [(EventType::Input, edited), (EventType::TextChanged, changed)] {
+            if targets.is_empty() {
+                continue;
+            }
+            let events: Vec<_> = targets
+                .into_iter()
+                .map(|node| {
+                    SyntheticEvent::new(
+                        event_type,
+                        EventSource::User,
+                        node,
+                        now.clone(),
+                        EventData::None,
+                    )
+                })
+                .collect();
+            let (dispatch_result, update, _) = self.dispatch_events_propagated(&events);
+            result = result.max(dispatch_result);
+            if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+            }
+        }
+        result
+    }
+
     fn dispatch_events_propagated(
         &mut self,
         events: &[azul_core::events::SyntheticEvent],
@@ -3159,7 +3204,7 @@ impl Runner {
             None
         };
 
-        self.layout(styled_dom);
+        self.layout(styled_dom, true);
 
         // Last geometry exists now, so pairs complete and enters start.
         if let Some(pending) = pending {
@@ -3217,7 +3262,7 @@ impl Runner {
         // changes never come through here (always a full regeneration).
         self.resize_pending = false;
         if let Some(layout_result) = self.layout_window.layout_results.remove(&DomId::ROOT_ID) {
-            self.layout(layout_result.styled_dom);
+            self.layout(layout_result.styled_dom, false);
         }
         self.render_and_record();
     }
@@ -3745,7 +3790,7 @@ fn run_e2e_test_keeping_runner(
         // The mount-less `regenerate_layout` arm takes the CURRENT tree back
         // out of `layout_results`, so laying the document out once here is
         // all it takes for every later pass to keep it.
-        runner.layout(dom);
+        runner.layout(dom, true);
     }
 
     let (tx, rx) = std::sync::mpsc::channel();
@@ -3942,7 +3987,7 @@ mod tests {
         let styled_dom = StyledDom::create(&mut dom, css);
 
         let mut runner = Runner::new(800.0, 600.0, 96, animations);
-        runner.layout(styled_dom);
+        runner.layout(styled_dom, true);
         runner
             .layout_window
             .focus_manager

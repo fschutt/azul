@@ -367,6 +367,15 @@ pub struct TextEditManager {
     /// host, so widget mirrors observe every committed edit, not only
     /// insertions. Filled by `LayoutWindow::record_text_edit_undo`.
     pub pending_edit_notifications: Vec<DomNodeId>,
+    /// Text nodes whose committed content changed this pass - one entry per
+    /// `LayoutWindow::update_text_cache_after_edit` (the single overlay
+    /// writer), so every path that lands text here: typed characters,
+    /// deletions, paste, the Enter split. The host pass drains this and
+    /// dispatches a `TextChanged` event per node AFTER the commit, when
+    /// `get_unsynced_text_edits` already reads the new text (`Input` fires
+    /// BEFORE a typed character lands, so a model synced from `Input` is one
+    /// keystroke behind).
+    pub pending_text_changed: Vec<DomNodeId>,
 }
 
 impl Default for TextEditManager {
@@ -398,6 +407,7 @@ impl TextEditManager {
             display_list_dirty: false,
             tween: TextTweenState::default(),
             pending_edit_notifications: Vec::new(),
+            pending_text_changed: Vec::new(),
         }
     }
 
@@ -816,6 +826,18 @@ impl crate::managers::NodeIdRemap for TextEditManager {
         // that was unmounted has no event to dispatch, and keeping the id
         // would dispatch it at the node that took its place.
         self.pending_edit_notifications.retain_mut(|node| {
+            match map.resolve_dom_node_id(dom, *node) {
+                Some(new_id) => {
+                    *node = new_id;
+                    true
+                }
+                None => false,
+            }
+        });
+        // Same for the post-commit `TextChanged` queue: a text node that the
+        // rebuild unmounted (the Enter split moves its text into a new leaf)
+        // has nothing to report; the surviving one is renamed in place.
+        self.pending_text_changed.retain_mut(|node| {
             match map.resolve_dom_node_id(dom, *node) {
                 Some(new_id) => {
                     *node = new_id;
@@ -2278,6 +2300,30 @@ mod autotest_generated {
                 dom_node(DOM1, Some(NodeId::new(4))),
             ],
             "surviving hosts are rewritten, unmounted ones dropped, other DOMs untouched"
+        );
+    }
+
+    #[test]
+    fn autotest_remap_rewrites_and_prunes_pending_text_changed() {
+        let mut m = TextEditManager::new();
+        m.pending_text_changed = vec![
+            dom_node(DOM0, Some(NodeId::new(2))),
+            dom_node(DOM0, Some(NodeId::new(7))),
+            dom_node(DOM1, Some(NodeId::new(7))),
+        ];
+
+        m.remap_node_ids(
+            DOM0,
+            &NodeIdMap::from_pairs([(NodeId::new(2), NodeId::new(5))]),
+        );
+
+        assert_eq!(
+            m.pending_text_changed,
+            vec![
+                dom_node(DOM0, Some(NodeId::new(5))),
+                dom_node(DOM1, Some(NodeId::new(7))),
+            ],
+            "the surviving text node is renamed, the unmounted one dropped, other DOMs untouched"
         );
     }
 }

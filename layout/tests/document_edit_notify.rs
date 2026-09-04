@@ -6,10 +6,13 @@
 //!   is prompt and race-free instead of polling on its next callback).
 //! - Once the notification is DELIVERED (`mark_document_edit_notified`), an
 //!   app re-render without an ack REJECTS the edit: the next
-//!   `layout_and_generate_display_list` drops it with a warning — honoring
-//!   the promise documented on `pending_document_edit` since day one.
+//!   `layout_new_generation` drops it with a warning — honoring the promise
+//!   documented on `pending_document_edit` since day one.
 //! - The preview-materializing relayout right after `record_document_edit`
-//!   must NOT drop (notification not yet delivered at that point).
+//!   must NOT drop (notification not yet delivered at that point), and
+//!   neither may ANY relayout of the DOM the app already rendered
+//!   (`layout_and_generate_display_list`): only a DOM the app built after
+//!   hearing about the edit can be its answer.
 
 use azul_core::dom::{Dom, DomId, IdOrClass, NodeId};
 use azul_core::events::{EventData, EventProvider, EventType};
@@ -66,13 +69,39 @@ fn three_paragraph_dom() -> StyledDom {
     StyledDom::create(&mut dom, css)
 }
 
-fn relayout(lw: &mut LayoutWindow) {
+/// The app RE-RENDERS: its layout callback builds a fresh DOM from its model
+/// and the shell installs it through `layout_new_generation` — the pass that
+/// answers a notified edit (ack, or by omission: rejection).
+fn re_render(lw: &mut LayoutWindow) {
     let window_state = lw.current_window_state.clone();
     let renderer_resources = RendererResources::default();
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
     let mut debug_messages = Some(Vec::new());
-    lw.layout_and_generate_display_list(
+    lw.layout_new_generation(
         three_paragraph_dom(),
+        &window_state,
+        &renderer_resources,
+        &system_callbacks,
+        &mut debug_messages,
+    )
+    .unwrap();
+}
+
+/// A relayout of the DOM the app ALREADY rendered (the shells'
+/// `incremental_relayout`: a resize, a restyle, a line that grew) — the
+/// existing StyledDom re-enters the funnel through the relayout entry.
+fn relayout_same_dom(lw: &mut LayoutWindow) {
+    let window_state = lw.current_window_state.clone();
+    let renderer_resources = RendererResources::default();
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let mut debug_messages = Some(Vec::new());
+    let existing = lw
+        .layout_results
+        .remove(&DomId::ROOT_ID)
+        .expect("laid out")
+        .styled_dom;
+    lw.layout_and_generate_display_list(
+        existing,
         &window_state,
         &renderer_resources,
         &system_callbacks,
@@ -88,7 +117,7 @@ fn window_with_pending_edit() -> LayoutWindow {
     let mut window_state = FullWindowState::default();
     window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
     lw.current_window_state = window_state;
-    relayout(&mut lw);
+    re_render(&mut lw);
 
     let ok = lw.set_cross_block_selection(
         DomId::ROOT_ID,
@@ -172,11 +201,18 @@ fn unnotified_pending_edit_survives_the_preview_relayout() {
     // notified yet).
     let mut lw = window_with_pending_edit();
     let id = lw.get_pending_document_edit().unwrap().id;
-    relayout(&mut lw);
+    relayout_same_dom(&mut lw);
     assert_eq!(
         lw.get_pending_document_edit().map(|c| c.id),
         Some(id),
         "un-notified edit survives the preview relayout"
+    );
+    // Not even a full re-render counts before the notification is delivered.
+    re_render(&mut lw);
+    assert_eq!(
+        lw.get_pending_document_edit().map(|c| c.id),
+        Some(id),
+        "un-notified edit survives a re-render too"
     );
 }
 
@@ -184,12 +220,32 @@ fn unnotified_pending_edit_survives_the_preview_relayout() {
 fn notified_pending_edit_is_dropped_at_the_next_re_render() {
     let mut lw = window_with_pending_edit();
     lw.mark_document_edit_notified();
-    relayout(&mut lw);
+    re_render(&mut lw);
     assert!(
         lw.get_pending_document_edit().is_none(),
         "the app was notified and re-rendered without acking: the edit is \
          rejected and dropped (the documented promise)"
     );
+}
+
+#[test]
+fn notified_pending_edit_survives_a_relayout_of_the_same_dom() {
+    // The app heard about the edit and has not answered yet; meanwhile the
+    // window is resized / a style flips / the caret line grows. That is a
+    // relayout of the DOM it already rendered, not its answer - the edit
+    // (and its preview) must stay.
+    let mut lw = window_with_pending_edit();
+    lw.mark_document_edit_notified();
+    let id = lw.get_pending_document_edit().unwrap().id;
+    relayout_same_dom(&mut lw);
+    assert_eq!(
+        lw.get_pending_document_edit().map(|c| c.id),
+        Some(id),
+        "a relayout of the unchanged DOM is not the app's rejection"
+    );
+    // The app's next re-render still is.
+    re_render(&mut lw);
+    assert!(lw.get_pending_document_edit().is_none());
 }
 
 #[test]
@@ -203,6 +259,6 @@ fn acked_edit_is_cleared_and_nothing_is_dropped_later() {
     );
     assert!(lw.get_pending_document_edit().is_none());
     // The post-ack re-render is the APPLY path, not a rejection.
-    relayout(&mut lw);
+    re_render(&mut lw);
     assert!(lw.get_pending_document_edit().is_none());
 }

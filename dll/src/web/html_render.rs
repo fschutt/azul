@@ -994,7 +994,10 @@ fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static s
         EventFilter::Focus(f) => match f {
             FocusEventFilter::FocusReceived => "focus",
             FocusEventFilter::FocusLost => "blur",
-            FocusEventFilter::TextInput => "input",
+            // The browser applies the edit before `input` fires, so the web
+            // backend cannot tell the pre-commit `TextInput` from the
+            // post-commit `TextChanged`: both listen to the same event.
+            FocusEventFilter::TextInput | FocusEventFilter::TextChanged => "input",
             FocusEventFilter::VirtualKeyDown => "keydown",
             FocusEventFilter::VirtualKeyUp => "keyup",
             _ => "click",
