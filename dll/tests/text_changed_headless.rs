@@ -35,6 +35,7 @@ use azul_core::id::NodeId;
 use azul_core::refany::{OptionRefAny, RefAny};
 use azul_core::resources::AppConfig;
 use azul_core::task::TerminateTimer;
+use azul_core::window::{OptionVirtualKeyCode, VirtualKeyCode};
 use azul_css::css::{CssPath, CssPathSelector};
 use azul_layout::callbacks::{Callback, CallbackChange, CallbackInfo, ExternalSystemCallbacks};
 use azul_layout::timer::{Timer, TimerCallbackInfo, TimerCallbackType};
@@ -53,6 +54,11 @@ struct Seen {
     edits: Vec<(String, u64)>,
     /// How often `TextChanged` reached the callback.
     fired: u32,
+    /// Per edit: the child-index path from the callback's node (the focused
+    /// host) to the edit's node — what an app uses to find the block an
+    /// edit belongs to. `None` = the engine handed out a node the app
+    /// cannot map (the host itself, or something outside it).
+    paths: Vec<Option<Vec<u32>>>,
 }
 
 #[derive(Clone, Default)]
@@ -66,6 +72,7 @@ extern "C" fn on_text_changed(mut data: RefAny, mut info: CallbackInfo) -> Updat
         None => return Update::DoNothing,
     };
     let edits = info.get_unsynced_text_edits();
+    let host = info.get_hit_node();
     let mut newest = 0u64;
     {
         let mut seen = shared.0.lock().unwrap();
@@ -73,6 +80,11 @@ extern "C" fn on_text_changed(mut data: RefAny, mut info: CallbackInfo) -> Updat
         for edit in edits.as_ref() {
             seen.edits
                 .push((edit.text.as_str().to_string(), edit.revision));
+            let path = info
+                .get_node_child_index_path(host, edit.node)
+                .as_ref()
+                .map(|p| p.as_ref().to_vec());
+            seen.paths.push(path);
             newest = newest.max(edit.revision);
         }
     }
@@ -202,6 +214,30 @@ fn focus_host(window: &mut HeadlessWindow) {
         lw.text_edit_manager.get_primary_cursor().is_some(),
         "focusing a contenteditable host must seed a caret"
     );
+}
+
+/// The KeyDown/KeyUp arms of `HeadlessWindow::run`, inlined: snapshot,
+/// mutate keyboard state, event pass, honor the result.
+fn press_key(window: &mut HeadlessWindow, vk: VirtualKeyCode) {
+    window.snapshot_window_state_baseline("test.key_down");
+    window.common.keyboard_state_mut().current_virtual_keycode = OptionVirtualKeyCode::Some(vk);
+    window
+        .common
+        .keyboard_state_mut()
+        .pressed_virtual_keycodes
+        .insert_hm_item(vk);
+    let down = window.process_window_events(0);
+    honor(window, down);
+
+    window.snapshot_window_state_baseline("test.key_up");
+    window.common.keyboard_state_mut().current_virtual_keycode = OptionVirtualKeyCode::None;
+    window
+        .common
+        .keyboard_state_mut()
+        .pressed_virtual_keycodes
+        .remove_hm_item(&vk);
+    let up = window.process_window_events(0);
+    honor(window, up);
 }
 
 fn world_timer() -> Timer {
@@ -343,5 +379,45 @@ fn an_ack_without_a_re_render_survives_the_next_relayout_and_is_not_re_committed
         shared.0.lock().unwrap().fired,
         1,
         "a re-render is not a text commit either"
+    );
+}
+
+#[test]
+fn backspace_reports_an_edit_the_app_can_map_to_its_block() {
+    // Typing and deleting are two commit paths (`apply_text_changeset` vs
+    // `delete_selection`); both must key the edit to the caret's IFC owner —
+    // the `<p>` — so the app can map it to a block by child-index path.
+    // Deletions used to be keyed to the focused HOST: the path from the host
+    // to itself is `[]`, which no block can claim, and a word count fed by
+    // `TextChanged` froze on every Backspace.
+    let shared = Shared::default();
+    let mut window = make_window(shared.clone());
+    window.regenerate_layout().expect("initial layout");
+    let (_host, paragraph) = host_and_paragraph(&window);
+    focus_host(&mut window);
+
+    window.snapshot_window_state_baseline("test.type");
+    let r = window.apply_user_change(&CallbackChange::CreateTextInput {
+        text: " world".into(),
+    });
+    honor(&mut window, r);
+    let _ = window.process_timers_and_threads();
+    assert_eq!(paragraph_text(&window, paragraph), "hello world");
+
+    // Backspace runs INSIDE the event pass; its drain fires TextChanged
+    // before the pass returns.
+    press_key(&mut window, VirtualKeyCode::Back);
+    assert_eq!(paragraph_text(&window, paragraph), "hello worl");
+
+    let seen = shared.0.lock().unwrap();
+    assert_eq!(seen.fired, 2, "one TextChanged per commit: the typed run, the deletion");
+    assert_eq!(
+        seen.edits,
+        vec![("hello world".to_string(), 1), ("hello worl".to_string(), 2)]
+    );
+    assert_eq!(
+        seen.paths,
+        vec![Some(vec![0]), Some(vec![0])],
+        "both edits name the <p> (host child 0), never the host itself"
     );
 }

@@ -3185,7 +3185,13 @@ impl LayoutWindow {
     /// index. `host` itself when the session is absent, in another dom,
     /// outside `host`, or when nothing below `host` owns an inline layout
     /// (a flat editable: the host IS the IFC root).
-    fn caret_text_target(&self, dom_id: DomId, host: NodeId) -> NodeId {
+    ///
+    /// EVERY commit that replaces a node's inline content has to key it here
+    /// (typing, Backspace/Delete, multi-cursor paste, undo/redo): the cursor
+    /// coordinates are per-IFC, a host-keyed blob painted the whole editable
+    /// as one line, and the app's text-sync API (`get_unsynced_text_edits`)
+    /// can only map an edit to its block when the node IS the block's IFC.
+    pub fn caret_text_target(&self, dom_id: DomId, host: NodeId) -> NodeId {
         let Some(caret) = self
             .text_edit_manager
             .multi_cursor
@@ -17848,7 +17854,13 @@ impl LayoutWindow {
     /// * `None` - If no cursor/selection exists or deletion failed
     pub fn delete_selection(&mut self, target: DomNodeId, forward: bool) -> Option<Vec<DomNodeId>> {
         let dom_id = target.dom;
-        let node_id = target.node.into_crate_internal()?;
+        // `target` is the focused HOST (the undo stack's key); the content
+        // is keyed to the caret's IFC owner, exactly like typing is. Keying
+        // deletions to the host spliced the host-flattened blob at per-IFC
+        // cursor offsets and handed the app an edit node it could not map
+        // to any block (the word count froze on Backspace).
+        let host = target.node.into_crate_internal()?;
+        let node_id = self.caret_text_target(dom_id, host);
 
         // Multi-cursor path: use edit_text with DeleteBackward/DeleteForward
         let current_selections = if let Some(ref mc) = self.text_edit_manager.multi_cursor {

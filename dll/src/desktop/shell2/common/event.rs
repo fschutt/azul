@@ -6223,13 +6223,28 @@ pub trait PlatformWindow {
 
                         if cursor_count > 1 && lines.len() == cursor_count {
                             // N lines → N cursors: use edit_text_multi
-                            if let Some(ref mc) = layout_window.text_edit_manager.multi_cursor {
-                                let dom_id = mc.node_id.dom;
-                                let target = mc.node_id;
-                                if let Some(node_id) = mc.node_id.node.into_crate_internal() {
+                            let session = layout_window
+                                .text_edit_manager
+                                .multi_cursor
+                                .as_ref()
+                                .map(|mc| (mc.node_id, mc.to_selections()));
+                            if let Some((session_node, selections)) = session {
+                                let dom_id = session_node.dom;
+                                // Keyed like every other commit: the undo
+                                // stack on the focused HOST, the content on
+                                // the caret's IFC owner. The session node is
+                                // the caret's text LEAF — keying the commit
+                                // to it painted nothing and Ctrl+Z (which
+                                // pops the host's stack) never found it.
+                                let target = layout_window
+                                    .focus_manager
+                                    .focused_node
+                                    .filter(|f| f.dom == dom_id)
+                                    .unwrap_or(session_node);
+                                if let Some(host_id) = target.node.into_crate_internal() {
+                                    let node_id = layout_window.caret_text_target(dom_id, host_id);
                                     let content =
                                         layout_window.get_text_before_textinput(dom_id, node_id);
-                                    let selections = mc.to_selections();
                                     let (new_content, new_sels) =
                                         azul_layout::text3::edit::edit_text_multi(
                                             &content,
@@ -6481,7 +6496,13 @@ pub trait PlatformWindow {
                     };
 
                     if let Some(operation) = layout_window.undo_redo_manager.pop_undo(node_id) {
-                        let node_id_internal = target.node.into_crate_internal();
+                        // The stack is keyed by the HOST (`target`), the
+                        // content by the node the edit re-shaped
+                        // (`pre_state.node_id`, the caret's IFC owner) —
+                        // restoring a paragraph's snapshot into the host
+                        // keyed a host-flattened blob, the bug typing and
+                        // deleting were already cured of.
+                        let node_id_internal = Some(operation.pre_state.node_id);
                         if let Some(node_id_internal) = node_id_internal {
                             use azul_layout::text3::cache::{
                                 InlineContent, StyleProperties, StyledRun,
@@ -6585,9 +6606,11 @@ pub trait PlatformWindow {
                             });
 
                         if let Some(new_content) = new_content {
+                            // Same keying as undo: the content goes back to
+                            // the node the edit re-shaped, not the host.
                             layout_window.update_text_cache_after_edit(
                                 target.dom,
-                                node_id,
+                                operation.pre_state.node_id,
                                 new_content,
                             );
                             layout_window.undo_redo_manager.reinstate_undo(operation);
