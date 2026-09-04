@@ -274,7 +274,14 @@ public final class AzulGamepad {
                 }
             }
             if (found != 1) {
-                return false;
+                // Twin pads (8f-i-a-ii-a-i): the descriptor cannot pair a
+                // touchpad node to its pad (both nodes share
+                // vendor:product:uniqueId, so it is nonce-disambiguated).
+                // What Android DOES guarantee is registration order: a
+                // pad's evdev nodes are registered back to back, so their
+                // device ids are adjacent. Pair with the nearest gamepad id,
+                // and only when that nearest is unique; else nothing.
+                padId = nearestGamepadId(surface.getId(), vendor, product);
             }
         }
         if (padId < 0) {
@@ -306,6 +313,35 @@ public final class AzulGamepad {
         }
         nativeOnTouchpad(padId, active ? 1 : 0, x, y, active2 ? 1 : 0, x2, y2);
         return true;
+    }
+
+    /**
+     * The gamepad InputDevice (same vendor/product) whose id is nearest to
+     * {@code surfaceId}, or -1 when two are equally near (8f-i-a-ii-a-i).
+     */
+    static int nearestGamepadId(int surfaceId, int vendor, int product) {
+        int best = -1;
+        int bestDistance = Integer.MAX_VALUE;
+        boolean tie = false;
+        for (int id : InputDevice.getDeviceIds()) {
+            InputDevice d = InputDevice.getDevice(id);
+            if (d == null || !isGamepad(id)) {
+                continue;
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT
+                    && (d.getVendorId() != vendor || d.getProductId() != product)) {
+                continue;
+            }
+            int distance = Math.abs(id - surfaceId);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = id;
+                tie = false;
+            } else if (distance == bestDistance) {
+                tie = true;
+            }
+        }
+        return tie ? -1 : best;
     }
 
     private static float normalise(float value, InputDevice.MotionRange range) {

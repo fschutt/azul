@@ -7049,7 +7049,11 @@ pub trait PlatformWindow {
                 let Some(layout_window) = self.get_layout_window_mut() else {
                     return ProcessEventResult::DoNothing;
                 };
-                match undo_text_edit_on(layout_window, *target) {
+                match undo_text_edit_on(
+                    layout_window,
+                    *target,
+                    azul_core::window::PRIMARY_POINTER_SEAT,
+                ) {
                     Some(restore) => {
                         // The primary's caret goes where the edit found it.
                         if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
@@ -7069,7 +7073,11 @@ pub trait PlatformWindow {
                 let Some(layout_window) = self.get_layout_window_mut() else {
                     return ProcessEventResult::DoNothing;
                 };
-                if redo_text_edit_on(layout_window, *target) {
+                if redo_text_edit_on(
+                    layout_window,
+                    *target,
+                    azul_core::window::PRIMARY_POINTER_SEAT,
+                ) {
                     ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                 } else {
                     ProcessEventResult::DoNothing
@@ -7146,7 +7154,7 @@ pub trait PlatformWindow {
                             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                         }
                     }
-                    KeyboardShortcut::Undo => match undo_text_edit_on(layout_window, *target) {
+                    KeyboardShortcut::Undo => match undo_text_edit_on(layout_window, *target, *seat_id) {
                         Some(restore) => {
                             let (cursor, anchor) = match (restore.range, restore.cursor) {
                                 (Some(range), _) => (range.end, Some(range.start)),
@@ -7163,7 +7171,7 @@ pub trait PlatformWindow {
                         None => ProcessEventResult::DoNothing,
                     },
                     KeyboardShortcut::Redo => {
-                        if redo_text_edit_on(layout_window, *target) {
+                        if redo_text_edit_on(layout_window, *target, *seat_id) {
                             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                         } else {
                             ProcessEventResult::DoNothing
@@ -13821,15 +13829,21 @@ struct UndoRestore {
 /// the node's undo entry, restore the pre-edit content (the styled snapshot
 /// when there is one, else the plain pre-text), push the entry onto redo.
 /// `None` = nothing to undo on that node.
+/// Per-person undo (9b-ii-a-i-d-ii-d): `seat_id`'s own latest edit, and only
+/// while it is the top of the node's stack - see
+/// `NodeUndoRedoStack::pop_undo_for_seat`.
 fn undo_text_edit_on(
     layout_window: &mut azul_layout::window::LayoutWindow,
     target: azul_core::dom::DomNodeId,
+    seat_id: u64,
 ) -> Option<UndoRestore> {
     use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
     use std::sync::Arc;
 
     let node_id = target.node.into_crate_internal()?;
-    let operation = layout_window.undo_redo_manager.pop_undo(node_id)?;
+    let operation = layout_window
+        .undo_redo_manager
+        .pop_undo_for_seat(node_id, seat_id)?;
     let new_content = layout_window
         .undo_redo_manager
         .get_content_snapshot(operation.changeset.id)
@@ -13865,6 +13879,7 @@ fn undo_text_edit_on(
 fn redo_text_edit_on(
     layout_window: &mut azul_layout::window::LayoutWindow,
     target: azul_core::dom::DomNodeId,
+    seat_id: u64,
 ) -> bool {
     use azul_layout::managers::changeset::TextOperation;
     use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
@@ -13873,7 +13888,10 @@ fn redo_text_edit_on(
     let Some(node_id) = target.node.into_crate_internal() else {
         return false;
     };
-    let Some(operation) = layout_window.undo_redo_manager.pop_redo(node_id) else {
+    let Some(operation) = layout_window
+        .undo_redo_manager
+        .pop_redo_for_seat(node_id, seat_id)
+    else {
         return false;
     };
     let new_content = layout_window

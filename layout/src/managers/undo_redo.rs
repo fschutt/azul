@@ -72,6 +72,12 @@ pub struct UndoableOperation {
     pub changeset: TextChangeset,
     /// Node state BEFORE the changeset was applied
     pub pre_state: NodeStateSnapshot,
+    /// The SEAT that made the edit (9b-ii-a-i-d-ii-d): 0 is the primary.
+    /// Undo is per person: a seat's Undo pops its own latest edit, and only
+    /// while that edit is still the top of the node's stack (nobody else has
+    /// edited the node since); otherwise it is refused rather than undoing
+    /// someone else's work or clobbering it with a stale snapshot.
+    pub seat_id: u64,
 }
 
 impl_option!(
@@ -130,6 +136,27 @@ impl NodeUndoRedoStack {
     /// Pop the most recent operation from undo stack
     pub fn pop_undo(&mut self) -> Option<UndoableOperation> {
         self.undo_stack.pop_back()
+    }
+
+    /// Per-person undo (9b-ii-a-i-d-ii-d): pop the top only if `seat_id`
+    /// made it. A seat whose latest edit is buried under another seat's
+    /// edits gets `None` - the interleaved case needs operational
+    /// transformation, which is 9b-ii-a-i-d-ii-d-i.
+    pub fn pop_undo_for_seat(&mut self, seat_id: u64) -> Option<UndoableOperation> {
+        if self.undo_stack.back().is_some_and(|op| op.seat_id == seat_id) {
+            self.undo_stack.pop_back()
+        } else {
+            None
+        }
+    }
+
+    /// Per-person redo: the counterpart of [`Self::pop_undo_for_seat`].
+    pub fn pop_redo_for_seat(&mut self, seat_id: u64) -> Option<UndoableOperation> {
+        if self.redo_stack.back().is_some_and(|op| op.seat_id == seat_id) {
+            self.redo_stack.pop_back()
+        } else {
+            None
+        }
     }
 
     /// Push an operation to the redo stack (after undo)
@@ -363,8 +390,20 @@ impl UndoRedoManager {
     ///
     /// Panics if the changeset's target node is None.
     pub fn record_operation(&mut self, changeset: TextChangeset, pre_state: NodeStateSnapshot) {
-        // Convert DomNodeId to NodeId for indexing
-        // NodeHierarchyItemId.into_crate_internal() decodes the 1-based encoding to Option<NodeId>
+        self.record_operation_for_seat(
+            changeset,
+            pre_state,
+            azul_core::window::PRIMARY_POINTER_SEAT,
+        );
+    }
+
+    /// [`Self::record_operation`] attributed to a seat (9b-ii-a-i-d-ii-d).
+    pub fn record_operation_for_seat(
+        &mut self,
+        changeset: TextChangeset,
+        pre_state: NodeStateSnapshot,
+        seat_id: u64,
+    ) {
         let node_id = changeset
             .target
             .node
@@ -375,9 +414,21 @@ impl UndoRedoManager {
         let operation = UndoableOperation {
             changeset,
             pre_state,
+            seat_id,
         };
 
         stack.push_undo(operation);
+    }
+
+    /// Per-person undo on `node_id` (9b-ii-a-i-d-ii-d); see
+    /// [`NodeUndoRedoStack::pop_undo_for_seat`].
+    pub fn pop_undo_for_seat(&mut self, node_id: NodeId, seat_id: u64) -> Option<UndoableOperation> {
+        self.get_or_create_stack_mut(node_id).pop_undo_for_seat(seat_id)
+    }
+
+    /// Per-person redo on `node_id`.
+    pub fn pop_redo_for_seat(&mut self, node_id: NodeId, seat_id: u64) -> Option<UndoableOperation> {
+        self.get_or_create_stack_mut(node_id).pop_redo_for_seat(seat_id)
     }
 
     /// Check if undo is available for a node
@@ -583,7 +634,7 @@ mod undo_redo_tests {
                 timestamp: ts(),
             },
         }
-    }
+        }
 
     #[test]
     fn push_undo_clears_redo_but_reinstate_preserves_it() {
@@ -774,12 +825,12 @@ mod autotest_generated {
                 timestamp: tick(u64::from(id as u32)),
             },
         }
-    }
+        }
 
     /// Operation on DOM 0 (the common case).
     fn op(id: usize, node: usize) -> UndoableOperation {
         op_full(id, 0, node, "x")
-    }
+        }
 
     /// Operation whose changeset target node is `None` — the input every
     /// `expect()` in this module is documented to panic on.
@@ -787,7 +838,7 @@ mod autotest_generated {
         let mut o = op(id, 0);
         o.changeset.target.node = NodeHierarchyItemId::from_crate_internal(None);
         o
-    }
+        }
 
     fn text_of(o: &UndoableOperation) -> &str {
         match &o.changeset.operation {
@@ -1585,5 +1636,97 @@ mod autotest_generated {
 
         assert_eq!(target_node(&o), Some(NodeId::new(2)), "no double-shift");
         assert_eq!(o.pre_state.node_id, NodeId::new(2));
+    }
+}
+
+#[cfg(test)]
+mod seat_attribution_tests {
+    use super::*;
+
+    fn sample(id: usize, node: usize) -> UndoableOperation {
+        UndoableOperation {
+            changeset: TextChangeset {
+                id,
+                target: DomNodeId {
+                    dom: DomId { inner: 0 },
+                    node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
+                },
+                operation: TextOperation::InsertText(TextOpInsertText {
+                    text: "x".into(),
+                    position: CursorPosition::Uninitialized,
+                    new_cursor: CursorPosition::Uninitialized,
+                }),
+                timestamp: ts(),
+            },
+            pre_state: NodeStateSnapshot {
+                node_id: NodeId::new(node),
+                text_content: "".into(),
+                cursor_position: None.into(),
+                selection_range: None.into(),
+                timestamp: ts(),
+            },
+        }
+        }
+
+    #[test]
+    fn push_undo_clears_redo_but_reinstate_preserves_it() {
+        let mut stack = NodeUndoRedoStack::new(NodeId::new(1));
+        stack.push_redo(op(1, 1));
+        stack.push_redo(op(2, 1));
+        assert_eq!(stack.redo_stack.len(), 2);
+
+        // Fresh user edit: redo history is invalidated.
+        stack.push_undo(op(3, 1));
+        assert_eq!(stack.redo_stack.len(), 0);
+
+        // Redone operation moving back to undo: remaining redos survive.
+        stack.push_redo(op(4, 1));
+        stack.push_redo(op(5, 1));
+        stack.push_undo_preserving_redo(op(6, 1));
+        assert_eq!(stack.redo_stack.len(), 2);
+        assert!(stack.can_undo());
+    }
+
+    fn op_for(seat_id: u64) -> UndoableOperation {
+        let mut o = sample(1, 1);
+        o.seat_id = seat_id;
+        o
+    }
+
+    /// 9b-ii-a-i-d-ii-d: a seat undoes its own latest edit only while it is
+    /// the top of the node's stack; another seat's later edit blocks it, and
+    /// the primary is seat 0 like everyone else.
+    #[test]
+    fn a_seats_undo_pops_only_its_own_top_edit() {
+        let mut stack = NodeUndoRedoStack::new(NodeId::new(1));
+        stack.push_undo(op_for(7));
+        assert!(stack.pop_undo_for_seat(0).is_none(), "the primary cannot undo the seat's edit");
+        assert_eq!(stack.pop_undo_for_seat(7).map(|o| o.seat_id), Some(7));
+        assert!(stack.pop_undo_for_seat(7).is_none(), "nothing left");
+
+        stack.push_undo(op_for(7));
+        stack.push_undo(op_for(0));
+        assert!(stack.pop_undo_for_seat(7).is_none(), "buried under the primary's edit");
+        assert_eq!(stack.pop_undo_for_seat(0).map(|o| o.seat_id), Some(0));
+        assert_eq!(stack.pop_undo_for_seat(7).map(|o| o.seat_id), Some(7), "unburied");
+    }
+
+    #[test]
+    fn redo_is_attributed_the_same_way() {
+        let mut stack = NodeUndoRedoStack::new(NodeId::new(1));
+        stack.push_redo(op_for(7));
+        assert!(stack.pop_redo_for_seat(0).is_none());
+        assert_eq!(stack.pop_redo_for_seat(7).map(|o| o.seat_id), Some(7));
+    }
+
+    #[test]
+    fn record_operation_attributes_to_the_primary() {
+        let mut mgr = UndoRedoManager::default();
+        let o = sample(1, 1);
+        let node = o.changeset.target.node.into_crate_internal().unwrap();
+        mgr.record_operation(o.changeset.clone(), o.pre_state.clone());
+        assert_eq!(mgr.peek_undo(node).map(|o| o.seat_id), Some(0));
+        mgr.record_operation_for_seat(o.changeset, o.pre_state, 9);
+        assert_eq!(mgr.peek_undo(node).map(|o| o.seat_id), Some(9));
     }
 }

@@ -3114,6 +3114,7 @@ impl LayoutWindow {
         post_content: Vec<InlineContent>,
         operation: crate::managers::changeset::TextOperation,
         notify: TextEditNotify,
+        seat_id: u64,
     ) -> usize {
         use crate::managers::changeset::TextChangeset;
         let changeset_id = CHANGESET_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -3136,7 +3137,7 @@ impl LayoutWindow {
         self.undo_redo_manager
             .store_content_snapshot(changeset_id, pre_content, post_content);
         self.undo_redo_manager
-            .record_operation(changeset, pre_state);
+            .record_operation_for_seat(changeset, pre_state, seat_id);
         if matches!(notify, TextEditNotify::QueueInput) {
             self.text_edit_manager
                 .pending_edit_notifications
@@ -5103,7 +5104,9 @@ impl LayoutWindow {
                 azul_css::dynamic_selector::DynamicSelectorContext::default,
                 azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
             );
-            let mut ctx = base.with_viewport(dims.width, dims.height);
+            let mut ctx = base
+                .with_viewport(dims.width, dims.height)
+                .with_safe_area(&self.safe_area_insets);
             ctx.window_focused = window_state.flags.has_focus;
             styled.set_dynamic_selector_context(ctx);
         }
@@ -5192,7 +5195,15 @@ impl LayoutWindow {
                 azul_css::dynamic_selector::DynamicSelectorContext::default,
                 azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
             );
-            let mut ctx = base.with_viewport(dims.width, dims.height);
+            // The live safe-area insets ride along: `env(safe-area-inset-*)`
+            // is resolved by the cascade against this context, so a rotation
+            // or keyboard change (the shells write `safe_area_insets` and
+            // request a regeneration) changes the context, which re-runs the
+            // author cascade for the DOMs that use it - the same path a
+            // resize across an @media bound takes.
+            let mut ctx = base
+                .with_viewport(dims.width, dims.height)
+                .with_safe_area(&self.safe_area_insets);
             ctx.window_focused = window_state.flags.has_focus;
             styled_dom.set_dynamic_selector_context(ctx);
         }
@@ -10183,7 +10194,7 @@ impl LayoutWindow {
                         crate::text3::edit::EditOutcome::NoOp(_) => return false,
                     };
                 let changes = crate::text3::edit::run_text_diff(&content, &new_content);
-                self.record_delete_undo(target, node_id, content, new_content.clone(), &current);
+                self.record_delete_undo(target, node_id, content, new_content.clone(), &current, seat_id);
                 if let Some(Selection::Cursor(cursor)) = new_selections.first() {
                     self.text_edit_manager
                         .set_seat_selection(seat_id, target, *cursor, None);
@@ -14619,6 +14630,116 @@ mod tests {
         );
     }
 
+    /// `env(safe-area-inset-bottom, 7px)` end to end (ledger 10c-iv): the
+    /// value a node gets is the LIVE inset the window carries in
+    /// `safe_area_insets`, the fallback when the platform reports none, and
+    /// it follows a change - both on a fresh layout (the shells' regeneration
+    /// path) and on the SAME `StyledDom` through the dynamic-context offer
+    /// (the path an @media breakpoint takes), which is what makes a rotation
+    /// or a keyboard restyle the nodes that use it.
+    #[test]
+    fn env_safe_area_inset_resolves_to_the_live_inset_and_follows_a_change() {
+        use azul_core::{
+            dom::Dom,
+            geom::LogicalSize,
+            resources::RendererResources,
+            styled_dom::{StyledDom, StyledNodeState},
+        };
+        use azul_css::{
+            dynamic_selector::DynamicSelectorContext,
+            props::basic::pixel::{OptionPixelValue, PixelValue},
+            system::SafeAreaInsets,
+        };
+
+        fn styled() -> StyledDom {
+            let mut dom = Dom::create_body()
+                .with_child(Dom::create_div().with_class("foot".to_string().into()));
+            let (css, warnings) = azul_css::parser2::new_from_str(
+                ".foot { padding-bottom: env(safe-area-inset-bottom, 7px); height: 10px; }",
+            );
+            assert!(warnings.is_empty(), "{warnings:?}");
+            StyledDom::create(&mut dom, css)
+        }
+
+        /// The computed `padding-bottom` of the `.foot` node (`NodeId` 1).
+        fn padding_bottom(sd: &StyledDom) -> f32 {
+            let node = NodeId::new(1);
+            let node_data = sd.node_data.as_container();
+            sd.get_css_property_cache()
+                .get_padding_bottom(&node_data[node], &node, &StyledNodeState::default())
+                .and_then(|v| v.get_property().copied())
+                .map(|p| p.inner.to_pixels(0.0, 16.0, 16.0))
+                .expect("padding-bottom is declared on .foot")
+        }
+
+        fn inset(bottom: f32) -> SafeAreaInsets {
+            SafeAreaInsets {
+                bottom: OptionPixelValue::Some(PixelValue::px(bottom)),
+                ..Default::default()
+            }
+        }
+
+        // The same StyledDom, driven through the context offer alone.
+        let mut sd = styled();
+        assert_eq!(padding_bottom(&sd), 7.0, "no window yet: the fallback");
+        sd.set_dynamic_selector_context(
+            DynamicSelectorContext::default().with_safe_area(&inset(34.0)),
+        );
+        assert_eq!(padding_bottom(&sd), 34.0, "the live inset");
+        sd.set_dynamic_selector_context(DynamicSelectorContext::default());
+        assert_eq!(padding_bottom(&sd), 7.0, "inset gone: back to the fallback");
+
+        // Through the window: `safe_area_insets` is what the shells write.
+        let mut window = LayoutWindow::new(FcFontCache::default()).unwrap();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(600.0, 400.0);
+        let mut dbg = None;
+
+        fn root_dom(w: &LayoutWindow) -> &StyledDom {
+            &w.layout_results
+                .get(&DomId::ROOT_ID)
+                .expect("root laid out")
+                .styled_dom
+        }
+        fn foot_rect(w: &LayoutWindow) -> LogicalRect {
+            w.get_node_layout_rect(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+            })
+            .expect(".foot has a rect")
+        }
+
+        window
+            .layout_and_generate_display_list(styled(), &ws, &rr, &sc, &mut dbg)
+            .expect("layout");
+        assert_eq!(padding_bottom(root_dom(&window)), 7.0);
+        assert_eq!(foot_rect(&window).size.height, 17.0, "10px content + 7px fallback");
+
+        window.safe_area_insets = inset(34.0);
+        window
+            .layout_and_generate_display_list(styled(), &ws, &rr, &sc, &mut dbg)
+            .expect("layout");
+        assert_eq!(padding_bottom(root_dom(&window)), 34.0);
+        assert_eq!(foot_rect(&window).size.height, 44.0, "10px content + the 34px inset");
+
+        // A window that carries a different inset, re-offering the context to
+        // the DOM it already has (what the layout funnel does on every pass):
+        // the value follows without a fresh DOM.
+        window.safe_area_insets = inset(20.0);
+        let ctx = DynamicSelectorContext::default()
+            .with_viewport(600.0, 400.0)
+            .with_safe_area(&window.safe_area_insets);
+        let retained = &mut window
+            .layout_results
+            .get_mut(&DomId::ROOT_ID)
+            .expect("root laid out")
+            .styled_dom;
+        retained.set_dynamic_selector_context(ctx);
+        assert_eq!(padding_bottom(retained), 20.0);
+    }
+
     #[test]
     fn test_timer_add_remove() {
         let fc_cache = FcFontCache::default();
@@ -15960,6 +16081,7 @@ impl LayoutWindow {
                 new_cursor,
             }),
             TextEditNotify::AlreadyDispatched,
+            seat_id,
         );
 
         // MWA-C-text_edit: typing resets the blink phase so the caret is
@@ -17049,66 +17171,87 @@ impl LayoutWindow {
         self.regenerate_display_list_for_dom(dom_id);
     }
 
-    /// Shape the live IME composition into the node's inline layout and
-    /// regenerate the display list.
-    ///
-    /// Called from the platform IME handler (`setMarkedText` / `preedit_string`).
-    /// Composes `base text + preedit` at the caret and re-shapes THAT — the
-    /// composed string is never written to the content overlay, so it exists
-    /// only as glyphs.
-    ///
-    /// That separation is the whole point. The preedit used to be spliced into
-    /// the overlay, which `get_text_before_textinput` prefers over the
-    /// `StyledDom`, so every later read saw base+preedit: committing a
-    /// composition produced base+preedit+committed (typing "か" and committing
-    /// gave "かか"), and cancelling one "restored" from the contaminated
-    /// overlay, leaving the fragment behind for good. With the composition kept
-    /// out of the store, ending it is just re-shaping the base, and committing
-    /// is a plain insert.
-    pub fn apply_preedit_to_text_cache(&mut self, dom_id: DomId, node_id: NodeId) {
-        let preedit = match &self.text_edit_manager.preedit_text {
-            Some(p) if !p.is_empty() => p.clone(),
-            _ => {
-                // Composition ended (committed or cancelled). Nothing to undo in
-                // the text — only the shaping still carries the composed glyphs.
-                if self.preedit_shaped_node == Some((dom_id, node_id)) {
-                    self.end_preedit_shaping();
-                }
-                return;
-            }
-        };
-
-        let Some(cursor) = self.text_edit_manager.get_primary_cursor() else {
-            return;
-        };
-
-        // Always compose from the CLEAN base: no snapshot to keep, because the
-        // base is never overwritten in the first place.
+    /// The node's committed text with EVERY live composition spliced in
+    /// (9b-ii-a-i-d-ii-c-iii): the primary's preedit when it is shaped on
+    /// this node, and each seat's when shaped here, each at its own caret.
+    /// Carets index the COMMITTED text, so the splices go in descending
+    /// (run, byte) order and earlier offsets stay valid; two compositions at
+    /// one offset are ordered by seat so the result is deterministic. Before
+    /// this each shaping call re-read the committed text and spliced ONE
+    /// preedit, so the last shaped composition erased the others.
+    #[must_use]
+    pub fn spliced_text_with_preedits(&self, dom_id: DomId, node_id: NodeId) -> Vec<InlineContent> {
         let mut content = self.get_text_before_textinput(dom_id, node_id);
-
-        // Insert preedit at cursor position
-        let run_idx = cursor.cluster_id.source_run as usize;
-        let byte_pos = cursor.cluster_id.start_byte_in_run as usize;
-        if let Some(InlineContent::Text(run)) = content.get_mut(run_idx) {
-            let clamped_pos = byte_pos.min(run.text.len());
-            let mut t = String::from(&*run.text);
-            t.insert_str(clamped_pos, &preedit);
-            run.text = Arc::from(t.as_str());
+        // (run, byte, seat, text)
+        let mut inserts: Vec<(usize, usize, u64, String)> = Vec::new();
+        if self.preedit_shaped_node == Some((dom_id, node_id)) {
+            if let (Some(p), Some(cursor)) = (
+                self.text_edit_manager.preedit_text.as_ref().filter(|p| !p.is_empty()),
+                self.text_edit_manager.get_primary_cursor(),
+            ) {
+                inserts.push((
+                    cursor.cluster_id.source_run as usize,
+                    cursor.cluster_id.start_byte_in_run as usize,
+                    azul_core::window::PRIMARY_POINTER_SEAT,
+                    p.clone(),
+                ));
+            }
         }
+        for (seat, shaped) in &self.seat_preedit_shaped {
+            if *shaped != (dom_id, node_id) {
+                continue;
+            }
+            let Some(p) = self.text_edit_manager.seat_preedit(*seat).filter(|p| !p.text.is_empty())
+            else {
+                continue;
+            };
+            let Some(caret) = self.text_edit_manager.seat_caret(*seat).filter(|c| {
+                c.node.dom == dom_id && c.node.node.into_crate_internal() == Some(node_id)
+            }) else {
+                continue;
+            };
+            inserts.push((
+                caret.cursor.cluster_id.source_run as usize,
+                caret.cursor.cluster_id.start_byte_in_run as usize,
+                *seat,
+                p.text.clone(),
+            ));
+        }
+        inserts.sort_by(|a, b| (b.0, b.1, b.2).cmp(&(a.0, a.1, a.2)));
+        for (run_idx, byte_pos, _, preedit) in inserts {
+            if let Some(InlineContent::Text(run)) = content.get_mut(run_idx) {
+                let clamped_pos = byte_pos.min(run.text.len());
+                let mut t = String::from(&*run.text);
+                t.insert_str(clamped_pos, &preedit);
+                run.text = Arc::from(t.as_str());
+            }
+        }
+        content
+    }
 
-        // Re-shape text with preedit injected — font fallback handles CJK
+    pub fn apply_preedit_to_text_cache(&mut self, dom_id: DomId, node_id: NodeId) {
+        let has_preedit = self
+            .text_edit_manager
+            .preedit_text
+            .as_ref()
+            .is_some_and(|p| !p.is_empty());
+        if !has_preedit {
+            if self.preedit_shaped_node == Some((dom_id, node_id)) {
+                self.end_preedit_shaping();
+            }
+            return;
+        }
+        if self.text_edit_manager.get_primary_cursor().is_none() {
+            return;
+        }
         self.preedit_shaped_node = Some((dom_id, node_id));
+        let content = self.spliced_text_with_preedits(dom_id, node_id);
         self.reshape_text_node(dom_id, node_id, content);
         self.regenerate_display_list_for_dom(dom_id);
     }
 
-    /// Drop a composition that exists only in the shaping (see
-    /// [`Self::preedit_shaped_node`]) and put the clean base back on screen.
-    ///
-    /// No text is undone — the composed string was never in the store.
-    /// `apply_preedit_to_text_cache` for seat `seat_id` (9b-ii-a-i-d-ii-c): its
-    /// composition spliced in at ITS caret. Two seats composing in one node
-    /// is not modelled (the last one wins the shaped text, both underline).
+    /// A seat's composition shaped at ITS caret (9b-ii-a-i-d-ii-c) - together
+    /// with every other live composition on the node (9b-ii-a-i-d-ii-c-iii).
     pub fn apply_seat_preedit_to_text_cache(
         &mut self,
         seat_id: u64,
@@ -17118,41 +17261,36 @@ impl LayoutWindow {
         if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
             return self.apply_preedit_to_text_cache(dom_id, node_id);
         }
-        let preedit = match self.text_edit_manager.seat_preedit(seat_id) {
-            Some(p) if !p.text.is_empty() => p.text.clone(),
-            _ => {
-                if self.seat_preedit_shaped.get(&seat_id) == Some(&(dom_id, node_id)) {
-                    self.end_seat_preedit_shaping(seat_id);
-                }
-                return;
+        let has_preedit = self
+            .text_edit_manager
+            .seat_preedit(seat_id)
+            .is_some_and(|p| !p.text.is_empty());
+        if !has_preedit {
+            if self.seat_preedit_shaped.get(&seat_id) == Some(&(dom_id, node_id)) {
+                self.end_seat_preedit_shaping(seat_id);
             }
-        };
-        let Some(caret) = self.text_edit_manager.seat_caret(seat_id).filter(|c| {
-            c.node.dom == dom_id && c.node.node.into_crate_internal() == Some(node_id)
-        }) else {
             return;
-        };
-        let mut content = self.get_text_before_textinput(dom_id, node_id);
-        let run_idx = caret.cursor.cluster_id.source_run as usize;
-        let byte_pos = caret.cursor.cluster_id.start_byte_in_run as usize;
-        if let Some(InlineContent::Text(run)) = content.get_mut(run_idx) {
-            let clamped_pos = byte_pos.min(run.text.len());
-            let mut t = String::from(&*run.text);
-            t.insert_str(clamped_pos, &preedit);
-            run.text = Arc::from(t.as_str());
+        }
+        if self
+            .text_edit_manager
+            .seat_caret(seat_id)
+            .filter(|c| c.node.dom == dom_id && c.node.node.into_crate_internal() == Some(node_id))
+            .is_none()
+        {
+            return;
         }
         self.seat_preedit_shaped.insert(seat_id, (dom_id, node_id));
+        let content = self.spliced_text_with_preedits(dom_id, node_id);
         self.reshape_text_node(dom_id, node_id, content);
         self.regenerate_display_list_for_dom(dom_id);
     }
 
-    /// Put the clean base text back where seat `seat_id`'s composition was
-    /// shaped in.
     pub fn end_seat_preedit_shaping(&mut self, seat_id: u64) {
         let Some((dom_id, node_id)) = self.seat_preedit_shaped.remove(&seat_id) else {
             return;
         };
-        let base = self.get_text_before_textinput(dom_id, node_id);
+        // The OTHER compositions on the node stay shaped (9b-ii-a-i-d-ii-c-iii).
+        let base = self.spliced_text_with_preedits(dom_id, node_id);
         self.reshape_text_node(dom_id, node_id, base);
         self.regenerate_display_list_for_dom(dom_id);
     }
@@ -17161,10 +17299,12 @@ impl LayoutWindow {
         let Some((dom_id, node_id)) = self.preedit_shaped_node.take() else {
             return;
         };
-        let base = self.get_text_before_textinput(dom_id, node_id);
+        // The seats' compositions on the node stay shaped (9b-ii-a-i-d-ii-c-iii).
+        let base = self.spliced_text_with_preedits(dom_id, node_id);
         self.reshape_text_node(dom_id, node_id, base);
         self.regenerate_display_list_for_dom(dom_id);
     }
+
 
     /// Re-apply a dirty text node's content to the layout cache after a full DOM rebuild.
     ///
@@ -19170,6 +19310,7 @@ impl LayoutWindow {
         content: Vec<InlineContent>,
         new_content: Vec<InlineContent>,
         current_selections: &[Selection],
+        seat_id: u64,
     ) {
         use crate::managers::changeset::{TextOpDeleteText, TextOperation};
         use crate::managers::undo_redo::NodeStateSnapshot;
@@ -19226,6 +19367,7 @@ impl LayoutWindow {
                 new_cursor: CursorPosition::Uninitialized,
             }),
             TextEditNotify::QueueInput,
+            seat_id,
         );
 
     }
@@ -19277,7 +19419,7 @@ impl LayoutWindow {
         // a DeleteText operation with styled pre/post snapshots; the actual
         // undo/redo restore uses the snapshots (keyed by changeset id),
         // deleted_text/range are informational for the C-API inspect fns.
-        self.record_delete_undo(target, node_id, content, new_content.clone(), &current_selections);
+        self.record_delete_undo(target, node_id, content, new_content.clone(), &current_selections, azul_core::window::PRIMARY_POINTER_SEAT);
 
         // Update multi-cursor state
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {

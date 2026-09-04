@@ -602,3 +602,81 @@ fn a_seats_copy_carries_styled_runs() {
     // The primary's own copy path is unaffected: no selection there.
     assert!(lw.get_selected_content_for_clipboard(&DomId::ROOT_ID).is_none());
 }
+
+/// 9b-ii-a-i-d-ii-c-iii: two compositions in ONE node - the primary's and a
+/// seat's - are both spliced into the shaped text at their own carets, and
+/// ending one leaves the other shaped. Before this the last shaping call
+/// re-read the committed text and spliced only its own preedit.
+#[test]
+fn two_seats_composing_in_one_node_are_both_shaped() {
+    let mut lw = two_fields();
+    primary_edits(&mut lw, TEXT_B, 1);
+    lw.focus_manager.set_focused_node_for(SEAT, Some(node(TEXT_B)));
+    lw.text_edit_manager.set_seat_caret(SEAT, node(TEXT_B), at(3));
+
+    lw.text_edit_manager.set_preedit("XY".to_string(), 0, 2);
+    lw.apply_preedit_to_text_cache(DomId::ROOT_ID, NodeId::new(TEXT_B));
+    lw.text_edit_manager
+        .set_preedit_for_seat(SEAT, "ni".to_string(), 0, 2);
+    lw.apply_seat_preedit_to_text_cache(SEAT, DomId::ROOT_ID, NodeId::new(TEXT_B));
+
+    let shaped = |lw: &LayoutWindow| {
+        lw.spliced_text_with_preedits(DomId::ROOT_ID, NodeId::new(TEXT_B))
+            .iter()
+            .map(|c| match c {
+                azul_layout::text3::cache::InlineContent::Text(r) => r.text.to_string(),
+                _ => String::new(),
+            })
+            .collect::<String>()
+    };
+    assert_eq!(shaped(&lw), "bXYbbni", "both compositions, each at its own caret");
+    assert_eq!(text_of(&lw, TEXT_B), "bbb", "the committed text is untouched");
+
+    lw.text_edit_manager.clear_preedit_for_seat(SEAT);
+    lw.end_seat_preedit_shaping(SEAT);
+    assert_eq!(shaped(&lw), "bXYbb");
+    lw.text_edit_manager
+        .set_preedit_for_seat(SEAT, "ni".to_string(), 0, 2);
+    lw.apply_seat_preedit_to_text_cache(SEAT, DomId::ROOT_ID, NodeId::new(TEXT_B));
+    lw.text_edit_manager.clear_preedit();
+    lw.end_preedit_shaping();
+    assert_eq!(shaped(&lw), "bbbni");
+}
+
+/// 9b-ii-a-i-d-ii-d: undo is per person. A seat's edit is attributed to the
+/// seat; the primary cannot pop it, the seat can - and only while it is the
+/// top of the node's stack.
+#[test]
+fn a_seats_edit_is_undone_only_by_that_seat_and_only_while_on_top() {
+    let mut lw = two_fields();
+    primary_edits(&mut lw, TEXT_B, 3);
+    lw.focus_manager.set_focused_node_for(SEAT, Some(node(TEXT_B)));
+    lw.text_edit_manager.set_seat_caret(SEAT, node(TEXT_B), at(0));
+
+    let _ = lw.record_text_input_for_seat(SEAT, "s");
+    let _ = lw.apply_text_changeset();
+    assert_eq!(text_of(&lw, TEXT_B), "sbbb");
+    let node_id = NodeId::new(TEXT_B);
+    assert!(
+        lw.undo_redo_manager
+            .pop_undo_for_seat(node_id, azul_core::window::PRIMARY_POINTER_SEAT)
+            .is_none(),
+        "the primary cannot undo the seat's edit"
+    );
+    let op = lw
+        .undo_redo_manager
+        .pop_undo_for_seat(node_id, SEAT)
+        .expect("the seat's own edit");
+    assert_eq!(op.seat_id, SEAT);
+    lw.undo_redo_manager.reinstate_undo(op);
+
+    let _ = lw.record_text_input("p");
+    let _ = lw.apply_text_changeset();
+    assert!(lw.undo_redo_manager.pop_undo_for_seat(node_id, SEAT).is_none());
+    assert_eq!(
+        lw.undo_redo_manager
+            .pop_undo_for_seat(node_id, azul_core::window::PRIMARY_POINTER_SEAT)
+            .map(|o| o.seat_id),
+        Some(azul_core::window::PRIMARY_POINTER_SEAT)
+    );
+}
