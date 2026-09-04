@@ -2365,9 +2365,20 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       changing the committed text, underlined, and gone after the commit lands "bbbni" at the
       seat's caret. Evidence: host check EXIT=0; azul-core 2810, azul-layout lib 7684 / `--test
       all` 1015 (+1), e2e 62 scenarios, azul-dll 2071, 0 failed; 8/8 gate. Wayland half blind.
-- [ ] 9b-ii-a-i-d-ii-c-i Composition EVENTS per seat: `CompositionStart` / `Update` / `End` come
-      from `pending_composition`, which is the primary's; a seat's IME composes silently as far as
-      callbacks are concerned. Needs the seat on the composition phase and on the event.
+- [x] 9b-ii-a-i-d-ii-c-i DONE. `CompositionEventData::seat_id` (the primary stamps
+      `PRIMARY_POINTER_SEAT`), read by `seat_of_event` and the coalescing key, so the Focus filter
+      delivers a seat's composition to THAT seat's focused node (d-i). The seat preedit API queues
+      the phases the primary's does: `set_preedit_for_seat` = Start on the first preedit, Update
+      after; `commit_composition_for_seat` = End with the COMMITTED text (W3C); a preedit cleared
+      without a commit = End with empty text (a cancel) unless a phase from this pass is already
+      waiting - `seat_pending_compositions`, drained by `take_pending_seat_compositions` beside
+      the primary's drain in the shell's end-of-pass sweep, emitted by the manager's
+      `EventProvider` with the seat's IME cursor span. WHY the gap existed: `pending_composition`
+      was one slot and `get_pending_events` stamped nothing, so a seat's composition had no event
+      to ride. Test: Start "n" / Update "ni" / End "ni" all stamped with the seat while the
+      primary's queue stays empty, drained after the pass, and a cleared preedit ends with "".
+      Evidence: host check EXIT=0; azul-core 2810, azul-layout lib 7684 / `--test all` 1017 (+1),
+      e2e 62 scenarios, azul-dll 2071, 0 failed; 8/8 gate.
 - [x] 9b-ii-a-i-d-ii-c-ii DONE. The focused-caret rectangle helpers became caret-agnostic
       (`cursor_rect_for(node, cursor)` and `cursor_rect_viewport_for(node, rect)`, the focused
       pair now thin wrappers over them) and `seat_cursor_rect_viewport(seat)` answers for a seat's

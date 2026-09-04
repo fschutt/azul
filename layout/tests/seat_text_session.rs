@@ -513,3 +513,66 @@ fn a_seats_caret_rect_is_the_seats_not_the_primarys() {
     assert!(seat.origin.x > primary.origin.x, "byte 2 of B sits right of byte 0 of A");
     assert!(lw.seat_cursor_rect_viewport(99).is_none(), "no caret, no rectangle");
 }
+
+/// 9b-ii-a-i-d-ii-c-i: a seat's input method raises CompositionStart /
+/// Update / End stamped with the seat, so the Focus filter delivers them to
+/// the seat's focused node - and the primary's composition queue stays empty.
+#[test]
+fn a_seats_composition_raises_its_own_events() {
+    use azul_core::events::{EventData, EventProvider, EventType};
+    use azul_core::task::Instant;
+    let ts = || Instant::from(std::time::Instant::now());
+    let phases = |lw: &LayoutWindow| -> Vec<(EventType, String, u64)> {
+        lw.text_edit_manager
+            .get_pending_events(ts())
+            .iter()
+            .filter_map(|e| match &e.data {
+                EventData::Composition(c) => Some((e.event_type, c.data.clone(), c.seat_id)),
+                _ => None,
+            })
+            .collect()
+    };
+
+    let mut lw = two_fields();
+    primary_edits(&mut lw, TEXT_A, 0);
+    lw.text_edit_manager.set_seat_caret(SEAT, node(TEXT_B), at(3));
+
+    lw.text_edit_manager
+        .set_preedit_for_seat(SEAT, "n".to_string(), 0, 1);
+    assert_eq!(
+        phases(&lw),
+        vec![(EventType::CompositionStart, "n".to_string(), SEAT)]
+    );
+    assert_eq!(lw.text_edit_manager.take_pending_composition(), None, "not the primary's");
+    let _ = lw.text_edit_manager.take_pending_seat_compositions();
+    assert!(phases(&lw).is_empty(), "drained after the pass");
+
+    lw.text_edit_manager
+        .set_preedit_for_seat(SEAT, "ni".to_string(), 0, 2);
+    assert_eq!(
+        phases(&lw),
+        vec![(EventType::CompositionUpdate, "ni".to_string(), SEAT)]
+    );
+    let _ = lw.text_edit_manager.take_pending_seat_compositions();
+
+    lw.text_edit_manager
+        .commit_composition_for_seat(SEAT, "ni".to_string());
+    assert_eq!(
+        phases(&lw),
+        vec![(EventType::CompositionEnd, "ni".to_string(), SEAT)],
+        "End carries the COMMITTED text"
+    );
+    assert!(lw.text_edit_manager.seat_preedit(SEAT).is_none());
+    let _ = lw.text_edit_manager.take_pending_seat_compositions();
+
+    // A composition that vanishes without a commit is a cancel: End, empty.
+    lw.text_edit_manager
+        .set_preedit_for_seat(SEAT, "x".to_string(), 0, 1);
+    let _ = lw.text_edit_manager.take_pending_seat_compositions();
+    lw.text_edit_manager.clear_preedit_for_seat(SEAT);
+    assert_eq!(
+        phases(&lw),
+        vec![(EventType::CompositionEnd, String::new(), SEAT)]
+    );
+    assert_eq!(lw.text_edit_manager.take_pending_composition(), None);
+}

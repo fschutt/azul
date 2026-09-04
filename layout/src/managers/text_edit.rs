@@ -394,6 +394,15 @@ pub struct CursorLocation {
     pub preedit_chars: u32,
 }
 
+/// A seat's composition phase waiting to be reported (9b-ii-a-i-d-ii-c-i).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeatPendingComposition {
+    pub phase: CompositionPhase,
+    pub text: String,
+    pub cursor_begin: i32,
+    pub cursor_end: i32,
+}
+
 /// A non-primary seat's input-method composition (9b-ii-a-i-d-ii-c): the
 /// text being composed and the IME's cursor span in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -466,6 +475,10 @@ pub struct TextEditManager {
     /// The other seats' compositions (9b-ii-a-i-d-ii-c); the primary's is
     /// `preedit_text` / `preedit_cursor_*`.
     pub seat_preedits: BTreeMap<u64, SeatPreedit>,
+    /// The other seats' composition phases awaiting their events
+    /// (9b-ii-a-i-d-ii-c-i): phase, text, IME cursor begin / end. Drained by
+    /// `take_pending_seat_compositions` after the pass that emitted them.
+    pub seat_pending_compositions: BTreeMap<u64, SeatPendingComposition>,
     /// The value the currently focused editable node had WHEN IT GAINED FOCUS.
     ///
     /// `Change` is not "the value was edited" - `TextInput` already reports
@@ -655,6 +668,7 @@ impl TextEditManager {
             tween: TextTweenState::default(),
             seat_carets: BTreeMap::new(),
             seat_preedits: BTreeMap::new(),
+            seat_pending_compositions: BTreeMap::new(),
             pending_edit_notifications: Vec::new(),
             pending_text_changed: Vec::new(),
             value_at_focus: None,
@@ -985,18 +999,34 @@ impl TextEditManager {
             self.set_preedit(text, cursor_begin, cursor_end);
             return;
         }
+        let was_composing = self.seat_preedits.contains_key(&seat_id);
         if text.is_empty() {
-            self.seat_preedits.remove(&seat_id);
-        } else {
-            self.seat_preedits.insert(
-                seat_id,
-                SeatPreedit {
-                    text,
-                    cursor_begin,
-                    cursor_end,
-                },
-            );
+            self.clear_preedit_for_seat(seat_id);
+            return;
         }
+        // The seat's composition event (9b-ii-a-i-d-ii-c-i): Start on the
+        // first preedit, Update after - the primary's rule.
+        self.seat_pending_compositions.insert(
+            seat_id,
+            SeatPendingComposition {
+                phase: if was_composing {
+                    CompositionPhase::Update
+                } else {
+                    CompositionPhase::Start
+                },
+                text: text.clone(),
+                cursor_begin,
+                cursor_end,
+            },
+        );
+        self.seat_preedits.insert(
+            seat_id,
+            SeatPreedit {
+                text,
+                cursor_begin,
+                cursor_end,
+            },
+        );
         self.mark_dirty();
     }
 
@@ -1005,8 +1035,26 @@ impl TextEditManager {
         if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
             self.clear_preedit();
         } else if self.seat_preedits.remove(&seat_id).is_some() {
+            // A composition that vanished without a commit ENDS with empty
+            // text - a cancel, as for the primary (9b-ii-a-i-d-ii-c-i) -
+            // unless a phase is already waiting from this pass.
+            self.seat_pending_compositions
+                .entry(seat_id)
+                .or_insert(SeatPendingComposition {
+                    phase: CompositionPhase::End,
+                    text: String::new(),
+                    cursor_begin: 0,
+                    cursor_end: 0,
+                });
             self.mark_dirty();
         }
+    }
+
+    /// Drain the other seats' composition phases after the pass that
+    /// emitted them (9b-ii-a-i-d-ii-c-i), as `take_pending_composition`
+    /// does for the primary's.
+    pub fn take_pending_seat_compositions(&mut self) -> BTreeMap<u64, SeatPendingComposition> {
+        core::mem::take(&mut self.seat_pending_compositions)
     }
 
     /// Seat `seat_id`'s composition, if one is in progress.
@@ -1015,14 +1063,25 @@ impl TextEditManager {
         self.seat_preedits.get(&seat_id)
     }
 
-    /// `commit_composition` for seat `seat_id`: the primary's raises the
-    /// composition-end event; a seat's just ends its preedit (composition
-    /// EVENTS per seat are 9b-ii-a-i-d-ii-c-i).
+    /// `commit_composition` for seat `seat_id`: ends its preedit and queues
+    /// its `CompositionEnd` with the committed text (9b-ii-a-i-d-ii-c-i).
     pub fn commit_composition_for_seat(&mut self, seat_id: u64, committed: String) {
         if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
             self.commit_composition(committed);
         } else {
-            self.clear_preedit_for_seat(seat_id);
+            // `CompositionEnd` carries the COMMITTED text (W3C), whether or
+            // not a preedit was pending.
+            self.seat_pending_compositions.insert(
+                seat_id,
+                SeatPendingComposition {
+                    phase: CompositionPhase::End,
+                    text: committed,
+                    cursor_begin: 0,
+                    cursor_end: 0,
+                },
+            );
+            self.seat_preedits.remove(&seat_id);
+            self.mark_dirty();
         }
     }
 
@@ -3404,27 +3463,47 @@ impl azul_core::events::EventProvider for TextEditManager {
             CompositionEventData, EventData, EventSource, EventType, SyntheticEvent,
         };
 
-        let Some(phase) = self.pending_composition else {
-            return alloc::vec::Vec::new();
-        };
-        let event_type = match phase {
+        let event_type_of = |phase: CompositionPhase| match phase {
             CompositionPhase::Start => EventType::CompositionStart,
             CompositionPhase::Update => EventType::CompositionUpdate,
             CompositionPhase::End => EventType::CompositionEnd,
         };
-        let begin = usize::try_from(self.preedit_cursor_begin).unwrap_or(0);
-        let end = usize::try_from(self.preedit_cursor_end).unwrap_or(begin);
-        alloc::vec![SyntheticEvent::new(
-            event_type,
-            EventSource::User,
-            DomNodeId::ROOT,
-            timestamp,
-            EventData::Composition(CompositionEventData {
-                data: self.composition_text.clone(),
-                cursor_begin: begin,
-                cursor_end: end,
-            }),
-        )]
+        let mut out = alloc::vec::Vec::new();
+        if let Some(phase) = self.pending_composition {
+            let begin = usize::try_from(self.preedit_cursor_begin).unwrap_or(0);
+            let end = usize::try_from(self.preedit_cursor_end).unwrap_or(begin);
+            out.push(SyntheticEvent::new(
+                event_type_of(phase),
+                EventSource::User,
+                DomNodeId::ROOT,
+                timestamp.clone(),
+                EventData::Composition(CompositionEventData {
+                    data: self.composition_text.clone(),
+                    cursor_begin: begin,
+                    cursor_end: end,
+                    seat_id: azul_core::window::PRIMARY_POINTER_SEAT,
+                }),
+            ));
+        }
+        // The other seats' phases (9b-ii-a-i-d-ii-c-i), stamped with the seat:
+        // the Focus filter routes each to that seat's focused node.
+        for (seat_id, pending) in &self.seat_pending_compositions {
+            let begin = usize::try_from(pending.cursor_begin).unwrap_or(0);
+            let end = usize::try_from(pending.cursor_end).unwrap_or(begin);
+            out.push(SyntheticEvent::new(
+                event_type_of(pending.phase),
+                EventSource::User,
+                DomNodeId::ROOT,
+                timestamp.clone(),
+                EventData::Composition(CompositionEventData {
+                    data: pending.text.clone(),
+                    cursor_begin: begin,
+                    cursor_end: end,
+                    seat_id: *seat_id,
+                }),
+            ));
+        }
+        out
     }
 }
 

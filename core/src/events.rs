@@ -676,6 +676,10 @@ pub struct CompositionEventData {
     /// Byte offset of the selection/caret end within `data`. Equal to
     /// `cursor_begin` for a collapsed caret.
     pub cursor_end: usize,
+    /// The SEAT whose input method this is (9b-ii-a-i-d-ii-c-i); the primary
+    /// is `PRIMARY_POINTER_SEAT`. The Focus filter delivers a seat's
+    /// composition to that seat's focused node.
+    pub seat_id: u64,
 }
 
 /// Carried by `EventType::Input` events so that text-input callbacks can read
@@ -3402,6 +3406,7 @@ pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<Synt
         EventData::Mouse(m) => m.seat_id,
         EventData::Scroll(s) => s.seat_id,
         EventData::Touch(t) => t.seat_id,
+        EventData::Composition(c) => c.seat_id,
         _ => crate::window::PRIMARY_POINTER_SEAT,
     };
     events.sort_by_key(|e| (e.target.dom, e.target.node, e.event_type, seat_of(e)));

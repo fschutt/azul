@@ -92,6 +92,7 @@ pub fn seat_of_event(event: &SyntheticEvent) -> u64 {
         EventData::Scroll(s) => s.seat_id,
         EventData::Keyboard(k) => k.seat_id,
         EventData::Touch(t) => t.seat_id,
+        EventData::Composition(c) => c.seat_id,
         _ => azul_core::window::PRIMARY_POINTER_SEAT,
     }
 }
