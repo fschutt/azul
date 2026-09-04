@@ -71,7 +71,8 @@ for triple in \
     aarch64-linux-android \
     x86_64-linux-android \
     x86_64-unknown-linux-gnu \
-    x86_64-pc-windows-gnu
+    x86_64-pc-windows-gnu \
+    x86_64-pc-windows-msvc
 do
     check_target "$triple"
 done

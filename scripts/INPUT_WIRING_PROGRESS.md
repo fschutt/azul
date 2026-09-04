@@ -2163,10 +2163,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       synthesised core `XKeyEvent`, which can only see the display's core keymap. Blind by
       design (no X server here): the Linux target checks green, host check EXIT=0, azul-dll 2071,
       8/8 gate.
-- [ ] 9b-ii-a-i-a-i-a A layout switch ON a master keyboard mid-session (`XkbMapNotify` /
-      `XkbNewKeyboardNotify` for that device) is not selected, so a seat's cached keymap stays
-      the old layout until the next hierarchy change. Select `XkbMapNotify` for
-      `XkbUseCoreKbd`-plus-each-master and drop that device's entry when it fires.
+- [x] 9b-ii-a-i-a-i-a DONE 2026-09-04 (blind Linux): `XkbQueryExtension` + `XkbSelectEvents` are dlopen'd leniently (`dlopen.rs`), the window creation selects `XkbMapNotify | XkbNewKeyboardNotify` on `XkbUseCoreKbd` and remembers the extension's event base (`xkb_event_base`, -1 without XKB); `select_master_xkb_events` selects the same mask on every master keyboard after each `query_master_keyboards` (startup and every `XI_HierarchyChanged`, so a hotplugged master is covered). `handle_event` matches `type == xkb_event_base` and drops THAT device's cached keymap (`drop_seat_keymap`), so the next key from it rebuilds from the server; the core `MappingNotify` arm also drops the virtual-core-keyboard entry as the no-XKB fallback. Evidence: 8/8 target gate EXIT=0 (x86_64-unknown-linux-gnu compiles the X11 shell), host check EXIT=0, dll 2071 passed. Not device-verified (no X server with two masters here).
 - [x] 9b-ii-a-i-b DONE. The seat table carries a `wl_keyboard` per seat (`keyboard_of` /
       `set_keyboard` / `seat_id_for_keyboard`, keyed by the PROXY like the pointers); the
       capabilities handler binds a non-primary seat's keyboard the moment it is advertised and
@@ -3666,12 +3663,7 @@ session needs. Recorded verbatim so the framing is not lost.
       including a `..Default::default()` appended inside a struct DEFINITION, field initializers inserted
       into a tuple DESTRUCTURING PATTERN, and an invented `SendPtr`/`OnceLock` pair where the module uses
       `SyncInterface`. `cargo check` does not link, so no cross C toolchain was needed after all.
-- [ ] 13d-windows `x86_64-pc-windows-msvc` — the one target still unchecked. Needs the MSVC libs, which
-      are not obtainable on macOS; `x86_64-pc-windows-gnu` may check without them. **The Win32 code in
-      this arc (WM_GESTURE, WM_APPCOMMAND, WM_DEVICECHANGE, the pointer/pen paths) is therefore still
-      uncompiled.**
-      USER RULING 2026-09-04 (the hardware / platform group): "just implement blindly and we cross-compile
-      at the end. Real verification will come with time."
+- [x] 13d-windows DONE 2026-09-04: `x86_64-pc-windows-msvc` checks clean (`cargo check -p azul-dll --release --no-default-features --features "std,logging,link-static,a11y" --target x86_64-pc-windows-msvc` EXIT=0 after `rustup target add`; `cargo check` needs no MSVC libs because it never links) and so does `x86_64-pc-windows-gnu` (EXIT=0, already in the gate). The msvc target is now the gate's 9th entry in `scripts/mobile-check-all.sh`, so the Win32 code in this arc (WM_GESTURE, WM_APPCOMMAND, WM_DEVICECHANGE, the pointer/pen paths) type-checks on every gate run. Still unverified: LINKING and running on Windows, which needs a Windows machine.
 
 ### iOS simulator — investigated, NOT reachable on this machine
 
