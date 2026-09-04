@@ -30,8 +30,12 @@ impl PhysicalKey {
     /// Used directly by Wayland and Android. X11 callers must pass
     /// `keycode - 8`; see [`Self::from_x11_keycode`].
     #[must_use]
+    // A transcription of the evdev code table, in code order. Distinct codes do
+    // map to one key (95 and 121 are both NumpadComma); reordering them into
+    // or-patterns would stop this reading like the table it mirrors.
+    #[allow(clippy::match_same_arms)]
     pub const fn from_evdev(code: u32) -> Self {
-        use PhysicalKey::*;
+        use PhysicalKey::{Escape, Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9, Digit0, Minus, Equal, Backspace, Tab, KeyQ, KeyW, KeyE, KeyR, KeyT, KeyY, KeyU, KeyI, KeyO, KeyP, BracketLeft, BracketRight, Enter, ControlLeft, KeyA, KeyS, KeyD, KeyF, KeyG, KeyH, KeyJ, KeyK, KeyL, Semicolon, Quote, Backquote, ShiftLeft, Backslash, KeyZ, KeyX, KeyC, KeyV, KeyB, KeyN, KeyM, Comma, Period, Slash, ShiftRight, NumpadMultiply, AltLeft, Space, CapsLock, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, NumLock, ScrollLock, Numpad7, Numpad8, Numpad9, NumpadSubtract, Numpad4, Numpad5, Numpad6, NumpadAdd, Numpad1, Numpad2, Numpad3, Numpad0, NumpadDecimal, IntlBackslash, F11, F12, IntlRo, Convert, KanaMode, NonConvert, NumpadComma, NumpadEnter, ControlRight, NumpadDivide, PrintScreen, AltRight, Home, ArrowUp, PageUp, ArrowLeft, ArrowRight, End, ArrowDown, PageDown, Insert, Delete, NumpadEqual, Pause, Lang1, Lang2, IntlYen, MetaLeft, MetaRight, ContextMenu, F13, F14, F15, F16, F17, F18, F19, F20, F21, F22, F23, F24, Unidentified};
         match code {
             1 => Escape,
             2 => Digit1, 3 => Digit2, 4 => Digit3, 5 => Digit4, 6 => Digit5,
@@ -79,7 +83,7 @@ impl PhysicalKey {
     #[must_use]
     pub const fn from_x11_keycode(keycode: u32) -> Self {
         if keycode < 8 {
-            return PhysicalKey::Unidentified;
+            return Self::Unidentified;
         }
         Self::from_evdev(keycode - 8)
     }
@@ -87,11 +91,11 @@ impl PhysicalKey {
     /// PS/2 set-1 scancode -> position, as `WM_KEYDOWN` reports it.
     ///
     /// `extended` is `lParam` bit 24 (the `E0` prefix). It is not optional
-    /// detail: without it Enter and NumpadEnter, ControlLeft and ControlRight,
+    /// detail: without it Enter and `NumpadEnter`, `ControlLeft` and `ControlRight`,
     /// and the whole arrow cluster versus the numpad are the SAME scancode.
     #[must_use]
     pub const fn from_windows_scancode(scancode: u32, extended: bool) -> Self {
-        use PhysicalKey::*;
+        use PhysicalKey::{NumpadEnter, ControlRight, NumpadDivide, PrintScreen, AltRight, Pause, Home, ArrowUp, PageUp, ArrowLeft, ArrowRight, End, ArrowDown, PageDown, Insert, Delete, MetaLeft, MetaRight, ContextMenu, Unidentified, Escape, Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9, Digit0, Minus, Equal, Backspace, Tab, KeyQ, KeyW, KeyE, KeyR, KeyT, KeyY, KeyU, KeyI, KeyO, KeyP, BracketLeft, BracketRight, Enter, ControlLeft, KeyA, KeyS, KeyD, KeyF, KeyG, KeyH, KeyJ, KeyK, KeyL, Semicolon, Quote, Backquote, ShiftLeft, Backslash, KeyZ, KeyX, KeyC, KeyV, KeyB, KeyN, KeyM, Comma, Period, Slash, ShiftRight, NumpadMultiply, AltLeft, Space, CapsLock, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, NumLock, ScrollLock, Numpad7, Numpad8, Numpad9, NumpadSubtract, Numpad4, Numpad5, Numpad6, NumpadAdd, Numpad1, Numpad2, Numpad3, Numpad0, NumpadDecimal, IntlBackslash, F11, F12, NumpadEqual, F13, F14, F15, F16, F17, F18, F19, F20, F21, F22, F23, F24, KanaMode, IntlRo, Convert, NonConvert, IntlYen};
         if extended {
             return match scancode {
                 0x1C => NumpadEnter,
@@ -156,7 +160,7 @@ impl PhysicalKey {
     /// trusts for the LOGICAL key; the two agree on every code both name.
     #[must_use]
     pub const fn from_macos_keycode(keycode: u16) -> Self {
-        use PhysicalKey::*;
+        use PhysicalKey::{KeyA, KeyS, KeyD, KeyF, KeyH, KeyG, KeyZ, KeyX, KeyC, KeyV, IntlBackslash, KeyB, KeyQ, KeyW, KeyE, KeyR, KeyY, KeyT, Digit1, Digit2, Digit3, Digit4, Digit6, Digit5, Equal, Digit9, Digit7, Minus, Digit8, Digit0, BracketRight, KeyO, KeyU, BracketLeft, KeyI, KeyP, Enter, KeyL, KeyJ, Quote, KeyK, Semicolon, Backslash, Comma, Slash, KeyN, KeyM, Period, Tab, Space, Backquote, Backspace, Escape, MetaRight, MetaLeft, ShiftLeft, CapsLock, AltLeft, ControlLeft, ShiftRight, AltRight, ControlRight, F17, NumpadDecimal, NumpadMultiply, NumpadAdd, NumLock, NumpadDivide, NumpadEnter, NumpadSubtract, F18, F19, NumpadEqual, Numpad0, Numpad1, Numpad2, Numpad3, Numpad4, Numpad5, Numpad6, Numpad7, F20, Numpad8, Numpad9, IntlYen, IntlRo, NumpadComma, F5, F6, F7, F3, F8, F9, Lang2, F11, Lang1, F13, F16, F14, F10, ContextMenu, F12, F15, Insert, Home, PageUp, Delete, F4, End, F2, PageDown, F1, ArrowLeft, ArrowRight, ArrowDown, ArrowUp, Unidentified};
         match keycode {
             0x00 => KeyA, 0x01 => KeyS, 0x02 => KeyD, 0x03 => KeyF, 0x04 => KeyH,
             0x05 => KeyG, 0x06 => KeyZ, 0x07 => KeyX, 0x08 => KeyC, 0x09 => KeyV,

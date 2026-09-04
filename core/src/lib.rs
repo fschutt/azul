@@ -357,8 +357,10 @@ pub mod menu;
 ///
 /// Stateful manager lives in `azul_layout::managers::media_player`.
 pub mod media_player;
-/// The system media session — what the desktop's media widget shows. The
-/// app-facing half of the media-key transport in `dll/desktop/extra/media_keys`.
+/// The system media session — what the desktop's media widget shows.
+///
+/// The app-facing half of the media-key transport in
+/// `dll/desktop/extra/media_keys`.
 pub mod media_session;
 /// Paged-media primitives: the `FragmentationContext` (continuous vs. paged) and
 /// `PageMargins`. The pagination/slicing logic lives in `azul_layout::solver3`.

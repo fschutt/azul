@@ -741,7 +741,7 @@ pub fn resolve_icons_in_dom(
 ///
 /// The halves were separate, and that is exactly how a path came to skip one:
 /// three call sites ran `resolve_icons_in_dom` and then
-/// `StyledDom::create_from_dom`, while a fourth - the DOM a VirtualView
+/// `StyledDom::create_from_dom`, while a fourth - the DOM a `VirtualView`
 /// callback returns - ran only the cascade. An `<icon>` inside a virtual view
 /// therefore never resolved, and nothing downstream would ever resolve it
 /// later, so it stayed an empty node for the life of the view.

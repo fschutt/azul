@@ -61,7 +61,7 @@ impl PlaybackState {
 
     /// The gain that actually reaches the sink: `0.0` while muted.
     #[must_use]
-    pub fn effective_volume(&self) -> f32 {
+    pub const fn effective_volume(&self) -> f32 {
         if self.muted {
             0.0
         } else {
