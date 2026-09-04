@@ -4,12 +4,14 @@
 //! azul does not. A bare `NodeType::Text` therefore has no box of its own —
 //! no rect, no clip, no layout constraints — and every box-model CSS
 //! property, every id or class a stylesheet could reach it by, and every
-//! callback, `tab_index` or `dataset` attached to one is silently inert.
-//! That silence has shipped real bugs (text escaping its widget, click
-//! targets that never fire), which is why the raw constructor is named
-//! `create_p_with_text` and why this pass
-//! exists: after layout, every text node in a shape azul cannot honor is
-//! reported to the developer, once per unique finding.
+//! pointer or focus callback, `tab_index` or `dataset` attached to one is
+//! silently inert. (Lifecycle and window listeners are not: they are
+//! delivered by node identity, not through a box - see
+//! `has_box_dependent_callback`.) That silence has shipped real bugs (text
+//! escaping its widget, click targets that never fire), which is why the raw
+//! constructor is named `create_text_do_not_use_without_block_level_wrapper`
+//! and why this pass exists: after layout, every text node in a shape azul
+//! cannot honor is reported to the developer, once per unique finding.
 //!
 //! The checks are structural (DOM + computed display), deliberately not
 //! geometric: they fire deterministically on the first layout of a DOM,
@@ -29,6 +31,7 @@ use std::sync::Mutex;
 
 use azul_core::{
     dom::{AttributeType, NodeType},
+    events::EventFilter,
     id::NodeId,
     styled_dom::{NodeHierarchyItem, StyledDom},
 };
@@ -126,6 +129,23 @@ fn has_ids_or_classes(data: &azul_core::dom::NodeData) -> bool {
         .any(|a| matches!(a, AttributeType::Id(_) | AttributeType::Class(_)))
 }
 
+/// Does the node carry a callback that can only be reached THROUGH ITS BOX?
+///
+/// Pointer events find their target by hit-testing a rect, and focus events
+/// need a node that can hold focus - a text node has neither, so a `Hover` or
+/// `Focus` listener on one can never fire. `Window` listeners fire on every
+/// node for a window-level event, and `Component` (lifecycle) listeners are
+/// delivered by NODE IDENTITY from the reconcile diff - `AfterMount` on a text
+/// node fires like on any other node (`dll/tests/headless_lifecycle` relies on
+/// it). Calling those inert would be a lie, and the lie has a cost: it once
+/// sent the diagnosis of a dead lifecycle pipeline chasing the test's DOM.
+fn has_box_dependent_callback(data: &azul_core::dom::NodeData) -> bool {
+    data.get_callbacks()
+        .as_ref()
+        .iter()
+        .any(|cb| matches!(cb.event, EventFilter::Hover(_) | EventFilter::Focus(_)))
+}
+
 fn display_of(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     match get_display_property(styled_dom, Some(node_id)) {
         MultiValue::Exact(d) => d,
@@ -182,7 +202,7 @@ fn collect_findings(styled_dom: &StyledDom) -> Vec<(usize, Finding)> {
             if has_ids_or_classes(data) {
                 inert |= INERT_IDS_CLASSES;
             }
-            if !data.get_callbacks().as_ref().is_empty() {
+            if has_box_dependent_callback(data) {
                 inert |= INERT_CALLBACKS;
             }
             if data.get_tab_index().is_some() {
@@ -316,7 +336,7 @@ fn render(data: &azul_core::dom::NodeData, idx: usize, finding: Finding) -> Stri
                 inert.push("ids/classes");
             }
             if flags & INERT_CALLBACKS != 0 {
-                inert.push("callbacks");
+                inert.push("pointer/focus callbacks");
             }
             if flags & INERT_TAB_INDEX != 0 {
                 inert.push("a tab_index");
@@ -465,6 +485,8 @@ fn snippet_of(text: &str) -> String {
 #[cfg(test)]
 mod autotest_generated {
     use azul_core::dom::{Dom, IdOrClass, IdOrClassVec, TabIndex};
+    use azul_core::events::{ComponentEventFilter, EventFilter, HoverEventFilter};
+    use azul_core::refany::RefAny;
     use azul_core::styled_dom::StyledDom;
     use azul_css::css::Css;
 
@@ -513,6 +535,39 @@ mod autotest_generated {
         assert_eq!(w.len(), 1, "{w:?}");
         assert!(w[0].contains("INERT"), "{w:?}");
         assert!(w[0].contains("tab_index"), "{w:?}");
+    }
+
+    #[test]
+    fn a_pointer_callback_on_a_text_node_is_reported_as_inert() {
+        let text = raw_text("clickable").with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            RefAny::new(()),
+            0usize,
+        );
+        let sd = styled(
+            Dom::create_body().with_child(Dom::create_p().with_child(text)),
+            "",
+        );
+        let w = collect_text_placement_warnings(&sd);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("pointer/focus callbacks"), "{w:?}");
+    }
+
+    #[test]
+    fn a_lifecycle_callback_on_a_text_node_is_not_inert() {
+        // Delivered by node identity from the reconcile diff, not by hit-test:
+        // it fires, so the lint must not call it dead.
+        let text = raw_text("mounted").with_callback(
+            EventFilter::Component(ComponentEventFilter::AfterMount),
+            RefAny::new(()),
+            0usize,
+        );
+        let sd = styled(
+            Dom::create_body().with_child(Dom::create_p().with_child(text)),
+            "",
+        );
+        let w = collect_text_placement_warnings(&sd);
+        assert!(w.is_empty(), "{w:?}");
     }
 
     #[test]

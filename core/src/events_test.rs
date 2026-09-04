@@ -3844,15 +3844,20 @@ fn dispatch_planning_and_phase_matching_agree_on_every_hover_filter() {
 /// ColorInput opened its picker and instantly closed it again).
 ///
 /// The narrow version of this test covered pointer events only. This one
-/// covers EVERY unit event type against EVERY filter of all three kinds, so
-/// the next such bug fails here instead of on a device.
+/// covers EVERY unit event type against EVERY filter of all FOUR kinds, so
+/// the next such bug fails here instead of on a device. Four, not three: the
+/// derivation shipped probing Hover/Focus/Window only, and this test - which
+/// then knew the same three families - stayed green while every lifecycle
+/// callback in the engine was dead (`Mount` planned no filter at all). A
+/// family this test does not enumerate is a family the derivation can forget.
 #[test]
 fn planning_and_matching_agree_for_every_event_and_filter() {
     use crate::{
         dom::{DomId, DomNodeId, NodeId},
         events::{
-            event_type_to_filters, EventData, EventFilter, EventPhase, EventSource, EventType,
-            FocusEventFilter, HoverEventFilter, SyntheticEvent, WindowEventFilter,
+            event_type_to_filters, ComponentEventFilter, EventData, EventFilter, EventPhase,
+            EventSource, EventType, FocusEventFilter, HoverEventFilter, SyntheticEvent,
+            WindowEventFilter,
         },
         styled_dom::NodeHierarchyItemId,
         task::{Instant, SystemTick},
@@ -4048,6 +4053,17 @@ fn planning_and_matching_agree_for_every_event_and_filter() {
         WindowEventFilter::ScreenColorPicked,
         WindowEventFilter::KeyringResult,
     ];
+    const COMPONENT: &[ComponentEventFilter] = &[
+        ComponentEventFilter::AfterMount,
+        ComponentEventFilter::BeforeUnmount,
+        ComponentEventFilter::NodeResized,
+        ComponentEventFilter::DefaultAction,
+        ComponentEventFilter::Selected,
+        ComponentEventFilter::Updated,
+        ComponentEventFilter::Dismissed,
+        ComponentEventFilter::TornOff,
+        ComponentEventFilter::Docked,
+    ];
     const EVENTS: &[EventType] = &[
         EventType::MouseOver,
         EventType::MouseEnter,
@@ -4176,6 +4192,9 @@ fn planning_and_matching_agree_for_every_event_and_filter() {
         for &f in WINDOW {
             check(EventFilter::Window(f));
         }
+        for &f in COMPONENT {
+            check(EventFilter::Component(f));
+        }
     }
 
     // ZERO de-syncs, permanently: planning is DERIVED from matching
@@ -4194,6 +4213,58 @@ fn planning_and_matching_agree_for_every_event_and_filter() {
         desyncs.len(),
         desyncs.join("\n"),
     );
+}
+
+/// Every lifecycle event plans exactly its own `Component` listener.
+///
+/// The cross-product test above proves planning and matching agree; this one
+/// pins WHAT they agree on for the lifecycle family, in the terms a widget
+/// author uses: an `AfterMount` callback is reached by a `Mount` event and by
+/// nothing else. It is the unit-level shadow of `dll/tests/headless_lifecycle`,
+/// which drives the same contract through a real window and was the test that
+/// found the family missing (mount=0 on the very first frame).
+#[test]
+fn every_lifecycle_event_plans_exactly_its_component_listener() {
+    use crate::events::{
+        event_type_to_filters, ComponentEventFilter, EventData, EventFilter, EventType,
+    };
+
+    const PAIRS: &[(EventType, ComponentEventFilter)] = &[
+        (EventType::Mount, ComponentEventFilter::AfterMount),
+        (EventType::Unmount, ComponentEventFilter::BeforeUnmount),
+        (EventType::Update, ComponentEventFilter::Updated),
+        (EventType::Resize, ComponentEventFilter::NodeResized),
+        (EventType::Dismiss, ComponentEventFilter::Dismissed),
+        (EventType::TearOff, ComponentEventFilter::TornOff),
+        (EventType::Dock, ComponentEventFilter::Docked),
+    ];
+
+    for &(event_type, listener) in PAIRS {
+        let planned = event_type_to_filters(event_type, &EventData::None);
+        let components: Vec<ComponentEventFilter> = planned
+            .iter()
+            .filter_map(|f| match f {
+                EventFilter::Component(c) => Some(*c),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            components,
+            vec![listener],
+            "{event_type:?} must reach exactly the {listener:?} listener; planned {planned:?}"
+        );
+    }
+
+    // And the other direction: a pointer event never wakes a lifecycle
+    // listener (a Mount callback firing on a click would be as wrong as one
+    // never firing).
+    for ty in [EventType::Click, EventType::MouseUp, EventType::KeyDown, EventType::Scroll] {
+        let planned = event_type_to_filters(ty, &EventData::None);
+        assert!(
+            !planned.iter().any(|f| matches!(f, EventFilter::Component(_))),
+            "{ty:?} must not plan a lifecycle listener; planned {planned:?}"
+        );
+    }
 }
 
 /// A REAL POINTER CLICK must activate a control exactly ONCE.

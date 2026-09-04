@@ -2779,15 +2779,6 @@ pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<Synt
     result
 }
 
-/// Convert `EventType` to `EventFilters` (returns multiple filters for generic + specific events)
-///
-/// For mouse button events, returns both generic (`MouseUp`) AND button-specific (LeftMouseUp/RightMouseUp).
-/// The button-specific filter is derived from the `EventData::Mouse` payload.
-// Exhaustive EventType -> Vec<EventFilter> mapping table; some event types map to
-// the same filter set as intentional 1:1 rows — merging would collapse the table.
-#[allow(clippy::match_same_arms)]
-#[allow(clippy::too_many_lines)] // exhaustive EventType -> EventFilter mapping table
-#[must_use]
 /// Every `HoverEventFilter` variant, so planning can be derived from matching.
 static ALL_HOVER: &[HoverEventFilter] = &[
     HoverEventFilter::MouseOver,
@@ -2984,6 +2975,27 @@ static ALL_WINDOW: &[WindowEventFilter] = &[
     WindowEventFilter::KeyringResult,
 ];
 
+/// Every `ComponentEventFilter` variant, so planning can be derived from
+/// matching. This is the family the derivation FORGOT when it replaced the
+/// hand-written table: with no component probe, `Mount` planned zero filters
+/// and every `AfterMount` / `Updated` / `NodeResized` / `Dismissed` /
+/// `TornOff` / `Docked` callback in the engine went silent — the reconcile
+/// diff kept emitting the events, the dispatcher's `Component` arm simply
+/// never saw one (`headless_lifecycle` caught it: mount=0 on the first frame).
+/// `DefaultAction` and `Selected` have no event type, so probing them is a
+/// no-op today; they are listed so the table stays the whole enum.
+static ALL_COMPONENT: &[ComponentEventFilter] = &[
+    ComponentEventFilter::AfterMount,
+    ComponentEventFilter::BeforeUnmount,
+    ComponentEventFilter::NodeResized,
+    ComponentEventFilter::DefaultAction,
+    ComponentEventFilter::Selected,
+    ComponentEventFilter::Updated,
+    ComponentEventFilter::Dismissed,
+    ComponentEventFilter::TornOff,
+    ComponentEventFilter::Docked,
+];
+
 /// Which listeners an event should reach.
 ///
 /// DERIVED from `matches_filter_phase`, the phase-matching table, so the two
@@ -2999,6 +3011,15 @@ static ALL_WINDOW: &[WindowEventFilter] = &[
 /// Dispatch sites use this to decide which callbacks to COLLECT and then ask
 /// the matcher again per callback, so "collected" and "fired" now answer to
 /// one table.
+///
+/// The universe is the four `ALL_*` tables - Hover, Focus, Window, Component
+/// - and it has to be ALL of them: a family missing from the probe is a whole
+/// class of listeners that can never fire, and nothing else in the pipeline
+/// notices (the events are still produced, the callbacks still registered).
+/// That is how every lifecycle callback went dead when the derivation first
+/// shipped without `ALL_COMPONENT`; the cross-product test
+/// `planning_and_matching_agree_for_every_event_and_filter` now covers all
+/// four families so that the next omission fails there.
 ///
 /// Cost: one pass over the filter universe per EVENT (not per node, not per
 /// callback) - a few hundred `match` arms, nanoseconds, and it happens once
@@ -3032,6 +3053,11 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
     for f in ALL_WINDOW {
         if matches_filter_phase(EventFilter::Window(*f), &probe, EventPhase::Bubble) {
             out.push(EventFilter::Window(*f));
+        }
+    }
+    for f in ALL_COMPONENT {
+        if matches_filter_phase(EventFilter::Component(*f), &probe, EventPhase::Bubble) {
+            out.push(EventFilter::Component(*f));
         }
     }
     out
