@@ -3791,6 +3791,27 @@ static ALL_COMPONENT: &[ComponentEventFilter] = &[
     ComponentEventFilter::Docked,
 ];
 
+
+/// Every `ExternalEventFilter`, for planning to probe. See [`ALL_COMPONENT`].
+static ALL_EXTERNAL: &[ExternalEventFilter] = &[
+    ExternalEventFilter::Play,
+    ExternalEventFilter::Pause,
+    ExternalEventFilter::Ended,
+    ExternalEventFilter::TimeUpdate,
+    ExternalEventFilter::VolumeChange,
+    ExternalEventFilter::MediaError,
+];
+
+/// Every `ApplicationEventFilter`, for planning to probe. See [`ALL_COMPONENT`].
+static ALL_APPLICATION: &[ApplicationEventFilter] = &[
+    ApplicationEventFilter::DeviceConnected,
+    ApplicationEventFilter::DeviceDisconnected,
+    ApplicationEventFilter::MonitorConnected,
+    ApplicationEventFilter::MonitorDisconnected,
+    ApplicationEventFilter::MediaControl,
+    ApplicationEventFilter::SystemAudioChange,
+];
+
 /// Which listeners an event should reach.
 ///
 /// DERIVED from `matches_filter_phase`, the phase-matching table, so the two
@@ -3820,45 +3841,6 @@ static ALL_COMPONENT: &[ComponentEventFilter] = &[
 /// callback) - a few hundred `match` arms, nanoseconds, and it happens once
 /// where the old table was also built once.
 #[must_use]
-/// Every `ComponentEventFilter`, for planning to probe.
-///
-/// Planning is DERIVED by testing each filter in these lists against a probe
-/// event, so a filter absent from its list can never be planned — whatever its
-/// matcher says. Component filters had NO list at all, which made every
-/// lifecycle event (`AfterMount`, `NodeResized`, `Updated`, `Dismissed`, ...)
-/// dispatch to nothing.
-static ALL_COMPONENT: &[ComponentEventFilter] = &[
-    ComponentEventFilter::AfterMount,
-    ComponentEventFilter::BeforeUnmount,
-    ComponentEventFilter::NodeResized,
-    ComponentEventFilter::DefaultAction,
-    ComponentEventFilter::Selected,
-    ComponentEventFilter::Updated,
-    ComponentEventFilter::Dismissed,
-    ComponentEventFilter::TornOff,
-    ComponentEventFilter::Docked,
-];
-
-/// Every `ExternalEventFilter`, for planning to probe. See [`ALL_COMPONENT`].
-static ALL_EXTERNAL: &[ExternalEventFilter] = &[
-    ExternalEventFilter::Play,
-    ExternalEventFilter::Pause,
-    ExternalEventFilter::Ended,
-    ExternalEventFilter::TimeUpdate,
-    ExternalEventFilter::VolumeChange,
-    ExternalEventFilter::MediaError,
-];
-
-/// Every `ApplicationEventFilter`, for planning to probe. See [`ALL_COMPONENT`].
-static ALL_APPLICATION: &[ApplicationEventFilter] = &[
-    ApplicationEventFilter::DeviceConnected,
-    ApplicationEventFilter::DeviceDisconnected,
-    ApplicationEventFilter::MonitorConnected,
-    ApplicationEventFilter::MonitorDisconnected,
-    ApplicationEventFilter::MediaControl,
-    ApplicationEventFilter::SystemAudioChange,
-];
-
 pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter> {
     // Built through the public constructor so a new field on `SyntheticEvent`
     // cannot silently change what planning probes with.

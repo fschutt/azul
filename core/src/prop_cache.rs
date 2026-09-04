@@ -889,7 +889,7 @@ impl InheritedValues {
     /// `values_for`, as an `Option` that is `None` when the node resolved to
     /// nothing — the shape `Vec<Vec<_>>::get` had, so `if let Some(..)` call
     /// sites keep their structure.
-    #[must_use]
+    ///
     /// `None` iff `node` is outside the store; a node that exists but resolved
     /// no inherited properties yields `Some(vec![])`.
     ///

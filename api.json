@@ -28672,27 +28672,6 @@
                         ],
                         "repr": "C"
                     },
-                    "DocumentSelectionSpanVecSlice": {
-                        "external": "azul_core::selection::DocumentSelectionSpanVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "DocumentSelectionSpan",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
                     "KeyModifiers": {
                         "external": "azul_core::events::KeyModifiers",
                         "derive": [
@@ -28855,6 +28834,32 @@
                                 },
                                 "low": {
                                     "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocumentSelectionSpanVecSlice": {
+                        "external": "azul_core::selection::DocumentSelectionSpanVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DocumentSelectionSpan",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
                                 }
                             }
                         ],
@@ -41225,25 +41230,8 @@
                                 "Copy": {},
                                 "Cut": {},
                                 "Paste": {},
-                                "DocumentEdit": {
-                                    "doc": [
-                                        "A structural document edit (split / merge / wrap / replace...) was recorded on (or under)",
-                                        "the focused element and awaits the app's apply-and-ack. Fires ONCE per changeset; read the",
-                                        "changeset via the window's pending-document-edit accessor, ack with mark_document_edit_applied.",
-                                        "A re-render without an ack rejects (drops) the edit. APPENDED at the enum tail for ABI stability."
-                                    ]
-                                },
-                                "TextChanged": {
-                                    "doc": [
-                                        "The text of an editable node under the focused element CHANGED - fired once per commit,",
-                                        "AFTER the edit is applied, for typed characters, deletions, paste and the Enter split alike.",
-                                        "`TextInput` is the `beforeinput` of this pair: it fires BEFORE a typed character lands, so a",
-                                        "model that reads `get_unsynced_text_edits` from a `TextInput` callback is one keystroke behind.",
-                                        "Read the committed text from THIS callback instead (a live word count, a mirror of the text).",
-                                        "APPENDED at the enum tail for ABI stability."
-                                    ]
-                                }
                                 "DocumentEdit": {},
+                                "TextChanged": {},
                                 "BackMouseDown": {},
                                 "BackMouseUp": {},
                                 "ForwardMouseDown": {},
@@ -50134,90 +50122,6 @@
                         ],
                         "repr": "C"
                     },
-                    "DocumentPosition": {
-                        "doc": [
-                            "A position in a node's TEXT CONTENT, app-facing: `text_byte` indexes the",
-                            "flattened text of `node` - the exact string `get_node_text_content(node)`",
-                            "returns. Resolved on grapheme-cluster boundaries, in LOGICAL byte order."
-                        ],
-                        "priority": 42.0,
-                        "external": "azul_core::selection::DocumentPosition",
-                        "derive": [
-                            "Debug",
-                            "PartialOrd",
-                            "Ord",
-                            "Clone",
-                            "Copy",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "node": {
-                                    "type": "DomNodeId"
-                                },
-                                "text_byte": {
-                                    "type": "u32"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "DocumentTextEdit": {
-                        "doc": [
-                            "One un-synced character-level edit: `node`'s effective text is now `text`",
-                            "(revision-stamped). Fold into the app model, then ack via",
-                            "`CallbackInfo::mark_text_revision_synced`."
-                        ],
-                        "priority": 42.0,
-                        "external": "azul_core::selection::DocumentTextEdit",
-                        "derive": [
-                            "Debug",
-                            "PartialOrd",
-                            "Ord",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "node": {
-                                    "type": "DomNodeId"
-                                },
-                                "text": {
-                                    "type": "String"
-                                },
-                                "revision": {
-                                    "type": "u64"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "DocumentTextEditVecSlice": {
-                        "external": "azul_core::selection::DocumentTextEditVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "DocumentTextEdit",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
                     "FocusDirection": {
                         "external": "azul_core::callbacks::FocusDirection",
                         "derive": [
@@ -50369,6 +50273,94 @@
                                 "TimeUpdate": {},
                                 "VolumeChange": {},
                                 "MediaError": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocumentPosition": {
+                        "doc": [
+                            "A position in a node's TEXT CONTENT, app-facing: `text_byte` indexes the",
+                            "flattened text of `node` - the exact string `get_node_text_content(node)`",
+                            "returns. Resolved on grapheme-cluster boundaries, in LOGICAL byte order."
+                        ],
+                        "priority": 42.0,
+                        "external": "azul_core::selection::DocumentPosition",
+                        "derive": [
+                            "Debug",
+                            "PartialOrd",
+                            "Ord",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node": {
+                                    "type": "DomNodeId"
+                                },
+                                "text_byte": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocumentTextEdit": {
+                        "doc": [
+                            "One un-synced character-level edit: `node`'s effective text is now `text`",
+                            "(revision-stamped). Fold into the app model, then ack via",
+                            "`CallbackInfo::mark_text_revision_synced`."
+                        ],
+                        "priority": 42.0,
+                        "external": "azul_core::selection::DocumentTextEdit",
+                        "derive": [
+                            "Debug",
+                            "PartialOrd",
+                            "Ord",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node": {
+                                    "type": "DomNodeId"
+                                },
+                                "text": {
+                                    "type": "String"
+                                },
+                                "revision": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocumentTextEditVecSlice": {
+                        "external": "azul_core::selection::DocumentTextEditVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "DocumentTextEdit",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
                             }
                         ],
                         "repr": "C"
@@ -96655,6 +96647,1084 @@
                             "returns": null
                         }
                     },
+                    "TabletDeviceInfoVecDestructor": {
+                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "TabletDeviceInfoVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "HidDeviceVecDestructor": {
+                        "external": "azul_core::hid::HidDeviceVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "HidDeviceVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "HidReportVec": {
+                        "external": "azul_core::hid::HidReportVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "HidReport",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "HidReportVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `HidReportVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "HidReportVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `HidReportVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidReportVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "hid_report_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "hid_report_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "hid_report_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `HidReportVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "HidReport"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidReportVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `HidReportVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const HidReport"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidReportVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionHidReport"
+                                },
+                                "fn_body": "hid_report_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `HidReportVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidReportVecSlice"
+                                },
+                                "fn_body": "hid_report_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "HidReportVecSlice"
+                                },
+                                "fn_body": "hid_report_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "HidReportVecDestructor": {
+                        "external": "azul_core::hid::HidReportVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "HidReportVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "TabletDeviceInfoVecDestructorType": {
+                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "TabletDeviceInfoVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "PageSetupOverrideVec": {
+                        "external": "azul_layout::solver3::pagination::PageSetupOverrideVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PageSetupOverride",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "PageSetupOverrideVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `PageSetupOverrideVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "PageSetupOverrideVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `PageSetupOverrideVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageSetupOverrideVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "page_setup_override_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "page_setup_override_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "page_setup_override_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `PageSetupOverrideVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "PageSetupOverride"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageSetupOverrideVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `PageSetupOverrideVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const PageSetupOverride"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageSetupOverrideVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionPageSetupOverride"
+                                },
+                                "fn_body": "page_setup_override_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `PageSetupOverrideVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageSetupOverrideVecSlice"
+                                },
+                                "fn_body": "page_setup_override_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageSetupOverrideVecSlice"
+                                },
+                                "fn_body": "page_setup_override_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "MarginBoxContentVec": {
+                        "external": "azul_layout::solver3::pagination::MarginBoxContentVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "MarginBoxContent",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "MarginBoxContentVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `MarginBoxContentVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "MarginBoxContentVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `MarginBoxContentVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MarginBoxContentVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "margin_box_content_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "margin_box_content_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "margin_box_content_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `MarginBoxContentVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "MarginBoxContent"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MarginBoxContentVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `MarginBoxContentVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const MarginBoxContent"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MarginBoxContentVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionMarginBoxContent"
+                                },
+                                "fn_body": "margin_box_content_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `MarginBoxContentVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MarginBoxContentVecSlice"
+                                },
+                                "fn_body": "margin_box_content_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "MarginBoxContentVecSlice"
+                                },
+                                "fn_body": "margin_box_content_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PageBreakPositionVecDestructor": {
+                        "external": "azul_layout::solver3::page_breaks::PageBreakPositionVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "PageBreakPositionVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PageBreakPositionVec": {
+                        "external": "azul_layout::solver3::page_breaks::PageBreakPositionVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "PageBreakPosition",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "PageBreakPositionVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `PageBreakPositionVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "PageBreakPositionVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `PageBreakPositionVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageBreakPositionVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "page_break_position_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "page_break_position_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "page_break_position_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `PageBreakPositionVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "PageBreakPosition"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageBreakPositionVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `PageBreakPositionVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const PageBreakPosition"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageBreakPositionVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionPageBreakPosition"
+                                },
+                                "fn_body": "page_break_position_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `PageBreakPositionVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageBreakPositionVecSlice"
+                                },
+                                "fn_body": "page_break_position_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "PageBreakPositionVecSlice"
+                                },
+                                "fn_body": "page_break_position_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "PageSetupOverrideVecDestructor": {
+                        "external": "azul_layout::solver3::pagination::PageSetupOverrideVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "PageSetupOverrideVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "PageSetupOverrideVecDestructorType": {
+                        "external": "azul_layout::solver3::pagination::PageSetupOverrideVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "PageSetupOverrideVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "PageBreakPositionVecDestructorType": {
+                        "external": "azul_layout::solver3::page_breaks::PageBreakPositionVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "PageBreakPositionVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "MarginBoxContentVecDestructorType": {
+                        "external": "azul_layout::solver3::pagination::MarginBoxContentVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "MarginBoxContentVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "MarginBoxContentVecDestructor": {
+                        "external": "azul_layout::solver3::pagination::MarginBoxContentVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "MarginBoxContentVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "TabletDeviceInfoVec": {
+                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TabletDeviceInfo",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "TabletDeviceInfoVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `TabletDeviceInfoVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVec"
+                                },
+                                "fn_body": "TabletDeviceInfoVec::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `TabletDeviceInfoVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVec"
+                                },
+                                "fn_body": "TabletDeviceInfoVec::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "tablet_device_info_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "tablet_device_info_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "tablet_device_info_vec.is_empty()"
+                            },
+                            "get": {
+                                "doc": [
+                                    "Returns a reference to the element at the given index, or None if out of bounds"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTabletDeviceInfo"
+                                },
+                                "fn_body": "tablet_device_info_vec.get(index).cloned().into()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `TabletDeviceInfoVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "TabletDeviceInfo"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVec"
+                                },
+                                "fn_body": "TabletDeviceInfoVec::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `TabletDeviceInfoVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const TabletDeviceInfo"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVec"
+                                },
+                                "fn_body": "unsafe { TabletDeviceInfoVec::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTabletDeviceInfo"
+                                },
+                                "fn_body": "tablet_device_info_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `TabletDeviceInfoVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVecSlice"
+                                },
+                                "fn_body": "tablet_device_info_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVecSlice"
+                                },
+                                "fn_body": "tablet_device_info_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "HidDeviceVecDestructorType": {
+                        "external": "azul_core::hid::HidDeviceVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "HidDeviceVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
                     "StyledTextRunVec": {
                         "external": "azul_layout::managers::selection::StyledTextRunVec",
                         "custom_impls": [
@@ -107702,1084 +108772,6 @@
                             "returns": null
                         },
                         "repr": "C"
-                    },
-                    "TabletDeviceInfoVecDestructor": {
-                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "TabletDeviceInfoVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "HidDeviceVecDestructor": {
-                        "external": "azul_core::hid::HidDeviceVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "HidDeviceVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "HidReportVec": {
-                        "external": "azul_core::hid::HidReportVec",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "PartialEq"
-                        ],
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "HidReport",
-                                    "ref_kind": "constptr"
-                                },
-                                "len": {
-                                    "type": "usize"
-                                },
-                                "cap": {
-                                    "type": "usize"
-                                },
-                                "destructor": {
-                                    "type": "HidReportVecDestructor"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "create": {
-                                "doc": [
-                                    "Creates an empty `HidReportVec`"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "HidReportVec"
-                                },
-                                "fn_body": "Self::new()"
-                            },
-                            "with_capacity": {
-                                "doc": [
-                                    "Creates a `HidReportVec` with a given capacity"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "cap": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidReportVec"
-                                },
-                                "fn_body": "Self::with_capacity(cap)"
-                            },
-                            "len": {
-                                "doc": [
-                                    "Returns the number of elements in the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "hid_report_vec.len()"
-                            },
-                            "capacity": {
-                                "doc": [
-                                    "Returns the capacity of the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "hid_report_vec.capacity()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Returns whether the Vec is empty"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "hid_report_vec.is_empty()"
-                            },
-                            "from_item": {
-                                "doc": [
-                                    "Creates a `HidReportVec` containing a single element"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "item": "HidReport"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidReportVec"
-                                },
-                                "fn_body": "Self::from_item(item)"
-                            },
-                            "copy_from_ptr": {
-                                "doc": [
-                                    "Copies elements from a C array into a `HidReportVec`. The array must be valid for `len` elements."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "ptr": "*const HidReport"
-                                    },
-                                    {
-                                        "len": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidReportVec"
-                                },
-                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
-                            },
-                            "c_get": {
-                                "doc": [
-                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionHidReport"
-                                },
-                                "fn_body": "hid_report_vec.c_get(index).into()"
-                            },
-                            "as_c_slice": {
-                                "doc": [
-                                    "Returns a C-compatible slice of the entire Vec as a `HidReportVecSlice`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidReportVecSlice"
-                                },
-                                "fn_body": "hid_report_vec.as_c_slice()"
-                            },
-                            "as_c_slice_range": {
-                                "doc": [
-                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "start": "usize"
-                                    },
-                                    {
-                                        "end": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "HidReportVecSlice"
-                                },
-                                "fn_body": "hid_report_vec.as_c_slice_range(start, end)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "HidReportVecDestructor": {
-                        "external": "azul_core::hid::HidReportVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "HidReportVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "TabletDeviceInfoVec": {
-                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVec",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "PartialEq"
-                        ],
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "TabletDeviceInfo",
-                                    "ref_kind": "constptr"
-                                },
-                                "len": {
-                                    "type": "usize"
-                                },
-                                "cap": {
-                                    "type": "usize"
-                                },
-                                "destructor": {
-                                    "type": "TabletDeviceInfoVecDestructor"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "create": {
-                                "doc": [
-                                    "Creates an empty `TabletDeviceInfoVec`"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "TabletDeviceInfoVec"
-                                },
-                                "fn_body": "TabletDeviceInfoVec::new()"
-                            },
-                            "with_capacity": {
-                                "doc": [
-                                    "Creates a `TabletDeviceInfoVec` with a given capacity"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "cap": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TabletDeviceInfoVec"
-                                },
-                                "fn_body": "TabletDeviceInfoVec::with_capacity(cap)"
-                            },
-                            "len": {
-                                "doc": [
-                                    "Returns the number of elements in the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "tablet_device_info_vec.len()"
-                            },
-                            "capacity": {
-                                "doc": [
-                                    "Returns the capacity of the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "tablet_device_info_vec.capacity()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Returns whether the Vec is empty"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "tablet_device_info_vec.is_empty()"
-                            },
-                            "get": {
-                                "doc": [
-                                    "Returns a reference to the element at the given index, or None if out of bounds"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionTabletDeviceInfo"
-                                },
-                                "fn_body": "tablet_device_info_vec.get(index).cloned().into()"
-                            },
-                            "from_item": {
-                                "doc": [
-                                    "Creates a `TabletDeviceInfoVec` containing a single element"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "item": "TabletDeviceInfo"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TabletDeviceInfoVec"
-                                },
-                                "fn_body": "TabletDeviceInfoVec::from_item(item)"
-                            },
-                            "copy_from_ptr": {
-                                "doc": [
-                                    "Copies elements from a C array into a `TabletDeviceInfoVec`. The array must be valid for `len` elements."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "ptr": "*const TabletDeviceInfo"
-                                    },
-                                    {
-                                        "len": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TabletDeviceInfoVec"
-                                },
-                                "fn_body": "unsafe { TabletDeviceInfoVec::copy_from_ptr(ptr, len) }"
-                            },
-                            "c_get": {
-                                "doc": [
-                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionTabletDeviceInfo"
-                                },
-                                "fn_body": "tablet_device_info_vec.c_get(index).into()"
-                            },
-                            "as_c_slice": {
-                                "doc": [
-                                    "Returns a C-compatible slice of the entire Vec as a `TabletDeviceInfoVecSlice`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TabletDeviceInfoVecSlice"
-                                },
-                                "fn_body": "tablet_device_info_vec.as_c_slice()"
-                            },
-                            "as_c_slice_range": {
-                                "doc": [
-                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "start": "usize"
-                                    },
-                                    {
-                                        "end": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TabletDeviceInfoVecSlice"
-                                },
-                                "fn_body": "tablet_device_info_vec.as_c_slice_range(start, end)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "HidDeviceVecDestructorType": {
-                        "external": "azul_core::hid::HidDeviceVecDestructorType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "HidDeviceVec",
-                                    "ref_kind": "mutptr"
-                                }
-                            ],
-                            "returns": null
-                        },
-                        "repr": "C"
-                    },
-                    "TabletDeviceInfoVecDestructorType": {
-                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVecDestructorType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "TabletDeviceInfoVec",
-                                    "ref_kind": "mutptr"
-                                }
-                            ],
-                            "returns": null
-                        }
-                    },
-                    "PageSetupOverrideVec": {
-                        "external": "azul_layout::solver3::pagination::PageSetupOverrideVec",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "PartialEq"
-                        ],
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "PageSetupOverride",
-                                    "ref_kind": "constptr"
-                                },
-                                "len": {
-                                    "type": "usize"
-                                },
-                                "cap": {
-                                    "type": "usize"
-                                },
-                                "destructor": {
-                                    "type": "PageSetupOverrideVecDestructor"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "create": {
-                                "doc": [
-                                    "Creates an empty `PageSetupOverrideVec`"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "PageSetupOverrideVec"
-                                },
-                                "fn_body": "Self::new()"
-                            },
-                            "with_capacity": {
-                                "doc": [
-                                    "Creates a `PageSetupOverrideVec` with a given capacity"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "cap": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PageSetupOverrideVec"
-                                },
-                                "fn_body": "Self::with_capacity(cap)"
-                            },
-                            "len": {
-                                "doc": [
-                                    "Returns the number of elements in the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "page_setup_override_vec.len()"
-                            },
-                            "capacity": {
-                                "doc": [
-                                    "Returns the capacity of the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "page_setup_override_vec.capacity()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Returns whether the Vec is empty"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "page_setup_override_vec.is_empty()"
-                            },
-                            "from_item": {
-                                "doc": [
-                                    "Creates a `PageSetupOverrideVec` containing a single element"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "item": "PageSetupOverride"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PageSetupOverrideVec"
-                                },
-                                "fn_body": "Self::from_item(item)"
-                            },
-                            "copy_from_ptr": {
-                                "doc": [
-                                    "Copies elements from a C array into a `PageSetupOverrideVec`. The array must be valid for `len` elements."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "ptr": "*const PageSetupOverride"
-                                    },
-                                    {
-                                        "len": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PageSetupOverrideVec"
-                                },
-                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
-                            },
-                            "c_get": {
-                                "doc": [
-                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionPageSetupOverride"
-                                },
-                                "fn_body": "page_setup_override_vec.c_get(index).into()"
-                            },
-                            "as_c_slice": {
-                                "doc": [
-                                    "Returns a C-compatible slice of the entire Vec as a `PageSetupOverrideVecSlice`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PageSetupOverrideVecSlice"
-                                },
-                                "fn_body": "page_setup_override_vec.as_c_slice()"
-                            },
-                            "as_c_slice_range": {
-                                "doc": [
-                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "start": "usize"
-                                    },
-                                    {
-                                        "end": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PageSetupOverrideVecSlice"
-                                },
-                                "fn_body": "page_setup_override_vec.as_c_slice_range(start, end)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "MarginBoxContentVec": {
-                        "external": "azul_layout::solver3::pagination::MarginBoxContentVec",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "PartialEq"
-                        ],
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "MarginBoxContent",
-                                    "ref_kind": "constptr"
-                                },
-                                "len": {
-                                    "type": "usize"
-                                },
-                                "cap": {
-                                    "type": "usize"
-                                },
-                                "destructor": {
-                                    "type": "MarginBoxContentVecDestructor"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "create": {
-                                "doc": [
-                                    "Creates an empty `MarginBoxContentVec`"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "MarginBoxContentVec"
-                                },
-                                "fn_body": "Self::new()"
-                            },
-                            "with_capacity": {
-                                "doc": [
-                                    "Creates a `MarginBoxContentVec` with a given capacity"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "cap": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "MarginBoxContentVec"
-                                },
-                                "fn_body": "Self::with_capacity(cap)"
-                            },
-                            "len": {
-                                "doc": [
-                                    "Returns the number of elements in the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "margin_box_content_vec.len()"
-                            },
-                            "capacity": {
-                                "doc": [
-                                    "Returns the capacity of the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "margin_box_content_vec.capacity()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Returns whether the Vec is empty"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "margin_box_content_vec.is_empty()"
-                            },
-                            "from_item": {
-                                "doc": [
-                                    "Creates a `MarginBoxContentVec` containing a single element"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "item": "MarginBoxContent"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "MarginBoxContentVec"
-                                },
-                                "fn_body": "Self::from_item(item)"
-                            },
-                            "copy_from_ptr": {
-                                "doc": [
-                                    "Copies elements from a C array into a `MarginBoxContentVec`. The array must be valid for `len` elements."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "ptr": "*const MarginBoxContent"
-                                    },
-                                    {
-                                        "len": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "MarginBoxContentVec"
-                                },
-                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
-                            },
-                            "c_get": {
-                                "doc": [
-                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionMarginBoxContent"
-                                },
-                                "fn_body": "margin_box_content_vec.c_get(index).into()"
-                            },
-                            "as_c_slice": {
-                                "doc": [
-                                    "Returns a C-compatible slice of the entire Vec as a `MarginBoxContentVecSlice`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "MarginBoxContentVecSlice"
-                                },
-                                "fn_body": "margin_box_content_vec.as_c_slice()"
-                            },
-                            "as_c_slice_range": {
-                                "doc": [
-                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "start": "usize"
-                                    },
-                                    {
-                                        "end": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "MarginBoxContentVecSlice"
-                                },
-                                "fn_body": "margin_box_content_vec.as_c_slice_range(start, end)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "PageBreakPositionVecDestructor": {
-                        "external": "azul_layout::solver3::page_breaks::PageBreakPositionVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "PageBreakPositionVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "PageBreakPositionVec": {
-                        "external": "azul_layout::solver3::page_breaks::PageBreakPositionVec",
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "PartialEq"
-                        ],
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "PageBreakPosition",
-                                    "ref_kind": "constptr"
-                                },
-                                "len": {
-                                    "type": "usize"
-                                },
-                                "cap": {
-                                    "type": "usize"
-                                },
-                                "destructor": {
-                                    "type": "PageBreakPositionVecDestructor"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "create": {
-                                "doc": [
-                                    "Creates an empty `PageBreakPositionVec`"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "PageBreakPositionVec"
-                                },
-                                "fn_body": "Self::new()"
-                            },
-                            "with_capacity": {
-                                "doc": [
-                                    "Creates a `PageBreakPositionVec` with a given capacity"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "cap": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PageBreakPositionVec"
-                                },
-                                "fn_body": "Self::with_capacity(cap)"
-                            },
-                            "len": {
-                                "doc": [
-                                    "Returns the number of elements in the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "page_break_position_vec.len()"
-                            },
-                            "capacity": {
-                                "doc": [
-                                    "Returns the capacity of the Vec"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "page_break_position_vec.capacity()"
-                            },
-                            "is_empty": {
-                                "doc": [
-                                    "Returns whether the Vec is empty"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "page_break_position_vec.is_empty()"
-                            },
-                            "from_item": {
-                                "doc": [
-                                    "Creates a `PageBreakPositionVec` containing a single element"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "item": "PageBreakPosition"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PageBreakPositionVec"
-                                },
-                                "fn_body": "Self::from_item(item)"
-                            },
-                            "copy_from_ptr": {
-                                "doc": [
-                                    "Copies elements from a C array into a `PageBreakPositionVec`. The array must be valid for `len` elements."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "ptr": "*const PageBreakPosition"
-                                    },
-                                    {
-                                        "len": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PageBreakPositionVec"
-                                },
-                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
-                            },
-                            "c_get": {
-                                "doc": [
-                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "index": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionPageBreakPosition"
-                                },
-                                "fn_body": "page_break_position_vec.c_get(index).into()"
-                            },
-                            "as_c_slice": {
-                                "doc": [
-                                    "Returns a C-compatible slice of the entire Vec as a `PageBreakPositionVecSlice`."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PageBreakPositionVecSlice"
-                                },
-                                "fn_body": "page_break_position_vec.as_c_slice()"
-                            },
-                            "as_c_slice_range": {
-                                "doc": [
-                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "start": "usize"
-                                    },
-                                    {
-                                        "end": "usize"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "PageBreakPositionVecSlice"
-                                },
-                                "fn_body": "page_break_position_vec.as_c_slice_range(start, end)"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "PageSetupOverrideVecDestructor": {
-                        "external": "azul_layout::solver3::pagination::PageSetupOverrideVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "PageSetupOverrideVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "PageSetupOverrideVecDestructorType": {
-                        "external": "azul_layout::solver3::pagination::PageSetupOverrideVecDestructorType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "PageSetupOverrideVec",
-                                    "ref_kind": "mutptr"
-                                }
-                            ],
-                            "returns": null
-                        },
-                        "repr": "C"
-                    },
-                    "PageBreakPositionVecDestructorType": {
-                        "external": "azul_layout::solver3::page_breaks::PageBreakPositionVecDestructorType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "PageBreakPositionVec",
-                                    "ref_kind": "mutptr"
-                                }
-                            ],
-                            "returns": null
-                        },
-                        "repr": "C"
-                    },
-                    "MarginBoxContentVecDestructorType": {
-                        "external": "azul_layout::solver3::pagination::MarginBoxContentVecDestructorType",
-                        "callback_typedef": {
-                            "fn_args": [
-                                {
-                                    "type": "MarginBoxContentVec",
-                                    "ref_kind": "mutptr"
-                                }
-                            ],
-                            "returns": null
-                        },
-                        "repr": "C"
-                    },
-                    "MarginBoxContentVecDestructor": {
-                        "external": "azul_layout::solver3::pagination::MarginBoxContentVecDestructor",
-                        "derive": [
-                            "Debug"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DefaultRust": {},
-                                "NoDestructor": {},
-                                "External": {
-                                    "type": "MarginBoxContentVecDestructorType"
-                                },
-                                "AlreadyDestroyed": {}
-                            }
-                        ],
-                        "repr": "C, u8"
                     }
                 }
             },
