@@ -7046,143 +7046,127 @@ pub trait PlatformWindow {
             }
 
             SystemChange::UndoTextEdit { target } => {
-                if let Some(layout_window) = self.get_layout_window_mut() {
-                    let node_id = match target.node.into_crate_internal() {
-                        Some(id) => id,
-                        None => return ProcessEventResult::DoNothing,
-                    };
-
-                    if let Some(operation) = layout_window.undo_redo_manager.pop_undo(node_id) {
-                        // The stack is keyed by the HOST (`target`), the
-                        // content by the node the edit re-shaped
-                        // (`pre_state.node_id`, the caret's IFC owner) —
-                        // restoring a paragraph's snapshot into the host
-                        // keyed a host-flattened blob, the bug typing and
-                        // deleting were already cured of.
-                        let node_id_internal = Some(operation.pre_state.node_id);
-                        if let Some(node_id_internal) = node_id_internal {
-                            use azul_layout::text3::cache::{
-                                InlineContent, StyleProperties, StyledRun,
-                            };
-                            use std::sync::Arc;
-
-                            // MWA-C-undo_redo: restore the STYLED pre-content
-                            // snapshot when available; the plain-text rebuild
-                            // (StyleProperties::default()) is only the
-                            // fallback for evicted snapshots — it used to be
-                            // the only path and stripped all styling.
-                            let new_content = layout_window
-                                .undo_redo_manager
-                                .get_content_snapshot(operation.changeset.id)
-                                .map(|snap| snap.pre.clone())
-                                .unwrap_or_else(|| {
-                                    vec![InlineContent::Text(StyledRun {
-                                        text: std::sync::Arc::from(
-                                            operation.pre_state.text_content.as_str(),
-                                        ),
-                                        style: Arc::new(StyleProperties::default()),
-                                        logical_start_byte: 0,
-                                        source_node_id: None,
-                                    })]
-                                });
-
-                            layout_window.update_text_cache_after_edit(
-                                target.dom,
-                                node_id_internal,
-                                new_content,
-                            );
-
-                            // MWA-C-undo_redo: restore the pre-edit selection
-                            // too (a range beats the collapsed cursor);
-                            // pre_state.selection_range previously had no
-                            // consumer at all.
-                            if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
-                                if let Some(range) =
-                                    operation.pre_state.selection_range.into_option()
-                                {
-                                    mc.set_single_range(range);
-                                } else if let Some(cursor) =
-                                    operation.pre_state.cursor_position.into_option()
-                                {
-                                    mc.set_single_cursor(cursor);
-                                }
+                let Some(layout_window) = self.get_layout_window_mut() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                match undo_text_edit_on(layout_window, *target) {
+                    Some(restore) => {
+                        // The primary's caret goes where the edit found it.
+                        if let Some(ref mut mc) = layout_window.text_edit_manager.multi_cursor {
+                            if let Some(range) = restore.range {
+                                mc.set_single_range(range);
+                            } else if let Some(cursor) = restore.cursor {
+                                mc.set_single_cursor(cursor);
                             }
                         }
-
-                        layout_window.undo_redo_manager.push_redo(operation);
-                        return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
                     }
+                    None => ProcessEventResult::DoNothing,
                 }
-                ProcessEventResult::DoNothing
             }
 
             SystemChange::RedoTextEdit { target } => {
-                // MWA-C-undo_redo: redo now RE-APPLIES the post-state
-                // directly. The old path pushed InsertText redos back
-                // through process_text_input, which re-entered the recording
-                // pipeline: apply_text_changeset recorded a SECOND undo
-                // entry whose push_undo cleared the redo stack (one redo
-                // destroyed the rest), and non-InsertText ops were silently
-                // skipped while still being moved to the undo stack.
-                if let Some(layout_window) = self.get_layout_window_mut() {
-                    let node_id = match target.node.into_crate_internal() {
-                        Some(id) => id,
-                        None => return ProcessEventResult::DoNothing,
-                    };
-
-                    if let Some(operation) = layout_window.undo_redo_manager.pop_redo(node_id) {
-                        use azul_layout::managers::changeset::TextOperation;
-                        use azul_layout::text3::cache::{
-                            InlineContent, StyleProperties, StyledRun,
-                        };
-                        use std::sync::Arc;
-
-                        // Styled post-content snapshot; plain-text fallback
-                        // reconstructs pre_state + inserted text for evicted
-                        // InsertText snapshots.
-                        let new_content = layout_window
-                            .undo_redo_manager
-                            .get_content_snapshot(operation.changeset.id)
-                            .map(|snap| snap.post.clone())
-                            .or_else(|| {
-                                if let TextOperation::InsertText(op) =
-                                    &operation.changeset.operation
-                                {
-                                    let mut text =
-                                        operation.pre_state.text_content.as_str().to_string();
-                                    text.push_str(op.text.as_str());
-                                    Some(vec![InlineContent::Text(StyledRun {
-                                        text: std::sync::Arc::from(text.as_str()),
-                                        style: Arc::new(StyleProperties::default()),
-                                        logical_start_byte: 0,
-                                        source_node_id: None,
-                                    })])
-                                } else {
-                                    None
-                                }
-                            });
-
-                        if let Some(new_content) = new_content {
-                            // Same keying as undo: the content goes back to
-                            // the node the edit re-shaped, not the host.
-                            layout_window.update_text_cache_after_edit(
-                                target.dom,
-                                operation.pre_state.node_id,
-                                new_content,
-                            );
-                            layout_window.undo_redo_manager.reinstate_undo(operation);
-                            return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
-                        }
-                        // No snapshot and no reconstructable content: put the
-                        // operation back on the redo stack unchanged instead
-                        // of losing it.
-                        layout_window.undo_redo_manager.push_redo(operation);
-                    }
+                let Some(layout_window) = self.get_layout_window_mut() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                if redo_text_edit_on(layout_window, *target) {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
                 }
-                ProcessEventResult::DoNothing
             }
 
-            // === Multi-Cursor ===
+            SystemChange::SeatShortcut {
+                seat_id,
+                target,
+                shortcut,
+            } => {
+                // A NON-primary seat's shortcut (9b-ii-a-i-d-ii-b-i) acts on
+                // ITS caret and ITS node - the primary's session is never
+                // read or moved. Copy / Cut take the seat's selected text as
+                // plain text (no styled runs: the seat's selection is a byte
+                // range on one node); Paste records at the seat's caret and
+                // the pass's changeset apply lands it; Undo / Redo work the
+                // node's stack like the primary's and put the SEAT's caret
+                // where the edit found it.
+                use azul_core::events::KeyboardShortcut;
+                let Some(layout_window) = self.get_layout_window_mut() else {
+                    return ProcessEventResult::DoNothing;
+                };
+                match shortcut {
+                    KeyboardShortcut::SelectAll => {
+                        if layout_window.select_all_for_seat(*seat_id, *target) {
+                            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                        } else {
+                            ProcessEventResult::DoNothing
+                        }
+                    }
+                    KeyboardShortcut::Copy | KeyboardShortcut::Cut => {
+                        let Some(text) = layout_window.seat_selected_text(*seat_id) else {
+                            return ProcessEventResult::DoNothing;
+                        };
+                        let content = azul_layout::managers::selection::ClipboardContent {
+                            plain_text: text.into(),
+                            styled_runs: azul_layout::managers::selection::StyledTextRunVec::from_const_slice(&[]),
+                        };
+                        let committed = clipboard_content_to_payload(&content)
+                            .is_some_and(|payload| set_system_clipboard(&payload));
+                        if !committed || matches!(shortcut, KeyboardShortcut::Copy) {
+                            return ProcessEventResult::DoNothing;
+                        }
+                        // Cut: the seat's Delete op removes its (anchored) selection.
+                        let delete = azul_core::events::SelectionOp::new(
+                            azul_core::events::SelectionDirection::Backward,
+                            azul_core::events::SelectionStep::Character,
+                            azul_core::events::SelectionMode::Delete,
+                        );
+                        if layout_window.apply_selection_op_for_seat(*seat_id, *target, &delete) {
+                            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                        } else {
+                            ProcessEventResult::DoNothing
+                        }
+                    }
+                    KeyboardShortcut::Paste => {
+                        let pasted = get_system_clipboard()
+                            .as_ref()
+                            .and_then(payload_to_clipboard_content);
+                        let Some(clipboard_content) = pasted else {
+                            return ProcessEventResult::DoNothing;
+                        };
+                        let text = clipboard_content.plain_text.as_str().to_string();
+                        let affected = layout_window.record_text_input_for_seat(*seat_id, &text);
+                        if affected.is_empty() {
+                            ProcessEventResult::DoNothing
+                        } else {
+                            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                        }
+                    }
+                    KeyboardShortcut::Undo => match undo_text_edit_on(layout_window, *target) {
+                        Some(restore) => {
+                            let (cursor, anchor) = match (restore.range, restore.cursor) {
+                                (Some(range), _) => (range.end, Some(range.start)),
+                                (None, Some(cursor)) => (cursor, None),
+                                (None, None) => {
+                                    return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+                                }
+                            };
+                            layout_window
+                                .text_edit_manager
+                                .set_seat_selection(*seat_id, *target, cursor, anchor);
+                            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                        }
+                        None => ProcessEventResult::DoNothing,
+                    },
+                    KeyboardShortcut::Redo => {
+                        if redo_text_edit_on(layout_window, *target) {
+                            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                        } else {
+                            ProcessEventResult::DoNothing
+                        }
+                    }
+                }
+            }
+
             SystemChange::AddCursorAtClick { position } => {
                 // Ctrl+Click: add a cursor at the clicked position.
                 // Delegates to process_mouse_click_for_selection which will
@@ -13812,4 +13796,103 @@ mod pointer_source_tests {
             );
         }
     }
+}
+
+/// Where an undone edit left its caret: what the caller places into the
+/// seat that asked (9b-ii-a-i-d-ii-b-i).
+struct UndoRestore {
+    range: Option<azul_core::selection::SelectionRange>,
+    cursor: Option<azul_core::selection::TextCursor>,
+}
+
+/// The body of `SystemChange::UndoTextEdit` minus the caret placement: pop
+/// the node's undo entry, restore the pre-edit content (the styled snapshot
+/// when there is one, else the plain pre-text), push the entry onto redo.
+/// `None` = nothing to undo on that node.
+fn undo_text_edit_on(
+    layout_window: &mut azul_layout::window::LayoutWindow,
+    target: azul_core::dom::DomNodeId,
+) -> Option<UndoRestore> {
+    use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
+    use std::sync::Arc;
+
+    let node_id = target.node.into_crate_internal()?;
+    let operation = layout_window.undo_redo_manager.pop_undo(node_id)?;
+    let new_content = layout_window
+        .undo_redo_manager
+        .get_content_snapshot(operation.changeset.id)
+        .map(|snap| snap.pre.clone())
+        .unwrap_or_else(|| {
+            vec![InlineContent::Text(StyledRun {
+                text: Arc::from(operation.pre_state.text_content.as_str()),
+                style: Arc::new(StyleProperties::default()),
+                logical_start_byte: 0,
+                source_node_id: None,
+            })]
+        });
+    // MWA-C-undo_redo keying: the STACK is keyed by the HOST (`target`), the
+    // CONTENT by the node the edit re-shaped (`pre_state.node_id`, the caret's
+    // IFC owner). Restoring a paragraph's snapshot into the host would key a
+    // host-flattened blob - the bug typing and deleting were already cured of.
+    layout_window.update_text_cache_after_edit(
+        target.dom,
+        operation.pre_state.node_id,
+        new_content,
+    );
+    let restore = UndoRestore {
+        range: operation.pre_state.selection_range.into_option(),
+        cursor: operation.pre_state.cursor_position.into_option(),
+    };
+    layout_window.undo_redo_manager.push_redo(operation);
+    Some(restore)
+}
+
+/// The body of `SystemChange::RedoTextEdit`: pop the node's redo entry and
+/// restore the post-edit content (the styled snapshot, else the pre-text
+/// plus the inserted text for an insert). `false` = nothing redone.
+fn redo_text_edit_on(
+    layout_window: &mut azul_layout::window::LayoutWindow,
+    target: azul_core::dom::DomNodeId,
+) -> bool {
+    use azul_layout::managers::changeset::TextOperation;
+    use azul_layout::text3::cache::{InlineContent, StyleProperties, StyledRun};
+    use std::sync::Arc;
+
+    let Some(node_id) = target.node.into_crate_internal() else {
+        return false;
+    };
+    let Some(operation) = layout_window.undo_redo_manager.pop_redo(node_id) else {
+        return false;
+    };
+    let new_content = layout_window
+        .undo_redo_manager
+        .get_content_snapshot(operation.changeset.id)
+        .map(|snap| snap.post.clone())
+        .or_else(|| {
+            if let TextOperation::InsertText(op) = &operation.changeset.operation {
+                let mut text = operation.pre_state.text_content.as_str().to_string();
+                text.push_str(op.text.as_str());
+                Some(vec![InlineContent::Text(StyledRun {
+                    text: Arc::from(text.as_str()),
+                    style: Arc::new(StyleProperties::default()),
+                    logical_start_byte: 0,
+                    source_node_id: None,
+                })])
+            } else {
+                None
+            }
+        });
+    if let Some(new_content) = new_content {
+        // Same keying as undo: the content goes back to the node the edit
+        // re-shaped, not the host the stack is keyed by.
+        layout_window.update_text_cache_after_edit(
+            target.dom,
+            operation.pre_state.node_id,
+            new_content,
+        );
+        layout_window.undo_redo_manager.reinstate_undo(operation);
+        return true;
+    }
+    layout_window.undo_redo_manager.push_redo(operation);
+    false
 }

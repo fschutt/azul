@@ -268,3 +268,38 @@ fn overwriting_a_one_character_selection_with_one_character_is_applied() {
         EditOutcome::NoOp(reason) => panic!("a same-length replacement was dropped: {reason:?}"),
     }
 }
+
+/// A seat's Ctrl+A / Ctrl+C / Ctrl+X (9b-ii-a-i-d-ii-b-i): select-all spans the
+/// seat's node, the selected text is what Copy puts on the clipboard, and Cut
+/// is that plus the seat's delete op - with the primary's field and caret
+/// untouched throughout.
+#[test]
+fn a_seats_select_all_copy_text_and_cut_act_on_its_own_field() {
+    use azul_core::events::{SelectionDirection, SelectionMode, SelectionOp, SelectionStep};
+    let mut lw = two_fields();
+    primary_edits(&mut lw, TEXT_A, 1);
+    lw.focus_manager.set_focused_node_for(SEAT, Some(node(TEXT_B)));
+
+    assert_eq!(lw.seat_selected_text(SEAT), None, "a bare caret copies nothing");
+    assert!(lw.select_all_for_seat(SEAT, node(TEXT_B)));
+    let caret = lw.text_edit_manager.seat_caret(SEAT).expect("a seat selection");
+    assert_eq!(caret.anchor.map(|a| a.cluster_id.start_byte_in_run), Some(0));
+    assert_eq!(lw.seat_selected_text(SEAT).as_deref(), Some("bbb"));
+
+    // Cut = the seat's delete op over its anchored selection.
+    let delete = SelectionOp::new(
+        SelectionDirection::Backward,
+        SelectionStep::Character,
+        SelectionMode::Delete,
+    );
+    assert!(lw.apply_selection_op_for_seat(SEAT, node(TEXT_B), &delete));
+    assert_eq!(text_of(&lw, TEXT_B), "");
+    assert_eq!(text_of(&lw, TEXT_A), "aaa");
+    assert_eq!(
+        lw.text_edit_manager.get_primary_cursor().map(|c| c.cluster_id.start_byte_in_run),
+        Some(1),
+        "the primary's caret in A is untouched"
+    );
+    // Select-all is a seat-only helper: the primary keeps its cross-block path.
+    assert!(!lw.select_all_for_seat(azul_core::window::PRIMARY_POINTER_SEAT, node(TEXT_A)));
+}

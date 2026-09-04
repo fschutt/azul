@@ -9943,6 +9943,91 @@ impl LayoutWindow {
     }
 
     /// Helper: Move cursor using a movement function and return the new cursor if it changed
+    /// Select the whole text of `target` for seat `seat_id` (a seat's Ctrl+A,
+    /// 9b-ii-a-i-d-ii-b-i): anchor on the first cluster, caret after the last.
+    /// One node only - the primary's select-all spans blocks through the
+    /// cross-block selection, which a seat does not have.
+    pub fn select_all_for_seat(&mut self, seat_id: u64, target: DomNodeId) -> bool {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            return false;
+        }
+        let dom_id = target.dom;
+        let Some(node_id) = target.node.into_crate_internal() else {
+            return false;
+        };
+        let ifc_node = self
+            .resolve_ifc_layout_node(dom_id, node_id)
+            .unwrap_or(node_id);
+        let (first, last) = {
+            let dense = self.get_dense_for_node(dom_id, ifc_node);
+            match dense {
+                Some(d) => (d.first_cluster_cursor(), d.last_cluster_cursor()),
+                None => {
+                    let Some(layout) = self.get_inline_layout_for_node(dom_id, ifc_node) else {
+                        return false;
+                    };
+                    (
+                        layout.get_first_cluster_cursor(),
+                        layout.get_last_cluster_cursor(),
+                    )
+                }
+            }
+        };
+        let (Some(first), Some(last)) = (first, last) else {
+            return false;
+        };
+        self.text_edit_manager
+            .set_seat_selection(seat_id, target, last, Some(first));
+        self.regenerate_display_list_for_dom(dom_id);
+        true
+    }
+
+    /// The plain text under seat `seat_id`'s selection (a seat's Copy / Cut,
+    /// 9b-ii-a-i-d-ii-b-i); `None` when the seat has no selection (a bare
+    /// caret copies nothing, as the primary's does).
+    #[must_use]
+    pub fn seat_selected_text(&self, seat_id: u64) -> Option<String> {
+        let caret = self.text_edit_manager.seat_caret(seat_id)?;
+        let Selection::Range(range) = caret.selection() else {
+            return None;
+        };
+        let node_id = caret.node.node.into_crate_internal()?;
+        let content = self.get_text_before_textinput(caret.node.dom, node_id);
+        let runs: Vec<&str> = content
+            .iter()
+            .map(|c| match c {
+                InlineContent::Text(r) => &*r.text,
+                _ => "",
+            })
+            .collect();
+        let at = |c: &TextCursor| -> (usize, usize) {
+            let run = (c.cluster_id.source_run as usize).min(runs.len().saturating_sub(1));
+            let byte = crate::text3::edit::cursor_byte_offset_in_run(runs[run], c);
+            (run, byte)
+        };
+        if runs.is_empty() {
+            return None;
+        }
+        let (mut a, mut b) = (at(&range.start), at(&range.end));
+        if a > b {
+            core::mem::swap(&mut a, &mut b);
+        }
+        let mut out = String::new();
+        for run in a.0..=b.0 {
+            let text = runs[run];
+            let lo = if run == a.0 { a.1.min(text.len()) } else { 0 };
+            let hi = if run == b.0 { b.1.min(text.len()) } else { text.len() };
+            if lo < hi && text.is_char_boundary(lo) && text.is_char_boundary(hi) {
+                out.push_str(&text[lo..hi]);
+            }
+        }
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
+        }
+    }
+
     /// The non-primary half of `apply_selection_op_for_seat` (9b-ii-a-i-d-ii-b).
     /// A seat without a caret in `target` starts at the end of its text (where
     /// its first keystroke would land too). Move collapses an anchored

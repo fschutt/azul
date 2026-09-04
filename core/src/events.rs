@@ -4226,6 +4226,14 @@ pub enum SystemChange {
     /// Select the next occurrence of the current selection's text (Ctrl+D).
     /// If the primary selection is a cursor, expand it to the word first.
     SelectNextOccurrence { target: DomNodeId },
+    /// A NON-primary seat's editing shortcut (9b-ii-a-i-d-ii-b-i): Copy /
+    /// Cut / Paste / Select-all / Undo / Redo on THAT seat's focus and caret.
+    /// The primary's shortcuts stay the dedicated variants above.
+    SeatShortcut {
+        seat_id: u64,
+        target: DomNodeId,
+        shortcut: KeyboardShortcut,
+    },
 
     // === Text Input ===
     /// Apply pending text input from platform (keyboard/IME).
@@ -5346,6 +5354,14 @@ fn handle_key_down(
     // primary-modifier combos are matched after.
     if primary {
         if let Some(shortcut) = KeyboardShortcut::from_key(*vk, primary, shift) {
+            // A second seat's shortcut acts on ITS caret (9b-ii-a-i-d-ii-b-i).
+            if kbd.seat_id != crate::window::PRIMARY_POINTER_SEAT {
+                return Some(InternalEventAction::AddAndSkip(SystemChange::SeatShortcut {
+                    seat_id: kbd.seat_id,
+                    target,
+                    shortcut,
+                }));
+            }
             let change = match shortcut {
                 KeyboardShortcut::Copy => SystemChange::CopyToClipboard,
                 KeyboardShortcut::Cut => SystemChange::CutToClipboard { target },
@@ -5357,6 +5373,11 @@ fn handle_key_down(
             return Some(InternalEventAction::AddAndSkip(change));
         }
         if matches!(vk, VirtualKeyCode::D) {
+            // Ctrl+D adds a multi-cursor, which is the primary's alone
+            // (9b-ii-a-i-d-ii-b-i): a seat's passes through to callbacks.
+            if kbd.seat_id != crate::window::PRIMARY_POINTER_SEAT {
+                return None;
+            }
             return Some(InternalEventAction::AddAndSkip(
                 SystemChange::SelectNextOccurrence { target },
             ));

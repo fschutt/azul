@@ -2247,12 +2247,34 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       Evidence: host check EXIT=0; azul-core 2809, azul-layout lib 7683 / `--test all` 1008 (+2),
       e2e 62 scenarios, azul-dll 2071, 0 failed; 8/8 gate. Still the primary's: the SHORTCUT
       changes (ii-b-i).
-- [ ] 9b-ii-a-i-d-ii-b-i A seat's SHORTCUTS: `CutToClipboard`, `CopyToClipboard`,
-      `PasteFromClipboard`, `SelectAllText`, `UndoTextEdit` / `RedoTextEdit`, `SelectNextOccurrence`
-      and the Enter split (`SplitBlockAtCursor`) carry a `target` but no seat, and their arms read
-      the multi-cursor - a second seat's Ctrl+A selects the primary's field. Same recipe as the
-      ops: a `seat_id` on each change and a seat branch in the arm; Cut / Copy need the seat's
-      selection extracted (`get_selected_content_for_clipboard` reads the multi-cursor).
+- [x] 9b-ii-a-i-d-ii-b-i DONE. ONE new change, `SystemChange::SeatShortcut { seat_id, target,
+      shortcut }`, emitted by `handle_key_down` for a non-primary seat's Ctrl+C / X / V / A / Z /
+      Y - the primary's six dedicated variants stay untouched at their ~54 sites. The shell arm:
+      Select-all = `select_all_for_seat` (anchor on the first cluster, caret after the last, ONE
+      node - the primary's spans blocks through the cross-block selection a seat does not have);
+      Copy / Cut = `seat_selected_text` (the plain text under the seat's anchored range; a bare
+      caret copies nothing, as the primary's does) onto the OS clipboard, Cut then runs the seat's
+      Delete op over the selection; Paste = the clipboard's plain text through
+      `record_text_input_for_seat`, landed by the pass's changeset apply; Undo / Redo = the same
+      node-stack logic as the primary's, whose arm bodies were factored into `undo_text_edit_on` /
+      `redo_text_edit_on` so each caller places the caret itself - the primary into the
+      multi-cursor, the seat into its `SeatCaret` (before this, a seat's Ctrl+Z restored the
+      seat node's text but wrote the pre-edit position into the PRIMARY's multi-cursor). Ctrl+D
+      (`SelectNextOccurrence`) is a multi-cursor feature: a seat's passes through to callbacks
+      instead of adding a cursor to the primary's session. Tests: seat select-all / selected
+      text / cut with the primary's field and caret untouched; the primary's select-all path is
+      not routed through the seat helper. Evidence: host check EXIT=0; azul-core 2809,
+      azul-layout lib 7683 / `--test all` 1009 (+1), e2e 62 scenarios, azul-dll 2071, 0 failed;
+      8/8 gate (the shell arm compiles on every target).
+- [ ] 9b-ii-a-i-d-ii-b-ii STRUCTURAL edits per seat: Enter (`SplitBlockAtCursor`), Backspace at a
+      block start (`MergeWithPrevious`) and Delete at a block end (`MergeWithNext`) go through
+      `record_default_action_as_structural_edit`, whose `caret_node_position` reads the PRIMARY's
+      caret; the default-action site knows the key seat (d-i) but the layout side does not.
+      Thread the seat through and read the seat's caret for the split position.
+- [ ] 9b-ii-a-i-d-ii-b-iii A seat's rich (styled) Copy / Paste: the seat path carries plain text
+      only; the primary's `get_selected_content_for_clipboard` / `set_paste_content` styled path
+      reads the multi-cursor. Extend `seat_selected_text` to styled runs when a seat's selection
+      needs to round-trip formatting.
 - [ ] 9b-ii-a-i-d-ii-c IME / preedit per seat: `ime_document`, `preedit_text` and the composition
       phase are the primary's; a second seat's input method composes into the primary's field.
       Wayland has one text-input per seat, so the producer exists; the engine side does not.
