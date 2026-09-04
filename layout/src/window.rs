@@ -949,6 +949,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         media_session_manager: _,
         form_validation_manager: _,
         safe_area_insets: _,
+        laid_out_safe_area_insets: _,
         currently_dragging_thumb: _,
         pending_caret_restore: _,
         structural_history_suppression: _,
@@ -1464,6 +1465,17 @@ pub struct LayoutWindow {
     /// px. Set by the platform shell (macOS NSScreen.safeAreaInsets, iOS
     /// UIView.safeAreaInsets, Android `WindowInsets`); zero where none.
     pub safe_area_insets: azul_css::system::SafeAreaInsets,
+    /// The insets the RETAINED layout tree in `layout_cache` was built with.
+    ///
+    /// `env(safe-area-inset-*)` is baked at CASCADE time, so a change to
+    /// `safe_area_insets` changes the RESOLVED value of a property whose
+    /// declaration text is identical - and the solver's incremental
+    /// reconcile fingerprints pre-cascade node data plus interaction state,
+    /// so it cannot see that. The retained tree is dropped when this differs
+    /// from `safe_area_insets`, the same treatment a dock change gets, and
+    /// for the same reason: a rotation or a keyboard show is a rare,
+    /// user-driven event that can afford one cold pass.
+    laid_out_safe_area_insets: azul_css::system::SafeAreaInsets,
     /// Timers associated with this window
     pub timers: BTreeMap<TimerId, Timer>,
     /// Threads running in the background for this window
@@ -2031,6 +2043,7 @@ impl LayoutWindow {
             media_session_manager: azul_core::media_session::MediaSessionManager::new(),
             form_validation_manager: azul_core::form::FormValidationManager::new(),
             safe_area_insets: azul_css::system::SafeAreaInsets::default(),
+            laid_out_safe_area_insets: azul_css::system::SafeAreaInsets::default(),
             timers: BTreeMap::new(),
             system_animations_override: None,
             threads: BTreeMap::new(),
@@ -5906,6 +5919,31 @@ impl LayoutWindow {
                     .unwrap_or_default(),
                 _ => Vec::new(),
             };
+
+        // SAFE-AREA CHANGE: lay the root out cold, once.
+        //
+        // `env(safe-area-inset-*)` resolves at CASCADE time against the
+        // dynamic-selector context this pass offered, so a rotation or a
+        // keyboard show changes what `padding-bottom: env(safe-area-inset-
+        // bottom, 7px)` COMPUTES TO while the declaration, the node data and
+        // the interaction state all stay byte-identical. Those three are what
+        // `reconcile_recursive` fingerprints, so the retained tree calls every
+        // such node clean and hands back its old box: the property cache read
+        // 34px and the laid-out node stayed 7px wide forever - a window that
+        // had ever laid out without insets could never pick them up, while a
+        // window that was born with them was correct.
+        //
+        // Dropping the retained tree is what the dock change immediately below
+        // does for the same class of problem, and the cost is the same: one
+        // cold pass on an event the user causes by hand.
+        if dom_id == DomId::ROOT_ID && self.laid_out_safe_area_insets != self.safe_area_insets {
+            self.laid_out_safe_area_insets = self.safe_area_insets;
+            if self.layout_cache.tree.is_some() {
+                let build_seq = self.layout_cache.build_seq;
+                self.layout_cache = solver3::cache::LayoutCache::default();
+                self.layout_cache.build_seq = build_seq;
+            }
+        }
 
         // Inline-docked `<transient-window>`s: which nodes lay out inline and
         // onto which zone each is grafted, for this pass (the ROOT dom hangs
@@ -20290,6 +20328,7 @@ impl LayoutWindow {
             #[cfg(feature = "pdf")]
                 fragmentation_context: _,
             safe_area_insets: _,
+            laid_out_safe_area_insets: _,
             // App-level animation CONFIG (durations + fn pointers), no node ids.
             system_animations_override: _,
             timers: _,
