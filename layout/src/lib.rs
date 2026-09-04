@@ -521,8 +521,11 @@ pub mod timer;
 pub mod transient;
 /// Render an icon-registry entry to RGBA pixels, for the system tray.
 /// Goes through the same `<icon>` resolution + CPU renderer, so every icon
-/// kind (and any future DOM-expressible one) works without a special case.
-#[cfg(all(feature = "text_layout", feature = "std"))]
+/// kind (and any future DOM-expressible one) works without a special case --
+/// which is why it needs `cpurender` too: both of its public items exist to
+/// rasterize an icon, and `render_icon_to_rgba` calls
+/// `cpurender::render_component_preview` directly.
+#[cfg(all(feature = "text_layout", feature = "std", feature = "cpurender"))]
 pub mod tray_icon;
 /// Window layout management: relayout, event processing, state sync.
 #[cfg(feature = "text_layout")]
