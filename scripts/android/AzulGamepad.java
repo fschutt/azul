@@ -235,7 +235,77 @@ public final class AzulGamepad {
         return true;
     }
 
+    /**
+     * A captured-pointer event (AzulInputView.onCapturedPointerEvent). Only a
+     * SOURCE_TOUCHPAD event is a pad's touch surface (8f-i-a-ii); a captured
+     * mouse is not ours. The touchpad is its OWN InputDevice, separate from
+     * the pad's gamepad device, so it is paired to the gamepad device with
+     * the same vendor/product - when exactly one matches. Two identical pads
+     * are ambiguous and nothing is guessed (8f-i-a-ii-a).
+     *
+     * Positions are normalised to 0..1 over the device's reported motion
+     * range, y flipped to the bottom-left origin GamepadState::touchpad_x
+     * documents. Only the first pointer is forwarded (8f-i-a-ii-a).
+     *
+     * @return true when consumed.
+     */
+    public static boolean onCapturedPointer(MotionEvent event) {
+        if (event == null
+                || (event.getSource() & InputDevice.SOURCE_TOUCHPAD) != InputDevice.SOURCE_TOUCHPAD) {
+            return false;
+        }
+        InputDevice surface = event.getDevice();
+        if (surface == null) {
+            return false;
+        }
+        int padId = -1;
+        if (isGamepad(surface.getId())) {
+            padId = surface.getId();
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            int vendor = surface.getVendorId();
+            int product = surface.getProductId();
+            int found = 0;
+            for (int id : InputDevice.getDeviceIds()) {
+                InputDevice d = InputDevice.getDevice(id);
+                if (d != null && isGamepad(id)
+                        && d.getVendorId() == vendor && d.getProductId() == product) {
+                    padId = id;
+                    found++;
+                }
+            }
+            if (found != 1) {
+                return false;
+            }
+        }
+        if (padId < 0) {
+            return false;
+        }
+        int action = event.getActionMasked();
+        boolean active = action != MotionEvent.ACTION_UP
+                && action != MotionEvent.ACTION_CANCEL
+                && event.getPointerCount() > 0;
+        float x = 0f;
+        float y = 0f;
+        if (active) {
+            InputDevice.MotionRange rx = surface.getMotionRange(MotionEvent.AXIS_X, event.getSource());
+            InputDevice.MotionRange ry = surface.getMotionRange(MotionEvent.AXIS_Y, event.getSource());
+            x = normalise(event.getX(0), rx);
+            y = 1f - normalise(event.getY(0), ry);
+        }
+        nativeOnTouchpad(padId, active ? 1 : 0, x, y);
+        return true;
+    }
+
+    private static float normalise(float value, InputDevice.MotionRange range) {
+        if (range == null || range.getRange() <= 0f) {
+            return value;
+        }
+        return (value - range.getMin()) / range.getRange();
+    }
+
     private static native void nativeOnButton(int deviceId, int keycode, int isDown);
+
+    private static native void nativeOnTouchpad(int deviceId, int active, float x, float y);
 
     private static native void nativeOnAxes(int deviceId, float x, float y, float z, float rz,
                                             float ltrigger, float rtrigger,

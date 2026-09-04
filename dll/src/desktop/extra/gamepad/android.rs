@@ -31,9 +31,13 @@
 //! `GamepadState::gyro_*`: a game that aims with the pad must not read the
 //! phone. Both Android units already match azul-core's (m/s^2 and rad/s).
 //!
-//! The touch surface is NOT filled on Android and cannot be: the platform
-//! turns a DualShock touchpad into an on-screen mouse pointer rather than
-//! exposing the surface. See 8f-i-a-ii.
+//! The touch surface is filled ONLY under pointer capture (8f-i-a-ii):
+//! uncaptured, the platform turns a DualShock touchpad into an on-screen
+//! mouse pointer and exposes nothing; while `CallbackInfo::set_pointer_lock`
+//! holds `View.requestPointerCapture`, the surface arrives as a
+//! `SOURCE_TOUCHPAD` captured-pointer event with absolute positions, which
+//! `AzulGamepad.onCapturedPointer` normalises and forwards to
+//! `nativeOnTouchpad`. Without a capture `touchpad_active` stays false.
 
 use azul_core::gamepad::{GamepadButton, GamepadId, GamepadState};
 use azul_layout::managers::gamepad::push_gamepad_state;
@@ -120,6 +124,31 @@ pub unsafe extern "system" fn Java_com_azul_gamepad_AzulGamepad_nativeOnButton(
             p.buttons |= button.bit();
         } else {
             p.buttons &= !button.bit();
+        }
+    }) else {
+        return;
+    };
+    push_gamepad_state(state);
+}
+
+/// The pad's touch surface under pointer capture (8f-i-a-ii): one finger,
+/// normalised 0..1, y up (the Java side flipped it). `active == 0` is the
+/// lift-off.
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_azul_gamepad_AzulGamepad_nativeOnTouchpad(
+    _env: *mut core::ffi::c_void,
+    _class: *mut core::ffi::c_void,
+    device_id: i32,
+    active: i32,
+    x: f32,
+    y: f32,
+) {
+    let Some(state) = with_pad(device_id, |p| {
+        p.connected = true;
+        p.touchpad_active = active != 0;
+        if active != 0 {
+            p.touchpad_x = x.clamp(0.0, 1.0);
+            p.touchpad_y = y.clamp(0.0, 1.0);
         }
     }) else {
         return;

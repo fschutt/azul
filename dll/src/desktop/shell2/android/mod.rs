@@ -506,6 +506,18 @@ impl AndroidWindow {
 }
 
 impl PlatformWindow for AndroidWindow {
+    /// Android's pointer lock is pointer CAPTURE (`View.requestPointerCapture`,
+    /// API 26) on the input view; the JNI hop is `set_pointer_capture`. The
+    /// capture takes only if the window is focused, and the framework reports
+    /// that asynchronously (`onPointerCaptureChange`), which is not fed back
+    /// yet (9d-android-a) - so `true` here means "requested on API 26+", the
+    /// closest this backend can answer synchronously. A release always leaves
+    /// no lock held.
+    fn handle_set_pointer_lock(&mut self, locked: bool) -> bool {
+        let dispatched = set_pointer_capture(locked);
+        locked && dispatched
+    }
+
     fn regenerate_layout_once(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
@@ -2399,6 +2411,67 @@ pub fn set_selection_toolbar_visible(_visible: bool, _native_ptr: i64) {}
 /// which is what happened before this function existed at all.
 #[cfg(all(target_os = "android", not(feature = "jni")))]
 pub fn set_soft_keyboard_visible(_visible: bool) {}
+
+/// Pointer capture on the input view (9d-android, the grab behind
+/// `CallbackInfo::set_pointer_lock`; it is also what makes a pad's touch
+/// surface readable, 8f-i-a-ii). Returns whether the request was dispatched
+/// to `NativeTextBridge.setPointerCapture` (API 26+ with the view installed).
+#[cfg(all(target_os = "android", feature = "jni"))]
+pub fn set_pointer_capture(captured: bool) -> bool {
+    use jni::JavaVM;
+
+    let vm_ptr = java_vm_ptr();
+    let activity_ptr = activity_ptr();
+    if vm_ptr.is_null() || activity_ptr.is_null() {
+        log_debug!(
+            LogCategory::Input,
+            "[Android] pointer capture: JNI context not published yet"
+        );
+        return false;
+    }
+    let result = (|| -> Result<bool, String> {
+        let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }
+            .map_err(|e| format!("JavaVM::from_raw: {e:?}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        let activity =
+            unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
+        let class = crate::desktop::extra::find_app_class(
+            &mut env,
+            &activity,
+            "com/azul/text/NativeTextBridge",
+        )
+        .ok_or_else(|| "NativeTextBridge not in this APK".to_string())?;
+        env.call_static_method(
+            &class,
+            "setPointerCapture",
+            "(Landroid/app/Activity;Z)Z",
+            &[
+                jni::objects::JValue::Object(&activity),
+                jni::objects::JValue::Bool(captured as jni::sys::jboolean),
+            ],
+        )
+        .and_then(|v| v.z())
+        .map_err(|e| {
+            let _ = env.exception_clear();
+            format!("call setPointerCapture: {e:?}")
+        })
+    })();
+    match result {
+        Ok(dispatched) => dispatched,
+        Err(e) => {
+            log_debug!(LogCategory::Input, "[Android] pointer capture: {e}");
+            false
+        }
+    }
+}
+
+/// Without `jni` there is no view to capture on: no lock is ever held.
+#[cfg(all(target_os = "android", not(feature = "jni")))]
+pub fn set_pointer_capture(_captured: bool) -> bool {
+    false
+}
 
 /// The `android.view.HapticFeedbackConstants` field name this pattern is
 /// rendered as, or `None` if Android has no constant for it.

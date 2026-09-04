@@ -32,6 +32,7 @@ import android.graphics.Insets;
 import android.os.Build;
 import android.text.Editable;
 import android.text.SpannableStringBuilder;
+import android.view.MotionEvent;
 import android.view.View;
 import android.graphics.Rect;
 import android.util.Log;
@@ -276,6 +277,22 @@ public final class NativeTextBridge {
             return true;
         }
 
+        /**
+         * Captured-pointer input (API 26, while {@link #setPointerCapture}
+         * holds the capture). This is the ONLY way Android exposes a
+         * DualShock/DualSense touch surface: uncaptured, the platform turns
+         * it into an on-screen mouse pointer; captured, it arrives here as a
+         * SOURCE_TOUCHPAD event with absolute surface positions per pointer
+         * (8f-i-a-ii). Mouse events (SOURCE_MOUSE_RELATIVE) fall through.
+         */
+        @Override
+        public boolean onCapturedPointerEvent(MotionEvent event) {
+            if (com.azul.gamepad.AzulGamepad.onCapturedPointer(event)) {
+                return true;
+            }
+            return super.onCapturedPointerEvent(event);
+        }
+
         @Override
         public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
             // The focused control's purpose, from its HTML `type` attribute.
@@ -352,6 +369,37 @@ public final class NativeTextBridge {
 
     /** The input view installed by {@link #installInputView}, if any. */
     private static AzulInputView inputView;
+
+    /**
+     * Pointer capture on the input view (Android's pointer lock, API 26):
+     * the grab behind {@code CallbackInfo::set_pointer_lock} here. The view
+     * must be focused and the window must have focus for the capture to
+     * take; the framework answers that asynchronously through
+     * {@code onPointerCaptureChange}, which is NOT fed back yet (logged as
+     * 9d-android-a).
+     *
+     * @return true when the request was dispatched (API 26+, view installed).
+     */
+    public static boolean setPointerCapture(Activity activity, boolean captured) {
+        if (activity == null || inputView == null
+                || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return false;
+        }
+        final AzulInputView view = inputView;
+        activity.runOnUiThread(() -> {
+            try {
+                if (captured) {
+                    view.requestFocus();
+                    view.requestPointerCapture();
+                } else {
+                    view.releasePointerCapture();
+                }
+            } catch (Throwable t) {
+                Log.w("azul", "NativeTextBridge.setPointerCapture(" + captured + "): " + t);
+            }
+        });
+        return true;
+    }
 
     /**
      * Add the input view to the activity's content.
