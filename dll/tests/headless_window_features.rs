@@ -19,7 +19,7 @@ use azul_core::refany::RefAny;
 use azul_core::resources::AppConfig;
 use azul_core::window::{
     AcceleratorKey, FullScreenMode, OptionVirtualKeyCode, TouchPoint, TouchToolType,
-    VirtualKeyCode, WindowFrame,
+    VirtualKeyCode, WindowFrame, PRIMARY_POINTER_SEAT,
 };
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
@@ -185,8 +185,15 @@ fn touch_points_are_recorded_on_window_state() {
     // it was never updated - so `cargo check --tests -p azul-dll` has been RED
     // on every target since. `0.0` is the documented "not reported" value and
     // a synthetic pinch has no contact geometry to report.
+    //
+    // It happened AGAIN with `seat_id` (9b-ii-a-i-c, per-seat touch id spaces),
+    // for the same reason: this target is only built by the dll_tests job, so a
+    // field added to TouchPoint does not break anything anyone runs locally.
+    // `PRIMARY_POINTER_SEAT` is what the struct's own doc names for "the one
+    // touchscreen every other platform has", which is what a synthetic pinch is.
     let p1 = TouchPoint {
         id: 1,
+        seat_id: PRIMARY_POINTER_SEAT,
         position: LogicalPosition::new(100.0, 200.0),
         force: 0.5,
         major: 0.0,
@@ -196,6 +203,7 @@ fn touch_points_are_recorded_on_window_state() {
     };
     let p2 = TouchPoint {
         id: 2,
+        seat_id: PRIMARY_POINTER_SEAT,
         position: LogicalPosition::new(150.0, 220.0),
         force: 0.7,
         major: 0.0,
