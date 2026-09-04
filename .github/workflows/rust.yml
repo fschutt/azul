@@ -5279,8 +5279,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.90.0
-      - name: Install clang + headless deps
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev
+      # PINNED, AND PINNED TOGETHER WITH THE NIGHTLY BELOW.
+      #
+      # TSan links Rust-instrumented code against clang's compiler-rt TSan
+      # runtime, so the two have to agree on the instrumentation ABI: rustc
+      # emits calls (`__tsan_memcpy` and friends, LLVM 17+) that the runtime has
+      # to define. Bumping one side without the other fails at LINK time with
+      # undefined `__tsan_*` references, which is why neither is `latest` here.
+      # If you bump one, bump the other and re-run this job.
+      #
+      # `libclang-rt-18-dev` is named explicitly because it is the package that
+      # ships `libclang_rt.tsan-x86_64.a`; plain `clang` does not depend on it,
+      # and the preflight below can only check a runtime that exists.
+      - name: Install clang (pinned) + headless deps
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang-18 libclang-rt-18-dev libgl1-mesa-dev libx11-dev
+          # `clang` is used unqualified throughout this job; make it the pinned one.
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          clang --version | head -1
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@v8
         with:
@@ -5291,12 +5309,15 @@ jobs:
         run: cargo build -p azul-dll --features build-dll
 
       # TSan requires Rust instrumentation to avoid false positives with futex-based Mutexes.
-      - name: Install nightly (for -Zsanitizer)
-        run: rustup toolchain install nightly --component rust-src
+      # `-Zsanitizer` and `-Zbuild-std` are unstable, so this half cannot move to
+      # stable; the ASan/UBSan runs below already use the stable 1.90.0 build.
+      # PINNED to a date for the reason given on the clang step above.
+      - name: Install nightly (pinned, for -Zsanitizer)
+        run: rustup toolchain install nightly-2026-09-03 --component rust-src
       - name: Build azul-dll with ThreadSanitizer instrumentation
         run: |
           set -euo pipefail
-          RUSTFLAGS="-Zsanitizer=thread" cargo +nightly build \
+          RUSTFLAGS="-Zsanitizer=thread" cargo +nightly-2026-09-03 build \
             -Zbuild-std=std,panic_abort \
             --target x86_64-unknown-linux-gnu \
             -p azul-dll --features build-dll
@@ -5331,17 +5352,29 @@ jobs:
           san_failed=0
           tsan_preflight() {
             local rt
-            rt=$(clang -print-file-name=libclang_rt.tsan.a 2>/dev/null || true)
+            # On Linux the archive is ARCH-SUFFIXED, so ask for that name first;
+            # `libclang_rt.tsan.a` is the unsuffixed layout some toolchains use.
+            rt=$(clang -print-file-name=libclang_rt.tsan-x86_64.a 2>/dev/null || true)
             if [ ! -f "$rt" ]; then
+              rt=$(clang -print-file-name=libclang_rt.tsan.a 2>/dev/null || true)
+            fi
+            if [ ! -f "$rt" ]; then
+              # `-name 'libclang_rt.tsan*.a'` ALSO matches libclang_rt.tsan_cxx*.a,
+              # the C++-only half, which does not define __tsan_memcpy at all --
+              # and `find | head -1` returned exactly that, so this preflight
+              # reported "clang ships a TSan runtime WITHOUT __tsan_memcpy" about
+              # a perfectly good LLVM 18. Exclude the _cxx half and sort, so the
+              # answer does not depend on directory order.
               rt=$(find "$(dirname "$(readlink -f "$(command -v clang)")")/.." \
-                   -name 'libclang_rt.tsan*.a' 2>/dev/null | head -1)
+                   -name 'libclang_rt.tsan*.a' ! -name '*tsan_cxx*' 2>/dev/null \
+                   | sort | head -1)
             fi
             if [ -z "$rt" ] || [ ! -f "$rt" ]; then
-              echo "::error::cannot locate clang's TSan runtime - $(clang --version | head -1)"
+              echo "::error::cannot locate clang's TSan runtime - $(clang --version | head -1). Is libclang-rt-18-dev installed?"
               return 1
             fi
             if ! nm -g "$rt" 2>/dev/null | grep -q 'T __tsan_memcpy'; then
-              echo "::error::$(clang --version | head -1) ships a TSan runtime WITHOUT __tsan_memcpy (added in LLVM 17). rustc ($(rustc +nightly --version)) instruments memory intrinsics and emits it, so the C link will fail on undefined references."
+              echo "::error::$rt ($(clang --version | head -1)) has no __tsan_memcpy (added in LLVM 17). rustc ($(rustc +nightly-2026-09-03 --version)) instruments memory intrinsics and emits it, so the C link will fail on undefined references. Both toolchains are pinned in this job - if you bumped one, bump the other."
               return 1
             fi
             echo "clang TSan runtime OK ($(clang --version | head -1)): $rt"
