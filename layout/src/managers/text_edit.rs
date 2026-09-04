@@ -3507,6 +3507,150 @@ impl azul_core::events::EventProvider for TextEditManager {
     }
 }
 
+/// Rebase a byte range of the IME DOCUMENT - the committed text with the
+/// preedit spliced in at `marked` (see `LayoutWindow::ime_document`) - onto
+/// the COMMITTED text alone (10b-i-b-i-b).
+///
+/// This is what makes an explicit `replacementRange` during a composition
+/// applicable: the offsets the input method sends index a string that
+/// contains the marked text, and the selection seam the range is applied
+/// through resolves against a layout that no longer does once the preedit
+/// is un-shaped. So the caller ends (un-shapes) the composition FIRST and
+/// then applies the range this returns - the reading WebKit's
+/// `WebPage::setCompositionAsync` / `insertTextAsync` imply, where the
+/// replacement selection is set on the document and the composition is
+/// then confirmed before the new text lands.
+///
+/// - `None` (`NSNotFound`) stays `None`: an implicit range is the caret or
+///   the composition, which need no rebasing.
+/// - No composition: the range is only ordered.
+/// - A range wholly BEFORE the preedit is unchanged.
+/// - A range wholly AFTER it slides back by the preedit's length.
+/// - A range OVERLAPPING the preedit (partially or wholly, or containing
+///   it) resolves to the preedit's own place in the committed text: the
+///   empty span at the composition's start, which is where the caret sits
+///   once the preedit is gone. The caller's replacement rule reads an empty
+///   range as "act at the caret", so the committed text around the
+///   composition is never deleted on the strength of offsets that named
+///   composed glyphs - a partial overlap is not a shape any IME documents,
+///   and this is the conservative reading of it.
+/// - A zero-length range is a point and follows the same rules.
+#[must_use]
+pub fn rebase_ime_range_onto_committed(
+    range: Option<(usize, usize)>,
+    marked: Option<(usize, usize)>,
+) -> Option<(usize, usize)> {
+    let (start, end) = range?;
+    let (start, end) = if start <= end { (start, end) } else { (end, start) };
+    let Some((mark_start, mark_end)) = marked else {
+        return Some((start, end));
+    };
+    let (mark_start, mark_end) = if mark_start <= mark_end {
+        (mark_start, mark_end)
+    } else {
+        (mark_end, mark_start)
+    };
+    let preedit_len = mark_end - mark_start;
+    if end <= mark_start {
+        return Some((start, end));
+    }
+    if start >= mark_end {
+        return Some((start - preedit_len, end - preedit_len));
+    }
+    Some((mark_start, mark_start))
+}
+
+#[cfg(test)]
+mod ime_range_rebase_tests {
+    use super::rebase_ime_range_onto_committed;
+
+    // Document "ab" + preedit "にほん" (9 bytes) + "cd": marked = (2, 11).
+    const MARKED: Option<(usize, usize)> = Some((2, 11));
+
+    #[test]
+    fn nsnotfound_is_untouched() {
+        assert_eq!(rebase_ime_range_onto_committed(None, MARKED), None);
+        assert_eq!(rebase_ime_range_onto_committed(None, None), None);
+    }
+
+    #[test]
+    fn without_a_composition_the_range_is_only_ordered() {
+        assert_eq!(rebase_ime_range_onto_committed(Some((5, 2)), None), Some((2, 5)));
+    }
+
+    #[test]
+    fn a_range_before_the_preedit_is_unchanged() {
+        assert_eq!(rebase_ime_range_onto_committed(Some((0, 2)), MARKED), Some((0, 2)));
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((0, 1)), MARKED),
+            Some((0, 1)),
+            "ending short of the preedit is still before it"
+        );
+    }
+
+    #[test]
+    fn a_range_after_the_preedit_slides_back_by_its_length() {
+        // "cd" is bytes 11..13 of the document and 2..4 of the committed text.
+        assert_eq!(rebase_ime_range_onto_committed(Some((11, 13)), MARKED), Some((2, 4)));
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((13, 11)), MARKED),
+            Some((2, 4)),
+            "a reversed range is ordered first"
+        );
+    }
+
+    #[test]
+    fn a_range_overlapping_the_preedit_resolves_to_its_own_place() {
+        let at_composition = Some((2, 2));
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((2, 11)), MARKED),
+            at_composition,
+            "the preedit itself"
+        );
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((0, 5)), MARKED),
+            at_composition,
+            "straddling its start"
+        );
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((8, 13)), MARKED),
+            at_composition,
+            "straddling its end"
+        );
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((0, 13)), MARKED),
+            at_composition,
+            "containing it"
+        );
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((4, 6)), MARKED),
+            at_composition,
+            "inside it"
+        );
+    }
+
+    #[test]
+    fn a_zero_length_range_is_a_point_under_the_same_rules() {
+        assert_eq!(rebase_ime_range_onto_committed(Some((1, 1)), MARKED), Some((1, 1)));
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((2, 2)), MARKED),
+            Some((2, 2)),
+            "at the composition's start: before it"
+        );
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((11, 11)), MARKED),
+            Some((2, 2)),
+            "at its end: after it, and the same point once it is gone"
+        );
+        assert_eq!(rebase_ime_range_onto_committed(Some((13, 13)), MARKED), Some((4, 4)));
+        assert_eq!(
+            rebase_ime_range_onto_committed(Some((5, 5)), MARKED),
+            Some((2, 2)),
+            "inside it: the composition's place"
+        );
+    }
+}
+
 #[cfg(test)]
 mod composition_end_tests {
     use super::{CompositionPhase, TextEditManager};

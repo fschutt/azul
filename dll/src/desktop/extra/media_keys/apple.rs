@@ -554,7 +554,14 @@ unsafe fn artwork_for_url(url: &str) -> *mut objc2::runtime::AnyObject {
 /// (iOS 14.5+, re-exported by AVFoundation), and the constants this needs
 /// are exported NSString globals - read with the same double dereference as
 /// [`info_key`], because `dlsym` hands back the address OF the global.
-#[cfg(target_os = "ios")]
+///
+/// macOS TOO (9h-i-a-i-d-i-a): `AVAudioSession` exists on macOS since 11 and
+/// the framework sits at the same path there. Nothing links it, so a Mac
+/// without the framework, the class, a constant, or one of the selectors
+/// (several `AVAudioSession` methods are `API_UNAVAILABLE(macos)` in the
+/// headers and the runtime class may simply not respond) degrades to the
+/// no-op the desktop always had - see [`AVF_ABSENT`].
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 fn avfaudio() -> Option<&'static libloading::Library> {
     static LIB: std::sync::OnceLock<Option<libloading::Library>> = std::sync::OnceLock::new();
     LIB.get_or_init(|| {
@@ -571,7 +578,7 @@ fn avfaudio() -> Option<&'static libloading::Library> {
     .as_ref()
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 unsafe fn avf_constant(symbol: &[u8]) -> Option<*mut objc2::runtime::AnyObject> {
     let lib = avfaudio()?;
     let sym: libloading::Symbol<'_, *mut *mut objc2::runtime::AnyObject> =
@@ -590,41 +597,75 @@ unsafe fn avf_constant(symbol: &[u8]) -> Option<*mut objc2::runtime::AnyObject> 
 
 /// `AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation`: on release,
 /// tell the apps we interrupted that they may resume.
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 const SET_ACTIVE_NOTIFY_OTHERS: usize = 1;
 /// `AVAudioSessionInterruptionTypeBegan`; `Ended` is 0.
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 const INTERRUPTION_BEGAN: usize = 1;
 /// `AVAudioSessionInterruptionOptionShouldResume`.
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 const INTERRUPTION_SHOULD_RESUME: usize = 1;
+
+/// What the takeover answers when there is no session to take
+/// (9h-i-a-i-d-i-a): on iOS "refused", because a phone's remote command
+/// centre delivers nothing without an active session; on macOS "owned",
+/// because the desktop mixer shares and the command centre works without
+/// one - the answer `media_keys::set_system_audio_takeover` gave before
+/// macOS took this path at all. Every guard below returns this, so a Mac
+/// missing any piece of AVFAudio behaves exactly as it did.
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+const AVF_ABSENT: Option<bool> = Some(cfg!(target_os = "macos"));
 
 /// Activate (or deactivate) the shared `AVAudioSession` with the playback
 /// category (9h-i-a-i-d-i). Activation is what makes the remote command
 /// centre deliver anything - and what interrupts other apps' audio, which is
 /// why it is a runtime call around playback rather than a config flag.
-#[cfg(target_os = "ios")]
+///
+/// On macOS (9h-i-a-i-d-i-a, USER RULING 2026-09-04: implement blindly) the
+/// same dlopen path runs; every step that a Mac may lack is guarded with a
+/// debug log and falls back to [`AVF_ABSENT`]. `respondsToSelector:` guards
+/// the three session methods because they are declared for iOS in the
+/// headers and a macOS class that exists may still not implement them.
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
     use objc2::{msg_send, runtime::AnyObject};
 
     if avfaudio().is_none() {
-        crate::plog_info!("[media-session] AVFAudio unavailable");
-        return Some(false);
+        crate::plog_debug!("[media-session] AVFAudio unavailable; no session to take");
+        return AVF_ABSENT;
     }
     unsafe {
         let Ok(name) = std::ffi::CString::new("AVAudioSession") else {
-            return Some(false);
+            return AVF_ABSENT;
         };
         let Some(cls) = objc2::runtime::AnyClass::get(&name) else {
-            return Some(false);
+            crate::plog_debug!("[media-session] AVAudioSession class absent; no session to take");
+            return AVF_ABSENT;
         };
+        let cls_responds: bool = msg_send![cls, respondsToSelector: objc2::sel!(sharedInstance)];
+        if !cls_responds {
+            crate::plog_debug!("[media-session] AVAudioSession has no sharedInstance here");
+            return AVF_ABSENT;
+        }
         let session: *mut AnyObject = msg_send![cls, sharedInstance];
         if session.is_null() {
-            return Some(false);
+            return AVF_ABSENT;
         }
+        let responds = |sel: objc2::runtime::Sel| -> bool {
+            msg_send![session, respondsToSelector: sel]
+        };
         if active {
+            if !responds(objc2::sel!(setCategory:error:))
+                || !responds(objc2::sel!(setActive:error:))
+            {
+                crate::plog_debug!(
+                    "[media-session] AVAudioSession cannot be activated on this platform"
+                );
+                return AVF_ABSENT;
+            }
             let Some(category) = avf_constant(b"AVAudioSessionCategoryPlayback\0") else {
-                return Some(false);
+                crate::plog_debug!("[media-session] AVAudioSessionCategoryPlayback missing");
+                return AVF_ABSENT;
             };
             // Explicit out-pointers rather than objc2's `error: _` shorthand:
             // that one wants a typed `NSError` class, and this file works on
@@ -645,6 +686,12 @@ pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
             install_interruption_observer();
             Some(true)
         } else {
+            if !responds(objc2::sel!(setActive:withOptions:error:)) {
+                crate::plog_debug!(
+                    "[media-session] AVAudioSession cannot be released on this platform"
+                );
+                return AVF_ABSENT;
+            }
             let mut err: *mut AnyObject = core::ptr::null_mut();
             let released: bool = msg_send![
                 session,
@@ -661,7 +708,7 @@ pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
 /// of the process, and turn each one into a [`SystemAudioChange`]: began =
 /// `Interrupted`; ended = `Resumed` with the should-resume hint, `Ended`
 /// without it (Apple: do not resume on your own then).
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 fn install_interruption_observer() {
     use azul_core::media_session::SystemAudioChange;
     use azul_layout::managers::media_keys::push_system_audio_change;
@@ -678,7 +725,7 @@ fn install_interruption_observer() {
             avf_constant(b"AVAudioSessionInterruptionTypeKey\0"),
             avf_constant(b"AVAudioSessionInterruptionOptionKey\0"),
         ) else {
-            crate::plog_info!("[media-session] interruption constants missing");
+            crate::plog_debug!("[media-session] interruption constants missing; not observed");
             return;
         };
         let Ok(center_name) = std::ffi::CString::new("NSNotificationCenter") else {

@@ -236,10 +236,12 @@ pub fn announce_seeked(position_us: i64) {
 /// the platform will answer later through `push_system_audio_change`
 /// (Android's delayed focus grant). Desktop mixers share, so there is
 /// nothing to take and the answer is `Some(true)`; the SMTC and MPRIS
-/// controls work without any of this.
+/// controls work without any of this. macOS (9h-i-a-i-d-i-a) runs the same
+/// `AVAudioSession` path as iOS and answers `Some(true)` wherever a piece of
+/// AVFAudio is missing, so a Mac without it is the desktop case above.
 #[allow(unused_variables)]
 pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
     {
         return apple::set_system_audio_takeover(active);
     }

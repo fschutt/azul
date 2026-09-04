@@ -3556,16 +3556,36 @@ unsafe fn ime_set_marked_text(
                 azul_layout::window::ImeReplacement::Implicit => selection
                     .filter(|(a, b)| a != b && marked.is_none()),
                 azul_layout::window::ImeReplacement::NotHonoured { start, end } => {
-                    log_warn!(
+                    // HONOURED NOW (10b-i-b-i-b). The offsets index the IME
+                    // document WITH the preedit spliced in, so: (a) un-shape
+                    // the current preedit - the composition stays OPEN in the
+                    // manager, since the IME is replacing its marked text
+                    // rather than ending it, and `set_preedit` below records
+                    // an Update; (b) rebase the range onto the committed text;
+                    // (c) delete it (below) so the caret lands at its start;
+                    // (d) compose there (below). ORDER: replacement first,
+                    // then the new composition - the reading WebKit's
+                    // `WebPage::setCompositionAsync` implies, where the
+                    // replacement selection is set on the document before
+                    // `Editor::setComposition` runs; a range overlapping the
+                    // preedit rebases to the composition's own place and is
+                    // treated as the caret (see the rebase function).
+                    lw.end_preedit_shaping();
+                    let rebased =
+                        azul_layout::managers::text_edit::rebase_ime_range_onto_committed(
+                            Some((start, end)),
+                            marked,
+                        )
+                        .filter(|(a, b)| a != b);
+                    log_debug!(
                         LogCategory::Input,
                         "[IME setMarkedText] replacementRange {}..{} (bytes) during a \
-                         composition is not the marked text; composing at the caret instead \
-                         (10b-i-b-i-a: the offsets index a document whose preedit is about to \
-                         be un-shaped)",
+                         composition rebased onto the committed text as {:?} (10b-i-b-i-b)",
                         start,
-                        end
+                        end,
+                        rebased
                     );
-                    None
+                    rebased
                 }
             };
             if let Some((start, end)) = to_delete {
@@ -3706,34 +3726,58 @@ unsafe fn ime_insert_text(window: *mut MacOSWindow, string: &NSObject, replaceme
         // and then delete the wrong span.
         // ONE rule with `setMarkedText:` (10b-i-b-i-a):
         // `azul_layout::window::ime_replacement_action`.
-        match azul_layout::window::ime_replacement_action(
+        let to_delete = match azul_layout::window::ime_replacement_action(
             ime_explicit_replacement(&doc, replacement_range),
             marked,
             lw.focused_selection_byte_range(),
         ) {
-            azul_layout::window::ImeReplacement::Implicit => {}
+            azul_layout::window::ImeReplacement::Implicit => None,
             azul_layout::window::ImeReplacement::ReplaceCommitted { start, end } => {
-                if lw.set_focused_selection_from_byte_range(start, end) {
-                    if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
-                        lw.delete_selection(focused, false);
-                    }
-                } else {
-                    log_debug!(
-                        LogCategory::Input,
-                        "[IME insertText] replacementRange {}..{}: no focused editable to select in",
-                        start,
-                        end
-                    );
-                }
+                Some((start, end))
             }
             azul_layout::window::ImeReplacement::NotHonoured { start, end } => {
-                // The offsets index a document with a preedit in it, and the
-                // shaped layout the selection seam resolves against is about
-                // to lose that preedit. Reported, not guessed.
-                log_warn!(
+                // HONOURED NOW (10b-i-b-i-b). The offsets index the IME
+                // document WITH the preedit spliced in, so the composition is
+                // ENDED FIRST - committed with this text, exactly the tail
+                // below, which is idempotent and runs again harmlessly - and
+                // the range is rebased onto the committed text before it is
+                // selected and deleted below. ORDER: composition ended, then
+                // the replacement applied to the committed text, then the
+                // insert at the caret it leaves - the reading WebKit's
+                // `WebPage::insertTextAsync` implies, where the replacement
+                // selection is set on the document and
+                // `Editor::confirmComposition` resolves the composition
+                // before the text lands. A range overlapping the preedit
+                // rebases to the composition's own place, an empty span, and
+                // so inserts at the caret (see the rebase function).
+                lw.text_edit_manager.commit_composition(committed_text.clone());
+                lw.end_preedit_shaping();
+                let rebased =
+                    azul_layout::managers::text_edit::rebase_ime_range_onto_committed(
+                        Some((start, end)),
+                        marked,
+                    )
+                    .filter(|(a, b)| a != b);
+                log_debug!(
                     LogCategory::Input,
                     "[IME insertText] replacementRange {}..{} (bytes) during a composition \
-                     is applied at the caret instead (10b-i-b-i-a)",
+                     rebased onto the committed text as {:?} (10b-i-b-i-b)",
+                    start,
+                    end,
+                    rebased
+                );
+                rebased
+            }
+        };
+        if let Some((start, end)) = to_delete {
+            if lw.set_focused_selection_from_byte_range(start, end) {
+                if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
+                    lw.delete_selection(focused, false);
+                }
+            } else {
+                log_debug!(
+                    LogCategory::Input,
+                    "[IME insertText] replacementRange {}..{}: no focused editable to select in",
                     start,
                     end
                 );
