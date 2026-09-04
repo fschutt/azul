@@ -1102,7 +1102,9 @@ pub fn run_web(
     // just this binary's reachable subset, so the baked cache warms the whole
     // library and a derived app lifts only its own callbacks. Gated on prelift
     // because a normal serve only needs what the app reaches.
-    if web_config.prelift {
+    let prelift = web_config.prelift
+        || lift_env::lift_env().mode == lift_env::LiftMode::Full;
+    if prelift {
         if let Some(table) = symbol_table::get() {
             let surface = table.api_surface_roots();
             eprintln!(
@@ -1428,11 +1430,9 @@ pub fn run_web(
         }
     }
 
-    // web-prelift: the startup above lifted the eventloop + route/layout
-    // callbacks into the on-disk cache (AZ_LIFT_CACHE_DIR). Exit now, before
-    // binding the server — used to bake a warm lift cache into the docker base
-    // image so a derived app only pays to lift ITS OWN callbacks.
-    if web_config.prelift {
+    // web-prelift / mode=full: the startup above warmed the on-disk cache.
+    // Exit now, before binding the server, so `docker build` bakes the cache.
+    if web_config.prelift || lift_env::lift_env().mode == lift_env::LiftMode::Full {
         eprintln!("[azul-web] prelift complete — lift cache warmed; exiting before serve");
         return Ok(());
     }

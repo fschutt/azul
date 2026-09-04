@@ -23,10 +23,37 @@ fn num<T: std::str::FromStr>(name: &str) -> Option<T> {
     std::env::var(name).ok()?.trim().parse().ok()
 }
 
+/// The one knob most users set. Everything below is a fine-grained override.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiftMode {
+    /// Normal serve: lift only what THIS app reaches, no verification. Default.
+    App,
+    /// Base image: lift the WHOLE api.json surface into the cache, then exit
+    /// before serving (same effect as the `web-prelift://` URL). What the
+    /// GHCR base image runs so a derived app finds the library warm.
+    Full,
+    /// App closure PLUS AZ_RELOC_VERIFY - fresh-lift every cache hit and
+    /// byte-compare it. The correctness gate; slow, for CI and debugging.
+    Verify,
+}
+
+impl LiftMode {
+    fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "app" | "" => Some(Self::App),
+            "full" | "prelift" | "base" => Some(Self::Full),
+            "verify" => Some(Self::Verify),
+            _ => None,
+        }
+    }
+}
+
 /// Parsed form of the pipeline's environment. Cheap to copy by reference;
 /// obtain it with [`lift_env`].
 #[derive(Debug)]
 pub struct LiftEnv {
+    /// The high-level mode (`AZ_LIFT_MODE`); the fields below refine it.
+    pub mode: LiftMode,
     // ---- correctness gates (never remove these without a replacement) ----
     /// Fresh-lift every translated function and byte-compare it, healing bad
     /// templates in place. The instrument that found the reloc-cache bugs.
@@ -118,8 +145,17 @@ pub struct LiftEnv {
 
 impl LiftEnv {
     fn from_process() -> Self {
+        let mode = std::env::var("AZ_LIFT_MODE")
+            .ok()
+            .and_then(|s| LiftMode::parse(&s))
+            .unwrap_or(LiftMode::App);
         Self {
-            reloc_verify: flag("AZ_RELOC_VERIFY"),
+            mode,
+            // Verify is OFF unless the mode asks for it (or the raw flag is set
+            // as an override): the cache is trusted by default now that its
+            // correctness is established, so a normal run reuses it instead of
+            // re-lifting every hit.
+            reloc_verify: mode == LiftMode::Verify || flag("AZ_RELOC_VERIFY"),
             // Default ON: serving a bundle known to be broken is worse than
             // refusing to start.
             lift_strict: std::env::var("AZ_LIFT_STRICT").map(|v| v != "0").unwrap_or(true),
@@ -209,10 +245,15 @@ impl LiftEnv {
         if !self.lift_strict {
             on.push("AZ_LIFT_STRICT=0");
         }
+        let mode = match self.mode {
+            LiftMode::App => "app",
+            LiftMode::Full => "full",
+            LiftMode::Verify => "verify",
+        };
         if on.is_empty() {
-            "defaults".to_string()
+            format!("mode={mode}")
         } else {
-            on.join(" ")
+            format!("mode={mode} {}", on.join(" "))
         }
     }
 }

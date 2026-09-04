@@ -24,7 +24,7 @@ FROM ghcr.io/fschutt/azul:${AZUL_VERSION} AS prelift
 ARG AZUL_VERSION
 ADD https://azul.rs/release/${AZUL_VERSION}/demos/azul-maps-linux /app/azul-maps.bin
 RUN chmod +x /app/azul-maps.bin \
- && AZ_LIFT_CACHE_DIR=/cache AZ_BACKEND="web-prelift://0.0.0.0:8080" /app/azul-maps.bin
+ && AZ_LIFT_CACHE_DIR=/cache AZ_LIFT_MODE=full AZ_BACKEND="web://0.0.0.0:8080" /app/azul-maps.bin
 
 # ---- final: distroless + binary + in-process lifter + warm cache -------------
 FROM ghcr.io/fschutt/azul:${AZUL_VERSION}

@@ -24,7 +24,7 @@ FROM ghcr.io/fschutt/azul:${AZUL_VERSION} AS prelift
 ARG AZUL_VERSION
 ADD https://azul.rs/release/${AZUL_VERSION}/demos/azul-self-test-linux /app/azul-self-test.bin
 RUN chmod +x /app/azul-self-test.bin \
- && AZ_LIFT_CACHE_DIR=/cache AZ_BACKEND="web-prelift://0.0.0.0:8080" /app/azul-self-test.bin
+ && AZ_LIFT_CACHE_DIR=/cache AZ_LIFT_MODE=full AZ_BACKEND="web://0.0.0.0:8080" /app/azul-self-test.bin
 
 # ---- final: distroless + binary + in-process lifter + warm cache -------------
 FROM ghcr.io/fschutt/azul:${AZUL_VERSION}
