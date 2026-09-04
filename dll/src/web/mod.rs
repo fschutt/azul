@@ -1026,8 +1026,11 @@ pub fn run_web(
                 let msg = "[azul-web] FATAL: web backend requires the root RefAny \
                            to have a JSON serializer registered via AZ_REFLECT_JSON. \
                            Got AzRefAny with no toJson fn-ptr — cannot hydrate \
-                           state on the wasm client. See dll/azul.h's AZ_REFLECT_JSON \
-                           macro for how to register.";
+                           state on the wasm client. Rust apps: derive serde \
+                           Serialize/Deserialize on the root state and register the pair \
+                           via RefAny::set_serialize_fn / set_deserialize_fn (see \
+                           examples/azul-writer). C apps: the AZ_REFLECT_JSON macro in \
+                           the generated azul.h.";
                 eprintln!("{}", msg);
                 return Err(WindowError::PlatformError(msg.to_string()));
             }
