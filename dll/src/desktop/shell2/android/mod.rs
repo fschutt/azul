@@ -145,6 +145,11 @@ pub struct AndroidWindow {
     /// `PointerLockChange`. Queued for the same reason as the IME commits:
     /// the callback arrives on the UI thread, never mid-pass.
     pending_pointer_capture: std::sync::Mutex<Option<bool>>,
+    /// Captured-pointer deltas (`AzulInputView.onCapturedPointerEvent`,
+    /// 9d-android-b), accumulated on the UI thread as `(dx, dy, device)` and
+    /// handed to `device_event_manager.note_raw_motion` by the loop while the
+    /// lock is held - the RawMouseMotion producer on Android.
+    pending_raw_motion: std::sync::Mutex<Option<(f64, f64, u64)>>,
 
     /// A frame must be re-rastered and posted, but the layout is UNCHANGED.
     ///
@@ -241,6 +246,7 @@ impl AndroidWindow {
             damage_history: std::collections::VecDeque::new(),
             pending_ime_commits: std::sync::Mutex::new(Vec::new()),
             pending_pointer_capture: std::sync::Mutex::new(None),
+            pending_raw_motion: std::sync::Mutex::new(None),
             pending_selection_actions: std::sync::Mutex::new(Vec::new()),
             selection_toolbar_shown: false,
             needs_rerender: false,
@@ -896,6 +902,30 @@ pub fn android_main(app: AndroidApp) {
                         .update_window_state(event::WindowStateSource::Os, |ws| {
                             ws.mouse_state.is_cursor_locked = has_capture;
                         });
+                    let _ = window.process_window_events(0);
+                }
+            }
+        }
+        // Captured-pointer deltas (9d-android-b): the same gate as X11's
+        // handle_xi_raw_motion - only while the lock is held - then the
+        // shared manager and one pass, which emits RawMouseMotion.
+        {
+            let motion = window
+                .pending_raw_motion
+                .lock()
+                .ok()
+                .and_then(|mut m| m.take());
+            if let Some((dx, dy, device)) = motion {
+                let locked = window
+                    .common
+                    .current_window_state()
+                    .mouse_state
+                    .is_cursor_locked;
+                if locked && (dx != 0.0 || dy != 0.0) {
+                    window.snapshot_window_state_baseline("android.raw_motion");
+                    if let Some(lw) = window.common.layout_window.as_mut() {
+                        lw.device_event_manager.note_raw_motion(dx, dy, device);
+                    }
                     let _ = window.process_window_events(0);
                 }
             }
@@ -3759,6 +3789,28 @@ pub mod text_bridge {
                 *c = Some(has_capture != 0);
             }
             // Wake the loop like the IME push does; the drain runs the pass.
+            w.common.request_regeneration(RelayoutReason::RefreshDom);
+        });
+    }
+
+    /// `AzulInputView.onCapturedPointerEvent` deltas (9d-android-b):
+    /// accumulate for the loop; see `pending_raw_motion`.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeOnRawMotion(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+        device_id: i32,
+        dx: f32,
+        dy: f32,
+    ) {
+        with_window(native_ptr, |w| {
+            if let Ok(mut m) = w.pending_raw_motion.lock() {
+                let e = m.get_or_insert((0.0, 0.0, device_id as u64));
+                e.0 += f64::from(dx);
+                e.1 += f64::from(dy);
+                e.2 = device_id as u64;
+            }
             w.common.request_regeneration(RelayoutReason::RefreshDom);
         });
     }

@@ -32,6 +32,7 @@ import android.graphics.Insets;
 import android.os.Build;
 import android.text.Editable;
 import android.text.SpannableStringBuilder;
+import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.View;
 import android.graphics.Rect;
@@ -304,7 +305,27 @@ public final class NativeTextBridge {
             if (com.azul.gamepad.AzulGamepad.onCapturedPointer(event)) {
                 return true;
             }
-            return super.onCapturedPointerEvent(event);
+            // A captured MOUSE (SOURCE_MOUSE_RELATIVE: getX/getY ARE the
+            // deltas) or a captured touchpad that is not a pad's surface
+            // (AXIS_RELATIVE_X/Y) is the RawMouseMotion producer on Android
+            // (9d-android-b), the unbounded delta stream every other backend
+            // feeds while the pointer is locked.
+            int source = event.getSource();
+            float dx;
+            float dy;
+            if ((source & InputDevice.SOURCE_MOUSE_RELATIVE) == InputDevice.SOURCE_MOUSE_RELATIVE) {
+                dx = event.getX();
+                dy = event.getY();
+            } else if ((source & InputDevice.SOURCE_TOUCHPAD) == InputDevice.SOURCE_TOUCHPAD) {
+                dx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X);
+                dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y);
+            } else {
+                return super.onCapturedPointerEvent(event);
+            }
+            if (dx != 0f || dy != 0f) {
+                nativeOnRawMotion(nativePtr, event.getDeviceId(), dx, dy);
+            }
+            return true;
         }
 
         @Override
@@ -557,4 +578,6 @@ public final class NativeTextBridge {
     static native int nativeIsComposing(long nativePtr);
 
     private static native void nativeOnPointerCaptureChanged(long nativePtr, int hasCapture);
+
+    private static native void nativeOnRawMotion(long nativePtr, int deviceId, float dx, float dy);
 }
