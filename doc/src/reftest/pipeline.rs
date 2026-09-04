@@ -172,7 +172,8 @@ pub struct ReftestPipeline {
 impl ReftestPipeline {
     /// Write the hermetic fontconfig used for BOTH engines of a reftest run
     /// and export it via FONTCONFIG_FILE (which Chrome honours natively and
-    /// azul honours through `fontconfig_generic_aliases`).
+    /// azul honours through rust-fontconfig's `FcSystemConfig::from_system`,
+    /// the source of the aliases behind `FcFontRegistry::new`).
     ///
     /// Chrome does not ask fontconfig for "sans-serif": its own per-script
     /// defaults request "Arial"/"Times New Roman" and rely on the system's
