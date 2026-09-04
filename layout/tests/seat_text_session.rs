@@ -370,3 +370,67 @@ fn a_seats_enter_splits_at_its_own_caret() {
         .expect("the host is contenteditable");
     assert!(q.cursor_at_block_start);
 }
+
+/// A seat's caret and selection are DRAWN (9b-ii-a-i-d-ii-a): in the seat's
+/// own colour, on the seat's node, solid while no primary session runs -
+/// the display list carries a `CursorRect` for the seat with no primary
+/// editing at all, and `SelectionRect` bands once the seat selects.
+#[test]
+fn a_seats_caret_and_selection_are_drawn_in_its_colour() {
+    use azul_core::selection::SelectionOwner;
+    use azul_layout::solver3::display_list::DisplayListItem;
+
+    let items = |lw: &LayoutWindow| -> Vec<DisplayListItem> {
+        lw.get_layout_result(&DomId::ROOT_ID)
+            .expect("layout result")
+            .display_list
+            .items
+            .clone()
+    };
+    let cursor_rects = |lw: &LayoutWindow| {
+        items(lw)
+            .iter()
+            .filter(|i| matches!(i, DisplayListItem::CursorRect { .. }))
+            .count()
+    };
+    let selection_rects = |lw: &LayoutWindow| {
+        items(lw)
+            .iter()
+            .filter(|i| matches!(i, DisplayListItem::SelectionRect { .. }))
+            .count()
+    };
+
+    let mut lw = two_fields();
+    assert_eq!(cursor_rects(&lw), 0, "premise: nothing edits, nothing is drawn");
+
+    // No primary session at all; the seat alone types into B.
+    lw.focus_manager.set_focused_node_for(SEAT, Some(node(TEXT_B)));
+    let _ = lw.record_text_input_for_seat(SEAT, "x");
+    let _ = lw.apply_text_changeset();
+    lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
+    assert_eq!(cursor_rects(&lw), 1, "the seat's caret is painted without a primary session");
+    assert_eq!(selection_rects(&lw), 0);
+    let owner = SelectionOwner::seat(SEAT);
+    assert!(owner.is_seat() && !owner.is_local());
+    assert_eq!(owner.seat_id(), Some(SEAT));
+    assert_eq!(
+        lw.text_edit_manager.owner_color(owner),
+        Some(azul_layout::managers::text_edit::seat_owner_color(SEAT)),
+        "the seat got its palette colour"
+    );
+    let locations = lw.text_edit_manager.build_cursor_locations();
+    assert_eq!(locations.len(), 1);
+    assert_eq!(locations[0].owner, owner);
+    assert_eq!(locations[0].node, NodeId::new(TEXT_B));
+
+    // Select-all: the selection is painted as the seat's tinted bands.
+    assert!(lw.select_all_for_seat(SEAT, node(TEXT_B)));
+    assert!(selection_rects(&lw) >= 1, "the seat's selection paints bands");
+    let map = lw.text_edit_manager.build_text_selections_map();
+    let sel = map.get(&DomId::ROOT_ID).expect("a selection entry for the seat's dom");
+    let remote = sel.remote_ranges.get(&NodeId::new(TEXT_B)).expect("the seat's range");
+    assert_eq!(remote.len(), 1);
+    assert_eq!(remote[0].0, owner);
+    // Seat 0 is the primary: never a seat owner.
+    assert!(SelectionOwner::seat(0).is_local());
+}

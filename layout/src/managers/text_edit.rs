@@ -480,6 +480,23 @@ pub struct TextEditManager {
     pub pending_text_changed: Vec<DomNodeId>,
 }
 
+/// The colour a seat's caret and selection are drawn in (9b-ii-a-i-d-ii-a):
+/// a small fixed palette, deterministic per seat, distinct from the local
+/// caret's foreground and from each other - the peer-caret scheme, but a
+/// seat is not a network peer and gets no app-assigned colour of its own.
+#[must_use]
+pub const fn seat_owner_color(seat_id: u64) -> ColorU {
+    const PALETTE: [ColorU; 6] = [
+        ColorU { r: 0xE0, g: 0x6C, b: 0x00, a: 0xFF }, // orange
+        ColorU { r: 0x2E, g: 0x9E, b: 0x44, a: 0xFF }, // green
+        ColorU { r: 0x8E, g: 0x44, b: 0xAD, a: 0xFF }, // purple
+        ColorU { r: 0x00, g: 0x8B, b: 0x9E, a: 0xFF }, // teal
+        ColorU { r: 0xC2, g: 0x18, b: 0x5B, a: 0xFF }, // magenta
+        ColorU { r: 0x7A, g: 0x5C, b: 0x00, a: 0xFF }, // olive
+    ];
+    PALETTE[(seat_id % 6) as usize]
+}
+
 /// A non-primary seat's caret: the node it sits in and where. With an
 /// `anchor` it is a SELECTION from the anchor to the cursor (a seat's
 /// Shift+arrow, 9b-ii-a-i-d-ii-b).
@@ -714,7 +731,22 @@ impl TextEditManager {
                     anchor: anchor.filter(|a| *a != cursor),
                 },
             );
+            // Drawn in the seat's colour (9b-ii-a-i-d-ii-a) - registered once
+            // so the app can still override it through `set_owner_color`.
+            self.owner_colors
+                .entry(azul_core::selection::SelectionOwner::seat(seat_id))
+                .or_insert_with(|| seat_owner_color(seat_id));
+            self.mark_dirty();
         }
+    }
+
+    /// Whether the seats' carets are drawn solid on their own (9b-ii-a-i-d-ii-a):
+    /// while the primary edits, they blink on ITS clock through the shared
+    /// `cursor_is_visible`; with no primary session there is no clock, so a
+    /// seat caret is simply shown.
+    #[must_use]
+    pub fn seat_carets_solid(&self) -> bool {
+        !self.seat_carets.is_empty() && !self.has_active_editing()
     }
 
     /// Forget seat `seat_id`'s caret.
@@ -1042,27 +1074,37 @@ impl TextEditManager {
     /// Returns all cursor positions from `MultiCursorState`, or empty if not editing.
     #[must_use]
     pub fn build_cursor_locations(&self) -> Vec<CursorLocation> {
-        let Some(ref mc) = self.multi_cursor else {
-            return Vec::new();
-        };
-        let Some(node_id) = mc.node_id.node.into_crate_internal() else {
-            return Vec::new();
-        };
-        mc.selections
-            .iter()
-            .map(|s| {
-                let cursor = match &s.selection {
-                    Selection::Cursor(c) => *c,
-                    Selection::Range(r) => r.end,
-                };
-                CursorLocation {
-                    dom: mc.node_id.dom,
-                    node: node_id,
-                    cursor,
-                    owner: s.owner,
-                }
-            })
-            .collect()
+        let mut out: Vec<CursorLocation> = Vec::new();
+        if let Some(ref mc) = self.multi_cursor {
+            if let Some(node_id) = mc.node_id.node.into_crate_internal() {
+                out.extend(mc.selections.iter().map(|s| {
+                    let cursor = match &s.selection {
+                        Selection::Cursor(c) => *c,
+                        Selection::Range(r) => r.end,
+                    };
+                    CursorLocation {
+                        dom: mc.node_id.dom,
+                        node: node_id,
+                        cursor,
+                        owner: s.owner,
+                    }
+                }));
+            }
+        }
+        // The other seats' carets (9b-ii-a-i-d-ii-a), drawn like peer carets
+        // under their seat owner - on whatever node each sits in.
+        for (seat, caret) in &self.seat_carets {
+            let Some(node_id) = caret.node.node.into_crate_internal() else {
+                continue;
+            };
+            out.push(CursorLocation {
+                dom: caret.node.dom,
+                node: node_id,
+                cursor: caret.cursor,
+                owner: azul_core::selection::SelectionOwner::seat(*seat),
+            });
+        }
+        out
     }
 
     /// The colour a participant's caret and selection are painted in (U1).
@@ -1248,6 +1290,48 @@ impl TextEditManager {
     /// not just the primary one.
     #[must_use]
     pub fn build_text_selections_map(
+        &self,
+    ) -> std::collections::BTreeMap<DomId, azul_core::selection::TextSelection> {
+        let mut map = self.build_primary_text_selections_map();
+        self.fold_seat_selections(&mut map);
+        map
+    }
+
+    /// The other seats' SELECTIONS (an anchored seat caret, 9b-ii-a-i-d-ii-a)
+    /// into the map the display list paints, as remote ranges under the
+    /// seat's owner - so they take the seat's tint like a peer's. A dom
+    /// with no primary selection gets a collapsed entry to hang them on.
+    fn fold_seat_selections(
+        &self,
+        map: &mut std::collections::BTreeMap<DomId, azul_core::selection::TextSelection>,
+    ) {
+        use azul_core::selection::{SelectionOwner, TextSelection};
+        for (seat, caret) in &self.seat_carets {
+            let Selection::Range(range) = caret.selection() else {
+                continue;
+            };
+            let Some(node_id) = caret.node.node.into_crate_internal() else {
+                continue;
+            };
+            let owner = SelectionOwner::seat(*seat);
+            let entry = map.entry(caret.node.dom).or_insert_with(|| {
+                TextSelection::new_collapsed(
+                    caret.node.dom,
+                    node_id,
+                    caret.cursor,
+                    LogicalRect::zero(),
+                    azul_core::geom::LogicalPosition::zero(),
+                )
+            });
+            entry
+                .remote_ranges
+                .entry(node_id)
+                .or_default()
+                .push((owner, range));
+        }
+    }
+
+    fn build_primary_text_selections_map(
         &self,
     ) -> std::collections::BTreeMap<DomId, azul_core::selection::TextSelection> {
         if let Some(cb) = &self.cross_block {

@@ -3795,8 +3795,22 @@ where
         // === NEW: Check text_selections first (multi-node selection support) ===
         if let Some(text_selection) = self.ctx.text_selections.get(&self.ctx.styled_dom.dom_id) {
             let local_ranges = text_selection.affected_nodes.get(&dom_id);
-            let remote_ranges = text_selection.remote_ranges.get(&dom_id);
-            if local_ranges.is_some() || remote_ranges.is_some() {
+            // Remote / seat ranges are keyed by the node the caret sits in,
+            // which may be a text CHILD of this IFC root rather than the root
+            // itself (a seat's caret lives in the text node, 9b-ii-a-i-d-ii-a)
+            // - the same ownership rule the caret path applies below.
+            let remote_ranges: Vec<&(
+                azul_core::selection::SelectionOwner,
+                azul_core::selection::SelectionRange,
+            )> = text_selection
+                .remote_ranges
+                .iter()
+                .filter(|(node, _)| {
+                    **node == dom_id || self.ifc_root_owns_dom_node(node_index, **node)
+                })
+                .flat_map(|(_, ranges)| ranges.iter())
+                .collect();
+            if local_ranges.is_some() || !remote_ranges.is_empty() {
                 let style = get_selection_style(
                     self.ctx.styled_dom,
                     Some(dom_id),
@@ -3817,7 +3831,7 @@ where
                 // nothing about whether another participant has a range. A
                 // local caret sitting in a field must not erase everybody
                 // else's highlight.
-                for (owner, range) in remote_ranges.into_iter().flatten() {
+                for (owner, range) in remote_ranges {
                     let color = match self.ctx.owner_colors.get(owner) {
                         Some(c) => remote_selection_tint(*c),
                         // An owner the app never registered a colour for. It

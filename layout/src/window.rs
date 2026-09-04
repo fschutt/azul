@@ -5850,9 +5850,12 @@ impl LayoutWindow {
 
         // A tween in flight forces the caret solid: the framework suppresses
         // blinking while the caret / selection is animating (user directive).
-        let cursor_is_visible = self.caret_editable_is_focused()
+        // The other seats' carets (9b-ii-a-i-d-ii-a) blink on the primary's
+        // clock while it edits, and are simply shown when there is none.
+        let cursor_is_visible = (self.caret_editable_is_focused()
             && (self.text_edit_manager.should_draw_cursor()
-                || self.text_edit_manager.tween.is_active());
+                || self.text_edit_manager.tween.is_active()))
+            || self.text_edit_manager.seat_carets_solid();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
         let owner_colors = self.text_edit_manager.owner_colors.clone();
         // The live selection goes through the LAYOUT path too. Only the
@@ -17236,9 +17239,12 @@ impl LayoutWindow {
 
         // Get cursor state for display list generation. A tween in flight
         // forces the caret solid (blinking is suppressed while animating).
-        let cursor_is_visible = self.caret_editable_is_focused()
+        // The other seats' carets (9b-ii-a-i-d-ii-a) blink on the primary's
+        // clock while it edits, and are simply shown when there is none.
+        let cursor_is_visible = (self.caret_editable_is_focused()
             && (self.text_edit_manager.should_draw_cursor()
-                || self.text_edit_manager.tween.is_active());
+                || self.text_edit_manager.tween.is_active()))
+            || self.text_edit_manager.seat_carets_solid();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
         let text_selections_map = self.text_edit_manager.build_text_selections_map();
         // Same fingerprint `layout_document` keys its cache on - computed

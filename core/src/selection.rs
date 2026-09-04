@@ -318,6 +318,41 @@ impl SelectionOwner {
     pub const fn is_local(self) -> bool {
         self.high == 0 && self.low == 0
     }
+
+    /// The `high` half every SEAT owner carries (9b-ii-a-i-d-ii-a). A random
+    /// (v4) peer UUID never has this exact high half, and it is non-zero so a
+    /// seat owner is never "local".
+    pub const SEAT_HIGH: u64 = 0x5EA7_0000_0000_0001;
+
+    /// The owner that stands for pointer / keyboard seat `seat_id`'s caret
+    /// (9b-ii-a-i-d-ii-a): a second person at this machine, drawn like a
+    /// peer caret in that seat's colour. Seat 0, the primary, is `LOCAL`.
+    #[must_use]
+    pub const fn seat(seat_id: u64) -> Self {
+        if seat_id == 0 {
+            return Self::LOCAL;
+        }
+        Self {
+            high: Self::SEAT_HIGH,
+            low: seat_id,
+        }
+    }
+
+    /// Whether this owner is a (non-primary) seat at this machine.
+    #[must_use]
+    pub const fn is_seat(self) -> bool {
+        self.high == Self::SEAT_HIGH
+    }
+
+    /// The seat this owner stands for, if it is one.
+    #[must_use]
+    pub const fn seat_id(self) -> Option<u64> {
+        if self.is_seat() {
+            Some(self.low)
+        } else {
+            None
+        }
+    }
 }
 
 /// Multi-cursor state for a contenteditable element (Sublime Text style).

@@ -2224,9 +2224,26 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       the primary's field and caret are untouched; both carets shift across each other's edits in
       one field; a seat without focus types into nothing. Evidence: host check EXIT=0; azul-layout
       lib 7683 / `--test all` 1006 (+3), e2e 62 scenarios, azul-dll 2071, 0 failed; 8/8 gate.
-- [ ] 9b-ii-a-i-d-ii-a The seat caret is tracked but not DRAWN: the display list emits the
-      primary caret (and peer carets from the multi-cursor's node only). Draw `seat_carets` in the
-      owner colour scheme the peer carets use, blinking on the primary's clock.
+- [x] 9b-ii-a-i-d-ii-a DONE. Seat carets and selections are DRAWN through the streams the
+      display list already paints for peers: `SelectionOwner::seat(seat_id)` (a fixed non-zero
+      `SEAT_HIGH` half + the seat id; seat 0 stays `LOCAL`), `build_cursor_locations` appends a
+      location per seat caret on whatever node it sits in, `build_text_selections_map` folds an
+      anchored seat caret in as a remote range under that owner (a dom with no primary selection
+      gets a collapsed entry to hang it on), and `set_seat_selection` registers a palette colour
+      per seat in `owner_colors` on first sight (`seat_owner_color`, six entries; the app can still
+      override through `set_owner_color`). Visibility: `cursor_is_visible` at both display-list
+      build sites gains `seat_carets_solid()` - a seat caret blinks on the primary's clock while
+      the primary edits and is simply shown when there is no primary session (no clock to blink
+      on). FOUND ON THE WAY: the selection painter looked remote ranges up by the exact IFC-root
+      node, while a caret lives in the text CHILD - the caret painter already had the
+      `ifc_root_owns_dom_node` fallback, the selection painter did not, so a seat's (and any
+      peer's) range keyed by the text node never painted; it now applies the same ownership rule.
+      Test: with NO primary session the seat's caret yields exactly one `CursorRect`, select-all
+      yields `SelectionRect` bands, the location carries the seat owner and the palette colour is
+      registered. Evidence: host check EXIT=0; azul-core 2809, azul-layout lib 7683 / `--test
+      all` 1011 (+1), e2e 62 scenarios, azul-dll 2071, 0 failed; 8/8 gate. Not tweened: the caret
+      tween is the primary's (a seat caret jumps), and a seat caret past the end of a not-yet
+      relaid text has no rect until the next relayout - both as the primary behaves today.
 - [x] 9b-ii-a-i-d-ii-b DONE for the caret OPS: `SystemChange::ApplySelectionOp` carries its
       `seat_id` (stamped from the key event by `handle_key_down`), the shell and the runner apply
       it through `apply_selection_op_for_seat`, and a non-primary seat's Move / Extend / Delete act
