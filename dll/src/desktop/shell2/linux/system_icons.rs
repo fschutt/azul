@@ -76,13 +76,28 @@ fn icon_theme_dirs(theme: &str) -> Vec<(String, u32)> {
     ] {
         // The sizes a UI indicator is drawn at. 16 first: these are pixel-hinted
         // designs, and the 16px variant is the one drawn beside 10-11pt text.
+        //
+        // BOTH directory orders, and the symbolic/scalable trees, because real
+        // themes disagree and we only read SVG. Breeze puts SVGs in
+        // `actions/16`; Mint-Y's `actions/{16,22,24}` are PNG-ONLY and its
+        // only SVGs are in `actions/symbolic`; Adwaita inverts the nesting
+        // entirely (`symbolic/actions`, `scalable/actions`, `16x16/actions`).
+        // Looking only in `{theme}/actions/{16,22,24,scalable}` found nothing
+        // at all in a Mint session, so every system icon silently fell back to
+        // the app's built-ins - at a different nominal size, which is what
+        // "the icons are scaled 2x" looks like.
         for (size, nominal) in [
             ("16", 16),
+            ("16x16", 16),
             ("22", 22),
+            ("22x22", 22),
             ("24", 24),
+            ("24x24", 24),
+            ("symbolic", SCALABLE_NOMINAL_PX),
             ("scalable", SCALABLE_NOMINAL_PX),
         ] {
             out.push((alloc::format!("{root}/{theme}/actions/{size}"), nominal));
+            out.push((alloc::format!("{root}/{theme}/{size}/actions"), nominal));
         }
     }
     out
@@ -96,25 +111,108 @@ fn icon_theme_dirs(theme: &str) -> Vec<(String, u32)> {
 /// than that for crispness, so the nominal size has to travel with it or the
 /// icon lays out at its oversampled bitmap size (see
 /// `azul_layout::icon::register_image_icon_sized`).
+/// What OTHER desktops call the same indicator.
+///
+/// [`WANTED`] uses the freedesktop/Breeze spellings, and GNOME-lineage themes
+/// - which is what a Mint, Ubuntu or Fedora desktop actually ships - name half
+/// of them differently. On Mint 22.2 that cost 7 of 17 icons: `arrow-up` does
+/// not exist anywhere in the Mint-Y -> Adwaita chain, `go-up` does; `checkmark`
+/// does not, `object-select` does; `application-menu` does not, `open-menu`
+/// does. Each list is tried in order after the canonical name.
+fn icon_name_aliases(name: &str) -> &'static [&'static str] {
+    match name {
+        "arrow-up" => &["go-up", "pan-up"],
+        "arrow-down" => &["go-down", "pan-down"],
+        "arrow-left" => &["go-previous", "pan-start", "pan-left"],
+        "arrow-right" => &["go-next", "pan-end", "pan-right"],
+        "checkmark" => &["object-select", "emblem-ok", "checkbox-checked"],
+        "dialog-ok" => &["emblem-ok", "object-select", "gtk-ok"],
+        "dialog-close" => &["window-close", "gtk-close"],
+        "application-menu" => &["open-menu", "view-more", "gtk-menu"],
+        "edit-find" => &["system-search"],
+        "window-restore" => &["view-restore"],
+        _ => &[],
+    }
+}
+
 fn read_icon_svg(theme: &str, name: &str) -> Option<(Vec<u8>, u32)> {
-    for (dir, nominal) in icon_theme_dirs(theme) {
-        let path = alloc::format!("{dir}/{name}.svg");
-        if let Ok(bytes) = std::fs::read(&path) {
-            return Some((bytes, nominal));
+    // The WHOLE inheritance chain, not one level. Mint-Y-Sand inherits
+    // `Mint-Y,Adwaita,gnome,hicolor` and ships no `actions` icons of its own,
+    // so stopping at the first parent stopped exactly one theme short of the
+    // one that has the file. Bounded and visited-checked: `Inherits=` is
+    // user-editable and can be cyclic.
+    // EVERY name on the `Inherits=` line, breadth-first - not just the first.
+    // Mint-Y-Sand inherits `Mint-Y,Adwaita,gnome,hicolor`, and the icons its
+    // own tree lacks are in Adwaita, the SECOND entry: following only the
+    // first left 7 of 17 indicators unresolved.
+    let mut chain = alloc::vec![theme.to_string()];
+    let mut seen = alloc::vec![theme.to_ascii_lowercase()];
+    let mut cursor = 0usize;
+    while cursor < chain.len() && chain.len() < 16 {
+        let step = chain[cursor].clone();
+        cursor += 1;
+        for parent in icon_theme_parents(&step) {
+            let key = parent.to_ascii_lowercase();
+            if seen.contains(&key) {
+                continue;
+            }
+            seen.push(key);
+            chain.push(parent);
         }
     }
-    // One level of inheritance, read straight out of index.theme.
-    let parent = icon_theme_parent(theme)?;
-    for (dir, nominal) in icon_theme_dirs(&parent) {
-        let path = alloc::format!("{dir}/{name}.svg");
-        if let Ok(bytes) = std::fs::read(&path) {
-            return Some((bytes, nominal));
+
+    // The canonical name first, everywhere, before any alias: a theme that
+    // ships `checkmark` must win over one further down the chain that only
+    // has `object-select`.
+    for candidate in core::iter::once(name).chain(icon_name_aliases(name).iter().copied()) {
+        for step in &chain {
+            for (dir, nominal) in icon_theme_dirs(step) {
+                // `foo-symbolic.svg` is how the symbolic trees spell `foo`, and
+                // a symbolic icon is the one meant for exactly this job: a
+                // small, single-colour UI indicator that takes the desktop's
+                // foreground.
+                for file in [
+                    alloc::format!("{dir}/{candidate}.svg"),
+                    alloc::format!("{dir}/{candidate}-symbolic.svg"),
+                ] {
+                    if let Ok(bytes) = std::fs::read(&file) {
+                        return Some((bytes, nominal));
+                    }
+                }
+            }
         }
     }
     None
 }
 
+/// Every entry of a theme's `Inherits=` line, in order.
+fn icon_theme_parents(theme: &str) -> Vec<String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    for root in [
+        alloc::format!("{home}/.local/share/icons"),
+        alloc::format!("{home}/.icons"),
+        "/usr/share/icons".to_string(),
+        "/usr/local/share/icons".to_string(),
+    ] {
+        let Ok(text) = std::fs::read_to_string(alloc::format!("{root}/{theme}/index.theme")) else {
+            continue;
+        };
+        for line in text.lines() {
+            if let Some(rest) = line.trim().strip_prefix("Inherits=") {
+                return rest
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(alloc::string::ToString::to_string)
+                    .collect();
+            }
+        }
+    }
+    Vec::new()
+}
+
 /// The first entry of a theme's `Inherits=` line, if it has one.
+#[allow(dead_code)]
 fn icon_theme_parent(theme: &str) -> Option<String> {
     let home = std::env::var("HOME").unwrap_or_default();
     for root in [
@@ -865,18 +963,60 @@ mod tests {
     #[test]
     fn every_size_directory_reports_the_size_it_is_named_after() {
         for (dir, nominal) in icon_theme_dirs("breeze") {
-            let leaf = dir.rsplit('/').next().unwrap_or("");
-            match leaf {
-                "scalable" => assert_eq!(
+            // Both nestings are searched - `{theme}/actions/16` (Breeze) and
+            // `{theme}/16x16/actions` (Adwaita) - so the SIZE segment is
+            // whichever of the last two is not the category.
+            let mut tail = dir.rsplit('/');
+            let last = tail.next().unwrap_or("");
+            let prev = tail.next().unwrap_or("");
+            let size_seg = if last == "actions" { prev } else { last };
+            match size_seg {
+                "scalable" | "symbolic" => assert_eq!(
                     nominal, SCALABLE_NOMINAL_PX,
-                    "a scalable icon has no stated size; the indicator default stands in"
+                    "a scalable/symbolic icon has no stated size; the indicator default stands in"
                 ),
                 px => assert_eq!(
-                    px.parse::<u32>().ok(),
+                    px.trim_end_matches(|c: char| !c.is_ascii_digit())
+                        .split('x')
+                        .next()
+                        .and_then(|n| n.parse::<u32>().ok()),
                     Some(nominal),
                     "{dir} must report {px}, not {nominal}"
                 ),
             }
         }
+    }
+
+    /// Every indicator [`WANTED`] asks for must be reachable under SOME name a
+    /// GNOME-lineage theme actually ships, or it silently falls back to the
+    /// app's own icon at a different size.
+    #[test]
+    fn the_gnome_spellings_are_reachable_for_every_breeze_name() {
+        for name in ["arrow-up", "arrow-down", "checkmark", "application-menu", "dialog-close"] {
+            assert!(
+                !icon_name_aliases(name).is_empty(),
+                "{name} is a Breeze spelling with no GNOME alias - it will not resolve on Mint, \
+                 Ubuntu or Fedora"
+            );
+        }
+        // The aliases are real freedesktop names, not invented ones.
+        assert!(icon_name_aliases("arrow-up").contains(&"go-up"));
+        assert!(icon_name_aliases("checkmark").contains(&"object-select"));
+        assert!(icon_name_aliases("application-menu").contains(&"open-menu"));
+    }
+
+    /// The lookup only reads SVG, and themes disagree wildly about where SVGs
+    /// live. Mint-Y's `actions/{16,22,24}` are PNG-only and its SVGs are in
+    /// `actions/symbolic`; Adwaita nests the other way round. Searching one
+    /// layout found nothing on a Mint desktop.
+    #[test]
+    fn the_search_covers_both_directory_nestings_and_the_symbolic_trees() {
+        let dirs: Vec<String> = icon_theme_dirs("Mint-Y").into_iter().map(|(d, _)| d).collect();
+        let has = |suffix: &str| dirs.iter().any(|d| d.ends_with(suffix));
+        assert!(has("/Mint-Y/actions/16"), "Breeze-style sized actions dir");
+        assert!(has("/Mint-Y/actions/symbolic"), "Mint-Y keeps its SVGs here");
+        assert!(has("/Mint-Y/symbolic/actions"), "Adwaita-style nesting");
+        assert!(has("/Mint-Y/scalable/actions"), "Adwaita-style scalable");
+        assert!(has("/Mint-Y/16x16/actions"), "Adwaita-style size dir");
     }
 }
