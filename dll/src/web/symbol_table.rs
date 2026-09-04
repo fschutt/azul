@@ -23,7 +23,7 @@
 //! Mach-O / ELF metadata. Every lift consumer reads from it rather
 //! than rederiving.
 //!
-//! # Contract (per `scripts/M8.8_NEW_SESSION_PROMPT.md`)
+//! # Contract
 //!
 //! - `lookup(addr) -> Option<&SymbolEntry>`: returns the entry FOR
 //!   THE GIVEN ADDRESS without chasing PLT stubs. The entry's `kind`
@@ -534,7 +534,10 @@ impl SymbolTable {
                 goblin::Object::Mach(goblin::mach::Mach::Fat(fat)) => {
                     match pick_fat_slice(&fat, &img.bytes) {
                         Ok(Some(macho)) => collect_macho_low32_sections(
-                            &macho, &img.bytes, img.slide, wasm_offset_limit,
+                            &macho,
+                            &img.bytes,
+                            img.slide,
+                            wasm_offset_limit,
                         ),
                         _ => Vec::new(),
                     }
@@ -585,11 +588,8 @@ impl SymbolTable {
             });
         }
 
-        let api_class_by_name: HashMap<String, ApiFnClass> = api
-            .functions
-            .iter()
-            .map(|(n, c)| (n.clone(), *c))
-            .collect();
+        let api_class_by_name: HashMap<String, ApiFnClass> =
+            api.functions.iter().map(|(n, c)| (n.clone(), *c)).collect();
 
         let mut by_addr: BTreeMap<usize, SymbolEntry> = BTreeMap::new();
         let mut by_name: HashMap<String, usize> = HashMap::new();
@@ -722,9 +722,11 @@ impl SymbolTable {
             ambiguous_names,
         };
 
-        // M9-review: assign per-image synthetic bases so lifted code
-        // uses wasm-friendly addresses for `adrp+ldr` page targets.
-        // See `M9_REVIEW_AND_OPTION_A.md` for the rationale.
+        // Assign per-image synthetic bases so lifted code uses
+        // wasm-friendly addresses for `adrp+ldr` page targets. A real
+        // image base is 200+ MiB, and the lift bakes those in as
+        // constants — which would force a wasm memory sized to match
+        // the address rather than to the actual image.
         table.assign_synthetic_addresses();
 
         Ok(table)
@@ -776,9 +778,7 @@ impl SymbolTable {
                         _ => (0, 0),
                     }
                 }
-                goblin::Object::Elf(elf) => {
-                    elf_image_text_data_range(&elf, &img.bytes)
-                }
+                goblin::Object::Elf(elf) => elf_image_text_data_range(&elf, &img.bytes),
                 goblin::Object::PE(pe) => pe_image_text_data_range(&pe),
                 _ => (0, 0),
             };
@@ -836,8 +836,7 @@ impl SymbolTable {
         for (native_loc, entry) in self.by_addr.iter_mut() {
             for r in &rebases {
                 if *native_loc >= r.native_base && *native_loc < r.native_end {
-                    entry.synthetic_addr =
-                        r.synth_base.wrapping_add(*native_loc - r.native_base);
+                    entry.synthetic_addr = r.synth_base.wrapping_add(*native_loc - r.native_base);
                     break;
                 }
             }
@@ -920,9 +919,7 @@ impl SymbolTable {
         let synth_chain: HashMap<usize, usize> = self
             .chain
             .iter()
-            .map(|(stub_native, canon_native)| {
-                (synth_of(*stub_native), synth_of(*canon_native))
-            })
+            .map(|(stub_native, canon_native)| (synth_of(*stub_native), synth_of(*canon_native)))
             .collect();
 
         eprintln!(
@@ -1188,11 +1185,7 @@ fn enumerate_loaded_images() -> Result<Vec<LoadedImage>, BuildError> {
             data: *mut c_void,
         ) -> c_int;
     }
-    extern "C" fn cb(
-        info: *mut DlPhdrInfo,
-        _size: usize,
-        data: *mut c_void,
-    ) -> c_int {
+    extern "C" fn cb(info: *mut DlPhdrInfo, _size: usize, data: *mut c_void) -> c_int {
         unsafe {
             let images = &mut *(data as *mut Vec<LoadedImage>);
             if info.is_null() {
@@ -1361,8 +1354,8 @@ fn is_system_image(path: &std::path::Path) -> bool {
 // in the .pdb next to the image (or at the absolute path embedded in
 // the PE debug directory). Names are LOAD-BEARING for the classifier:
 // an unnamed internal fn falls to the default classification and the
-// whole A1 "Leaf-stub garbage" class comes back (see
-// scripts/WEB_LIFT_BUG_COMPENDIUM.md). So a missing PDB degrades to
+// whole A1 "Leaf-stub garbage" class comes back. So a missing PDB
+// degrades to
 // exports-only ingestion with a LOUD warning.
 //
 // Import calls on Windows go through the IAT: either a direct
@@ -1405,7 +1398,9 @@ fn ingest_pe(
     let mut text_section: Option<(usize, usize)> = None;
     for s in &pe.sections {
         let name = s.name().unwrap_or("");
-        if name == ".text" || (text_section.is_none() && (s.characteristics & IMAGE_SCN_CNT_CODE) != 0) {
+        if name == ".text"
+            || (text_section.is_none() && (s.characteristics & IMAGE_SCN_CNT_CODE) != 0)
+        {
             let start = image_base + s.virtual_address as usize;
             let size = s.virtual_size as usize;
             if name == ".text" {
@@ -1524,7 +1519,11 @@ fn ingest_pe(
         }
         by_name.entry(name.clone()).or_insert(target_live);
         chain.entry(target_live).or_insert(target_live);
-        iat_slots.push(PeIatSlot { slot_live, target_live, name });
+        iat_slots.push(PeIatSlot {
+            slot_live,
+            target_live,
+            name,
+        });
     }
 
     // 5) Tail-call shims, x86 spelling (compendium B7/A2):
@@ -1555,7 +1554,11 @@ fn read_pdb_function_symbols(
     // resolved against the image's own directory (rustc/link often
     // record just "azul.pdb"), and `<image>.pdb` as a final fallback.
     let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Some(cv) = pe.debug_data.as_ref().and_then(|d| d.codeview_pdb70_debug_info.as_ref()) {
+    if let Some(cv) = pe
+        .debug_data
+        .as_ref()
+        .and_then(|d| d.codeview_pdb70_debug_info.as_ref())
+    {
         let raw = cv.filename;
         let trimmed: &[u8] = raw.split(|b| *b == 0).next().unwrap_or(raw);
         if let Ok(s) = core::str::from_utf8(trimmed) {
@@ -1574,9 +1577,13 @@ fn read_pdb_function_symbols(
         .iter()
         .find(|p| p.exists())
         .ok_or_else(|| format!("no .pdb found (tried {:?})", candidates))?;
-    let file = fs::File::open(pdb_path).map_err(|e| format!("open {}: {}", pdb_path.display(), e))?;
-    let mut pdb = pdb::PDB::open(file).map_err(|e| format!("parse {}: {}", pdb_path.display(), e))?;
-    let address_map = pdb.address_map().map_err(|e| format!("address_map: {}", e))?;
+    let file =
+        fs::File::open(pdb_path).map_err(|e| format!("open {}: {}", pdb_path.display(), e))?;
+    let mut pdb =
+        pdb::PDB::open(file).map_err(|e| format!("parse {}: {}", pdb_path.display(), e))?;
+    let address_map = pdb
+        .address_map()
+        .map_err(|e| format!("address_map: {}", e))?;
 
     let mut n_publics = 0usize;
     let mut n_procs = 0usize;
@@ -1590,7 +1597,9 @@ fn read_pdb_function_symbols(
                 if !(p.code || p.function) {
                     continue;
                 }
-                let Some(rva) = p.offset.to_rva(&address_map) else { continue };
+                let Some(rva) = p.offset.to_rva(&address_map) else {
+                    continue;
+                };
                 if rva.0 == 0 {
                     continue;
                 }
@@ -1607,16 +1616,21 @@ fn read_pdb_function_symbols(
     if let Ok(di) = pdb.debug_information() {
         if let Ok(mut modules) = di.modules() {
             while let Ok(Some(module)) = modules.next() {
-                let Ok(Some(mi)) = pdb.module_info(&module) else { continue };
+                let Ok(Some(mi)) = pdb.module_info(&module) else {
+                    continue;
+                };
                 let Ok(mut syms) = mi.symbols() else { continue };
                 while let Ok(Some(symbol)) = syms.next() {
                     let Ok(data) = symbol.parse() else { continue };
                     if let pdb::SymbolData::Procedure(p) = data {
-                        let Some(rva) = p.offset.to_rva(&address_map) else { continue };
+                        let Some(rva) = p.offset.to_rva(&address_map) else {
+                            continue;
+                        };
                         if rva.0 == 0 {
                             continue;
                         }
-                        defined.push((p.name.to_string().into_owned(), image_base + rva.0 as usize));
+                        defined
+                            .push((p.name.to_string().into_owned(), image_base + rva.0 as usize));
                         n_procs += 1;
                     }
                 }
@@ -1625,7 +1639,10 @@ fn read_pdb_function_symbols(
     }
 
     if n_publics == 0 && n_procs == 0 {
-        return Err(format!("{}: parsed but contained 0 function symbols", pdb_path.display()));
+        return Err(format!(
+            "{}: parsed but contained 0 function symbols",
+            pdb_path.display()
+        ));
     }
     eprintln!(
         "[symbol_table] {}: {} publics + {} procs from {}",
@@ -1754,7 +1771,9 @@ fn ingest_macho(
     let mut stubs_section: Option<MachOStubsInfo> = None;
 
     for lc in &macho.load_commands {
-        let CommandVariant::Segment64(seg64) = &lc.command else { continue };
+        let CommandVariant::Segment64(seg64) = &lc.command else {
+            continue;
+        };
         let segname = trim_macho_name(&seg64.segname);
         if segname != "__TEXT" {
             continue;
@@ -1863,10 +1882,7 @@ fn ingest_macho(
             // image's symbol table; __TEXT stays mapped for the
             // process lifetime; the slice is read-only.
             if live_addr != 0 && size > 0 {
-                Some(core::slice::from_raw_parts(
-                    live_addr as *const u8,
-                    size,
-                ))
+                Some(core::slice::from_raw_parts(live_addr as *const u8, size))
             } else {
                 None
             }
@@ -1911,7 +1927,7 @@ fn ingest_macho(
         let entry = SymbolEntry {
             canonical_name: canonical_name.clone(),
             canonical_addr: live_addr,
-            synthetic_addr: live_addr,  // assigned in pass 2
+            synthetic_addr: live_addr, // assigned in pass 2
             size,
             bytes,
             kind: SymKind::Function,
@@ -1936,14 +1952,7 @@ fn ingest_macho(
     //    pipeline's resolve() unifies stub + real-callee references.
     if let Some(stubs) = stubs_section {
         ingest_macho_stubs(
-            macho,
-            file_bytes,
-            slide,
-            stubs,
-            api,
-            by_addr,
-            by_name,
-            chain,
+            macho, file_bytes, slide, stubs, api, by_addr, by_name, chain,
         )?;
     }
 
@@ -2067,8 +2076,19 @@ fn ingest_macho_stubs(
             _ => {}
         }
     }
-    let (Some(indirect_off), Some(n_indirect), Some(symtab_off), Some(strtab_off), Some(strtab_size)) =
-        (indirect_off, n_indirect, symtab_off, strtab_off, strtab_size)
+    let (
+        Some(indirect_off),
+        Some(n_indirect),
+        Some(symtab_off),
+        Some(strtab_off),
+        Some(strtab_size),
+    ) = (
+        indirect_off,
+        n_indirect,
+        symtab_off,
+        strtab_off,
+        strtab_size,
+    )
     else {
         return Ok(());
     };
@@ -2170,11 +2190,15 @@ fn ingest_macho_stubs(
                     target_addr
                 } else {
                     stub_live_addr
-                },  // assigned in pass 2
+                }, // assigned in pass 2
                 size: stub_size,
                 bytes: stub_bytes,
                 kind: SymKind::Stub {
-                    target: if target_addr != 0 { target_addr } else { stub_live_addr },
+                    target: if target_addr != 0 {
+                        target_addr
+                    } else {
+                        stub_live_addr
+                    },
                 },
                 classification: classify_for_name(&canonical_name, api),
             },
@@ -2190,7 +2214,7 @@ fn ingest_macho_stubs(
             let placeholder = SymbolEntry {
                 canonical_name: canonical_name.clone(),
                 canonical_addr: target_addr,
-                synthetic_addr: target_addr,  // assigned in pass 2
+                synthetic_addr: target_addr, // assigned in pass 2
                 size: 0,
                 bytes: None,
                 kind: SymKind::Function,
@@ -2210,11 +2234,7 @@ fn ingest_macho_stubs(
 /// symtab entry from the defining image, the upsert promotes the
 /// real entry. Equal-score collisions keep the existing entry
 /// (deterministic for testing).
-fn upsert_entry(
-    by_addr: &mut BTreeMap<usize, SymbolEntry>,
-    addr: usize,
-    new_entry: SymbolEntry,
-) {
+fn upsert_entry(by_addr: &mut BTreeMap<usize, SymbolEntry>, addr: usize, new_entry: SymbolEntry) {
     fn score(e: &SymbolEntry) -> u32 {
         let mut s = 0u32;
         if e.size > 0 {
@@ -2304,14 +2324,12 @@ fn ingest_elf(
     // sym.st_shndx != SHN_UNDEF. Iterate .symtab if present; fall back
     // to .dynsym (always present in shared libs).
     let collect_defined = |symtab: &goblin::elf::Symtab<'_>,
-                            strtab: &goblin::strtab::Strtab<'_>|
+                           strtab: &goblin::strtab::Strtab<'_>|
      -> Vec<(String, usize, usize)> {
         let mut out: Vec<(String, usize, usize)> = Vec::new();
         for sym in symtab.iter() {
             let st_type = sym.st_type();
-            if st_type != goblin::elf::sym::STT_FUNC
-                && st_type != goblin::elf::sym::STT_OBJECT
-            {
+            if st_type != goblin::elf::sym::STT_FUNC && st_type != goblin::elf::sym::STT_OBJECT {
                 continue;
             }
             if sym.st_value == 0 {
@@ -2327,7 +2345,11 @@ fn ingest_elf(
             if name.is_empty() {
                 continue;
             }
-            out.push((name.to_string(), sym.st_value as usize, sym.st_size as usize));
+            out.push((
+                name.to_string(),
+                sym.st_value as usize,
+                sym.st_size as usize,
+            ));
         }
         out
     };
@@ -2359,10 +2381,7 @@ fn ingest_elf(
         }
         let bytes: Option<&'static [u8]> = unsafe {
             if live_addr != 0 && size > 0 {
-                Some(core::slice::from_raw_parts(
-                    live_addr as *const u8,
-                    size,
-                ))
+                Some(core::slice::from_raw_parts(live_addr as *const u8, size))
             } else {
                 None
             }
@@ -2371,7 +2390,7 @@ fn ingest_elf(
         by_addr.entry(live_addr).or_insert(SymbolEntry {
             canonical_name: name.clone(),
             canonical_addr: live_addr,
-            synthetic_addr: live_addr,  // assigned in pass 2
+            synthetic_addr: live_addr, // assigned in pass 2
             size,
             bytes,
             kind: SymKind::Function,
@@ -2612,9 +2631,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // M9-3: check the more specific layout4 variant FIRST — its name
     // is a superstring of `az_call_indirect`, so a naive ends_with
     // match would mis-classify it as the 3-arg variant.
-    if stripped == "az_call_indirect_layout4"
-        || stripped.ends_with("az_call_indirect_layout4")
-    {
+    if stripped == "az_call_indirect_layout4" || stripped.ends_with("az_call_indirect_layout4") {
         return FnClass::CallIndirectLayout4;
     }
     if stripped == "az_call_indirect" || stripped.ends_with("az_call_indirect") {
@@ -2717,9 +2734,8 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                 }
                 return FnClass::Recursable;
             }
-            "std" | "compiler_builtins" | "panic_abort" | "panic_unwind"
-            | "rustc_demangle" | "backtrace" | "addr2line" | "gimli" | "object"
-            | "miniz_oxide" => {
+            "std" | "compiler_builtins" | "panic_abort" | "panic_unwind" | "rustc_demangle"
+            | "backtrace" | "addr2line" | "gimli" | "object" | "miniz_oxide" => {
                 if name.contains("hashmap_random_keys") {
                     return FnClass::HashmapRandomKeys;
                 }
@@ -2921,8 +2937,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         // OOBs copying the corrupt AzString. Same class as raw_vec/resize/sort/
                         // binary_search above. Lift it (the UTF-8-validation NEON cmhi/CMHS ops are
                         // supported by the remill fork). THE last blocker for web text.
-                        if (crate_name == "alloc" || crate_name == "core")
-                            && name.contains("utf8")
+                        if (crate_name == "alloc" || crate_name == "core") && name.contains("utf8")
                         {
                             return FnClass::Recursable;
                         }
@@ -3022,8 +3037,12 @@ fn macho_image_text_data_range(
             let start = seg64.vmaddr;
             let end = start.saturating_add(seg64.vmsize);
             if end > start {
-                if start < min { min = start; }
-                if end > max { max = end; }
+                if start < min {
+                    min = start;
+                }
+                if end > max {
+                    max = end;
+                }
             }
         }
     }
@@ -3037,10 +3056,7 @@ fn macho_image_text_data_range(
 /// M9-review helper: ELF sibling of [`macho_image_text_data_range`].
 /// Walks PT_LOAD program headers + reports the union of their virtual
 /// address ranges.
-fn elf_image_text_data_range(
-    elf: &goblin::elf::Elf<'_>,
-    _file_bytes: &[u8],
-) -> (usize, usize) {
+fn elf_image_text_data_range(elf: &goblin::elf::Elf<'_>, _file_bytes: &[u8]) -> (usize, usize) {
     let mut min: u64 = u64::MAX;
     let mut max: u64 = 0;
     for ph in &elf.program_headers {
@@ -3049,8 +3065,12 @@ fn elf_image_text_data_range(
         }
         let start = ph.p_vaddr;
         let end = start.saturating_add(ph.p_memsz);
-        if start < min { min = start; }
-        if end > max { max = end; }
+        if start < min {
+            min = start;
+        }
+        if end > max {
+            max = end;
+        }
     }
     if min == u64::MAX {
         (0, 0)
@@ -3089,7 +3109,9 @@ pub(crate) fn collect_macho_low32_sections(
         )
     };
     for lc in &macho.load_commands {
-        let CommandVariant::Segment64(seg64) = &lc.command else { continue };
+        let CommandVariant::Segment64(seg64) = &lc.command else {
+            continue;
+        };
         let segname = trim_macho_name(&seg64.segname);
         let sections_off = lc.offset + SIZEOF_SEGMENT_COMMAND_64;
         for i in 0..seg64.nsects as usize {
@@ -3155,7 +3177,9 @@ fn collect_macho_tlv_regions(
     let mut vars: Option<(usize, usize)> = None;
     let mut data: Option<(usize, usize)> = None;
     for lc in &macho.load_commands {
-        let CommandVariant::Segment64(seg64) = &lc.command else { continue };
+        let CommandVariant::Segment64(seg64) = &lc.command else {
+            continue;
+        };
         if trim_macho_name(&seg64.segname) != "__DATA" {
             continue;
         }
@@ -3222,7 +3246,9 @@ fn collect_macho_tlv_regions(
 /// Signature-based, so it tracks `EMPTY_GROUP` wherever a rebuild moves it.
 pub(crate) fn find_hashbrown_empty_group_ranges() -> &'static [(usize, usize)] {
     static RANGES: std::sync::OnceLock<Vec<(usize, usize)>> = std::sync::OnceLock::new();
-    RANGES.get_or_init(compute_hashbrown_empty_group_ranges).as_slice()
+    RANGES
+        .get_or_init(compute_hashbrown_empty_group_ranges)
+        .as_slice()
 }
 
 fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
@@ -3257,15 +3283,17 @@ fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
         let img_hi = maxv.wrapping_add(slide);
         // Locate __TEXT.__text (native range, mapped r-x → readable).
         let mut text: Option<(usize, usize)> = None; // (native_lo, size)
-        // [g211] Also locate const DATA sections (`__const` in any segment) so we can
-        // signature-scan them for hashbrown's EMPTY_GROUP. EMPTY_GROUP is reached only
-        // via the empty-table singleton's REBASED `ctrl` data-pointer — never a direct
-        // `adrp`/`add` in code — so the instruction scan below structurally misses it,
-        // and an empty map's ctrl-scan then reads 0x00 → "all-FULL" → RawIterRange loops
-        // forever → text shaping hangs.
+                                                     // [g211] Also locate const DATA sections (`__const` in any segment) so we can
+                                                     // signature-scan them for hashbrown's EMPTY_GROUP. EMPTY_GROUP is reached only
+                                                     // via the empty-table singleton's REBASED `ctrl` data-pointer — never a direct
+                                                     // `adrp`/`add` in code — so the instruction scan below structurally misses it,
+                                                     // and an empty map's ctrl-scan then reads 0x00 → "all-FULL" → RawIterRange loops
+                                                     // forever → text shaping hangs.
         let mut const_secs: Vec<(usize, usize)> = Vec::new(); // (native_lo, size)
         for lc in &macho.load_commands {
-            let CommandVariant::Segment64(seg64) = &lc.command else { continue };
+            let CommandVariant::Segment64(seg64) = &lc.command else {
+                continue;
+            };
             let sections_off = lc.offset + SIZEOF_SEGMENT_COMMAND_64;
             for i in 0..seg64.nsects as usize {
                 let so = sections_off + i * SIZEOF_SECTION_64;
@@ -3283,7 +3311,9 @@ fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
                 }
             }
         }
-        let Some((text_lo, tsize)) = text else { continue };
+        let Some((text_lo, tsize)) = text else {
+            continue;
+        };
         if tsize < 8 || text_lo < img_lo || text_lo + tsize > img_hi {
             continue;
         }
@@ -3328,9 +3358,8 @@ fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
                         let target = pg.wrapping_add(imm12);
                         if (target & 0x7) == 0 && target >= img_lo && target + 8 <= img_hi {
                             let max_rl = core::cmp::min(64, img_hi - target);
-                            let tb = unsafe {
-                                core::slice::from_raw_parts(target as *const u8, max_rl)
-                            };
+                            let tb =
+                                unsafe { core::slice::from_raw_parts(target as *const u8, max_rl) };
                             let mut rl = 0usize;
                             while rl < max_rl && tb[rl] == 0xFF {
                                 rl += 1;
@@ -3405,7 +3434,9 @@ pub(crate) fn collect_elf_low32_sections(
     let _ = file_bytes;
     let mut out = Vec::new();
     for sh in &elf.section_headers {
-        let Some(name) = elf.shdr_strtab.get_at(sh.sh_name) else { continue };
+        let Some(name) = elf.shdr_strtab.get_at(sh.sh_name) else {
+            continue;
+        };
         if !matches!(name, ".rodata" | ".data" | ".data.rel.ro") {
             continue;
         }
@@ -3474,10 +3505,7 @@ mod tests {
         // MECH-B regression: out-of-line alloc/core monomorphizations are
         // real compute and must be lifted, never no-op stubbed .
         assert_eq!(
-            classify_for_name(
-                "_ZN5alloc3str17join_generic_copy17h9c9d2f7abfe94f50E",
-                &api
-            ),
+            classify_for_name("_ZN5alloc3str17join_generic_copy17h9c9d2f7abfe94f50E", &api),
             FnClass::Recursable
         );
         // std stays Leaf-by-default (syscall surface).
@@ -3487,10 +3515,7 @@ mod tests {
         );
         // Known landmine stays stubbed: core fn-ptr blanket impls.
         assert_eq!(
-            classify_for_name(
-                "_ZN4core3ops8function5impls5whatever17h00E",
-                &api
-            ),
+            classify_for_name("_ZN4core3ops8function5impls5whatever17h00E", &api),
             FnClass::Leaf
         );
     }

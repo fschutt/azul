@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run AzWriter (examples/azul-writer → bin `azul-doc-demo`) through the web-lift
+# Run AzWriter (examples/azul-writer → bin `AzWriter`) through the web-lift
 # backend and capture a CDP screenshot. This is a MUCH larger surface than
 # hello-world (document layout, text rendering, an Export-to-PDF button), so its
 # console/exception log is the point: each `RuntimeError` names a lifting bug.
@@ -11,7 +11,7 @@ LOG=/c/rb/azwriter_web.log; : > "$LOG"
 # The binary now builds with the dll's lift-friendly recipe
 # (build-std + -Cpanic=abort + explicit target triple), so it lands under the
 # target-triple dir, not target/release.
-BIN=target/x86_64-pc-windows-msvc/release/azul-doc-demo.exe
+BIN=target/x86_64-pc-windows-msvc/release/AzWriter.exe
 for i in $(seq 1 240); do
   [ -f "$BIN" ] && break
   a=$(ps -W 2>/dev/null | grep -icE 'cargo|rustc')
@@ -25,7 +25,7 @@ if [ ! -f "$BIN" ]; then
 fi
 echo "=== binary ready $(date +%H:%M:%S) ===" | tee -a "$LOG"
 
-powershell -NoProfile -Command "Get-Process azul-doc-demo -EA SilentlyContinue | Stop-Process -Force" 2>/dev/null; sleep 2
+powershell -NoProfile -Command "Get-Process AzWriter -EA SilentlyContinue | Stop-Process -Force" 2>/dev/null; sleep 2
 export REMILL_LIFT_BIN=/c/rb/remill/bin/lift/remill-lift-17.exe
 export PATH="$PWD/third_party/remill/dependencies/install/bin:$PATH"
 export AZ_BACKEND=web://127.0.0.1:8801 AZ_LIFT_CACHE=1 AZ_REMILL_KEEP_SCRATCH=1
@@ -39,7 +39,7 @@ nohup "./$BIN" > /c/rb/azwriter_server.log 2>&1 &
 # out at 83 min mid-pre-render and screenshotted ERR_CONNECTION_REFUSED.
 for i in $(seq 1 1080); do
   grep -qE "Listening on" /c/rb/azwriter_server.log 2>/dev/null && { echo "READY $(date +%H:%M:%S)" | tee -a "$LOG"; break; }
-  a=$(ps -W 2>/dev/null | grep -icE 'azul-doc-demo')
+  a=$(ps -W 2>/dev/null | grep -icE 'AzWriter')
   [ "$a" = "0" ] && {
     echo "DIED $(date +%H:%M:%S) — last lift line + any crash text below" | tee -a "$LOG"
     grep -vE "^\[azul-web\]   (intercept|    dep)" /c/rb/azwriter_server.log | tail -12 | tee -a "$LOG"
