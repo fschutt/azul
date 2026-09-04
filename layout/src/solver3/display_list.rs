@@ -4175,9 +4175,25 @@ where
 
             // Preedit underline only on the primary cursor for this node
             let is_primary = primary_idx_for_this_node == Some(i);
-            if is_primary {
-                if let Some(ref preedit) = self.ctx.preedit_text {
-                    if !preedit.is_empty() {
+            // The primary's composition comes from the context; a seat's
+            // travels with its location (9b-ii-a-i-d-ii-c).
+            // (`is_primary` is "the last location on this node", which a
+            // seat's can be when the primary edits elsewhere - only a LOCAL
+            // location carries the primary's composition.)
+            let composing: Option<(u32, f32)> = if is_primary && location.owner.is_local() {
+                self.ctx
+                    .preedit_text
+                    .as_ref()
+                    .filter(|p| !p.is_empty())
+                    .map(|p| (p.len() as u32, p.chars().count() as f32))
+            } else if location.preedit_bytes > 0 {
+                Some((location.preedit_bytes, location.preedit_chars as f32))
+            } else {
+                None
+            };
+            {
+                if let Some((preedit_bytes, preedit_chars)) = composing {
+                    {
                         // The composition IS in this layout: apply_preedit_to_
                         // text_cache splices it into the run at the cursor's
                         // byte offset and re-shapes, so the underline can span
@@ -4187,8 +4203,7 @@ where
                         // a CJK cluster is roughly double that.
                         let run = cursor.cluster_id.source_run;
                         let start_byte = cursor.cluster_id.start_byte_in_run;
-                        let end_byte = start_byte
-                            .saturating_add(u32::try_from(preedit.len()).unwrap_or(u32::MAX));
+                        let end_byte = start_byte.saturating_add(preedit_bytes);
                         // (line_index, min_x, max_x) of the composed clusters.
                         // Clusters on a later line belong to a composition that
                         // wrapped; they would need their own rect, so the span
@@ -4220,7 +4235,7 @@ where
                         } else {
                             // Composition not (yet) in the cache — keep the
                             // old estimate rather than drawing nothing.
-                            let char_count = preedit.chars().count() as f32;
+                            let char_count = preedit_chars;
                             (
                                 rect.origin.x + rect.size.width,
                                 char_count * style.width.max(8.0),

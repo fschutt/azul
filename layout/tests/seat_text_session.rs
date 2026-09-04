@@ -434,3 +434,56 @@ fn a_seats_caret_and_selection_are_drawn_in_its_colour() {
     // Seat 0 is the primary: never a seat owner.
     assert!(SelectionOwner::seat(0).is_local());
 }
+
+/// A seat's input-method composition (9b-ii-a-i-d-ii-c) is its own: stored per
+/// seat, spliced into the text at the SEAT's caret for shaping, underlined at
+/// the seat's location, and gone on commit - the primary's preedit untouched.
+#[test]
+fn a_seats_composition_is_shaped_at_its_caret_and_underlined() {
+    use azul_layout::solver3::display_list::DisplayListItem;
+    let underlines = |lw: &LayoutWindow| {
+        lw.get_layout_result(&DomId::ROOT_ID)
+            .expect("layout result")
+            .display_list
+            .items
+            .iter()
+            .filter(|i| matches!(i, DisplayListItem::Underline { .. }))
+            .count()
+    };
+
+    let mut lw = two_fields();
+    primary_edits(&mut lw, TEXT_A, 1);
+    lw.focus_manager.set_focused_node_for(SEAT, Some(node(TEXT_B)));
+    lw.text_edit_manager.set_seat_caret(SEAT, node(TEXT_B), at(3));
+    assert_eq!(underlines(&lw), 0, "premise: nothing composes");
+
+    // The seat composes "ni" at the end of B: stored per seat, shaped in, underlined.
+    lw.text_edit_manager
+        .set_preedit_for_seat(SEAT, "ni".to_string(), 0, 2);
+    assert_eq!(
+        lw.text_edit_manager.seat_preedit(SEAT).map(|p| p.text.as_str()),
+        Some("ni")
+    );
+    assert!(lw.text_edit_manager.preedit_text.is_none(), "the primary's preedit is untouched");
+    lw.apply_seat_preedit_to_text_cache(SEAT, DomId::ROOT_ID, NodeId::new(TEXT_B));
+    assert_eq!(text_of(&lw, TEXT_B), "bbb", "the committed text is unchanged by a composition");
+    let locations = lw.text_edit_manager.build_cursor_locations();
+    let seat_loc = locations
+        .iter()
+        .find(|l| l.owner == azul_core::selection::SelectionOwner::seat(SEAT))
+        .expect("the seat's location");
+    assert_eq!((seat_loc.preedit_bytes, seat_loc.preedit_chars), (2, 2));
+    assert!(underlines(&lw) >= 1, "the seat's composition is underlined");
+
+    // Commit: the composition ends, the text lands at the seat's caret.
+    lw.text_edit_manager
+        .commit_composition_for_seat(SEAT, "ni".to_string());
+    lw.end_seat_preedit_shaping(SEAT);
+    let _ = lw.record_text_input_for_seat(SEAT, "ni");
+    let _ = lw.apply_text_changeset();
+    assert!(lw.text_edit_manager.seat_preedit(SEAT).is_none());
+    assert_eq!(text_of(&lw, TEXT_B), "bbbni");
+    assert_eq!(text_of(&lw, TEXT_A), "aaa");
+    lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
+    assert_eq!(underlines(&lw), 0, "nothing composes any more");
+}

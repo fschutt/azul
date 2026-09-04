@@ -503,6 +503,12 @@ pub struct WaylandWindow {
     text_input_active: bool, // Whether compositor has activated text input for our surface
     text_input_enabled: bool, // Whether we've called enable() for current focus
     text_input_pending: events::TextInputPendingState, // Pending IME state between events
+    /// The other seats' `zwp_text_input_v3` (9b-ii-a-i-d-ii-c), by seat id.
+    seat_text_inputs: std::collections::BTreeMap<u64, *mut defines::zwp_text_input_v3>,
+    /// Their pending IME state between events, by seat id.
+    seat_text_input_pending: std::collections::BTreeMap<u64, events::TextInputPendingState>,
+    /// The seats whose text input is currently enabled (the seat has a caret).
+    seat_text_input_enabled: std::collections::BTreeSet<u64>,
     pub display: *mut defines::wl_display,
     registry: *mut defines::wl_registry,
     compositor: *mut defines::wl_compositor,
@@ -1988,6 +1994,9 @@ impl WaylandWindow {
             text_input_active: false,
             text_input_enabled: false,
             text_input_pending: events::TextInputPendingState::default(),
+            seat_text_inputs: std::collections::BTreeMap::new(),
+            seat_text_input_pending: std::collections::BTreeMap::new(),
+            seat_text_input_enabled: std::collections::BTreeSet::new(),
             display,
             event_queue,
             registry,
@@ -6133,6 +6142,7 @@ impl WaylandWindow {
         // Phase 2: Post-Layout callback - sync IME position after layout (MOST IMPORTANT)
         self.update_ime_position_from_cursor();
         self.sync_text_input_v3_focus_state();
+        self.sync_seat_text_inputs();
         self.sync_ime_position_to_os();
 
         // Export the (possibly changed) application menu bar to GNOME Shell.
@@ -8188,6 +8198,9 @@ impl Drop for WaylandWindow {
             if let Some(text_input) = self.text_input.take() {
                 (self.wayland.wl_proxy_destroy)(text_input as _);
             }
+            for (_, text_input) in std::mem::take(&mut self.seat_text_inputs) {
+                (self.wayland.wl_proxy_destroy)(text_input as _);
+            }
             if let Some(manager) = self.text_input_manager.take() {
                 (self.wayland.wl_proxy_destroy)(manager as _);
             }
@@ -10074,6 +10087,211 @@ impl WaylandWindow {
     }
 
     /// Show a tooltip at the given position (Wayland implementation using subsurface)
+    /// The seat a text-input object belongs to (9b-ii-a-i-d-ii-c); the primary
+    /// for the primary's (which is not in `seat_text_inputs`).
+    pub(super) fn seat_of_text_input(&self, text_input: *mut defines::zwp_text_input_v3) -> u64 {
+        self.seat_text_inputs
+            .iter()
+            .find(|(_, ti)| **ti == text_input)
+            .map_or(azul_core::window::PRIMARY_POINTER_SEAT, |(seat_id, _)| *seat_id)
+    }
+
+    /// Enable / disable every other seat's text input to match whether that
+    /// seat is editing (has a caret), as `sync_text_input_v3_focus_state`
+    /// does for the primary (9b-ii-a-i-d-ii-c).
+    pub(super) fn sync_seat_text_inputs(&mut self) {
+        let seats: Vec<u64> = self.seat_text_inputs.keys().copied().collect();
+        for seat_id in seats {
+            let editing = self
+                .common
+                .layout_window
+                .as_ref()
+                .is_some_and(|lw| lw.text_edit_manager.seat_caret(seat_id).is_some());
+            let enabled = self.seat_text_input_enabled.contains(&seat_id);
+            if editing && !enabled {
+                self.seat_text_input_enable(seat_id);
+            } else if !editing && enabled {
+                self.seat_text_input_disable(seat_id);
+            }
+        }
+    }
+
+    fn seat_text_input_enable(&mut self, seat_id: u64) {
+        let Some(&text_input) = self.seat_text_inputs.get(&seat_id) else {
+            return;
+        };
+        type MarshalFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
+        let marshal: MarshalFn = unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
+        unsafe {
+            marshal(text_input as *mut defines::wl_proxy, defines::ZWP_TEXT_INPUT_V3_ENABLE);
+            type ContentTypeFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32, u32, u32);
+            let content_type: ContentTypeFn = std::mem::transmute(self.wayland.wl_proxy_marshal);
+            content_type(
+                text_input as *mut defines::wl_proxy,
+                defines::ZWP_TEXT_INPUT_V3_SET_CONTENT_TYPE,
+                defines::ZWP_TEXT_INPUT_V3_CONTENT_HINT_COMPLETION
+                    | defines::ZWP_TEXT_INPUT_V3_CONTENT_HINT_SPELLCHECK,
+                defines::ZWP_TEXT_INPUT_V3_CONTENT_PURPOSE_NORMAL,
+            );
+        }
+        self.seat_text_input_enabled.insert(seat_id);
+        self.send_seat_surrounding_text(seat_id);
+        unsafe {
+            marshal(text_input as *mut defines::wl_proxy, defines::ZWP_TEXT_INPUT_V3_COMMIT);
+            (self.wayland.wl_display_flush)(self.display);
+        }
+    }
+
+    fn seat_text_input_disable(&mut self, seat_id: u64) {
+        let Some(&text_input) = self.seat_text_inputs.get(&seat_id) else {
+            return;
+        };
+        type MarshalFn = unsafe extern "C" fn(*mut defines::wl_proxy, u32);
+        let marshal: MarshalFn = unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
+        unsafe {
+            marshal(text_input as *mut defines::wl_proxy, defines::ZWP_TEXT_INPUT_V3_DISABLE);
+            marshal(text_input as *mut defines::wl_proxy, defines::ZWP_TEXT_INPUT_V3_COMMIT);
+            (self.wayland.wl_display_flush)(self.display);
+        }
+        self.seat_text_input_enabled.remove(&seat_id);
+        if let Some(ref mut lw) = self.common.layout_window {
+            lw.text_edit_manager.clear_preedit_for_seat(seat_id);
+            lw.end_seat_preedit_shaping(seat_id);
+        }
+    }
+
+    /// The seat's node text around ITS caret, as `send_surrounding_text` sends
+    /// the primary's.
+    fn send_seat_surrounding_text(&self, seat_id: u64) {
+        let Some(&text_input) = self.seat_text_inputs.get(&seat_id) else {
+            return;
+        };
+        if !self.seat_text_input_enabled.contains(&seat_id) {
+            return;
+        }
+        let Some(lw) = self.common.layout_window.as_ref() else {
+            return;
+        };
+        let Some(caret) = lw.text_edit_manager.seat_caret(seat_id) else {
+            return;
+        };
+        let Some(node_id) = caret.node.node.into_crate_internal() else {
+            return;
+        };
+        let content = lw.get_text_before_textinput(caret.node.dom, node_id);
+        let text_str = lw.extract_text_from_inline_content(&content);
+        let global_of = |cursor: &azul_core::selection::TextCursor| -> usize {
+            let run_idx = cursor.cluster_id.source_run as usize;
+            let mut global = 0usize;
+            for (i, item) in content.iter().enumerate() {
+                if i >= run_idx {
+                    break;
+                }
+                match item {
+                    azul_layout::text3::cache::InlineContent::Text(r) => global += r.text.len(),
+                    azul_layout::text3::cache::InlineContent::Space(_)
+                    | azul_layout::text3::cache::InlineContent::LineBreak(_)
+                    | azul_layout::text3::cache::InlineContent::Tab { .. } => global += 1,
+                    _ => {}
+                }
+            }
+            global + cursor.cluster_id.start_byte_in_run as usize
+        };
+        let cursor_byte = global_of(&caret.cursor);
+        let anchor_byte = caret.anchor.as_ref().map_or(cursor_byte, global_of);
+        let (window, cursor_in_window, anchor_in_window) =
+            trim_surrounding_text(&text_str, cursor_byte, anchor_byte);
+        let Ok(text) = std::ffi::CString::new(&text_str[window]) else {
+            return;
+        };
+        type SurroundingFn =
+            unsafe extern "C" fn(*mut defines::wl_proxy, u32, *const std::ffi::c_char, i32, i32);
+        let set_surrounding: SurroundingFn =
+            unsafe { std::mem::transmute(self.wayland.wl_proxy_marshal) };
+        unsafe {
+            set_surrounding(
+                text_input as *mut defines::wl_proxy,
+                defines::ZWP_TEXT_INPUT_V3_SET_SURROUNDING_TEXT,
+                text.as_ptr(),
+                cursor_in_window,
+                anchor_in_window,
+            );
+        }
+    }
+
+    /// A seat's `done`: its deletes, commit and preedit, all at ITS caret
+    /// (9b-ii-a-i-d-ii-c).
+    pub(super) fn apply_seat_text_input_done(
+        &mut self,
+        seat_id: u64,
+        pending: events::TextInputPendingState,
+    ) {
+        use azul_core::events::{SelectionDirection, SelectionMode, SelectionOp, SelectionStep};
+        let mut needs_process = false;
+        let target = self
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.text_edit_manager.seat_caret(seat_id).map(|c| c.node));
+        if let (Some(target), Some(lw)) = (target, self.common.layout_window.as_mut()) {
+            if pending.delete_before > 0 {
+                let mut op = SelectionOp::new(
+                    SelectionDirection::Backward,
+                    SelectionStep::Character,
+                    SelectionMode::Delete,
+                );
+                op.repeat = pending.delete_before as usize;
+                lw.apply_selection_op_for_seat(seat_id, target, &op);
+                needs_process = true;
+            }
+            if pending.delete_after > 0 {
+                let mut op = SelectionOp::new(
+                    SelectionDirection::Forward,
+                    SelectionStep::Character,
+                    SelectionMode::Delete,
+                );
+                op.repeat = pending.delete_after as usize;
+                lw.apply_selection_op_for_seat(seat_id, target, &op);
+                needs_process = true;
+            }
+        }
+        if let Some(text) = pending.commit_text {
+            if !text.is_empty() {
+                if let Some(ref mut lw) = self.common.layout_window {
+                    lw.text_edit_manager
+                        .commit_composition_for_seat(seat_id, text.clone());
+                    lw.end_seat_preedit_shaping(seat_id);
+                    let _ = lw.record_text_input_for_seat(seat_id, &text);
+                }
+                needs_process = true;
+            }
+        }
+        if needs_process {
+            self.snapshot_window_state_baseline("wayland.seat_text_input_done");
+            let result = self.process_window_events(0);
+            self.handle_process_event_result(result);
+        }
+        if let Some(ref mut lw) = self.common.layout_window {
+            match pending.preedit_text {
+                Some(preedit) => lw.text_edit_manager.set_preedit_for_seat(
+                    seat_id,
+                    preedit,
+                    pending.preedit_cursor_begin,
+                    pending.preedit_cursor_end,
+                ),
+                None => lw.text_edit_manager.clear_preedit_for_seat(seat_id),
+            }
+            if let Some((dom_id, node_id)) = lw
+                .text_edit_manager
+                .seat_caret(seat_id)
+                .and_then(|c| c.node.node.into_crate_internal().map(|n| (c.node.dom, n)))
+            {
+                lw.apply_seat_preedit_to_text_cache(seat_id, dom_id, node_id);
+            }
+        }
+        self.request_redraw();
+    }
+
     fn show_tooltip(&mut self, text: &str, position: azul_core::geom::LogicalPosition) {
         // Create tooltip if needed
         if self.tooltip.is_none() {

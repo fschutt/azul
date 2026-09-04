@@ -387,6 +387,20 @@ pub struct CursorLocation {
     ///
     /// [`SelectionOwner::LOCAL`]: azul_core::selection::SelectionOwner::LOCAL
     pub owner: azul_core::selection::SelectionOwner,
+    /// A seat's composing text spliced in after this caret (9b-ii-a-i-d-ii-c):
+    /// its byte and char counts, for the underline. `0` = none. The primary's
+    /// preedit travels in the display-list context instead.
+    pub preedit_bytes: u32,
+    pub preedit_chars: u32,
+}
+
+/// A non-primary seat's input-method composition (9b-ii-a-i-d-ii-c): the
+/// text being composed and the IME's cursor span in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeatPreedit {
+    pub text: String,
+    pub cursor_begin: i32,
+    pub cursor_end: i32,
 }
 
 /// Unified text editing manager.
@@ -449,6 +463,9 @@ pub struct TextEditManager {
     /// like a peer caret, cleared when the node unmounts. Not yet DRAWN
     /// (9b-ii-a-i-d-ii-a).
     pub seat_carets: BTreeMap<u64, SeatCaret>,
+    /// The other seats' compositions (9b-ii-a-i-d-ii-c); the primary's is
+    /// `preedit_text` / `preedit_cursor_*`.
+    pub seat_preedits: BTreeMap<u64, SeatPreedit>,
     /// The value the currently focused editable node had WHEN IT GAINED FOCUS.
     ///
     /// `Change` is not "the value was edited" - `TextInput` already reports
@@ -637,6 +654,7 @@ impl TextEditManager {
             display_list_dirty: false,
             tween: TextTweenState::default(),
             seat_carets: BTreeMap::new(),
+            seat_preedits: BTreeMap::new(),
             pending_edit_notifications: Vec::new(),
             pending_text_changed: Vec::new(),
             value_at_focus: None,
@@ -954,6 +972,60 @@ impl TextEditManager {
     /// W3C defines `compositionend.data` as what was COMMITTED, not what was
     /// pending, which is why the text is passed in rather than read off the
     /// (already cleared) preedit.
+    /// `set_preedit` for seat `seat_id` (9b-ii-a-i-d-ii-c); the primary's for
+    /// seat 0. Empty text clears.
+    pub fn set_preedit_for_seat(
+        &mut self,
+        seat_id: u64,
+        text: String,
+        cursor_begin: i32,
+        cursor_end: i32,
+    ) {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.set_preedit(text, cursor_begin, cursor_end);
+            return;
+        }
+        if text.is_empty() {
+            self.seat_preedits.remove(&seat_id);
+        } else {
+            self.seat_preedits.insert(
+                seat_id,
+                SeatPreedit {
+                    text,
+                    cursor_begin,
+                    cursor_end,
+                },
+            );
+        }
+        self.mark_dirty();
+    }
+
+    /// `clear_preedit` for seat `seat_id`.
+    pub fn clear_preedit_for_seat(&mut self, seat_id: u64) {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.clear_preedit();
+        } else if self.seat_preedits.remove(&seat_id).is_some() {
+            self.mark_dirty();
+        }
+    }
+
+    /// Seat `seat_id`'s composition, if one is in progress.
+    #[must_use]
+    pub fn seat_preedit(&self, seat_id: u64) -> Option<&SeatPreedit> {
+        self.seat_preedits.get(&seat_id)
+    }
+
+    /// `commit_composition` for seat `seat_id`: the primary's raises the
+    /// composition-end event; a seat's just ends its preedit (composition
+    /// EVENTS per seat are 9b-ii-a-i-d-ii-c-i).
+    pub fn commit_composition_for_seat(&mut self, seat_id: u64, committed: String) {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            self.commit_composition(committed);
+        } else {
+            self.clear_preedit_for_seat(seat_id);
+        }
+    }
+
     pub fn commit_composition(&mut self, committed: String) {
         self.pending_composition = Some(CompositionPhase::End);
         self.composition_text = committed;
@@ -1095,6 +1167,8 @@ impl TextEditManager {
                         node: node_id,
                         cursor,
                         owner: s.owner,
+                        preedit_bytes: 0,
+                        preedit_chars: 0,
                     }
                 }));
             }
@@ -1105,11 +1179,17 @@ impl TextEditManager {
             let Some(node_id) = caret.node.node.into_crate_internal() else {
                 continue;
             };
+            let (preedit_bytes, preedit_chars) = self
+                .seat_preedits
+                .get(seat)
+                .map_or((0, 0), |p| (p.text.len() as u32, p.text.chars().count() as u32));
             out.push(CursorLocation {
                 dom: caret.node.dom,
                 node: node_id,
                 cursor: caret.cursor,
                 owner: azul_core::selection::SelectionOwner::seat(*seat),
+                preedit_bytes,
+                preedit_chars,
             });
         }
         out

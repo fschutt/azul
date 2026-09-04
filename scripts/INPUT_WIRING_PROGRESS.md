@@ -2344,9 +2344,35 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       only; the primary's `get_selected_content_for_clipboard` / `set_paste_content` styled path
       reads the multi-cursor. Extend `seat_selected_text` to styled runs when a seat's selection
       needs to round-trip formatting.
-- [ ] 9b-ii-a-i-d-ii-c IME / preedit per seat: `ime_document`, `preedit_text` and the composition
-      phase are the primary's; a second seat's input method composes into the primary's field.
-      Wayland has one text-input per seat, so the producer exists; the engine side does not.
+- [x] 9b-ii-a-i-d-ii-c DONE. PRODUCER: a `zwp_text_input_v3` per non-primary seat
+      (`try_init_seat_text_inputs`, from the seat bind and from the manager's arrival, through the
+      factored `get_text_input_for_seat`) on the shared listener; every handler resolves its seat
+      from the object (`seat_of_text_input`) into a per-seat `TextInputPendingState`, and a seat's
+      `done` (`apply_seat_text_input_done`) lands at THAT seat's caret: surrounding deletes as
+      seat Delete ops, the commit through `commit_composition_for_seat` + `record_text_input_for_seat`,
+      the preedit into the seat's store. The requests side mirrors the primary's:
+      `sync_seat_text_inputs` (next to the primary's post-layout sync) enables a seat's input while
+      it has a caret and disables it otherwise, with `set_surrounding_text` from the seat's node
+      and caret / anchor. ENGINE: `TextEditManager::seat_preedits` (`set_preedit_for_seat`,
+      `clear_preedit_for_seat`, `commit_composition_for_seat`, `seat_preedit`), the composition
+      spliced in for shaping at the SEAT's caret (`apply_seat_preedit_to_text_cache` /
+      `end_seat_preedit_shaping`, tracked in `seat_preedit_shaped`, re-applied by
+      `reapply_dirty_text_node`, ended by a committed edit into the node), and the underline: a
+      `CursorLocation` carries its seat's preedit byte / char counts, the painter draws the
+      primary's composition from the context only for a LOCAL location - before, the "last
+      location on this node" rule handed a seat's location the primary's (empty) preedit. Test:
+      a seat's "ni" is stored per seat with the primary's preedit untouched, shaped in without
+      changing the committed text, underlined, and gone after the commit lands "bbbni" at the
+      seat's caret. Evidence: host check EXIT=0; azul-core 2810, azul-layout lib 7684 / `--test
+      all` 1015 (+1), e2e 62 scenarios, azul-dll 2071, 0 failed; 8/8 gate. Wayland half blind.
+- [ ] 9b-ii-a-i-d-ii-c-i Composition EVENTS per seat: `CompositionStart` / `Update` / `End` come
+      from `pending_composition`, which is the primary's; a seat's IME composes silently as far as
+      callbacks are concerned. Needs the seat on the composition phase and on the event.
+- [ ] 9b-ii-a-i-d-ii-c-ii The IME popup position for a seat: `set_cursor_rectangle` is sent for
+      the primary's caret only (`sync_ime_position_to_os`), so a second seat's candidate window
+      opens at the primary's caret. Needs the seat caret's rect per text input.
+- [ ] 9b-ii-a-i-d-ii-c-iii Two seats composing in ONE node: the last shaped composition wins the
+      text-cache splice (both underline). Rare; log, do not guess.
 - [ ] 9b-ii-a-i-d-ii-d Undo attribution: a seat's edits enter the one document undo stack with
       `Uninitialized` cursor positions; Cmd+Z on any seat undoes them in order. Fine for a shared
       document, wrong if per-person undo is wanted - a product question, logged not guessed.

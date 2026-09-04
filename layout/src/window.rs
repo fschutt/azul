@@ -952,6 +952,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         pagination_dirty_from: _,
         font_stacks_hash: _,
         preedit_shaped_node: _,
+        seat_preedit_shaped: _,
         timers: _,
         threads: _,
         renderer_resources: _,
@@ -1612,6 +1613,9 @@ pub struct LayoutWindow {
     /// engine know shaped state has to be rebuilt when the composition ends,
     /// and re-composed when a relayout re-shapes the clean base underneath it.
     preedit_shaped_node: Option<(DomId, NodeId)>,
+    /// Which node each non-primary seat's composition is spliced into
+    /// (9b-ii-a-i-d-ii-c); the primary's is `preedit_shaped_node`.
+    seat_preedit_shaped: std::collections::BTreeMap<u64, (DomId, NodeId)>,
     /// Configurable input interpreter: maps raw events → `SystemChange` actions.
     /// Default: `default_input_interpreter` (standard desktop keybindings).
     /// Replace to implement vim, game controls, accessibility remaps, etc.
@@ -2052,6 +2056,7 @@ impl LayoutWindow {
             monitors: Arc::new(std::sync::Mutex::new(MonitorVec::from_const_slice(&[]))),
             font_stacks_hash: 0,
             preedit_shaped_node: None,
+            seat_preedit_shaped: std::collections::BTreeMap::new(),
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
             custom_e2e_op: azul_core::events::CustomE2eOpCallback::default(),
@@ -15873,6 +15878,10 @@ impl LayoutWindow {
         if self.preedit_shaped_node == Some((dom_id, node_id)) {
             self.preedit_shaped_node = None;
         }
+        // A committed edit ends any seat's composition shaped into this node
+        // too (its `done` clears the preedit itself).
+        self.seat_preedit_shaped
+            .retain(|_, n| *n != (dom_id, node_id));
 
         // Update the text cache with the new inline content
         self.update_text_cache_after_edit(dom_id, node_id, new_content);
@@ -17063,6 +17072,57 @@ impl LayoutWindow {
     /// [`Self::preedit_shaped_node`]) and put the clean base back on screen.
     ///
     /// No text is undone — the composed string was never in the store.
+    /// `apply_preedit_to_text_cache` for seat `seat_id` (9b-ii-a-i-d-ii-c): its
+    /// composition spliced in at ITS caret. Two seats composing in one node
+    /// is not modelled (the last one wins the shaped text, both underline).
+    pub fn apply_seat_preedit_to_text_cache(
+        &mut self,
+        seat_id: u64,
+        dom_id: DomId,
+        node_id: NodeId,
+    ) {
+        if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+            return self.apply_preedit_to_text_cache(dom_id, node_id);
+        }
+        let preedit = match self.text_edit_manager.seat_preedit(seat_id) {
+            Some(p) if !p.text.is_empty() => p.text.clone(),
+            _ => {
+                if self.seat_preedit_shaped.get(&seat_id) == Some(&(dom_id, node_id)) {
+                    self.end_seat_preedit_shaping(seat_id);
+                }
+                return;
+            }
+        };
+        let Some(caret) = self.text_edit_manager.seat_caret(seat_id).filter(|c| {
+            c.node.dom == dom_id && c.node.node.into_crate_internal() == Some(node_id)
+        }) else {
+            return;
+        };
+        let mut content = self.get_text_before_textinput(dom_id, node_id);
+        let run_idx = caret.cursor.cluster_id.source_run as usize;
+        let byte_pos = caret.cursor.cluster_id.start_byte_in_run as usize;
+        if let Some(InlineContent::Text(run)) = content.get_mut(run_idx) {
+            let clamped_pos = byte_pos.min(run.text.len());
+            let mut t = String::from(&*run.text);
+            t.insert_str(clamped_pos, &preedit);
+            run.text = Arc::from(t.as_str());
+        }
+        self.seat_preedit_shaped.insert(seat_id, (dom_id, node_id));
+        self.reshape_text_node(dom_id, node_id, content);
+        self.regenerate_display_list_for_dom(dom_id);
+    }
+
+    /// Put the clean base text back where seat `seat_id`'s composition was
+    /// shaped in.
+    pub fn end_seat_preedit_shaping(&mut self, seat_id: u64) {
+        let Some((dom_id, node_id)) = self.seat_preedit_shaped.remove(&seat_id) else {
+            return;
+        };
+        let base = self.get_text_before_textinput(dom_id, node_id);
+        self.reshape_text_node(dom_id, node_id, base);
+        self.regenerate_display_list_for_dom(dom_id);
+    }
+
     pub fn end_preedit_shaping(&mut self) {
         let Some((dom_id, node_id)) = self.preedit_shaped_node.take() else {
             return;
@@ -17104,6 +17164,15 @@ impl LayoutWindow {
         // back or a rebuild mid-composition would blank the composed glyphs.
         if self.preedit_shaped_node == Some((dom_id, node_id)) {
             self.apply_preedit_to_text_cache(dom_id, node_id);
+        }
+        let seats: Vec<u64> = self
+            .seat_preedit_shaped
+            .iter()
+            .filter(|(_, n)| **n == (dom_id, node_id))
+            .map(|(seat, _)| *seat)
+            .collect();
+        for seat in seats {
+            self.apply_seat_preedit_to_text_cache(seat, dom_id, node_id);
         }
     }
 
@@ -19986,6 +20055,7 @@ impl LayoutWindow {
             monitors: _,
             font_stacks_hash: _,
             preedit_shaped_node: _,
+        seat_preedit_shaped: _,
             input_interpreter: _,
             post_filter: _,
             custom_e2e_op: _,

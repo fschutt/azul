@@ -578,6 +578,8 @@ pub(super) extern "C" fn registry_global_handler(
                 // Its tablet seat too, if the tablet manager is already here
                 // (9b-ii-b-i-b-i); otherwise the manager's arrival binds it.
                 unsafe { try_init_seat_tablets(window, data) };
+                // And its text input (9b-ii-a-i-d-ii-c), same rule.
+                unsafe { try_init_seat_text_inputs(window, data) };
             }
         }
         "zwp_relative_pointer_manager_v1" => {
@@ -790,6 +792,8 @@ pub(super) extern "C" fn registry_global_handler(
                             "[Wayland] Bound zwp_text_input_v3 - native IME available"
                         );
                     }
+                    // The other seats' text inputs (9b-ii-a-i-d-ii-c).
+                    unsafe { try_init_seat_text_inputs(window, data) };
                 }
             }
         }
@@ -1134,6 +1138,85 @@ pub(super) unsafe fn try_init_tablet(window: &mut WaylandWindow, data: *mut c_vo
 /// A `zwp_tablet_seat_v2` for every non-primary `wl_seat` that has none yet
 /// (9b-ii-b-i-b-i). The tablet seat listener is shared; `tool_added` records
 /// which seat announced each tool, and the tool events route by that.
+/// `zwp_text_input_manager_v3.get_text_input(seat)` for one `wl_seat`.
+unsafe fn get_text_input_for_seat(
+    window: &WaylandWindow,
+    manager: *mut zwp_text_input_manager_v3,
+    seat: *mut wl_seat,
+) -> *mut zwp_text_input_v3 {
+    let text_input_interface = defines::get_text_input_v3_interface();
+    let version = (window.wayland.wl_proxy_get_version)(manager as *mut wl_proxy);
+    if !window.wayland.wl_proxy_marshal_flags.is_null() {
+        type GetFlags = unsafe extern "C" fn(
+            *mut wl_proxy,
+            u32,
+            *const wl_interface,
+            u32,
+            u32,
+            *mut std::ffi::c_void,
+            *mut wl_seat,
+        ) -> *mut wl_proxy;
+        let f: GetFlags = std::mem::transmute(window.wayland.wl_proxy_marshal_flags);
+        f(
+            manager as *mut wl_proxy,
+            defines::ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT,
+            text_input_interface,
+            version,
+            0,
+            std::ptr::null_mut(),
+            seat,
+        ) as *mut zwp_text_input_v3
+    } else {
+        type GetCtor = unsafe extern "C" fn(
+            *mut wl_proxy,
+            u32,
+            *const wl_interface,
+            *mut std::ffi::c_void,
+            *mut wl_seat,
+        ) -> *mut wl_proxy;
+        let f: GetCtor = std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
+        f(
+            manager as *mut wl_proxy,
+            defines::ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT,
+            text_input_interface,
+            std::ptr::null_mut(),
+            seat,
+        ) as *mut zwp_text_input_v3
+    }
+}
+
+/// A `zwp_text_input_v3` for every non-primary seat that has none yet
+/// (9b-ii-a-i-d-ii-c), on the shared listener; the handlers route by the
+/// object. Run from the seat bind and from the manager's arrival.
+pub(super) unsafe fn try_init_seat_text_inputs(window: &mut WaylandWindow, data: *mut c_void) {
+    let Some(manager) = window.text_input_manager else {
+        return;
+    };
+    let pending: Vec<(u64, *mut wl_seat)> = window
+        .seats
+        .iter()
+        .filter(|(seat_id, _)| *seat_id != azul_core::window::PRIMARY_POINTER_SEAT)
+        .filter(|(seat_id, _)| !window.seat_text_inputs.contains_key(seat_id))
+        .map(|(seat_id, entry)| (seat_id, entry.seat.cast::<wl_seat>()))
+        .collect();
+    for (seat_id, wl_seat) in pending {
+        if wl_seat.is_null() {
+            continue;
+        }
+        let text_input = get_text_input_for_seat(window, manager, wl_seat);
+        if text_input.is_null() {
+            continue;
+        }
+        (window.wayland.wl_proxy_add_listener)(
+            text_input as *mut wl_proxy,
+            &ZWP_TEXT_INPUT_V3_LISTENER as *const _ as *const c_void,
+            data,
+        );
+        window.track_listener(text_input);
+        window.seat_text_inputs.insert(seat_id, text_input);
+    }
+}
+
 pub(super) unsafe fn try_init_seat_tablets(window: &mut WaylandWindow, data: *mut c_void) {
     if window.tablet_manager.is_null() {
         return;
@@ -3745,10 +3828,15 @@ impl Default for TextInputPendingState {
 
 pub(super) extern "C" fn text_input_enter_handler(
     data: *mut c_void,
-    _text_input: *mut zwp_text_input_v3,
+    text_input: *mut zwp_text_input_v3,
     _surface: *mut wl_surface,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // A seat's enter just makes its input eligible (9b-ii-a-i-d-ii-c); the
+    // enable follows the seat's caret in `sync_seat_text_inputs`.
+    if window.seat_of_text_input(text_input) != azul_core::window::PRIMARY_POINTER_SEAT {
+        return;
+    }
     log_debug!(
         LogCategory::Platform,
         "[Wayland] text_input_v3: enter - IME activated for surface"
@@ -3760,10 +3848,18 @@ pub(super) extern "C" fn text_input_enter_handler(
 
 pub(super) extern "C" fn text_input_leave_handler(
     data: *mut c_void,
-    _text_input: *mut zwp_text_input_v3,
+    text_input: *mut zwp_text_input_v3,
     _surface: *mut wl_surface,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let seat_id = window.seat_of_text_input(text_input);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        if let Some(ref mut lw) = window.common.layout_window {
+            lw.text_edit_manager.clear_preedit_for_seat(seat_id);
+            lw.end_seat_preedit_shaping(seat_id);
+        }
+        return;
+    }
     log_debug!(
         LogCategory::Platform,
         "[Wayland] text_input_v3: leave - IME deactivated"
@@ -3777,7 +3873,7 @@ pub(super) extern "C" fn text_input_leave_handler(
 
 pub(super) extern "C" fn text_input_preedit_string_handler(
     data: *mut c_void,
-    _text_input: *mut zwp_text_input_v3,
+    text_input: *mut zwp_text_input_v3,
     text: *const std::ffi::c_char,
     cursor_begin: i32,
     cursor_end: i32,
@@ -3798,14 +3894,20 @@ pub(super) extern "C" fn text_input_preedit_string_handler(
         cursor_begin,
         cursor_end
     );
-    window.text_input_pending.preedit_text = preedit;
-    window.text_input_pending.preedit_cursor_begin = cursor_begin;
-    window.text_input_pending.preedit_cursor_end = cursor_end;
+    let seat_id = window.seat_of_text_input(text_input);
+    let pending = if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+        &mut window.text_input_pending
+    } else {
+        window.seat_text_input_pending.entry(seat_id).or_default()
+    };
+    pending.preedit_text = preedit;
+    pending.preedit_cursor_begin = cursor_begin;
+    pending.preedit_cursor_end = cursor_end;
 }
 
 pub(super) extern "C" fn text_input_commit_string_handler(
     data: *mut c_void,
-    _text_input: *mut zwp_text_input_v3,
+    text_input: *mut zwp_text_input_v3,
     text: *const std::ffi::c_char,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
@@ -3822,12 +3924,21 @@ pub(super) extern "C" fn text_input_commit_string_handler(
         "[Wayland] text_input_v3: commit_string text={:?}",
         commit
     );
-    window.text_input_pending.commit_text = commit;
+    let seat_id = window.seat_of_text_input(text_input);
+    if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+        window.text_input_pending.commit_text = commit;
+    } else {
+        window
+            .seat_text_input_pending
+            .entry(seat_id)
+            .or_default()
+            .commit_text = commit;
+    }
 }
 
 pub(super) extern "C" fn text_input_delete_surrounding_text_handler(
     data: *mut c_void,
-    _text_input: *mut zwp_text_input_v3,
+    text_input: *mut zwp_text_input_v3,
     before_length: u32,
     after_length: u32,
 ) {
@@ -3838,16 +3949,32 @@ pub(super) extern "C" fn text_input_delete_surrounding_text_handler(
         before_length,
         after_length
     );
-    window.text_input_pending.delete_before = before_length;
-    window.text_input_pending.delete_after = after_length;
+    let seat_id = window.seat_of_text_input(text_input);
+    let pending = if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
+        &mut window.text_input_pending
+    } else {
+        window.seat_text_input_pending.entry(seat_id).or_default()
+    };
+    pending.delete_before = before_length;
+    pending.delete_after = after_length;
 }
 
 pub(super) extern "C" fn text_input_done_handler(
     data: *mut c_void,
-    _text_input: *mut zwp_text_input_v3,
+    text_input: *mut zwp_text_input_v3,
     serial: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // A seat's `done` lands at THAT seat's caret (9b-ii-a-i-d-ii-c).
+    let seat_id = window.seat_of_text_input(text_input);
+    if seat_id != azul_core::window::PRIMARY_POINTER_SEAT {
+        let pending = window
+            .seat_text_input_pending
+            .remove(&seat_id)
+            .unwrap_or_default();
+        window.apply_seat_text_input_done(seat_id, pending);
+        return;
+    }
     log_debug!(
         LogCategory::Platform,
         "[Wayland] text_input_v3: done serial={}",
