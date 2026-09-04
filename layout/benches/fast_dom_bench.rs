@@ -192,6 +192,9 @@ fn main() {
             DomId::ROOT_ID,
             false,
             Vec::new(),
+            Default::default(), // owner_colors (U1)
+            Vec::new(),         // seat_focus_rings (9b-ii-a-i-d-iii)
+            false,              // paint_selection_handles (U2-a)
             None, // preedit_text
             &ImageCache::default(),
             None, // content_overlay

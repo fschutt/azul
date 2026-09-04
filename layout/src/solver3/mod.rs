@@ -2800,6 +2800,7 @@ mod autotest_generated {
                     cursor_is_visible: true,
                     cursor_locations: Vec::new(),
                     owner_colors: Default::default(),
+                    seat_focus_rings: Vec::new(),
                     paint_selection_handles: false,
                     preedit_text: None,
                     cache_map: cache::LayoutCacheMap::default(),

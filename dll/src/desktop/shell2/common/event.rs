@@ -550,6 +550,7 @@ fn record_multi_edit_undo(
             new_cursor: CursorPosition::Uninitialized,
         }),
         azul_layout::window::TextEditNotify::QueueInput,
+        azul_core::window::PRIMARY_POINTER_SEAT, // the smart paste is the primary's (9b-ii-a-i-d-ii-d)
     );
 }
 
