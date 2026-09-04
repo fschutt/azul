@@ -16,15 +16,14 @@ ARG AZUL_VERSION=0.2.0
 # ---- prelift: warm the WASM cache at BUILD time (azul library + app fns) -----
 # NB: the base image's libazulwithremill.so is built WITHOUT `debug-server`, so
 # AZ_DEBUG / AZ_E2E are compiled out (no accidental open debug port in a deployed
-# web app). The build-time prelift therefore uses a dedicated, non-debug
-# lift-and-exit hook (AZ_PRELIFT) rather than the debug-server E2E runner. [TODO:
-# AZ_PRELIFT hook is not implemented yet — until then the cache warms on the first
-# request instead of at build time.]
+# web app). The build-time prelift therefore uses the `web-prelift://` backend
+# URL: same syntax as `web://`, but it exits once the lift cache is warm instead
+# of serving, so no debug surface is involved.
 FROM ghcr.io/fschutt/azul:${AZUL_VERSION} AS prelift
 ARG AZUL_VERSION
 ADD https://azul.rs/release/${AZUL_VERSION}/demos/azul-widgets-linux /app/azul-widgets.bin
 RUN chmod +x /app/azul-widgets.bin \
- && AZ_LIFT_CACHE_DIR=/cache AZ_PRELIFT=1 /app/azul-widgets.bin || true
+ && AZ_LIFT_CACHE_DIR=/cache AZ_BACKEND="web-prelift://0.0.0.0:8080" /app/azul-widgets.bin
 
 # ---- final: distroless + binary + in-process lifter + warm cache -------------
 FROM ghcr.io/fschutt/azul:${AZUL_VERSION}
