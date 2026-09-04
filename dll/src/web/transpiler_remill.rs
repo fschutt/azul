@@ -2128,6 +2128,22 @@ impl RemillTranspiler {
                 }
             }
 
+            // Delete CPU-state stores nothing can read (PC restores and
+            // never-consumed flag writes). ~49% of the stores that survive
+            // -O2 in a typical lifted function; opt cannot do it because the
+            // State pointer escapes to every callee. Safe here because the
+            // input is rustc output - see strip_dead_state_stores.
+            {
+                if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                    let (stripped, n) = strip_dead_state_stores(&opt_ir);
+                    if n > 0 {
+                        let _ = std::fs::write(&opt_ir_path, &stripped);
+                        STATE_STORES_REMOVED
+                            .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+            }
+
             // M12.5y store-address tracer: when AZ_LOG_STORES contains a
             // comma-separated substring matching this dep's stem, instrument
             // the post-opt IR in place (then llc compiles the instrumented
@@ -8778,6 +8794,106 @@ fn inject_selfloop_value_log(opt_ir: &str) -> (String, u32) {
 /// itself, which HANGS the wasm; those are abort paths, so trapping is
 /// correct and far faster to debug. Only empty self-loops are touched.
 /// Returns (rewritten_ir, count).
+/// Delete CPU-state stores that nothing can read, using a guarantee LLVM
+/// cannot derive: every byte we lift is rustc output.
+///
+/// remill models each x86 instruction's full effect on the machine - it
+/// restores the program counter before every basic block and recomputes all
+/// six arithmetic flags after every add/sub/cmp, consumed or not. In one
+/// 38 KB function that is 38,895 surviving stores after -O2, of which ~18,900
+/// (49%) write values nothing ever reads: 11,702 to `%PC` against 20 loads,
+/// and 7,171 to `%af`/`%pf`/`%cf` against ZERO loads.
+///
+/// `opt` cannot remove them because the State pointer ESCAPES - it is passed
+/// to every lifted callee - so dead-store elimination must assume a callee
+/// loads `%af`. That is an alias-analysis limit, not a missing pass.
+///
+/// Two facts about rustc-compiled input license the removal:
+///   1. A callee receives its PC as an explicit argument and overwrites `%PC`
+///      at its own entry, so it never reads the caller's stored PC.
+///   2. The SysV / Windows-x64 ABIs leave EFLAGS undefined across calls, and
+///      rustc never emits a function that begins by consuming caller flags -
+///      so a flag store is dead unless a branch in the SAME function reads it.
+///
+/// Both are conservative here: a field is only cleared when the module
+/// contains no load of it at all, and a `%PC` store survives if any load OR
+/// call appears before the next store to `%PC`. Returns (ir, removed_count).
+fn strip_dead_state_stores(ir: &str) -> (String, u32) {
+    // Flag fields remill writes eagerly. `zf` is deliberately absent: it has
+    // hundreds of genuine readers, so it needs real liveness, not this.
+    const FLAG_FIELDS: &[&str] = &["af", "pf", "cf", "sf", "of"];
+
+    // A state field reference looks like `ptr %af`, `ptr %af.i`, or
+    // `ptr %af.i.i27960` - the base name plus opt's inlining suffixes.
+    fn field_of(line: &str) -> Option<&str> {
+        let idx = line.rfind("ptr %")?;
+        let rest = &line[idx + 5..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_'))
+            .unwrap_or(rest.len());
+        let full = &rest[..end];
+        Some(full.split('.').next().unwrap_or(full))
+    }
+
+    // Pass 1: which fields are ever LOADED anywhere in the module?
+    let mut loaded: HashSet<&str> = HashSet::new();
+    for line in ir.lines() {
+        let l = line.trim_start();
+        if l.starts_with("%") && l.contains(" = load ") {
+            if let Some(f) = field_of(line) {
+                loaded.insert(f);
+            }
+        }
+    }
+
+    // Pass 2: rewrite. Field-level DCE for never-loaded flags, plus located
+    // dead-store elimination for %PC.
+    let mut out = String::with_capacity(ir.len());
+    let mut removed = 0u32;
+    // Index of the last emitted `%PC` store line in `out`, if it is still a
+    // candidate for removal (no load or call seen since).
+    let mut pending_pc: Option<(usize, usize)> = None; // (start, end) byte range
+    for line in ir.lines() {
+        let l = line.trim_start();
+        let is_store = l.starts_with("store ");
+        let is_call = l.contains(" call ") || l.starts_with("call ");
+        let is_load = l.contains(" = load ");
+        let field = if is_store || is_load { field_of(line) } else { None };
+
+        // Anything that could observe the State kills the pending PC store.
+        if is_call || (is_load && field == Some("PC")) {
+            pending_pc = None;
+        }
+
+        if is_store {
+            match field {
+                // Never loaded anywhere: the store cannot be observed.
+                Some(f) if FLAG_FIELDS.contains(&f) && !loaded.contains(f) => {
+                    removed += 1;
+                    continue;
+                }
+                Some("PC") => {
+                    // This store overwrites the previous one with nothing able
+                    // to read it in between - drop the earlier one.
+                    if let Some((s, e)) = pending_pc.take() {
+                        out.replace_range(s..e, "");
+                        removed += 1;
+                    }
+                    let start = out.len();
+                    out.push_str(line);
+                    out.push('\n');
+                    pending_pc = Some((start, out.len()));
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    (out, removed)
+}
+
 fn rewrite_empty_self_loops(opt_ir: &str) -> (String, u32) {
     let lines: Vec<&str> = opt_ir.lines().collect();
     let mut out = String::with_capacity(opt_ir.len());
@@ -12297,6 +12413,9 @@ fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileEr
 static SPAWN_INFLIGHT: std::sync::Mutex<
     std::collections::BTreeMap<u64, (std::time::Instant, String)>,
 > = std::sync::Mutex::new(std::collections::BTreeMap::new());
+static STATE_STORES_REMOVED: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 static SPAWN_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Retires its entry on every exit path, including the `?` on a failed spawn.
