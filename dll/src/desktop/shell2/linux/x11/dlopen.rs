@@ -424,6 +424,42 @@ pub struct Xkb {
         Option<unsafe extern "C" fn(*mut xkb_compose_state, *mut c_char, usize) -> i32>,
 }
 
+/// libxkbcommon-x11 + libX11-xcb (9b-ii-a-i-a-i): a keymap and state built
+/// from a specific XInput device, so a second MPX seat's keys are translated
+/// through ITS master keyboard's layout instead of the display's core one.
+/// Optional: without either library the seat path falls back to the core
+/// keymap it always used.
+pub struct XkbX11 {
+    _lib: Library,
+    _xcb: Library,
+    /// `xkb_x11_keymap_new_from_device(ctx, conn, device_id, flags)`
+    pub xkb_x11_keymap_new_from_device: unsafe extern "C" fn(
+        *mut xkb_context,
+        *mut std::ffi::c_void,
+        i32,
+        u32,
+    ) -> *mut xkb_keymap,
+    /// `xkb_x11_state_new_from_device(keymap, conn, device_id)`
+    pub xkb_x11_state_new_from_device:
+        unsafe extern "C" fn(*mut xkb_keymap, *mut std::ffi::c_void, i32) -> *mut xkb_state,
+    /// `XGetXCBConnection(display)` - the XCB connection under an Xlib display.
+    pub x_get_xcb_connection: unsafe extern "C" fn(*mut Display) -> *mut std::ffi::c_void,
+}
+
+impl XkbX11 {
+    pub fn new() -> Result<Rc<Self>, DlError> {
+        let lib = load_first_available::<Library>(&["libxkbcommon-x11.so.0"])?;
+        let xcb = load_first_available::<Library>(&["libX11-xcb.so.1"])?;
+        Ok(Rc::new(Self {
+            xkb_x11_keymap_new_from_device: load_symbol!(lib, _, "xkb_x11_keymap_new_from_device"),
+            xkb_x11_state_new_from_device: load_symbol!(lib, _, "xkb_x11_state_new_from_device"),
+            x_get_xcb_connection: load_symbol!(xcb, _, "XGetXCBConnection"),
+            _lib: lib,
+            _xcb: xcb,
+        }))
+    }
+}
+
 impl Xkb {
     pub fn new() -> Result<Rc<Self>, DlError> {
         let lib = load_first_available::<Library>(&["libxkbcommon.so.0"])?;

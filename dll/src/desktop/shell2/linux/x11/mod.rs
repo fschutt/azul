@@ -1543,6 +1543,8 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
                 // handful of entries and refills on the next motion event.
                 win.pointer_source_cache.clear();
                 win.master_keyboards = query_master_keyboards(win);
+                // The other seats' keymaps too (9b-ii-a-i-a-i): same reuse hazard.
+                win.drop_seat_keymaps();
             }
             (free_event_data)(display, cookie);
             return;
@@ -1644,6 +1646,60 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
 /// Cached lookup of an XI2 slave device's kind, one round trip per device.
 /// Every master keyboard and the master pointer it is paired with
 /// (9b-ii-a-i-a), from `XIQueryDevice(XIAllMasterDevices)`.
+/// A non-primary master keyboard's own xkb keymap and state (9b-ii-a-i-a-i).
+pub(super) struct SeatXkb {
+    pub(super) keymap: *mut defines::xkb_keymap,
+    pub(super) state: *mut defines::xkb_state,
+}
+
+impl X11Window {
+    /// The xkb state of master keyboard `deviceid`, built from the device on
+    /// first use (9b-ii-a-i-a-i). `None` without libxkbcommon-x11 / libX11-xcb
+    /// or when the server refuses - the caller then uses the core keymap.
+    fn seat_xkb_state(&mut self, deviceid: c_int) -> Option<*mut defines::xkb_state> {
+        if let Some(entry) = self.seat_keymaps.get(&deviceid) {
+            return Some(entry.state);
+        }
+        let x11 = self.xkb_x11.clone()?;
+        if self.seat_xkb_context.is_null() {
+            self.seat_xkb_context = unsafe { (self.xkb.xkb_context_new)(0) };
+            if self.seat_xkb_context.is_null() {
+                return None;
+            }
+        }
+        let (keymap, state) = unsafe {
+            let conn = (x11.x_get_xcb_connection)(self.display);
+            if conn.is_null() {
+                return None;
+            }
+            let keymap =
+                (x11.xkb_x11_keymap_new_from_device)(self.seat_xkb_context, conn, deviceid, 0);
+            if keymap.is_null() {
+                return None;
+            }
+            let state = (x11.xkb_x11_state_new_from_device)(keymap, conn, deviceid);
+            if state.is_null() {
+                (self.xkb.xkb_keymap_unref)(keymap);
+                return None;
+            }
+            (keymap, state)
+        };
+        self.seat_keymaps.insert(deviceid, SeatXkb { keymap, state });
+        Some(state)
+    }
+
+    /// Drop every per-device keymap: device ids are reused across hotplug
+    /// (`XI_HierarchyChanged`), so a cached map may describe another keyboard.
+    fn drop_seat_keymaps(&mut self) {
+        for (_, entry) in std::mem::take(&mut self.seat_keymaps) {
+            unsafe {
+                (self.xkb.xkb_state_unref)(entry.state);
+                (self.xkb.xkb_keymap_unref)(entry.keymap);
+            }
+        }
+    }
+}
+
 unsafe fn query_master_keyboards(win: &X11Window) -> std::collections::HashMap<c_int, c_int> {
     let mut map = std::collections::HashMap::new();
     let Some(xi) = win.xi.clone() else {
@@ -1697,6 +1753,64 @@ impl X11Window {
         let keycode = ev.detail as u32;
         let state = ev.mods.effective as std::ffi::c_uint;
 
+        // THIS master keyboard's layout (9b-ii-a-i-a-i): the event's own
+        // modifier and group state applied to a keymap built from the
+        // device, so a seat on another layout is not translated through
+        // the primary's. The core keymap below is the fallback.
+        let per_device = self.seat_xkb_state(ev.deviceid).map(|xkb_state| {
+            let xkb = self.xkb.clone();
+            unsafe {
+                // The virtual keycode comes from the UNMODIFIED symbol of
+                // the seat's group; the text from the full state.
+                (xkb.xkb_state_update_mask)(
+                    xkb_state,
+                    0,
+                    0,
+                    0,
+                    ev.group.base as u32,
+                    ev.group.latched as u32,
+                    ev.group.locked as u32,
+                );
+                let unmodified = (xkb.xkb_state_key_get_one_sym)(xkb_state, keycode);
+                (xkb.xkb_state_update_mask)(
+                    xkb_state,
+                    ev.mods.base as u32,
+                    ev.mods.latched as u32,
+                    ev.mods.locked as u32,
+                    ev.group.base as u32,
+                    ev.group.latched as u32,
+                    ev.group.locked as u32,
+                );
+                let vk = if unmodified == 0 {
+                    None
+                } else {
+                    events::keysym_to_virtual_keycode(unmodified as defines::KeySym)
+                };
+                let text = if is_down {
+                    let mut buffer = [0i8; 32];
+                    let len = (xkb.xkb_state_key_get_utf8)(
+                        xkb_state,
+                        keycode,
+                        buffer.as_mut_ptr(),
+                        buffer.len(),
+                    );
+                    if len > 0 && (len as usize) < buffer.len() {
+                        let bytes: Vec<u8> =
+                            buffer[..len as usize].iter().map(|b| *b as u8).collect();
+                        Some(String::from_utf8_lossy(&bytes).into_owned())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                (vk, text)
+            }
+        });
+
+        let (vk, text) = if let Some(found) = per_device {
+            found
+        } else {
         let vk = self
             .unmodified_keysym(keycode)
             .and_then(events::keysym_to_virtual_keycode);
@@ -1738,6 +1852,8 @@ impl X11Window {
             }
         } else {
             None
+        };
+        (vk, text)
         };
 
         let prev_snapshot = self.common.current_window_state().clone();
@@ -2360,6 +2476,14 @@ pub struct X11Window {
     pub xlib: Rc<Xlib>,
     pub egl: Rc<Egl>,
     pub xkb: Rc<Xkb>,
+    /// libxkbcommon-x11, when present (9b-ii-a-i-a-i): per-master-keyboard
+    /// keymaps for the other seats.
+    xkb_x11: Option<Rc<dlopen::XkbX11>>,
+    /// The xkbcommon context the per-device keymaps are built in (lazily).
+    seat_xkb_context: *mut defines::xkb_context,
+    /// One keymap + state per non-primary master keyboard (XI device id),
+    /// built on first key from that device, dropped on `XI_HierarchyChanged`.
+    seat_keymaps: std::collections::HashMap<c_int, SeatXkb>,
     pub xrender: Option<Rc<dlopen::Xrender>>, // Optional XRender for ARGB visual detection
     /// Optional XShape for alpha-shaped windows (loaded on first use).
     xext: Option<Rc<dlopen::Xext>>,
@@ -3626,6 +3750,9 @@ impl X11Window {
             xlib,
             egl,
             xkb,
+            xkb_x11: dlopen::XkbX11::new().ok(),
+            seat_xkb_context: std::ptr::null_mut(),
+            seat_keymaps: std::collections::HashMap::new(),
             xrender,
             xext: None,
             xext_probed: false,
@@ -7551,6 +7678,11 @@ impl X11Window {
 
 impl Drop for X11Window {
     fn drop(&mut self) {
+        self.drop_seat_keymaps();
+        if !self.seat_xkb_context.is_null() {
+            unsafe { (self.xkb.xkb_context_unref)(self.seat_xkb_context) };
+            self.seat_xkb_context = std::ptr::null_mut();
+        }
         // Close all timerfd's
         if self.pace_fd >= 0 {
             unsafe { libc::close(self.pace_fd) };

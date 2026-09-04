@@ -2150,10 +2150,23 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       ✅ COMPILED in the seventh batch pass of 2026-09-04: the Linux target checks green after one
       visibility fix (`unmodified_keysym` was private to its module); the other seven gate targets
       do not compile the X11 backend. Blind by design - no X server here.
-- [ ] 9b-ii-a-i-a-i A second MPX seat with its OWN keyboard layout: XI2 key events carry the
-      master's `group` state, but the keysym is looked up in the display's one core keymap, so a
-      seat on a different layout is translated through the primary's. Needs an xkb keymap per
-      master keyboard (`xkb_x11_keymap_new_from_device`) - the same shape the Wayland seats have.
+- [x] 9b-ii-a-i-a-i DONE. `dlopen::XkbX11` loads libxkbcommon-x11 + libX11-xcb (optional -
+      without them the seat path keeps the core keymap it always used); `X11Window::seat_xkb_state`
+      builds, on the first key from a master keyboard, a keymap and state FROM THAT DEVICE
+      (`xkb_x11_keymap_new_from_device` / `xkb_x11_state_new_from_device` over
+      `XGetXCBConnection(display)`, in a lazily created xkbcommon context), keyed by XI device id;
+      `handle_seat_key_event` applies the event's own modifier and group state to it and reads the
+      virtual keycode from the UNMODIFIED symbol of the seat's group and the text from the full
+      state - the same shape as a Wayland seat's xkb objects. The maps are dropped on
+      `XI_HierarchyChanged` (device ids are reused across hotplug) and in `Drop`, with the
+      context. WHY the gap existed: the seat key path was built from `XLookupString` on a
+      synthesised core `XKeyEvent`, which can only see the display's core keymap. Blind by
+      design (no X server here): the Linux target checks green, host check EXIT=0, azul-dll 2071,
+      8/8 gate.
+- [ ] 9b-ii-a-i-a-i-a A layout switch ON a master keyboard mid-session (`XkbMapNotify` /
+      `XkbNewKeyboardNotify` for that device) is not selected, so a seat's cached keymap stays
+      the old layout until the next hierarchy change. Select `XkbMapNotify` for
+      `XkbUseCoreKbd`-plus-each-master and drop that device's entry when it fires.
 - [x] 9b-ii-a-i-b DONE. The seat table carries a `wl_keyboard` per seat (`keyboard_of` /
       `set_keyboard` / `seat_id_for_keyboard`, keyed by the PROXY like the pointers); the
       capabilities handler binds a non-primary seat's keyboard the moment it is advertised and
