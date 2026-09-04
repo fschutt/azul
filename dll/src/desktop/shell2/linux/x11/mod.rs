@@ -1543,6 +1543,7 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
                 // handful of entries and refills on the next motion event.
                 win.pointer_source_cache.clear();
                 win.master_keyboards = query_master_keyboards(win);
+                win.select_master_xkb_events();
                 // The other seats' keymaps too (9b-ii-a-i-a-i): same reuse hazard.
                 win.drop_seat_keymaps();
             }
@@ -1686,6 +1687,40 @@ impl X11Window {
         };
         self.seat_keymaps.insert(deviceid, SeatXkb { keymap, state });
         Some(state)
+    }
+
+    /// Drop ONE device's cached keymap: its map changed (`XkbMapNotify` /
+    /// `XkbNewKeyboardNotify` for that device), so the next key from it
+    /// rebuilds the map from the server (9b-ii-a-i-a-i-a).
+    fn drop_seat_keymap(&mut self, deviceid: c_int) {
+        if let Some(entry) = self.seat_keymaps.remove(&deviceid) {
+            unsafe {
+                (self.xkb.xkb_state_unref)(entry.state);
+                (self.xkb.xkb_keymap_unref)(entry.keymap);
+            }
+        }
+    }
+
+    /// Select `XkbMapNotify` / `XkbNewKeyboardNotify` on every master keyboard
+    /// currently known (9b-ii-a-i-a-i-a). Called after each
+    /// `query_master_keyboards`, so a master added by hotplug is covered too.
+    /// A no-op without the XKB extension (`xkb_event_base < 0`).
+    fn select_master_xkb_events(&self) {
+        if self.xkb_event_base < 0 {
+            return;
+        }
+        let Some(select) = self.xlib.XkbSelectEvents else {
+            return;
+        };
+        let mask = defines::XkbMapNotifyMask | defines::XkbNewKeyboardNotifyMask;
+        for deviceid in self.master_keyboards.keys() {
+            if *deviceid < 0 {
+                continue;
+            }
+            unsafe {
+                (select)(self.display, *deviceid as core::ffi::c_uint, mask, mask);
+            }
+        }
     }
 
     /// Drop every per-device keymap: device ids are reused across hotplug
@@ -2481,6 +2516,11 @@ pub struct X11Window {
     xkb_x11: Option<Rc<dlopen::XkbX11>>,
     /// The xkbcommon context the per-device keymaps are built in (lazily).
     seat_xkb_context: *mut defines::xkb_context,
+    /// The XKB extension's event base (`XkbQueryExtension`), or -1 without
+    /// it: `XkbMapNotify` for a master keyboard arrives as `type ==
+    /// xkb_event_base` and drops that device's cached keymap
+    /// (9b-ii-a-i-a-i-a).
+    xkb_event_base: c_int,
     /// One keymap + state per non-primary master keyboard (XI device id),
     /// built on first key from that device, dropped on `XI_HierarchyChanged`.
     seat_keymaps: std::collections::HashMap<c_int, SeatXkb>,
@@ -3199,6 +3239,38 @@ impl X11Window {
                 }
             }
         }
+        // XKB map-change events (9b-ii-a-i-a-i-a): the core keyboard here,
+        // each master keyboard in `select_master_xkb_events` once they are
+        // known. Without the selection a layout switch on a seat's keyboard
+        // left that seat's cached keymap on the old layout until the next
+        // hotplug. -1 = no XKB extension / no symbol: the seat path then
+        // keeps its hotplug-only invalidation.
+        let xkb_event_base: c_int = match (xlib.XkbQueryExtension, xlib.XkbSelectEvents) {
+            (Some(query), Some(select)) => {
+                let (mut opcode, mut event_base, mut error_base) = (0 as c_int, 0 as c_int, 0 as c_int);
+                let (mut major, mut minor) = (1 as c_int, 0 as c_int);
+                let ok = unsafe {
+                    (query)(
+                        display,
+                        &mut opcode,
+                        &mut event_base,
+                        &mut error_base,
+                        &mut major,
+                        &mut minor,
+                    )
+                };
+                if ok != 0 {
+                    let mask = defines::XkbMapNotifyMask | defines::XkbNewKeyboardNotifyMask;
+                    unsafe {
+                        (select)(display, defines::XkbUseCoreKbd, mask, mask);
+                    }
+                    event_base
+                } else {
+                    -1
+                }
+            }
+            _ => -1,
+        };
 
         let screen = unsafe { (xlib.XDefaultScreen)(display) };
         let root = unsafe { (xlib.XRootWindow)(display, screen) };
@@ -3752,6 +3824,7 @@ impl X11Window {
             xkb,
             xkb_x11: dlopen::XkbX11::new().ok(),
             seat_xkb_context: std::ptr::null_mut(),
+            xkb_event_base,
             seat_keymaps: std::collections::HashMap::new(),
             xrender,
             xext: None,
@@ -3841,6 +3914,7 @@ impl X11Window {
         // The master keyboards' seats (9b-ii-a-i-a), from the same device
         // hierarchy the pen and scroll classes came from.
         window.master_keyboards = unsafe { query_master_keyboards(&window) };
+        window.select_master_xkb_events();
 
         // Initialize accessibility adapter
         #[cfg(feature = "a11y")]
@@ -4928,6 +5002,19 @@ impl X11Window {
                     self.process_window_events(0)
                 }
             }
+            // An XKB event (type == the extension's event base): a map or
+            // keyboard change on ONE device drops that device's cached seat
+            // keymap (9b-ii-a-i-a-i-a). The core keyboard's own translation
+            // table is refreshed by the core MappingNotify below.
+            t if self.xkb_event_base >= 0 && t == self.xkb_event_base => {
+                let xe = unsafe { &*(event as *const XEvent as *const defines::XkbAnyEvent) };
+                if xe.xkb_type == defines::XkbMapNotify
+                    || xe.xkb_type == defines::XkbNewKeyboardNotify
+                {
+                    self.drop_seat_keymap(xe.device as c_int);
+                }
+                ProcessEventResult::DoNothing
+            }
             defines::MappingNotify => {
                 // Keyboard layout switch / xmodmap. Without refreshing the
                 // CLIENT-side table, every keycode → keysym translation stays
@@ -4943,6 +5030,10 @@ impl X11Window {
                     || mapping.request == defines::MappingKeyboard
                 {
                     self.modifier_masks = query_modifier_masks(&self.xlib, self.display);
+                    // The core keyboard's per-device entry (its key events
+                    // carry the virtual core keyboard's id) describes the old
+                    // layout now; without XKB events this is the only signal.
+                    self.drop_seat_keymap(defines::XI_VIRTUAL_CORE_KEYBOARD);
                 }
                 ProcessEventResult::DoNothing
             }

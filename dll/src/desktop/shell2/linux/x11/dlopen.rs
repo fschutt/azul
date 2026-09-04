@@ -146,6 +146,13 @@ pub struct Xlib {
     /// server synthesizing a KeyRelease for every auto-repeat KeyPress, so a
     /// held key is Press,Press,… instead of Press,(Release,Press)*,Release.
     pub XkbSetDetectableAutoRepeat: Option<XkbSetDetectableAutoRepeat>,
+    /// Optional (lenient): the XKB extension's event base, needed to recognise
+    /// `XkbMapNotify` for a MASTER keyboard (9b-ii-a-i-a-i-a).
+    pub XkbQueryExtension: Option<super::defines::XkbQueryExtension>,
+    /// Optional (lenient): select `XkbMapNotify` / `XkbNewKeyboardNotify` per
+    /// master keyboard, so a layout switch on one seat's keyboard drops that
+    /// seat's cached keymap instead of waiting for the next hotplug.
+    pub XkbSelectEvents: Option<super::defines::XkbSelectEvents>,
     /// Optional (lenient): translate coordinates between windows — the only
     /// reliable absolute window position under a reparenting WM (ConfigureNotify
     /// x/y are parent-relative for non-synthetic events).
@@ -253,6 +260,14 @@ impl Xlib {
             },
             XkbSetDetectableAutoRepeat: unsafe {
                 lib.get_symbol::<XkbSetDetectableAutoRepeat>("XkbSetDetectableAutoRepeat")
+                    .ok()
+            },
+            XkbQueryExtension: unsafe {
+                lib.get_symbol::<super::defines::XkbQueryExtension>("XkbQueryExtension")
+                    .ok()
+            },
+            XkbSelectEvents: unsafe {
+                lib.get_symbol::<super::defines::XkbSelectEvents>("XkbSelectEvents")
                     .ok()
             },
             XTranslateCoordinates: unsafe {

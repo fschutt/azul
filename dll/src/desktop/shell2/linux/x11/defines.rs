@@ -1045,6 +1045,38 @@ pub type XFreeCursor = unsafe extern "C" fn(*mut Display, Cursor) -> c_int;
 pub type XUndefineCursor = unsafe extern "C" fn(*mut Display, Window) -> c_int;
 pub type XkbSetDetectableAutoRepeat =
     unsafe extern "C" fn(*mut Display, c_int, *mut c_int) -> c_int;
+/// `XkbQueryExtension(dpy, &opcode, &event_base, &error_base, &major, &minor)`.
+/// The event base is what every XKB event's `type` carries.
+pub type XkbQueryExtension = unsafe extern "C" fn(
+    *mut Display,
+    *mut c_int,
+    *mut c_int,
+    *mut c_int,
+    *mut c_int,
+    *mut c_int,
+) -> c_int;
+/// `XkbSelectEvents(dpy, device_spec, affect, values)`; `device_spec` is a
+/// device id or `XkbUseCoreKbd`.
+pub type XkbSelectEvents = unsafe extern "C" fn(*mut Display, c_uint, c_ulong, c_ulong) -> c_int;
+pub const XkbUseCoreKbd: c_uint = 0x0100;
+/// `XkbAnyEvent::xkb_type` values.
+pub const XkbNewKeyboardNotify: c_int = 0;
+pub const XkbMapNotify: c_int = 1;
+pub const XkbNewKeyboardNotifyMask: c_ulong = 1 << 0;
+pub const XkbMapNotifyMask: c_ulong = 1 << 1;
+/// The common head of every XKB event (`XkbAnyEvent` in XKBlib.h); the
+/// `device` is the keyboard whose map changed.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XkbAnyEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: c_int,
+    pub display: *mut Display,
+    pub time: Time,
+    pub xkb_type: c_int,
+    pub device: c_uint,
+}
 /// X11 keycode. 8 bits on Linux (`NeedWidePrototypes == 0`).
 pub type KeyCode = c_uchar;
 /// The 8 × `max_keypermod` table returned by `XGetModifierMapping`: row `i`
