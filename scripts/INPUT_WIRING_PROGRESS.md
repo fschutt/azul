@@ -2426,9 +2426,8 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       was ported before per-seat focus and hard-coded `seat_focus: &[]`. Evidence: host check
       EXIT=0; azul-core 2810, azul-layout lib 7684 / `--test all` 1018, e2e corpus 63 scenarios
       (+1), azul-dll 2071, 0 failed; 8/8 gate.
-- [ ] 9b-ii-a-i-d-v One default action per dispatch pass: when the primary's and a seat's KeyDown
-      land in the SAME pass, the first KeyDown's seat wins and the other seat's Tab is dropped.
-      Rare (two people hitting Tab in one frame), but a per-seat default-action loop is the fix.
+- [x] 9b-ii-a-i-d-v DONE 2026-09-04: the shell's default-action pass (`event.rs`, the `has_key_event` block) now loops over EVERY distinct seat that has a `KeyDown` in `pre_filter.user_events`, in arrival order, each with its own keyboard state, its own focus (`focused_node_for(seat)`), its own editing-query state and its own `SetSeatFocus`/structural-edit records. Before this the first `KeyDown`'s seat won and the second seat's Tab/Enter in the same frame was silently dropped. Evidence: host check EXIT=0, dll 2071 passed, 8/8 gate. Not unit-tested: the block is shell-only (no headless harness drives `process_window_events_recursive`); the e2e runner does not mirror it (see -v-a).
+  - [ ] 9b-ii-a-i-d-v-a LOGGED 2026-09-04: the e2e runner's default-action port (`e2e/runner.rs`, `determine_keyboard_default_action_with_editing` after the `has_key_event` gate) reads only the PRIMARY keyboard state and focus, so a seat Tab in a corpus scenario walks the primary's focus, not the seat's. Wire it the same way as the shell (per-seat loop) and add a corpus scenario with two seats pressing Tab in one `key` op batch, with a negative control.
 
 - [x] 9b-ii-a-ii DONE. "Whatever the compositor shows for an unset cursor" is NOTHING: a
       Wayland pointer has no cursor over a surface until the client answers its `enter` with

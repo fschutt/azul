@@ -10833,19 +10833,23 @@ pub trait PlatformWindow {
                 .any(|e| matches!(e.event_type, azul_core::events::EventType::KeyDown));
 
             if has_key_event {
-                // The seat whose key this is (9b-ii-a-i-d): its keyboard and
-                // its focus drive the default action, so a second seat's Tab
-                // walks ITS focus. One default action per pass; when both
-                // seats' keys land in one pass the first KeyDown wins
-                // (9b-ii-a-i-d-v).
-                let key_seat = pre_filter
+                // EVERY seat whose key landed in this pass (9b-ii-a-i-d-v), in
+                // arrival order: each seat's keyboard and focus drive its own
+                // default action, so two people hitting Tab in one frame both
+                // walk their own focus. (Until this loop the first KeyDown's
+                // seat won and the other seat's key was dropped.)
+                let mut key_seats: Vec<u64> = Vec::new();
+                for e in pre_filter
                     .user_events
                     .iter()
-                    .find(|e| matches!(e.event_type, azul_core::events::EventType::KeyDown))
-                    .map_or(
-                        azul_core::window::PRIMARY_POINTER_SEAT,
-                        azul_layout::managers::hover::seat_of_event,
-                    );
+                    .filter(|e| matches!(e.event_type, azul_core::events::EventType::KeyDown))
+                {
+                    let seat = azul_layout::managers::hover::seat_of_event(e);
+                    if !key_seats.contains(&seat) {
+                        key_seats.push(seat);
+                    }
+                }
+                for key_seat in key_seats {
                 let current_window_state = self.get_current_window_state();
                 let keyboard_state = if key_seat == azul_core::window::PRIMARY_POINTER_SEAT {
                     &current_window_state.keyboard_state
@@ -11254,6 +11258,7 @@ pub trait PlatformWindow {
                     }
                 }
             }
+                }
         }
 
         // GAMEPAD DEFAULT ACTIONS (D-pad spatial navigation).
