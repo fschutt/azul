@@ -54,14 +54,14 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.8.4:1c1ba70c19aed36470ee2c2a4f21637737e6afe73f363349349b444c99d0467c", "0.9.1:3c494b56cfe85088573a246813404763bb161b53324c39a658d4375da7030658"]
+reviewed = ["0.8.4:1c1ba70c19aed36470ee2c2a4f21637737e6afe73f363349349b444c99d0467c", "0.9.3:c941426454920f24902baa5e471f096a181133a8e24cb7804ccfb549530cbf0c"]
 
 [crate."aho-corasick"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["1.1.4:56f4e4153b71fd23ed47802291d03515a2d28139cbc8af8026357121e5f4f13a"]
+reviewed = ["1.1.5:464e7df9f7e8ff61529a0573e59b79c548f5d71aba4e942957ac94d1e3f6b404"]
 
 [crate."alloc-no-stdlib"]  # build-dependency
 allow = true
@@ -91,19 +91,19 @@ review = "audited"
 reason = "compiles the GameActivity C/C++ glue with cc when the game-activity feature is enabled"
 reviewed = ["0.6.1:dc18f6384bb392dcb9f6c76ed4754ebf0dc7aec0241996b5245eb2d6bfca0763"]
 
-[crate."android_system_properties"]  # build-dependency
-allow = true
-risk = "medium"
-review = "audited"
-reason = "no build-time code; dlopen(libc, RTLD_NOLOAD) is Android-only and not compiled on build hosts"
-reviewed = ["0.1.5:ccedb15b31dba594c73d004b9229e7e9f48ac7922a48ff2d2ecc268b4ed6fef3"]
-
 [crate."anyhow"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "probes rustc version and trial-compiles src/nightly.rs in OUT_DIR to detect unstable Error APIs"
-reviewed = ["1.0.103:f9c1c73d31cfb9e0cde53cbd412e382191a6f789cf609a9f1226ced0ce466903"]
+reviewed = ["1.0.104:f9c1c73d31cfb9e0cde53cbd412e382191a6f789cf609a9f1226ced0ce466903"]
+
+[crate."aristo-macros"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "proc-macro only, no build.rs: validates #[aristo::intent] args into compile_error!; tokens in, tokens out"
+reviewed = ["0.4.1:cd47dea8b68daf806f4132ee70087beb910cd4abd4cda33b00ef00f6cc64997c"]
 
 [crate."ash"]  # build-script
 allow = true
@@ -131,7 +131,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "proc macro desugaring async fn in traits to boxed futures"
-reviewed = ["0.1.89:5080f691ea79356df5fcb954f5972504698c61de9128ec15e4e261c34b674803"]
+reviewed = ["0.1.92:f02d3511fc10f87f63d18d5d1a8b7cfb1f6458f17054fa5154e586e3b00593e2"]
 
 [crate."atomic-polyfill"]  # build-script
 allow = true
@@ -152,7 +152,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.21.7:2109ba5488a56d6081f10cc21541a3af3b9b2b69ea56ef584b5470bc9ea321e5", "0.22.1:0e7a298ec20e330e7116817be73d15d6bc08cb81e7c1c24b20f5e350961a828f"]
+reviewed = ["0.21.7:2109ba5488a56d6081f10cc21541a3af3b9b2b69ea56ef584b5470bc9ea321e5", "0.22.1:0e7a298ec20e330e7116817be73d15d6bc08cb81e7c1c24b20f5e350961a828f", "0.23.1:e75fd75f5a4f7f00088fda4bb1cd642c6610e3f101121cd2c5f8c1b7e93bf77b"]
 
 [crate."base64ct"]  # build-dependency
 allow = true
@@ -160,6 +160,13 @@ risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["1.8.3:7539c0bce18065532e691951ab2f064bff9076eab1049f0852bc6f3c08b01711"]
+
+[crate."bigdecimal"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "writes DEFAULT_PRECISION/rounding-mode consts into OUT_DIR from RUST_BIGDECIMAL_* env plus autocfg rustc-version probes"
+reviewed = ["0.4.10:ec243e782247fb58dc7fe9c04cec9913aa3998478e8900ca6a30d37662e0d392"]
 
 [crate."bincode"]  # build-dependency
 allow = true
@@ -180,7 +187,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "records the host TARGET triple in OUT_DIR and declares libclang env rerun triggers"
-reviewed = ["0.65.1:b043a44dbfb69a2342e419b39c38ce164f7b602f67562bbb9e38a924dfbd6485", "0.72.1:5775fc2cca7725ba0929839d1d097a14f89c891f7288e418f16b555972003d32"]
+reviewed = ["0.65.1:b043a44dbfb69a2342e419b39c38ce164f7b602f67562bbb9e38a924dfbd6485", "0.69.5:b043a44dbfb69a2342e419b39c38ce164f7b602f67562bbb9e38a924dfbd6485", "0.72.1:5775fc2cca7725ba0929839d1d097a14f89c891f7288e418f16b555972003d32"]
 
 [crate."bitflags"]  # build-dependency
 allow = true
@@ -203,6 +210,13 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.4.2:d6467e81e3a3ecd632cd16cd6e5894b60a706ec85e4f2f1181fd0bea2e16d97f"]
 
+[crate."branches"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "emits branches_stable/branches_nightly and rustc_ge_* cfg flags from a rustc_version probe"
+reviewed = ["0.4.6:0a6016a40c928f29b8b2fef3c5a246c247873267f5000560f37aedfa07322820"]
+
 [crate."brotli"]  # build-dependency
 allow = true
 risk = "low"
@@ -216,13 +230,6 @@ risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["5.0.3:db0f36ebd02bd0578b8d2a87e5e7362eff58618f04bff887afa8bb109bac5d0a"]
-
-[crate."built"]  # build-dependency
-allow = true
-risk = "high"
-review = "audited"
-reason = "generates OUT_DIR/built.rs from cargo metadata, rustc -V, and the ENCLOSING git repo's HEAD/branch/dirty"
-reviewed = ["0.7.7:a155acc3e3ecb1466782540593577082d0c912415582eb30b30cca3c93700e94"]
 
 [crate."bumpalo"]  # build-dependency
 allow = true
@@ -243,7 +250,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "proc macro deriving Pod/Zeroable/NoUninit with compile-time layout checks"
-reviewed = ["1.11.0:9273c1acd9f61470729c7d19c92f30ad95e2b814d61009932bc480acf16642bc"]
+reviewed = ["1.12.0:9273c1acd9f61470729c7d19c92f30ad95e2b814d61009932bc480acf16642bc"]
 
 [crate."byteorder"]  # build-dependency
 allow = true
@@ -271,7 +278,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "probes rustc --version/channel to cfg-gate std Path APIs by stabilisation version"
-reviewed = ["1.2.4:19ff4656f02373eac69b34dee9e0f24a7e4a53992e98d7b78740c158c1aea01c"]
+reviewed = ["1.2.5:19ff4656f02373eac69b34dee9e0f24a7e4a53992e98d7b78740c158c1aea01c"]
 
 [crate."cargo-platform"]  # build-dependency
 allow = true
@@ -292,7 +299,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["1.3.0:1c960cb60883852c65b8794d8d1b4b2c47b5f655b44e826a73007eede8d9ab9d"]
+reviewed = ["1.4.4:704d10d774cba67b79b8d3b4d64ed91a83475b0e2f17cab658389c41aec1dc32"]
 
 [crate."cexpr"]  # build-dependency
 allow = true
@@ -315,13 +322,6 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.2.2:b1a9ebe6af98bb8f0d26f02bfb758fef4ddc8bddb29bd923f2c716951dce3713"]
 
-[crate."chrono"]  # build-dependency
-allow = true
-risk = "low"
-review = "digest-only"
-reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.4.45:af9f2488271d4936a209941e10e4c541f925613aaa5499d66e4de98ce711561f"]
-
 [crate."cipher"]  # build-dependency
 allow = true
 risk = "low"
@@ -334,14 +334,14 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "finds libclang: globs system lib dirs, runs llvm-config/xcode-select, emits link flags"
-reviewed = ["1.8.1:b7af1fdd468aa9f699b921124de95feef374ea309c7fbfd3bc221d2e0c96e390"]
+reviewed = ["1.9.1:189abc8acd35170438dca322d21e247f84d9313dcd0444448b54a8269cf879f4"]
 
 [crate."clap_derive"]  # proc-macro
 allow = true
 risk = "low"
 review = "audited"
 reason = "derive macro building clap Command from types + doc comments; reads CARGO_PKG_* only"
-reviewed = ["4.6.1:34440937571121e88cac80f71a2e3be5b7a4e910c793c3609c79f021741dd346"]
+reviewed = ["4.6.4:a2a66777df14c2c65009010aabd5e47b0bf07ce457aa1b12a6447359bcff3fcb"]
 
 [crate."cmov"]  # build-dependency
 allow = true
@@ -383,7 +383,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "probes rustc channel via version_check to gate nightly doc_cfg; emits one cfg"
-reviewed = ["0.18.1:d4176ce04b0194104075b50384a9d19c3142b0bf00a9f0bb641137c3ebe3729e"]
+reviewed = ["0.18.2:d4176ce04b0194104075b50384a9d19c3142b0bf00a9f0bb641137c3ebe3729e"]
 
 [crate."cookie_store"]  # build-dependency
 allow = true
@@ -432,14 +432,21 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.2.17:393fb953e97735107e13994c7237899dd4e11edc71c30f33e355da53bc393993", "0.3.0:113f3a393cfdbef49d50313239c1126a2e24b89bf9197e659b43a937db8a93eb"]
+reviewed = ["0.2.17:393fb953e97735107e13994c7237899dd4e11edc71c30f33e355da53bc393993", "0.3.1:33e6899beef034930caa56a4f2cc00611f94ee2e61877278ced41cfb6485529a"]
+
+[crate."crc32c"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "generates the CRC-32C software and GF(2) hardware lookup tables into OUT_DIR; emits the armsimd cfg on rustc >= 1.80"
+reviewed = ["0.6.8:b0bcfd5f2feb669276aefab0fdd259839e2b4e9cde4f69efeee17c0f7d58796b"]
 
 [crate."crc32fast"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "runs rustc --version to enable stable ARM CRC32 intrinsics cfg on 1.80+"
-reviewed = ["1.5.0:547564906abafc17e705df59aa16e9a7ad2b21b895c9d6071e0620d6ce1a16b2"]
+reviewed = ["1.5.1:fcf2c2fc19f120808849109b865131a2527f4411607053e72d26b4a117ec697a"]
 
 [crate."critical-section"]  # build-dependency
 allow = true
@@ -572,7 +579,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "derive macro building Display impls from doc comments; syn/quote only"
-reviewed = ["0.2.6:a2ffd15bff28132217cbd4103d5c9ab54a44fcd4750067a36f9d21be757b9372"]
+reviewed = ["0.2.7:82fc39dfd1d789ced3afd52cd43cd7cb1610f172a00c7f295faa7eefdff0cb05"]
 
 [crate."document-features"]  # proc-macro
 allow = true
@@ -593,7 +600,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["1.16.0:c45c2727f46c7f76f922a772a75961f16ba386fbda2771b6dfe3e722172c85de"]
+reviewed = ["1.18.0:4c83318a8a97f211c00d700bdd7f30a8dd523b5854f904eb4a4ee5a51bc7dc84"]
 
 [crate."embedded-io"]  # build-dependency
 allow = true
@@ -677,21 +684,21 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["2.4.1:475ea579745ae04a205eb428d9948e0abc0a00698d9266510d26959abab3ad73"]
+reviewed = ["2.5.0:d2056180940ba003afbdbb50e56b809f1add1226bf398a6bc06e3aa3eed8412f"]
 
 [crate."find-msvc-tools"]  # build-dependency
 allow = true
 risk = "high"
 review = "audited"
 reason = "locates MSVC/SDK via vcvars env, HKLM (read-only), VS COM/vswhere; runs cl.exe to probe arch"
-reviewed = ["0.1.9:bc57728deb8fa5e085b2dbb27c58563fa1a900d76e6b20e034036b92bc62d9d5"]
+reviewed = ["0.1.11:9dd55212c5e09f4cd67b068c34c380c5b8ff7198673e9f1e5c88d13d0aaacc65"]
 
 [crate."flate2"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["1.1.9:162c0b7b59625f2100b0aaffdb60e2a141fe6e68044e31c40bddb5a0b4fada3a"]
+reviewed = ["1.1.10:ea5be871f4f50309457a16ab9dc12c91d0258cd9bff3a6a5256c9cc57edeebb2"]
 
 [crate."foreign-types"]  # build-dependency
 allow = true
@@ -705,7 +712,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "expands foreign_type! into FFI wrapper types; syn/quote only"
-reviewed = ["0.2.3:bd94ca33dc4c24a92622b263fe2a664b30299019cc21be3f6b8e282deee7e065"]
+reviewed = ["0.2.4:bd94ca33dc4c24a92622b263fe2a664b30299019cc21be3f6b8e282deee7e065"]
 
 [crate."foreign-types-shared"]  # build-dependency
 allow = true
@@ -733,28 +740,35 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.3.33:2599cbeed325806c65cd4f29a9c9c9e843b92a75497d2bcceeb452d8cb921107"]
+reviewed = ["0.3.34:2599cbeed325806c65cd4f29a9c9c9e843b92a75497d2bcceeb452d8cb921107"]
 
 [crate."futures-macro"]  # proc-macro
 allow = true
 risk = "low"
 review = "audited"
 reason = "expands futures' join!/select!/stream_select! and #[test]; pure syn/quote rewriting"
-reviewed = ["0.3.33:60e34402b1ca4f5b2cd79319209c246179acdcc7fb512e7109e88c9cbb105b0d"]
+reviewed = ["0.3.34:60e34402b1ca4f5b2cd79319209c246179acdcc7fb512e7109e88c9cbb105b0d"]
 
 [crate."futures-task"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.3.33:b3b199fdba137a31d10732b906f80f1e51e93758b3d10a038b9a2f81d4d6a8b1"]
+reviewed = ["0.3.34:39eb95352f6844a6776d110619fb9f80a3b7f0e7b120ecedea89a8821c3d0ae0"]
 
 [crate."futures-util"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.3.33:395d790cb4a2b1a899f348957ebb3777244018b33ff0b23f1ff382bda1baf0da"]
+reviewed = ["0.3.34:91bd28b25c157a476b5b356f237d2a15c5541161174a2103185aa498af28c709"]
+
+[crate."generator"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "emits the nightly cfg via rustversion; cc-compiles the bundled ppc64le context-switch .S only on powerpc64"
+reviewed = ["0.8.9:abb91802cb404cd1de46270f4b278856419dbc84d510b48ffa09d59b13a39c5b"]
 
 [crate."generic-array"]  # build-script
 allow = true
@@ -775,21 +789,14 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "filters the bundled SDL gamecontrollerdb.txt down to the target platform's mappings into OUT_DIR"
-reviewed = ["0.11.2:6c79f8dd2ccb1ef103c69c5062dc4636085377866faee811f4cdc76242a8f105"]
-
-[crate."git2"]  # build-dependency
-allow = true
-risk = "high"
-review = "audited"
-reason = "libgit2 bindings; built calls Repository::discover/head to stamp git rev into generated source"
-reviewed = ["0.20.4:ac6a98217207b38eee901fc64c89c3fc4dad0d8f923acbca49319e1d9073c724"]
+reviewed = ["0.11.3:6c79f8dd2ccb1ef103c69c5062dc4636085377866faee811f4cdc76242a8f105"]
 
 [crate."glob"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.3.3:84cfb93243d733c830d66477a4e279208b512cf4acfee0fb9c08b2bac0ce026c"]
+reviewed = ["0.3.4:3384ff86518a3027d222d20cf9e35bf4a61c57426c6087cf53bc808bd83ad657"]
 
 [crate."gpu-video-azul"]  # build-script
 allow = true
@@ -838,7 +845,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["1.4.2:386cb4bede0061fd798818bbac5643cb711884de4d7b631d913068800952860e"]
+reviewed = ["1.5.0:0bbe478a9079ef7456ead4c0aa8043c60237b4ab97db8b7dc55c588a643b9d7e"]
 
 [crate."httparse"]  # build-script
 allow = true
@@ -852,7 +859,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.4.13:8c1cbc435fb755b78cec823e5379a8849aa08f11177cc8e459641c1883ac8abe"]
+reviewed = ["0.4.14:7b398169aefcebb5f803c5e65f27fa13d893253bdd677e4fabea61af1daa3cc6"]
 
 [crate."hyphenation"]  # build-script
 allow = true
@@ -868,13 +875,6 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.8.4:7ce67dae9d5591383a3f42ade3b96dd0848b6e9d228323aa84c952eed7107f6d"]
 
-[crate."iana-time-zone"]  # build-dependency
-allow = true
-risk = "medium"
-review = "audited"
-reason = "plain library reachable from build scripts via chrono; reads host tz files when called"
-reviewed = ["0.1.65:1f98c4b241771263b3854695f15df0f803109c03d99f1c99f3f598abf224432b"]
-
 [crate."iana-time-zone-haiku"]  # build-script
 allow = true
 risk = "low"
@@ -887,126 +887,133 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "sets cfg(icu4x_custom_data) when ICU4X_DATA_DIR is set so lib.rs includes external instead of bundled data"
-reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+reviewed = ["2.3.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
 
 [crate."icu_casemap_data"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "sets the icu4x_custom_data cfg when ICU4X_DATA_DIR points at a replacement data tree"
-reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+reviewed = ["2.3.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
 
 [crate."icu_collator_data"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "turns ICU4X_DATA_DIR presence into the icu4x_custom_data cfg; no file or process I/O"
-reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+reviewed = ["2.3.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
 
 [crate."icu_collections"]  # build-dependency
 allow = true
 risk = "medium"
 review = "audited"
 reason = "codepoint-trie/inversion-list containers baked into data by ICU4X build scripts; no IO"
-reviewed = ["2.2.0:dd2ef680ea0fef354ef057ff8949156415ea7e3585dfd30cd32183e0752c0b0f"]
+reviewed = ["2.3.0:e1143fab6a8fb00c83019000b9f17d6973796085fcd6b5e160c0a20ccff8f841"]
 
 [crate."icu_datetime_data"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "sets the icu4x_custom_data cfg when ICU4X_DATA_DIR points at a custom baked-data directory"
-reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+reviewed = ["2.3.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
 
 [crate."icu_decimal_data"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "sets cfg(icu4x_custom_data) when ICU4X_DATA_DIR points at a custom baked data dir"
-reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+reviewed = ["2.3.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
 
 [crate."icu_experimental_data"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "sets icu4x_custom_data cfg when ICU4X_DATA_DIR overrides the bundled CLDR data"
-reviewed = ["0.5.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+reviewed = ["0.6.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
 
 [crate."icu_list_data"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "sets icu4x_custom_data cfg from ICU4X_DATA_DIR, which redirects the include! of the data module"
-reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+reviewed = ["2.3.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
 
 [crate."icu_locale_core"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["2.2.0:bb7b3d8235a52ab6993e0a87efedf5ee415960776639472227a4c2021e918175"]
+reviewed = ["2.3.0:8294542bc6793118ce55f6925077d7f79e8a9d337bc80d645551bceb29022af1"]
 
 [crate."icu_locale_data"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "sets cfg(icu4x_custom_data) when ICU4X_DATA_DIR is set so lib.rs includes external instead of bundled data"
-reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+reviewed = ["2.3.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+
+[crate."icu_locale_fallback_data"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "sets the icu4x_custom_data cfg when the builder sets ICU4X_DATA_DIR, redirecting lib.rs include! to custom baked data; unset by default"
+reviewed = ["2.3.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
 
 [crate."icu_normalizer"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["2.2.0:7017d6cf2a8315d60149fca4e1d9201c95aebbf06dd0d0a899e649a3813066c8"]
+reviewed = ["2.3.0:b0f8d9b97c4c0391508c8a625669ae1174b7d51574e4cae5b5e197eb69e44f67"]
 
 [crate."icu_normalizer_data"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "sets the icu4x_custom_data cfg when ICU4X_DATA_DIR points at a replacement data tree"
-reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+reviewed = ["2.3.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
 
 [crate."icu_plurals_data"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "turns ICU4X_DATA_DIR presence into the icu4x_custom_data cfg; no file or process I/O"
-reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+reviewed = ["2.3.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
 
 [crate."icu_properties"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["2.2.0:ac15dbab4119c0bf1a8d9b3dd74c0d4c41bb06954e0ff3c20b59124b84dc95d6"]
+reviewed = ["2.3.0:8cac2782144589326ff61786ec96d611aa94eab40f2ebb9a7b52916bf46f470c"]
 
 [crate."icu_properties_data"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "sets the icu4x_custom_data cfg when ICU4X_DATA_DIR points at a custom baked-data directory"
-reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+reviewed = ["2.3.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
 
 [crate."icu_provider"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["2.2.0:5adaee52844d7179a2328bce6c379550df16759a6c0cb8ca7234c98216c25395"]
+reviewed = ["2.3.1:9a3deadd20e4f92e11aaa90cf1effd506b6c690450cc56fd1859bf55c054efee"]
 
 [crate."icu_segmenter_data"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "sets cfg(icu4x_custom_data) when ICU4X_DATA_DIR points at a custom baked data dir"
-reviewed = ["2.2.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+reviewed = ["2.3.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
 
 [crate."icu_time_data"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "sets icu4x_custom_data cfg when ICU4X_DATA_DIR overrides the bundled tz data"
-reviewed = ["2.2.1:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
+reviewed = ["2.3.0:bf68e21004d0826bbee3562716b3649908ad284314dbfa16468c0d9902f8ff75"]
 
 [crate."idna"]  # build-dependency
 allow = true
@@ -1027,7 +1034,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["2.14.0:cee2bd7e8a4eb34989190ac538eded397b56fe8debb04e1d978150cd19ca8dcd"]
+reviewed = ["2.14.1:31d03497c0d051fd9e7d091f2455ad1039c2380311af371a14736a41e28a2165"]
 
 [crate."indoc"]  # proc-macro
 allow = true
@@ -1055,14 +1062,14 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "optionally runs bindgen over linux/io_uring.h; by default only emits rustc-check-cfg lines"
-reviewed = ["0.7.13:afa1c9a2a184b1dde37eed5bbeda03003b6ef0d3388ca487d1bd7258380cd315"]
+reviewed = ["0.7.14:afa1c9a2a184b1dde37eed5bbeda03003b6ef0d3388ca487d1bd7258380cd315"]
 
 [crate."itertools"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.13.0:6c128e4f3e899447e5d75864894d53bf6ba4123fd78fc8aa872ad69813435409", "0.14.0:3859ed60595f1eaef0c9e14ffa8068d520663650b9423218445c012e737ce86d"]
+reviewed = ["0.12.1:d6e521ef7ea2f11a9c003b11a8301a36a326626338cee1d0246e134f275a3b85", "0.13.0:6c128e4f3e899447e5d75864894d53bf6ba4123fd78fc8aa872ad69813435409", "0.14.0:3859ed60595f1eaef0c9e14ffa8068d520663650b9423218445c012e737ce86d"]
 
 [crate."itoa"]  # build-dependency
 allow = true
@@ -1118,7 +1125,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.3.103:56e2de30360fd04850a29c337e350d82a4e6bc2e5a7de604cee42a7512ba0028"]
+reviewed = ["0.3.104:64a6e8f19c2116d12b6e0f8ca6f3ba74be2db174669ab2f20eacb51db8b0143a"]
 
 [crate."lazy_static"]  # build-dependency
 allow = true
@@ -1146,14 +1153,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "probes rustc/emcc/freebsd versions and target env to emit platform cfg flags"
-reviewed = ["0.2.186:805e8c8943da7785796ae72bb4667754e1ecd2639c72294ea7553e206cf26819"]
-
-[crate."libgit2-sys"]  # build-script
-allow = true
-risk = "low"
-review = "audited"
-reason = "probes system libgit2 via pkg-config, else compiles the vendored libgit2 C sources with cc"
-reviewed = ["0.18.5+1.9.4:5e164a25854a808ce3bafe01be6a78d4e4f5d2a88c1d1906f10953eb55118796"]
+reviewed = ["0.2.189:320edc4fcd461cc73dd6500b13e96493f8c4d44dbd5a26fda58fea05ffc8933f"]
 
 [crate."libloading"]  # build-dependency
 allow = true
@@ -1176,12 +1176,19 @@ review = "audited"
 reason = "compiles the crate-vendored mimalloc C amalgamation with cc and emits platform link libs"
 reviewed = ["0.1.49:b55de46737251b9b31e56a54b8159e4332a17d3ffc808434ed8a8b9beb41cd87"]
 
-[crate."libz-sys"]  # build-script
+[crate."linkme"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
-reason = "locates system zlib via pkg-config/vcpkg or compiles the crate-vendored zlib/zlib-ng C into OUT_DIR"
-reviewed = ["1.1.29:aaba25f49994cc6eab5baa90b1546c67633306f60d8e8fdbcee25096ceb4fe92"]
+reason = "writes a patch-version-suffixed __private module re-export into OUT_DIR so linkme-impl generated paths resolve across coexisting versions"
+reviewed = ["0.3.37:e2e99d82d7029bd5ef9e7ac193c7c80a4fc6def1b962be6e406a4490cdbc61ea"]
+
+[crate."linkme-impl"]  # build-script+proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "runs $RUSTC --version to gate the no_unsafe_attributes/no_unsafe_extern_blocks cfgs below rustc 1.82; proc-macro is dtolnay link-section slice codegen"
+reviewed = ["0.3.37:97ff5c144b8221932112ef94b48d0d2879ec55438db68054ffbe89c68ebdbc70"]
 
 [crate."linux-raw-sys"]  # build-dependency
 allow = true
@@ -1195,7 +1202,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.8.2:609ca8959bf4a298a196220c3e3b7fd7ad24cd3170ed057bbec463ebe7282c55"]
+reviewed = ["0.8.3:78f975c0666a994c348856e4b8e8ea0e957d9a03da9db75e599a0d280f7f6e02"]
 
 [crate."litrs"]  # build-dependency
 allow = true
@@ -1216,7 +1223,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.4.33:2de047b57a8fb0ce6b3e8bd823c844d5d6e3504ffa0012e67aebb3356db49c5d"]
+reviewed = ["0.4.34:ed3e196012c970ede4580216c8dfe4dbeb8bf581454cdf5b720b19e038ecb13e"]
 
 [crate."lzma-rust2"]  # build-dependency
 allow = true
@@ -1258,7 +1265,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.8.9:e5962f352220c76e22da0babcbf63bf1be12c1b2a3e4cdd3c02208a9604d37fc"]
+reviewed = ["0.8.9:e5962f352220c76e22da0babcbf63bf1be12c1b2a3e4cdd3c02208a9604d37fc", "0.9.1:64dce216340705abcd27ccec02f6670512f35f11e1050109df236c25563842bd"]
 
 [crate."mozjpeg-sys"]  # build-script
 allow = true
@@ -1435,6 +1442,13 @@ review = "audited"
 reason = "probes rustc --version to emit the no_literal_fromstr cfg used by its proc macro"
 reviewed = ["1.0.15:363c68f73f1d17fb48370ef1c21b1f93f5fc1d7e87a01cadb78b02cb33fb55a2"]
 
+[crate."pastey"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "proc-macro only, no build.rs: concatenates identifier fragments for paste!; resolves only env vars named as literals in the call site"
+reviewed = ["0.2.3:41695d08bf6e828b6e021608cc308999f331b5c23d22651f5b39a669f7c0d929"]
+
 [crate."pathfinder_simd"]  # build-script
 allow = true
 risk = "low"
@@ -1489,7 +1503,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.3.33:39b5ed615ef029774b05aa640f6b933eecf79e9133e98352098768554ecc2f02"]
+reviewed = ["0.3.34:1107321879e9ab1205efaf108054437da814aaff1c190308c4eeda089d831e02"]
 
 [crate."pocket-resources"]  # build-dependency
 allow = true
@@ -1503,7 +1517,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "probes rustc/LLVM version and RUSTFLAGS target-feature to emit atomic backend cfgs; no file writes"
-reviewed = ["1.14.0:ed82f8ca5775e35fff4885ffbe4d4ddd9887518f6d7e3c5564bc67f77589c671"]
+reviewed = ["1.15.0:3ac00b74e8c1bddc76acd5d5d4721ff8080842721f3b50012c4fe5bd4e66365e"]
 
 [crate."postcard"]  # build-dependency
 allow = true
@@ -1517,7 +1531,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.1.5:b7f8b9f29b711c6b891058086bc093ec4781a54899c7ed19ae38e7ad61081887"]
+reviewed = ["0.1.6:5b0fd4e3529f6757f4fe149987b0e6af9ee14a67d532e87a48a67b14edc2f6e0"]
 
 [crate."powerfmt"]  # build-dependency
 allow = true
@@ -1545,7 +1559,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "probes rustc version and trial-compiles in-crate probe files to pick proc_macro cfgs"
-reviewed = ["1.0.106:5396bb864a858291c92945de720160a2b22e5c6039707f0f16caea4055e5a3c8"]
+reviewed = ["1.0.107:5396bb864a858291c92945de720160a2b22e5c6039707f0f16caea4055e5a3c8"]
 
 [crate."proc-macro2-diagnostics"]  # build-script
 allow = true
@@ -1559,7 +1573,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "proc-macro deriving Message/Enumeration/Oneof encode-decode bodies; pure syn/quote"
-reviewed = ["0.13.5:f7a38aedc1617799f2a6485e7e4bba97f9e1d111d752fb5c6e52e3a1f78af3ac"]
+reviewed = ["0.13.5:f7a38aedc1617799f2a6485e7e4bba97f9e1d111d752fb5c6e52e3a1f78af3ac", "0.14.4:d2fcd32cd4f8b19d38af5a7f90cbb0b95eb5b25630214d71a683b65f7de95c1c"]
 
 [crate."pulldown-cmark"]  # build-script
 allow = true
@@ -1608,7 +1622,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "runs rustc --version to gate the #[diagnostic] namespace cfg"
-reviewed = ["1.0.46:3f0c039e1283f2dc09cd59efc748c7f5c8666dc8b1db8e3a02c221fa2d983ccd"]
+reviewed = ["1.0.47:3f0c039e1283f2dc09cd59efc748c7f5c8666dc8b1db8e3a02c221fa2d983ccd"]
 
 [crate."r-efi"]  # build-dependency
 allow = true
@@ -1616,6 +1630,13 @@ risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["5.3.0:66d6cdbc907390c47c558b325b8b08e8c9644d7f824485d2dfdc8cd69654bb36", "6.0.0:be1fb3288495e8956d620004200661ab558b6512baab6cc0087efe40ff401aeb"]
+
+[crate."radium"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "maps TARGET/CARGO_CFG_TARGET_ARCH strings to radium_atomic_* cfg flags for targets lacking atomics"
+reviewed = ["0.7.0:8c3f73cbf49b1e2f08f120e852ae713422f6819e7d66f60d00055ea052537ed2"]
 
 [crate."rand_core"]  # build-dependency
 allow = true
@@ -1643,7 +1664,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.4.16:cb95c26b46fe8fd35a80c3132938e701e7d839cc0a19433ef5184ae73aa7c1f9"]
+reviewed = ["0.4.18:10721d34334c62b09c668c74d9ddb7d6477122a9387b328336da47fc0714461f"]
 
 [crate."regex-syntax"]  # build-dependency
 allow = true
@@ -1673,6 +1694,13 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.4.1:1109ac9ac0aff223f80ef7113566da4990ef3b6f7f602f05b2814a45c2c56f8d"]
 
+[crate."rustc_version_runtime"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "bakes the build host rustc version/channel/commit/host-triple into an OUT_DIR version.rs for runtime reporting; no user or path data"
+reviewed = ["0.3.0:5271edae873c535bb59e7ac2b6521a9504f57662adc1d045a748847228de4bec"]
+
 [crate."rustix"]  # build-script
 allow = true
 risk = "low"
@@ -1685,21 +1713,21 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "one-line build script cfg-gating the nightly read_buf feature; sans-I/O library, no build-time I/O"
-reviewed = ["0.23.42:253b9987f6beaf9c80f7cc7f237ee5e0ce83cceec26350f9fb4dcae235e4cb39"]
+reviewed = ["0.23.43:253b9987f6beaf9c80f7cc7f237ee5e0ce83cceec26350f9fb4dcae235e4cb39"]
 
 [crate."rustls-pki-types"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["1.15.0:8a3796b1a32bf1cfa480489d698347d132792828a8f40612b194d0b9a3d5aa35"]
+reviewed = ["1.15.1:03549bf0c1e2ac1edd9c05fd6b692a7fceac697cfc3bef6728fbb4e56856ed6a"]
 
 [crate."rustls-webpki"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.102.8:16a0090879d3947da26501d819d39f6f12c1a51a1a80f18a812d88c5da690743", "0.103.13:97c30a866891668769a27313fcc7a947ccd763a090a5b8bc9992582794dc2da4"]
+reviewed = ["0.102.8:16a0090879d3947da26501d819d39f6f12c1a51a1a80f18a812d88c5da690743", "0.103.15:95e0d99c3977ac0617075bce29019e3dccd574be1c6febd724bc1082e9773d8b"]
 
 [crate."rustversion"]  # build-script+proc-macro
 allow = true
@@ -1734,7 +1762,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "derives Pread/Pwrite/SizeWith/IOread/IOwrite endian-aware binary (de)serialisation impls"
-reviewed = ["0.13.1:e7c74f3991c77a8633038a36c3385dd79efc1504cbf07039d8d813e24fcb735f"]
+reviewed = ["0.13.2:e7c74f3991c77a8633038a36c3385dd79efc1504cbf07039d8d813e24fcb735f"]
 
 [crate."security-framework"]  # build-dependency
 allow = true
@@ -1762,35 +1790,35 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "probes rustc version for cfgs and writes a version-suffixed __private module into OUT_DIR"
-reviewed = ["1.0.228:1e9bd8c600c35acad25f25efcc67da81f9359efcad0c05ea5861d385663f9857"]
+reviewed = ["1.0.229:f0efb827301cc5a938c876ceb44d12adf7d24fb9acc2e8edd47899e48cda7cfd"]
 
 [crate."serde_core"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "probes rustc version for cfgs and writes a version-suffixed private.rs into OUT_DIR"
-reviewed = ["1.0.228:832a69942dd42410d5e0cfb7776d76c57cac090409093c9539ca27eb682917e2"]
+reviewed = ["1.0.229:37d392af7c209fd418d83e399513aa1ecdcf29f6e6c63a76160df1145fb0c195"]
 
 [crate."serde_derive"]  # proc-macro
 allow = true
 risk = "low"
 review = "audited"
 reason = "proc macro deriving Serialize/Deserialize; pure source, no precompiled binary in this version"
-reviewed = ["1.0.228:ecbc1eff129d431cb54b9b120d0bd7cbf675283ea4236f5c7c4a4cf543585aec"]
+reviewed = ["1.0.229:2cf914245209ad1ba415d9f28e7dca5a877f8f521a1e55e345bebf828bc0c429"]
 
 [crate."serde_json"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "build.rs selects 32/64-bit limb width cfg for the float parser from target arch"
-reviewed = ["1.0.150:299064d15d127affcd8d2452afe1fa77462ed8183207b6b6fbe4c390be305066"]
+reviewed = ["1.0.151:299064d15d127affcd8d2452afe1fa77462ed8183207b6b6fbe4c390be305066"]
 
 [crate."serde_repr"]  # proc-macro
 allow = true
 risk = "low"
 review = "audited"
 reason = "derive emitting Serde impls over an enum's repr discriminant; syn/quote only"
-reviewed = ["0.1.20:0437fd79314aba11b7dcd5df1d08cd0376a791a94bda92f2103b8011590c5911"]
+reviewed = ["0.1.21:d5c204653ab040d0735482d17ef40c5edb984568d4bd6d873a14cf1bddd099d9"]
 
 [crate."sha1"]  # build-dependency
 allow = true
@@ -1819,6 +1847,13 @@ risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.3.10:aa78c8181d961527798b08f573e9936270a58f7ef75972f5df4645ba6b3bfdfa"]
+
+[crate."simsimd"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "cc-compiles the bundled c/lib.c SIMD kernels, retrying with backends disabled on failure; SIMSIMD_TARGET_* env vars are opt-outs"
+reviewed = ["6.5.16:816678027cbbefef2fc6329146334dd482341cacb84f56e8a38b263e0496a16c"]
 
 [crate."skeptic"]  # build-dependency
 allow = true
@@ -1881,7 +1916,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "runs rustc --version to emit back-compat cfgs for older compilers"
-reviewed = ["1.0.109:b46c8b60b3087ce87dcf923fd0f282690b868740eb20e5a11663581bdc1ea550", "2.0.119:9b3c41ebfc9c758a8bc04e96fc927980d0aaa5940722189a62201ab7ea9ebb9e"]
+reviewed = ["1.0.109:b46c8b60b3087ce87dcf923fd0f282690b868740eb20e5a11663581bdc1ea550", "2.0.119:9b3c41ebfc9c758a8bc04e96fc927980d0aaa5940722189a62201ab7ea9ebb9e", "3.0.4:4d5fbf5400dc8ff65c6ba856461a8661a98dec46775c04210aa55359388f2b39"]
 
 [crate."synstructure"]  # build-dependency
 allow = true
@@ -1909,14 +1944,14 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "trial-compiles build/probe.rs for error_generic_member_access and writes private.rs into OUT_DIR"
-reviewed = ["1.0.69:b98e56a3134b92e0e7142ff26899b12a8fbe2bb1569a8bc5922eed6caccaaf7b", "2.0.18:dbbaf177d59359ff78df7a52bf3247aa374411e8ed52b79d0855b7a4f9dbc0bd"]
+reviewed = ["1.0.69:b98e56a3134b92e0e7142ff26899b12a8fbe2bb1569a8bc5922eed6caccaaf7b", "2.0.20:b090ec9bde078d53271fd8933accdf4bba90686cc6d83ffb05f8bd43de529d1f"]
 
 [crate."thiserror-impl"]  # proc-macro
 allow = true
 risk = "low"
 review = "audited"
 reason = "proc macro deriving std::error::Error impls from #[error(...)] attributes"
-reviewed = ["1.0.69:12f0d2137a3f01246dcf5f2e59d0a00446e086abc55aa966d274e2ee3880060d", "2.0.18:ec21b5c601b17cccff906b16669f44c82159d4a981aeb076164bb589be250464"]
+reviewed = ["1.0.69:12f0d2137a3f01246dcf5f2e59d0a00446e086abc55aa966d274e2ee3880060d", "2.0.20:d4055aeb5704310d346634db61691c59087e48242cd9344cceb50a52fb40fcd5"]
 
 [crate."tikv-jemalloc-sys"]  # build-script
 allow = true
@@ -1930,7 +1965,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.3.53:85bf30a6559f9bca90b3a595d0dccd0bce2a8bfab1ab3e5e95674a692bd8c85e"]
+reviewed = ["0.3.55:7723faf4ad3f15de56456db80c4dbc01f3e00ae077d6e83fba75fa0f8351164f"]
 
 [crate."time-core"]  # build-dependency
 allow = true
@@ -1944,14 +1979,14 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "proc macros parsing date/time/format-description literals at compile time"
-reviewed = ["0.2.31:b58c39e6942c86f879592a2002f964eaef2769a9dbb8a84cbb9e9d1449b69de9"]
+reviewed = ["0.2.32:a0b6d2b0797a5fd4c79c32adcfb365cd10a074ae2bcd72bdd9aaebe6c0e19b14"]
 
 [crate."tinystr"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.8.3:641eb88f0ed1a1baab86521b5a05a7e47f90dfa3fc17a140cb4e9c250fbf7762"]
+reviewed = ["0.8.4:80dd56e3a82f3432809b7ae78d281239e14dd802144b8fdabb4ec722566ff439"]
 
 [crate."tracing-attributes"]  # proc-macro
 allow = true
@@ -1965,28 +2000,35 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "generates build metadata (cargo env, rustc -V, git HEAD, timestamp) into OUT_DIR/built.rs via built"
-reviewed = ["0.1.5:78f6c37081317e59a9d22155d116f5e61aed7e393b4f0461f071c301b755aaef"]
+reviewed = ["0.7.2:f7b8740a0a5ba96c5e853207a42bdb1f9a1e3384b0d51f78fb9d67434ad4f04a"]
 
 [crate."turso_ext"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "emits the advapi32 link directive on Windows; library is FFI type declarations only"
-reviewed = ["0.1.5:0a977dc7bcc03afb2f373a668ae6397712e72b729c7243e3d6784c7862ff18d0"]
+reviewed = ["0.7.2:0a977dc7bcc03afb2f373a668ae6397712e72b729c7243e3d6784c7862ff18d0"]
 
 [crate."turso_macros"]  # proc-macro
 allow = true
 risk = "low"
 review = "audited"
 reason = "proc-macro deriving turso extension/vtab/vfs FFI glue; pure syn/quote"
-reviewed = ["0.1.5:dd06e784ac9e89ae37c97fcafe26c261b337632d2bb80b93c2a029b6c6620f20"]
+reviewed = ["0.7.2:ecf811b48a25e8fd29214128adf7464565864e274f0f26ac0d57581a036c0d6a"]
 
-[crate."turso_sqlite3_parser"]  # build-script
+[crate."turso_sdk_kit"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
-reason = "compiles vendored lemon.c to a host binary in OUT_DIR and runs it to generate the SQL parser"
-reviewed = ["0.1.5:9e58c4b55031cb292e103eb1c0de2372e6b1b42cfbb5a7f03f5675b661d831e6"]
+reason = "Windows-only: writes a VERSIONINFO .rc into OUT_DIR and runs rc.exe/windres on it; returns immediately on every other target"
+reviewed = ["0.7.2:f0b6e90d4258499924ed17f50a21ce45ca60a1890a4ea485fb692f124e43db0c"]
+
+[crate."turso_sdk_kit_macros"]  # proc-macro
+allow = true
+risk = "low"
+review = "audited"
+reason = "proc-macro only, no build.rs: 28-line #[signature] attribute asserting an fn matches its C binding signature"
+reviewed = ["0.7.2:73255fffa0e7791e062368fd996fefad6e3c90f54c22e9a014be781b15538c78"]
 
 [crate."typed-path"]  # build-dependency
 allow = true
@@ -2063,14 +2105,14 @@ allow = true
 risk = "high"
 review = "audited"
 reason = "HTTP/TLS client; ext-php-rs build-deps it on Windows to download the PHP devel pack"
-reviewed = ["3.3.0:1f2ad4f12997ad572acc22abe4d440557c67c619578f755e4e35de7dc3239dd7"]
+reviewed = ["3.4.0:9d074198025a63fe8f6f5802f6206035b966323c4082819e1524bc5ef30b0dc2"]
 
 [crate."ureq-proto"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.6.0:9aaba7ddb9e599bd40e3f84dc10bab00b55ac638e9968a804ecfa3e8dfc98ca1"]
+reviewed = ["0.6.1:9aaba7ddb9e599bd40e3f84dc10bab00b55ac638e9968a804ecfa3e8dfc98ca1"]
 
 [crate."url"]  # build-dependency
 allow = true
@@ -2106,6 +2148,13 @@ risk = "low"
 review = "audited"
 reason = "bindgen+libclang generate videodev2.h FFI into OUT_DIR; trusts host headers and clang env"
 reviewed = ["0.3.0:f68f323de4f9bb40c2cb10f62652131e8ff38bdddbc27a2c46db507436d3975d"]
+
+[crate."valuable"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "emits valuable_no_atomic* cfg flags by matching TARGET against the vendored no_atomic.rs target list"
+reviewed = ["0.1.1:7e3a6e8f415519a0afe23579276c8ac46b0a1102a2d344dc5a34605d51dc207b"]
 
 [crate."vcpkg"]  # build-dependency
 allow = true
@@ -2147,28 +2196,28 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "build.rs probes rustc version + CARGO_CFG_TARGET_* to emit cfgs and one emscripten link arg"
-reviewed = ["0.2.126:ba6f6a198a62faca1676036674d8c374c8dd4bcbc12b6f4e0d380c4d5a37052d"]
+reviewed = ["0.2.127:ba6f6a198a62faca1676036674d8c374c8dd4bcbc12b6f4e0d380c4d5a37052d"]
 
 [crate."wasm-bindgen-macro"]  # proc-macro
 allow = true
 risk = "low"
 review = "audited"
 reason = "encodes the Rust<->JS binding descriptor into a custom section; reads JS files named by the user"
-reviewed = ["0.2.126:2c7039ca9acbe77d9f91adc80af0d062c77d23a3535b525edbc792a2686953e0"]
+reviewed = ["0.2.127:2c7039ca9acbe77d9f91adc80af0d062c77d23a3535b525edbc792a2686953e0"]
 
 [crate."wasm-bindgen-macro-support"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.2.126:1d404cd7dbd046ee2458a647f13878b537b94d1ad6d6fbd27664d622fef7fdf7"]
+reviewed = ["0.2.127:9bb56a8383911d0a7c51d6eb44e3ba5738845c03041edab9ee0b014f8f762752"]
 
 [crate."wasm-bindgen-shared"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "hashes src/lib.rs for a schema version and records git rev-parse HEAD as WBG_VERSION"
-reviewed = ["0.2.126:9c15199b20ae3c1f9ec80dbe9e33cd879b1c83c43577c3804d7297141a4fd2a9"]
+reviewed = ["0.2.127:9c15199b20ae3c1f9ec80dbe9e33cd879b1c83c43577c3804d7297141a4fd2a9"]
 
 [crate."webpki-root-certs"]  # build-dependency
 allow = true
@@ -2219,13 +2268,6 @@ review = "audited"
 reason = "adds its bundled MinGW import-lib dir to the link search path; ships 53MB of .a"
 reviewed = ["0.4.0:fa3742e0b1f07afe82fa6c9317f62d5a5969ef97bac27c1dbb7d9cc344eac8f1"]
 
-[crate."windows-core"]  # build-dependency
-allow = true
-risk = "low"
-review = "digest-only"
-reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.54.0:b3bbb5389f082d8475cf9de11593ba577dd06d687b85923714763a62cdf972e4", "0.62.2:b2d3fca1fac7066737b7c1afa1c4d7aa8a32d8f2fb13bd2b2e30361151d33617"]
-
 [crate."windows-implement"]  # proc-macro
 allow = true
 risk = "low"
@@ -2246,20 +2288,6 @@ risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.2.1:c27b5f6118c4cbd002b55d1a56aa414524ce02171fb2f727f6e666cc6a3a3e69"]
-
-[crate."windows-result"]  # build-dependency
-allow = true
-risk = "low"
-review = "digest-only"
-reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.1.2:ca229c86fa5fb06d21687e6d0558d9f9c313afa78735fc6182d3037f7d3e7e7b", "0.4.1:50779be88874e5cc3837a3c7090c0aed4f98cd8a43d258ae5de1bda591baf87c"]
-
-[crate."windows-strings"]  # build-dependency
-allow = true
-risk = "low"
-review = "digest-only"
-reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.5.1:1943d0022b79dad8039c77c6f1ebc3c96ee7a9109bd70ea07624330cea41744b"]
 
 [crate."windows-sys"]  # build-dependency
 allow = true
@@ -2350,7 +2378,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.6.3:b5b621e62c1946447974f16721caf3acecdeb4c9c53e9953f6527fcef69e6a52"]
+reviewed = ["0.6.4:051ee50025bdfb03845c069fb78c90766d7505a64c70d8a7ec26e554f9c318e6"]
 
 [crate."yoke"]  # build-dependency
 allow = true
@@ -2378,21 +2406,21 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "generates D-Bus proxy/interface/error code from annotated traits; no bus access at expansion"
-reviewed = ["5.18.0:db733d28091a2dba932e5eb4974cf2fed7ad0fcc915a7ae779051bb42749649a"]
+reviewed = ["5.19.0:e63177c009758ac1284a0c0d07abf3549bb7207b50c1afa3a8d39e4e0a46f32e"]
 
 [crate."zerocopy"]  # build-script
 allow = true
 risk = "low"
 review = "audited"
 reason = "reads own Cargo.toml MSRV table and rustc --version to emit version-gate cfgs"
-reviewed = ["0.8.54:a7990e58562a334ca5b8f49ccc269e03eaf95c8c133a02033342921d3f6e707b"]
+reviewed = ["0.8.56:a7990e58562a334ca5b8f49ccc269e03eaf95c8c133a02033342921d3f6e707b"]
 
 [crate."zerocopy-derive"]  # proc-macro
 allow = true
 risk = "low"
 review = "audited"
 reason = "proc macro deriving FromBytes/IntoBytes etc. with layout soundness checks"
-reviewed = ["0.8.54:fd8bc0d459099ee607f9f44bcdc5895343e49da0143dd2735ad5529a844658b9"]
+reviewed = ["0.8.56:1ba30d38818cf467891aee89801474e2ab547569e1b96f440f2bbc2758da42bc"]
 
 [crate."zerofrom"]  # build-dependency
 allow = true
@@ -2427,21 +2455,21 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.2.4:2ef31a53ca408b5e80d960e40d6654f2c78464e2f3b4c5cbe2d8af3d0960afd4"]
+reviewed = ["0.2.5:ac0361f62514a307bd4d539366b064195d2031308d72770f3b23770c28c8fc9f"]
 
 [crate."zerovec"]  # build-dependency
 allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.11.6:8ba96e763acc0b76460955882d5c45c92382199e958e82ebdc0d1a638cf7e330"]
+reviewed = ["0.11.8:fccd16c62053782d22faa48f2637754d5742e84fedad2ab6b7948aa1469d10ad"]
 
 [crate."zerovec-derive"]  # proc-macro
 allow = true
 risk = "low"
 review = "audited"
 reason = "derives ICU4X ULE/VarULE zero-copy layout impls and companion packed types via syn"
-reviewed = ["0.11.3:cd2f5ab0cdd621f1a37f2b9ad6656532ccd36edce2833686eb1c8b8a409e44d6"]
+reviewed = ["0.11.6:c166c041bac0af6852eea4f7a0665ae22035fe6d071b2d7557ab215d632a97f4"]
 
 [crate."zip"]  # build-dependency/build-script
 allow = true
@@ -2455,7 +2483,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.6.6:2a398ebf1b5734db10091e8b9f6429d82c15da90c79f2bf92e82a22e21d19feb"]
+reviewed = ["0.6.7:349e0132af8d6aaa5d253780ca46de7765b0c30a94f15ff0f5be96d5678a7a4a"]
 
 [crate."zmij"]  # build-script
 allow = true
@@ -2497,4 +2525,4 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "proc macro deriving D-Bus Type/Value; resolves the zvariant crate name via proc-macro-crate"
-reviewed = ["5.13.1:7d478055e02a133bf9d843d0324d0ca06489e846845f56919584f4195b1b06c1"]
+reviewed = ["5.15.0:974484a6d7d03c26065fbc716eedb12c04c7f38479aafd1ab316b2f6c0300ede"]
