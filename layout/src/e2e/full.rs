@@ -74,6 +74,50 @@ fn wall_clock_now() -> std::time::Instant {
     std::time::Instant::now()
 }
 
+/// How many pump ticks a `wait_frame` barrier waits for the frame clock before
+/// resuming anyway (with a warning). ~2 s at the live 16 ms debug-timer cadence.
+#[cfg(feature = "std")]
+const FRAME_BARRIER_MAX_TICKS: u32 = 120;
+
+/// Is this continuation still blocked — on a `wait` deadline or on the
+/// `wait_frame` frame barrier? Bumps the barrier's tick count; opens it (and
+/// warns) once the cap is exceeded.
+#[cfg(feature = "std")]
+fn continuation_blocked(
+    cont: &mut E2eContinuation,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> bool {
+    if cont.resume_not_before.is_some_and(|t| wall_clock_now() < t) {
+        return true;
+    }
+    let Some(target) = cont.resume_after_frame else {
+        return false;
+    };
+    let frame_seq = callback_info.get_layout_window().content_journal.frame_seq();
+    if frame_seq >= target {
+        cont.resume_after_frame = None;
+        cont.frame_wait_ticks = 0;
+        return false;
+    }
+    cont.frame_wait_ticks += 1;
+    if cont.frame_wait_ticks > FRAME_BARRIER_MAX_TICKS {
+        log(
+            LogLevel::Warn,
+            LogCategory::DebugServer,
+            format!(
+                "[E2E] wait_frame: no frame prepared in {} ticks (frame clock {} < {}) - \
+                 resuming without the barrier",
+                cont.frame_wait_ticks, frame_seq, target
+            ),
+            None,
+        );
+        cont.resume_after_frame = None;
+        cont.frame_wait_ticks = 0;
+        return false;
+    }
+    true
+}
+
 // ==================== Types ====================
 
 /// Request from HTTP thread to timer callback
@@ -3490,6 +3534,20 @@ struct E2eContinuation {
     /// states and the relayout the wait exists to wait FOR — so `wait` yields
     /// with a deadline instead, and frames keep processing meanwhile.
     resume_not_before: Option<std::time::Instant>,
+    /// Do not resume before the window's frame clock
+    /// (`ContentJournal::frame_seq`, bumped once per prepared frame on every
+    /// backend) reaches this value. Set by `wait_frame`: the op's contract is
+    /// "the frame that follows from what just happened has been produced",
+    /// and a yield alone never guaranteed that — on a live shell the paint
+    /// waits for the compositor's frame callback, so one timer tick later the
+    /// next step could still read the DOM from BEFORE the queued virtual-view
+    /// re-renders were drained (a word count fed by `TextChanged` read stale
+    /// one run in three).
+    resume_after_frame: Option<u64>,
+    /// Ticks spent waiting on `resume_after_frame`; the barrier gives up after
+    /// [`FRAME_BARRIER_MAX_TICKS`] (a backend that never prepares a frame must
+    /// degrade to the old one-yield behaviour, not hang the scenario).
+    frame_wait_ticks: u32,
     /// Whether the current test's `setup` block (window size / DPI / app state)
     /// has already been applied. The setup is applied ONCE, before step 0, and
     /// the runner then yields so the resize actually reaches the window before
@@ -9988,6 +10046,18 @@ fn resume_e2e_continuation_inner(
                         if step_needs_update {
                             needs_update = true;
                         }
+                        // `wait_frame` is a BARRIER: the next step runs only
+                        // once the window has prepared a frame after this
+                        // one (see `E2eContinuation::resume_after_frame`).
+                        let frame_barrier = op == "wait_frame";
+                        if frame_barrier {
+                            let frame_seq = callback_info
+                                .get_layout_window()
+                                .content_journal
+                                .frame_seq();
+                            cont.resume_after_frame = Some(frame_seq + 1);
+                            cont.frame_wait_ticks = 0;
+                        }
                         // Yield whenever the op left a change the SHELL has to
                         // service (a window-state change, a scroll, a queued
                         // input sequence), whether or not it also asked for a
@@ -9997,7 +10067,7 @@ fn resume_e2e_continuation_inner(
                         // `tick_ms`, `wait_frame` — ran every following step
                         // against the state from before it, which is exactly the
                         // trap `has_pending_relayout_change` exists to avoid.
-                        if callback_info.has_pending_relayout_change() {
+                        if frame_barrier || callback_info.has_pending_relayout_change() {
                             // Yield: save progress and return
                             cont.current_step_results.push(E2eStepResult {
                                 step_index,
@@ -10162,11 +10232,10 @@ pub fn e2e_pump_continuation(
     session: &mut E2eSession,
 ) -> (bool, bool, Option<std::time::Instant>) {
     let mut pending = session.pending.take();
-    // `wait` steps yield with a deadline — if it hasn't passed, put the
-    // continuation back untouched and report it as still pending.
-    if let Some(cont) =
-        pending.take_if(|c| c.resume_not_before.is_some_and(|t| wall_clock_now() < t))
-    {
+    // `wait` steps yield with a deadline and `wait_frame` with a frame
+    // barrier — while either holds, put the continuation back untouched and
+    // report it as still pending.
+    if let Some(cont) = pending.take_if(|c| continuation_blocked(c, callback_info)) {
         let rnb = cont.resume_not_before;
         session.pending = Some(cont);
         return (false, true, rnb);
@@ -10229,10 +10298,11 @@ pub extern "C" fn debug_timer_callback(
     // Check for E2E continuation from a previous tick (resume after relayout)
     let mut needs_update = false;
     let mut pending_continuation = session.pending.take();
-    // `wait` steps yield with a deadline — if it hasn't passed, put the
-    // continuation back and let this tick process queued input/relayout.
+    // `wait` steps yield with a deadline and `wait_frame` with a frame
+    // barrier — while either holds, put the continuation back and let this
+    // tick process queued input/relayout.
     if let Some(cont) =
-        pending_continuation.take_if(|c| c.resume_not_before.is_some_and(|t| wall_clock_now() < t))
+        pending_continuation.take_if(|c| continuation_blocked(c, &timer_info.callback_info))
     {
         session.pending = Some(cont);
     }
@@ -13929,8 +13999,10 @@ pub fn process_debug_event(
             // be a pure no-op that sent `ok` and did nothing at all, so those
             // scenarios asserted against whatever frame the mount had left
             // behind. Same repaint-only path as `tick_ms`: no DOM regeneration,
-            // no event pass, and a yield so the frame is rendered before the
-            // step after it reads the frame report.
+            // no event pass. The scenario step loop additionally arms a FRAME
+            // BARRIER for this op (`E2eContinuation::resume_after_frame`): a
+            // yield alone only guaranteed a turn of the shell's loop, not
+            // that the frame had landed.
             request_repaint(callback_info);
             send_ok(request, None, None);
         }
@@ -16820,6 +16892,8 @@ pub fn process_debug_event(
             // when a step (like resize) needs a relayout between steps.
             let cont = E2eContinuation {
                 resume_not_before: None,
+                resume_after_frame: None,
+                frame_wait_ticks: 0,
                 setup_applied: false,
                 response_tx: request.response_tx.clone(),
                 window_id: request.window_id.clone(),

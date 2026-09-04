@@ -99,7 +99,7 @@ Each command's `op` field selects one debug event variant. Categories overlap wi
 
 `click` accepts whichever of `selector`, `node_id`, `text`, or `(x, y)` you pass. It resolves to a node, fires the click, and triggers a refresh if your callback returns one. This is the building block every E2E `click` step uses.
 
-`wait_frame` blocks until the next frame is rendered. After any command that mutates state (`click`, `resize`, `set_node_text`, …) call `wait_frame` before reading state back, otherwise queries can race the relayout pass.
+`wait_frame` is a barrier: the next step runs only after the window has prepared a frame that follows the request (the frame clock is the per-window `ContentJournal::frame_seq`, bumped once per frame on every backend). After any command that mutates state (`click`, `resize`, `set_node_text`, `text_input`, …) call `wait_frame` before reading state back, otherwise queries can race the relayout pass or the virtual-view re-renders queued for the next paint. A scenario step cannot hang on it: after ~2 s without a frame the barrier logs a warning and opens.
 
 ## A simple driver script
 
