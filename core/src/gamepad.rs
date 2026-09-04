@@ -155,6 +155,12 @@ pub struct GamepadState {
     pub touchpad_x: f32,
     /// See [`GamepadState::touchpad_x`].
     pub touchpad_y: f32,
+    /// The SECOND finger on the touch surface (DualShock 4 and DualSense
+    /// track two), same coordinates as [`GamepadState::touchpad_x`]. Valid
+    /// only while `touchpad2_active`; a pinch on the pad reads both slots.
+    pub touchpad2_x: f32,
+    /// See [`GamepadState::touchpad2_x`].
+    pub touchpad2_y: f32,
     /// Angular velocity from the pad's own gyroscope, in **rad/s**.
     ///
     /// Present on DualShock 4, DualSense, Switch Pro and Steam Deck. This is
@@ -177,6 +183,9 @@ pub struct GamepadState {
     pub connected: bool,
     /// Whether a finger is on the pad's touch surface.
     pub touchpad_active: bool,
+    /// Whether a second finger is on the pad's touch surface
+    /// (`touchpad2_x` / `touchpad2_y`).
+    pub touchpad2_active: bool,
 }
 
 
@@ -205,7 +214,10 @@ impl Default for GamepadState {
             battery: -1.0,
             touchpad_x: 0.0,
             touchpad_y: 0.0,
+            touchpad2_x: 0.0,
+            touchpad2_y: 0.0,
             touchpad_active: false,
+            touchpad2_active: false,
             gyro_x: 0.0,
             gyro_y: 0.0,
             gyro_z: 0.0,
@@ -235,7 +247,10 @@ impl GamepadState {
             battery: -1.0,
             touchpad_x: 0.0,
             touchpad_y: 0.0,
+            touchpad2_x: 0.0,
+            touchpad2_y: 0.0,
             touchpad_active: false,
+            touchpad2_active: false,
             gyro_x: 0.0,
             gyro_y: 0.0,
             gyro_z: 0.0,

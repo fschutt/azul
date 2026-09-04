@@ -218,6 +218,16 @@ fn apply_sample_motion(state: &mut azul_core::gamepad::GamepadState, sample: &pl
             state.touchpad_active = false;
         }
     }
+    match sample.touch2 {
+        Some((x, y)) => {
+            state.touchpad2_active = true;
+            state.touchpad2_x = x;
+            state.touchpad2_y = y;
+        }
+        None => {
+            state.touchpad2_active = false;
+        }
+    }
 }
 
 /// Stick deadzone radius (Xbox/DualShock resting jitter stays well below

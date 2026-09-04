@@ -320,6 +320,27 @@ pub fn poll() {
             let mut touchpad_x = 0.0f32;
             let mut touchpad_y = 0.0f32;
             let mut touchpad_active = false;
+            // The second finger (8f-i-a-ii-a): `touchpadSecondary`, declared
+            // beside `touchpadPrimary` on both PlayStation profiles.
+            let mut touchpad2_x = 0.0f32;
+            let mut touchpad2_y = 0.0f32;
+            let mut touchpad2_active = false;
+            if responds(sel!(touchpadSecondary)) {
+                let tp: *mut Object = msg_send![pad, touchpadSecondary];
+                if !tp.is_null() {
+                    let tx = axis(tp, sel!(xAxis));
+                    let ty = axis(tp, sel!(yAxis));
+                    touchpad2_x = (tx + 1.0) * 0.5;
+                    touchpad2_y = (ty + 1.0) * 0.5;
+                    let has_state: bool = msg_send![tp, respondsToSelector: sel!(touchState)];
+                    touchpad2_active = if has_state {
+                        let st: i64 = msg_send![tp, touchState];
+                        st != GC_TOUCH_STATE_UP
+                    } else {
+                        tx != 0.0 || ty != 0.0
+                    };
+                }
+            }
             if responds(sel!(touchpadPrimary)) {
                 let tp: *mut Object = msg_send![pad, touchpadPrimary];
                 if !tp.is_null() {
@@ -360,6 +381,9 @@ pub fn poll() {
                 touchpad_x,
                 touchpad_y,
                 touchpad_active,
+                touchpad2_x,
+                touchpad2_y,
+                touchpad2_active,
                 gyro_x: gyro.x as f32,
                 gyro_y: gyro.y as f32,
                 gyro_z: gyro.z as f32,

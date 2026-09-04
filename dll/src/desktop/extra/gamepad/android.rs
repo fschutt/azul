@@ -131,9 +131,9 @@ pub unsafe extern "system" fn Java_com_azul_gamepad_AzulGamepad_nativeOnButton(
     push_gamepad_state(state);
 }
 
-/// The pad's touch surface under pointer capture (8f-i-a-ii): one finger,
-/// normalised 0..1, y up (the Java side flipped it). `active == 0` is the
-/// lift-off.
+/// The pad's touch surface under pointer capture (8f-i-a-ii): two fingers
+/// (8f-i-a-ii-a), normalised 0..1, y up (the Java side flipped it).
+/// `active == 0` is the lift-off of that slot.
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_azul_gamepad_AzulGamepad_nativeOnTouchpad(
     _env: *mut core::ffi::c_void,
@@ -142,6 +142,9 @@ pub unsafe extern "system" fn Java_com_azul_gamepad_AzulGamepad_nativeOnTouchpad
     active: i32,
     x: f32,
     y: f32,
+    active2: i32,
+    x2: f32,
+    y2: f32,
 ) {
     let Some(state) = with_pad(device_id, |p| {
         p.connected = true;
@@ -149,6 +152,11 @@ pub unsafe extern "system" fn Java_com_azul_gamepad_AzulGamepad_nativeOnTouchpad
         if active != 0 {
             p.touchpad_x = x.clamp(0.0, 1.0);
             p.touchpad_y = y.clamp(0.0, 1.0);
+        }
+        p.touchpad2_active = active2 != 0;
+        if active2 != 0 {
+            p.touchpad2_x = x2.clamp(0.0, 1.0);
+            p.touchpad2_y = y2.clamp(0.0, 1.0);
         }
     }) else {
         return;

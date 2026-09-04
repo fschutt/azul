@@ -245,7 +245,7 @@ public final class AzulGamepad {
      *
      * Positions are normalised to 0..1 over the device's reported motion
      * range, y flipped to the bottom-left origin GamepadState::touchpad_x
-     * documents. Only the first pointer is forwarded (8f-i-a-ii-a).
+     * documents. Two pointers are forwarded (8f-i-a-ii-a).
      *
      * @return true when consumed.
      */
@@ -286,13 +286,25 @@ public final class AzulGamepad {
                 && event.getPointerCount() > 0;
         float x = 0f;
         float y = 0f;
+        float x2 = 0f;
+        float y2 = 0f;
+        // Second finger (8f-i-a-ii-a): pointer index 1 while it is down. On
+        // ACTION_POINTER_UP the lifting pointer is still counted, so it is
+        // excluded by index.
+        boolean active2 = false;
         if (active) {
             InputDevice.MotionRange rx = surface.getMotionRange(MotionEvent.AXIS_X, event.getSource());
             InputDevice.MotionRange ry = surface.getMotionRange(MotionEvent.AXIS_Y, event.getSource());
             x = normalise(event.getX(0), rx);
             y = 1f - normalise(event.getY(0), ry);
+            int lifting = action == MotionEvent.ACTION_POINTER_UP ? event.getActionIndex() : -1;
+            if (event.getPointerCount() > 1 && lifting != 1) {
+                active2 = true;
+                x2 = normalise(event.getX(1), rx);
+                y2 = 1f - normalise(event.getY(1), ry);
+            }
         }
-        nativeOnTouchpad(padId, active ? 1 : 0, x, y);
+        nativeOnTouchpad(padId, active ? 1 : 0, x, y, active2 ? 1 : 0, x2, y2);
         return true;
     }
 
@@ -305,7 +317,8 @@ public final class AzulGamepad {
 
     private static native void nativeOnButton(int deviceId, int keycode, int isDown);
 
-    private static native void nativeOnTouchpad(int deviceId, int active, float x, float y);
+    private static native void nativeOnTouchpad(int deviceId, int active, float x, float y,
+                                                int active2, float x2, float y2);
 
     private static native void nativeOnAxes(int deviceId, float x, float y, float z, float rz,
                                             float ltrigger, float rtrigger,

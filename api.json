@@ -122023,6 +122023,12 @@
                                 "touchpad_y": {
                                     "type": "f32"
                                 },
+                                "touchpad2_x": {
+                                    "type": "f32"
+                                },
+                                "touchpad2_y": {
+                                    "type": "f32"
+                                },
                                 "gyro_x": {
                                     "type": "f32"
                                 },
@@ -122045,6 +122051,9 @@
                                     "type": "bool"
                                 },
                                 "touchpad_active": {
+                                    "type": "bool"
+                                },
+                                "touchpad2_active": {
                                     "type": "bool"
                                 }
                             }

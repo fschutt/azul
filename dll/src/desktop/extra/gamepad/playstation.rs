@@ -100,6 +100,8 @@ pub struct PadSample {
     pub accel: [f32; 3],
     /// The first finger on the touch surface, if any.
     pub touch: Option<(f32, f32)>,
+    /// The second finger (both pads report two points), if any.
+    pub touch2: Option<(f32, f32)>,
 }
 
 /// How the pad is attached, read off the input report id: the calibration
@@ -309,6 +311,7 @@ fn parse_dualsense(p: &[u8], calibration: Option<&PadCalibration>) -> Option<Pad
     let gyro = calibrated([i16_at(p, 15), i16_at(p, 17), i16_at(p, 19)], calibration.map(|c| c.gyro));
     let accel = calibrated([i16_at(p, 21), i16_at(p, 23), i16_at(p, 25)], calibration.map(|c| c.accel));
     let touch = touch_point(&p[32..36], DS_TOUCHPAD_WIDTH, DS_TOUCHPAD_HEIGHT);
+    let touch2 = touch_point(&p[36..40], DS_TOUCHPAD_WIDTH, DS_TOUCHPAD_HEIGHT);
     Some(PadSample {
         buttons,
         left_stick: stick(p[0], p[1]),
@@ -318,6 +321,7 @@ fn parse_dualsense(p: &[u8], calibration: Option<&PadCalibration>) -> Option<Pad
         gyro: gyro_rad_s(gyro),
         accel: accel_ms2(accel),
         touch,
+        touch2,
     })
 }
 
@@ -333,10 +337,13 @@ fn parse_dualshock4(p: &[u8], calibration: Option<&PadCalibration>) -> Option<Pa
     let gyro = calibrated([i16_at(p, 12), i16_at(p, 14), i16_at(p, 16)], calibration.map(|c| c.gyro));
     let accel = calibrated([i16_at(p, 18), i16_at(p, 20), i16_at(p, 22)], calibration.map(|c| c.accel));
     let num_touch_reports = p[32];
-    let touch = if num_touch_reports > 0 {
-        touch_point(&p[34..38], DS4_TOUCHPAD_WIDTH, DS4_TOUCHPAD_HEIGHT)
+    let (touch, touch2) = if num_touch_reports > 0 {
+        (
+            touch_point(&p[34..38], DS4_TOUCHPAD_WIDTH, DS4_TOUCHPAD_HEIGHT),
+            touch_point(&p[38..42], DS4_TOUCHPAD_WIDTH, DS4_TOUCHPAD_HEIGHT),
+        )
     } else {
-        None
+        (None, None)
     };
     Some(PadSample {
         buttons,
@@ -347,6 +354,7 @@ fn parse_dualshock4(p: &[u8], calibration: Option<&PadCalibration>) -> Option<Pa
         gyro: gyro_rad_s(gyro),
         accel: accel_ms2(accel),
         touch,
+        touch2,
     })
 }
 
@@ -648,6 +656,29 @@ mod tests {
         let (tx, ty) = s.touch.expect("finger");
         assert!((tx - 0.5).abs() < 1e-3);
         assert!((ty - 0.5).abs() < 1e-3);
+    }
+
+    #[test]
+    /// The second point of a DualSense report (`points[1]`, bytes 36..40) is
+    /// the second finger; an inactive first slot does not hide it.
+    #[test]
+    fn a_second_finger_lands_in_touch2() {
+        let mut r = dualsense_usb([0; 3], [0; 3], Some((0, 0)));
+        // second finger (payload byte 36 = report byte 37): id 5 active,
+        // x = 1919, y = 0 (top-right of a y-down surface)
+        r[1 + 36] = 0x05;
+        r[1 + 37] = (1919u16 & 0xff) as u8;
+        r[1 + 38] = (1919u16 >> 8) as u8 & 0x0f;
+        r[1 + 39] = 0;
+        let s = parse(PlayStationPad::DualSense, &r).unwrap();
+        assert_eq!(s.touch, Some((0.0, 1.0)));
+        let (x, y) = s.touch2.expect("second finger");
+        assert!((x - 1.0).abs() < 0.01 && (y - 1.0).abs() < 0.01, "{x} {y}");
+        // and lifting only the first finger keeps the second
+        r[1 + 32] = 0x80;
+        let s = parse(PlayStationPad::DualSense, &r).unwrap();
+        assert_eq!(s.touch, None);
+        assert!(s.touch2.is_some());
     }
 
     #[test]

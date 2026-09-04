@@ -214,6 +214,9 @@ fn state_bitwise_eq(a: &GamepadState, b: &GamepadState) -> bool {
         && a.touchpad_x.to_bits() == b.touchpad_x.to_bits()
         && a.touchpad_y.to_bits() == b.touchpad_y.to_bits()
         && a.touchpad_active == b.touchpad_active
+        && a.touchpad2_x.to_bits() == b.touchpad2_x.to_bits()
+        && a.touchpad2_y.to_bits() == b.touchpad2_y.to_bits()
+        && a.touchpad2_active == b.touchpad2_active
         && a.gyro_x.to_bits() == b.gyro_x.to_bits()
         && a.gyro_y.to_bits() == b.gyro_y.to_bits()
         && a.gyro_z.to_bits() == b.gyro_z.to_bits()
@@ -301,6 +304,15 @@ mod tests {
         let mut c = base;
         c.touchpad_active = true;
         cases.push(("touchpad_active", c));
+        let mut c = base;
+        c.touchpad2_x = 0.5;
+        cases.push(("touchpad2_x", c));
+        let mut c = base;
+        c.touchpad2_y = 0.5;
+        cases.push(("touchpad2_y", c));
+        let mut c = base;
+        c.touchpad2_active = true;
+        cases.push(("touchpad2_active", c));
         let mut c = base;
         c.gyro_x = 0.5;
         cases.push(("gyro_x", c));
