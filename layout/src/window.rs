@@ -5625,42 +5625,10 @@ impl LayoutWindow {
                 unsafe {
                     crate::az_mark(0x60770_u32, chains.chains.len() as u32);
                 }
-                // WEB-LIFT last resort (the DEFINITIVE spot — the layout's own `chains` that
-                // feed load_missing_for_chains below): the lifted font-query path can leave a
-                // chain with NO fonts even when a fallback IS registered (generic→OS-name +
-                // token/unicode query is lift-fragile). Append the first registered font to any
-                // empty chain so load_missing loads it + text shapes instead of measuring 0.
-                // Done here (azul-layout), NOT rust-fontconfig (which re-codegens the fragile
-                // with_memory_fonts into a trapping shape).
-                for chain in chains.chains.values_mut() {
-                    let total = chain
-                        .css_fallbacks
-                        .iter()
-                        .map(|g| g.fonts.len())
-                        .sum::<usize>()
-                        + chain.unicode_fallbacks.len();
-                    if total == 0 {
-                        // `list()` deep-copies the ENTIRE font database to read one
-                        // entry; see `first_font_in_cache` in solver3::getters.
-                        let __first = {
-                            let mut f = None;
-                            self.font_manager.fc_cache.for_each_pattern(|p, id| {
-                                if f.is_none() {
-                                    f = Some((p.clone(), *id));
-                                }
-                            });
-                            f
-                        };
-                        if let Some((pattern, id)) = __first.as_ref() {
-                            chain.unicode_fallbacks.push(rust_fontconfig::FontMatch {
-                                id: *id,
-                                unicode_ranges: pattern.unicode_ranges.clone(),
-                                fallbacks: Vec::new(),
-                            });
-                        }
-                    }
-                }
-                // [g80] chains after the window.rs last-resort loop (values_mut path).
+                // A chain that matched nothing already carries its last-resort
+                // face: the resolvers apply `ensure_chains_nonempty` (the ONE
+                // last-resort rule) before returning, so there is nothing to
+                // patch up here. The marker stays for the [g80] timeline.
                 unsafe {
                     crate::az_mark(0x60774_u32, chains.chains.len() as u32);
                 }
@@ -5684,7 +5652,9 @@ impl LayoutWindow {
                 // edit-time extension in `reshape_text_node` cannot help,
                 // since this replacement of the chain cache discards it.
                 {
-                    use crate::text3::cache::{missing_coverage_faces, FontChainKeyOrRef};
+                    use crate::text3::cache::{
+                        append_coverage_faces, missing_coverage_faces, FontChainKeyOrRef,
+                    };
                     let overlay_content: Vec<&[InlineContent]> = self
                         .content_overlay
                         .iter_text()
@@ -5710,7 +5680,7 @@ impl LayoutWindow {
                                 if let Some(chain) =
                                     chains.chains.get_mut(&FontChainKeyOrRef::Chain(key))
                                 {
-                                    chain.unicode_fallbacks.extend(faces);
+                                    append_coverage_faces(chain, faces);
                                 }
                             }
                         }
@@ -5723,8 +5693,8 @@ impl LayoutWindow {
                 // by `Arc<RwLock<_>>`, so builder writes performed
                 // during the `request_and_resolve_with_scripts`
                 // call above are immediately visible to every
-                // downstream `FontFallbackChain::resolve_char`
-                // lookup without any explicit refresh.
+                // downstream chain-coverage lookup without any
+                // explicit refresh.
                 if let Some(msgs) = debug_messages.as_mut() {
                     msgs.push(LayoutDebugMessage::info(format!(
                         "[FontLoading] Resolved {} font chains",
