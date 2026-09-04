@@ -22,10 +22,22 @@ One function makes it concrete — `LayoutWindow::layout_dom_recursive_impl`:
 
 Two intuitions we both had, and the measurements that killed them:
 
-- **Panic / formatting machinery.** 738 functions, 2.6 MB, ~6%. Worth stubbing
-  (a trap is cheaper than the panic path) but not transformative — and only
-  **11 functions** are reachable *exclusively* through panics. `fmt`/`Debug` is
-  genuinely live: markdown rendering, CSS value formatting, PDF text.
+- **Panic machinery — already collected.** The classifier routes the whole
+  panic family to `FnClass::NeverLift` (they trap instead of being lifted), so
+  of the 74.2 MB actually lifted, panic code is **7 functions and 0.01 MB —
+  0.0%**. There is no win left here; it was taken.
+- **Formatting machinery.** ~3.4 MB, **4.6%** — real, but live: markdown
+  rendering, CSS value formatting and PDF text all format at runtime. In MSVC
+  demangling these appear as `impl$N::fmt`, which does not say whether the
+  trait is `Debug` (droppable) or `Display` (needed), so there is no cheap
+  name-based cut.
+
+  ⚠ An earlier revision of this document claimed "panic + fmt, 738 functions,
+  2.6 MB, ~6%" and listed panic stubbing as an open win. Both halves were
+  wrong. The bucket conflated already-trapped panic code with live formatting,
+  and its regex matched `Display` inside *type* names — `DisplayList`,
+  `DisplayListItem` — so 0.17 MB of core layout code was counted as
+  stubbable formatting. `wasm-size-report.py` has been fixed.
 - **`volatile` blocking optimization.** De-volatilizing every store in the
   8 MB whale and re-running `opt -O2` + `llc` moved the object from
   549,237 → 546,010 bytes. **0.6%.** The stores are not volatile-blocked.
@@ -103,7 +115,8 @@ Expected: roughly half the surviving stores in a typical lifted function.
 - **Full-surface base image.** 36,500 functions at 18× is ~600 MB of wasm, so
   size — not lift time — gates a shippable `AZ_LIFT_MODE=full` image. The
   state-store passes are the prerequisite.
-- Stubbing panics for the ~6%.
+- Formatting is 4.6% and mostly live; a cut needs Debug-vs-Display
+  discrimination that the demangled names do not carry.
 - `zf` needs real liveness (584 genuine readers), unlike the zero-load flags.
 
 ---
@@ -188,7 +201,7 @@ font-fallback chains, rarely-used CSS property parsing.
 ## Sequencing
 
 1. State-store DSE (done — 28% on the measured function).
-2. Panic/fmt stubbing (~6%).
+2. ~~Panic stubbing~~ — already done via `NeverLift`; measured 0.0% left.
 3. Cold-path boundaries in the top-500 list: strip first, since it needs no
    runtime machinery, only a boundary the walk does not reach.
 4. Lazy split via `BoundaryImport` + a JS module loader.

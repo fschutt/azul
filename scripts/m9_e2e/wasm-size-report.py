@@ -18,11 +18,19 @@ import io, os, re, sys, collections
 def demangle_crate(name):
     """Best-effort crate/category bucket from a mangled or plain Rust name."""
     n = name
-    # panic / formatting / unwinding machinery — the prime stub target
-    if re.search(r'panic|panicking|fmt::|Display|Debug|core::fmt|unwind|'
-                 r'begin_panic|assert_failed|expect_failed|unwrap_failed|'
-                 r'Formatter|write_fmt|format_args', n):
-        return 'PANIC+FMT'
+    # Panic machinery. Nearly all of it is FnClass::NeverLift (it traps and is
+    # never lifted), so a non-trivial number here means the classifier missed a
+    # family - that is the signal to read, not a stub opportunity.
+    if re.search(r'panicking|begin_panic|rust_begin_unwind|handle_alloc_error|'
+                 r'capacity_overflow|assert_failed|expect_failed|unwrap_failed|'
+                 r'panic_bounds_check|_fail$|_fail::', n):
+        return 'PANIC (should be ~0)'
+    # Formatting. `Display`/`Debug` are matched only in TRAIT position: bare
+    # substring matching also hits TYPE names - `DisplayList`, `DisplayListItem`
+    # - and silently books core layout code as stubbable formatting.
+    if re.search(r'core::fmt|::fmt::|Formatter|write_fmt|format_args|::fmt$|'
+                 r'Display>|Debug>|as core::fmt::(Display|Debug)', n):
+        return 'FMT'
     for crate, pat in [
         ('allsorts (font)',      r'allsorts'),
         ('printpdf (pdf)',       r'printpdf|pdf::'),
@@ -92,9 +100,12 @@ def main():
     for cat, (o, n, c) in sorted(by_cat.items(), key=lambda kv: -kv[1][0]):
         print(f"{cat:22} {o/1e6:8.1f} {100*o/max(total_o,1):5.1f} {c:7} {o//max(c,1):8}")
     print()
-    pf = by_cat.get('PANIC+FMT', [0, 0, 0])
-    print(f"*** PANIC+FMT is {pf[0]/1e6:.1f} MB / {100*pf[0]/max(total_o,1):.0f}% of the wasm "
-          f"across {pf[2]} functions — the single biggest stub candidate.")
+    pan = by_cat.get('PANIC (should be ~0)', [0, 0, 0])
+    fmt = by_cat.get('FMT', [0, 0, 0])
+    print(f"*** PANIC: {pan[0]/1e6:.2f} MB across {pan[2]} functions. Expected ~0 - the"
+          f" panic family is NeverLift. Anything large here is a classifier miss.")
+    print(f"*** FMT:   {fmt[0]/1e6:.2f} MB / {100*fmt[0]/max(total_o,1):.0f}% across {fmt[2]}"
+          f" functions - mostly live (markdown, CSS, PDF text), not free to stub.")
     print()
     print(f"top {top} functions by object size:")
     for osize, nsize, cat, name, exp in sorted(rows, reverse=True)[:top]:
