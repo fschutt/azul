@@ -93,10 +93,16 @@ name = "fluent_demo"
 path = "src/fluent_demo.rs"
 required-features = ["fluent", "icu"]
 
+# Also needs `link-static`: this demo drives the desktop ZIP helpers
+# (`zip_create_from_files` / `zip_extract_all` / `zip_list_contents`), which
+# live in `azul::desktop::zip` behind `cabi_internal`. The dynamic build
+# exposes the generated `azul::zip::Zip` type instead, not these free
+# functions, so without this the lean `link-dynamic` build fails with
+# "could not find `desktop` in `azul`".
 [[example]]
 name = "http_zip_demo"
 path = "src/http_zip_demo.rs"
-required-features = ["fluent", "http", "zip"]
+required-features = ["fluent", "http", "zip", "link-static"]
 
 [[example]]
 name = "tray"
