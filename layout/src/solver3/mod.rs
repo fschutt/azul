@@ -248,6 +248,11 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     /// for a single-user app, where every caret falls back to `caret-color`.
     pub owner_colors:
         alloc::collections::BTreeMap<azul_core::selection::SelectionOwner, azul_css::props::basic::color::ColorU>,
+    /// Seat focus rings (9b-ii-a-i-d-iii, the overlay half): every node a
+    /// NON-primary seat focuses, with that seat's colour - the same
+    /// seat-coloured convention as the seat carets, painted as a 2px ring
+    /// around the border box since `:focus` is the primary's alone.
+    pub seat_focus_rings: Vec<(azul_core::dom::DomNodeId, azul_css::props::basic::color::ColorU)>,
     /// Paint the draggable selection handles under the local primary
     /// range (U2-a). Set where the platform lends a custom view no handles
     /// of its own (Android); see `TextEditManager::selection_handles`.
@@ -459,11 +464,14 @@ pub fn dl_input_fingerprint(
     text_selections: &BTreeMap<DomId, TextSelection>,
     preedit_text: Option<&str>,
     paint_selection_handles: bool,
+    seat_focus_rings: &[(azul_core::dom::DomNodeId, azul_css::props::basic::color::ColorU)],
 ) -> u64 {
     use core::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     cursor_is_visible.hash(&mut h);
     paint_selection_handles.hash(&mut h);
+    // A seat's focus moving must miss the cache like a caret moving does.
+    format!("{seat_focus_rings:?}").hash(&mut h);
     // Debug renderings: small, change rarely per frame, and none of the
     // types implement Hash.
     format!("{cursor_locations:?}").hash(&mut h);
@@ -525,6 +533,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         azul_core::selection::SelectionOwner,
         azul_css::props::basic::color::ColorU,
     >,
+    seat_focus_rings: Vec<(azul_core::dom::DomNodeId, azul_css::props::basic::color::ColorU)>,
     paint_selection_handles: bool,
     preedit_text: Option<String>,
     image_cache: &azul_core::resources::ImageCache,
@@ -605,6 +614,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cursor_is_visible,
         cursor_locations: cursor_locations.clone(),
         owner_colors: Default::default(),
+        seat_focus_rings: Vec::new(),
         paint_selection_handles: false,
         preedit_text: preedit_text.clone(),
         cache_map: cache::LayoutCacheMap::default(), // temp context doesn't need real cache
@@ -740,6 +750,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         text_selections,
         preedit_text.as_deref(),
         paint_selection_handles,
+        &seat_focus_rings,
     );
     if let Some((
         cached_hash,
@@ -988,6 +999,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // through `regenerate_display_list_for_dom`; every relayout painted
         // it in the CSS colour.
         owner_colors,
+        seat_focus_rings,
         paint_selection_handles,
         style_cache: Default::default(),
         // The report a `VirtualView` is sized by (sizing.rs). The commit that
@@ -3055,6 +3067,7 @@ mod autotest_generated {
                 false,
                 Vec::new(),
                 Default::default(), // owner_colors (U1)
+                Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii): no ring off the live path
                 false,              // paint_selection_handles (U2-a)
                 None,
                 &image_cache,
@@ -3100,6 +3113,7 @@ mod autotest_generated {
                 false,
                 Vec::new(),
                 Default::default(), // owner_colors (U1)
+                Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii): no ring off the live path
                 false,              // paint_selection_handles (U2-a)
                 None,
                 &image_cache,
@@ -3147,6 +3161,7 @@ mod autotest_generated {
                 false,
                 Vec::new(),
                 Default::default(), // owner_colors (U1)
+                Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii): no ring off the live path
                 false,              // paint_selection_handles (U2-a)
                 None,
                 &image_cache,

@@ -5707,6 +5707,42 @@ where
             let _ = stroke;
         }
 
+        // Seat focus ring (9b-ii-a-i-d-iii, the overlay half). `:focus` and
+        // its restyle are the primary's alone (one pseudo-class, one a11y
+        // focus), so a NON-primary seat's focused node gets a 2px ring in
+        // that seat's colour around its border box - the seat-coloured
+        // convention the seat carets already use. Four strips, not a Border
+        // item, so every backend paints it the same and no style resolution
+        // is involved. The primary is never in `seat_focus_rings`.
+        if let Some(dom_node) = node.dom_node_id {
+            if !self.ctx.seat_focus_rings.is_empty() {
+                let dom_id = self.ctx.styled_dom.dom_id;
+                let colors: Vec<azul_css::props::basic::color::ColorU> = self
+                    .ctx
+                    .seat_focus_rings
+                    .iter()
+                    .filter(|(n, _)| n.dom == dom_id && n.node.into_crate_internal() == Some(dom_node))
+                    .map(|(_, c)| *c)
+                    .collect();
+                for (i, color) in colors.into_iter().enumerate() {
+                    // Several seats on one node: concentric rings, 3px apart.
+                    let inset = 1.0 + 3.0 * i as f32;
+                    let t = 2.0;
+                    let x = paint_rect.origin.x - inset;
+                    let y = paint_rect.origin.y - inset;
+                    let w = paint_rect.size.width + 2.0 * inset;
+                    let h = paint_rect.size.height + 2.0 * inset;
+                    use azul_core::geom::{LogicalPosition, LogicalSize};
+                    let strip = |sx: f32, sy: f32, sw: f32, sh: f32| {
+                        LogicalRect::new(LogicalPosition::new(sx, sy), LogicalSize::new(sw, sh))
+                    };
+                    builder.push_rect(strip(x, y, w, t), color, BorderRadius::default());
+                    builder.push_rect(strip(x, y + h - t, w, t), color, BorderRadius::default());
+                    builder.push_rect(strip(x, y + t, t, h - 2.0 * t), color, BorderRadius::default());
+                    builder.push_rect(strip(x + w - t, y + t, t, h - 2.0 * t), color, BorderRadius::default());
+                }
+            }
+        }
         Ok(())
     }
 

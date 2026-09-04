@@ -1,0 +1,49 @@
+{
+  "name": "seat_focus_ring",
+  "description": "SEAT FOCUS RING (9b-ii-a-i-d-iii, overlay half): a second pointer seat's focused node paints a 2px ring in that seat's palette colour (seat 7 = green #2e9e44) around its border box, while the primary's focus keeps its :focus CSS. Before this a seat could move its focus and see nothing.",
+  "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"a\" contenteditable=\"true\">alpha</div>",
+        "<div id=\"b\" contenteditable=\"true\">bravo</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#a, #b { display: block; width: 200px; height: 40px; font-size: 14px; }",
+        "#b { margin-top: 20px; }"
+      ]
+    },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 100 },
+
+    { "op": "click", "x": 20, "y": 20 },
+    { "op": "wait_frame" },
+    { "op": "get_focus_state" },
+    { "op": "assert_response", "contains": "#a" },
+
+    { "op": "get_display_list" },
+    { "op": "assert_response", "not_contains": "#2e9e44ff" },
+
+    { "op": "mouse_move", "x": 20, "y": 80, "seat": 7 },
+    { "op": "mouse_down", "x": 20, "y": 80, "seat": 7 },
+    { "op": "mouse_up", "x": 20, "y": 80, "seat": 7 },
+    { "op": "wait_frame" },
+    { "op": "wait", "ms": 50 },
+    { "op": "get_focus_state", "seat": 7 },
+    { "op": "assert_response", "contains": "#b" },
+
+    { "op": "get_display_list" },
+    { "op": "assert_response", "contains": "#2e9e44ff" },
+
+    { "op": "mouse_move", "x": 350, "y": 250, "seat": 7 },
+    { "op": "mouse_down", "x": 350, "y": 250, "seat": 7 },
+    { "op": "mouse_up", "x": 350, "y": 250, "seat": 7 },
+    { "op": "wait_frame" },
+    { "op": "get_focus_state", "seat": 7 },
+    { "op": "assert_response", "contains": "\"has_focus\":false" },
+    { "op": "get_display_list" },
+    { "op": "assert_response", "not_contains": "#2e9e44ff" }
+  ]
+}

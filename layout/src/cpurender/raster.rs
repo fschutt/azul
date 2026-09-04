@@ -4982,6 +4982,7 @@ pub fn render_component_preview(
         false,
         Vec::new(),
         Default::default(), // owner_colors (U1): no live participants here
+        Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii): headless preview paints no ring
         false, // paint_selection_handles (U2-a): headless preview paints no handles
         None, // preedit_text: not needed for headless preview rendering
         &azul_core::resources::ImageCache::default(),

@@ -2398,10 +2398,8 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [ ] 9b-ii-a-i-d-ii-d Undo attribution: a seat's edits enter the one document undo stack with
       `Uninitialized` cursor positions; Cmd+Z on any seat undoes them in order. Fine for a shared
       document, wrong if per-person undo is wanted - a product question, logged not guessed.
-- [ ] 9b-ii-a-i-d-iii `:focus` styling and the a11y focus are single: a seat's focused node gets
-      no ring / no `:focus` restyle (`apply_focus_restyle` runs for the primary only) and
-      accesskit sees one focus. A per-seat ring needs a pseudo-class per seat or a seat-coloured
-      overlay; a11y has no multi-focus model at all - log, do not invent.
+- [x] 9b-ii-a-i-d-iii DONE 2026-09-04 (overlay half): a NON-primary seat's focused node now paints a 2px ring in that seat's colour around its border box (`LayoutContext::seat_focus_rings`, built by `LayoutWindow::seat_focus_rings` from `FocusManager::seat_focus` with the app-set owner colour or the seat palette the seat carets use; painted in `paint_node_background_and_border_inner` as four `push_rect` strips so every backend paints it identically; several seats on one node ring concentrically). The rings are part of `dl_input_fingerprint`, so a seat's focus move misses the display-list cache like a caret move. This is the ledger's own "seat-coloured overlay" option; `:focus` and its restyle stay the primary's, and a11y keeps one focus (no multi-focus model exists in accesskit) - both by design, not omission. Evidence: corpus scenario e2e/seat-focus-ring.json green (the seat colour appears in the display list only while seat 7 focuses #b, negative steps included), azul-layout check EXIT=0; the full battery and cross-compile are deferred to the end of the wave per the user's 2026-09-04 instruction.
+  - [ ] 9b-ii-a-i-d-iii-a A per-seat `:focus` PSEUDO-CLASS (so an app's own CSS could style seat focus) and a11y focus per seat remain unmodelled: the first needs a pseudo-class family in azul-css + the cascade, the second has no AT-side concept. Product/design questions, logged not guessed.
 - [x] 9b-ii-a-i-d-iv DONE. The headless runner now drives every seat's focus: its interpreter
       info carries `seat_focus_of_events` (a seat's key resolves against its own field here as in
       the shell), its click-to-focus port branches like the DLL's `SetSeatFocus` (a non-primary

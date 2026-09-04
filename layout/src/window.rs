@@ -4614,6 +4614,7 @@ impl LayoutWindow {
             false,
             Vec::new(),
             Default::default(), // owner_colors (U1): geometry pass paints nothing
+            Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii): geometry pass paints no ring
             false,              // paint_selection_handles (U2-a): likewise
             None,
             &self.image_cache,
@@ -5863,6 +5864,7 @@ impl LayoutWindow {
             || self.text_edit_manager.seat_carets_solid();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
         let owner_colors = self.text_edit_manager.owner_colors.clone();
+        let seat_focus_rings = self.seat_focus_rings();
         // The live selection goes through the LAYOUT path too. Only the
         // display-list-only path (`regenerate_display_list_for_dom`) painted
         // `SelectionRect`s; this one handed `layout_document` an empty map,
@@ -5941,6 +5943,7 @@ impl LayoutWindow {
                     // call here is a geometry or headless pass that paints no
                     // caret, which is why they pass an empty map.
                     owner_colors,
+                    seat_focus_rings,
                     self.text_edit_manager.selection_handles,
                     preedit,
                     image_cache,
@@ -13697,6 +13700,7 @@ impl LayoutWindow {
                         false,
                         Vec::new(),
                         Default::default(), // owner_colors (U1)
+                        Vec::new(), // seat_focus_rings (9b-ii-a-i-d-iii): geometry pass paints no ring
                         false,              // paint_selection_handles (U2-a)
                         None,
                         &self.image_cache,
@@ -17347,6 +17351,7 @@ impl LayoutWindow {
             || self.text_edit_manager.seat_carets_solid();
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
         let text_selections_map = self.text_edit_manager.build_text_selections_map();
+        let seat_focus_rings = self.seat_focus_rings();
         // Same fingerprint `layout_document` keys its cache on - computed
         // BEFORE `cursor_locations` moves into the build below.
         let dl_input_fp = crate::solver3::dl_input_fingerprint(
@@ -17355,6 +17360,7 @@ impl LayoutWindow {
             &text_selections_map,
             self.text_edit_manager.preedit_text.as_deref(),
             self.text_edit_manager.selection_handles,
+            &seat_focus_rings,
         );
 
         // Build a temporary LayoutContext with all the state we need
@@ -17377,6 +17383,7 @@ impl LayoutWindow {
             cursor_is_visible,
             cursor_locations,
             owner_colors: self.text_edit_manager.owner_colors.clone(),
+            seat_focus_rings,
             paint_selection_handles: self.text_edit_manager.selection_handles,
             preedit_text: self.text_edit_manager.preedit_text.clone(),
             cache_map,
@@ -17971,6 +17978,27 @@ impl LayoutWindow {
     }
 
     /// Get the layout bounds (position and size) of a specific node
+    /// The seat focus rings to paint (9b-ii-a-i-d-iii, overlay half): every
+    /// NON-primary seat's focused node with that seat's colour - the
+    /// app-set owner colour when there is one, else the seat palette the
+    /// seat carets use. The primary's focus keeps its `:focus` CSS.
+    #[must_use]
+    pub fn seat_focus_rings(
+        &self,
+    ) -> Vec<(DomNodeId, azul_css::props::basic::color::ColorU)> {
+        self.focus_manager
+            .seat_focus
+            .iter()
+            .map(|(seat, node)| {
+                let color = self
+                    .text_edit_manager
+                    .owner_color(azul_core::selection::SelectionOwner::seat(*seat))
+                    .unwrap_or_else(|| crate::managers::text_edit::seat_owner_color(*seat));
+                (*node, color)
+            })
+            .collect()
+    }
+
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn get_node_bounds(
         &self,
