@@ -2562,22 +2562,39 @@ mod autotest_generated {
         assert_eq!(dom.children.as_ref().len(), 1, "the <body> subtree");
     }
 
+    /// Runs on a thread with an 8 MiB stack ON PURPOSE - see the twin
+    /// `xml_node_to_dom_fast_deep_nesting_ok` in azul-core. libtest hands each
+    /// test the platform default (2 MiB on Linux), which is smaller than any
+    /// context this code really runs in; a debug-profile frame of the builder
+    /// is big enough that the 512 the cap allows clear 2 MiB, so the
+    /// dev-profile CI job aborted here with "has overflowed its stack" while
+    /// the product itself was fine on its 8 MiB main thread.
     #[test]
     fn dom_from_parsed_xml_caps_recursion_on_deeply_nested_input() {
-        // MAX_XML_NESTING_DEPTH is 512; past it the builder drops children
-        // instead of blowing the native stack.
-        const DEPTH: usize = 550;
-        let mut node = XmlNode::create("div");
-        for _ in 0..DEPTH {
-            node = XmlNode::create("div").with_children(vec![XmlNodeChild::Element(node)]);
-        }
-        let body = XmlNode::create("body").with_children(vec![XmlNodeChild::Element(node)]);
-        let html = XmlNode::create("html").with_children(vec![XmlNodeChild::Element(body)]);
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                // MAX_XML_NESTING_DEPTH is 512; past it the builder drops children
+                // instead of blowing the native stack.
+                const DEPTH: usize = 550;
+                let mut node = XmlNode::create("div");
+                for _ in 0..DEPTH {
+                    node =
+                        XmlNode::create("div").with_children(vec![XmlNodeChild::Element(node)]);
+                }
+                let body =
+                    XmlNode::create("body").with_children(vec![XmlNodeChild::Element(node)]);
+                let html =
+                    XmlNode::create("html").with_children(vec![XmlNodeChild::Element(body)]);
 
-        let dom = dom_from_parsed_xml(Xml {
-            root: vec![XmlNodeChild::Element(html)].into(),
-        });
-        assert!(matches!(dom.root.get_node_type(), NodeType::Html));
+                let dom = dom_from_parsed_xml(Xml {
+                    root: vec![XmlNodeChild::Element(html)].into(),
+                });
+                assert!(matches!(dom.root.get_node_type(), NodeType::Html));
+            })
+            .expect("spawn deep-nesting probe")
+            .join()
+            .expect("deep DOM build must not overflow the stack");
     }
 
     // ------------------------------------------------------------------

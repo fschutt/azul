@@ -247,19 +247,38 @@ mod tests {
     /// AUDIT 2026-07-08: the fast + tree DOM builders recurse per nesting level;
     /// deep markup must not overflow the stack (children beyond the cap are
     /// dropped, but the call returns `Ok`).
+    ///
+    /// Runs on a thread with an 8 MiB stack ON PURPOSE. libtest gives each test
+    /// the platform default (2 MiB on Linux), which is SMALLER than any context
+    /// this code actually runs in - a real app's main thread gets 8 MiB. The cap
+    /// is 512, and a debug-profile frame of `xml_node_to_dom_fast` is large
+    /// enough that 512 of them clear 2 MiB, so on the dev-profile CI job this
+    /// test used to abort with "has overflowed its stack" while the product was
+    /// fine. Sizing the thread like the real caller tests the cap instead of
+    /// testing libtest's default. (The sibling
+    /// `scan_external_resources_deep_nesting_ok` recurses the same depth with a
+    /// much smaller frame and needs no such help.)
     #[test]
     fn xml_node_to_dom_fast_deep_nesting_ok() {
-        let deep = nested_divs(2000);
-        let component_map = ComponentMap::default();
-        let dom = xml_node_to_dom_fast(&deep, &component_map, false, 0);
-        assert!(dom.is_ok(), "deep DOM build must not overflow the stack");
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let deep = nested_divs(2000);
+                let component_map = ComponentMap::default();
+                let dom = xml_node_to_dom_fast(&deep, &component_map, false, 0);
+                assert!(dom.is_ok(), "deep DOM build must not overflow the stack");
 
-        let mut builder = CompactDomBuilder::new();
-        let fast = xml_node_to_fast_dom(&deep, &component_map, false, &mut builder, 0);
-        assert!(
-            fast.is_ok(),
-            "deep FastDom build must not overflow the stack"
-        );
+                let mut builder = CompactDomBuilder::new();
+                let fast =
+                    xml_node_to_fast_dom(&deep, &component_map, false, &mut builder, 0);
+                assert!(
+                    fast.is_ok(),
+                    "deep FastDom build must not overflow the stack"
+                );
+            })
+            .expect("spawn deep-nesting probe")
+            .join()
+            .expect("deep DOM build must not overflow the stack");
     }
 
     /// AUDIT 2026-07-08: `ComponentFieldType::parse` recurses through `Option<..>`
