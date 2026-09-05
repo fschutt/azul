@@ -38,7 +38,7 @@ use anyhow::Result;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, TypeCategory};
+use super::super::ir::{CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionKind, TypeCategory};
 use super::{ffi_type_name, sanitize_identifier};
 
 /// Generate the contents of `types.go`.
@@ -56,7 +56,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         if e.is_union {
             continue;
         }
-        emit_unit_enum(&mut b, e);
+        emit_unit_enum(&mut b, e, ir);
     }
 
     // Tagged-union sealed-interface hierarchies.
@@ -118,7 +118,7 @@ fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
 // Unit-only enum
 // ============================================================================
 
-fn emit_unit_enum(b: &mut CodeBuilder, e: &EnumDef) {
+fn emit_unit_enum(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     let go_name = ffi_type_name(&e.name);
     let underlying = enum_underlying_type(e);
 
@@ -143,6 +143,85 @@ fn emit_unit_enum(b: &mut CodeBuilder, e: &EnumDef) {
     b.dedent();
     b.line(")");
     b.blank();
+
+    emit_enum_trait_methods(b, &go_name, &e.name, ir);
+}
+
+/// The auto-generated trait exports, as methods on a unit-only enum.
+///
+/// A unit enum is a real named Go type (`type AzAccessibilityRole uint32`), so
+/// it can carry methods - and until this existed nothing named its
+/// `_partialEq` / `_cmp` / `_hash` / `_toDbgString`, which libazul has been
+/// exporting all along. The value is converted back to the C enum and its
+/// address taken, because every trait entry point takes a pointer.
+///
+/// Tagged unions get nothing here on purpose: Go models them as a sealed
+/// INTERFACE whose variant structs hold no C value, so there is no `C.Az*` to
+/// take the address of. Wiring that needs the variant types to carry the union,
+/// which is a redesign, not a missing call - so it is left and recorded rather
+/// than guessed at.
+fn emit_enum_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str, ir: &CodegenIR) {
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for f in ir.functions_for_class(class_name) {
+        let name = match f.kind {
+            FunctionKind::PartialEq => "Equal",
+            FunctionKind::PartialCmp => "PartialOrder",
+            FunctionKind::Cmp => "Order",
+            FunctionKind::Hash => "Hash",
+            FunctionKind::DebugToString => "String",
+            _ => continue,
+        };
+        if !seen.insert(name) {
+            continue;
+        }
+        b.blank();
+        match f.kind {
+            FunctionKind::PartialEq => {
+                b.line("// Equal reports structural equality, delegating to the Rust PartialEq.");
+                b.line(&format!("func (self {go_name}) Equal(other {go_name}) bool {{"));
+                b.line(&format!("    a := C.{go_name}(self)"));
+                b.line(&format!("    o := C.{go_name}(other)"));
+                b.line(&format!("    return bool(C.{go_name}_partialEq(&a, &o))"));
+                b.line("}");
+            }
+            FunctionKind::PartialCmp => {
+                b.line("// PartialOrder delegates to the Rust PartialOrd. The C ABI answers");
+                b.line("// 0 = less, 1 = equal, 2 = greater.");
+                b.line(&format!("func (self {go_name}) PartialOrder(other {go_name}) uint8 {{"));
+                b.line(&format!("    a := C.{go_name}(self)"));
+                b.line(&format!("    o := C.{go_name}(other)"));
+                b.line(&format!("    return uint8(C.{go_name}_partialCmp(&a, &o))"));
+                b.line("}");
+            }
+            FunctionKind::Cmp => {
+                b.line("// Order delegates to the Rust Ord. Same encoding as PartialOrder.");
+                b.line(&format!("func (self {go_name}) Order(other {go_name}) uint8 {{"));
+                b.line(&format!("    a := C.{go_name}(self)"));
+                b.line(&format!("    o := C.{go_name}(other)"));
+                b.line(&format!("    return uint8(C.{go_name}_cmp(&a, &o))"));
+                b.line("}");
+            }
+            FunctionKind::Hash => {
+                b.line("// Hash delegates to the Rust Hash, as a 64-bit digest.");
+                b.line(&format!("func (self {go_name}) Hash() uint64 {{"));
+                b.line(&format!("    a := C.{go_name}(self)"));
+                b.line(&format!("    return uint64(C.{go_name}_hash(&a))"));
+                b.line("}");
+            }
+            FunctionKind::DebugToString => {
+                b.line("// String is the Rust `{:#?}` rendering; it implements fmt.Stringer.");
+                b.line("// The returned AzString owns its buffer and GoStr only copies, so it");
+                b.line("// is freed here rather than leaked once per call.");
+                b.line(&format!("func (self {go_name}) String() string {{"));
+                b.line(&format!("    a := C.{go_name}(self)"));
+                b.line(&format!("    s := C.{go_name}_toDbgString(&a)"));
+                b.line("    defer C.AzString_delete(&s)");
+                b.line("    return GoStr(s)");
+                b.line("}");
+            }
+            _ => unreachable!(),
+        }
+    }
 }
 
 fn enum_underlying_type(e: &EnumDef) -> &'static str {
