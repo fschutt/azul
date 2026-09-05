@@ -473,8 +473,9 @@ Ordered by what the next session can actually act on.
 - From the X11 audit, still unfixed: no `_NET_FRAME_EXTENTS` /
   `_GTK_FRAME_EXTENTS` (and xfwm4#603 says the extents must be cleared BEFORE
   a maximize transition, not after); `XI_KeyPress` is selected on
-  `XIAllMasterDevices` while primary-seat keys are dropped, with a comment
-  asserting the opposite; pointer lock uses `XGrabPointer` while XI2 is
+  `XIAllMasterDevices` while primary-seat keys are dropped - VERIFIED LATENT
+  on the device (keys work), so what is left there is the false comment at
+  `mod.rs:1483-1486`, not a broken path; pointer lock uses `XGrabPointer` while XI2 is
   selected, so during a lock the pointer path silently switches to the core
   fallback while `XI_RawMotion` keeps arriving.
 - `_NET_WM_MOVERESIZE` hardening the audit lists: no `_NET_SUPPORTED` probe, no
