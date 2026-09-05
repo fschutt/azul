@@ -18,6 +18,22 @@ One function makes it concrete — `LayoutWindow::layout_dom_recursive_impl`:
 | lifted LLVM IR | 8.0 MB | **206×** |
 | wasm object | 681 KB | **18×** |
 
+### Measured AzWriter minis
+
+Each figure is `azul-mini.wasm` from that run's **own** scratch, brotli -q11 —
+never the `lifted + linked` number the log prints, which is pre-strip and about
+1.9 MB larger. `du` is not usable here either: it reports allocated size and
+overstated one log by 280×.
+
+| run | mini fns | raw | brotli | ratio |
+|---|---|---|---|---|
+| 61 | 4528 | 28,341,706 | 2,948,275 | 9.61× |
+| 64 | 4629 | 28,559,776 | 2,961,422 | 9.64× |
+
++0.77% raw between them, which the swept-in drift alone accounts for (see
+below). The brotli ratio stays flat at ~9.6×, consistent with the measured
+9.9× across 2–20 MB, so raw savings translate.
+
 ## What it is NOT
 
 Two intuitions we both had, and the measurements that killed them:
