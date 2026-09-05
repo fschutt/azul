@@ -113,6 +113,8 @@ pub fn emit_idiomatic_module_interface(
         emit_module_interface_for_class(builder, s, ir, &delete_set);
     }
 
+    emit_enum_modules(builder, ir, config, /* interface */ true);
+
     builder.blank();
     Ok(())
 }
@@ -223,6 +225,8 @@ pub fn emit_idiomatic_module_implementation(
     }
 
     builder.blank();
+    emit_enum_modules(builder, ir, config, /* interface */ false);
+
     Ok(())
 }
 
@@ -1359,5 +1363,128 @@ fn polymorphic_variant_literal(name: &str) -> String {
             out
         }
         None => "Empty".to_string(),
+    }
+}
+
+// ============================================================================
+// Enum modules
+// ============================================================================
+
+/// Emit a per-ENUM module carrying the trait capabilities.
+///
+/// The idiomatic passes above iterate `ir.structs` only, so a tagged union
+/// like `AccessibilityAction` got no module in either file - which is the whole
+/// of ocaml's derive gap. The raw bindings have existed all along
+/// (`ffi_az_accessibility_action_partial_eq` and friends) and the FFI type is
+/// already declared in the interface; only the module naming them was missing.
+///
+/// Both capabilities of a class are emitted together and the SAME predicate
+/// decides interface and implementation, because a module carrying part of a
+/// class's declared list measures worse than no module at all: every derive it
+/// does not carry flips from `absent` to `missing`.
+fn emit_enum_modules(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    interface: bool,
+) {
+    for e in &ir.enums {
+        if !config.should_include_type(&e.name) || !e.generic_params.is_empty() {
+            continue;
+        }
+        if matches!(
+            e.category,
+            TypeCategory::Recursive
+                | TypeCategory::GenericTemplate
+                | TypeCategory::DestructorOrClone
+        ) {
+            continue;
+        }
+        let caps: Vec<&FunctionDef> = ir
+            .functions_for_class(&e.name)
+            .filter(|f| {
+                matches!(
+                    f.kind,
+                    FunctionKind::PartialEq
+                        | FunctionKind::Hash
+                        | FunctionKind::DebugToString
+                        | FunctionKind::Default
+                )
+            })
+            .collect();
+        if caps.is_empty() {
+            continue;
+        }
+
+        let module = ocaml_module_name(&e.name);
+        let ffi = ocaml_ffi_type_name(&e.name);
+        if interface {
+            builder.line(&format!("module {} : sig", module));
+        } else {
+            builder.line(&format!("module {} = struct", module));
+        }
+        builder.indent();
+        builder.line(&format!("type t = {} Ctypes.structure", ffi));
+
+        for f in caps {
+            let raw = ocaml_binding_name(&f.c_name);
+            match f.kind {
+                FunctionKind::Default => {
+                    if interface {
+                        builder.line("val default : unit -> t");
+                    } else {
+                        builder.line(&format!("let default () = {} ()", raw));
+                    }
+                }
+                FunctionKind::PartialEq => {
+                    if interface {
+                        builder.line("val equal : t -> t -> bool");
+                    } else {
+                        builder.line("let equal (a : t) (b : t) : bool =");
+                        builder.indent();
+                        builder.line(&format!("{} (Ctypes.addr a) (Ctypes.addr b)", raw));
+                        builder.dedent();
+                    }
+                }
+                FunctionKind::Hash => {
+                    if interface {
+                        builder.line("val hash : t -> int");
+                    } else {
+                        builder.line("let hash (t : t) : int =");
+                        builder.indent();
+                        builder.line(&format!(
+                            "Unsigned.UInt64.to_int ({} (Ctypes.addr t))",
+                            raw
+                        ));
+                        builder.dedent();
+                    }
+                }
+                FunctionKind::DebugToString => {
+                    if interface {
+                        builder.line("val to_string : t -> string");
+                    } else {
+                        let del = ocaml_binding_name("AzString_delete");
+                        builder.line("let to_string (t : t) : string =");
+                        builder.indent();
+                        builder.line(&format!("let __s = {} (Ctypes.addr t) in", raw));
+                        builder.line("let vec = Ctypes.getf __s az_string_field_vec in");
+                        builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
+                        builder.line(
+                            "let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in",
+                        );
+                        builder.line("let __out = if Ctypes.is_null vec_ptr || vec_len = 0 then \"\" else Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) ~length:vec_len in");
+                        // The AzString is returned by value and owns its heap
+                        // buffer; nothing else frees it.
+                        builder.line(&format!("{} (Ctypes.addr __s);", del));
+                        builder.line("__out");
+                        builder.dedent();
+                    }
+                }
+                _ => {}
+            }
+        }
+        builder.dedent();
+        builder.line("end");
+        builder.blank();
     }
 }

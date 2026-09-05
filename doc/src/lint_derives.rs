@@ -184,6 +184,31 @@ const PYO3_PROFILE: &[(&str, Expect)] = &[
 
 const PY_BLOCK: &[&str] = &["#[pymethods]\nimpl {T} {"];
 
+/// OCaml (`azul.mli`).
+///
+/// The interface spells nothing the way the C ABI does: the FFI type is
+/// `az_accessibility_action`, the module is `AccessibilityAction`, and the C
+/// symbol appears only inside `azul.ml` as a `foreign "..."` string. Matching
+/// this binding against `Az{T}_partialEq` therefore measured NOTHING - it
+/// reported 0 honoured and 1703 absent, i.e. it could not see a single one of
+/// the 1718 modules the interface actually publishes. This profile asks the
+/// question in OCaml's own vocabulary instead.
+///
+/// `Ord`/`PartialOrd` both map to `val compare`, because OCaml has one
+/// comparison function and no separate partial order.
+const OCAML_BLOCK: &[&str] = &["module {T} : sig"];
+const OCAML_PROFILE: &[(&str, Expect)] = &[
+    ("Debug", Expect::Block { start: OCAML_BLOCK, markers: &["val to_string"] }),
+    ("Clone", Expect::Block { start: OCAML_BLOCK, markers: &["val clone"] }),
+    ("Copy", COPY_NA),
+    ("PartialEq", Expect::Block { start: OCAML_BLOCK, markers: &["val equal"] }),
+    ("Eq", EQ_NA),
+    ("PartialOrd", Expect::Block { start: OCAML_BLOCK, markers: &["val compare"] }),
+    ("Ord", Expect::Block { start: OCAML_BLOCK, markers: &["val compare"] }),
+    ("Hash", Expect::Block { start: OCAML_BLOCK, markers: &["val hash"] }),
+    ("Default", Expect::Block { start: OCAML_BLOCK, markers: &["val default"] }),
+];
+
 /// C++ (`azul03.hpp` … `azul23.hpp`, `azul.cppm`).
 ///
 /// The headers open with `extern "C" { #include "azul.h" }`, which under this
@@ -320,7 +345,7 @@ pub const BINDINGS: &[Binding] = &[
     Binding { name: "php", files: &["Azul.php"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "FFI::cdef over the whole header" },
     Binding { name: "php-ext", files: &["php_api.rs"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "Zend native extension (curated 5-class surface)" },
     Binding { name: "perl", files: &["Azul.pm"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "FFI::Platypus attach" },
-    Binding { name: "ocaml", files: &["azul.mli"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "the .mli SEALS the module - only what it lists is reachable" },
+    Binding { name: "ocaml", files: &["azul.mli"], prefix: "", block_end: "\nend\n", expects: OCAML_PROFILE, note: "the .mli SEALS the module - only what it lists is reachable" },
     Binding { name: "haskell", files: &["haskell"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "foreign import ccall + idiomatic instances" },
     Binding { name: "java", files: &["java"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "JNA/Panama" },
     Binding { name: "kotlin", files: &["kotlin"], prefix: "Az", block_end: "", expects: ABI_PROFILE, note: "JNA" },
@@ -773,24 +798,25 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `ResultXmlXmlError`, three classes whose entry points these emitters
 ///     drop for a reason not yet established. Consistent across every binding
 ///     that has a residue at all, so it is one cause, not fourteen.
-///   * `ocaml` (272) - the capability IS generated: `azul.ml` defines `equal`,
-///     `hash` and `to_string` per module, and the raw `foreign` bindings name
-///     all 7893 trait symbols. The `.mli` declares none of them, and in OCaml
-///     the interface SEALS the module, so a consumer can reach nothing.
-///     ATTEMPTED AND REVERTED 2026-09-05, twice, both times making it WORSE.
-///     Recorded so the next attempt does not repeat it:
-///       1. Widening `class_has_visible_methods` to admit trait-only classes
-///          emits a module exposing only `equal`/`hash`/`to_string`, so every
-///          OTHER derive that class declares (Clone, Ord, PartialOrd, Default)
-///          flips from `absent` to `missing`: 272 -> 1321. A module is only an
-///          improvement once it carries the WHOLE declared list.
-///       2. Even the signature-only change measured worse (272 -> 1171),
-///          because this check is TEXT-based: the emitted comment
-///          `(* Equality routed through AzFoo_partialEq. *)` NAMES the class,
-///          so `class_is_named` counts previously-absent classes as present
-///          and starts charging them for derives they still lack. Any fix here
-///          must either carry the full list or avoid naming the class in prose
-///          - and that fragility is worth knowing about the checker itself.
+///   * `ocaml` (4010) - THIS NUMBER WENT UP, and nothing regressed. It was
+///     272 because the check could not see this binding at all: it matched
+///     `Az{T}_partialEq` against `azul.mli`, which spells the FFI type
+///     `az_accessibility_action`, the module `AccessibilityAction`, and never
+///     mentions a C symbol (those live in `azul.ml` as `foreign "..."`
+///     strings). It reported 0 honoured and 1703 absent - blind to all 1718
+///     modules the interface publishes. `OCAML_PROFILE` now asks in OCaml's
+///     own vocabulary (`val equal`, `val hash`, `val to_string`, `val clone`,
+///     `val default`, `val compare` inside `module {T} : sig`), and the real
+///     figure is 1770 honoured / 4010 missing.
+///     Most of the 4010 is `compare`: the interface publishes 704 `equal`,
+///     754 `to_string`, 560 `clone`, 496 `default`, 399 `hash` - and TWO
+///     `compare`, so nearly every declared Ord/PartialOrd is genuinely
+///     unreachable. Enums now get a module too (they had none, which was the
+///     original diagnosis and was real), carrying equal/hash/to_string/default.
+///     LESSON, worth more than the fix: a binding reporting a suspiciously
+///     SMALL gap deserves the same scrutiny as a large one. 0 honoured is not
+///     a good sign, it is the signature of a profile that does not match its
+///     artifact.
 ///   * `haskell` (10) - the recursive-type carve-out moved it 11 -> 10, so its
 ///     `_partialEq` / `_cmp` / `_hash` now reach the artifact. The remaining
 ///     Debug / Clone / Default do NOT, for a different reason: Haskell routes
@@ -845,7 +871,7 @@ pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
     ("zig", 19),
     ("php-ext", 134),
-    ("ocaml", 272),
+    ("ocaml", 4010),
     ("haskell", 10),
     ("go", 19),
 ];
