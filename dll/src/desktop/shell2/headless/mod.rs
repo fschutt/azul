@@ -876,6 +876,20 @@ impl CpuBackend {
                 layout_window.layout_cache.last_patch_damage,
                 resize_damage,
             );
+            // WHY a frame with an EMPTY item diff still repaints: the idle-skip
+            // arm is guarded by six more conditions, and any one of them turns
+            // "nothing changed" into work.
+            eprintln!(
+                "[HLDMG-GATE] needs_resize={} resize_damage={} has_scroll={} vview={} gpu_rects={} gpu_full={} zombie={} patch_moved={}",
+                needs_resize,
+                resize_damage.len(),
+                has_scroll,
+                has_vview_damage,
+                gpu_damage.rects.len(),
+                gpu_damage.needs_full,
+                zombie_damage.len(),
+                patch_moved_union.is_some(),
+            );
         }
         match dl_damage {
             Some(rects)
@@ -943,6 +957,14 @@ impl CpuBackend {
                 all_damage = resize_damage;
                 is_incremental = false;
             }
+        }
+
+        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+            eprintln!(
+                "[HLDMG-PATH] incremental={} all_damage={}",
+                is_incremental,
+                all_damage.len(),
+            );
         }
 
         // A VirtualView child DOM changed (async content) — damage its on-screen
@@ -2938,6 +2960,9 @@ impl HeadlessWindow {
 // === PlatformWindow Trait Implementation ===
 
 impl PlatformWindow for HeadlessWindow {
+    /// Headless has no window manager to hand a drag to.
+    fn handle_begin_interactive_move(&mut self) {}
+
     fn regenerate_layout_once(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {

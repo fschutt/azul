@@ -19,6 +19,26 @@ use super::transmute_helpers::{generate_transmuted_fn_body, parse_arg_type};
 
 pub struct RustGenerator;
 
+/// The prefix every C-ABI symbol carries, unconditionally.
+///
+/// `IrBuilder` spells every export as `format!("Az{type}_{method}")` — see
+/// `build_trait_functions` — and `FunctionDef::c_name` is what the `extern "C"`
+/// block declares. That is INDEPENDENT of `config.type_prefix`, which names the
+/// Rust *type* in a given binding and is `""` for the unprefixed public API.
+///
+/// The two used to be conflated: every C-API trait impl built its call as
+/// `format!("{}_clone", config.apply_prefix(class))`, which is correct only
+/// while the two happen to coincide. They coincide in `dll_api_internal.rs`,
+/// `dll_api_external.rs` and `memtest.rs` (all `type_prefix = "Az"`), so the
+/// bug was invisible until `azul.rs` (`type_prefix = ""`) started emitting
+/// C-API impls and every call named a symbol that does not exist.
+const ABI_PREFIX: &str = "Az";
+
+/// The C symbol for one entry point on one class, e.g. `AzDom_clone`.
+fn abi_symbol(class_name: &str, suffix: &str) -> String {
+    format!("{ABI_PREFIX}{class_name}_{suffix}")
+}
+
 impl LanguageGenerator for RustGenerator {
     fn generate(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         let mut builder = CodeBuilder::new(&config.indent);
@@ -333,6 +353,46 @@ impl LanguageGenerator for RustGenerator {
                     }
                     self.generate_generic_inline_impls_enum(&mut builder, enum_def, config);
                 }
+                // Monomorphised generic aliases (`AzPhysicalSizeU32 =
+                // AzPhysicalSize<u32>`). `IrBuilder::build_trait_functions`
+                // gives these their OWN C entry points — libazul exports
+                // `AzPhysicalSizeU32_partialEq`, `_partialCmp`, `_cmp`, `_hash`
+                // and `_toDbgString` — but this emitter walked only `ir.structs`
+                // and `ir.enums`, so those five exports had no Rust caller in
+                // ANY binding, the statically-linked one included.
+                //
+                // Deduplicated on the concrete instantiation: two aliases of the
+                // same `Target<Args>` are one type to rustc, and a second impl
+                // for it is E0119. Four such pairs exist today
+                // (`CssPropertyValue<GridTemplate>` and friends), and they
+                // declare only `Copy`, for which this emits nothing — the guard
+                // is here so that stops being load-bearing.
+                let mut seen_instantiations: std::collections::BTreeSet<(
+                    String,
+                    Vec<String>,
+                )> = std::collections::BTreeSet::new();
+                for alias in &ir.type_aliases {
+                    if alias.monomorphized_def.is_none() {
+                        continue;
+                    }
+                    if !config.should_include_type(&alias.name) {
+                        continue;
+                    }
+                    if !seen_instantiations
+                        .insert((alias.target.clone(), alias.generic_args.clone()))
+                    {
+                        continue;
+                    }
+                    self.generate_capi_derived_trait_impls(
+                        &mut builder,
+                        &alias.name,
+                        &alias.traits,
+                        ir,
+                        config,
+                        // An alias never goes through the Option template.
+                        false,
+                    );
+                }
             }
             TraitImplMode::None => {}
         }
@@ -607,8 +667,8 @@ impl RustGenerator {
         builder.line("fn from(s: &str) -> Self {");
         builder.indent();
         builder.line(&format!(
-            "unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}",
-            prefix
+            "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
+            abi_symbol("String", "copyFromBytes")
         ));
         builder.dedent();
         builder.line("}");
@@ -625,8 +685,8 @@ impl RustGenerator {
         builder.line("fn from(s: alloc::string::String) -> Self {");
         builder.indent();
         builder.line(&format!(
-            "unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}",
-            prefix
+            "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
+            abi_symbol("String", "copyFromBytes")
         ));
         builder.dedent();
         builder.line("}");
@@ -2381,6 +2441,19 @@ impl RustGenerator {
             builder.raw(&types);
         }
 
+        // C-ABI declarations.
+        //
+        // This section did not exist while the config said `CAbiFunctionMode::
+        // None`, and its absence was not cosmetic: the method impls below have
+        // ALWAYS been emitted as `unsafe { AzDom_new(..) }`, so every one of
+        // them named a function that was never declared in this file. The
+        // artifact could not compile, and nothing noticed because no target
+        // includes it.
+        builder.line("// --- C-ABI Declarations ---");
+        let functions = self.generate_functions(ir, config)?;
+        builder.raw(&functions);
+        builder.blank();
+
         // Trait implementations (if using derive, they're already on types)
         if !matches!(config.trait_impl_mode, TraitImplMode::UsingDerive) {
             builder.line("// --- Trait Implementations ---");
@@ -3078,6 +3151,50 @@ impl RustGenerator {
         builder.line("}");
         builder.blank();
 
+        // Default impl.
+        //
+        // The struct arm of this same emitter has always had one; the enum arm
+        // did not, so an ENUM declaring `Default` got no `impl Default` in the
+        // transmute mirror -- the mirror the Python extension embeds. 164 of
+        // them. The two arms now agree.
+        //
+        // An Option mirror can already have an `impl Default` returning `None`
+        // from `generate_option_convenience_methods`, and a second one is E0119
+        // (this is exactly what `AzOptionWtEvent` broke once before). But that
+        // emitter lives inside `generate_rust_only_impls`, which the caller
+        // SKIPS when there are no C-ABI functions -- `dll_types_only`, the
+        // config the Python extension embeds. So the suppression has to test
+        // both halves: the structural Option shape (the same Some+None,
+        // one-field test that emitter uses), AND whether that emitter runs at
+        // all here. Testing only the shape leaves the Python mirror with no
+        // `Default` for any Option; testing neither is E0119 everywhere else.
+        let option_default_emitted_elsewhere = {
+            let emits_rust_only = !matches!(config.cabi_functions, CAbiFunctionMode::None);
+            let some = enum_def.variants.iter().find(|v| v.name == "Some");
+            let has_none = enum_def.variants.iter().any(|v| v.name == "None");
+            let is_option_mirror = has_none
+                && matches!(
+                    some.map(|v| &v.kind),
+                    Some(EnumVariantKind::Tuple(types)) if types.len() == 1
+                );
+            emits_rust_only && is_option_mirror
+        };
+        if enum_def.traits.is_default && !is_generic && !option_default_emitted_elsewhere {
+            builder.line(&format!("impl Default for {} {{", full_name));
+            builder.indent();
+            builder.line("fn default() -> Self {");
+            builder.indent();
+            builder.line(&format!(
+                "unsafe {{ core::mem::transmute::<{}, {}>({}::default()) }}",
+                external_path, full_name, external_path
+            ));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
         // PartialEq impl
         if enum_def.traits.is_partial_eq {
             if is_generic {
@@ -3350,11 +3467,32 @@ impl RustGenerator {
         // enum_def needed for the structural Some/None test.
         suppress_default: bool,
     ) {
-        if !matches!(
-            config.cabi_functions,
-            CAbiFunctionMode::InternalBindings { .. }
-        ) {
-            return;
+        match &config.cabi_functions {
+            // `dll_api_internal.rs`: the real crate is a dependency, so every
+            // trait below delegates to it directly (the rest of this function).
+            CAbiFunctionMode::InternalBindings { .. } => {}
+            // `dll_api_external.rs` (`link-dynamic`): the C functions are
+            // DECLARED here, not defined, and `external_crate_replacement` is
+            // `None` — there is no real type in scope to delegate to, which is
+            // why this emitter used to bail out and leave the dynamic binding
+            // with `Copy`/`Clone` and nothing else. The capability is not
+            // missing from the ABI, only from the binding: `Az*_partialEq`,
+            // `Az*_partialCmp`, `Az*_cmp`, `Az*_hash`, `Az*_toDbgString` and
+            // `Az*_default` are already declared in this same file, keyed on
+            // these same `traits` flags by `build_trait_functions`. So implement
+            // each trait by CALLING its entry point.
+            CAbiFunctionMode::ExternalBindings { .. } => {
+                self.generate_abi_derived_trait_impls(
+                    builder,
+                    class_name,
+                    traits,
+                    config,
+                    suppress_default,
+                );
+                return;
+            }
+            // No C-ABI surface at all (`dll_types_only`): nothing to call.
+            CAbiFunctionMode::None => return,
         }
 
         let name = config.apply_prefix(class_name);
@@ -3477,6 +3615,201 @@ impl RustGenerator {
         }
     }
 
+    /// The `ExternalBindings` twin of [`Self::generate_capi_derived_trait_impls`]:
+    /// same declared derive list, but implemented by CALLING the C entry points
+    /// instead of delegating to a real type that is not in scope here.
+    ///
+    /// Every extern this emits a call to is declared in the very same file, by
+    /// `IrBuilder::build_trait_functions`, under EXACTLY the flag tested here —
+    /// `is_partial_eq` emits `Az{T}_partialEq`, `is_partial_ord` emits
+    /// `Az{T}_partialCmp`, `is_ord` emits `Az{T}_cmp`, `is_hash` emits
+    /// `Az{T}_hash`, `is_debug` emits `Az{T}_toDbgString`, `is_default` emits
+    /// `Az{T}_default` — and both sides skip generic types. So a call emitted
+    /// here can never name a symbol that was not declared.
+    ///
+    /// Where the internal emitter WIDENS across Rust's supertrait bounds by
+    /// delegating (`Ord: Eq + PartialOrd`, `PartialOrd: PartialEq`), this one
+    /// cannot invent an entry point that api.json never declared, so it widens
+    /// only where a *different* already-declared entry point can stand in
+    /// (`PartialEq` from `_partialCmp`, `PartialOrd` from `_cmp`). Today the two
+    /// emitters agree impl-for-impl, because no class in api.json declares a
+    /// stronger trait without its weaker ones; `azul-doc check derives` is what
+    /// keeps a future class that does from silently getting less here.
+    ///
+    /// ORDERING ENCODING. `_cmp` / `_partialCmp` return the `u8` that
+    /// `generate_function_body` writes on the other side of the ABI:
+    /// `0 = Less`, `1 = Equal`, `2 = Greater`, and for `_partialCmp` only,
+    /// `255 = None`. Decoding must stay in lockstep with that emitter.
+    fn generate_abi_derived_trait_impls(
+        &self,
+        builder: &mut CodeBuilder,
+        class_name: &str,
+        traits: &TypeTraits,
+        config: &CodegenConfig,
+        suppress_default: bool,
+    ) {
+        // The Rust TYPE as this binding spells it (`AzDom`, or `Dom` in the
+        // unprefixed public API) ...
+        let name = config.apply_prefix(class_name);
+        // ... and the C SYMBOL, which is always `Az`-prefixed. These are not the
+        // same string in every binding; see [`ABI_PREFIX`].
+        let sym = |suffix: &str| abi_symbol(class_name, suffix);
+
+        // `Debug` is NOT a stub that prints the type name. `Az{T}_toDbgString`
+        // is a real entry point whose body on the other side is
+        // `format!("{:#?}", real)`, so the caller gets the actual field values.
+        // Two honest limitations, both inherited from the ABI rather than
+        // introduced here: the returned string is always the `{:#?}`
+        // (alternate/pretty) rendering, so `{:?}` on a dynamically-linked mirror
+        // is multi-line where the statically-linked one is not; and formatter
+        // flags (width, precision) cannot be forwarded through a single
+        // pre-rendered string.
+        if traits.is_debug {
+            builder.line(&format!("impl core::fmt::Debug for {name} {{"));
+            builder.indent();
+            builder.line("fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {");
+            builder.indent();
+            // The returned `AzString` owns library memory; it is dropped at the
+            // end of this scope, and `AzString`'s `AzU8Vec` field runs
+            // `AzU8Vec_delete` in its own `Drop`, so nothing leaks.
+            builder.line(&format!("let s = unsafe {{ {}(self) }};", sym("toDbgString")));
+            builder.line("f.write_str(s.as_str())");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        // Which comparison entry points this class actually has.
+        let has_partial_eq_fn = traits.is_partial_eq;
+        let has_partial_cmp_fn = traits.is_partial_ord;
+        let has_cmp_fn = traits.is_ord;
+
+        // `PartialEq` — directly, or from `_partialCmp` when only the ordering
+        // was declared (`partial_cmp(a, b) == Some(Equal)` is exactly the
+        // consistency `PartialOrd` already promises).
+        let mut emitted_partial_eq = false;
+        if has_partial_eq_fn || has_partial_cmp_fn {
+            builder.line(&format!("impl PartialEq for {name} {{"));
+            builder.indent();
+            builder.line(&format!("fn eq(&self, other: &{name}) -> bool {{"));
+            builder.indent();
+            if has_partial_eq_fn {
+                builder.line(&format!("unsafe {{ {}(self, other) }}", sym("partialEq")));
+            } else {
+                builder.line(&format!("unsafe {{ {}(self, other) }} == 1", sym("partialCmp")));
+            }
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            emitted_partial_eq = true;
+        }
+
+        // `Eq` is a marker with no entry point of its own; it only needs the
+        // `PartialEq` impl above to exist.
+        let emitted_eq = (traits.is_eq || traits.is_ord) && emitted_partial_eq;
+        if emitted_eq {
+            builder.line(&format!("impl Eq for {name} {{}}"));
+            builder.blank();
+        }
+
+        // `PartialOrd` — directly, or from the total `_cmp` when only `Ord` was
+        // declared.
+        let mut emitted_partial_ord = false;
+        if (has_partial_cmp_fn || has_cmp_fn) && emitted_partial_eq {
+            builder.line(&format!("impl PartialOrd for {name} {{"));
+            builder.indent();
+            builder.line(&format!(
+                "fn partial_cmp(&self, other: &{name}) -> Option<core::cmp::Ordering> {{"
+            ));
+            builder.indent();
+            if has_partial_cmp_fn {
+                builder.line(&format!(
+                    "match unsafe {{ {}(self, other) }} {{",
+                    sym("partialCmp")
+                ));
+                builder.indent();
+                builder.line("0 => Some(core::cmp::Ordering::Less),");
+                builder.line("1 => Some(core::cmp::Ordering::Equal),");
+                builder.line("2 => Some(core::cmp::Ordering::Greater),");
+                builder.line("_ => None,");
+                builder.dedent();
+                builder.line("}");
+            } else {
+                builder.line("Some(core::cmp::Ord::cmp(self, other))");
+            }
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+            emitted_partial_ord = true;
+        }
+
+        if has_cmp_fn && emitted_eq && emitted_partial_ord {
+            builder.line(&format!("impl Ord for {name} {{"));
+            builder.indent();
+            builder.line(&format!(
+                "fn cmp(&self, other: &{name}) -> core::cmp::Ordering {{"
+            ));
+            builder.indent();
+            builder.line(&format!("match unsafe {{ {}(self, other) }} {{", sym("cmp")));
+            builder.indent();
+            builder.line("0 => core::cmp::Ordering::Less,");
+            builder.line("2 => core::cmp::Ordering::Greater,");
+            // `_cmp` is total: the other side emits only 0/1/2.
+            builder.line("_ => core::cmp::Ordering::Equal,");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        // `Hash` feeds the ABI's `u64` into the caller's hasher rather than
+        // replaying the real type's byte stream — impossible across a `u64`
+        // return, and not required: `Hash`'s contract is only that equal values
+        // hash equally, which holds because both sides ask the same real type.
+        // A hash value therefore differs between `link-static` and
+        // `link-dynamic`; it was never stable across builds anyway
+        // (`DefaultHasher` is unspecified), so nothing may persist it.
+        if traits.is_hash {
+            builder.line(&format!("impl core::hash::Hash for {name} {{"));
+            builder.indent();
+            builder.line("fn hash<H: core::hash::Hasher>(&self, state: &mut H) {");
+            builder.indent();
+            builder.line(&format!(
+                "core::hash::Hasher::write_u64(state, unsafe {{ {}(self) }})",
+                sym("hash")
+            ));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
+        // Option mirrors already got `impl Default` from
+        // `generate_option_convenience_methods`; a second one is E0119.
+        if traits.is_default && !suppress_default {
+            builder.line(&format!("impl Default for {name} {{"));
+            builder.indent();
+            builder.line(&format!("fn default() -> {name} {{"));
+            builder.indent();
+            builder.line(&format!("unsafe {{ {}() }}", sym("default")));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+    }
+
     fn generate_capi_trait_impls(
         &self,
         builder: &mut CodeBuilder,
@@ -3503,7 +3836,7 @@ impl RustGenerator {
 
         // Clone impl calling C-ABI function
         if struct_def.traits.is_clone && !struct_def.traits.is_copy {
-            let deep_copy_fn = format!("{}_clone", name);
+            let deep_copy_fn = abi_symbol(&struct_def.name, "clone");
             builder.line(&format!("impl Clone for {} {{", name));
             builder.indent();
             builder.line("fn clone(&self) -> Self {");
@@ -3523,7 +3856,7 @@ impl RustGenerator {
         // AND then field-glue on the same bytes) never happens. The C `_delete`
         // extern fn is still generated for explicit C frees.
         if struct_def.traits.needs_delete() && self.struct_needs_own_drop(struct_def) {
-            let delete_fn = format!("{}_delete", name);
+            let delete_fn = abi_symbol(&struct_def.name, "delete");
             builder.line(&format!("impl Drop for {} {{", name));
             builder.indent();
             builder.line("fn drop(&mut self) {");
@@ -3591,7 +3924,7 @@ impl RustGenerator {
 
         // Clone impl calling C-ABI function
         if enum_def.traits.is_clone && !enum_def.traits.is_copy {
-            let deep_copy_fn = format!("{}_clone", name);
+            let deep_copy_fn = abi_symbol(&enum_def.name, "clone");
             builder.line(&format!("impl Clone for {} {{", name));
             builder.indent();
             builder.line("fn clone(&self) -> Self {");
@@ -3610,7 +3943,7 @@ impl RustGenerator {
         // payload (`_delete` = `drop_in_place` AND then field-glue). The `_delete`
         // extern fn is still generated for explicit C frees.
         if enum_def.traits.needs_delete() && self.enum_needs_own_drop(enum_def) {
-            let delete_fn = format!("{}_delete", name);
+            let delete_fn = abi_symbol(&enum_def.name, "delete");
             builder.line(&format!("impl Drop for {} {{", name));
             builder.indent();
             builder.line("fn drop(&mut self) {");

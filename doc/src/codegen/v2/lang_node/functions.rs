@@ -47,6 +47,22 @@ pub fn generate_function_bindings(b: &mut CodeBuilder, ir: &CodegenIR) {
 // ============================================================================
 
 fn should_emit_function(f: &FunctionDef, ir: &CodegenIR) -> bool {
+    // A trait entry point an api.json `derive` declares is not what the
+    // `DestructorOrClone` exclusion below is for. That category is excluded
+    // because those types' ordinary methods traffic in callback function
+    // pointers this binding cannot marshal; `Az{T}_toDbgString(ptr) ->
+    // AzString` traffics in neither, and is the same shape as the ~2800
+    // `_toDbgString` declarations this binding already emits. Excluding it
+    // wholesale is why every `*VecDestructor` declared `Debug` and named it
+    // nowhere. (`*VecDestructor` is a tagged union, hence `find_enum`.)
+    if f.kind.is_declared_capability()
+        && ir
+            .find_enum(&f.class_name)
+            .is_some_and(|e| e.category == TypeCategory::DestructorOrClone)
+    {
+        return true;
+    }
+
     if let Some(s) = ir.find_struct(&f.class_name) {
         if !s.generic_params.is_empty() {
             return false;

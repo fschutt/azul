@@ -93,7 +93,7 @@ pub enum Capability {
     ///
     /// macOS ONLY, and that is not an omission: Linux gates `/dev/hidraw*`
     /// with file permissions and udev rules, which no runtime API can request;
-    /// Windows RawInput needs no permission at all; and neither mobile
+    /// Windows `RawInput` needs no permission at all; and neither mobile
     /// platform exposes raw HID. Those backends leave it `NotDetermined`,
     /// which is honest - there is nothing to ask.
     InputMonitoring,

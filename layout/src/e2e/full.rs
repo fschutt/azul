@@ -7138,6 +7138,7 @@ const KNOWN_MANAGERS: &[&str] = &[
     "gpu_state",
     "text_input",
     "permission",
+    "media_player",
 ];
 
 const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
@@ -7183,6 +7184,41 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
         "host capability (a native screen colour-sampler) with no headless backend — its \
          issued/last_result/pending_event never populate in a headless run, so there is no \
          latch to assert. The state it CAN hold is fingerprinted as `eyedropper`",
+    ),
+    (
+        "device_events",
+        "HAS state — `LayoutWindow::device_event_manager` owns a hotplug queue and a coalesced \
+         raw-motion accumulator — but none of it is NODE-KEYED: every event it yields is emitted \
+         at `DomNodeId::ROOT`, because a monitor being unplugged belongs to the application and \
+         not to whichever node happened to be under the cursor. X10 sweeps for keys that outlive \
+         their node and there is no key here for it to judge, nor any second manager it has to \
+         agree with. The state it does hold IS fingerprinted as `device_events`, so a leak into \
+         it still reads as a change",
+    ),
+    (
+        "hid",
+        "this module is only the cross-thread channel — two process-global mutexes the platform \
+         backends park in and the dll capability pump drains. The state that survives a pass is \
+         `LayoutWindow::hid_manager` (an `azul_core::hid::HidManager`: a device snapshot plus \
+         this pass's reports), and it is not node-keyed either — a HID report names a \
+         vendor/product/instance, never a DOM node — so X10 has nothing to judge. It IS \
+         fingerprinted as `hid`",
+    ),
+    (
+        "media_keys",
+        "owns no window state at all: three PROCESS-GLOBAL mutex queues (media keys, \
+         `MediaControlRequest`s, `SystemAudioChange`s) that a D-Bus / SMTC / remote-command \
+         thread parks in and the event pass drains destructively. There is no LayoutWindow \
+         field, nothing node-keyed, and nothing per-window — the queues belong to the process, \
+         so no assertion made against ONE window could say anything true about them",
+    ),
+    (
+        "window_activation",
+        "owns no window state: one PROCESS-GLOBAL mutex queue of `registry_window_id`s that an \
+         off-loop thread (the MPRIS worker) parks a raise request in, which `take_raise_request` \
+         removes as it reports it. Those ids are native window handles, not DOM nodes and not \
+         LayoutWindow identities, so X10 has no key to judge; and in a headless run there is no \
+         registry id at all — `0` means \"no native handle\" and the module refuses to queue it",
     ),
     (
         "a11y",
@@ -7475,6 +7511,32 @@ fn eval_assert_manager_invariants(
                                  exists",
                                 mc.node_id.dom.inner,
                                 mc.node_id.node.into_crate_internal().map(|n| n.index())
+                            ));
+                        }
+                    }
+                }
+                // A queued media transition names the node it happened to, and
+                // `get_pending_events` takes `&self` — so one staged for a node
+                // that has since been deleted is either dispatched to whatever
+                // now occupies that id or dropped without a callback. Both are
+                // wrong and neither shows up in the DOM: the same argument, and
+                // the same shape, as `text_input`'s pending changesets above.
+                //
+                // RESIDUAL, stated rather than papered over: the per-node
+                // PLAYBACK STATE lives in `MediaPlayerManager::players`, which is
+                // private and has no key accessor, so this arm cannot sweep it. A
+                // player left behind by a deleted node is caught by the
+                // `media_player` FINGERPRINT (which hashes the whole manager),
+                // not by X10.
+                "media_player" => {
+                    for (node, event_type) in &lw.media_player_manager.pending {
+                        checked += 1;
+                        if !dom_node_is_live(lw, *node) {
+                            violations.push(format!(
+                                "X10 media_player: a queued {event_type:?} is staged for ({}, \
+                                 {:?}), which no longer exists",
+                                node.dom.inner,
+                                node.node.into_crate_internal().map(|n| n.index())
                             ));
                         }
                     }
@@ -8183,6 +8245,9 @@ fn fingerprinted_managers() -> Vec<&'static str> {
         "keyring",
         "sensors",
         "eyedropper",
+        "device_events",
+        "hid",
+        "media_player",
     ];
     #[cfg(feature = "a11y")]
     names.push("a11y");
@@ -8235,6 +8300,22 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
         "there is no SelectionManager; the live selection is TextEditManager::multi_cursor, which \
          the `text_edit` fingerprint already covers. A separate entry would double-count one \
          manager and make \"only text_edit moved\" unstateable",
+    ),
+    (
+        "media_keys",
+        "nothing on the WINDOW to hash. The three queues this module owns (media keys, media \
+         control requests, system audio changes) are process-globals, and their only readers — \
+         `drain_media_keys`, `drain_media_controls`, `drain_system_audio_changes` — consume what \
+         they return. Fingerprinting them would have to drain them, so the act of measuring would \
+         swallow the very key press the app was about to receive; and being per-PROCESS, a \
+         change in them could not be attributed to the window this snapshot is of",
+    ),
+    (
+        "window_activation",
+        "nothing on the WINDOW to hash, for both of `media_keys`' reasons: the pending-raise \
+         queue is a process-global, and its only reader `take_raise_request` removes the entry it \
+         reports, so measuring it would swallow a sibling window's raise. `manager_fingerprints` \
+         takes a `&LayoutWindow` and this module has no field on one",
     ),
     ];
     #[cfg(not(feature = "a11y"))]
@@ -8306,6 +8387,15 @@ pub(crate) fn manager_fingerprints(
     out.insert(
         "eyedropper".to_string(),
         fp_eyedropper(&lw.eyedropper_manager),
+    );
+    out.insert(
+        "device_events".to_string(),
+        fp_device_events(&lw.device_event_manager),
+    );
+    out.insert("hid".to_string(), fp_hid(&lw.hid_manager));
+    out.insert(
+        "media_player".to_string(),
+        fp_media_player(&lw.media_player_manager),
     );
     #[cfg(feature = "a11y")]
     out.insert("a11y".to_string(), fp_a11y(&lw.a11y_manager));
@@ -8754,6 +8844,73 @@ fn fp_eyedropper(m: &azul_layout::managers::eyedropper::EyedropperManager) -> Ma
             m.has_pending_async(),
         ),
     )
+}
+
+/// Hotplug and raw pointer motion. Read through the manager's own
+/// `EventProvider` impl rather than field by field: `get_pending_events` takes
+/// `&self`, so it is the one non-destructive way to see the WHOLE queue from
+/// out here (`pending` is private and only `has_pending`, a bool, is exposed).
+/// The tick is a fixed `0` on purpose — the timestamp is an input to the events,
+/// not state of the manager, and rendering a clock into a digest would make it
+/// move on its own.
+#[cfg(feature = "std")]
+fn fp_device_events(
+    m: &azul_layout::managers::device_events::DeviceEventManager,
+) -> ManagerFingerprint {
+    let ts = azul_core::task::Instant::Tick(azul_core::task::SystemTick::new(0));
+    let queued = azul_core::events::EventProvider::get_pending_events(m, ts);
+    let kinds: Vec<String> = queued
+        .iter()
+        .map(|e| format!("{:?}", e.event_type))
+        .collect();
+    ManagerFingerprint::new(
+        queued.len(),
+        format!(
+            "queued=[{}] has_pending={} raw_motion={:?}",
+            kinds.join(","),
+            m.has_pending(),
+            m.peek_raw_motion()
+        ),
+    )
+}
+
+/// Generic HID. `layout::managers::hid` is only the cross-thread channel; the
+/// state that survives a pass is this manager, which the dll capability pump
+/// fills from that channel — so `hid` names the manager on the window, which is
+/// the thing a leak could reach.
+///
+/// The channel's own process-global queue is NOT covered and cannot be: its
+/// only reader (`drain_hid_reports`) consumes what it returns, so a fingerprint
+/// that read it would eat the reports the next pass was about to deliver.
+#[cfg(feature = "std")]
+fn fp_hid(m: &azul_core::hid::HidManager) -> ManagerFingerprint {
+    let devices = m.devices();
+    let reports = m.reports();
+    ManagerFingerprint::new(
+        devices.len() + reports.len(),
+        format!("devices={devices:?} reports={reports:?}"),
+    )
+}
+
+/// Media playback state (11c).
+///
+/// The digest is the manager's whole `Debug` rendering, not a field list, and
+/// that is deliberate: `MediaPlayerManager::players` — the per-node
+/// `{playing, position, duration, volume, muted}` this manager exists to hold —
+/// is PRIVATE and has no key accessor, so a hand-written field list could not
+/// see it at all and would be blind to every leak into the only state that
+/// matters. `BTreeMap`'s `Debug` is key-ordered, so the rendering is
+/// deterministic.
+///
+/// POPULATION is the queue length only, for the same reason: the number of live
+/// players cannot be read from out here. A window holding players with an
+/// already-drained queue therefore reports population 0, so `min_populated`
+/// cannot be used to prove media state exists — the digest still moves.
+#[cfg(feature = "std")]
+fn fp_media_player(
+    m: &azul_layout::managers::media_player::MediaPlayerManager,
+) -> ManagerFingerprint {
+    ManagerFingerprint::new(m.pending.len(), format!("{m:?}"))
 }
 
 /// PRESENCE-GRANULARITY ONLY, and that is a real limit worth stating: `tree` and
@@ -18915,6 +19072,42 @@ mod non_interference_can_fail {
                 let _ = m.fold_result(id, None);
             },
             super::fp_eyedropper
+        );
+        assert_moves!(
+            "device_events",
+            azul_layout::managers::device_events::DeviceEventManager::new(),
+            |m: &mut azul_layout::managers::device_events::DeviceEventManager| {
+                m.note_monitor(true);
+            },
+            super::fp_device_events
+        );
+        assert_moves!(
+            "hid",
+            azul_core::hid::HidManager::new(),
+            |m: &mut azul_core::hid::HidManager| {
+                m.set_devices(alloc::vec![azul_core::hid::HidDevice {
+                    vendor_id: 0x046d,
+                    product_id: 0xc262,
+                    usage_page: 1,
+                    usage: 4,
+                    name: "wheel".to_string().into(),
+                    serial: "SN1".to_string().into(),
+                    instance: 7,
+                }]);
+            },
+            super::fp_hid
+        );
+        assert_moves!(
+            "media_player",
+            azul_layout::managers::media_player::MediaPlayerManager::new(),
+            |m: &mut azul_layout::managers::media_player::MediaPlayerManager| {
+                // `play` both creates the player entry and queues the `Play`
+                // transition, so this proves the digest sees the PRIVATE
+                // `players` map — a fingerprint that only read `pending` would
+                // go blind the moment the event pass drained it.
+                m.play(DomNodeId::ROOT);
+            },
+            super::fp_media_player
         );
         #[cfg(feature = "a11y")]
         assert_moves!(

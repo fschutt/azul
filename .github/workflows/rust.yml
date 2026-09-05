@@ -273,6 +273,46 @@ jobs:
           fi
           ls -la target/release/azul-doc* || true
 
+      - name: Install binding toolchains (best effort)
+        # The derive gate proves a NAME is present in a generated binding; it
+        # cannot prove the binding COMPILES, because it greps text and a broken
+        # method still contains its name. Three non-compiling emissions shipped
+        # before this stage existed, and the V binding turned out never to have
+        # compiled at all while reporting zero unreachable derives.
+        #
+        # Every checker is probed against a known-good sample of its own
+        # language first, so a missing or broken tool SKIPS rather than being
+        # reported as broken generated code. That is why this install is
+        # best-effort: whatever lands gets used, whatever does not is skipped,
+        # and the job never fails because a package name moved.
+        #
+        # node, java and g++ ship on the runner and are exactly the three that
+        # cannot be checked on the maintainer's machine - node has a broken
+        # dylib, javac has no JRE, g++ cannot find <cstdint>. CI is where those
+        # actually get covered.
+        #
+        # `libffi-platypus-perl` is not incidental: Azul.pm loads FFI::Platypus
+        # at compile time, so `perl -c` cannot parse it without the module and
+        # reports a MISSING DEPENDENCY as broken generated code. The probe now
+        # loads the same module, so a runner without it skips perl instead.
+        shell: bash
+        run: |
+          sudo apt-get update -qq || true
+          sudo apt-get install -y -qq \
+            gfortran php-cli luajit ruby perl libffi-platypus-perl \
+            ocaml libctypes-ocaml-dev golang-go || true
+          for t in gcc g++ gfortran perl ruby luajit php node javac go gofmt ocamlfind; do
+            printf '%-10s %s\n' "$t" "$(command -v $t || echo MISSING)"
+          done
+
+      - name: Compile-check the generated bindings
+        # Fails only on a language whose checker WORKS and whose artifact does
+        # not compile. See stage_binding_syntax in scripts/check.sh for the
+        # probe rule and the KNOWN_BROKEN list.
+        shell: bash
+        run: bash scripts/check.sh --only binding-syntax
+
+
       - name: Upload the azul-doc binary
         uses: actions/upload-artifact@v7
         with:
@@ -692,6 +732,16 @@ jobs:
           cargo check -p azul-layout --no-default-features --features "xml"
           cargo check -p azul-layout --no-default-features --features "text_layout,font_loading,svg,xml"
 
+      # printpdf's exact azul-layout surface (its `html` feature): text layout,
+      # hyphenation, font loading, xml, pdf - and NO cpurender/svg. No other
+      # combination in this matrix enables `pdf` or `text_layout_hyphenation`,
+      # which is how the missing cpurender gates on `tray_icon` and
+      # `rasterize_svg_clip_to_r8` only surfaced in printpdf's own build.
+      # Keep in sync with printpdf/Cargo.toml (`text_layout`,
+      # `text_layout_hyphenation`, `html` feature lists).
+      - name: Check azul-layout with printpdf's feature set (no cpurender)
+        run: cargo check -p azul-layout --no-default-features --features "std,text_layout,text_layout_hyphenation,font_loading,xml,pdf"
+
   dll_windows_unit_tests:
     # Runs Windows backend unit tests.
     name: azul-dll unit tests (Windows backend)
@@ -935,6 +985,20 @@ jobs:
           set -- target/${{ matrix.target }}/prod-release/*azul*.a \
                  target/${{ matrix.target }}/prod-release/azul*.lib
           bash scripts/strip_staticlib.sh --optional "$@"
+
+      # The sizes were already printed in half a dozen places and nothing ever
+      # failed on them, so a size regression could only be caught by someone
+      # downloading a release. Budgets live in scripts/artifact_size_budgets.txt;
+      # raising one is a deliberate, reviewable commit.
+      - name: Artifact size gate
+        if: steps.cache-valid.outputs.skip != 'true' && (success() || matrix.experimental)
+        shell: bash
+        run: |
+          shopt -s nullglob
+          bash scripts/check_artifact_size.sh --target ${{ matrix.target }} \
+            target/${{ matrix.target }}/prod-release/*azul*.${{ matrix.artifact_ext }} \
+            target/${{ matrix.target }}/prod-release/*azul*.a \
+            target/${{ matrix.target }}/prod-release/azul*.lib
 
       - name: Upload Artifacts
         if: ${{ success() || matrix.experimental }}
@@ -2247,6 +2311,19 @@ jobs:
           ls -la target/prod-release/ 2>/dev/null | head -30 || echo "Not found"
           echo "=== target/codegen ==="
           ls -la target/codegen/ 2>/dev/null | head -20 || echo "Not found"
+
+      # Same gate as the cross-compile matrix, on the host-built artifacts.
+      # Budgets: scripts/artifact_size_budgets.txt.
+      - name: Artifact size gate
+        shell: bash
+        run: |
+          shopt -s nullglob
+          bash scripts/check_artifact_size.sh \
+            target/prod-release/libazul.so target/prod-release/libazuldbg.so \
+            target/prod-release/azul.so target/prod-release/libazul.a \
+            target/prod-release/libazul.dylib target/prod-release/libazuldbg.dylib \
+            target/prod-release/azul.dll target/prod-release/azuldbg.dll \
+            target/prod-release/azul.lib target/prod-release/azul.pyd
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v7
@@ -5244,8 +5321,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.90.0
-      - name: Install clang + headless deps
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev
+      # PINNED, AND PINNED TOGETHER WITH THE NIGHTLY BELOW.
+      #
+      # TSan links Rust-instrumented code against clang's compiler-rt TSan
+      # runtime, so the two have to agree on the instrumentation ABI: rustc
+      # emits calls (`__tsan_memcpy` and friends, LLVM 17+) that the runtime has
+      # to define. Bumping one side without the other fails at LINK time with
+      # undefined `__tsan_*` references, which is why neither is `latest` here.
+      # If you bump one, bump the other and re-run this job.
+      #
+      # `libclang-rt-18-dev` is named explicitly because it is the package that
+      # ships `libclang_rt.tsan-x86_64.a`; plain `clang` does not depend on it,
+      # and the preflight below can only check a runtime that exists.
+      - name: Install clang (pinned) + headless deps
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang-18 libclang-rt-18-dev libgl1-mesa-dev libx11-dev
+          # `clang` is used unqualified throughout this job; make it the pinned one.
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          clang --version | head -1
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@v8
         with:
@@ -5256,12 +5351,15 @@ jobs:
         run: cargo build -p azul-dll --features build-dll
 
       # TSan requires Rust instrumentation to avoid false positives with futex-based Mutexes.
-      - name: Install nightly (for -Zsanitizer)
-        run: rustup toolchain install nightly --component rust-src
+      # `-Zsanitizer` and `-Zbuild-std` are unstable, so this half cannot move to
+      # stable; the ASan/UBSan runs below already use the stable 1.90.0 build.
+      # PINNED to a date for the reason given on the clang step above.
+      - name: Install nightly (pinned, for -Zsanitizer)
+        run: rustup toolchain install nightly-2026-09-03 --component rust-src
       - name: Build azul-dll with ThreadSanitizer instrumentation
         run: |
           set -euo pipefail
-          RUSTFLAGS="-Zsanitizer=thread" cargo +nightly build \
+          RUSTFLAGS="-Zsanitizer=thread" cargo +nightly-2026-09-03 build \
             -Zbuild-std=std,panic_abort \
             --target x86_64-unknown-linux-gnu \
             -p azul-dll --features build-dll
@@ -5296,17 +5394,29 @@ jobs:
           san_failed=0
           tsan_preflight() {
             local rt
-            rt=$(clang -print-file-name=libclang_rt.tsan.a 2>/dev/null || true)
+            # On Linux the archive is ARCH-SUFFIXED, so ask for that name first;
+            # `libclang_rt.tsan.a` is the unsuffixed layout some toolchains use.
+            rt=$(clang -print-file-name=libclang_rt.tsan-x86_64.a 2>/dev/null || true)
             if [ ! -f "$rt" ]; then
+              rt=$(clang -print-file-name=libclang_rt.tsan.a 2>/dev/null || true)
+            fi
+            if [ ! -f "$rt" ]; then
+              # `-name 'libclang_rt.tsan*.a'` ALSO matches libclang_rt.tsan_cxx*.a,
+              # the C++-only half, which does not define __tsan_memcpy at all --
+              # and `find | head -1` returned exactly that, so this preflight
+              # reported "clang ships a TSan runtime WITHOUT __tsan_memcpy" about
+              # a perfectly good LLVM 18. Exclude the _cxx half and sort, so the
+              # answer does not depend on directory order.
               rt=$(find "$(dirname "$(readlink -f "$(command -v clang)")")/.." \
-                   -name 'libclang_rt.tsan*.a' 2>/dev/null | head -1)
+                   -name 'libclang_rt.tsan*.a' ! -name '*tsan_cxx*' 2>/dev/null \
+                   | sort | head -1)
             fi
             if [ -z "$rt" ] || [ ! -f "$rt" ]; then
-              echo "::error::cannot locate clang's TSan runtime - $(clang --version | head -1)"
+              echo "::error::cannot locate clang's TSan runtime - $(clang --version | head -1). Is libclang-rt-18-dev installed?"
               return 1
             fi
             if ! nm -g "$rt" 2>/dev/null | grep -q 'T __tsan_memcpy'; then
-              echo "::error::$(clang --version | head -1) ships a TSan runtime WITHOUT __tsan_memcpy (added in LLVM 17). rustc ($(rustc +nightly --version)) instruments memory intrinsics and emits it, so the C link will fail on undefined references."
+              echo "::error::$rt ($(clang --version | head -1)) has no __tsan_memcpy (added in LLVM 17). rustc ($(rustc +nightly-2026-09-03 --version)) instruments memory intrinsics and emits it, so the C link will fail on undefined references. Both toolchains are pinned in this job - if you bumped one, bump the other."
               return 1
             fi
             echo "clang TSan runtime OK ($(clang --version | head -1)): $rt"

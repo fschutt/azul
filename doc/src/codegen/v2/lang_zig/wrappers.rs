@@ -103,7 +103,11 @@ pub fn generate_wrappers(ir: &CodegenIR) -> String {
             continue;
         }
         if !e.is_union {
-            // Unit-only enums are already directly usable through `C.*`.
+            // The VALUE of a unit-only enum is usable straight from `C.*`, so
+            // it needs no constructors - but its trait entry points still had
+            // nowhere to hang, which is the whole of zig's remaining gap.
+            // Emit a namespace carrying just those.
+            emit_unit_enum_helper(&mut out, ir, e);
             continue;
         }
         emit_union_helper(&mut out, ir, e);
@@ -126,12 +130,32 @@ fn should_emit_struct_wrapper(s: &StructDef, ir: &CodegenIR) -> bool {
         | TypeCategory::Boxed
         | TypeCategory::GenericTemplate
         | TypeCategory::DestructorOrClone
-        | TypeCategory::CallbackTypedef => return false,
+        | TypeCategory::CallbackTypedef => {
+            // ... unless the class declares capabilities. Then the wrapper
+            // exists solely to name them, and carries the whole list.
+            if !has_declared_capability(&s.name, ir) {
+                return false;
+            }
+        }
         _ => {}
     }
     // Only emit a wrapper for types that have *something* to wrap:
     // either a destructor or at least one non-trait method/constructor.
     has_destructor(&s.name, ir) || has_useful_method(&s.name, ir)
+}
+
+/// Does this class declare capabilities the C ABI exports for it?
+///
+/// Used to admit a class whose CATEGORY would otherwise exclude it. The
+/// category exclusions above are about a type's ordinary methods - a `Boxed`
+/// heap wrapper or a raw callback typedef cannot be handed around by value -
+/// and that reasoning does not reach `Az{T}_partialEq(a, b) -> bool` or
+/// `Az{T}_toDbgString(ptr) -> AzString`, which take pointers and return
+/// scalars. Same argument as the recursive-type carve-out in every
+/// `should_emit_function`.
+fn has_declared_capability(class_name: &str, ir: &CodegenIR) -> bool {
+    ir.functions_for_class(class_name)
+        .any(|f| f.kind.is_declared_capability())
 }
 
 fn should_emit_enum_helper(e: &EnumDef) -> bool {
@@ -166,6 +190,20 @@ fn has_useful_method(class_name: &str, ir: &CodegenIR) -> bool {
                     | FunctionKind::StaticMethod
                     | FunctionKind::Default
                     | FunctionKind::DeepCopy
+                    // The auto-generated trait entry points count as useful.
+                    // A class whose only exports are `_partialEq` / `_cmp` /
+                    // `_hash` / `_toDbgString` still has something a caller
+                    // wants; excluding them here gave such a class no wrapper
+                    // at all, and since `azul.zig` is a `@cImport` shim that
+                    // redeclares nothing, a C symbol no wrapper calls cannot
+                    // be named from Zig. That is what left 5168 declared
+                    // derives unreachable. Emitted by `emit_trait_methods`,
+                    // which must stay in step with this list.
+                    | FunctionKind::PartialEq
+                    | FunctionKind::PartialCmp
+                    | FunctionKind::Cmp
+                    | FunctionKind::Hash
+                    | FunctionKind::DebugToString
             )
     })
 }
@@ -275,6 +313,9 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         }
     }
 
+    // Trait entry points (PartialEq / PartialCmp / Cmp / Hash / Debug).
+    emit_trait_methods(out, &s.name, &ffi_name, ir, &mut seen);
+
     // Destructor.
     if has_delete {
         out.push_str("    /// Free the underlying native resources.\n");
@@ -289,6 +330,220 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     }
 
     out.push_str("};\n\n");
+}
+
+// ============================================================================
+// Unit-only enum namespace
+// ============================================================================
+
+/// A namespace for a unit-only enum, carrying only its trait entry points.
+///
+/// `@cImport` already gives the value itself (`C.AzAccessibilityRole_Alert`),
+/// so this deliberately emits no constructors and no `Tag` block - it exists
+/// so `_partialEq` / `_cmp` / `_hash` / `_toDbgString`, which libazul exports
+/// for these types, can be named from Zig at all. A type that declares none of
+/// them gets no namespace rather than an empty one.
+fn emit_unit_enum_helper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
+    let has_traits = ir.functions_for_class(&e.name).any(|f| {
+        matches!(
+            f.kind,
+            FunctionKind::PartialEq
+                | FunctionKind::PartialCmp
+                | FunctionKind::Cmp
+                | FunctionKind::Hash
+                | FunctionKind::DebugToString
+                | FunctionKind::DeepCopy
+                | FunctionKind::Default
+        )
+    });
+    if !has_traits {
+        return;
+    }
+
+    let zig_name = sanitize_identifier(&e.name);
+    let ffi_name = ffi_type_name(&e.name);
+
+    if !e.doc.is_empty() {
+        for d in &e.doc {
+            out.push_str(&format!("/// {}\n", d));
+        }
+    }
+    out.push_str(&format!("pub const {} = struct {{\n", zig_name));
+    out.push_str("    /// The raw FFI enum, as exposed by `@cImport`.\n");
+    out.push_str(&format!("    pub const Raw = C.{};\n\n", ffi_name));
+    emit_trait_methods_raw(out, &e.name, &ffi_name, ir);
+
+    // `Default` is a STATIC factory, not an instance method, so it is not part
+    // of `emit_trait_methods_raw` - the union helper already emits it through
+    // its constructor loop and would duplicate. For a unit enum this namespace
+    // is the only place it can live.
+    if ir
+        .functions_for_class(&e.name)
+        .any(|f| f.kind == FunctionKind::Default)
+    {
+        out.push_str("\n    /// The Rust `Default`.\n");
+        out.push_str("    pub fn default() Raw {\n");
+        out.push_str(&format!("        return C.{}_default();\n", ffi_name));
+        out.push_str("    }\n");
+    }
+    out.push_str("};\n\n");
+}
+
+// ============================================================================
+// Trait entry points
+// ============================================================================
+
+/// The enum flavour of [`emit_trait_methods`]: same entry points, but an enum
+/// wrapper has no `inner` field, so these operate on `*const Raw`.
+fn emit_trait_methods_raw(out: &mut String, class_name: &str, ffi_name: &str, ir: &CodegenIR) {
+    // Zig forbids a parameter shadowing ANY declaration in the containing
+    // scope, and these namespaces already declare one function per variant -
+    // `NodeType` has `pub fn a()`, so a parameter named `a` is a hard error.
+    // The file solves this for ordinary methods with `renamed_param`; this
+    // does the same, against the names this namespace will emit.
+    let mut reserved: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for f in ir.functions_for_class(class_name) {
+        reserved.insert(sanitize_identifier(&idiomatic_method_name(&f.method_name)));
+    }
+    let pa = renamed_param("a", &reserved);
+    let pb = renamed_param("b", &reserved);
+    let pv = renamed_param("v", &reserved);
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for f in ir.functions_for_class(class_name) {
+        let (name, text) = match f.kind {
+            FunctionKind::PartialEq => (
+                "eql",
+                format!(
+                    "    /// Structural equality, delegating to the Rust `PartialEq`.\n    \
+                     pub fn eql({pa}: *const Raw, {pb}: *const Raw) bool {{\n        \
+                     return C.{ffi_name}_partialEq({pa}, {pb});\n    }}\n"
+                ),
+            ),
+            FunctionKind::Cmp => (
+                "order",
+                format!(
+                    "    /// Total order, delegating to the Rust `Ord`.\n    \
+                     /// The C ABI answers 0 = less, 1 = equal, 2 = greater.\n    \
+                     pub fn order({pa}: *const Raw, {pb}: *const Raw) u8 {{\n        \
+                     return C.{ffi_name}_cmp({pa}, {pb});\n    }}\n"
+                ),
+            ),
+            FunctionKind::PartialCmp => (
+                "partialOrder",
+                format!(
+                    "    /// Partial order, delegating to the Rust `PartialOrd`.\n    \
+                     /// Same encoding as `order`.\n    \
+                     pub fn partialOrder({pa}: *const Raw, {pb}: *const Raw) u8 {{\n        \
+                     return C.{ffi_name}_partialCmp({pa}, {pb});\n    }}\n"
+                ),
+            ),
+            FunctionKind::Hash => (
+                "hash",
+                format!(
+                    "    /// The Rust `Hash`, as a 64-bit digest.\n    \
+                     pub fn hash({pv}: *const Raw) u64 {{\n        \
+                     return C.{ffi_name}_hash({pv});\n    }}\n"
+                ),
+            ),
+            FunctionKind::DebugToString => (
+                "toDbgString",
+                format!(
+                    "    /// The Rust `{{:#?}}` rendering. The returned `AzString` owns its\n    \
+                     /// buffer — free it with `C.AzString_delete` when done.\n    \
+                     pub fn toDbgString({pv}: *const Raw) C.AzString {{\n        \
+                     return C.{ffi_name}_toDbgString({pv});\n    }}\n"
+                ),
+            ),
+            FunctionKind::DeepCopy => (
+                "clone",
+                format!(
+                    "    /// A deep copy, delegating to the Rust `Clone`.\n    \
+                     pub fn clone({pv}: *const Raw) Raw {{\n        \
+                     return C.{ffi_name}_clone({pv});\n    }}\n"
+                ),
+            ),
+            _ => continue,
+        };
+        if !seen.insert(name) {
+            continue;
+        }
+        out.push_str(&text);
+    }
+}
+
+/// Give the auto-generated trait exports a Zig name.
+///
+/// `azul.zig` redeclares nothing — `@cImport` parses `azul.h` and the wrapper
+/// structs are the only thing that name a C function. So a derive is reachable
+/// from Zig only if a wrapper method calls its entry point, which is why this
+/// exists and why `has_useful_method` must admit these kinds: otherwise the
+/// class gets no wrapper and the symbol, though exported by libazul, cannot be
+/// spelled.
+///
+/// Only kinds the class actually exports are emitted, so a type that declares
+/// no `Hash` gets no `hash()`.
+fn emit_trait_methods(
+    out: &mut String,
+    class_name: &str,
+    ffi_name: &str,
+    ir: &CodegenIR,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    for f in ir.functions_for_class(class_name) {
+        let (name, text) = match f.kind {
+            FunctionKind::PartialEq => (
+                "eql",
+                format!(
+                    "    /// Structural equality, delegating to the Rust `PartialEq`.\n    \
+                     pub fn eql(self: *const Self, other: *const Self) bool {{\n        \
+                     return C.{ffi_name}_partialEq(&self.inner, &other.inner);\n    }}\n"
+                ),
+            ),
+            FunctionKind::Cmp => (
+                "order",
+                format!(
+                    "    /// Total order, delegating to the Rust `Ord`.\n    \
+                     /// The C ABI answers 0 = less, 1 = equal, 2 = greater.\n    \
+                     pub fn order(self: *const Self, other: *const Self) u8 {{\n        \
+                     return C.{ffi_name}_cmp(&self.inner, &other.inner);\n    }}\n"
+                ),
+            ),
+            FunctionKind::PartialCmp => (
+                "partialOrder",
+                format!(
+                    "    /// Partial order, delegating to the Rust `PartialOrd`.\n    \
+                     /// Same encoding as `order`.\n    \
+                     pub fn partialOrder(self: *const Self, other: *const Self) u8 {{\n        \
+                     return C.{ffi_name}_partialCmp(&self.inner, &other.inner);\n    }}\n"
+                ),
+            ),
+            FunctionKind::Hash => (
+                "hash",
+                format!(
+                    "    /// The Rust `Hash`, as a 64-bit digest.\n    \
+                     pub fn hash(self: *const Self) u64 {{\n        \
+                     return C.{ffi_name}_hash(&self.inner);\n    }}\n"
+                ),
+            ),
+            FunctionKind::DebugToString => (
+                "toDbgString",
+                format!(
+                    "    /// The Rust `{{:#?}}` rendering. The returned `AzString` owns its\n    \
+                     /// buffer — free it with `C.AzString_delete` when done.\n    \
+                     pub fn toDbgString(self: *const Self) C.AzString {{\n        \
+                     return C.{ffi_name}_toDbgString(&self.inner);\n    }}\n"
+                ),
+            ),
+            _ => continue,
+        };
+        if !seen.insert(name.to_string()) {
+            out.push_str(&format!(
+                "    // SKIPPED: `pub fn {name}` — the class already emits a method of that name.\n"
+            ));
+            continue;
+        }
+        out.push_str(&text);
+    }
 }
 
 // ============================================================================
@@ -558,6 +813,11 @@ fn emit_union_helper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
         }
     }
 
+    // Trait entry points. An enum wrapper holds no `inner` — its values are
+    // raw C tagged unions — so these take `*const Raw` rather than `*Self`.
+    // Without them every derive an enum declares was unreachable from Zig,
+    // which is what the C++ emitter had to fix for the same reason.
+    emit_trait_methods_raw(out, &e.name, &ffi_name, ir);
     out.push_str("};\n\n");
 }
 

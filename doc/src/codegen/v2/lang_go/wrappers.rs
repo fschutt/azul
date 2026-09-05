@@ -174,10 +174,26 @@ pub(crate) fn should_emit_wrapper(s: &StructDef, ir: &CodegenIR, config: &Codege
         | TypeCategory::Boxed
         | TypeCategory::GenericTemplate
         | TypeCategory::DestructorOrClone
-        | TypeCategory::CallbackTypedef => return false,
+        | TypeCategory::CallbackTypedef => {
+            // ... unless the class declares capabilities. These exclusions are
+            // about ORDINARY methods - a Boxed heap wrapper or a raw callback
+            // typedef cannot be passed by value - and that reasoning does not
+            // reach `Az{T}_partialEq(a, b) -> bool` or
+            // `Az{T}_toDbgString(ptr) -> AzString`, which take pointers and
+            // return scalars. Same carve-out the recursive types needed.
+            if !has_declared_capability(&s.name, ir) {
+                return false;
+            }
+        }
         _ => {}
     }
-    has_destructor(&s.name, ir) || has_useful_method(&s.name, ir)
+    true
+}
+
+/// Does this class declare capabilities the C ABI exports for it?
+fn has_declared_capability(class_name: &str, ir: &CodegenIR) -> bool {
+    ir.functions_for_class(class_name)
+        .any(|f| f.kind.is_declared_capability())
 }
 
 fn has_destructor(class_name: &str, ir: &CodegenIR) -> bool {
@@ -197,6 +213,19 @@ fn has_useful_method(class_name: &str, ir: &CodegenIR) -> bool {
                     | FunctionKind::StaticMethod
                     | FunctionKind::Default
                     | FunctionKind::DeepCopy
+                    // The auto-generated trait entry points count as useful:
+                    // a class whose only exports are `_partialEq` / `_cmp` /
+                    // `_hash` / `_toDbgString` still has something a caller
+                    // wants, and excluding them here gave it no wrapper at
+                    // all. Emitted by `emit_trait_methods`, which must stay in
+                    // step with this list - landing only one half makes the
+                    // measured gap WORSE, because the class then exists as a
+                    // wrapper with nothing on it.
+                    | FunctionKind::PartialEq
+                    | FunctionKind::PartialCmp
+                    | FunctionKind::Cmp
+                    | FunctionKind::Hash
+                    | FunctionKind::DebugToString
             )
     })
 }
@@ -253,6 +282,9 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
             _ => {}
         }
     }
+
+    // Trait entry points.
+    emit_trait_methods(b, &go_name, &s.name, ir);
 
     // Destructor + io.Closer.
     if has_delete {
@@ -697,5 +729,86 @@ fn map_return_type(ty: &str, ir: &CodegenIR) -> String {
         format!("C.{}", ffi_type_name(trimmed))
     } else {
         "unsafe.Pointer".to_string()
+    }
+}
+
+// ============================================================================
+// Trait entry points
+// ============================================================================
+
+/// Give the auto-generated trait exports a Go name.
+///
+/// libazul exports `Az{T}_partialEq`, `_partialCmp`, `_cmp`, `_hash` and
+/// `_toDbgString` for every class whose api.json `derive` list asks for them,
+/// and until this existed no Go wrapper named any of them - so no Go caller
+/// could compare, order, hash or print an azul value. Only the kinds a class
+/// actually exports are emitted, so a type that declares no `Hash` gets no
+/// `Hash()`.
+fn emit_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str, ir: &CodegenIR) {
+    let ffi = format!("Az{}", class_name);
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for f in ir.functions_for_class(class_name) {
+        let name = match f.kind {
+            FunctionKind::PartialEq => "Equal",
+            FunctionKind::PartialCmp => "PartialOrder",
+            FunctionKind::Cmp => "Order",
+            FunctionKind::Hash => "Hash",
+            FunctionKind::DebugToString => "String",
+            _ => continue,
+        };
+        if !seen.insert(name) {
+            continue;
+        }
+        b.blank();
+        match f.kind {
+            FunctionKind::PartialEq => {
+                b.line("// Equal reports structural equality, delegating to the Rust PartialEq.");
+                b.line(&format!(
+                    "func (self *{go_name}) Equal(other *{go_name}) bool {{"
+                ));
+                b.line(&format!(
+                    "    return bool(C.{ffi}_partialEq(&self.inner, &other.inner))"
+                ));
+                b.line("}");
+            }
+            FunctionKind::PartialCmp => {
+                b.line("// PartialOrder delegates to the Rust PartialOrd. The C ABI answers");
+                b.line("// 0 = less, 1 = equal, 2 = greater.");
+                b.line(&format!(
+                    "func (self *{go_name}) PartialOrder(other *{go_name}) uint8 {{"
+                ));
+                b.line(&format!(
+                    "    return uint8(C.{ffi}_partialCmp(&self.inner, &other.inner))"
+                ));
+                b.line("}");
+            }
+            FunctionKind::Cmp => {
+                b.line("// Order delegates to the Rust Ord. Same encoding as PartialOrder.");
+                b.line(&format!(
+                    "func (self *{go_name}) Order(other *{go_name}) uint8 {{"
+                ));
+                b.line(&format!(
+                    "    return uint8(C.{ffi}_cmp(&self.inner, &other.inner))"
+                ));
+                b.line("}");
+            }
+            FunctionKind::Hash => {
+                b.line("// Hash delegates to the Rust Hash, as a 64-bit digest.");
+                b.line(&format!("func (self *{go_name}) Hash() uint64 {{"));
+                b.line(&format!("    return uint64(C.{ffi}_hash(&self.inner))"));
+                b.line("}");
+            }
+            FunctionKind::DebugToString => {
+                b.line("// String is the Rust `{:#?}` rendering; it implements fmt.Stringer.");
+                b.line("// The AzString the ABI hands back owns its buffer and GoStr only");
+                b.line("// copies, so it is freed here rather than leaked once per call.");
+                b.line(&format!("func (self *{go_name}) String() string {{"));
+                b.line(&format!("    s := C.{ffi}_toDbgString(&self.inner)"));
+                b.line("    defer C.AzString_delete(&s)");
+                b.line("    return GoStr(s)");
+                b.line("}");
+            }
+            _ => unreachable!(),
+        }
     }
 }

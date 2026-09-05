@@ -1571,11 +1571,25 @@ impl CallbackInfo {
     pub fn invoke_system_dialog(&mut self, dialog: azul_core::window::SysDialogType) {
         match dialog {
             azul_core::window::SysDialogType::ReportProblem => {
-                // Capture BEFORE the dialog exists so it can never be in
-                // its own screenshot. Best-effort: a failed capture still
-                // opens the dialog, just without the attachment.
-                let screenshot = self.take_screenshot(DomId::ROOT_ID).ok();
-                crate::dialogs::report_problem::open(self, screenshot);
+                // Both halves need the CPU renderer - the dialog decodes its
+                // screenshot through `cpurender::AzulPixmap`, and
+                // `take_screenshot` is itself cpurender-only - so the arm
+                // carries the same gate the dialog module does, with the same
+                // shape the `updater` arm below uses.
+                #[cfg(feature = "cpurender")]
+                {
+                    // Capture BEFORE the dialog exists so it can never be in
+                    // its own screenshot. Best-effort: a failed capture still
+                    // opens the dialog, just without the attachment.
+                    let screenshot = self.take_screenshot(DomId::ROOT_ID).ok();
+                    crate::dialogs::report_problem::open(self, screenshot);
+                }
+                #[cfg(not(feature = "cpurender"))]
+                eprintln!(
+                    "[azul] invoke_system_dialog(ReportProblem): azul-layout was built \
+                     without the `cpurender` feature, which the report dialog needs to \
+                     render and redact its screenshot."
+                );
             }
             azul_core::window::SysDialogType::UpdateVersion => {
                 #[cfg(feature = "updater")]
@@ -2561,7 +2575,7 @@ impl CallbackInfo {
     /// The current TEXT revision stamp (compare with the values from
     /// [`Self::get_unsynced_text_edits`]); `0` = no character edits yet.
     #[must_use]
-    pub fn get_document_text_revision(&self) -> u64 {
+    pub const fn get_document_text_revision(&self) -> u64 {
         self.get_layout_window().document_text_revision()
     }
 
@@ -5023,7 +5037,7 @@ impl CallbackInfo {
     /// `AppConfig::natural_scroll == Enabled` (or the `AZ_NATURAL_SCROLL`
     /// override). The platform's own preference is `get_system_natural_scroll`.
     #[must_use]
-    pub fn get_natural_scroll(&self) -> bool {
+    pub const fn get_natural_scroll(&self) -> bool {
         self.get_layout_window().scroll_manager.is_natural_scroll()
     }
 
@@ -5230,7 +5244,7 @@ impl CallbackInfo {
 
     /// Whether an IME composition is currently open on the focused node.
     #[must_use]
-    pub fn is_composing(&self) -> bool {
+    pub const fn is_composing(&self) -> bool {
         self.get_layout_window().text_edit_manager.preedit_text.is_some()
     }
 
@@ -5244,14 +5258,14 @@ impl CallbackInfo {
     /// from a wheel detent or a continuous trackpad drag, and therefore
     /// whether a pinch gesture is even possible.
     #[must_use]
-    pub fn get_pointer_source(&self) -> azul_core::events::PointerSource {
+    pub const fn get_pointer_source(&self) -> azul_core::events::PointerSource {
         self.get_current_mouse_state().pointer_source
     }
 
     /// Which physical pointing device is driving, or `0` when the platform
     /// does not say.
     #[must_use]
-    pub fn get_pointer_device_id(&self) -> u64 {
+    pub const fn get_pointer_device_id(&self) -> u64 {
         self.get_current_mouse_state().pointer_device_id
     }
 
@@ -5262,7 +5276,7 @@ impl CallbackInfo {
     /// no endstops, so there is no absolute position to read. Integrate it
     /// into whatever value the dial controls.
     #[must_use]
-    pub fn get_dial_state(&self) -> Option<crate::managers::gesture::DialState> {
+    pub const fn get_dial_state(&self) -> Option<crate::managers::gesture::DialState> {
         self.get_gesture_drag_manager().get_dial_state()
     }
 
@@ -5293,7 +5307,6 @@ impl CallbackInfo {
     /// The app reports the result through `set_now_playing`: a position that
     /// is not the continuation of the last one is announced back to the
     /// desktop as a seek, and a changed `volume` as the new `Volume`.
-    #[must_use]
     pub fn get_media_control_request(&self) -> azul_core::media_session::OptionMediaControlRequest {
         self.get_layout_window()
             .media_session_manager
@@ -5317,12 +5330,13 @@ impl CallbackInfo {
     /// the system audio. `Lost` clears it; `Interrupted` and `Ducked` do
     /// not - the takeover is still the app's, only paused by the system.
     #[must_use]
-    pub fn is_system_audio_active(&self) -> bool {
+    pub const fn is_system_audio_active(&self) -> bool {
         self.get_layout_window()
             .media_session_manager
             .is_system_audio_active()
     }
 
+    #[must_use] 
     pub fn get_raw_mouse_motion(&self) -> azul_core::events::OptionRawMotionEventData {
         self.get_layout_window()
             .device_event_manager
@@ -5367,7 +5381,7 @@ impl CallbackInfo {
     #[must_use]
     pub fn get_validity_state_of(
         &self,
-        node: azul_core::dom::DomNodeId,
+        node: DomNodeId,
     ) -> azul_core::form::ValidityState {
         self.get_layout_window()
             .form_validation_manager
@@ -5416,7 +5430,7 @@ impl CallbackInfo {
     ///
     /// The bytes are exactly as the device sent them, because decoding needs
     /// that device's report descriptor and a framework guessing at it would
-    /// be wrong more often than useful. This is the same trade WebHID makes.
+    /// be wrong more often than useful. This is the same trade `WebHID` makes.
     ///
     /// Returns an owned vec rather than a borrowed slice because this crosses
     /// the C API, where a slice has no representation.
@@ -6044,7 +6058,7 @@ impl CallbackInfo {
     #[must_use]
     pub fn get_hovered_nodes(&self) -> azul_core::dom::DomNodeIdVec {
         self.get_current_hit_test()
-            .map(azul_core::hit_test::FullHitTest::hovered_node_ids)
+            .map(FullHitTest::hovered_node_ids)
             .unwrap_or_default()
             .into()
     }
@@ -6057,7 +6071,7 @@ impl CallbackInfo {
     #[must_use]
     pub fn get_hovered_nodes_frames_ago(&self, frames_ago: usize) -> azul_core::dom::DomNodeIdVec {
         self.get_hit_test_frame(frames_ago)
-            .map(azul_core::hit_test::FullHitTest::hovered_node_ids)
+            .map(FullHitTest::hovered_node_ids)
             .unwrap_or_default()
             .into()
     }
@@ -6267,7 +6281,7 @@ impl CallbackInfo {
         node_id: NodeId,
     ) -> azul_core::styled_dom::OptionNodeHierarchyItemId {
         self.find_scroll_container(dom_id, node_id, Inclusivity::SelfAndAncestors)
-            .map(|n| azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)))
+            .map(|n| NodeHierarchyItemId::from_crate_internal(Some(n)))
             .into()
     }
 
@@ -7563,7 +7577,7 @@ mod autotest_generated {
         }
 
         let bytes = s.as_bytes();
-        if bytes.len() % 4 != 0 {
+        if !bytes.len().is_multiple_of(4) {
             return None;
         }
         let mut out = Vec::with_capacity(bytes.len() / 4 * 3);

@@ -273,7 +273,7 @@ extern "C" fn wl_output_mode_handler(
     _flags: u32,
     width: i32,
     height: i32,
-    _refresh: i32,
+    refresh: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
 
@@ -281,12 +281,53 @@ extern "C" fn wl_output_mode_handler(
     if let Some(monitor) = window.known_outputs.iter_mut().find(|m| m.proxy == output) {
         monitor.width = width;
         monitor.height = height;
+        // The refresh rate was DISCARDED here, and it is the one number the
+        // frame pacer needs: without it every Wayland session paced to the
+        // 60 Hz default, which is a frame and a half late on a 144 Hz panel.
+        monitor.refresh_mhz = refresh;
     }
 }
 
-extern "C" fn wl_output_done_handler(_data: *mut c_void, _output: *mut wl_output) {
-    // This event marks the end of a set of events for this output.
-    // In our implementation, we update fields incrementally, so no action needed here.
+extern "C" fn wl_output_done_handler(data: *mut c_void, _output: *mut wl_output) {
+    // `done` is the protocol's ATOMIC COMMIT for an output: geometry, mode and
+    // scale have all arrived and the set is now consistent. That makes it the
+    // one correct moment to hand the display layer what the compositor said,
+    // so `get_monitors()` can stop shelling out to swaymsg / hyprctl /
+    // kscreen-doctor / wlr-randr - none of which answers on KWin, which is why
+    // every monitor query on this session fell back to a hardcoded 1920x1080.
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let outputs = window
+        .known_outputs
+        .iter()
+        .filter(|m| m.width > 0 && m.height > 0)
+        .map(|m| crate::desktop::display::WaylandOutput {
+            name: m.name.clone(),
+            x: m.x,
+            y: m.y,
+            width: m.width,
+            height: m.height,
+            scale: m.scale,
+            refresh_mhz: m.refresh_mhz,
+            make: m.make.clone(),
+            model: m.model.clone(),
+        })
+        .collect();
+    let changed = crate::desktop::display::publish_wayland_outputs(outputs);
+
+    // Re-seed the window's memoised monitor list the FIRST time the compositor
+    // actually describes its outputs. Window creation seeds that list, and it
+    // runs ~300 ms BEFORE the first `wl_output.done` arrives (measured on this
+    // session: fallback at 2033 ms, outputs known at 2334 ms) - so without
+    // this the app keeps the 1920x1080 startup guess until a monitor is
+    // plugged or unplugged. Same refresh the removal path above performs, for
+    // the same reason: the topology we can describe just changed.
+    if changed {
+        if let Some(ref mut lw) = window.common.layout_window {
+            if let Ok(mut guard) = lw.monitors.lock() {
+                *guard = crate::desktop::display::refresh_monitors();
+            }
+        }
+    }
 }
 
 extern "C" fn wl_output_scale_handler(data: *mut c_void, output: *mut wl_output, factor: i32) {
@@ -561,6 +602,17 @@ pub(super) extern "C" fn registry_global_handler(
             // while both seats' pointers kept writing the one global mouse
             // state - cursor A's buttons at cursor B's position. Every later
             // seat is now a pointer seat of its own.
+            crate::log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Bound wl_seat v{} (offered v{}) - {}",
+                seat_version,
+                version,
+                match seat_version {
+                    9.. => "high-res wheel + relative-direction available",
+                    8 => "high-res wheel (axis_value120) available",
+                    _ => "discrete wheel only",
+                }
+            );
             let seat_id = window.seats.insert(name, seat.cast(), seat_version);
             if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
                 window.seat = seat;
@@ -595,6 +647,10 @@ pub(super) extern "C" fn registry_global_handler(
                     1,
                 ) as *mut _
             };
+            crate::log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Bound zwp_relative_pointer_manager_v1 - raw motion available"
+            );
         }
         "zwp_pointer_constraints_v1" => {
             window.pointer_constraints = unsafe {
@@ -605,6 +661,10 @@ pub(super) extern "C" fn registry_global_handler(
                     1,
                 ) as *mut _
             };
+            crate::log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Bound zwp_pointer_constraints_v1 - pointer lock available"
+            );
         }
         "zwp_pointer_gestures_v1" => {
             // Touchpad pinch / swipe / hold. Bound at up to v3 — v1 has swipe
@@ -619,6 +679,12 @@ pub(super) extern "C" fn registry_global_handler(
                     v,
                 ) as *mut _
             };
+            crate::log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Bound zwp_pointer_gestures_v1 v{} - touchpad {}",
+                v,
+                if v >= 3 { "pinch/swipe/hold" } else { "pinch/swipe" }
+            );
             unsafe { try_init_pointer_gestures(window, data) };
         }
         "zwp_tablet_manager_v2" => {
@@ -630,6 +696,10 @@ pub(super) extern "C" fn registry_global_handler(
                     version.min(2),
                 ) as *mut _
             };
+            crate::log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Bound zwp_tablet_manager_v2 - pen/tablet available"
+            );
             unsafe { try_init_tablet(window, data) };
         }
         "wl_data_device_manager" => {
@@ -659,6 +729,10 @@ pub(super) extern "C" fn registry_global_handler(
                     version.min(1),
                 ) as *mut _
             };
+            crate::log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Bound zwp_primary_selection_device_manager_v1 - middle-click paste available"
+            );
             unsafe { try_init_primary_selection(window, data) };
             unsafe { try_init_seat_primary_selections(window, data) };
         }
@@ -685,6 +759,7 @@ pub(super) extern "C" fn registry_global_handler(
                 height: 0,
                 make: String::new(),
                 model: String::new(),
+                refresh_mhz: 0,
             });
 
             // A wl_output global appearing IS a monitor arriving — same

@@ -269,6 +269,8 @@ impl MediaPlayerManager {
     /// [`TIME_UPDATE_INTERVAL_S`]) and, on reaching a known duration, exactly
     /// one `Ended`: reaching the end also clears `playing`, so a second
     /// `advance` returns immediately and cannot emit `Ended` twice.
+    // `!(dt_s > 0.0)` below is the NaN filter; `dt_s <= 0.0` would let NaN through.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
     pub fn advance(&mut self, node: DomNodeId, dt_s: f32) {
         let Some(p) = self.players.get_mut(&node) else {
             return;
@@ -278,12 +280,13 @@ impl MediaPlayerManager {
             return;
         }
         p.state.position_s += dt_s;
-        let mut ended = false;
-        if p.state.duration_s > 0.0 && p.state.position_s >= p.state.duration_s {
+        let ended = if p.state.duration_s > 0.0 && p.state.position_s >= p.state.duration_s {
             p.state.position_s = p.state.duration_s;
             p.state.playing = false;
-            ended = true;
-        }
+            true
+        } else {
+            false
+        };
         let due = (p.state.position_s - p.last_time_update_s).abs() >= TIME_UPDATE_INTERVAL_S;
         if due {
             p.last_time_update_s = p.state.position_s;
@@ -319,7 +322,7 @@ impl MediaPlayerManager {
 
     /// Whether anything is queued (used by tests and by the e2e fingerprint).
     #[must_use]
-    pub fn has_pending(&self) -> bool {
+    pub const fn has_pending(&self) -> bool {
         !self.pending.is_empty()
     }
 }

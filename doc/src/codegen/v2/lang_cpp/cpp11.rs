@@ -119,6 +119,10 @@ impl CppDialect for Cpp11Generator {
         }
 
         // Close namespace
+        // Trait entry points for the classes that got no wrapper class
+        // (enums, tagged unions). See `generate_freefn_trait_helpers`.
+        code.push_str(&generate_freefn_trait_helpers(ir, config, std));
+
         code.push_str("} // namespace azul\r\n\r\n");
 
         // Include guards end
@@ -213,7 +217,15 @@ impl CppDialect for Cpp11Generator {
             .functions
             .iter()
             .filter(|f| f.class_name == *class_name)
-            .filter(|f| !should_skip_method(f))
+            // `is_constructor_or_default`, NOT `should_skip_method`: the
+            // latter also drops every `is_trait_function()` kind, which is why
+            // C++11 and C++14 alone shipped wrapper classes with no
+            // `partialEq` / `partialCmp` / `cmp` / `hash` / `toDbgString` at
+            // all while C++03/17/20/23 shipped all five. The api.json `derive`
+            // list is the same in every dialect and libazul exports the same
+            // entry points to all of them; there is nothing about C++11 that
+            // makes them unavailable.
+            .filter(|f| !is_constructor_or_default(f))
         {
             let cpp_fn_name = escape_method_name(&func.method_name);
             let c_fn_name = &func.c_name;
@@ -572,7 +584,7 @@ impl Cpp11Generator {
             .functions
             .iter()
             .filter(|f| f.class_name == class_name)
-            .filter(|f| !should_skip_method(f))
+            .filter(|f| !is_constructor_or_default(f))
             .collect();
 
         if !methods.is_empty() {

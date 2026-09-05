@@ -968,6 +968,42 @@ mod view_handlers {
         }
         false
     }
+
+    /// AppKit announced that this view's effective appearance changed.
+    ///
+    /// `NSView::viewDidChangeEffectiveAppearance` is THE macOS notification for
+    /// a runtime light/dark switch, and it is what makes the switch instant
+    /// rather than polled: AppKit sends it to every view in the hierarchy the
+    /// moment the system (or the window's own `appearance` override) flips, on
+    /// the main thread, inside the same run-loop turn the user saw the menu bar
+    /// change in.
+    ///
+    /// The body is the same three steps every backend owes — re-read the system
+    /// style, pump the events the state change implies, then let
+    /// `PlatformWindow::adopt_system_style` choose between a full rebuild and a
+    /// restyle. `adopt_announced_theme` (not `adopt_observed_theme`) because
+    /// this is not a poll: the throttle that keeps the backstop cheap must not
+    /// swallow a switch AppKit has already told us about.
+    pub(super) fn effective_appearance_changed(window_ptr: Option<*mut std::ffi::c_void>) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let Some(window_ptr) = window_ptr else {
+            return;
+        };
+        unsafe {
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let Some(new_style) =
+                crate::desktop::shell2::macos::system_style::adopt_announced_theme(
+                    &mut macos_window.common,
+                )
+            else {
+                return;
+            };
+            let _ = macos_window.process_window_events(0);
+            macos_window.adopt_system_style(new_style);
+            macos_window.request_redraw();
+        }
+    }
 }
 
 // GLView - OpenGL rendering view
@@ -1115,6 +1151,18 @@ define_class!(
         #[unsafe(method(rightMouseDragged:))]
         fn right_mouse_dragged(&self, event: &NSEvent) {
             view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        /// A runtime light/dark switch, as AppKit reports it.
+        ///
+        /// This is the observation the macOS backend was missing: the system
+        /// style was read once at window creation, so toggling dark mode did
+        /// nothing until restart. The shared body lives in
+        /// `view_handlers::effective_appearance_changed` because both views
+        /// (GL and CPU) owe it identically.
+        #[unsafe(method(viewDidChangeEffectiveAppearance))]
+        fn view_did_change_effective_appearance(&self) {
+            view_handlers::effective_appearance_changed(*self.ivars().window_ptr.borrow());
         }
 
         #[unsafe(method(scrollWheel:))]
@@ -1365,12 +1413,17 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    // A runtime light/dark switch. AppKit's `effectiveAppearance`
-                    // is MAIN-THREAD-ONLY, so unlike the Linux backends — where
-                    // the equivalent probe is a blocking D-Bus round trip pushed
-                    // onto a watcher thread — this one is polled right here. It
-                    // self-throttles to 500ms and returns false when the theme
-                    // already matches, so it costs nothing on an ordinary frame.
+                    // The BACKSTOP for a system-appearance change. The switch
+                    // itself arrives instantly through the view's
+                    // `viewDidChangeEffectiveAppearance` override; this poll
+                    // stays for the facets that fire no view callback at all —
+                    // the accent/highlight colour, the UI font, "reduce
+                    // transparency" — which `discover()` reads too. AppKit's
+                    // `effectiveAppearance` is MAIN-THREAD-ONLY, so unlike the
+                    // Linux backends (whose probe is a blocking D-Bus round trip
+                    // on a watcher thread) it is read right here. It
+                    // self-throttles and returns None when nothing moved, so it
+                    // costs nothing on an ordinary frame.
                     let new_style =
                         crate::desktop::shell2::macos::system_style::adopt_observed_theme(
                             &mut macos_window.common,
@@ -1992,6 +2045,18 @@ define_class!(
             view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
         }
 
+        /// A runtime light/dark switch, as AppKit reports it.
+        ///
+        /// This is the observation the macOS backend was missing: the system
+        /// style was read once at window creation, so toggling dark mode did
+        /// nothing until restart. The shared body lives in
+        /// `view_handlers::effective_appearance_changed` because both views
+        /// (GL and CPU) owe it identically.
+        #[unsafe(method(viewDidChangeEffectiveAppearance))]
+        fn view_did_change_effective_appearance(&self) {
+            view_handlers::effective_appearance_changed(*self.ivars().window_ptr.borrow());
+        }
+
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
             view_handlers::scroll_wheel(*self.ivars().window_ptr.borrow(), event);
@@ -2205,12 +2270,17 @@ define_class!(
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    // A runtime light/dark switch. AppKit's `effectiveAppearance`
-                    // is MAIN-THREAD-ONLY, so unlike the Linux backends — where
-                    // the equivalent probe is a blocking D-Bus round trip pushed
-                    // onto a watcher thread — this one is polled right here. It
-                    // self-throttles to 500ms and returns false when the theme
-                    // already matches, so it costs nothing on an ordinary frame.
+                    // The BACKSTOP for a system-appearance change. The switch
+                    // itself arrives instantly through the view's
+                    // `viewDidChangeEffectiveAppearance` override; this poll
+                    // stays for the facets that fire no view callback at all —
+                    // the accent/highlight colour, the UI font, "reduce
+                    // transparency" — which `discover()` reads too. AppKit's
+                    // `effectiveAppearance` is MAIN-THREAD-ONLY, so unlike the
+                    // Linux backends (whose probe is a blocking D-Bus round trip
+                    // on a watcher thread) it is read right here. It
+                    // self-throttles and returns None when nothing moved, so it
+                    // costs nothing on an ordinary frame.
                     let new_style =
                         crate::desktop::shell2::macos::system_style::adopt_observed_theme(
                             &mut macos_window.common,
@@ -8157,7 +8227,7 @@ impl MacOSWindow {
         } else {
             // Lightweight: re-invoke image callbacks, update scroll offsets + GPU values
             // Skips scene builder (display lists haven't changed)
-            crate::desktop::wr_translate2::build_image_only_transaction(
+            let frame = crate::desktop::wr_translate2::build_image_only_transaction(
                 &mut txn,
                 layout_window,
                 self.common.render_api.as_mut().unwrap(),
@@ -8166,6 +8236,31 @@ impl MacOSWindow {
             .map_err(|e| {
                 WindowError::PlatformError(format!("Failed to build image-only transaction: {}", e))
             })?;
+
+            // Nothing in this transaction changes what is on screen: it asked
+            // for no frame, so sending it would only make WebRender do
+            // bookkeeping for values it already has. The display-link tick that
+            // brought us here has nothing to present.
+            if !frame.changed {
+                log_trace!(
+                    LogCategory::Rendering,
+                    "[macOS] Lightweight pass: nothing changed, transaction dropped"
+                );
+                // The scrollbar fade is driven by re-requesting frames, and it
+                // has a DELAY phase in which the opacity does not move yet.
+                // Skipping the render must not also skip the re-arm, or the
+                // fade would never start.
+                let needs_fade_frame = self
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+                    .unwrap_or(false);
+                if needs_fade_frame {
+                    self.request_redraw();
+                }
+                return Ok(());
+            }
         }
 
         log_trace!(LogCategory::Rendering, "[build_atomic_txn] COMPLETE");

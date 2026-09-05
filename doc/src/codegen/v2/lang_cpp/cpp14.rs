@@ -119,6 +119,10 @@ impl CppDialect for Cpp14Generator {
         // Out-of-class definition for RefAny::type_id_v (C++14 only).
         code.push_str(&generate_refany_type_id_v_definition(std));
 
+        // Trait entry points for the classes that got no wrapper class
+        // (enums, tagged unions). See `generate_freefn_trait_helpers`.
+        code.push_str(&generate_freefn_trait_helpers(ir, config, std));
+
         code.push_str("} // namespace azul\r\n\r\n");
         // Structured bindings on Result types use std::optional + if-constexpr,
         // which are C++17 features.

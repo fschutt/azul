@@ -1262,8 +1262,24 @@ mod autotest_generated {
     #[test]
     fn a_released_refany_answers_instead_of_aborting() {
         let mut released = RefAny::new(7u32);
-        // Exactly what `RefCount::drop` leaves behind.
-        released.sharing_info.ptr = core::ptr::null();
+        // Take the LIVE `RefCount` out and let it drop: that is the real
+        // release path -- it frees the `RefCountInner` and runs the payload's
+        // destructor -- and what it leaves behind is exactly what a C-side
+        // `AzRefCount_delete` leaves, a null ptr with the decrement already
+        // done.
+        //
+        // This used to stomp `ptr` in place instead. `RefAny::drop` is empty
+        // and `RefCount::drop` early-returns on a null ptr, so nothing was ever
+        // freed: Miri reported both the `RefCountInner` and the `u32` payload
+        // as leaked, correctly, and the Heavy Tests job failed on it the first
+        // time it got to run.
+        drop(core::mem::replace(
+            &mut released.sharing_info,
+            RefCount {
+                ptr: core::ptr::null(),
+                run_destructor: false,
+            },
+        ));
 
         assert_eq!(released.get_type_id(), 0, "a released RefAny has no type");
         assert_eq!(released.get_type_name().as_str(), "<released>");

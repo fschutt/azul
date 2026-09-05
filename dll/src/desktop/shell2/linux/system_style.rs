@@ -27,7 +27,7 @@ use azul_css::props::basic::color::{parse_css_color, ColorU, OptionColorU};
 use azul_css::props::basic::pixel::{OptionPixelValue, PixelValue};
 use azul_css::system::{
     defaults, DesktopEnvironment, Platform, ScrollbarTrackClick, ScrollbarVisibility, SubpixelType,
-    SystemStyle, Theme, TitlebarButtonSide, ToolbarStyle,
+    SystemStyle, Theme, TitlebarButtonSide, TitlebarButtons, ToolbarStyle,
 };
 
 // ── D-Bus wire-protocol helpers (minimal, read-only) ─────────────────────
@@ -454,6 +454,38 @@ fn gsettings_get(schema: &str, key: &str) -> Option<String> {
 /// Populate additional Linux-specific fields in `style` via `gsettings` CLI
 /// queries and environment-variable fallbacks.
 fn discover_linux_extras(style: &mut SystemStyle) {
+    // Ask the desktop's OWN store first. XFCE keeps none of this in
+    // gsettings, and a machine that once ran KDE or GNOME still has THEIR
+    // schemas populated - reading those is how an XFCE desktop themed
+    // Mint-Y-Aqua ended up rendering as Breeze dark with breeze-dark icons.
+    let source = linux_settings_source(&azul_css::system::detect_linux_desktop_env());
+    let de_answered = match source {
+        LinuxSettingsSource::Xfconf => xfce_extras(style),
+        LinuxSettingsSource::KdeConfig => kde_extras(style),
+        _ => false,
+    };
+
+    // ONLY the theme/icon/cursor/button block belongs to the desktop-specific
+    // reader. Everything after it - animations, sounds, menu and toolbar
+    // hints, the caret blink - is asked of gsettings on every desktop and must
+    // keep running, or a desktop with its own reader silently loses all of it.
+    // An early `return` here did exactly that: on KDE it took
+    // `caret_blink_ms` from 1200 back to the built-in 530, which then showed
+    // up as the app repainting twice a second at a rate nobody configured.
+    if !de_answered {
+        discover_gsettings_appearance(style);
+    }
+
+    apply_env_cursor_fallbacks(style);
+    // The GTK config file is the floor under every desktop and every bare WM.
+    gtk_ini_extras(style);
+
+    discover_shared_behaviour(style);
+}
+
+/// The icon / cursor / widget-theme / titlebar-button block, from the GNOME
+/// schemas. Used by the desktops that have no reader of their own.
+fn discover_gsettings_appearance(style: &mut SystemStyle) {
     // Icon theme
     if let Some(icon) = gsettings_get("org.gnome.desktop.interface", "icon-theme") {
         style.linux.icon_theme = OptionString::Some(icon.into());
@@ -488,20 +520,12 @@ fn discover_linux_extras(style: &mut SystemStyle) {
         style.metrics.titlebar.buttons.has_maximize = layout.contains("maximize");
         style.linux.titlebar_button_layout = OptionString::Some(layout.into());
     }
-    // Env-var fallbacks (work on ALL Linux WMs)
-    if style.linux.cursor_theme.is_none() {
-        if let Ok(t) = std::env::var("XCURSOR_THEME") {
-            style.linux.cursor_theme = OptionString::Some(t.into());
-        }
-    }
-    if style.linux.cursor_size == 0 {
-        if let Ok(s) = std::env::var("XCURSOR_SIZE") {
-            if let Ok(sz) = s.parse::<u32>() {
-                style.linux.cursor_size = sz;
-            }
-        }
-    }
+}
 
+/// The desktop-INDEPENDENT tail: animation, sound, menu/toolbar hints and the
+/// caret blink. Asked of gsettings on every desktop, so it must run whether or
+/// not a desktop-specific reader answered the appearance block above.
+fn discover_shared_behaviour(style: &mut SystemStyle) {
     // ── Animation metrics ────────────────────────────────────────────
     if let Some(anim_s) = gsettings_get("org.gnome.desktop.interface", "enable-animations") {
         let enabled = anim_s.trim() != "false";
@@ -768,12 +792,407 @@ fn kde_color_sources() -> Vec<KdeIni> {
 /// and the controls are on the RIGHT — so "is the left half non-empty" and
 /// "does the string start with ':'" both answer LEFT for a desktop whose
 /// buttons are plainly on the right.
+/// Which store this desktop keeps its appearance settings in.
+///
+/// Detection used to know the desktop and then ask a DIFFERENT desktop's
+/// store anyway: on Linux Mint XFCE the dump read
+/// `platform Linux(Other("XFCE"))` and `settings_source gsettings:gnome` on
+/// the next line, because the GNOME schemas were installed and still held
+/// what a KDE session had written months earlier. The result was Breeze DARK
+/// with Noto Sans and breeze-dark icons on a desktop themed Mint-Y-Aqua LIGHT
+/// with Ubuntu 10. A desktop's own store is the only authority on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LinuxSettingsSource {
+    /// KDE Plasma: `kdeglobals` + the `*.colors` scheme files.
+    KdeConfig,
+    /// GNOME and the forks that kept its KEYS and renamed its SCHEMAS -
+    /// Cinnamon, MATE, Unity, Budgie. See [`schema_family`].
+    Gsettings,
+    /// XFCE: xfconf, which is what `xfsettingsd` publishes to the session as
+    /// XSETTINGS and therefore what every GTK app on that desktop obeys.
+    Xfconf,
+    /// LXQt: `~/.config/lxqt/lxqt.conf`.
+    LxqtConfig,
+    /// Tiling and riced sessions (Hyprland, Sway, i3, river, ...). They have
+    /// no settings daemon of their own; the chain ends at the GTK config
+    /// file and the environment, which is exactly what their users set.
+    Riced,
+}
+
+/// The desktops whose settings live in GNOME's schemas under another name.
+const GSETTINGS_DESKTOPS: &[&str] = &[
+    "cinnamon", "mate", "unity", "budgie", "gnome-classic", "gnome-flashback", "pantheon",
+];
+
+/// Riced/tiling sessions - no settings daemon, so the GTK file and the
+/// environment are the whole story.
+const RICED_DESKTOPS: &[&str] = &[
+    "hyprland", "sway", "i3", "river", "wayfire", "awesome", "bspwm", "dwm", "qtile", "xmonad",
+    "openbox", "fluxbox", "icewm", "herbstluftwm", "spectrwm", "niri", "labwc", "none+i3",
+];
+
+/// Resolve the store from the DESKTOP, not from whichever store happens to
+/// answer first.
+pub(crate) fn linux_settings_source(de: &DesktopEnvironment) -> LinuxSettingsSource {
+    match de {
+        DesktopEnvironment::Kde => LinuxSettingsSource::KdeConfig,
+        DesktopEnvironment::Gnome => LinuxSettingsSource::Gsettings,
+        DesktopEnvironment::Other(name) => {
+            let n = name.as_str().to_ascii_lowercase();
+            if n.contains("xfce") {
+                LinuxSettingsSource::Xfconf
+            } else if n.contains("lxqt") {
+                LinuxSettingsSource::LxqtConfig
+            } else if GSETTINGS_DESKTOPS.iter().any(|d| n.contains(d)) {
+                LinuxSettingsSource::Gsettings
+            } else if RICED_DESKTOPS.iter().any(|d| n.contains(d)) {
+                LinuxSettingsSource::Riced
+            } else {
+                // An unknown session still gets a native answer: the riced
+                // chain ends at the GTK config file, which is where a user
+                // on an unknown WM sets the theme.
+                LinuxSettingsSource::Riced
+            }
+        }
+    }
+}
+
+/// Is this GTK/Qt theme name a dark theme?
+///
+/// The rule every toolkit uses: the name says so. `Mint-Y-Aqua` is light,
+/// `Mint-Y-Dark-Aqua` is dark; matching on anything looser (an "a" in
+/// "Adwaita") would flip half the light themes.
+pub(crate) fn theme_name_is_dark(name: &str) -> bool {
+    name.to_ascii_lowercase().contains("dark")
+}
+
+/// Read one xfconf property. `xfconf-query` prints the bare value and exits
+/// non-zero when the property does not exist.
+fn xfconf_get(channel: &str, prop: &str) -> Option<String> {
+    use std::process::{Command, Stdio};
+
+    let out = Command::new("xfconf-query")
+        .args(["-c", channel, "-p", prop])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if v.is_empty() || v.contains("does not exist") {
+        None
+    } else {
+        Some(v)
+    }
+}
+
+/// xfwm4 writes its button layout as single LETTERS split by `|`, the title
+/// filler: `O`=window menu, `H`=hide (minimize), `M`=maximize, `C`=close,
+/// `S`=shade, `T`=stick. The stock layout is `O|HMC` - menu on the left,
+/// controls on the right. [`titlebar_side_from_layout`] looks for the WORD
+/// "close" (GNOME's `icon:minimize,maximize,close`) and so reports every
+/// xfwm4 layout as the default side, whatever the user set.
+pub(crate) fn titlebar_from_xfwm_layout(layout: &str) -> (TitlebarButtonSide, TitlebarButtons) {
+    let (left, _right) = layout.split_once('|').unwrap_or((layout, ""));
+    let side = if left.contains('C') {
+        TitlebarButtonSide::Left
+    } else {
+        TitlebarButtonSide::Right
+    };
+    let buttons = TitlebarButtons {
+        has_close: layout.contains('C'),
+        has_minimize: layout.contains('H'),
+        has_maximize: layout.contains('M'),
+        ..TitlebarButtons::default()
+    };
+    (side, buttons)
+}
+
+/// KDE spells its titlebar buttons as LETTERS across two kwinrc keys:
+/// `M`=menu, `S`=on-all-desktops, `H`=help, `I`=minimize, `A`=maximize,
+/// `X`=close, `F`=keep-above, `B`=keep-below, `L`=shade, `N`=app-menu.
+/// Plasma's default is `ButtonsOnLeft=MS`, `ButtonsOnRight=HIAX`, which
+/// [`titlebar_side_from_layout`] - looking for the WORD "close" - cannot read.
+pub(crate) fn titlebar_from_kde_layout(
+    left: &str,
+    right: &str,
+) -> (TitlebarButtonSide, TitlebarButtons) {
+    let side = if left.contains('X') {
+        TitlebarButtonSide::Left
+    } else {
+        TitlebarButtonSide::Right
+    };
+    let both = alloc::format!("{left}{right}");
+    let buttons = TitlebarButtons {
+        has_close: both.contains('X'),
+        has_minimize: both.contains('I'),
+        has_maximize: both.contains('A'),
+        ..TitlebarButtons::default()
+    };
+    (side, buttons)
+}
+
+/// The KDE half of [`discover_linux_extras`] - icon theme, cursor, widget
+/// style and titlebar buttons, all from KDE's own config.
+///
+/// These used to come from the GNOME schemas even on a Plasma session. That
+/// looked harmless because Plasma writes those schemas for GTK-app
+/// integration, so they agreed - but the CINNAMON schemas in the same session
+/// hold a different desktop's answers entirely (measured: `Mint-Y-Sand`,
+/// `Mint-Y-Aqua`, `Bibata-Modern-Classic` against KDE's `breeze-dark`,
+/// `Breeze`, `breeze_cursors`), and `resolve_schema_family` takes whichever
+/// family answers first. A desktop's own store is the only authority on it.
+///
+/// Returns `false` when KDE's config answered nothing, so the caller can fall
+/// back to the shared path.
+fn kde_extras(style: &mut SystemStyle) -> bool {
+    let sources = kde_color_sources();
+    let get = |group: &str, key: &str| -> Option<String> {
+        sources
+            .iter()
+            .find_map(|ini| ini.get(group, key))
+            .map(String::from)
+    };
+    let mut answered = false;
+
+    if let Some(icon) = get("Icons", "Theme") {
+        style.linux.icon_theme = OptionString::Some(icon.into());
+        answered = true;
+    }
+    if let Some(widget) = get("KDE", "widgetStyle") {
+        style.linux.gtk_theme = OptionString::Some(widget.into());
+        answered = true;
+    }
+    if let Some(cursor) = get("Mouse", "cursorTheme") {
+        style.linux.cursor_theme = OptionString::Some(cursor.into());
+        answered = true;
+    }
+    if let Some(sz) = get("Mouse", "cursorSize").and_then(|v| v.trim().parse::<u32>().ok()) {
+        if sz > 0 {
+            style.linux.cursor_size = sz;
+        }
+    }
+
+    // kwinrc is a separate file from the colour sources.
+    let home = std::env::var("HOME").unwrap_or_default();
+    if let Some(kwinrc) = KdeIni::read(&alloc::format!("{home}/.config/kwinrc")) {
+        let deco = "org.kde.kdecoration2";
+        // Plasma's defaults, used when the user never moved a button.
+        let left = kwinrc.get(deco, "ButtonsOnLeft").unwrap_or("MS");
+        let right = kwinrc.get(deco, "ButtonsOnRight").unwrap_or("HIAX");
+        let (side, buttons) = titlebar_from_kde_layout(left, right);
+        style.metrics.titlebar.button_side = side;
+        style.metrics.titlebar.buttons = buttons;
+        style.linux.titlebar_button_layout =
+            OptionString::Some(alloc::format!("{left}|{right}").into());
+        answered = true;
+    }
+
+    answered
+}
+
+/// The GTK config file every desktop and every bare WM shares.
+///
+/// This is the universal floor under the DE-specific stores: a Hyprland or
+/// Sway user with no settings daemon still has `gtk-theme-name` here, and so
+/// does a session whose daemon we cannot reach. Parsed once.
+fn gtk_settings_ini() -> &'static alloc::collections::BTreeMap<String, String> {
+    static CACHE: std::sync::OnceLock<alloc::collections::BTreeMap<String, String>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        let mut map = alloc::collections::BTreeMap::new();
+        let home = std::env::var("HOME").unwrap_or_default();
+        let candidates = [
+            std::env::var("GTK_CONFIG_HOME").unwrap_or_default(),
+            alloc::format!("{home}/.config/gtk-4.0/settings.ini"),
+            alloc::format!("{home}/.config/gtk-3.0/settings.ini"),
+        ];
+        for path in candidates.iter().filter(|p| !p.is_empty()) {
+            let Ok(text) = std::fs::read_to_string(path) else {
+                continue;
+            };
+            for line in text.lines() {
+                let line = line.trim();
+                if line.starts_with('[') || line.starts_with('#') {
+                    continue;
+                }
+                if let Some((k, v)) = line.split_once('=') {
+                    // First file wins: gtk-4.0 is more specific than gtk-3.0.
+                    map.entry(k.trim().to_string())
+                        .or_insert_with(|| v.trim().to_string());
+                }
+            }
+        }
+        map
+    })
+}
+
+fn gtk_ini_get(key: &str) -> Option<String> {
+    gtk_settings_ini().get(key).cloned()
+}
+
 fn titlebar_side_from_layout(layout: &str) -> TitlebarButtonSide {
     let (left, _right) = layout.split_once(':').unwrap_or((layout, ""));
     if left.contains("close") {
         TitlebarButtonSide::Left
     } else {
         TitlebarButtonSide::Right
+    }
+}
+
+/// XFCE's own store.
+///
+/// `xfsettingsd` publishes these to the session as XSETTINGS, so they are
+/// what every GTK app on an XFCE desktop actually renders with - and none of
+/// them are in gsettings. Returns `Err` when xfconf does not answer at all
+/// (no `xfconf-query`, no daemon), so the caller can fall through.
+fn discover_xfce_style() -> Result<SystemStyle, ()> {
+    // The theme name is the probe: if xfconf cannot answer this, it is not
+    // answering anything and a fallback is honest.
+    let theme_name = xfconf_get("xsettings", "/Net/ThemeName").ok_or(())?;
+
+    // WHICH theme decides light vs dark: the WINDOW MANAGER's, i.e. the one
+    // drawing the titlebar (USER RULING, 2026-09-04 - "azwriter should use
+    // what the titlebar uses"). These disagree in practice: this Mint 22.2
+    // XFCE session runs xfwm4 `Mint-Y-Aqua` (light titlebars) while
+    // `gtk-application-prefer-dark-theme=true` and gsettings `color-scheme`
+    // still say prefer-dark, left over from a KDE session. An app that
+    // followed the GTK flag would paint a dark window under a light titlebar.
+    let polarity_theme =
+        xfconf_get("xfwm4", "/general/theme").unwrap_or_else(|| theme_name.clone());
+
+    let mut style = if theme_name_is_dark(&polarity_theme) {
+        defaults::gnome_adwaita_dark()
+    } else {
+        defaults::gnome_adwaita_light()
+    };
+
+    if let Some(font) = xfconf_get("xsettings", "/Gtk/FontName") {
+        if let Some((name, size)) = parse_font_name_and_size(&font) {
+            style.fonts.ui_font = OptionString::Some(name.into());
+            style.fonts.ui_font_size = OptionF32::Some(size);
+        } else {
+            style.fonts.ui_font = OptionString::Some(font.into());
+        }
+    }
+    if let Some(mono) = xfconf_get("xsettings", "/Gtk/MonospaceFontName") {
+        if let Some((name, size)) = parse_font_name_and_size(&mono) {
+            style.fonts.monospace_font = OptionString::Some(name.into());
+            style.fonts.monospace_font_size = OptionF32::Some(size);
+        } else {
+            style.fonts.monospace_font = OptionString::Some(mono.into());
+        }
+    }
+    // The titlebar font is xfwm4's, not xsettings'.
+    if let Some(title) = xfconf_get("xfwm4", "/general/title_font") {
+        if let Some((name, size)) = parse_font_name_and_size(&title) {
+            style.fonts.title_font = OptionString::Some(name.into());
+            style.fonts.title_font_size = OptionF32::Some(size);
+        } else {
+            style.fonts.title_font = OptionString::Some(title.into());
+        }
+    }
+
+    Ok(style)
+}
+
+/// The XFCE half of [`discover_linux_extras`] - icon theme, cursor and the
+/// titlebar buttons, all from xfconf.
+///
+/// Returns `false` when xfconf answered nothing, so the caller can fall back.
+fn xfce_extras(style: &mut SystemStyle) -> bool {
+    let mut answered = false;
+
+    if let Some(icon) = xfconf_get("xsettings", "/Net/IconThemeName") {
+        style.linux.icon_theme = OptionString::Some(icon.into());
+        answered = true;
+    }
+    if let Some(theme) = xfconf_get("xsettings", "/Net/ThemeName") {
+        style.linux.gtk_theme = OptionString::Some(theme.into());
+        answered = true;
+    }
+    if let Some(cursor) = xfconf_get("xsettings", "/Gtk/CursorThemeName") {
+        style.linux.cursor_theme = OptionString::Some(cursor.into());
+        answered = true;
+    }
+    if let Some(size) = xfconf_get("xsettings", "/Gtk/CursorThemeSize") {
+        if let Ok(sz) = size.parse::<u32>() {
+            if sz > 0 {
+                style.linux.cursor_size = sz;
+            }
+        }
+    }
+    if let Some(layout) = xfconf_get("xfwm4", "/general/button_layout") {
+        let (side, buttons) = titlebar_from_xfwm_layout(&layout);
+        style.metrics.titlebar.button_side = side;
+        style.metrics.titlebar.buttons = buttons;
+        style.linux.titlebar_button_layout = OptionString::Some(layout.into());
+        answered = true;
+    }
+
+    answered
+}
+
+/// `XCURSOR_THEME` / `XCURSOR_SIZE` - honoured by every Linux WM, and the
+/// only cursor answer a bare tiling session gives.
+fn apply_env_cursor_fallbacks(style: &mut SystemStyle) {
+    if style.linux.cursor_theme.is_none() {
+        if let Ok(t) = std::env::var("XCURSOR_THEME") {
+            style.linux.cursor_theme = OptionString::Some(t.into());
+        }
+    }
+    if style.linux.cursor_size == 0 {
+        if let Ok(s) = std::env::var("XCURSOR_SIZE") {
+            if let Ok(sz) = s.parse::<u32>() {
+                style.linux.cursor_size = sz;
+            }
+        }
+    }
+}
+
+/// The universal floor: whatever the GTK config file says, for the fields
+/// nothing above it answered. This is what makes a bare WM - Hyprland, Sway,
+/// i3, or an unknown session - load natively instead of falling back to a
+/// hardcoded Adwaita.
+fn gtk_ini_extras(style: &mut SystemStyle) {
+    if style.linux.icon_theme.is_none() {
+        if let Some(v) = gtk_ini_get("gtk-icon-theme-name") {
+            style.linux.icon_theme = OptionString::Some(v.into());
+        }
+    }
+    if style.linux.gtk_theme.is_none() {
+        if let Some(v) = gtk_ini_get("gtk-theme-name") {
+            style.linux.gtk_theme = OptionString::Some(v.into());
+        }
+    }
+    if style.linux.cursor_theme.is_none() {
+        if let Some(v) = gtk_ini_get("gtk-cursor-theme-name") {
+            style.linux.cursor_theme = OptionString::Some(v.into());
+        }
+    }
+    if style.linux.cursor_size == 0 {
+        if let Some(sz) = gtk_ini_get("gtk-cursor-theme-size").and_then(|v| v.parse::<u32>().ok()) {
+            style.linux.cursor_size = sz;
+        }
+    }
+    if style.fonts.ui_font.is_none() {
+        if let Some(font) = gtk_ini_get("gtk-font-name") {
+            if let Some((name, size)) = parse_font_name_and_size(&font) {
+                style.fonts.ui_font = OptionString::Some(name.into());
+                style.fonts.ui_font_size = OptionF32::Some(size);
+            }
+        }
+    }
+    if style.linux.titlebar_button_layout.is_none() {
+        if let Some(layout) = gtk_ini_get("gtk-decoration-layout") {
+            style.metrics.titlebar.button_side = titlebar_side_from_layout(&layout);
+            style.metrics.titlebar.buttons.has_close = layout.contains("close");
+            style.metrics.titlebar.buttons.has_minimize = layout.contains("minimize");
+            style.metrics.titlebar.buttons.has_maximize = layout.contains("maximize");
+            style.linux.titlebar_button_layout = OptionString::Some(layout.into());
+        }
     }
 }
 
@@ -1736,41 +2155,25 @@ pub(crate) fn discover() -> SystemStyle {
     // ── 1. Try XDG Desktop Portal (D-Bus) ───────────────────────────
     let portal_result = query_xdg_portal();
 
-    if let Some((color_scheme, accent_rgb)) = portal_result {
+    if let Some((color_scheme, _)) = portal_result {
         crate::plog_debug!(
             "system style: xdg-desktop-portal color-scheme={}",
             color_scheme
         );
-        let mut style = match color_scheme {
-            1 => defaults::gnome_adwaita_dark(),  // prefer-dark
-            2 => defaults::gnome_adwaita_light(), // prefer-light
-            _ => defaults::gnome_adwaita_light(), // no preference
-        };
-
-        if let Some((r, g, b)) = accent_rgb {
-            style.colors.accent = OptionColorU::Some(ColorU::new_rgb(
-                (r.clamp(0.0, 1.0) * 255.0) as u8,
-                (g.clamp(0.0, 1.0) * 255.0) as u8,
-                (b.clamp(0.0, 1.0) * 255.0) as u8,
-            ));
-        }
-
-        // Even with portal success, fill in extras from gsettings
-        discover_linux_extras(&mut style);
-        style.platform = Platform::Linux(azul_css::system::detect_linux_desktop_env());
-        style.language = detect_language_linux();
-        style.os_version = detect_linux_version();
-        style.prefers_reduced_motion = detect_gnome_reduced_motion();
-        style.prefers_high_contrast = detect_gnome_high_contrast();
-        style.app_specific_stylesheet = load_app_specific_stylesheet().map(Box::new);
-        return style;
+    } else {
+        // Portal probe unavailable or rejected (e.g. the raw-D-Bus handshake) —
+        // non-fatal. Visible only with AZ_LOG on.
+        crate::plog_debug!(
+            "system style: xdg-desktop-portal unavailable; falling back to CLI/defaults"
+        );
     }
 
-    // Portal probe unavailable or rejected (e.g. the raw-D-Bus handshake) —
-    // non-fatal; fall back to CLI/defaults. Visible only with AZ_LOG on.
-    crate::plog_debug!(
-        "system style: xdg-desktop-portal unavailable; falling back to CLI/defaults"
-    );
+    // NOTE: the portal used to RETURN here with a stock Adwaita palette, so on
+    // any machine with an xdg-desktop-portal installed no desktop-specific
+    // discovery ever ran and every font, theme and colour was a GNOME default
+    // nobody had chosen. The portal answers exactly two questions - the
+    // light/dark preference and the accent - so it now refines the desktop's
+    // own answer (below) instead of replacing it.
 
     // ── 2. CLI-based discovery ──────────────────────────────────────
     // `AZ_RICING=force` reorders the chain so riced-desktop sources
@@ -1782,27 +2185,76 @@ pub(crate) fn discover() -> SystemStyle {
         azul_css::system::RicingMode::Force,
     );
 
+    // Did the desktop's own store answer, or are we on built-in defaults?
+    // The portal is only allowed to speak for the second case.
+    let mut desktop_answered = false;
     let mut style = if force_riced {
-        discover_riced_style()
+        let found = discover_riced_style()
             .or_else(|_| discover_kde_style())
-            .or_else(|_| discover_gnome_style())
-            .unwrap_or_else(|_| defaults::gnome_adwaita_light())
+            .or_else(|_| discover_gnome_style());
+        desktop_answered = found.is_ok();
+        found.unwrap_or_else(|_| defaults::gnome_adwaita_light())
     } else {
         // Normal priority: KDE > GNOME > riced > defaults
         let desktop_env = azul_css::system::detect_linux_desktop_env();
-        match &desktop_env {
-            DesktopEnvironment::Kde => discover_kde_style()
+        // The desktop's OWN store leads. Everything after it is a fallback
+        // for a desktop that did not answer - never a different desktop's
+        // settings winning over one that did. A machine that once ran KDE
+        // keeps `kdeglobals`, and one with GNOME installed keeps its
+        // schemas, both fully populated and both wrong for the session the
+        // user is actually in.
+        let found = match linux_settings_source(&desktop_env) {
+            LinuxSettingsSource::KdeConfig => {
+                discover_kde_style().or_else(|_| discover_gnome_style())
+            }
+            LinuxSettingsSource::Gsettings => {
+                discover_gnome_style().or_else(|_| discover_kde_style())
+            }
+            LinuxSettingsSource::Xfconf => discover_xfce_style()
                 .or_else(|_| discover_gnome_style())
-                .unwrap_or_else(|_| defaults::gnome_adwaita_light()),
-            DesktopEnvironment::Gnome => discover_gnome_style()
-                .or_else(|_| discover_kde_style())
-                .unwrap_or_else(|_| defaults::gnome_adwaita_light()),
-            DesktopEnvironment::Other(_) => discover_riced_style()
+                .or_else(|_| discover_riced_style()),
+            LinuxSettingsSource::LxqtConfig | LinuxSettingsSource::Riced => discover_riced_style()
                 .or_else(|_| discover_gnome_style())
-                .or_else(|_| discover_kde_style())
-                .unwrap_or_else(|_| defaults::gnome_adwaita_light()),
-        }
+                .or_else(|_| discover_kde_style()),
+        };
+        desktop_answered = found.is_ok();
+        found.unwrap_or_else(|_| defaults::gnome_adwaita_light())
     };
+
+    // The portal refines only what the desktop did NOT answer for itself.
+    // Every desktop store above reads its own light/dark switch, and on XFCE
+    // the titlebar theme is the ruling one - a portal that reports
+    // "prefer-dark" from a stale GTK flag must not repaint a light session.
+    if let Some((color_scheme, accent_rgb)) = portal_result.filter(|_| !desktop_answered) {
+        match color_scheme {
+            1 if style.theme != Theme::Dark => {
+                let fonts = style.fonts.clone();
+                let linux = style.linux.clone();
+                let metrics = style.metrics.clone();
+                style = defaults::gnome_adwaita_dark();
+                style.fonts = fonts;
+                style.linux = linux;
+                style.metrics = metrics;
+            }
+            2 if style.theme != Theme::Light => {
+                let fonts = style.fonts.clone();
+                let linux = style.linux.clone();
+                let metrics = style.metrics.clone();
+                style = defaults::gnome_adwaita_light();
+                style.fonts = fonts;
+                style.linux = linux;
+                style.metrics = metrics;
+            }
+            _ => {}
+        }
+        if let Some((r, g, b)) = accent_rgb {
+            style.colors.accent = OptionColorU::Some(ColorU::new_rgb(
+                (r.clamp(0.0, 1.0) * 255.0) as u8,
+                (g.clamp(0.0, 1.0) * 255.0) as u8,
+                (b.clamp(0.0, 1.0) * 255.0) as u8,
+            ));
+        }
+    }
 
     // ── 3. Fill in extras and metadata ──────────────────────────────
     discover_linux_extras(&mut style);
@@ -1822,6 +2274,17 @@ pub(crate) fn discover() -> SystemStyle {
     // App-specific ricing stylesheet
     style.app_specific_stylesheet = load_app_specific_stylesheet().map(Box::new);
 
+    // Remember what full detection concluded, so a session with no
+    // xdg-desktop-portal still has a light/dark answer for the WINDOW theme.
+    // See `effective_system_theme`.
+    DISCOVERED_THEME.store(
+        match style.theme {
+            Theme::Dark => 1,
+            Theme::Light => 2,
+        },
+        core::sync::atomic::Ordering::Relaxed,
+    );
+
     style
 }
 
@@ -1840,6 +2303,34 @@ pub(crate) fn discover() -> SystemStyle {
 static OBSERVED_COLOR_SCHEME: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
 static THEME_WATCHER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+/// What full detection concluded at startup: 0 = not run yet, 1 = dark,
+/// 2 = light. Written by [`discover`], read when the portal says nothing.
+static DISCOVERED_THEME: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+/// The theme detection read from the desktop's own config at startup.
+fn discovered_startup_theme() -> Option<Theme> {
+    match DISCOVERED_THEME.load(core::sync::atomic::Ordering::Relaxed) {
+        1 => Some(Theme::Dark),
+        2 => Some(Theme::Light),
+        _ => None,
+    }
+}
+
+/// Which theme the WINDOW should carry: the portal's answer when it gives one,
+/// otherwise what full detection read at startup.
+///
+/// The portal is a live SIGNAL and detection is a one-shot READ, so the portal
+/// wins when both speak. But when the portal is absent - no xdg-desktop-portal,
+/// a bare WM, a session where it simply does not answer - the startup read is
+/// the only thing that knows, and it is usually right: it came from kdeglobals,
+/// xfconf or the GTK theme name. Without this the window kept
+/// `WindowTheme::default()` (LightMode) on every portal-less desktop, so a
+/// Breeze Dark KDE session rendered a LIGHT application chrome while
+/// `SystemStyle` sitting right beside it correctly said `Theme::Dark`.
+fn effective_system_theme(observed: Option<Theme>, discovered: Option<Theme>) -> Option<Theme> {
+    observed.or(discovered)
+}
 
 /// Map the XDG `color-scheme` setting onto a [`Theme`].
 ///
@@ -1868,32 +2359,467 @@ pub(crate) fn observed_system_theme() -> Option<Theme> {
     }
 }
 
+/// The fd both Linux event loops park on, so a theme switch WAKES them.
+///
+/// `OBSERVED_COLOR_SCHEME` alone was not enough. It is read from
+/// `check_timers_and_threads`, and both loops call that only when a timerfd
+/// fired or a background thread is live — otherwise they sit in `poll(2)` with
+/// an INFINITE timeout. An idle window (no animation, no timer, no thread) was
+/// therefore never going to run the read, so the portal's answer sat in the
+/// atomic until the user happened to move the mouse. An eventfd in both poll
+/// sets is what turns "the watcher knows" into "the window knows".
+///
+/// One fd for the whole process, not one per window: the setting is
+/// process-wide, `poll(2)` on the same fd from several loops all wake, and the
+/// counter semantics mean a drain by one loop cannot lose the wake for another
+/// (each loop re-reads the atomic, which is the source of truth).
+static THEME_WAKE_FD: core::sync::atomic::AtomicI32 = core::sync::atomic::AtomicI32::new(-1);
+
+/// The eventfd to put in a backend's poll set, or `-1` when it could not be
+/// created (in which case the loop simply keeps its old timer-driven latency).
+///
+/// Starts the watcher as a side effect, exactly like [`observed_system_theme`]:
+/// a backend that polls the fd is a backend that wants the answer.
+pub(crate) fn theme_wake_fd() -> i32 {
+    ensure_theme_watcher();
+    THEME_WAKE_FD.load(core::sync::atomic::Ordering::Relaxed)
+}
+
+/// Acknowledge a wake so `poll(2)` stops reporting the fd as readable.
+///
+/// The COUNT is deliberately discarded: it says how many times the desktop's
+/// setting moved since the last drain, and the answer to all of them is the
+/// same single re-read of `observed_system_theme`.
+pub(crate) fn drain_theme_wake() {
+    let fd = THEME_WAKE_FD.load(core::sync::atomic::Ordering::Relaxed);
+    if fd < 0 {
+        return;
+    }
+    let mut n: u64 = 0;
+    unsafe {
+        libc::read(fd, core::ptr::addr_of_mut!(n).cast::<libc::c_void>(), 8);
+    }
+}
+
+/// Publish a scheme the watcher just learned, and wake every parked loop.
+fn publish_color_scheme(scheme: u32) {
+    if color_scheme_to_theme(scheme).is_none() {
+        return;
+    }
+    let previous =
+        OBSERVED_COLOR_SCHEME.swap(scheme as u8, core::sync::atomic::Ordering::Relaxed);
+    if previous == scheme as u8 {
+        return;
+    }
+    let fd = THEME_WAKE_FD.load(core::sync::atomic::Ordering::Relaxed);
+    if fd < 0 {
+        return;
+    }
+    let one: u64 = 1;
+    unsafe {
+        libc::write(fd, core::ptr::addr_of!(one).cast::<libc::c_void>(), 8);
+    }
+}
+
 /// Start the watcher thread once per process.
 ///
-/// It MUST NOT run on the event-loop thread. `query_xdg_portal` opens a Unix
-/// socket to the session bus and does a synchronous request/response with two-
-/// second read and write timeouts, so polling it inline would risk a two-second
-/// freeze of the UI every time the portal was slow or absent — trading "dark
-/// mode does not apply until restart" for "the window hangs", which is worse.
+/// It MUST NOT run on the event-loop thread. The bus socket is a synchronous
+/// request/response channel and the watch below BLOCKS on it, so running any of
+/// this inline would park the UI on the session bus.
 ///
-/// Polling rather than subscribing to `SettingChanged`: reading a signal needs a
-/// match rule and a message loop against the bus, where a poll reuses the
-/// request path that already exists here. Two seconds is far below human
-/// tolerance for a theme switch and is one tiny D-Bus call.
+/// The mechanism is the portal's `SettingChanged` SIGNAL, not a poll. There is
+/// no Wayland protocol for the desktop's colour scheme and XSETTINGS does not
+/// carry one either, so `org.freedesktop.portal.Settings` is the answer on both
+/// Linux backends — and it announces changes rather than making callers ask.
+/// A `Read` still happens twice: once per connection to learn the CURRENT value
+/// (a signal only reports transitions), and once per idle interval as a
+/// backstop for a portal implementation that answers `Read` but never emits the
+/// signal.
 fn ensure_theme_watcher() {
     THEME_WATCHER.get_or_init(|| {
+        // Created BEFORE the thread starts, so `theme_wake_fd()` never observes
+        // -1 after `ensure_theme_watcher()` has returned.
+        let fd = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
+        THEME_WAKE_FD.store(fd, core::sync::atomic::Ordering::Relaxed);
+
         let _ = std::thread::Builder::new()
             .name("azul-theme-watch".into())
-            .spawn(|| loop {
-                if let Some((scheme, _accent)) = query_xdg_portal() {
-                    if color_scheme_to_theme(scheme).is_some() {
-                        OBSERVED_COLOR_SCHEME
-                            .store(scheme as u8, core::sync::atomic::Ordering::Relaxed);
+            .spawn(|| {
+                // Doubling backoff, so a session with no bus at all (a TTY
+                // login, a container without DBUS_SESSION_BUS_ADDRESS) stops
+                // retrying every two seconds forever.
+                let mut backoff = core::time::Duration::from_secs(2);
+                loop {
+                    if watch_portal_color_scheme().is_some() {
+                        // The connection lived and then ended: the bus went
+                        // away or the portal restarted. Reconnect promptly.
+                        backoff = core::time::Duration::from_secs(2);
+                    } else {
+                        backoff = (backoff * 2).min(core::time::Duration::from_secs(60));
                     }
+                    std::thread::sleep(backoff);
                 }
-                std::thread::sleep(core::time::Duration::from_secs(2));
             });
     });
+}
+
+/// How long the watcher parks on the bus before re-`Read`ing as a backstop.
+const PORTAL_BACKSTOP_INTERVAL: core::time::Duration = core::time::Duration::from_secs(30);
+
+/// Subscribe to `org.freedesktop.portal.Settings.SettingChanged` and publish
+/// every colour-scheme change until the connection ends.
+///
+/// Returns `Some(())` if a connection was established (and has since ended),
+/// `None` if one could not be made at all — the caller uses that to tell "the
+/// portal went away" from "there is no session bus here" when choosing a
+/// backoff.
+fn watch_portal_color_scheme() -> Option<()> {
+    use std::io::Read;
+    use std::os::unix::net::UnixStream;
+
+    let bus_addr = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok()?;
+    let path = bus_addr.strip_prefix("unix:path=")?.split(',').next()?;
+    let mut stream = UnixStream::connect(path).ok()?;
+    stream
+        .set_write_timeout(Some(core::time::Duration::from_secs(2)))
+        .ok()?;
+    // The read timeout IS the backstop interval: a wait that ends without a
+    // message means "nothing happened for 30s", which is exactly when the
+    // backstop `Read` should go out.
+    stream.set_read_timeout(Some(PORTAL_BACKSTOP_INTERVAL)).ok()?;
+
+    let uid = unsafe { libc_getuid() };
+    let auth_msg = alloc::format!("\0AUTH EXTERNAL {}\r\nBEGIN\r\n", hex_encode_uid(uid));
+    send_all_nosignal(&stream, auth_msg.as_bytes()).ok()?;
+    let mut auth_buf = [0u8; 256];
+    let n = stream.read(&mut auth_buf).ok()?;
+    if !core::str::from_utf8(&auth_buf[..n]).ok()?.contains("OK") {
+        return None;
+    }
+
+    let mut serial: u32 = 1;
+    let send_call = |stream: &UnixStream,
+                     serial: &mut u32,
+                     dest: &str,
+                     path: &str,
+                     iface: &str,
+                     member: &str,
+                     args: &[DValue<'_>]|
+     -> Option<()> {
+        let msg = build_dbus_method_call(dest, path, iface, member, args, *serial);
+        *serial += 1;
+        send_all_nosignal(stream, &msg).ok()
+    };
+
+    if send_call(
+        &stream,
+        &mut serial,
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+        "Hello",
+        &[],
+    )
+    .is_none()
+    {
+        return Some(());
+    }
+
+    // The match rule. Without it the bus delivers no broadcast signals at all —
+    // signal subscription on D-Bus is opt-in per client, and this is the opt-in.
+    if send_call(
+        &stream,
+        &mut serial,
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+        "AddMatch",
+        &[DValue::String(
+            "type='signal',interface='org.freedesktop.portal.Settings',member='SettingChanged',\
+             arg0='org.freedesktop.appearance'",
+        )],
+    )
+    .is_none()
+    {
+        return Some(());
+    }
+
+    // A signal reports a TRANSITION, so the value in effect right now has to be
+    // asked for once. The serial is RETURNED and remembered: replies are matched
+    // against it, because `Hello`'s and `AddMatch`'s replies come back down this
+    // same socket and the response parser is a heuristic over the last four
+    // bytes of the body — handed the wrong message it could invent a scheme.
+    let read_color_scheme = |stream: &UnixStream, serial: &mut u32| -> Option<u32> {
+        let sent = *serial;
+        let msg = build_dbus_method_call(
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.Settings",
+            "Read",
+            &[
+                DValue::String("org.freedesktop.appearance"),
+                DValue::String("color-scheme"),
+            ],
+            *serial,
+        );
+        *serial += 1;
+        send_all_nosignal(stream, &msg).ok()?;
+        Some(sent)
+    };
+    let mut outstanding_read = read_color_scheme(&stream, &mut serial);
+
+    // Every byte the bus has sent that has not yet been split into a message.
+    // A read can stop MID-message (the timeout below, a short read), so the
+    // remainder has to survive to the next one — parsing per `read()` call
+    // would corrupt the stream the first time that happened.
+    let mut pending: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        match stream.read(&mut chunk) {
+            // The peer closed: the bus or the portal went away.
+            Ok(0) => return Some(()),
+            Ok(n) => pending.extend_from_slice(&chunk[..n]),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                // Idle for a full interval. Ask outright, so a portal that
+                // answers `Read` but never emits `SettingChanged` still gets
+                // its changes noticed — just at poll latency rather than
+                // instantly.
+                let Some(sent) = read_color_scheme(&stream, &mut serial) else {
+                    return Some(());
+                };
+                outstanding_read = Some(sent);
+                continue;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Some(()),
+        }
+
+        loop {
+            let len = match dbus_message_len(&pending) {
+                Some(len) => len,
+                // The fixed header is fully here and still does not describe a
+                // message: the stream is desynchronised or the peer is not
+                // speaking D-Bus. Nothing can resynchronise a byte stream after
+                // that, so drop the connection and reconnect rather than
+                // growing `pending` forever.
+                None if pending.len() >= 16 => return Some(()),
+                None => break,
+            };
+            if pending.len() < len {
+                break;
+            }
+            let msg: alloc::vec::Vec<u8> = pending.drain(..len).collect();
+            if let Some(scheme) = color_scheme_from_message(&msg, outstanding_read) {
+                outstanding_read = None;
+                publish_color_scheme(scheme);
+            }
+        }
+    }
+}
+
+// ── Minimal D-Bus message READER (framing + the two shapes we consume) ────
+
+/// Total on-the-wire length of the message starting at `data[0]`, once enough
+/// of its fixed header has arrived to say.
+///
+/// D-Bus is a framed protocol whose frame length is only computable from the
+/// 16-byte fixed header: body length at offset 4, header-field array length at
+/// offset 12, and the body starts at the next 8-byte boundary after the fields.
+fn dbus_message_len(data: &[u8]) -> Option<usize> {
+    if data.len() < 16 {
+        return None;
+    }
+    let le = match data[0] {
+        b'l' => true,
+        b'B' => false,
+        _ => return None,
+    };
+    let u32_at = |o: usize| -> u32 {
+        let b: [u8; 4] = data[o..o + 4].try_into().unwrap_or([0; 4]);
+        if le {
+            u32::from_le_bytes(b)
+        } else {
+            u32::from_be_bytes(b)
+        }
+    };
+    let body_len = u32_at(4) as usize;
+    let fields_len = u32_at(12) as usize;
+    // The spec's hard maximum message length. A length past it is a corrupt or
+    // hostile header, not a big message, and refusing here is what keeps the
+    // arithmetic below from overflowing.
+    const MAX_MESSAGE_LEN: usize = 134_217_728;
+    if body_len > MAX_MESSAGE_LEN || fields_len > MAX_MESSAGE_LEN {
+        return None;
+    }
+    let body_start = (16 + fields_len).next_multiple_of(8);
+    Some(body_start + body_len)
+}
+
+/// A cursor over one complete D-Bus message, aware of its byte order.
+struct DbusMessage<'a> {
+    data: &'a [u8],
+    le: bool,
+    pos: usize,
+}
+
+impl<'a> DbusMessage<'a> {
+    fn new(data: &'a [u8]) -> Option<Self> {
+        let le = match *data.first()? {
+            b'l' => true,
+            b'B' => false,
+            _ => return None,
+        };
+        Some(Self { data, le, pos: 0 })
+    }
+
+    fn align(&mut self, to: usize) {
+        self.pos = self.pos.next_multiple_of(to);
+    }
+
+    fn u8(&mut self) -> Option<u8> {
+        let v = *self.data.get(self.pos)?;
+        self.pos += 1;
+        Some(v)
+    }
+
+    fn u32(&mut self) -> Option<u32> {
+        self.align(4);
+        let b: [u8; 4] = self.data.get(self.pos..self.pos + 4)?.try_into().ok()?;
+        self.pos += 4;
+        Some(if self.le {
+            u32::from_le_bytes(b)
+        } else {
+            u32::from_be_bytes(b)
+        })
+    }
+
+    /// A `s`/`o` value: 4-aligned u32 length, bytes, NUL.
+    fn string(&mut self) -> Option<&'a str> {
+        let len = self.u32()? as usize;
+        let end = self.pos.checked_add(len)?;
+        let s = core::str::from_utf8(self.data.get(self.pos..end)?).ok()?;
+        self.pos = end.checked_add(1)?;
+        Some(s)
+    }
+
+    /// A `g` value: single-byte length, bytes, NUL. Used for both the header
+    /// fields' variant signatures and a variant's own.
+    fn signature(&mut self) -> Option<&'a str> {
+        let len = self.u8()? as usize;
+        let end = self.pos.checked_add(len)?;
+        let s = core::str::from_utf8(self.data.get(self.pos..end)?).ok()?;
+        self.pos = end.checked_add(1)?;
+        Some(s)
+    }
+
+    /// Step over a value of the given single-character type, so an unwanted
+    /// header field does not desynchronise the walk.
+    ///
+    /// Only the types that appear in a header field are handled; anything else
+    /// aborts the walk rather than guessing a width.
+    fn skip_value(&mut self, sig: &str) -> Option<()> {
+        match sig {
+            "s" | "o" => {
+                self.string()?;
+            }
+            "g" => {
+                self.signature()?;
+            }
+            "u" => {
+                self.u32()?;
+            }
+            _ => return None,
+        }
+        Some(())
+    }
+}
+
+/// The colour-scheme value carried by `msg`, if `msg` carries one.
+///
+/// Two shapes reach here and both are accepted:
+///   * the SIGNAL `SettingChanged(s namespace, s key, v value)` — the change
+///     announcement this watcher subscribes to;
+///   * the METHOD_RETURN for `Settings.Read`, whose body is `v` wrapping the
+///     same `u` — the initial and backstop reads.
+///
+/// `expect_reply_serial` is the serial of the `Read` currently in flight, and a
+/// METHOD_RETURN is only decoded when it answers exactly that. `Hello` and
+/// `AddMatch` reply on this same socket, and the reply decoder is a heuristic
+/// over the last four bytes of the body accepting anything in `0..=2` — handed
+/// the wrong reply it could invent a colour scheme out of a unique bus name.
+fn color_scheme_from_message(msg: &[u8], expect_reply_serial: Option<u32>) -> Option<u32> {
+    // Fixed header: [0] endianness, [1] type, [4..8] body length,
+    // [12..16] header-field array length.
+    let msg_type = *msg.get(1)?;
+    const METHOD_RETURN: u8 = 2;
+    const SIGNAL: u8 = 4;
+    if msg_type != METHOD_RETURN && msg_type != SIGNAL {
+        return None;
+    }
+
+    let mut cur = DbusMessage::new(msg)?;
+    cur.pos = 12;
+    let fields_len = cur.u32()? as usize;
+    let fields_end = 16usize.checked_add(fields_len)?;
+    let body_start = fields_end.checked_next_multiple_of(8)?;
+
+    // The header-field array is STRUCT(BYTE code, VARIANT value), each struct
+    // 8-byte aligned. Codes 3 (MEMBER) and 5 (REPLY_SERIAL) are what identify
+    // the two shapes; every other field is stepped over by its own type, so an
+    // unread one cannot desynchronise the walk.
+    let mut member: Option<&str> = None;
+    let mut reply_serial: Option<u32> = None;
+    cur.pos = 16;
+    while cur.pos < fields_end {
+        cur.align(8);
+        if cur.pos >= fields_end {
+            break;
+        }
+        let code = cur.u8()?;
+        let sig = cur.signature()?;
+        match (code, sig) {
+            (3, "s") => member = Some(cur.string()?),
+            (5, "u") => reply_serial = Some(cur.u32()?),
+            _ => cur.skip_value(sig)?,
+        }
+    }
+
+    if msg_type == METHOD_RETURN {
+        if expect_reply_serial.is_none() || reply_serial != expect_reply_serial {
+            return None;
+        }
+        // `parse_uint32_from_variant_response` already knows this body shape —
+        // but it reads its lengths as little-endian, so a big-endian reply has
+        // to fall through to the next signal rather than be misparsed. (The
+        // session bus on every platform azul builds for is little-endian; this
+        // is the guard, not a limitation worth working around.)
+        if !cur.le {
+            return None;
+        }
+        return parse_uint32_from_variant_response(msg);
+    }
+
+    if member != Some("SettingChanged") {
+        return None;
+    }
+
+    // Body: (s namespace, s key, v value).
+    cur.pos = body_start;
+    if cur.string()? != "org.freedesktop.appearance" {
+        return None;
+    }
+    if cur.string()? != "color-scheme" {
+        return None;
+    }
+    if cur.signature()? != "u" {
+        return None;
+    }
+    cur.u32()
 }
 
 /// Adopt the watcher's theme into `common`, returning the RE-DISCOVERED style
@@ -1914,7 +2840,7 @@ pub(crate) fn adopt_observed_theme(
 ) -> Option<alloc::sync::Arc<SystemStyle>> {
     use azul_core::window::WindowTheme;
 
-    let theme = observed_system_theme()?;
+    let theme = effective_system_theme(observed_system_theme(), discovered_startup_theme())?;
     let theme = match theme {
         Theme::Dark => WindowTheme::DarkMode,
         Theme::Light => WindowTheme::LightMode,
@@ -2010,15 +2936,29 @@ pub fn dump_discovered_style() -> String {
     // Which desktop-settings family actually answered. A Cinnamon/MATE
     // session answers on its OWN schemas; probing with a key that exists in
     // only one of them is what distinguishes "detected" from "fell back".
-    let settings_source = if gsettings_get_raw("org.gnome.desktop.interface", "font-name").is_some()
-    {
-        "gsettings:gnome"
-    } else if gsettings_get_raw("org.cinnamon.desktop.interface", "font-name").is_some() {
-        "gsettings:cinnamon"
-    } else if gsettings_get_raw("org.mate.interface", "font-name").is_some() {
-        "gsettings:mate"
-    } else {
-        "none"
+    let resolved = linux_settings_source(&azul_css::system::detect_linux_desktop_env());
+    let settings_source = match resolved {
+        LinuxSettingsSource::KdeConfig => "kdeglobals".to_string(),
+        LinuxSettingsSource::Xfconf => {
+            if xfconf_get("xsettings", "/Net/ThemeName").is_some() {
+                "xfconf".to_string()
+            } else {
+                "xfconf (no answer -> fallback)".to_string()
+            }
+        }
+        LinuxSettingsSource::LxqtConfig => "lxqt".to_string(),
+        LinuxSettingsSource::Riced => "riced/gtk-ini".to_string(),
+        LinuxSettingsSource::Gsettings => {
+            if gsettings_get_raw("org.gnome.desktop.interface", "font-name").is_some() {
+                "gsettings:gnome".to_string()
+            } else if gsettings_get_raw("org.cinnamon.desktop.interface", "font-name").is_some() {
+                "gsettings:cinnamon".to_string()
+            } else if gsettings_get_raw("org.mate.interface", "font-name").is_some() {
+                "gsettings:mate".to_string()
+            } else {
+                "none".to_string()
+            }
+        }
     };
     let _ = writeln!(o, "platform            {:?}", s.platform);
     let _ = writeln!(o, "settings_source     {settings_source}");
@@ -2294,5 +3234,158 @@ mod kde_ini_tests {
         let wm = schema_family("org.gnome.desktop.wm.preferences");
         assert!(wm.contains(&"org.cinnamon.desktop.wm.preferences".to_string()));
         assert!(wm.contains(&"org.mate.Marco.general".to_string()));
+    }
+
+    // ── XFCE / xfconf ────────────────────────────────────────────────
+    //
+    // Observed on Linux Mint 22.2 XFCE (Xorg 21.1.11), 2026-09-04: the dump
+    // said `platform Linux(Other("XFCE"))` and, on the very next line,
+    // `settings_source gsettings:gnome`. Detection KNEW the desktop and then
+    // read a different desktop's settings — the machine still had KDE's
+    // schemas populated, so azul rendered Breeze DARK with Noto Sans and
+    // breeze-dark icons on a desktop themed Mint-Y-Aqua LIGHT with Ubuntu 10.
+    // XFCE keeps none of that in gsettings; xfconf is its store.
+
+    #[test]
+    fn a_theme_name_says_whether_it_is_dark() {
+        // The real theme on the test machine - light, and NOT dark just
+        // because a fuzzy match found some substring.
+        assert!(!theme_name_is_dark("Mint-Y-Aqua"));
+        assert!(!theme_name_is_dark("Breeze"));
+        assert!(!theme_name_is_dark("Adwaita"));
+        // The dark spellings XFCE themes actually ship.
+        assert!(theme_name_is_dark("Mint-Y-Dark-Aqua"));
+        assert!(theme_name_is_dark("Adwaita-dark"));
+        assert!(theme_name_is_dark("Breeze-Dark"));
+    }
+
+    #[test]
+    fn the_xfwm4_button_layout_is_not_the_gnome_one() {
+        // xfwm4 writes single LETTERS split by `|` (the title filler):
+        // O=menu, H=hide/minimize, M=maximize, C=close, S=shade, T=stick.
+        // `titlebar_side_from_layout` looks for the WORD "close" and would
+        // report every xfwm4 layout as buttons-on-the-right by default.
+        let (side, buttons) = titlebar_from_xfwm_layout("O|HMC");
+        assert_eq!(side, TitlebarButtonSide::Right);
+        assert!(buttons.has_close && buttons.has_minimize && buttons.has_maximize);
+
+        // Buttons moved to the left: close is left of the filler.
+        let (side, _) = titlebar_from_xfwm_layout("CMH|O");
+        assert_eq!(side, TitlebarButtonSide::Left);
+
+        // A layout that drops maximize must not draw one.
+        let (_, buttons) = titlebar_from_xfwm_layout("O|HC");
+        assert!(buttons.has_close && buttons.has_minimize && !buttons.has_maximize);
+    }
+
+    /// KDE keeps its icon theme, cursor, widget style and titlebar buttons in
+    /// its OWN store - and azul was reading them out of the GNOME schemas.
+    ///
+    /// Measured on this Plasma session, 2026-09-05:
+    ///   kdeglobals [Icons] Theme       = breeze-dark
+    ///   kcminputrc [Mouse] cursorTheme = breeze_cursors
+    ///   org.cinnamon.desktop.interface icon-theme = 'Mint-Y-Sand'
+    ///                                  gtk-theme  = 'Mint-Y-Aqua'
+    ///                                  cursor-theme = 'Bibata-Modern-Classic'
+    /// The GNOME schemas happened to agree with KDE here (Plasma writes them
+    /// for GTK-app integration), so nothing looked wrong - but the CINNAMON
+    /// schemas, sitting in the same session, hold a completely different
+    /// desktop's answers. `resolve_schema_family` picks whichever family
+    /// answers `font-name` first, so on a machine without `org.gnome.*` a KDE
+    /// session reads Mint-Y-Sand icons onto a Breeze desktop. The XFCE fix
+    /// gave XFCE its own store; KDE never got the same treatment.
+    #[test]
+    fn the_kde_button_layout_is_letters_not_words() {
+        // kdecoration2 spells buttons as LETTERS split across two keys:
+        // M=menu S=on-all-desktops H=help I=minimize A=maximize X=close.
+        // Plasma's default is ButtonsOnLeft=MS, ButtonsOnRight=HIAX - nothing
+        // like GNOME's `icon:minimize,maximize,close`, so
+        // `titlebar_side_from_layout` (which looks for the WORD "close")
+        // cannot read it at all.
+        let (side, buttons) = titlebar_from_kde_layout("MS", "HIAX");
+        assert_eq!(side, TitlebarButtonSide::Right);
+        assert!(buttons.has_close && buttons.has_minimize && buttons.has_maximize);
+
+        // Buttons moved to the left: close is in the LEFT key.
+        let (side, _) = titlebar_from_kde_layout("XIA", "M");
+        assert_eq!(side, TitlebarButtonSide::Left);
+
+        // A layout without maximize must not draw one.
+        let (_, buttons) = titlebar_from_kde_layout("M", "IX");
+        assert!(buttons.has_close && buttons.has_minimize && !buttons.has_maximize);
+    }
+
+    /// Observed on KDE Plasma **Wayland** (Breeze Dark), 2026-09-05: the
+    /// window rendered its LIGHT chrome on a dark desktop. Detection was not
+    /// the problem - `AZ_DUMP_SYSTEM_STYLE=1` correctly read `theme Dark` and
+    /// the whole Breeze Dark palette out of kdeglobals. The problem is that
+    /// the WINDOW theme (`WindowState::theme`, which is what an app reads
+    /// through `CallbackInfo::get_theme()`) is fed by ONE source: the
+    /// xdg-desktop-portal watcher. This session logs
+    /// `xdg-desktop-portal unavailable`, so the watcher never stores anything,
+    /// `adopt_observed_theme` returns `None`, and the window keeps
+    /// `WindowTheme::default()` - which is `LightMode` - forever.
+    ///
+    /// `observed_system_theme`'s own doc already states the rule this restores:
+    /// when the portal expresses no preference, "whatever full detection chose
+    /// at startup (GTK theme name, kdeglobals, pywal, ...) remains the better
+    /// answer". It was never actually applied to the window.
+    #[test]
+    fn a_silent_portal_falls_back_to_what_detection_read_at_startup() {
+        // The portal answers: it wins, even against a different startup read.
+        assert_eq!(
+            effective_system_theme(Some(Theme::Dark), Some(Theme::Light)),
+            Some(Theme::Dark)
+        );
+        assert_eq!(
+            effective_system_theme(Some(Theme::Light), Some(Theme::Dark)),
+            Some(Theme::Light)
+        );
+
+        // THE DEFECT: no portal, but startup detection read a dark desktop out
+        // of kdeglobals. Today this is `None` and the window stays LightMode.
+        assert_eq!(
+            effective_system_theme(None, Some(Theme::Dark)),
+            Some(Theme::Dark),
+            "a dark desktop with no portal must still produce a dark window"
+        );
+        assert_eq!(
+            effective_system_theme(None, Some(Theme::Light)),
+            Some(Theme::Light)
+        );
+
+        // Nothing known anywhere: stay quiet rather than guess.
+        assert_eq!(effective_system_theme(None, None), None);
+    }
+
+    #[test]
+    fn xfce_reads_xfconf_and_not_the_gnome_schemas() {
+        // The whole defect in one assertion: on an XFCE desktop the settings
+        // source must be xfconf. It is what xfsettingsd publishes and what
+        // every GTK app on that session actually obeys; the GNOME schemas may
+        // be present and populated by a DIFFERENT desktop the user once ran.
+        assert_eq!(
+            linux_settings_source(&DesktopEnvironment::Other("XFCE".into())),
+            LinuxSettingsSource::Xfconf
+        );
+        assert_eq!(
+            linux_settings_source(&DesktopEnvironment::Other("xfce".into())),
+            LinuxSettingsSource::Xfconf,
+            "the desktop name is not case-normalised anywhere upstream"
+        );
+        // The desktops that DO answer on gsettings keep answering there.
+        assert_eq!(
+            linux_settings_source(&DesktopEnvironment::Gnome),
+            LinuxSettingsSource::Gsettings
+        );
+        assert_eq!(
+            linux_settings_source(&DesktopEnvironment::Other("Cinnamon".into())),
+            LinuxSettingsSource::Gsettings,
+            "Cinnamon is a GNOME fork - schema_family already maps its names"
+        );
+        assert_eq!(
+            linux_settings_source(&DesktopEnvironment::Kde),
+            LinuxSettingsSource::KdeConfig
+        );
     }
 }

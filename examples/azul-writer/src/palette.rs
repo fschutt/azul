@@ -159,6 +159,22 @@ impl std::fmt::Debug for Palette {
     }
 }
 
+/// A document ink, lifted until it is legible on THIS palette's chrome.
+///
+/// The in-ribbon style gallery previews document styles, and a document style
+/// is a fixed thing: Heading 1 is `#2e74b5` whatever the desktop looks like.
+/// That ruling stands - the preview has to show what the style will actually
+/// be - but on a dark session those inks were being painted onto charcoal,
+/// and dark blue on dark grey is not a preview of anything. So the hue is
+/// kept and only the lightness moves, and only as far as WCAG AA needs, which
+/// is what [`Palette::brand_text`] already does by hand for the brand.
+///
+/// On a light chrome every one of these inks already passes, so this returns
+/// them unchanged and the light theme is pixel-identical to before.
+pub fn sample_ink(ink: ColorU, pal: &Palette) -> ColorU {
+    ink.ensure_contrast(pal.chrome, 4.5)
+}
+
 /// The Office-2013 palette, used verbatim when the desktop reports nothing.
 const OFFICE_2013: Palette = Palette {
     dark: false,
@@ -634,6 +650,67 @@ mod tests {
         assert_eq!(Palette::hex(rgb(43, 87, 154)), "#2b579a");
         assert_eq!(Palette::hex(rgb(0, 0, 0)), "#000000");
         assert_eq!(Palette::hex(rgb(255, 255, 255)), "#ffffff");
+    }
+
+    /// Observed on Linux Mint 22.2 XFCE, 2026-09-04: with the chrome dark,
+    /// the in-ribbon style gallery painted Word's document inks - `#2e74b5`
+    /// for Heading 1/2, `#262626` for Title, `#444444` for Normal - straight
+    /// onto the charcoal ribbon. Dark blue on dark grey: the Title sample was
+    /// invisible in the screenshot. The gallery previews are deliberately NOT
+    /// themed (they have to show what the style really is), and that ruling
+    /// stands - but "unthemed" cannot mean "unreadable", so the ink keeps its
+    /// hue and is lifted until it is legible, exactly as `brand_text` is.
+    #[test]
+    fn every_gallery_ink_is_legible_on_its_own_chrome() {
+        // The inks the ribbon's style gallery actually paints.
+        const INKS: &[ColorU] = &[
+            rgb(68, 68, 68),    // Normal / No Spacing
+            rgb(46, 116, 181),  // Heading 1 + 2
+            rgb(38, 38, 38),    // Title
+            rgb(90, 90, 90),    // Subtitle
+            rgb(128, 128, 128), // Subtle Emphasis
+            rgb(68, 114, 196),  // Emphasis
+        ];
+
+        for pal in [&OFFICE_2013, &OFFICE_2013_DARK] {
+            for ink in INKS {
+                let shown = sample_ink(*ink, pal);
+                let ratio = shown.contrast_ratio(pal.chrome);
+                assert!(
+                    ratio >= 4.5,
+                    "ink {} on chrome {} reads at {ratio:.2}:1 (need 4.5:1)",
+                    Palette::hex(shown),
+                    Palette::hex(pal.chrome),
+                );
+            }
+        }
+    }
+
+    /// The lift must be a LIFT, not a repaint: a blue stays blue, or the
+    /// preview stops previewing the style it names.
+    #[test]
+    fn lifting_an_ink_keeps_its_hue() {
+        // The FFI `ColorU` derives neither PartialEq nor Debug, so identity
+        // is compared channel-wise here.
+        let same = |a: ColorU, b: ColorU| a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+
+        let heading = rgb(46, 116, 181);
+        let lifted = sample_ink(heading, &OFFICE_2013_DARK);
+        assert!(
+            !same(lifted, heading),
+            "on charcoal this ink has to move at all"
+        );
+        assert!(
+            lifted.b > lifted.r && lifted.b > lifted.g,
+            "still a blue: {}",
+            Palette::hex(lifted)
+        );
+        // On the light palette the same ink already passes and must be
+        // returned untouched - the previews are not re-tinted for fun.
+        assert!(
+            same(sample_ink(heading, &OFFICE_2013), heading),
+            "a light chrome must leave the document ink exactly as it is"
+        );
     }
 }
 

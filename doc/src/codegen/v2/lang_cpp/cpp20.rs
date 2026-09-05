@@ -124,6 +124,10 @@ impl CppDialect for Cpp20Generator {
         }
 
         // Close namespace
+        // Trait entry points for the classes that got no wrapper class
+        // (enums, tagged unions). See `generate_freefn_trait_helpers`.
+        code.push_str(&generate_freefn_trait_helpers(ir, config, std));
+
         code.push_str("} // namespace azul\r\n\r\n");
 
         // Structured-binding specializations (namespace std).
@@ -476,6 +480,10 @@ impl CppDialect for Cpp23Generator {
             }
             self.generate_method_implementations(&mut code, struct_def, ir, config);
         }
+
+        // Trait entry points for the classes that got no wrapper class
+        // (enums, tagged unions). See `generate_freefn_trait_helpers`.
+        code.push_str(&generate_freefn_trait_helpers(ir, config, std));
 
         code.push_str("} // namespace azul\r\n\r\n");
 

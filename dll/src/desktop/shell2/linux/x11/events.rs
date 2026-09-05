@@ -558,16 +558,24 @@ impl X11Window {
         // to the WM via _NET_WM_MOVERESIZE (root coords come straight from
         // the button event; the implicit grab must be released first or the
         // WM cannot take over the pointer).
-        if is_down
-            && button == MouseButton::Left
-            && self.common.current_window_state().flags.decorations
-                == azul_core::window::WindowDecorations::None
-        {
+        // ...but NOT while maximized or fullscreen. A maximized window has no
+        // resizable edge, so the request is a no-op at the WM - while the
+        // `return` below still swallows the press before it can reach
+        // `record_input_sample`, killing the DragStart AND the DoubleClick
+        // the titlebar needs. Maximized, the band's top 8 px sit at screen
+        // y = 0, which is exactly where a user aims for the titlebar: every
+        // drag and every double-click on AzWriter (it starts maximized and
+        // undecorated) was eaten here.
+        if is_down && button == MouseButton::Left {
             use crate::desktop::shell2::common::event::{
-                csd_resize_edge_at, CsdResizeEdge, CSD_RESIZE_BAND_PX,
+                csd_resize_edge_for_press, CsdResizeEdge, CSD_RESIZE_BAND_PX,
             };
-            let size = self.common.current_window_state().size.dimensions;
-            if let Some(edge) = csd_resize_edge_at(position, size, CSD_RESIZE_BAND_PX) {
+            let ws = self.common.current_window_state();
+            let size = ws.size.dimensions;
+            let (decorations, frame) = (ws.flags.decorations, ws.flags.frame);
+            if let Some(edge) =
+                csd_resize_edge_for_press(position, size, decorations, frame, CSD_RESIZE_BAND_PX)
+            {
                 // _NET_WM_MOVERESIZE directions: TOPLEFT=0 TOP=1 TOPRIGHT=2
                 // RIGHT=3 BOTTOMRIGHT=4 BOTTOM=5 BOTTOMLEFT=6 LEFT=7.
                 let direction: std::os::raw::c_long = match edge {

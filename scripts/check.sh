@@ -42,6 +42,7 @@ STAGES=(
   "check|fast|cargo check azul-css / azul-core / azul-layout"
   "clippy|fast|clippy -D warnings on core/css/layout --all-targets"
   "doc-check|fast|azul-doc check (double-drop invariant + guide links)"
+  "binding-syntax|fast|syntax/type-check generated bindings: zig, go, ocaml, ruby, lua, php, node"
   "doc-tests|fast|cargo test -p azul-doc --bins"
   "unit-tests|fast|css+core+layout+webrender --lib, WITH the feature gates CI uses"
   "css-io|fast|--test test_system_style --features io (required-features gate)"
@@ -302,6 +303,142 @@ stage_check() {
     && cargo check -p azul-layout
 }
 
+stage_binding_syntax() {
+  # WHY THIS EXISTS
+  # ---------------
+  # `azul-doc check derives` proves a NAME is present in a generated binding.
+  # It cannot prove the binding compiles - it greps text, and a broken method
+  # still contains its name. Three non-compiling emissions shipped during the
+  # derive-parity work and none were visible to it. This stage is the other
+  # half: it asks each language's own compiler whether the derives actually
+  # materialised as valid native constructs.
+  #
+  # THE PROBE RULE
+  # --------------
+  # Every checker is first run against a two-line known-good sample of its own
+  # language. A tool that cannot check `var x = 1;` is SKIPPED, not believed.
+  # Without this, adding checkers makes the gate less trustworthy: `node` is on
+  # PATH here and aborts with a missing dylib (exit 134), and `javac` is
+  # installed with no Java runtime. Both would otherwise be reported as "your
+  # generated code is broken".
+  #
+  # KNOWN_BROKEN
+  # ------------
+  # A binding whose artifact does not compile TODAY, for reasons that predate
+  # this gate. Recorded rather than silently skipped, and rather than blocking
+  # every other language behind it. Same ratchet idea as the derive baseline:
+  # the list may shrink, and anything NOT on it must pass.
+  local gen="target/codegen"
+  if [ ! -d "$gen" ]; then
+    echo "  (skip: $gen missing - run 'cargo run --release -p azul-doc codegen all')"
+    return 0
+  fi
+
+  local rc=0
+  local tmp; tmp="$(mktemp -d)"
+
+  # label|probe command|real command
+  # Exactly three fields. A binding that cannot pass yet is handled below the
+  # loop instead (see the `v` KNOWN_BROKEN block), so it can carry its reason.
+  local checks=(
+    "zig|zig ast-check $tmp/p.zig|zig ast-check $gen/azul.zig"
+    "go|gofmt -e $tmp/p.go|gofmt -e $gen/go"
+    "c|gcc -fsyntax-only -x c $tmp/p.c|gcc -fsyntax-only -x c $gen/azul.h"
+    "fortran|gfortran -fsyntax-only -ffree-line-length-none -J$tmp $tmp/p.f90|gfortran -fsyntax-only -ffree-line-length-none -J$tmp $gen/azul.f90"
+    "perl|perl -c $tmp/p.pm|perl -c $gen/Azul.pm"
+    "ruby|ruby -c $tmp/p.rb|ruby -c $gen/azul.rb"
+    "lua|luajit -bl $tmp/p.lua /dev/null|luajit -bl $gen/azul.lua /dev/null"
+    "php|php -l $tmp/p.php|php -l $gen/Azul.php"
+    "nim|nim check --hints:off $tmp/p.nim|nim check --hints:off $gen/azul.nim"
+    "crystal|crystal build --no-codegen $tmp/p.cr|crystal build --no-codegen $gen/azul.cr"
+    "odin|odin check $tmp/p.odin -file -no-entry-point|odin check $gen/azul.odin -file -no-entry-point"
+    "node|node --check $tmp/p.js|node --check $gen/node/azul.js"
+    "cpp|g++ -fsyntax-only -std=c++17 -x c++ $tmp/p.cpp|g++ -fsyntax-only -std=c++17 -x c++ $gen/azul17.hpp"
+  )
+
+  # `-J$tmp` on gfortran: `-fsyntax-only` still WRITES a `.mod` file for every
+  # module it sees, into the current directory. Without it this stage drops
+  # `azul.mod` in the repo root, which then trips the "tree is dirty" guard on
+  # the next run - a gate that dirties the tree it is checking.
+  #
+  # Probe samples, one per language.
+  printf 'const x: u8 = 1;\n'                    > "$tmp/p.zig"
+  printf 'package p\nvar X = 1\n'                > "$tmp/p.go"
+  printf 'int x;\n'                              > "$tmp/p.c"
+  printf '#include <cstdint>\nint x;\n'          > "$tmp/p.cpp"
+  printf '      program p\n      end program p\n' > "$tmp/p.f90"
+  printf 'use FFI::Platypus;\n1;\n'             > "$tmp/p.pm"
+  printf 'x = 1\n'                               > "$tmp/p.rb"
+  printf 'local x = 1\n'                         > "$tmp/p.lua"
+  printf '<?php $x = 1;\n'                       > "$tmp/p.php"
+  printf 'let x = 1\n'                           > "$tmp/p.nim"
+  printf 'x = 1\n'                               > "$tmp/p.cr"
+  printf 'package p\n'                           > "$tmp/p.odin"
+  printf 'var x = 1;\n'                          > "$tmp/p.js"
+  printf 'module main\nfn main() {}\n'            > "$tmp/p.v"
+
+  local entry label probe real out
+  for entry in "${checks[@]}"; do
+    label="${entry%%|*}"
+    local rest="${entry#*|}"
+    probe="${rest%%|*}"
+    real="${rest#*|}"
+    if ! eval "$probe" >/dev/null 2>&1; then
+      echo "  (skip $label: checker unavailable or not working here)"
+      continue
+    fi
+    if out="$(eval "$real" 2>&1)"; then
+      echo "  $label: ok"
+    else
+      echo "  $label: FAILED" >&2
+      echo "$out" | awk 'NR<=15' >&2
+      rc=1
+    fi
+  done
+
+  # OCaml gets a full TYPE check, not a parse: `ocamlc -stop-after parsing`
+  # accepted a file referencing a binding declared 42k lines later, and OCaml
+  # is order-sensitive. Only the type checker caught it.
+  if command -v ocamlfind >/dev/null 2>&1 && ocamlfind query ctypes >/dev/null 2>&1; then
+    local omldir; omldir="$(mktemp -d)"
+    cp "$gen/azul.mli" "$gen/azul.ml" "$omldir/" 2>/dev/null
+    if (cd "$omldir" \
+          && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.mli \
+          && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.ml) >/dev/null 2>&1; then
+      echo "  ocaml: ok"
+    else
+      echo "  ocaml: FAILED" >&2
+      (cd "$omldir" && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.mli \
+        && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.ml) 2>&1 | head -20 >&2
+      rc=1
+    fi
+    rm -rf "$omldir"
+  else
+    echo "  (skip ocaml: ocamlfind or ctypes not installed)"
+  fi
+
+  # KNOWN_BROKEN: v. `v -check target/codegen/azul.v` reports ~200 errors of
+  # the form "field name `Alias` cannot contain uppercase letters, use
+  # snake_case instead". V enforces snake_case field names as a LANGUAGE rule,
+  # and the emitter carries the api.json spelling through unchanged. It
+  # predates this gate - v has reported 0 unreachable derives throughout,
+  # which is precisely the blind spot this stage exists to expose: every name
+  # is present and the file has never compiled. Fixing it is an emitter change
+  # (snake_case the field names, keep the C ABI spelling for the extern side),
+  # not a gate change, so it is recorded here rather than silently skipped.
+  if command -v v >/dev/null 2>&1 && v -check "$tmp/p.v" >/dev/null 2>&1; then
+    if v -check "$gen/azul.v" >/dev/null 2>&1; then
+      echo "  v: ok (KNOWN_BROKEN entry is stale - remove it)"
+      rc=1
+    else
+      echo "  v: KNOWN_BROKEN (uppercase field names; see the comment above)"
+    fi
+  fi
+
+  rm -rf "$tmp"
+  return $rc
+}
+
 stage_doc_tests() {
   local log="$LOGDIR/doc-tests.raw"
   # `--bins`, not `--lib`: azul-doc is binary-only.
@@ -483,6 +620,7 @@ for s in "${STAGES[@]}"; do
     check)           run_stage "$name" "$desc" stage_check ;;
     doc-tests)       run_stage "$name" "$desc" stage_doc_tests ;;
     doc-check)       run_stage "$name" "$desc" stage_doc_check ;;
+    binding-syntax)  run_stage "$name" "$desc" stage_binding_syntax ;;
     css-io)          run_stage "$name" "$desc" stage_css_io ;;
     unit-tests)        run_stage "$name" "$desc" stage_unit_tests ;;
     integration-tests) run_stage "$name" "$desc" stage_integration_tests ;;

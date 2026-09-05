@@ -699,7 +699,7 @@ fn theme_tab(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     // it. It stops being invisible the moment an app makes that band
     // translucent, which is what `content_bg` is for.
     v.push(Cond::simple(P::WhiteSpace(
-        azul_css::props::property::StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap),
+        props::property::StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap),
     )));
     CssPropertyWithConditionsVec::from_vec(v)
 }
@@ -727,7 +727,7 @@ fn theme_tab_active(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     )));
     // One line, like every other tab - see `theme_tab`.
     v.push(Cond::simple(P::WhiteSpace(
-        azul_css::props::property::StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap),
+        props::property::StyleWhiteSpaceValue::Exact(StyleWhiteSpace::Nowrap),
     )));
     CssPropertyWithConditionsVec::from_vec(v)
 }

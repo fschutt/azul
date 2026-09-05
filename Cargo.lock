@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "azul-core"
-version = "0.0.14"
+version = "0.0.16"
 dependencies = [
  "azul-css",
  "gl-context-loader",
@@ -742,7 +742,7 @@ dependencies = [
 
 [[package]]
 name = "azul-css"
-version = "0.0.14"
+version = "0.0.16"
 dependencies = [
  "azul-simplecss",
  "libm",
@@ -905,7 +905,7 @@ dependencies = [
 
 [[package]]
 name = "azul-layout"
-version = "0.0.14"
+version = "0.0.16"
 dependencies = [
  "accesskit",
  "accesskit_consumer 0.38.0",
@@ -947,7 +947,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "short-uuid",
  "smallvec",
  "spmc",
  "strfmt",
@@ -961,7 +960,6 @@ dependencies = [
  "unicode-normalization",
  "unicode-segmentation",
  "ureq",
- "uuid",
  "webpki-roots",
  "writeable",
  "xmlparser",
@@ -6247,9 +6245,9 @@ dependencies = [
 
 [[package]]
 name = "printpdf"
-version = "0.12.7"
+version = "0.12.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f4d083138eb053f9af08c37069f506a1afc90667db3475d07bb271887da2f40"
+checksum = "95d50369c5e18e18d4716bd855172db3a70f9e82c966687ae051ea58138f285c"
 dependencies = [
  "allsorts-azul",
  "azul-core",
@@ -7046,9 +7044,9 @@ dependencies = [
 
 [[package]]
 name = "rust-fontconfig"
-version = "4.6.0"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1738b9f962e0c1740976aa5f59c004d132a05c0be99cab3e096a9354a5ab4684"
+checksum = "65891c2639e01103a60309be01deb83d1707a291b03ef3f5fe4162693ac053b0"
 dependencies = [
  "allsorts-azul",
  "bincode 1.3.3",
@@ -7537,15 +7535,6 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
-
-[[package]]
-name = "short-uuid"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5cb9a7452a33ab94fd48d5f533d181a400bf56ec5a55cf788c470ad430f52a5"
-dependencies = [
- "uuid",
-]
 
 [[package]]
 name = "shuttle"

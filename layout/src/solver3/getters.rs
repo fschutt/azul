@@ -2992,6 +2992,7 @@ pub fn get_style_properties_cached(
 /// # Panics
 ///
 /// Panics only on an internal indexing invariant (an in-range `get().unwrap()` over the font-family list).
+#[must_use] 
 pub fn get_style_properties(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -3019,7 +3020,7 @@ pub fn get_style_properties_for_state(
     dom_id: NodeId,
     system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
     viewport_size: PhysicalSize,
-    node_state: &azul_core::styled_dom::StyledNodeState,
+    node_state: &StyledNodeState,
 ) -> StyleProperties {
     use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
 
@@ -3773,164 +3774,11 @@ pub const fn is_avoid_break_inside(break_inside: &BreakInside) -> bool {
 use std::collections::HashMap;
 
 use rust_fontconfig::{
-    FcFontCache, FcWeight, FontFallbackChain, PatternMatch, UnicodeRange,
-    DEFAULT_UNICODE_FALLBACK_SCRIPTS,
+    config::is_generic_family, FcFontCache, FcWeight, FontFallbackChain, PatternMatch,
+    UnicodeRange, DEFAULT_UNICODE_FALLBACK_SCRIPTS,
 };
 
 use crate::text3::cache::{FontChainKey, FontChainKeyOrRef, FontSelector, FontStack, FontStyle};
-
-/// Build a fontconfig `FontSelector` stack from a list of CSS font families.
-///
-/// Shared by `get_style_properties` and `collect_font_stacks_from_styled_dom`.
-/// `Ref` families are skipped (callers handle embedded fonts via `FontStack::Ref`),
-/// `SystemType` families expand to the platform's fallback chain, and the generic
-/// `sans-serif`/`serif`/`monospace` fallbacks are appended if not already present.
-///
-/// When `platform` is `None` (e.g. the paged / PDF layout path that hard-codes
-/// `system_style = None`), system fonts resolve via `Platform::current()` so the
-/// names stay in lock-step with the font-loading pass (which always uses
-/// `Platform::current()`); diverging to a bare "sans-serif" would not match the
-/// names the loader registered → zero glyphs → text collapses to 0 width.
-// The `platform` binding uses a pre-declared `let current;` so the else branch can
-// extend the lifetime of a freshly-computed Platform and hand back a reference to it;
-// map_or_else cannot express this (the closure would return a dangling local ref).
-#[allow(clippy::option_if_let_else)]
-/// The system's fontconfig `<alias><prefer>` lists for the CSS generic
-/// families (Linux only), parsed once per process.
-///
-/// Chromium - and every fontconfig-linked toolkit - resolves `sans-serif`
-/// through these aliases, so the SAME machine that renders reftests with
-/// Noto Sans in Chrome must not render Ubuntu in azul just because
-/// rust-fontconfig's hardcoded per-OS candidate list puts Ubuntu first.
-/// The preferred families are inserted BEFORE the generic in the selector
-/// stack; the generic stays, so rust-fontconfig's expansion still appends
-/// its own fallbacks after them.
-///
-/// Only the `<alias>` subset of the fontconfig configuration is read
-/// (fonts.conf + conf.d/*.conf in sorted order, matching fontconfig's
-/// accumulation order); everything else in those files is ignored.
-#[cfg(all(target_os = "linux", feature = "std"))]
-fn fontconfig_generic_aliases() -> &'static std::collections::BTreeMap<String, Vec<String>> {
-    use std::collections::BTreeMap;
-    use std::sync::OnceLock;
-    static ALIASES: OnceLock<BTreeMap<String, Vec<String>>> = OnceLock::new();
-    ALIASES.get_or_init(|| {
-        let mut map: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        // FONTCONFIG_FILE overrides the system configuration wholesale -
-        // exactly like libfontconfig - which is how the reftest pipeline
-        // pins a hermetic font set for azul AND Chrome simultaneously.
-        if let Ok(custom) = std::env::var("FONTCONFIG_FILE") {
-            if !custom.is_empty() {
-                let files = vec![std::path::PathBuf::from(custom)];
-                collect_alias_files(&files, &mut map);
-                return map;
-            }
-        }
-        let mut files: Vec<std::path::PathBuf> = vec!["/etc/fonts/fonts.conf".into()];
-        if let Ok(dir) = std::fs::read_dir("/etc/fonts/conf.d") {
-            let mut confs: Vec<_> = dir
-                .filter_map(Result::ok)
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|e| e == "conf"))
-                .collect();
-            confs.sort();
-            files.extend(confs);
-        }
-        collect_alias_files(&files, &mut map);
-        map
-    })
-}
-
-/// Accumulate `<alias><prefer>` families from the given fontconfig files
-/// into `map` (generic-family keys only, first occurrence wins per family).
-#[cfg(all(target_os = "linux", feature = "std"))]
-fn collect_alias_files(
-    files: &[std::path::PathBuf],
-    map: &mut std::collections::BTreeMap<String, Vec<String>>,
-) {
-    for path in files {
-        let Ok(content) = std::fs::read_to_string(path) else {
-            continue;
-        };
-        let mut rest = content.as_str();
-        while let Some(start) = rest.find("<alias") {
-            let Some(end_rel) = rest[start..].find("</alias>") else {
-                break;
-            };
-            let block = &rest[start..start + end_rel];
-            rest = &rest[start + end_rel + "</alias>".len()..];
-            let Some(fam) = extract_xml_tag(block, "family") else {
-                continue;
-            };
-            let fam_lower = fam.to_ascii_lowercase();
-            if !matches!(fam_lower.as_str(), "sans-serif" | "serif" | "monospace") {
-                continue;
-            }
-            let Some(prefer_start) = block.find("<prefer>") else {
-                continue;
-            };
-            let prefer_end = block[prefer_start..]
-                .find("</prefer>")
-                .map_or(block.len(), |e| prefer_start + e);
-            let mut prefer_block = &block[prefer_start..prefer_end];
-            let entry = map.entry(fam_lower).or_default();
-            while let Some(f) = extract_xml_tag(prefer_block, "family") {
-                if !entry.iter().any(|e| e.eq_ignore_ascii_case(&f)) {
-                    entry.push(f.clone());
-                }
-                let Some(pos) = prefer_block.find("</family>") else {
-                    break;
-                };
-                prefer_block = &prefer_block[pos + "</family>".len()..];
-            }
-        }
-    }
-}
-
-/// First `<tag>...</tag>` text content inside `block`, trimmed.
-#[cfg(all(target_os = "linux", feature = "std"))]
-fn extract_xml_tag(block: &str, tag: &str) -> Option<String> {
-    let open = alloc::format!("<{tag}>");
-    let close = alloc::format!("</{tag}>");
-    let s = block.find(&open)? + open.len();
-    let e = block[s..].find(&close)? + s;
-    Some(block[s..e].trim().to_string())
-}
-
-/// Push `family` onto the selector stack, preceded by the system's
-/// fontconfig alias preferences when it is a CSS generic family (see
-/// `fontconfig_generic_aliases`).
-fn push_family_with_system_aliases(
-    stack: &mut Vec<FontSelector>,
-    family: String,
-    weight: FcWeight,
-    style: FontStyle,
-) {
-    #[cfg(all(target_os = "linux", feature = "std"))]
-    {
-        let lower = family.to_ascii_lowercase();
-        if matches!(lower.as_str(), "sans-serif" | "serif" | "monospace") {
-            if let Some(prefs) = fontconfig_generic_aliases().get(&lower) {
-                for pref in prefs {
-                    if !stack.iter().any(|f| f.family.eq_ignore_ascii_case(pref)) {
-                        stack.push(FontSelector {
-                            family: pref.clone(),
-                            weight,
-                            style,
-                            unicode_ranges: Vec::new(),
-                        });
-                    }
-                }
-            }
-        }
-    }
-    stack.push(FontSelector {
-        family,
-        weight,
-        style,
-        unicode_ranges: Vec::new(),
-    });
-}
 
 /// Memoised [`build_font_selector_stack`].
 ///
@@ -4012,6 +3860,29 @@ fn build_font_selector_stack_memo(
     built
 }
 
+/// Build a fontconfig `FontSelector` stack from a list of CSS font families.
+///
+/// Shared by `get_style_properties` and `collect_font_stacks_from_styled_dom`.
+/// `Ref` families are skipped (callers handle embedded fonts via `FontStack::Ref`),
+/// `SystemType` families expand to the platform's fallback chain, and the generic
+/// `sans-serif`/`serif`/`monospace` fallbacks are appended if not already present.
+///
+/// Generic families are pushed AS generics. rust-fontconfig expands them
+/// through its `FcFallbackConfig` - the platform's `fonts.conf`
+/// `<alias><prefer>` lists merged over the per-OS tables, see
+/// `FcFontRegistry::new` - so azul does no alias expansion of its own: ONE
+/// model decides what `sans-serif` means, and an alias family the system
+/// does not have costs a map lookup, not a resolver query.
+///
+/// When `platform` is `None` (e.g. the paged / PDF layout path that hard-codes
+/// `system_style = None`), system fonts resolve via `Platform::current()` so the
+/// names stay in lock-step with the font-loading pass (which always uses
+/// `Platform::current()`); diverging to a bare "sans-serif" would not match the
+/// names the loader registered → zero glyphs → text collapses to 0 width.
+// The `platform` binding uses a pre-declared `let current;` so the else branch can
+// extend the lifetime of a freshly-computed Platform and hand back a reference to it;
+// map_or_else cannot express this (the closure would return a dangling local ref).
+#[allow(clippy::option_if_let_else)]
 fn build_font_selector_stack(
     font_families: &StyleFontFamilyVec,
     platform: Option<&azul_css::system::Platform>,
@@ -4067,12 +3938,12 @@ fn build_font_selector_stack(
             // as_query_string, NOT as_string: FontManager queries fontconfig with the
             // RAW name. as_string() CSS-quotes whitespace names ("Times New Roman" ->
             // "\"Times New Roman\""), which corrupts the query for every multi-word font.
-            push_family_with_system_aliases(
-                &mut stack,
-                family.as_query_string(),
-                fc_weight,
-                fc_style,
-            );
+            stack.push(FontSelector {
+                family: family.as_query_string(),
+                weight: fc_weight,
+                style: fc_style,
+                unicode_ranges: Vec::new(),
+            });
         }
     }
 
@@ -4081,12 +3952,12 @@ fn build_font_selector_stack(
             .iter()
             .any(|f| f.family.eq_ignore_ascii_case(fallback))
         {
-            push_family_with_system_aliases(
-                &mut stack,
-                (*fallback).to_string(),
-                FcWeight::Normal,
-                FontStyle::Normal,
-            );
+            stack.push(FontSelector {
+                family: (*fallback).to_string(),
+                weight: FcWeight::Normal,
+                style: FontStyle::Normal,
+                unicode_ranges: Vec::new(),
+            });
         }
     }
 
@@ -4507,12 +4378,16 @@ pub fn collect_used_codepoints_all(styled_dom: &StyledDom) -> std::collections::
 /// in `FontMatch.unicode_ranges`). Always keeps at least the first
 /// match per group so a font listed in CSS doesn't disappear.
 ///
-/// `unicode_fallbacks` is filtered to only include fonts whose
-/// ranges intersect `used_chars` — Phase-6's
-/// [`scripts_present_in_styled_dom`] already scopes the *script
-/// blocks* but a single block (e.g. CJK Unified, U+4E00..U+9FFF)
-/// can have hundreds of matching system fonts; this prunes them
-/// down to the few that actually cover the codepoints used.
+/// The script tiers - each css group's `script_fonts` and the chain's
+/// `unicode_fallbacks` - are filtered to the fonts whose ranges intersect a
+/// used codepoint INSIDE the group's script range, and a group left with no
+/// fonts is dropped. Phase-6's [`scripts_present_in_styled_dom`] already
+/// scopes the *script blocks* but a single block (e.g. CJK Unified,
+/// U+4E00..U+9FFF) can have hundreds of matching system fonts; this prunes
+/// them down to the few that actually cover the codepoints used.
+///
+/// `last_resort` is never pruned: it is the "draw SOMETHING" tier
+/// (`ensure_chains_nonempty`), kept regardless of coverage.
 ///
 /// On excel.html (~ASCII-only) this drops the per-chain
 /// `css_fallbacks` from 5 → 1 in each group, eliminating ~20 of
@@ -4527,8 +4402,23 @@ pub fn prune_chain_to_used_chars(
             .iter()
             .any(|r| cp >= r.start && cp <= r.end)
     }
+    fn prune_script_groups(
+        groups: &mut Vec<rust_fontconfig::ScriptFallbackGroup>,
+        used_chars: &std::collections::BTreeSet<u32>,
+    ) {
+        for group in groups.iter_mut() {
+            let range = group.range;
+            group.fonts.retain(|fm| {
+                used_chars
+                    .iter()
+                    .any(|&cp| cp >= range.start && cp <= range.end && fm_covers(fm, cp))
+            });
+        }
+        groups.retain(|g| !g.fonts.is_empty());
+    }
 
     for group in &mut chain.css_fallbacks {
+        prune_script_groups(&mut group.script_fonts, used_chars);
         if group.fonts.is_empty() {
             continue;
         }
@@ -4547,9 +4437,7 @@ pub fn prune_chain_to_used_chars(
         group.fonts.truncate(keep);
     }
 
-    chain
-        .unicode_fallbacks
-        .retain(|fm| used_chars.iter().any(|&cp| fm_covers(fm, cp)));
+    prune_script_groups(&mut chain.unicode_fallbacks, used_chars);
 }
 
 /// Scan text-node content in `styled_dom` and return the subset of
@@ -4665,6 +4553,7 @@ fn split_memory_matches(
             groups.push(rust_fontconfig::CssFallbackGroup {
                 css_name: family.clone(),
                 fonts: vec![face.font_match.clone()],
+                script_fonts: Vec::new(),
             });
             continue;
         }
@@ -4678,6 +4567,7 @@ fn split_memory_matches(
             fallback.push(rust_fontconfig::CssFallbackGroup {
                 css_name: family.clone(),
                 fonts: vec![face.font_match.clone()],
+                script_fonts: Vec::new(),
             });
         }
     }
@@ -4750,107 +4640,6 @@ fn pick_memory_face(
 /// [`resolve_font_chains`] does and what every code path did before
 /// Phase 3.
 #[allow(clippy::implicit_hasher)] // internal; memory_families always uses the default hasher
-/// Concrete family names that exist ONLY because the fontconfig generic
-/// alias expansion invented them — the union of every `<alias><prefer>` list
-/// (see `fontconfig_generic_aliases`). Lowercased.
-///
-/// These are CANDIDATES, not requests: the system offers ~50 families per
-/// generic and expects most of them to be absent. Nothing in the document
-/// asked for `ZYSong18030`.
-#[cfg(all(target_os = "linux", feature = "std"))]
-fn alias_candidate_names() -> &'static std::collections::BTreeSet<String> {
-    use std::collections::BTreeSet;
-    use std::sync::OnceLock;
-    static S: OnceLock<BTreeSet<String>> = OnceLock::new();
-    S.get_or_init(|| {
-        fontconfig_generic_aliases()
-            .values()
-            .flatten()
-            .map(|f| f.to_ascii_lowercase())
-            .collect()
-    })
-}
-
-#[cfg(not(all(target_os = "linux", feature = "std")))]
-fn alias_candidate_names() -> &'static std::collections::BTreeSet<String> {
-    use std::collections::BTreeSet;
-    use std::sync::OnceLock;
-    static S: OnceLock<BTreeSet<String>> = OnceLock::new();
-    S.get_or_init(BTreeSet::new)
-}
-
-/// Lowercased family names the cache can actually serve.
-fn available_family_names(fc_cache: &FcFontCache) -> std::collections::BTreeSet<String> {
-    let mut out = std::collections::BTreeSet::new();
-    fc_cache.for_each_pattern(|pattern, _id| {
-        if let Some(f) = pattern.family.as_ref() {
-            out.insert(f.to_ascii_lowercase());
-        }
-    });
-    out
-}
-
-/// Drop the alias-expansion candidates the system cannot serve.
-///
-/// THE COST THIS REMOVES. Every CSS generic is expanded to the system's
-/// `<alias><prefer>` families ahead of the generic itself, so a stack of
-/// three generics reaches the resolver as ~150 concrete names. Resolving a
-/// name that is not installed is not free — measured at ~0.52 ms each,
-/// x142 misses = 73.8 ms of a 177 ms cold pagination, for TWO chains. The
-/// same 142 misses were also the wall of `UNRESOLVED font-family` warnings.
-///
-/// WHY THIS IS SAFE. azul does the generic expansion ITSELF
-/// (`push_family_with_system_aliases`), so every candidate reaching the
-/// resolver is already a concrete name — a concrete name absent from the
-/// cache cannot resolve by any route. Generics are never pruned (the
-/// resolver expands those internally), and neither is any family that is
-/// NOT an alias candidate: a name the DOCUMENT authored keeps its lookup
-/// and keeps its warning.
-///
-/// KNOWN TRADE-OFF: a family that is both authored AND on the system's
-/// prefer list (Arial, `DejaVu` Sans, ...) is pruned silently when absent.
-/// Its absence is what alias lists exist to absorb, so it is not a
-/// diagnostic worth a warning.
-fn prune_absent_alias_candidates(
-    families: &[String],
-    fc_cache: &FcFontCache,
-) -> (Vec<String>, usize) {
-    let aliases = alias_candidate_names();
-    if aliases.is_empty() {
-        return (families.to_vec(), 0);
-    }
-    let available = available_family_names(fc_cache);
-    let mut pruned = 0usize;
-    let kept = families
-        .iter()
-        .filter(|f| {
-            let drop = should_prune_family(f, aliases, &available);
-            if drop {
-                pruned += 1;
-            }
-            !drop
-        })
-        .cloned()
-        .collect();
-    (kept, pruned)
-}
-
-/// The decision behind [`prune_absent_alias_candidates`], over explicit sets
-/// so it can be tested without a system font configuration.
-///
-/// Prune ONLY when all three hold: the name was invented by the alias
-/// expansion, the system does not have it, and it is not a generic (the
-/// resolver expands those itself). Anything the DOCUMENT authored fails the
-/// first test and is always kept — lookup and warning intact.
-fn should_prune_family(
-    family: &str,
-    aliases: &std::collections::BTreeSet<String>,
-    available: &std::collections::BTreeSet<String>,
-) -> bool {
-    let lower = family.to_ascii_lowercase();
-    aliases.contains(&lower) && !available.contains(&lower) && !is_generic_family(family)
-}
-
 #[must_use]
 pub fn resolve_font_chains_with_registry(
     collected: &CollectedFontStacks,
@@ -4865,7 +4654,6 @@ pub fn resolve_font_chains_with_registry(
         .is_some()
         .then(std::time::Instant::now);
     let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    let mut total_pruned = 0usize;
 
     // Resolve system/file font stacks via fontconfig
     for font_stack in &collected.font_stacks {
@@ -4925,22 +4713,10 @@ pub fn resolve_font_chains_with_registry(
             is_oblique,
         );
 
-        // Alias candidates the system cannot serve never reach the resolver:
-        // each one costs a real lookup (~0.52 ms) to learn what a set
-        // membership test answers for free. See
-        // `prune_absent_alias_candidates`.
-        let (disk_families, pruned_aliases) =
-            prune_absent_alias_candidates(&disk_families, fc_cache);
-        total_pruned += pruned_aliases;
-
         // Registry-aware resolve: scout-on-demand path when available.
         // See `resolve_font_chains_with_registry` doc for rationale.
         let mut chain = if disk_families.is_empty() {
-            FontFallbackChain {
-                css_fallbacks: Vec::new(),
-                unicode_fallbacks: Vec::new(),
-                original_stack: font_families.clone(),
-            }
+            FontFallbackChain::empty(&font_families)
         } else {
             registry.map_or_else(
                 || {
@@ -4976,45 +4752,17 @@ pub fn resolve_font_chains_with_registry(
         chain.css_fallbacks.extend(mem_fallbacks);
 
         // A family that produced no group matched NOTHING — record it (see
-        // `ResolvedFontChains::unresolved_families`).
+        // `ResolvedFontChains::unresolved_families`). Generics are exempt:
+        // rust-fontconfig expands them itself, and a generic with no faces
+        // is the empty-system case `ensure_chains_nonempty` handles, not an
+        // authoring mistake.
         for family in &font_families {
             let matched = chain
                 .css_fallbacks
                 .iter()
                 .any(|g| g.css_name.eq_ignore_ascii_case(family) && !g.fonts.is_empty());
-            // A pruned candidate is not a failed request — the expansion
-            // invented it and the system does not have it, which is the
-            // normal case an alias list exists to absorb. Reporting them
-            // buried the families the DOCUMENT actually asked for under
-            // ~142 lines of noise.
-            let is_absent_alias = !disk_families.iter().any(|d| d == family)
-                && alias_candidate_names().contains(&family.to_ascii_lowercase());
-            if !matched && !is_generic_family(family) && !is_absent_alias {
+            if !matched && !is_generic_family(family) {
                 unresolved.insert(family.clone());
-            }
-        }
-
-        // WEB-LIFT last resort (in azul-layout, NOT rust-fontconfig — so the fragile
-        // `with_memory_fonts` isn't re-codegen'd into a trapping shape): the lifted
-        // resolve_font_chain query path can return an EMPTY chain even when a fallback
-        // font IS registered (generic→OS-name expansion + token/unicode query is
-        // lift-fragile). If the chain has no fonts, append the first registered font so
-        // load_missing_for_chains / resolve_char find it and text shapes (not measure 0).
-        let total_fonts = chain
-            .css_fallbacks
-            .iter()
-            .map(|g| g.fonts.len())
-            .sum::<usize>()
-            + chain.unicode_fallbacks.len();
-        if total_fonts == 0 {
-            if let Some((_pattern, id)) = first_font_in_cache(fc_cache).as_ref() {
-                // Vec::new() ranges (not pattern.unicode_ranges.clone()) — the Vec-clone
-                // mis-lifts on the web backend and empty == "no range restriction" here.
-                chain.unicode_fallbacks.push(rust_fontconfig::FontMatch {
-                    id: *id,
-                    unicode_ranges: Vec::new(),
-                    fallbacks: Vec::new(),
-                });
             }
         }
 
@@ -5025,18 +4773,20 @@ pub fn resolve_font_chains_with_registry(
     // style.font_stack for FontStack::Ref and uses the font data directly.
     // No entries are inserted into `chains` for them.
 
-    let out = ResolvedFontChains {
+    let mut out = ResolvedFontChains {
         chains,
         unresolved_families: unresolved,
         last_resort_chains: 0,
     };
+    ensure_chains_nonempty(&mut out, fc_cache);
     if let Some(t0) = trace_t0 {
         eprintln!(
             "[paginate]   resolve_font_chains_with_registry {:?}: {} chain(s), {} \
-             unresolved family name(s), {total_pruned} absent alias candidate(s) pruned",
+             unresolved family name(s), {} last-resort chain(s)",
             t0.elapsed(),
             out.chains.len(),
             out.unresolved_families.len(),
+            out.last_resort_chains,
         );
     }
     report_unresolved_families(&out);
@@ -5066,16 +4816,28 @@ fn first_font_in_cache(fc_cache: &FcFontCache) -> Option<(rust_fontconfig::FcPat
     first
 }
 
-/// WEB-LIFT last resort, applied LIFT-SAFELY. The lifted backend drops in-place
-/// mutations made through `BTreeMap::values_mut()` (the pushed `FontMatch` is silently
-/// lost — same class as the cascade `From` mapped-collect drop) and mis-lifts the
-/// `pattern.unicode_ranges.clone()` Vec-clone. So this rebuilds the map with an explicit
-/// `for` loop (no `values_mut`) and appends a coverage-agnostic fallback using
-/// `Vec::new()` ranges (the convention already used across this file for "no specific
-/// range restriction"). Applied on BOTH resolver return paths — the fast path otherwise
-/// returns chains with no last resort at all, so when the lifted
-/// `query_matches`/`find_unicode_fallbacks` yields an empty chain even though a fallback
-/// font IS registered, the text node measures 0 → `LayoutError::InvalidTree`.
+/// The ONE last-resort rule: a chain that matched nothing at all gets the
+/// first font in the cache as its `last_resort`, so text renders in SOME
+/// font instead of measuring 0 (`LayoutError::InvalidTree`).
+///
+/// Both resolvers call this before returning, so no caller has to remember
+/// to. The face goes on `FontFallbackChain::last_resort`, the tier
+/// rust-fontconfig 5 reserves for exactly this - `resolve_codepoint` hands
+/// it out tagged `LAST_RESORT_SOURCE`, so coverage decisions
+/// (`crate::text3::cache::covering_font`) can tell "this font has the glyph"
+/// from "nothing has it, draw something" - and `prune_chain_to_used_chars`
+/// never touches that tier, so pruning cannot re-empty the chain.
+///
+/// azul does NOT populate `FcFallbackConfig::last_resort` for this: that
+/// tier is resolved eagerly into EVERY chain and its faces are loaded with
+/// the chain, whereas this only touches chains that came back empty.
+///
+/// Applied LIFT-SAFELY: the lifted (web) backend drops in-place mutations
+/// made through `values_mut()` - the pushed `FontMatch` is silently lost,
+/// same class as the cascade `From` mapped-collect drop - and mis-lifts the
+/// `pattern.unicode_ranges.clone()` Vec-clone. So this rebuilds the map with
+/// an explicit `for` loop and pushes a face with `Vec::new()` ranges (the
+/// convention across this file for "no range restriction").
 fn ensure_chains_nonempty(resolved: &mut ResolvedFontChains, fc_cache: &FcFontCache) {
     let Some((_pattern, fallback_id)) = first_font_in_cache(fc_cache) else {
         return;
@@ -5085,13 +4847,7 @@ fn ensure_chains_nonempty(resolved: &mut ResolvedFontChains, fc_cache: &FcFontCa
     let mut last_resort = 0usize;
     for key in keys {
         if let Some(mut chain) = resolved.chains.remove(&key) {
-            let total = chain
-                .css_fallbacks
-                .iter()
-                .map(|g| g.fonts.len())
-                .sum::<usize>()
-                + chain.unicode_fallbacks.len();
-            if total == 0 {
+            if chain.fonts().next().is_none() {
                 // NOT SILENT: this chain matched nothing at all. Every such
                 // chain gets the SAME arbitrary `fallback_id` — which is
                 // precisely how N distinct font-families collapsed onto one
@@ -5105,7 +4861,7 @@ fn ensure_chains_nonempty(resolved: &mut ResolvedFontChains, fc_cache: &FcFontCa
                         k.font_families
                     );
                 }
-                chain.unicode_fallbacks.push(rust_fontconfig::FontMatch {
+                chain.last_resort.push(rust_fontconfig::FontMatch {
                     id: fallback_id,
                     unicode_ranges: Vec::new(),
                     fallbacks: Vec::new(),
@@ -5167,7 +4923,6 @@ pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
                 &font_manager.memory_families,
             );
             extend_chains_to_cover(&mut fast, &used_chars, fc_cache, Some(registry));
-            ensure_chains_nonempty(&mut fast, fc_cache);
             return fast;
         }
     }
@@ -5199,14 +4954,9 @@ pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
         fc_cache,
         font_manager.registry.as_deref(),
     );
-    // WEB-LIFT last resort (AFTER the prune, so it survives — the prune drops fonts
-    // whose parsed cmap doesn't cover used_chars, which removes the registered fallback
-    // before it's parsed): if a chain ended up empty, append the first registered font
-    // so load_missing_for_chains finds it and text shapes instead of measuring 0.
-    // LIFT-SAFE rebuild (see ensure_chains_nonempty) — the old `values_mut()` +
-    // `unicode_ranges.clone()` version dropped the push in the lifted backend, leaving
-    // the chain empty (web-text-min n1 measured 0xfffffffe/auto → InvalidTree).
-    ensure_chains_nonempty(&mut resolved, fc_cache);
+    // No last-resort step here: the resolver already applied
+    // `ensure_chains_nonempty`, and the face it added sits on
+    // `last_resort`, which the prune above never touches.
     resolved
 }
 
@@ -5306,11 +5056,9 @@ pub fn resolve_font_chains_fast(
         }
         // Merge: memory-matched groups (in CSS order) + whatever the disk
         // probe found for the remaining families.
-        let mut chain = chains_out.pop().unwrap_or_else(|| FontFallbackChain {
-            css_fallbacks: Vec::new(),
-            unicode_fallbacks: Vec::new(),
-            original_stack: font_families.clone(),
-        });
+        let mut chain = chains_out
+            .pop()
+            .unwrap_or_else(|| FontFallbackChain::empty(&font_families));
         if !css_fallbacks.is_empty() {
             css_fallbacks.append(&mut chain.css_fallbacks);
             chain.css_fallbacks = css_fallbacks;
@@ -5345,40 +5093,47 @@ pub fn resolve_font_chains_fast(
         chains.insert(cache_key, chain);
     }
 
-    let out = ResolvedFontChains {
+    let mut out = ResolvedFontChains {
         chains,
         unresolved_families: unresolved,
         last_resort_chains: 0,
     };
+    ensure_chains_nonempty(&mut out, &registry.shared_cache());
     report_unresolved_families(&out);
     out
 }
 
 /// Give every chain a face for each of the DOM's codepoints it cannot draw.
 ///
-/// Both resolvers leave gaps. `request_fonts_fast` walks the stack's plain OS
-/// expansion (the sans-serif list: Ubuntu, Arial, DejaVu Sans, Noto Sans,
-/// Liberation Sans on Linux) and treats a codepoint no listed family covers
-/// as a miss for the shaper's .notdef — so Arabic in a `sans-serif` paragraph
-/// renders as boxes on any machine whose sans list has no Arabic face (Noto
-/// Sans does not carry it; "Noto Sans Arabic" is only reached through the
-/// script-aware expansion). The legacy resolver attaches unicode fallbacks
-/// only for the seven `scripts_present_in_styled_dom` blocks, so Hebrew or
-/// Thai in a Latin stack is on its own. [`faces_covering`] runs the
-/// script-aware lookup for exactly the chars left uncovered and appends what
-/// it finds as unicode fallbacks; the steady state for a document in a
-/// script its stack covers is no work at all.
+/// Both resolvers leave gaps. `request_fonts_fast` expands the stack through
+/// the fallback config (the generic's families plus the script candidates
+/// for the SEVEN default scripts) and probes those files' cmaps against the
+/// DOM's codepoints; a codepoint outside those scripts that no listed family
+/// covers is a miss for the shaper's .notdef - Hebrew or Thai in a Latin
+/// `sans-serif` stack, on a machine whose sans list has no such face. The
+/// legacy resolver attaches script fallbacks only for the blocks
+/// `scripts_present_in_styled_dom` reports, with the same gap. And neither
+/// resolver knows the in-memory fonts. [`faces_covering`] runs the
+/// script-aware lookup for exactly the chars left uncovered and what it
+/// finds is appended as one more unicode-fallback group; the steady state
+/// for a document in a script its stack covers is no work at all.
 ///
-/// Whitespace, controls and default-ignorables are not asked for (see
-/// `needs_own_glyph`); a face's coverage is judged by the OS/2 ranges its
-/// match carries, since nothing is loaded yet at this point.
+/// Coverage is judged by [`covering_font`], which does NOT count the
+/// last-resort face: that face is there so SOMETHING draws, not because it
+/// has the glyph. Whitespace, controls and default-ignorables are not asked
+/// for (see `needs_own_glyph`); a face's coverage is judged by the
+/// `unicode_ranges` its match carries, since nothing is loaded yet at this
+/// point. Under rust-fontconfig 5 those ranges are the font's exact cmap
+/// segments - OS/2's `ulUnicodeRange` is no longer consulted, and the block
+/// probes that used to round a single glyph up to its whole Unicode block
+/// are gone.
 fn extend_chains_to_cover(
     resolved: &mut ResolvedFontChains,
     used_chars: &std::collections::BTreeSet<char>,
     fc_cache: &FcFontCache,
     registry: Option<&rust_fontconfig::registry::FcFontRegistry>,
 ) {
-    use crate::text3::cache::{faces_covering, needs_own_glyph};
+    use crate::text3::cache::{append_coverage_faces, covering_font, faces_covering, needs_own_glyph};
 
     let wanted: Vec<char> = used_chars
         .iter()
@@ -5388,45 +5143,21 @@ fn extend_chains_to_cover(
     if wanted.is_empty() {
         return;
     }
-    for (key, chain) in resolved.chains.iter_mut() {
+    for (key, chain) in &mut resolved.chains {
         let FontChainKeyOrRef::Chain(key) = key else {
             continue;
         };
         let uncovered: std::collections::BTreeSet<char> = wanted
             .iter()
             .copied()
-            .filter(|c| chain.resolve_char(fc_cache, *c).is_none())
+            .filter(|c| covering_font(chain, *c).is_none())
             .collect();
         if uncovered.is_empty() {
             continue;
         }
         let added = faces_covering(key, chain, uncovered, fc_cache, registry, &|_, _| None);
-        if !added.is_empty() {
-            chain.unicode_fallbacks.extend(added);
-        }
+        append_coverage_faces(chain, added);
     }
-}
-
-/// CSS generic families are not expected to match by name (they are
-/// expanded to concrete OS families before lookup), so a missing group for
-/// them is not a resolution failure worth reporting.
-fn is_generic_family(family: &str) -> bool {
-    matches!(
-        family.to_ascii_lowercase().as_str(),
-        "serif"
-            | "sans-serif"
-            | "monospace"
-            | "cursive"
-            | "fantasy"
-            | "system-ui"
-            | "ui-serif"
-            | "ui-sans-serif"
-            | "ui-monospace"
-            | "ui-rounded"
-            | "emoji"
-            | "math"
-            | "fangsong"
-    )
 }
 
 /// Log every family the resolver could not match, ONCE per process per
@@ -5446,12 +5177,16 @@ fn report_unresolved_families(resolved: &ResolvedFontChains) {
     let Ok(mut seen) = seen.lock() else { return };
     for family in &resolved.unresolved_families {
         if seen.insert(family.clone()) {
-            eprintln!(
+            // Through the diagnostics sink, like every other azul warning:
+            // `eprintln!` PANICS when stderr has gone away (piping a running
+            // app into `head` is enough), and a bare print is invisible to the
+            // ring, so nothing could assert that a missing family was reported.
+            azul_core::diagnostics::emit(alloc::format!(
                 "[azul][font] UNRESOLVED font-family {family:?}: no font file and no \
                  registered in-memory font matches this family. Text that asks for it \
                  renders in a FALLBACK font. Register it with \
                  FontManager::register_named_font(), or install it."
-            );
+            ));
         }
     }
 }
@@ -5503,15 +5238,9 @@ pub fn collect_font_ids_from_chains(chains: &ResolvedFontChains) -> HashSet<Font
     }
 
     for chain in chains.chains.values() {
-        // Collect from CSS fallbacks
-        for group in &chain.css_fallbacks {
-            for font in &group.fonts {
-                font_ids.insert(font.id);
-            }
-        }
-
-        // Collect from Unicode fallbacks
-        for font in &chain.unicode_fallbacks {
+        // Every tier: css groups (+ their script fonts), unicode fallbacks,
+        // last resort. `fonts()` dedups within a chain; the set dedups across.
+        for font in chain.fonts() {
             font_ids.insert(font.id);
         }
     }
@@ -7254,7 +6983,7 @@ mod autotest_generated {
             scrollbar::{ScrollbarColorCustom, ScrollbarFadeDelay, ScrollbarFadeDuration},
         },
     };
-    use rust_fontconfig::{CssFallbackGroup, FontMatch};
+    use rust_fontconfig::{CssFallbackGroup, FontMatch, ScriptFallbackGroup};
 
     use super::*;
 
@@ -7404,10 +7133,23 @@ mod autotest_generated {
         }
     }
 
+    /// A chain with `groups` as its css tier and `unicode` as ONE
+    /// full-range unicode-fallback group (none when `unicode` is empty).
     fn chain_with(groups: Vec<CssFallbackGroup>, unicode: Vec<FontMatch>) -> FontFallbackChain {
         FontFallbackChain {
             css_fallbacks: groups,
-            unicode_fallbacks: unicode,
+            unicode_fallbacks: if unicode.is_empty() {
+                Vec::new()
+            } else {
+                vec![ScriptFallbackGroup {
+                    range: UnicodeRange {
+                        start: 0,
+                        end: 0x10FFFF,
+                    },
+                    fonts: unicode,
+                }]
+            },
+            last_resort: Vec::new(),
             original_stack: Vec::new(),
         }
     }
@@ -8318,11 +8060,13 @@ mod autotest_generated {
                     CssFallbackGroup {
                         css_name: "Arial".to_string(),
                         fonts: vec![font_match(1, &[]), font_match(2, &[])],
+                        script_fonts: Vec::new(),
                     },
                     CssFallbackGroup {
                         css_name: "sans-serif".to_string(),
                         // FontId(1) also appears in the first group.
                         fonts: vec![font_match(1, &[]), font_match(3, &[])],
+                        script_fonts: Vec::new(),
                     },
                 ],
                 vec![font_match(3, &[]), font_match(u128::MAX, &[])],
@@ -8351,6 +8095,7 @@ mod autotest_generated {
                 vec![CssFallbackGroup {
                     css_name: "Nonexistent".to_string(),
                     fonts: Vec::new(),
+                    script_fonts: Vec::new(),
                 }],
                 Vec::new(),
             ),
@@ -8405,10 +8150,12 @@ mod autotest_generated {
                         font_match(2, &[]),
                         font_match(3, &[]),
                     ],
+                    script_fonts: Vec::new(),
                 },
                 CssFallbackGroup {
                     css_name: "B".to_string(),
                     fonts: vec![font_match(4, &[]), font_match(5, &[])],
+                    script_fonts: Vec::new(),
                 },
             ],
             vec![font_match(6, &[(0x4E00, 0x9FFF)])],
@@ -8436,6 +8183,7 @@ mod autotest_generated {
                     font_match(2, &[(0x80, 0x24F)]),    // Latin-1 supplement + extended
                     font_match(3, &[(0x0, 0x10_FFFF)]), // everything (must be dropped)
                 ],
+                script_fonts: Vec::new(),
             }],
             Vec::new(),
         );
@@ -8460,6 +8208,7 @@ mod autotest_generated {
                     font_match(1, &[(0x20, 0x7F)]),
                     font_match(2, &[(0x20, 0x7F)]),
                 ],
+                script_fonts: Vec::new(),
             }],
             vec![font_match(3, &[(0x20, 0x7F)])],
         );
@@ -8496,7 +8245,8 @@ mod autotest_generated {
                 1,
                 "U+{probe:04X} is inside the inclusive CJK range"
             );
-            assert_eq!(chain.unicode_fallbacks[0].id, FontId(1));
+            assert_eq!(chain.unicode_fallbacks[0].fonts.len(), 1);
+            assert_eq!(chain.unicode_fallbacks[0].fonts[0].id, FontId(1));
         }
         // One past each end of the range → no intersection.
         for probe in [0x4DFF_u32, 0xA000] {
@@ -8519,6 +8269,7 @@ mod autotest_generated {
             vec![CssFallbackGroup {
                 css_name: "A".to_string(),
                 fonts: Vec::new(),
+                script_fonts: Vec::new(),
             }],
             Vec::new(),
         );
@@ -8532,36 +8283,11 @@ mod autotest_generated {
     // build_font_selector_stack
     // =====================================================================
 
-    /// Strip the machine-dependent fontconfig alias insertions (the
-    /// families push_family_with_system_aliases prepends before each CSS
-    /// generic) so stack-shape assertions stay portable across systems.
-    fn without_system_alias_prefs(stack: &[FontSelector]) -> Vec<FontSelector> {
-        #[cfg(all(target_os = "linux", feature = "std"))]
-        {
-            let aliases = fontconfig_generic_aliases();
-            let alias_names: std::collections::BTreeSet<String> = aliases
-                .values()
-                .flatten()
-                .map(|s| s.to_ascii_lowercase())
-                .collect();
-            stack
-                .iter()
-                .filter(|s| !alias_names.contains(&s.family.to_ascii_lowercase()))
-                .cloned()
-                .collect()
-        }
-        #[cfg(not(all(target_os = "linux", feature = "std")))]
-        {
-            stack.to_vec()
-        }
-    }
-
     #[test]
     fn build_font_selector_stack_always_appends_the_three_generic_fallbacks() {
         let families = StyleFontFamilyVec::from_vec(Vec::new());
         let stack = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
 
-        let stack = without_system_alias_prefs(&stack);
         let names: Vec<&str> = stack.iter().map(|s| s.family.as_str()).collect();
         assert_eq!(names, ["sans-serif", "serif", "monospace"]);
         for s in &stack {
@@ -8631,7 +8357,6 @@ mod autotest_generated {
         ]);
         let stack = build_font_selector_stack(&families, None, FcWeight::Bold, FontStyle::Italic);
 
-        let stack = without_system_alias_prefs(&stack);
         assert_eq!(stack.len(), 5, "2 authored + 3 generic fallbacks");
         assert_eq!(stack[0].family, "Iosevka");
         assert_eq!(stack[1].family, "Menlo");
@@ -8779,7 +8504,6 @@ mod autotest_generated {
         )]);
         let stack = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
 
-        let stack = without_system_alias_prefs(&stack);
         assert_eq!(stack.len(), 3, "MONOSPACE + sans-serif + serif");
         assert_eq!(stack[0].family, "MONOSPACE");
         let lower: Vec<String> = stack.iter().map(|s| s.family.to_lowercase()).collect();
@@ -8796,7 +8520,6 @@ mod autotest_generated {
             StyleFontFamily::System("monospace".to_string().into()),
         ]);
         let stack = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
-        let stack = without_system_alias_prefs(&stack);
         assert_eq!(stack.len(), 3);
     }
 
@@ -8811,7 +8534,6 @@ mod autotest_generated {
         ]);
         let stack = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
 
-        let stack = without_system_alias_prefs(&stack);
         assert_eq!(stack.len(), 7, "4 authored + 3 generic fallbacks");
         assert_eq!(stack[0].family, "");
         assert_eq!(stack[2].family, "Ｍ🎉 ǝɔɐɟdʎʇ — «Шрифт»");
@@ -9840,62 +9562,39 @@ mod style_interning_tests {
 }
 
 #[cfg(test)]
-mod alias_prune_tests {
-    use super::should_prune_family;
-    use std::collections::BTreeSet;
+mod unresolved_family_reporting_tests {
+    use super::*;
 
-    fn set(v: &[&str]) -> BTreeSet<String> {
-        v.iter().map(|s| s.to_ascii_lowercase()).collect()
-    }
-
-    /// Only the alias expansion's own inventions get pruned.
+    /// The unresolved-family warning must go through the DIAGNOSTICS SINK like
+    /// every other azul warning, not through a bare `eprintln!`.
     ///
-    /// Resolving a family the system does not have costs a real lookup
-    /// (~0.52 ms measured); the generic expansion produces ~150 of them per
-    /// stack, which was 73.8 ms of a 177 ms cold pagination AND the wall of
-    /// `UNRESOLVED font-family` warnings. Pruning them is free. Pruning
-    /// anything else would silently change which font renders.
+    /// Two things were wrong with printing directly. It panics: `eprintln!`
+    /// aborts the process when the write fails, and a closed stderr is
+    /// ordinary - piping a running app into `head` killed it exactly that way
+    /// (see `azul_core::diagnostics::write_diagnostic`). And it is invisible
+    /// to the ring, so no test can assert that a missing family was reported,
+    /// which is the whole reason the diagnostic was added.
     ///
-    /// NEGATIVE CONTROL: dropping the `aliases.contains(..)` term (prune
-    /// anything absent) fails the authored-family case; dropping the
-    /// `!available.contains(..)` term fails the installed-alias case;
-    /// dropping the generic guard fails the generic case. All three run and
-    /// seen.
+    /// Kept through the rust-fontconfig 5.0 merge: the ALIAS-PRUNE tests that
+    /// used to sit beside this one were deleted with `should_prune_family`,
+    /// which 5.0's `prune_script_groups` / `prune_chain_to_used_chars`
+    /// replaced. This test is about the diagnostic, not the pruning, and the
+    /// fix it guards is still in `report_unresolved_families`.
     #[test]
-    fn only_absent_alias_candidates_are_pruned() {
-        let aliases = set(&["DejaVu Sans", "ZYSong18030", "Cantarell"]);
-        let available = set(&["DejaVu Sans", "Liberation Sans"]);
+    fn a_missing_family_is_reported_through_the_diagnostics_ring() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
 
-        // Invented by the expansion AND not installed -> the whole point.
-        assert!(should_prune_family("ZYSong18030", &aliases, &available));
-        assert!(should_prune_family("Cantarell", &aliases, &available));
-        // Case-insensitively, since CSS family names are.
-        assert!(should_prune_family("zysong18030", &aliases, &available));
+        let mut resolved = ResolvedFontChains::default();
+        resolved
+            .unresolved_families
+            .insert("Totally Not Installed Sans".to_string());
+        report_unresolved_families(&resolved);
 
-        // An alias candidate that IS installed must still be tried, or the
-        // system's preferred font stops being reachable.
-        assert!(!should_prune_family("DejaVu Sans", &aliases, &available));
-
-        // AUTHORED families are never pruned, present or not: pruning a
-        // missing one would also swallow its warning, which is the one
-        // diagnostic worth keeping.
-        assert!(!should_prune_family(
-            "Liberation Sans",
-            &aliases,
-            &available
-        ));
         assert!(
-            !should_prune_family("Comic Sans MS", &aliases, &available),
-            "a family the document asked for is not an alias candidate, so it \
-             keeps its lookup AND its UNRESOLVED warning"
+            azul_core::diagnostics::any_contains("Totally Not Installed Sans"),
+            "the warning must be recorded, not just printed: {:?}",
+            azul_core::diagnostics::recorded()
         );
-
-        // Generics are expanded by the resolver itself.
-        for g in ["sans-serif", "serif", "monospace", "system-ui"] {
-            assert!(
-                !should_prune_family(g, &set(&[g]), &available),
-                "{g} must survive even if it appears in an alias list"
-            );
-        }
     }
 }

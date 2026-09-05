@@ -177,7 +177,7 @@ fn acked_text_keeps_painting_until_the_app_re_renders() {
     // still the only source of the typed text, so it stays and paints.
     relayout_same_dom(&mut lw);
     assert_eq!(
-        overlay_entry(&lw).map(|(n, t)| (n, t)),
+        overlay_entry(&lw),
         Some((edited, "Xhello".to_string())),
         "an acked entry survives a relayout of the unchanged DOM"
     );

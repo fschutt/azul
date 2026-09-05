@@ -227,9 +227,17 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
     };
 
     if window.common.regeneration_pending() {
+        // A relayout re-rasters on its way through, so any pending
+        // repaint-only request is satisfied by it.
+        window.needs_rerender = false;
         if let Err(e) = window.regenerate_layout() {
             log_error!(LogCategory::Layout, "[iOS] regenerate_layout: {}", e);
         }
+    } else if window.needs_rerender {
+        // Repaint only: the pixels changed (a11y focus, a scroll, a hover
+        // restyle), the layout did not. No app callback, no solve.
+        window.needs_rerender = false;
+        window.rerender_cpu();
     }
 
     #[cfg(feature = "cpurender")]
@@ -1517,6 +1525,18 @@ pub struct IOSWindow {
     pub common: CommonWindowState,
     /// CPU rendering backend (replaces WebRender).
     pub cpu_backend: CpuBackend,
+    /// A frame must be re-rastered and presented, but the layout is UNCHANGED.
+    ///
+    /// iOS's `request_redraw()` equivalent, which it did not have - the exact
+    /// gap Android grew `needs_rerender` to close (see `android/mod.rs`, "the
+    /// only route to a presented frame was `regeneration_pending()`, so every
+    /// input that changed a pixel had to claim it had changed the DOM").
+    /// `displayLayer:` re-renders ONLY when a regeneration is pending and
+    /// otherwise blits the previous `cpu_backend.last_frame`, so the one caller
+    /// that asked for a repaint without claiming a DOM change - the
+    /// accessibility drain, whose Android twin calls `request_regeneration`
+    /// instead - showed a stale frame after every VoiceOver Focus/Blur/Scroll.
+    needs_rerender: bool,
     /// Native UIWindow.
     ui_window: Id<Object>,
     /// Custom UIView (AzulView subclass).
@@ -1727,6 +1747,7 @@ impl IOSWindow {
         Ok(Self {
             common,
             cpu_backend: CpuBackend::new(),
+            needs_rerender: false,
             ui_window,
             ui_view,
             ui_view_controller,
@@ -1763,7 +1784,41 @@ impl IOSWindow {
         }
         Ok(())
     }
+    /// Re-raster the CURRENT layout into `cpu_backend.last_frame` without
+    /// re-running the app's layout callback.
+    ///
+    /// Verbatim twin of `AndroidWindow::rerender_cpu`, and identical to the
+    /// block `regenerate_layout_inner` already runs on this host - a repaint
+    /// that is not a relayout has to have somewhere to go, or `displayLayer:`
+    /// blits the previous frame.
+    pub fn rerender_cpu(&mut self) {
+        #[cfg(feature = "cpurender")]
+        {
+            let ws = self.common.current_window_state();
+            let width = ws.size.dimensions.width;
+            let height = ws.size.dimensions.height;
+            let dpi = ws.size.dpi as f32 / 96.0;
+            // Shared per-frame content preparation (journal clock, image
+            // callbacks through the content chokepoint, scrollbar cache).
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.prepare_frame_cpu();
+            }
+            if let Some(lw) = self.common.layout_window.as_ref() {
+                self.cpu_backend.render_frame(
+                    lw,
+                    &self.common.renderer_resources,
+                    width,
+                    height,
+                    dpi,
+                );
+            }
+        }
+    }
+
     pub fn request_redraw(&mut self) {
+        // The pixels changed even if the DOM did not: mark it, so
+        // `displayLayer:` re-rasters instead of blitting the previous frame.
+        self.needs_rerender = true;
         let _ = self.present();
     }
 
@@ -1926,6 +1981,10 @@ impl IOSWindow {
 }
 
 impl PlatformWindow for IOSWindow {
+    /// Mobile windows are managed by the system shell and are never dragged
+    /// by the application.
+    fn handle_begin_interactive_move(&mut self) {}
+
     fn regenerate_layout_once(
         &mut self,
     ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {

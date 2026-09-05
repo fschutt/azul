@@ -112,7 +112,7 @@ impl EyedropperManager {
 
     /// Adopt outstanding request ids taken from a closing window — the color
     /// picker popup that asked for a screen pick and died (compositor
-    /// popup_done, the loupe's grab break) before the answer arrived. Results
+    /// `popup_done`, the loupe's grab break) before the answer arrived. Results
     /// are routed by request id, so after adoption THIS window's pass drains
     /// them and its `ScreenColorPicked` fires here instead of nowhere.
     pub fn adopt_issued(&mut self, ids: Vec<u64>) {

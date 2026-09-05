@@ -356,6 +356,8 @@ pub struct MonitorState {
     pub height: i32,
     pub make: String,  // Manufacturer (from wl_output.geometry)
     pub model: String, // Model (from wl_output.geometry)
+    /// Refresh in mHz as `wl_output.mode` reports it (60000 = 60 Hz).
+    pub refresh_mhz: i32,
 }
 
 impl MonitorState {
@@ -2979,6 +2981,23 @@ impl WaylandWindow {
                 })
                 .collect();
 
+            // Desktop light/dark switch. There is NO Wayland protocol for the
+            // colour scheme, so the mechanism is the xdg-desktop-portal
+            // `SettingChanged` signal, and it arrives on a watcher thread that
+            // has no way to reach this loop — except this eventfd. Without it in
+            // the poll set the change sat in the watcher's atomic until an
+            // unrelated compositor event woke us, which on an idle window is
+            // never: the timeout below is `-1`.
+            let theme_wake_idx = pollfds.len();
+            let theme_wake_fd = super::system_style::theme_wake_fd();
+            if theme_wake_fd >= 0 {
+                pollfds.push(libc::pollfd {
+                    fd: theme_wake_fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                });
+            }
+
             // Background threads (e.g. MapWidget tile fetches) have NO fd in the
             // poll set, so their completion can't wake poll(). While any thread is
             // in flight, poll on a ~16ms tick and drain thread writebacks on every
@@ -3026,6 +3045,7 @@ impl WaylandWindow {
             );
 
             let mut any_timer_fired = false;
+            let mut theme_woke = false;
             if result > 0 {
                 // Check Wayland display fd
                 if pollfds[0].revents & libc::POLLIN != 0 {
@@ -3131,6 +3151,18 @@ impl WaylandWindow {
                         self.handle_key(keycode, 1);
                     }
                 }
+                // The desktop's colour scheme moved. Acknowledge the wake and
+                // let `check_timers_and_threads` below do the adopting — it
+                // already owns that call, so there stays exactly ONE theme path
+                // in this backend.
+                if theme_wake_fd >= 0
+                    && theme_wake_idx < pollfds.len()
+                    && pollfds[theme_wake_idx].revents & libc::POLLIN != 0
+                {
+                    super::system_style::drain_theme_wake();
+                    theme_woke = true;
+                }
+
                 // A seat's timer fired: replay ITS key as a press on that seat
                 // (9b-ii-a-i-b-i); the seat's key state marks it a repeat.
                 for (seat_id, idx) in &seat_repeat_idx {
@@ -3155,7 +3187,7 @@ impl WaylandWindow {
             // callback produced a visual change. Run on every wake while threads
             // are active (the 16ms tick guarantees we get here) so tile-fetch
             // writebacks drain promptly.
-            if any_timer_fired || has_threads {
+            if any_timer_fired || has_threads || theme_woke {
                 self.check_timers_and_threads();
             }
             // result == 0: timeout (shouldn't happen with -1)
@@ -4343,16 +4375,22 @@ impl WaylandWindow {
         // MWA-B11: CSD resize edges — frameless windows previously had NO
         // way to resize. A press in the border band hands the resize to the
         // compositor (xdg_toplevel.resize); edge codes per xdg-shell.
-        if is_down
-            && button == 0x110 // BTN_LEFT
-            && self.common.current_window_state().flags.decorations
-                == azul_core::window::WindowDecorations::None
+        if is_down && button == 0x110
+        // BTN_LEFT
         {
             use crate::desktop::shell2::common::event::{
-                csd_resize_edge_at, CsdResizeEdge, CSD_RESIZE_BAND_PX,
+                csd_resize_edge_for_press, CsdResizeEdge, CSD_RESIZE_BAND_PX,
             };
-            let size = self.common.current_window_state().size.dimensions;
-            if let Some(edge) = csd_resize_edge_at(position, size, CSD_RESIZE_BAND_PX) {
+            let ws = self.common.current_window_state();
+            let size = ws.size.dimensions;
+            let (decorations, frame) = (ws.flags.decorations, ws.flags.frame);
+            // The frame check is the shared rule now: a maximized or
+            // fullscreen window has no resizable edge, and the `return` below
+            // precedes `record_input_sample`, so eating the press here costs
+            // the DragStart and the DoubleClick the title bar needs.
+            if let Some(edge) =
+                csd_resize_edge_for_press(position, size, decorations, frame, CSD_RESIZE_BAND_PX)
+            {
                 let edges: u32 = match edge {
                     CsdResizeEdge::Top => 1,
                     CsdResizeEdge::Bottom => 2,
@@ -6863,6 +6901,13 @@ impl WaylandWindow {
             .as_ref()
             .map(|lw| !lw.pending_virtual_view_updates.is_empty())
             .unwrap_or(false);
+        // Time the WHOLE frame — layout, render, attach/damage, commit — so
+        // Wayland can be compared with X11's `render_and_present` on the same
+        // basis. `resize_surface`'s `took=` is NOT that: it times only the
+        // buffer reallocation (the shm pool rebuild / GL resize), which is why
+        // it reports single-digit milliseconds and must never be read as a
+        // repaint cost.
+        let frame_started = std::time::Instant::now();
         let needs_work = self.common.regeneration_pending()
             || self.common.relayout_only_pending()
             || self.common.resize_relayout_pending()
@@ -7064,23 +7109,17 @@ impl WaylandWindow {
                         &self.common.gl_context_ptr,
                     );
                 } else {
-                    let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
-                    if let Err(e) = crate::desktop::wr_translate2::build_image_only_transaction(
-                        &mut txn,
+                    // Sends nothing when nothing changed - see
+                    // common::layout::submit_lightweight_frame. The scene-builder
+                    // flush is done unconditionally further down, so it is not
+                    // requested here.
+                    let _sent = crate::desktop::shell2::common::layout::submit_lightweight_frame(
                         layout_window,
                         render_api,
+                        document_id,
                         &self.common.gl_context_ptr,
-                    ) {
-                        log_error!(
-                            LogCategory::Rendering,
-                            "[Wayland] Failed to build lightweight transaction: {}",
-                            e
-                        );
-                    }
-
-                    render_api.send_transaction(
-                        crate::desktop::wr_translate2::wr_translate_document_id(document_id),
-                        txn,
+                        false,
+                        "Wayland",
                     );
                 }
             }
@@ -8094,6 +8133,18 @@ impl WaylandWindow {
         if needs_anim_frame {
             self.request_redraw();
         }
+
+        // Only a pass that actually put content on the surface is a frame;
+        // the early bails above return before here.
+        if surface_committed {
+            log_debug!(
+                LogCategory::Window,
+                "[Wayland] generate_frame {}x{} took={:.2}ms",
+                self.common.current_window_state().size.dimensions.width as u32,
+                self.common.current_window_state().size.dimensions.height as u32,
+                frame_started.elapsed().as_secs_f64() * 1000.0
+            );
+        }
     }
 
     /// Set the mouse cursor for this window
@@ -8966,10 +9017,12 @@ impl WaylandWindow {
         }
 
         // A runtime light/dark switch. There is NO Wayland protocol for this —
-        // the xdg-desktop-portal `Settings` interface is the mechanism — so the
-        // same watcher serves X11 and Wayland alike. `observed_system_theme` is
-        // a relaxed atomic load; the blocking D-Bus round trip that feeds it
-        // runs on a watcher thread, never on this one.
+        // the xdg-desktop-portal `Settings.SettingChanged` signal is the
+        // mechanism — so the same watcher serves X11 and Wayland alike.
+        // `observed_system_theme` is a relaxed atomic load; the blocking D-Bus
+        // subscription that feeds it runs on a watcher thread, never on this
+        // one, and that thread writes an eventfd `wait_for_events` parks on so
+        // the signal reaches this read without waiting for an unrelated event.
         if let Some(new_style) = super::system_style::adopt_observed_theme(&mut self.common) {
             let _ = self.process_window_events(0);
             // The desktop's own icons are theme artwork: KDE ships breeze and
@@ -9829,6 +9882,9 @@ impl WaylandPopup {
 }
 
 impl PlatformWindow for WaylandPopup {
+    /// A popup is positioned by its parent surface, never dragged by a user.
+    fn handle_begin_interactive_move(&mut self) {}
+
     fn capture_screen_for_eyedropper(&mut self) -> Option<crate::desktop::eyedropper::Screenshot> {
         let scale = self
             .common

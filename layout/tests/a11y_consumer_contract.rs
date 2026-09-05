@@ -20,7 +20,7 @@ use azul_core::{
     dom::{Dom, DomId, DomNodeId, NodeId},
     geom::{LogicalPosition, LogicalSize},
     resources::RendererResources,
-    selection::{CursorAffinity, TextCursor},
+    selection::TextCursor,
     styled_dom::{NodeHierarchyItemId, StyledDom},
     task::Instant,
 };
@@ -38,6 +38,7 @@ use rust_fontconfig::FcFontCache;
 /// ATTRIBUTE on the value line, not a node (2026-08-31).
 const CONTAINER: usize = 1;
 const LABEL_P: usize = 2;
+#[allow(dead_code)] // the fourth row of the node-index table documented above
 const LABEL_TEXT: usize = 3;
 
 fn dnid(dom: usize, node: usize) -> DomNodeId {
