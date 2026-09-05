@@ -754,3 +754,130 @@ A release mini cannot resolve a trap frame at all — it strips both the
 `__az_dep_*` exports and the name section. `AZ_WASM_DEBUG=1` keeps them, and
 that path had been broken since before this work: wasm-ld rejects
 `--keep-section=name`, so every debug link produced an 8-byte stub.
+
+---
+
+# State of play: what is measured, what is blocked
+
+## The blocker
+
+Every run since the deadlock fix completes the lift and then **traps at boot**,
+so no size number since run 41 is quotable. The trap is an indirect call to
+synth `0xec5450`, and that address is in **`.rdata`**:
+
+```
+.text    rva 0x00001000 .. 0x00e047ca   EXEC,READ,CODE
+.rdata   rva 0x00e05000 .. 0x01236944   READ,INITDATA   <-- the target
+```
+
+So it is a **data address being called as a function pointer** — a mirroring or
+pointer-translation problem, not a discovery problem. Three runs were spent on
+the discovery side (the fn-ptr seed bound, `plausible_object_extent`, the
+`NeverLift` classifiers) before that was established, all of it wasted.
+
+It appears in runs 44, 45 and 47 across three different discovery
+configurations, which is what makes it look pre-existing rather than caused by
+the size work.
+
+Narrowed to three exports by the loader sequence: `registerCbNodeKind`,
+`setLayoutCbTableIdx`, `setRefAny` are the calls between `AzStartup_init` (which
+logs) and `setFallbackFont` (which has its own catch). `setRefAny` is the
+suspicious one — `AzRefAny` carries destructor and clone function pointers,
+exactly the shape that calls a pointer loaded from `.rdata`.
+
+## What is measured but unverified
+
+| lever | measured | state |
+|---|---|---|
+| private flag storage | **-43.0%** on one function | shipped, unverified |
+| `%PC` privatization | a further -11.8% (to -54.8%) | **backed out** — caused unaligned dispatch targets |
+| CFG-liveness flag DSE | -13.0% on one function | shipped |
+| state-store DSE | -22.1% over 2,718 functions | shipped |
+
+Artifact-level, with the same discovery config: run 46 (flags + `%PC`) linked a
+28.99 MB mini against run 47's (flags only) 30.67 MB, so `%PC` alone is worth
+**5.8% of the mini** — and run 46 did that on 4,719 functions where run 45 had
+3,797, i.e. it absorbed 24% more code and still came out smaller.
+
+## Two diagnostics that changed how this is debugged
+
+**Ask what section an address is in before anything else.** `0xec5450` is
+16-byte aligned, so an alignment check called it "a plausible function entry"
+and sent the hunt in the wrong direction for three runs. `.rdata` tables are
+16-byte aligned exactly like code. Alignment is a hint; the section is decisive.
+
+**Use one run's log.** Synth addresses are assigned per image band and every
+build lays out differently — the same `dragon::mul_pow10` appears at three
+different synth addresses across saved logs. Merging logs does not blur an
+answer, it invents one: it produced a confident, entirely false identification.
+The gate now rotates its log so run N stays diagnosable after run N+1.
+
+## Naming any synth address
+
+1. `synth == RVA` (confirmed: the band delta from 60 neighbours was unanimously
+   the ImageBase, 0x140000000).
+2. `llvm-symbolizer --obj=<exe> --demangle` on ImageBase + RVA.
+3. PE section lookup for the code/data verdict.
+
+Use the *current* build's `AzWriter.{exe,pdb}`, never an older dump.
+
+A release mini cannot resolve a trap frame at all — it strips both the
+`__az_dep_*` exports and the name section. `AZ_WASM_DEBUG=1` keeps them, and
+that path had been broken since before this work: wasm-ld rejects
+`--keep-section=name`, so every debug link produced an 8-byte stub.
+
+---
+
+# The boot trap is not the size work — proven
+
+Disabling every hand-written IR pass (`AZ_NO_IR_PASSES=1`: the state-store DSE,
+the CFG-liveness flag DSE and flag privatization) produces the **identical**
+bug: the same constant `15488080` in the same three functions, stored to the
+same `__remill_missing_block` recorder at `0x400F8` and passed to the same
+dispatcher. The trap predates all of it, and the measured wins — -22.1%, -13%
+and -43% respectively — stand once boot is fixed.
+
+Proven **statically**. That run died on the `llc` spawn wedge before it ever
+served, but it had already linked its mini, so grepping its `.opt.ll` answered
+the question with no boot at all. When a run dies late, check what it already
+produced before writing it off.
+
+## What the trap actually is
+
+`Display for str` (and the `String`/`alloc::string` equivalents) lift to:
+
+```llvm
+%v   = load i64 [%p]        ; str.ptr
+%v13 = load i64 [%p+8]      ; str.len
+store %v   -> RCX           ; set up arguments
+store %v13 -> RDX
+store i64 15488080 -> PC    ; tail-call target
+… __remill_missing_block …
+```
+
+A thunk that sets up arguments and **tail-jumps**. remill resolved the target to
+a compile-time constant, so it was a *direct* jump — which means
+`x86_scan::tail_jmp_targets` saw it. That function's own documentation explains
+what then happened: targets are "filtered through the SymbolTable, whose lookup
+is exact (by-address), so an intra-fn `jmp` to a mid-fn label yields None and
+drops out."
+
+So a tail-call target that matches no symbol exactly is **silently dropped**,
+never lifted, gets no dispatcher case, and the missing-block path fires at
+runtime. The fix direction is to stop dropping such targets silently — lift them
+as synthetic functions, or at minimum report them.
+
+One thing to resolve first: `0xec5450` read as an RVA lands past `.text`, which
+is impossible for a jump target. Either it belongs to a different synth band
+(another module) or the bytes fed to remill for these thunks were wrong.
+
+## Two process notes that cost time
+
+**Check the server is actually up, and that the mini hash changed, before
+believing a boot result.** A boot test run against a dead server returned a
+complete, plausible trap stack — from the *previous* run's cached page. The
+tells were `HTTP 000` and a wasm URL hash identical to the earlier run's.
+
+**Debug-link runs are wedge-prone.** `--lto-O0` IR is much larger, `llc` runs
+long, and that is what tripped the 314-second `CreateProcess` wedge. Use a normal
+link unless symbol names are genuinely needed.
