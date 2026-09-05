@@ -683,3 +683,74 @@ noting: the delivered size is already *below* rustc's own output for comparable
 code (2.95 vs 4.23 MB brotli for printpdf), so the 1 MB target is not "catch up
 with native" - it is "beat native by 4x", which is a different and much harder
 statement.
+
+---
+
+# State of play: what is measured, what is blocked
+
+## The blocker
+
+Every run since the deadlock fix completes the lift and then **traps at boot**,
+so no size number since run 41 is quotable. The trap is an indirect call to
+synth `0xec5450`, and that address is in **`.rdata`**:
+
+```
+.text    rva 0x00001000 .. 0x00e047ca   EXEC,READ,CODE
+.rdata   rva 0x00e05000 .. 0x01236944   READ,INITDATA   <-- the target
+```
+
+So it is a **data address being called as a function pointer** — a mirroring or
+pointer-translation problem, not a discovery problem. Three runs were spent on
+the discovery side (the fn-ptr seed bound, `plausible_object_extent`, the
+`NeverLift` classifiers) before that was established, all of it wasted.
+
+It appears in runs 44, 45 and 47 across three different discovery
+configurations, which is what makes it look pre-existing rather than caused by
+the size work.
+
+Narrowed to three exports by the loader sequence: `registerCbNodeKind`,
+`setLayoutCbTableIdx`, `setRefAny` are the calls between `AzStartup_init` (which
+logs) and `setFallbackFont` (which has its own catch). `setRefAny` is the
+suspicious one — `AzRefAny` carries destructor and clone function pointers,
+exactly the shape that calls a pointer loaded from `.rdata`.
+
+## What is measured but unverified
+
+| lever | measured | state |
+|---|---|---|
+| private flag storage | **-43.0%** on one function | shipped, unverified |
+| `%PC` privatization | a further -11.8% (to -54.8%) | **backed out** — caused unaligned dispatch targets |
+| CFG-liveness flag DSE | -13.0% on one function | shipped |
+| state-store DSE | -22.1% over 2,718 functions | shipped |
+
+Artifact-level, with the same discovery config: run 46 (flags + `%PC`) linked a
+28.99 MB mini against run 47's (flags only) 30.67 MB, so `%PC` alone is worth
+**5.8% of the mini** — and run 46 did that on 4,719 functions where run 45 had
+3,797, i.e. it absorbed 24% more code and still came out smaller.
+
+## Two diagnostics that changed how this is debugged
+
+**Ask what section an address is in before anything else.** `0xec5450` is
+16-byte aligned, so an alignment check called it "a plausible function entry"
+and sent the hunt in the wrong direction for three runs. `.rdata` tables are
+16-byte aligned exactly like code. Alignment is a hint; the section is decisive.
+
+**Use one run's log.** Synth addresses are assigned per image band and every
+build lays out differently — the same `dragon::mul_pow10` appears at three
+different synth addresses across saved logs. Merging logs does not blur an
+answer, it invents one: it produced a confident, entirely false identification.
+The gate now rotates its log so run N stays diagnosable after run N+1.
+
+## Naming any synth address
+
+1. `synth == RVA` (confirmed: the band delta from 60 neighbours was unanimously
+   the ImageBase, 0x140000000).
+2. `llvm-symbolizer --obj=<exe> --demangle` on ImageBase + RVA.
+3. PE section lookup for the code/data verdict.
+
+Use the *current* build's `AzWriter.{exe,pdb}`, never an older dump.
+
+A release mini cannot resolve a trap frame at all — it strips both the
+`__az_dep_*` exports and the name section. `AZ_WASM_DEBUG=1` keeps them, and
+that path had been broken since before this work: wasm-ld rejects
+`--keep-section=name`, so every debug link produced an 8-byte stub.
