@@ -104,19 +104,12 @@ pub fn emit_interface_types(
             // az_*_variant_* prefixed constants were the only reachable
             // spelling (BINDINGS_REVIEW_2026_07_04 addendum item 8).
             // Keep the two surfaces in sync.
-            builder.line(&format!("module {} : sig", e.name));
-            builder.indent();
-            for v in &e.variants {
-                let lit = sanitize_identifier(&super::to_snake_case(&v.name));
-                builder.line(&format!("val {} : int", lit));
-            }
-            // NO trait decls here. OCaml is ORDER-SENSITIVE and this module is
-            // emitted in the types section, ~42k lines before the `foreign`
-            // bindings it would have to call - `ocamlfind ocamlc` rejects it
-            // with "Unbound value ffi_az_style_cursor_partial_eq". A unit
-            // enum's capabilities need a LATE pass, after the raw bindings.
-            builder.dedent();
-            builder.line("end");
+            // The module MOVED to the late idiomatic pass (see
+            // `wrappers.rs::emit_enum_modules`). It has to live after the
+            // `foreign` bindings, because its capabilities call them and OCaml
+            // is order-sensitive; emitting it here and the capabilities there
+            // would mean two `module X`, which is a duplicate. Nothing in the
+            // file references these modules internally, so moving them is safe.
         }
     }
 
@@ -1015,17 +1008,7 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     // type alias by name; OCaml resolves identifiers from the most
     // recent binding, so `Azul.Update.refresh_dom : int` and
     // `Azul.az_update : int typ` coexist without conflict.
-    builder.line(&format!("module {} = struct", e.name));
-    builder.indent();
-    for (idx, v) in e.variants.iter().enumerate() {
-        let lit = sanitize_identifier(&super::to_snake_case(&v.name));
-        builder.line(&format!("let {} : int = {}", lit, idx));
-    }
-    // See the interface side: the raw bindings do not exist yet at this point
-    // in the file, so nothing here may call them.
-    builder.dedent();
-    builder.line("end");
-    builder.blank();
+    // Moved to the late idiomatic pass - see the interface side.
 }
 
 // ============================================================================
