@@ -1513,8 +1513,23 @@ fn percent_decode(s: &str) -> String {
 /// MotionNotify to this client. So this function is the *sole* delivery path for
 /// mouse button/motion — it translates them into the shared core handlers
 /// (`handle_mouse_button` / `handle_mouse_move`). It also feeds pen
-/// pressure/tilt and multi-touch (which core events can't express). Keyboard is
-/// NOT XI-selected, so keys still arrive as core KeyPress events.
+/// pressure/tilt and multi-touch (which core events can't express).
+///
+/// KEYBOARD: the claim that used to sit here - "keyboard is NOT XI-selected,
+/// so keys still arrive as core KeyPress events" - is FALSE. `XI_KeyPress` and
+/// `XI_KeyRelease` ARE in the `XIAllMasterDevices` mask (see window creation),
+/// added for the per-seat keyboard work, and the XI2 handler then DROPS every
+/// key from the virtual core keyboard because those keys are expected to
+/// arrive as core events too. Per XI2proto ("if the event has been delivered,
+/// event processing stops") that combination should have swallowed keyboard
+/// input entirely.
+///
+/// It does not: keys were typed into the app on this exact configuration
+/// (X11 backend under XWayland on KDE Plasma, 2026-09-05) and reached the
+/// document. So the arrangement is LATENT rather than broken - practical
+/// delivery differs from the spec text here - but nobody should read this
+/// comment and believe the keyboard is unselected, because the next person to
+/// touch either mask will be reasoning from a false premise.
 ///
 /// COOKIE OWNERSHIP: `XGetEventData` may be called at most ONCE per cookie —
 /// libX11 deletes the cookie from its jar on a successful fetch, so a second
