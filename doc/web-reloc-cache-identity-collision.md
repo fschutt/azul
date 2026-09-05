@@ -91,8 +91,19 @@ point), when two sites resolve to the same token, or when the target has no
 verifiable identity. A displacement that does not appear in the IR at all is
 not frozen and needs nothing, so the direct-call case keeps its hit rate.
 
-`LIFT_CACHE_VERSION` is bumped 9 → 10. Every v9 template froze its
-displacements and is unrepairable; the old entries must not be read.
+The same treatment covers the second shape of the defect: `reloc_canonicalize`
+masks absolute `Immediate64` targets out of the key too, and an absolute address
+is just as probe-invariant as a displacement. It renders as the address itself,
+so `@disp` would never match it; each masked site is therefore tried in both
+shapes, the absolute under a plain fingerprinted identity and the displacement
+under `@disp`.
+
+Templates are versioned separately from the IR cache. `RELOC_TEMPLATE_VERSION`
+goes to 2, retiring every template built under the old rules. `LIFT_CACHE_VERSION`
+stays at 9 on purpose: the exact-bytes cache is keyed on the bytes themselves,
+and a reloc hit returns without ever writing to it, so it was never poisoned.
+Invalidating it as well would have forced a full cold re-lift — hours — for no
+correctness gain.
 
 ## What is NOT the bug
 

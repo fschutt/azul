@@ -7877,11 +7877,20 @@ fn remill_export_symbol(entry_addr: u64) -> String {
 /// input bytes (the byte rewrites in `lift_fn`, the synth-address scheme). The
 /// remill ENGINE rev is captured automatically by [`engine_fingerprint`], so
 /// you only bump this for changes inside this crate's lift logic.
-/// Bumped to 10 when `@disp` slots landed: every v9 template froze its
-/// pc-relative displacements as literal text while the cache key had already
-/// masked those bytes away, so a v9 hit can splice a stale branch target. The
-/// old entries are not repairable — they must not be read.
-const LIFT_CACHE_VERSION: u32 = 10;
+const LIFT_CACHE_VERSION: u32 = 9;
+
+/// Version for the RELOCATION-TEMPLATE cache alone.
+///
+/// Bumped to 2 when the `@disp` / absolute slot kinds landed: every earlier
+/// template froze its relocatable fields as literal text while the key had
+/// already masked those same bytes away, so an old hit can splice a stale
+/// address. Those entries are not repairable and must not be read.
+///
+/// Deliberately NOT `LIFT_CACHE_VERSION`. The exact-bytes cache is keyed on
+/// the bytes themselves, and a reloc hit returns without ever writing to it,
+/// so it was never poisoned — invalidating it too would cost a full cold
+/// re-lift (hours) for no correctness gain.
+const RELOC_TEMPLATE_VERSION: u32 = 2;
 
 /// Fingerprint of the lifting ENGINE — the `remill-lift-17` binary — folded
 /// into the cache key so an engine change auto-invalidates every entry without
@@ -8526,11 +8535,11 @@ fn reloc_cache_paths(canon: &RelocCanon, fn_size: usize) -> (PathBuf, PathBuf) {
         idents.push('\0');
     }
     let key = format!(
-        "r{}_{}_{:x}_v{}_e{:x}",
+        "r{}_{}_{:x}_t{}_e{:x}",
         super::fnv1a64_hex(&canon.canonical),
         super::fnv1a64_hex(idents.as_bytes()),
         fn_size,
-        LIFT_CACHE_VERSION,
+        RELOC_TEMPLATE_VERSION,
         engine_fingerprint(),
     );
     (
