@@ -171,17 +171,31 @@ The tagger skips pre-tagged lines, so the fix is to emit the guest tag
 (`!alias.scope !90004, !noalias !90005`) directly, plus `volatile` to match
 every other guest write here.
 
-Auditing the whole helper corpus for this shape (`inttoptr`-derived pointer,
-host tag): 16,141 sites, of which 16,137 were this seed × 1793 wrappers. Two
-others remain, both pre-existing:
+### The audit, and how it was wrong the first time
 
-* **`sub_e82f70`** (`std::env::var_os → None`) writes a 24-byte `None` to the
-  guest sret buffer with three host-tagged stores. A lifted caller reads that
-  buffer guest-tagged. **Genuine bug of the same class**, not on the path this
-  fix addresses; left alone deliberately rather than folded into a TLS change.
-* **`sub_3ad850`** loads a stack arg at `SP+40`. That address is inside
-  `%stack_buf`, which the wrapper prologue writes as a host alloca, so the host
-  tag is consistent with its writer — not a bug.
+Sweeping the corpus for this shape needs guest-ness to propagate through
+`getelementptr` / `bitcast` / `select`, not just direct `inttoptr` definitions.
+The first pass tracked only direct definitions and therefore missed the second
+and third stores of the `var_os` body — it reported 4 non-seed sites where there
+were 29. With derivation followed (`C:\rb\alias_mistag2.py`), over a full
+pre-change corpus of 6,968 files and **83,645** guest-pointer memory ops:
+
+| shape | count | verdict |
+|---|---|---|
+| `EnvVarOs` sret stores (`%dst`, `%d8`, `%d16`) | 27 | **real bug — fixed** |
+| `%outpp` load at `SP+40` in `initLayoutCache` | 2 | not a bug (see below) |
+| everything else | 83,616 | correctly guest-tagged |
+
+`EnvVarOs` writes the 24-byte `None` niche into the guest sret buffer. Its own
+comment describes what a dropped write costs: *"the Leaf stub leaves the sret
+buffer untouched and the caller reads stack garbage as `Some(..)` → `from_utf8`
+OOB"*. Host-tagging those stores licenses exactly that.
+
+The `SP+40` load is **not** a bug: that address lives inside `%stack_buf`, which
+the wrapper prologue writes as a host alloca, so the host tag matches its writer.
+
+With both fixed the class is closed — no other guest access in the corpus
+carries the wrong scope.
 
 ## Synth addresses shift between builds — always recalibrate
 
