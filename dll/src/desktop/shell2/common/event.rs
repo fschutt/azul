@@ -7772,6 +7772,22 @@ pub trait PlatformWindow {
                     self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
                 }
 
+                // ...and the case the drain above CANNOT report: the layout
+                // tail (`common::layout::regenerate_layout` ->
+                // `finalize_pending_focus_changes`) already ran the same
+                // destructive drain and seeded the blink timer into the engine
+                // map itself. This arm then saw `None` and armed no OS timer,
+                // so on any startup where focus was deferred until the first
+                // layout there was no blink at all - measured on KDE Plasma
+                // Wayland, where the caret never blinked once while X11
+                // (whose target resolved immediately) armed timer 1 at 1200 ms.
+                let unarmed = self
+                    .get_layout_window_mut()
+                    .and_then(azul_layout::window::LayoutWindow::take_unarmed_blink_timer);
+                if let Some(timer) = unarmed {
+                    self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
+                }
+
                 // A caret session created here CHANGES the display list (the
                 // CursorRect item), but the click pass only ever asked for a
                 // re-present and `TextEditManager::display_list_dirty` is read

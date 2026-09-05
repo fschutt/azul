@@ -702,6 +702,53 @@ the blink still moves exactly 19 px in a 1x19 box and nothing else.
 Branch is now 41 ahead / **0 behind** master; PR #463 retargeted from the
 merged `fix/x11-desktop-integration` to `master` and reports MERGEABLE.
 
+## The Wayland caret never blinked - BROKEN -> FIXED
+
+Found by comparing the two backends' timer logs on an idle window:
+
+    X11      [SetFocusTarget] resolved Path(.mw-doc) -> node ...
+             [X11] Created timerfd 13 for timer 1 (interval 1200ms)
+    Wayland  [SetFocusTarget] focus target queued until first layout: Path(...)
+             (one timerfd, the 10 ms one; NO timer 1, ever)
+
+X11's focus target resolved immediately because layout already existed. Wayland
+defers it - and the deferred path was broken on every backend:
+`drain_deferred_focus_target()` is DESTRUCTIVE and two places call it. The
+layout tail (`regenerate_layout` -> `finalize_pending_focus_changes`) runs
+first and seeds the blink `Timer` into the ENGINE map; the shell's
+`FinalizePendingFocusChanges` arm - the only thing that can create a `timerfd` -
+then calls the same drain, gets `None`, and arms nothing. The timer existed and
+nothing ticked it.
+
+Fixed by giving the engine a second, NON-destructive signal
+(`LayoutWindow::take_unarmed_blink_timer`, returned exactly once so a second arm
+cannot leak a timerfd per frame), consumed by the shell arm. RED test first:
+`a_focus_deferred_until_first_layout_still_tells_the_shell_to_arm_the_blink`
+builds a real `LayoutWindow`, defers focus onto a contenteditable BEFORE any
+layout, and asserts all three halves - engine map seeded, destructive drain
+empty, new signal fires once.
+
+**On the device, Wayland idle, 26 s:**
+
+    [Wayland] Created timerfd 16 for timer 1 (interval 1200ms)
+    22 frames, each generate_frame 1920x1036 took=0.42-0.48ms, 0 errors
+
+Before the fix that same run produced TWO frames total and then silence. The
+frame count is itself the proof the caret is drawing: this backend commits only
+when there is damage, and logs `frame rendered with no visual change - nothing
+committed` when there is not. (No pixel capture on Wayland - the compositor
+scripting that would provide one is what took the session down earlier; the X11
+half of the same fix was verified pixel-wise at 19 px per blink.)
+
+Idle repaint cost now, both backends, same window, nothing happening:
+
+| backend | idle frames/s | cost per frame |
+|---|---:|---:|
+| Wayland / CPU | 0.88 | 0.42 ms |
+| X11 / CPU | 1.9 | 0.45 ms |
+
+Shipped separately as **PR #467**, split out of #463 so that one merges clean.
+
 ## Traps found
 
 1. **`build-dll` and `link-dynamic` fight over `target/release/libazul.so`, in
