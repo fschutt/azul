@@ -304,15 +304,30 @@ stage_check() {
 }
 
 stage_binding_syntax() {
-  # The derive-parity gate greps generated bindings for NAMES, so it reports
-  # green on code that does not compile - that is not hypothetical, it shipped
-  # three non-compiling PHP methods and a Zig parameter-shadowing error before
-  # anyone looked. Nothing else in this repo builds the non-Rust bindings, so
-  # these two cheap syntax checks are the only thing standing between a codegen
-  # change and a broken artifact.
+  # WHY THIS EXISTS
+  # ---------------
+  # `azul-doc check derives` proves a NAME is present in a generated binding.
+  # It cannot prove the binding compiles - it greps text, and a broken method
+  # still contains its name. Three non-compiling emissions shipped during the
+  # derive-parity work and none were visible to it. This stage is the other
+  # half: it asks each language's own compiler whether the derives actually
+  # materialised as valid native constructs.
   #
-  # Both are pure parsers: no libazul, no cgo, no linking. Skipped rather than
-  # failed when the toolchain is absent, so CI images without them stay green.
+  # THE PROBE RULE
+  # --------------
+  # Every checker is first run against a two-line known-good sample of its own
+  # language. A tool that cannot check `var x = 1;` is SKIPPED, not believed.
+  # Without this, adding checkers makes the gate less trustworthy: `node` is on
+  # PATH here and aborts with a missing dylib (exit 134), and `javac` is
+  # installed with no Java runtime. Both would otherwise be reported as "your
+  # generated code is broken".
+  #
+  # KNOWN_BROKEN
+  # ------------
+  # A binding whose artifact does not compile TODAY, for reasons that predate
+  # this gate. Recorded rather than silently skipped, and rather than blocking
+  # every other language behind it. Same ratchet idea as the derive baseline:
+  # the list may shrink, and anything NOT on it must pass.
   local gen="target/codegen"
   if [ ! -d "$gen" ]; then
     echo "  (skip: $gen missing - run 'cargo run --release -p azul-doc codegen all')"
@@ -320,32 +335,72 @@ stage_binding_syntax() {
   fi
 
   local rc=0
-  if command -v zig >/dev/null 2>&1; then
-    if zig ast-check "$gen/azul.zig"; then
-      echo "  zig ast-check: ok"
+  local tmp; tmp="$(mktemp -d)"
+
+  # label|probe command|real command
+  # KNOWN_BROKEN entries carry a trailing |broken plus a one-line reason.
+  local checks=(
+    "zig|zig ast-check $tmp/p.zig|zig ast-check $gen/azul.zig"
+    "go|gofmt -e $tmp/p.go|gofmt -e $gen/go"
+    "c|gcc -fsyntax-only -x c $tmp/p.c|gcc -fsyntax-only -x c $gen/azul.h"
+    "fortran|gfortran -fsyntax-only $tmp/p.f90|gfortran -fsyntax-only $gen/azul.f90"
+    "perl|perl -c $tmp/p.pm|perl -c $gen/Azul.pm"
+    "ruby|ruby -c $tmp/p.rb|ruby -c $gen/azul.rb"
+    "lua|luajit -bl $tmp/p.lua /dev/null|luajit -bl $gen/azul.lua /dev/null"
+    "php|php -l $tmp/p.php|php -l $gen/Azul.php"
+    "nim|nim check --hints:off $tmp/p.nim|nim check --hints:off $gen/azul.nim"
+    "crystal|crystal build --no-codegen $tmp/p.cr|crystal build --no-codegen $gen/azul.cr"
+    "odin|odin check $tmp/p.odin -file -no-entry-point|odin check $gen/azul.odin -file -no-entry-point"
+    "node|node --check $tmp/p.js|node --check $gen/node/azul.js"
+    "cpp|g++ -fsyntax-only -std=c++17 -x c++ $tmp/p.cpp|g++ -fsyntax-only -std=c++17 -x c++ $gen/azul17.hpp"
+  )
+
+  # Probe samples, one per language.
+  printf 'const x: u8 = 1;\n'                    > "$tmp/p.zig"
+  printf 'package p\nvar X = 1\n'                > "$tmp/p.go"
+  printf 'int x;\n'                              > "$tmp/p.c"
+  printf '#include <cstdint>\nint x;\n'          > "$tmp/p.cpp"
+  printf '      program p\n      end program p\n' > "$tmp/p.f90"
+  printf '1;\n'                                  > "$tmp/p.pm"
+  printf 'x = 1\n'                               > "$tmp/p.rb"
+  printf 'local x = 1\n'                         > "$tmp/p.lua"
+  printf '<?php $x = 1;\n'                       > "$tmp/p.php"
+  printf 'let x = 1\n'                           > "$tmp/p.nim"
+  printf 'x = 1\n'                               > "$tmp/p.cr"
+  printf 'package p\n'                           > "$tmp/p.odin"
+  printf 'var x = 1;\n'                          > "$tmp/p.js"
+  printf 'module main\nfn main() {}\n'            > "$tmp/p.v"
+
+  local entry label probe real out
+  for entry in "${checks[@]}"; do
+    label="${entry%%|*}"
+    probe="$(echo "$entry" | cut -d"|" -f2)"
+    real="$(echo "$entry" | cut -d"|" -f3)"
+    if ! eval "$probe" >/dev/null 2>&1; then
+      echo "  (skip $label: checker unavailable or not working here)"
+      continue
+    fi
+    if out="$(eval "$real" 2>&1)"; then
+      echo "  $label: ok"
     else
-      echo "  zig ast-check: FAILED" >&2
+      echo "  $label: FAILED" >&2
+      echo "$out" | head -15 >&2
       rc=1
     fi
-  else
-    echo "  (skip zig: not installed)"
-  fi
+  done
 
-  # OCaml gets a full TYPE check, not just a parse: `ocamlc -stop-after parsing`
-  # accepted a file that referenced `ffi_az_style_cursor_partial_eq` 42k lines
-  # before it was defined, and OCaml is order-sensitive. Only the type checker
-  # caught that, and a second error where a recursive element is an opaque
-  # pointer rather than a `Ctypes.structure`.
+  # OCaml gets a full TYPE check, not a parse: `ocamlc -stop-after parsing`
+  # accepted a file referencing a binding declared 42k lines later, and OCaml
+  # is order-sensitive. Only the type checker caught it.
   if command -v ocamlfind >/dev/null 2>&1 && ocamlfind query ctypes >/dev/null 2>&1; then
-    local omldir
-    omldir="$(mktemp -d)"
+    local omldir; omldir="$(mktemp -d)"
     cp "$gen/azul.mli" "$gen/azul.ml" "$omldir/" 2>/dev/null
     if (cd "$omldir" \
           && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.mli \
           && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.ml) >/dev/null 2>&1; then
-      echo "  ocaml typecheck: ok"
+      echo "  ocaml: ok"
     else
-      echo "  ocaml typecheck: FAILED" >&2
+      echo "  ocaml: FAILED" >&2
       (cd "$omldir" && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.mli \
         && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.ml) 2>&1 | head -20 >&2
       rc=1
@@ -355,59 +410,25 @@ stage_binding_syntax() {
     echo "  (skip ocaml: ocamlfind or ctypes not installed)"
   fi
 
-  # Every remaining checker follows one rule: PROBE it on a known-good sample
-  # before trusting its verdict. `command -v node` succeeds on this machine and
-  # then node aborts with a missing dylib - exit 134, which a naive gate would
-  # report as "your generated JavaScript is broken". A tool that cannot check
-  # its own trivial sample gets skipped, not believed.
-  probe_and_check() {
-    local label="$1" probe_cmd="$2" real_cmd="$3"
-    if ! eval "$probe_cmd" >/dev/null 2>&1; then
-      echo "  (skip $label: checker unavailable or not working here)"
-      return 0
-    fi
-    local out
-    if out="$(eval "$real_cmd" 2>&1)"; then
-      echo "  $label: ok"
-    else
-      echo "  $label: FAILED" >&2
-      echo "$out" | head -20 >&2
+  # KNOWN_BROKEN: v. `v -check target/codegen/azul.v` reports ~200 errors of
+  # the form "field name `Alias` cannot contain uppercase letters, use
+  # snake_case instead". V enforces snake_case field names as a LANGUAGE rule,
+  # and the emitter carries the api.json spelling through unchanged. It
+  # predates this gate - v has reported 0 unreachable derives throughout,
+  # which is precisely the blind spot this stage exists to expose: every name
+  # is present and the file has never compiled. Fixing it is an emitter change
+  # (snake_case the field names, keep the C ABI spelling for the extern side),
+  # not a gate change, so it is recorded here rather than silently skipped.
+  if command -v v >/dev/null 2>&1 && v -check "$tmp/p.v" >/dev/null 2>&1; then
+    if v -check "$gen/azul.v" >/dev/null 2>&1; then
+      echo "  v: ok (KNOWN_BROKEN entry is stale - remove it)"
       rc=1
+    else
+      echo "  v: KNOWN_BROKEN (uppercase field names; see the comment above)"
     fi
-  }
-
-  local tmp; tmp="$(mktemp -d)"
-  printf 'x = 1\n'        > "$tmp/probe.rb"
-  printf 'local x = 1\n'  > "$tmp/probe.lua"
-  printf '<?php $x = 1;\n' > "$tmp/probe.php"
-  printf 'var x = 1;\n'   > "$tmp/probe.js"
-
-  probe_and_check "ruby -c"   "ruby -c '$tmp/probe.rb'"       "ruby -c '$gen/azul.rb'"
-  probe_and_check "luajit"    "luajit -bl '$tmp/probe.lua' /dev/null" \
-                              "luajit -bl '$gen/azul.lua' /dev/null"
-  probe_and_check "php -l"    "php -l '$tmp/probe.php'"       "php -l '$gen/Azul.php'"
-  if [ -f "$gen/node/azul.js" ]; then
-    probe_and_check "node --check" "node --check '$tmp/probe.js'" \
-                                   "node --check '$gen/node/azul.js'"
   fi
+
   rm -rf "$tmp"
-
-  if command -v gofmt >/dev/null 2>&1; then
-    # `gofmt -e` prints syntax errors; formatting differences go to stdout as
-    # filenames, which is why the error stream is what decides the verdict.
-    local goerr
-    goerr="$(gofmt -e "$gen/go" 2>&1 >/dev/null)"
-    if [ -z "$goerr" ]; then
-      echo "  gofmt -e: ok"
-    else
-      echo "  gofmt -e: FAILED" >&2
-      echo "$goerr" >&2
-      rc=1
-    fi
-  else
-    echo "  (skip go: gofmt not installed)"
-  fi
-
   return $rc
 }
 
