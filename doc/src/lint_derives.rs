@@ -636,6 +636,22 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
         };
 
         for (class, derives) in &declared {
+            // OWNER'S RULING, 2026-09-05: a `*VecDestructor` cannot be called
+            // from Python or any other high-level binding. It exists only so
+            // destruction behaves correctly, and its payload is a function
+            // pointer - so it is to be treated as `*const c_void` and excluded
+            // from generation. Its derives are therefore NOT missing in a
+            // wrapper surface; they are not applicable there.
+            //
+            // The exception is the surfaces that DO carry it as a first-class
+            // type and really do implement its derives today: the three Rust
+            // mirrors, the layout test, and the C header. Excluding it there
+            // would delete a check that currently passes, which is the one
+            // thing this file must never do.
+            if class.ends_with("VecDestructor") && !DESTRUCTOR_BEARING.contains(&binding.name) {
+                rep.not_applicable += declared_count(derives);
+                continue;
+            }
             let spelled = format!("{}{}", binding.prefix, class);
             // Is this class emitted in this binding at all? A class that never
             // ships here cannot have a derive gap here; it is reported in its
@@ -718,12 +734,14 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 /// Algol 68 and COBOL.
 ///
 /// WHAT EACH REMAINING NUMBER IS, IN ONE LINE (measured 2026-09-05):
-///   * `python` (150) — every class that HAS a pyclass now honours its whole
-///     derive list. What is left is 185 classes that have no pyclass at all:
-///     the 114 `*VecDestructor`s (`DestructorOrClone`, excluded wholesale) and
-///     the monomorphised `*Value` aliases (`pub type LayoutWidthValue =
-///     AzCssPropertyValue<..>`, which cannot BE a pyclass). Closing it means
-///     giving those types a pyclass, not routing a capability differently.
+///   * `python` (36) - the `*VecDestructor`s are now excluded by the owner's
+///     2026-09-05 ruling (opaque function pointer, treated as `*const c_void`,
+///     never generated), which cleared 114 of the original 150. What is left
+///     is NOT type aliases and NOT plumbing: `PhysicalSizeU32`, `RefAny`,
+///     `GLintVec`, `GLuintVec` and `ResultXmlXmlError` are real types with no
+///     `#[pyclass]` at all. Closing them means DECIDING which of them belong
+///     in the Python surface and giving them one - a product call, not a
+///     routing change - so it is logged rather than guessed.
 ///   * `zig` / `go` — the wrapper emitters whitelist
 ///     `Constructor | Method | MethodMut | StaticMethod | Default | DeepCopy`,
 ///     so the comparison and debug entry points reach the artifact zero times.
@@ -759,8 +777,20 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `should_emit_function` filters excluded the whole `DestructorOrClone`
 ///     category, including the one entry point a `derive` actually asks for.
 ///     They now share `FunctionKind::is_declared_capability`.
+/// The surfaces that carry `*VecDestructor` as a first-class type and really
+/// do implement its derives. Everywhere else it is opaque - see the ruling at
+/// the exclusion site.
+const DESTRUCTOR_BEARING: &[&str] =
+    &["rust-internal", "rust-dynamic", "rust-public", "memtest", "c"];
+
+/// How many of `DERIVES` a class actually declares - the number the exclusion
+/// has to add to `not_applicable` so the columns still sum to the same total.
+fn declared_count(derives: &BTreeSet<String>) -> usize {
+    DERIVES.iter().filter(|d| derives.contains(**d)).count()
+}
+
 pub const BASELINE: &[(&str, usize)] = &[
-    ("python", 150),
+    ("python", 36),
     ("freebasic", 11),
     ("zig", 5168),
     ("powershell", 4),
