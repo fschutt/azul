@@ -1,62 +1,91 @@
 // Isolate AzStartup_hydrateJson: is the U8Vec::drop trap data-dependent?
 //
-// Usage: node --experimental-websocket scripts/m9_e2e/hydrate-isolate.js <url> [waitMs]
+// Usage: node --experimental-websocket hydrate-isolate.js <url> [waitMs] [json]
+//   json defaults to '{}'. Run it once per input.
 // Requires a Chromium/Edge on :9222 (--headless=new --remote-debugging-port=9222).
 //
 // The boot traps in <U8Vec as Drop>::drop, reached from the app's registered
 // deserializer, on a destructor pointer that is not a code address. `json` is
 // dropped on EVERY path out of that deserializer - including the early return
-// when serde rejects the input - so calling hydrateJson again with input that
-// cannot possibly deserialize separates two very different faults:
+// when serde rejects the input - so running hydrateJson with input that cannot
+// possibly deserialize separates two very different faults:
 //
 //   traps on `{}` too  -> the drop is broken unconditionally. The U8Vec that
-//                         `Json::parse_bytes` builds always carries a bad
-//                         destructor, and this is an engine/lift defect.
+//                         Json::parse_bytes builds always carries a bad
+//                         destructor: an engine/lift defect.
 //   `{}` returns 0     -> the drop is fine in general and the fault is
-//                         data-dependent, somewhere in the real payload.
+//                         data-dependent, inside the real payload.
 //
-// wasm traps do not poison the instance, so this runs fine after the boot trap.
-// azMini / azState / azMemory are top-level `var`s in the loader, hence on window.
+// ONE PROBE PER PAGE LOAD, and that is not a style choice. A wasm export that
+// traps never restores the shadow-stack global, so the stack pointer is left
+// inside a spent frame and every later export dies with "memory access out of
+// bounds" - measuring the poisoned stack instead of the bug. Probing after the
+// boot trap gave exactly that. So the only clean-stack call available is the
+// loader's FIRST hydrateJson, and this substitutes its payload rather than
+// adding a call after it.
+//
+// The substitution works by returning a Proxy over the mini's exports from a
+// hooked WebAssembly.instantiateStreaming: `instance.exports` is sealed and
+// cannot be monkey-patched, but the loader only ever sees what the hook
+// returns. `window.__azProbe` is published at the END of azBootstrap and so is
+// unavailable whenever the boot fails - which is always, here.
 const CDP = process.env.AZ_CDP || 'http://127.0.0.1:9222';
 const URL = process.argv[2] || 'http://127.0.0.1:8801/';
 const WAIT = parseInt(process.argv[3] || '25000', 10);
+const JSON_TEXT = process.argv[4] || '{}';
 
-const PROBE = `(() => {
-  const out = [];
-  const log = (s) => out.push(String(s));
-  if (typeof azMini !== 'object' || !azMini) return 'FATAL: azMini not present';
-  if (!azState) return 'FATAL: azState is 0 (init never ran)';
-  log('azState=' + azState);
-  const deserFn = (window.__azDeserFn || 0);
-  log('deserFn=' + deserFn + ' (0x' + deserFn.toString(16) + ')');
-
-  const call = (label, text) => {
-    let ptr = 0;
-    try {
-      const bytes = new TextEncoder().encode(text);
-      ptr = azMini.AzStartup_alloc(bytes.length);
-      if (!ptr) { log(label + ': alloc FAILED'); return; }
-      new Uint8Array(azMemory.buffer, ptr, bytes.length).set(bytes);
-      if (deserFn) azMini.AzStartup_registerStateDeserializer(azState, BigInt(deserFn));
-      const r = azMini.AzStartup_hydrateJson(azState, ptr, bytes.length);
-      log(label + ': returned ' + r + (r ? '  (OK)' : '  (0 = failed, but NO TRAP)'));
-    } catch (e) {
-      log(label + ': TRAPPED -> ' + (e && e.message ? e.message : e));
-    }
+const HOOK = `(() => {
+  window.__azResult = null;
+  const PAYLOAD = ${JSON.stringify(JSON_TEXT)};
+  // A PLAIN OBJECT COPY, not a Proxy: instance.exports properties are
+  // non-writable AND non-configurable, so a Proxy get-trap is required by spec
+  // to return the real value and cannot substitute. The loader only does
+  // property access on whatever the hook returns, so a copy works.
+  const wrap = (exports) => {
+    const o = {};
+    for (const k of Object.keys(exports)) o[k] = exports[k];
+    const real = exports.AzStartup_hydrateJson;
+    o.AzStartup_hydrateJson = function (state, ptr, len) {
+      if (window.__azResult) return real(state, ptr, len);
+      const rec = { payload: PAYLOAD, state: state, loaderLen: len };
+      try {
+        const bytes = new TextEncoder().encode(PAYLOAD);
+        const p = exports.AzStartup_alloc(bytes.length);
+        rec.alloc = p;
+        if (!p) { rec.outcome = 'alloc returned 0'; window.__azResult = rec; return 0; }
+        new Uint8Array(exports.memory.buffer, p, bytes.length).set(bytes);
+        const r = real(state, p, bytes.length);
+        rec.outcome = 'RETURNED ' + r + (r ? ' (OK)' : ' (0 = failed cleanly, NO TRAP)');
+      } catch (e) {
+        rec.outcome = 'TRAPPED -> ' + (e && e.message ? e.message : String(e));
+      }
+      window.__azResult = rec;
+      return 0;
+    };
+    return o;
   };
-
-  // 1. Input serde cannot accept. Reaches the early return, which drops \`json\`.
-  call('empty-object {}', '{}');
-  // 2. Not even valid JSON - fails earlier, in Json::parse_bytes, before the
-  //    deserializer is called at all. Isolates parse_bytes from the drop.
-  call('malformed  <<<',  '<<<not json>>>');
-  // 3. A plausible-shaped payload, to see whether shape matters.
-  call('plausible',       JSON.stringify({ counter: 0, markdown: '', zoom_percent: 100.0 }));
-  return out.join('\\n');
+  const keep = (res) => {
+    try {
+      const inst = res && (res.instance || res);
+      if (inst && inst.exports && typeof inst.exports.AzStartup_hydrateJson === 'function') {
+        return { instance: { exports: wrap(inst.exports) }, module: res.module };
+      }
+    } catch (e) {}
+    return res;
+  };
+  const origS = WebAssembly.instantiateStreaming;
+  if (origS) {
+    WebAssembly.instantiateStreaming = function (...a) { return origS.apply(this, a).then(keep); };
+  }
+  const orig = WebAssembly.instantiate;
+  WebAssembly.instantiate = function (...a) {
+    const r = orig.apply(this, a);
+    return (r && typeof r.then === 'function') ? r.then(keep) : keep(r);
+  };
 })()`;
 
 (async () => {
-    const tab = await (await fetch(`${CDP}/json/new?${encodeURIComponent(URL)}`, { method: 'PUT' })).json();
+    const tab = await (await fetch(`${CDP}/json/new?about:blank`, { method: 'PUT' })).json();
     const ws = new WebSocket(tab.webSocketDebuggerUrl);
     await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; setTimeout(rej, 10000); });
     let id = 0;
@@ -78,25 +107,26 @@ const PROBE = `(() => {
     };
     await send('Runtime.enable', {});
     await send('Page.enable', {});
+    await send('Page.addScriptToEvaluateOnNewDocument', { source: HOOK });
+    await send('Page.navigate', { url: URL });
     await new Promise(r => setTimeout(r, WAIT));
 
-    // The deserializer address is in the page payload; surface it for the probe.
-    await send('Runtime.evaluate', {
-        expression: `window.__azDeserFn = (function(){
-            try { const m = document.documentElement.innerHTML.match(/"deserialize_fn"\\s*:\\s*(\\d+)/);
-                  return m ? parseInt(m[1],10) : 0; } catch(e) { return 0; }
-        })()`, returnByValue: true,
+    const r = await send('Runtime.evaluate', {
+        expression: 'JSON.stringify(window.__azResult)', returnByValue: true,
     });
-
-    const r = await send('Runtime.evaluate', { expression: PROBE, returnByValue: true, awaitPromise: false });
-    console.log('===== BOOT CONSOLE (last 12) =====');
-    logs.slice(-12).forEach(l => l.split('\n').forEach((x, i) => console.log((i ? '      ' : '  ') + x)));
-    console.log('===== HYDRATE ISOLATION =====');
-    const v = r && r.result && r.result.result;
-    if (v && v.value !== undefined) {
-        String(v.value).split('\n').forEach(l => console.log('  ' + l));
+    console.log('input: ' + JSON_TEXT);
+    const unmatched = logs.filter(l => l.includes('unmatched indirect dispatches')).slice(-1)[0];
+    const failed = logs.filter(l => l.includes('bootstrap FAILED')).slice(-1)[0];
+    console.log('===== RESULT =====');
+    const v = r && r.result && r.result.result && r.result.result.value;
+    if (v && v !== 'null') {
+        const o = JSON.parse(v);
+        console.log('  alloc   : ' + o.alloc);
+        console.log('  outcome : ' + o.outcome);
     } else {
-        console.log('  <no value> ' + JSON.stringify(r && r.result));
+        console.log('  <hydrateJson was never called - the loader skipped the JSON path>');
     }
+    if (unmatched) console.log('  ' + unmatched.trim());
+    if (failed) console.log('  boot: ' + failed.split('\n')[0].trim());
     ws.close();
 })();
