@@ -11621,6 +11621,18 @@ fn emit_helper_ir(
                 ));
             }
             Some(SymFnClass::EnvVarOs) => {
+                // The three sret stores reach GUEST memory through `inttoptr`,
+                // so they must carry the guest scope. `tag_state_accesses`
+                // stamps untagged stores here with the HOST scope and
+                // `!noalias` guest — a false claim against the lifted caller's
+                // guest-tagged read of the same buffer, which would let LLVM
+                // drop them and resurrect exactly the `Some(..)` garbage read
+                // this stub exists to prevent. The `%state` GEPs below are
+                // genuinely host and stay untagged.
+                let guest = format!(
+                    ", !alias.scope !{}, !noalias !{}",
+                    AZ_GUEST_LIST_MD_ID, AZ_HOST_LIST_MD_ID,
+                );
                 branch_stubs.push_str(&format!(
                     "; std::env::var_os → None (no process environment in wasm) for {sym}\n\
                      define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
@@ -11628,11 +11640,11 @@ fn emit_helper_ir(
                        %sret64_{n} = load i64, ptr %sretp_{n}, align 8\n  \
                        %sret32_{n} = trunc i64 %sret64_{n} to i32\n  \
                        %dst_{n} = inttoptr i32 %sret32_{n} to ptr\n  \
-                       store i64 0, ptr %dst_{n}, align 8\n  \
+                       store volatile i64 0, ptr %dst_{n}, align 8{guest}\n  \
                        %d8_{n} = getelementptr inbounds i8, ptr %dst_{n}, i64 8\n  \
-                       store i64 0, ptr %d8_{n}, align 8\n  \
+                       store volatile i64 0, ptr %d8_{n}, align 8{guest}\n  \
                        %d16_{n} = getelementptr inbounds i8, ptr %dst_{n}, i64 16\n  \
-                       store i64 0, ptr %d16_{n}, align 8\n  \
+                       store volatile i64 0, ptr %d16_{n}, align 8{guest}\n  \
                        %retp_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
                        store i64 %sret64_{n}, ptr %retp_{n}, align 8\n  \
                        ret ptr %memory\n\
