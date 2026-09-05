@@ -1,94 +1,122 @@
-# The relocation cache translated cross-function targets by the wrong delta
+# The relocation cache spliced stale pc-relative displacements
 
-Status: fixed. The probe-space membership test landed, the sign-flip class was
-retired as a side effect of it, and the `near:` fingerprint widening was
-dropped in favour of refusing ambiguous names outright - a short content
-fingerprint cannot separate same-source monomorphization copies, which share
-their prologues.
+Status: two distinct defects, found in that order.
 
-## What went wrong
+1. `@delta` resolved cross-function targets by the caller's move distance.
+   Fixed by the probe-space membership test.
+2. **A masked field that the template never re-resolves.** This one is the
+   reason `<str as Display>::fmt` still jumped to a wrong address after (1)
+   landed. Fixed by the `@disp` slot kind below.
+
+## The mechanism
 
 The relocation-canonical lift cache reuses one function's lifted IR in a later
 build by templating: mask the address-derived fields, record a *slot identity*
 per masked site, and at translate time re-resolve each identity to this build's
 address and splice it back in.
 
-One identity kind, `@delta`, resolves as:
+`reloc_canonicalize` masks a cross-function branch by **zeroing its `rel32` out
+of the hashed key** and recording the target by symbol identity. Two builds
+whose callee moved relative to its caller therefore hash the same and hit.
 
-```rust
-old_va.wrapping_add(new_lift_addr.wrapping_sub(old_lift_addr))
-```
+`reloc_templateize` builds the template by diffing two probe lifts of the same
+bytes at two lift addresses, and slots exactly the tokens that **differ**
+between them.
 
-That is: *move the target by however far this function moved*. It is correct
-only when the target moved exactly as far as the function containing it —
-true for a target inside the same function, and a gamble for anything else.
-Two functions move independently between builds, so a cross-function `@delta`
-slot produces a well-formed, plausible, **wrong** address.
+Those two rules contradict each other. A pc-relative displacement is derived
+from the bytes, so both probes decode it to the *same* number — it is never a
+slot, and stays in the template as literal text. Masked out of the key but
+never re-resolved is a stale value by construction.
 
 ## Evidence
 
 `AZ_RELOC_VERIFY=1` fresh-lifts every translated function and byte-diffs it.
-The thunk that blocked AzWriter's boot for roughly ten runs:
+Every divergence has the same shape — a wrong constant in pc arithmetic:
 
 ```
-DIVERGENCE in core::fmt::impl$75::fmt<str$>
-  fresh:   %26 = add i64 %25, 3965326
-  trans:   %26 = add i64 %25, 5980222
+DIVERGENCE in AzStartup_setFallbackFont
+  fresh:   %65 = add i64 %64, 523480
+  trans:   %65 = add i64 %64, 614312
 ```
 
-`<str as Display>::fmt` is 32 bytes and ends in a direct `jmp rel32` whose
-bytes are `e9 8e 81 3c 00` — displacement 3,965,326, targeting
-`Formatter::pad`. The fresh lift reproduces that exactly. The cached
-translation used 5,980,222 and jumped into `Vec::Drain::drop` instead. The
-error, 2,014,896, is the drift between how far the caller moved and how far
-`Formatter::pad` moved.
+Sampling 400 stored templates, of the `add i64 %N, <constant>` sites in them:
 
-Scale: **66,285 manifests carry a `@delta` slot**, including `s`-kind slots,
-which are *callee names* translated by the caller's own delta.
+| | count |
+|---|---|
+| covered by a slot | **0** |
+| frozen literal text | **2,726** |
 
-Across 183 divergence pairs from one run:
+Slots only ever covered `sub_<hex>` *name* tokens. That asymmetry explains why
+tail-call thunks are the poster child for this bug in both of its occurrences:
+remill renders a direct `call` as `call @sub_<hex>`, which IS a differing token
+and IS slotted correctly, but renders a tail `jmp` as pc arithmetic plus a
+missing-block — pure literal text.
 
-| class | count | harmful? |
-|---|---|---|
-| value differs | 171 | **yes** — a wrong address, the class above |
-| operator differs (`sub` vs `add`) | 12 | **yes** — a splice replaces a token but cannot change surrounding text, so sign-flip sites are untemplatable |
-| callee name differs | some | **no** — see below |
+The AzWriter boot trap: `core::fmt::impl$75::fmt<str$>` is 32 bytes and ends in
+one `jmp rel32`. The bytes encode displacement `0xda251e`, targeting
+`<str as Display>::fmt`. The cached template carried `0xdc3ace`, and
 
-## What is NOT the bug
+```
+0x101c82 + 0xdc3ace = 0xec5450
+```
 
-An earlier revision of this note blamed the callee-name swaps, where three
-distinct callees all translated to `sub_bf2270`. That is benign. Checking the
-bytes shows all four are ICF/monomorphization duplicates and byte-identical, so
-calling any of them is equivalent — the "ICF-equivalent duplicate-copy swap"
-class already known to be harmless.
-
-It also blamed the exact-symbol identity for carrying no fingerprint. That
-cannot cause a wrong splice either: `reloc_translate` handles `@rel`, `@delta`
-and `near:` and everything else falls to `return None`, so a bare
-`name+0x{off}` identity is a cache *miss*, not a mistranslation. It costs hit
-rate, nothing more.
-
-The `@rel` class is sound too — sweeping every `@rel` slot in the cache
-(3,086,415 of them) found none whose offset reaches beyond its own function.
+is 272 bytes inside `hashbrown::RawTable::reserve_rehash`. Because dispatcher
+cases are keyed by function *entry* addresses, no case can exist for a
+mid-function address, so the branch surfaced as an unmatched dispatch rather
+than as a call to the wrong function — which is why it read as a discovery bug
+for many runs. It is not: the target was never discoverable because it is not a
+real branch target of that function at all.
 
 ## Fix
 
-1. **Restrict `@delta` to intra-function targets**, where it degenerates to
-   `@rel` and is correct by construction. A cross-function target must use a
-   verifiable identity (symbol plus content fingerprint) or disqualify the
-   function from templating. A miss costs one remill invocation; a wrong splice
-   costs a silent call to the wrong address.
-2. **Make sign-flip sites untemplatable**: if the operator around a slot
-   differs between the two probe lifts, the function cannot be templated.
-3. **Widen the `near:` fingerprint for code targets** to `min(size, 64)` bytes
-   plus the symbol size — 16 bytes of a Rust prologue is not distinguishing.
+A new slot kind, `@disp`, closes the gap that made the field unrepairable:
 
-Then re-run with `AZ_RELOC_VERIFY=1` and require the divergence count to reach
-~0 before trusting the cache again.
+```
+<off> <len> D @disp:<next_off_hex>:<fingerprinted identity>
+```
+
+`RelocSite` now records `next_off`, the offset one past the instruction
+carrying the field — the point a pc-relative displacement is measured from.
+`reloc_templateize` reconstructs each masked site's displacement as
+`old_target - (lift_addr + next_off)`, finds that value as a token in the IR,
+and slots it under the same fingerprinted identity the `s` slots use.
+`reloc_translate` resolves that identity to this build's address and re-derives
+`target - (new_lift_addr + next_off)`. Displacements are signed, so `D` slots
+splice as `i64`; a backward branch renders `-N`.
+
+Where the field cannot be slotted safely the whole function is refused — a miss
+costs one remill invocation, a wrong splice costs silent wrong code. It is
+refused when the value occurs more than once in the IR (no unambiguous splice
+point), when two sites resolve to the same token, or when the target has no
+verifiable identity. A displacement that does not appear in the IR at all is
+not frozen and needs nothing, so the direct-call case keeps its hit rate.
+
+`LIFT_CACHE_VERSION` is bumped 9 → 10. Every v9 template froze its
+displacements and is unrepairable; the old entries must not be read.
+
+## What is NOT the bug
+
+An earlier revision of this note blamed callee-name swaps, where three distinct
+callees translated to `sub_bf2270`. Benign: the bytes show all four are
+ICF/monomorphization duplicates and byte-identical.
+
+It also blamed the exact-symbol identity for carrying no fingerprint. That
+cannot cause a wrong splice either — `reloc_translate` falls to `return None`
+for identities it does not handle, so a bare `name+0x{off}` is a cache *miss*.
+It costs hit rate, nothing more.
+
+The `@rel` class is sound: sweeping every `@rel` slot in the cache (3,086,415
+of them) found none whose offset reaches beyond its own function.
 
 ## Operational rule
 
-`AZ_RELOC_VERIFY=1` is not optional for a debugging run. It was switched off on
-every AzWriter run to save remill time, which is precisely why this survived so
-long and cost several days of forensics on symptoms. It roughly doubles remill
-for one run; a silent wrong-address lift costs far more.
+`AZ_RELOC_VERIFY=1` is not optional for a debugging run — `scripts/m9_e2e/
+azwriter_verify.sh` is the runner that sets it. It roughly doubles remill for
+one run; a silent wrong-address lift costs far more. Both defects here were
+found by it and neither was visible without it.
+
+The invariant it enforces, worth stating directly because the code cannot
+express it locally: **every byte masked out of the canonical key must
+correspond to a slot that is re-resolved at translate time.** Masking is a
+promise to re-resolve. `reloc_canonicalize` and `reloc_templateize` decide that
+independently, and a field that falls between them is silently stale.

@@ -1599,6 +1599,7 @@ impl RemillTranspiler {
                     probe_addr,
                     bytes.len(),
                     fn_addr,
+                    &rc.sites,
                     symbol_table::get(),
                 ) {
                     let (irp, mp) = reloc_cache_paths(rc, fn_size);
@@ -7876,7 +7877,11 @@ fn remill_export_symbol(entry_addr: u64) -> String {
 /// input bytes (the byte rewrites in `lift_fn`, the synth-address scheme). The
 /// remill ENGINE rev is captured automatically by [`engine_fingerprint`], so
 /// you only bump this for changes inside this crate's lift logic.
-const LIFT_CACHE_VERSION: u32 = 9;
+/// Bumped to 10 when `@disp` slots landed: every v9 template froze its
+/// pc-relative displacements as literal text while the cache key had already
+/// masked those bytes away, so a v9 hit can splice a stale branch target. The
+/// old entries are not repairable — they must not be read.
+const LIFT_CACHE_VERSION: u32 = 10;
 
 /// Fingerprint of the lifting ENGINE — the `remill-lift-17` binary — folded
 /// into the cache key so an engine change auto-invalidates every entry without
@@ -8321,6 +8326,11 @@ fn lift_cache_path(rewritten_bytes: &[u8], lift_addr: u64, fn_name: &str) -> Pat
 struct RelocSite {
     field_off: usize,
     width: u8,
+    /// Offset one past the instruction carrying the field — the value a
+    /// pc-relative field is measured from. Needed to reconstruct the
+    /// DISPLACEMENT the lifter bakes into the IR for this site, which is
+    /// what a template has to re-resolve (see `reloc_templateize`).
+    next_off: usize,
     old_target: u64,
     /// "name+0x<off>" when the symbol table names the target,
     /// "$raw:<hex>" otherwise (keys per-layout, still translation-safe
@@ -8445,6 +8455,7 @@ fn reloc_canonicalize(
                     sites.push(RelocSite {
                         field_off: off,
                         width: w as u8,
+                        next_off: pos + insn.len(),
                         old_target: t,
                         ident: ident_for(t),
                     });
@@ -8464,6 +8475,7 @@ fn reloc_canonicalize(
                     sites.push(RelocSite {
                         field_off: off,
                         width: w as u8,
+                        next_off: pos + insn.len(),
                         old_target: t,
                         ident: ident_for(t),
                     });
@@ -8489,6 +8501,7 @@ fn reloc_canonicalize(
                             sites.push(RelocSite {
                                 field_off: off,
                                 width: 8,
+                                next_off: pos + insn.len(),
                                 old_target: t,
                                 ident: id,
                             });
@@ -8597,6 +8610,7 @@ fn reloc_templateize(
     probe_addr: u64,
     fn_len: usize,
     fn_addr: usize,
+    sites: &[RelocSite],
     table: Option<&symbol_table::SymbolTable>,
 ) -> Option<String> {
     let a = ir.as_bytes();
@@ -8726,7 +8740,157 @@ fn reloc_templateize(
             _ => return None,
         }
     }
+    // ── Frozen relocatable displacements ────────────────────────────
+    //
+    // The diff above can only slot a token that DIFFERS between the two
+    // probe lifts. A pc-relative displacement is derived from the bytes, so
+    // both probes emit the same number and it stays literal text — while
+    // `reloc_canonicalize` has already zeroed that same field out of the
+    // hashed key and identified the target by symbol. Masked out of the key
+    // but never re-resolved is a stale value by construction: a later build
+    // where the callee moved relative to the caller is still a HIT and
+    // splices the old displacement, yielding a well-formed branch to a
+    // wrong address. Measured on one AzWriter run: 0 of 2,726 such `add`
+    // sites across 400 templates were covered by a slot, and the resulting
+    // jump sent <str as Display>::fmt into the middle of reserve_rehash.
+    //
+    // Slot each one explicitly under the same fingerprinted identity the
+    // `s` slots use. Where that cannot be done safely — the value occurs
+    // more than once, or collides with another site, or the target has no
+    // verifiable identity — refuse the whole function. A miss costs one
+    // remill invocation; a wrong splice costs silent wrong code.
+    let mut covered: Vec<(usize, usize)> = Vec::new();
+    for line in slots.lines() {
+        let mut f = line.split(' ');
+        let (Some(o), Some(l)) = (f.next(), f.next()) else {
+            continue;
+        };
+        if let (Ok(o), Ok(l)) = (usize::from_str_radix(o, 16), usize::from_str_radix(l, 16)) {
+            covered.push((o, o + l));
+        }
+    }
+    let mut claimed: Vec<usize> = Vec::new();
+    for site in sites {
+        let next_ip = lift_addr.wrapping_add(site.next_off as u64);
+        let disp = site.old_target.wrapping_sub(next_ip) as i64;
+        if disp == 0 {
+            continue;
+        }
+        let text = disp.to_string();
+        // Token-boundary matches only: "5234" must not be found inside
+        // "15234" or "0x5234", and a leading '-' belongs to the number.
+        let bytes_ir = ir.as_bytes();
+        let mut hits: Vec<usize> = Vec::new();
+        for (p, _) in ir.match_indices(text.as_str()) {
+            let before = if p == 0 { None } else { bytes_ir.get(p - 1).copied() };
+            let after = bytes_ir.get(p + text.len()).copied();
+            let bad_before = matches!(before, Some(c)
+                if c.is_ascii_digit() || c == b'-' || c == b'.' || c == b'x');
+            let bad_after = matches!(after, Some(c) if c.is_ascii_digit());
+            if !bad_before && !bad_after {
+                hits.push(p);
+            }
+        }
+        if hits.is_empty() {
+            continue; // nothing frozen for this site
+        }
+        if hits.len() > 1 {
+            return None; // ambiguous — cannot splice one occurrence safely
+        }
+        let at = hits[0];
+        if covered.iter().any(|(lo, hi)| at < *hi && at + text.len() > *lo) {
+            continue; // the diff already slotted this field
+        }
+        if claimed.contains(&at) {
+            return None; // two sites resolving to one token
+        }
+        let ident = ident_for(site.old_target)?;
+        claimed.push(at);
+        slots.push_str(&format!(
+            "{:x} {:x} D @disp:{:x}:{}\n",
+            at,
+            text.len(),
+            site.next_off,
+            ident,
+        ));
+    }
+
     Some(format!("v6 {lift_addr:x} {fn_len:x}\n{slots}"))
+}
+
+#[cfg(all(test, target_arch = "x86_64"))]
+mod reloc_disp_tests {
+    use super::*;
+
+    /// An address inside this binary's loaded image. `native_image_range`
+    /// walks backwards from whatever it is handed looking for the MZ header,
+    /// dereferencing as it goes, so a null or stack address faults.
+    fn in_image_addr() -> usize {
+        let f: fn() -> usize = in_image_addr;
+        f as usize
+    }
+
+    fn site(next_off: usize, old_target: u64) -> RelocSite {
+        RelocSite {
+            field_off: next_off.saturating_sub(4),
+            width: 4,
+            next_off,
+            old_target,
+            ident: String::new(),
+        }
+    }
+
+    /// The failure this whole slot kind exists to stop.
+    ///
+    /// Both probe lifts decode the same bytes, so a pc-relative displacement
+    /// is the SAME number in each and the token diff leaves it as literal
+    /// text — while `reloc_canonicalize` has already zeroed that field out of
+    /// the hashed cache key. Emitting the template anyway means a later build
+    /// whose callee moved relative to its caller gets a HIT and splices the
+    /// stale displacement. With no symbol table the target has no verifiable
+    /// identity, so the only sound answer is to refuse the function.
+    #[test]
+    fn frozen_displacement_without_identity_refuses_the_template() {
+        let lift = 0x10_0000u64;
+        let disp = 14_296_350u64;
+        let ir = "  %2 = add i64 %1, 14296350\n";
+        let out = reloc_templateize(
+            ir,
+            ir,
+            lift,
+            lift.wrapping_add(0x4000_0000),
+            0x20,
+            in_image_addr(),
+            &[site(5, lift + 5 + disp)],
+            None,
+        );
+        assert!(
+            out.is_none(),
+            "a frozen displacement with no verifiable identity must be a cache \
+             MISS, not a template that splices a stale branch target",
+        );
+    }
+
+    /// The common case must still template. remill renders a direct `call` as
+    /// `call @sub_<hex>`, so no displacement literal appears in the IR at all
+    /// and there is nothing frozen to repair — refusing here would cost the
+    /// cache its hit rate for no correctness gain.
+    #[test]
+    fn a_site_whose_displacement_is_absent_still_templates() {
+        let lift = 0x10_0000u64;
+        let ir = "  %2 = add i64 %1, 999\n";
+        let out = reloc_templateize(
+            ir,
+            ir,
+            lift,
+            lift.wrapping_add(0x4000_0000),
+            0x20,
+            in_image_addr(),
+            &[site(5, lift + 5 + 555_555)],
+            None,
+        );
+        assert_eq!(out.as_deref(), Some("v6 100000 20\n"));
+    }
 }
 
 /// Apply a v6 template: pure slot substitution, no scanning heuristics.
@@ -8747,6 +8911,34 @@ fn reloc_translate(
     let fn_len = bytes.len();
     let new_img = super::lift_audit::native_image_range(fn_addr);
     let new_bias = (fn_addr as u64).wrapping_sub(new_lift_addr);
+    // Shared `near:` resolution: a fingerprint-verified symbol identity to
+    // this build's synthetic address. Used directly by an `s`/`d` slot and
+    // again inside a `@disp:` slot, which turns the same answer into a
+    // pc-relative displacement.
+    let resolve_near = |rest: &str| -> Option<u64> {
+        let (name_off, fp_hex) = rest.rsplit_once(':')?;
+        let (name, off_hex) = name_off.rsplit_once("+0x")?;
+        let soff = u64::from_str_radix(off_hex, 16).ok()?;
+        let e = table?.by_name(name)?;
+        // An entry can share the target's NATIVE address (fingerprint
+        // trivially matches) while its synthetic address was never
+        // assigned — translating through it produced values like 1551.
+        if e.synthetic_addr < 0x1000 {
+            return None;
+        }
+        let cand_synth = (e.synthetic_addr as u64).checked_add(soff)?;
+        let cand_native = cand_synth.wrapping_add(new_bias);
+        let (lo, hi) = new_img?;
+        if cand_native < lo || cand_native.saturating_add(16) > hi {
+            return None;
+        }
+        let pointee =
+            unsafe { std::slice::from_raw_parts(cand_native as usize as *const u8, 16) };
+        if super::fnv1a64_hex(pointee) != fp_hex {
+            return None;
+        }
+        Some(cand_synth)
+    };
     let mut lines = manifest.lines();
     let header = lines.next()?;
     let mut h = header.split(' ');
@@ -8781,29 +8973,17 @@ fn reloc_translate(
             let old_va = u64::from_str_radix(va_hex, 16).ok()?;
             old_va.wrapping_add(new_lift_addr.wrapping_sub(_old_lift))
         } else if let Some(rest) = ident.strip_prefix("near:") {
-            let (name_off, fp_hex) = rest.rsplit_once(':')?;
-            let (name, off_hex) = name_off.rsplit_once("+0x")?;
-            let soff = u64::from_str_radix(off_hex, 16).ok()?;
-            let e = table?.by_name(name)?;
-            // An entry can share the target's NATIVE address (fingerprint
-            // trivially matches) while its synthetic address was never
-            // assigned — translating through it produced values like 1551.
-            if e.synthetic_addr < 0x1000 {
-                return None;
-            }
-            let cand_synth = (e.synthetic_addr as u64).checked_add(soff)?;
-            let cand_native = cand_synth.wrapping_add(new_bias);
-            let (lo, hi) = new_img?;
-            if cand_native < lo || cand_native.saturating_add(16) > hi {
-                return None;
-            }
-            let pointee = unsafe {
-                std::slice::from_raw_parts(cand_native as usize as *const u8, 16)
-            };
-            if super::fnv1a64_hex(pointee) != fp_hex {
-                return None;
-            }
-            cand_synth
+            resolve_near(rest)?
+        } else if let Some(rest) = ident.strip_prefix("@disp:") {
+            // A pc-relative field. `reloc_canonicalize` masked it out of the
+            // key, and the probe diff cannot slot it because both probes
+            // decode the same bytes to the same number — so it must be
+            // re-derived here: resolve the target's identity in THIS build,
+            // then measure from the end of the instruction that carries it.
+            let (off_hex, inner) = rest.split_once(':')?;
+            let next_off = u64::from_str_radix(off_hex, 16).ok()?;
+            let target = resolve_near(inner.strip_prefix("near:")?)?;
+            target.wrapping_sub(new_lift_addr.wrapping_add(next_off))
         } else {
             // Only fingerprinted identities are translatable; anything else
             // (including manifests from before the fingerprint upgrade) is
@@ -8822,6 +9002,8 @@ fn reloc_translate(
         }
         let repl = match s.kind {
             b's' => format!("sub_{:x}", s.val),
+            // A displacement is signed: a backward branch splices as `-N`.
+            b'D' => (s.val as i64).to_string(),
             _ => s.val.to_string(),
         };
         out.splice(s.off..s.off + s.len, repl.bytes());
