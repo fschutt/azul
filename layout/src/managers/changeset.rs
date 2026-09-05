@@ -566,6 +566,12 @@ impl TextChangeset {
 /// `DocumentOperation` themselves; it is the built-in "apply this changeset to
 /// a plain `Dom`" helper that disappears.
 #[cfg(feature = "xml")]
+/// Gated exactly like [`crate::document_edit`], the module this reaches into:
+/// `text_layout` alone (printpdf's reduced build) compiles the changeset types
+/// but not `document_edit`, and an ungated method referring to it fails to
+/// resolve. Same class as the `cpurender` gaps on `tray_icon` and
+/// `rasterize_svg_clip_to_r8`.
+#[cfg(all(feature = "text_layout", feature = "xml"))]
 impl DocumentChangeset {
     /// Apply this changeset to an app-model [`Dom`](azul_core::dom::Dom) -
     /// the Path-2 helper [`crate::document_edit::apply_document_operation`]
