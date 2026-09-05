@@ -6,13 +6,14 @@
 // the missed PC at 0x409B0, the ring at 0x409C0). This reads both back, dumps
 // the X86State register file, and labels it.
 //
-// The offsets below are VERIFIED against remill's State.h (see the table further
-// down), not extrapolated - an earlier guess from lifted-IR GEP indices put RIP
-// at 2472 instead of 2480 and made RCX and RIP read the same value, which
-// contradicted the `movq %rsi,%rcx` preceding the failing call.
+// The offsets below come from remill's State.h (see the table further down).
+// Reading that header is still not enough on its own: two separate passes got
+// RIP wrong in opposite directions, first by extrapolating 8 bytes per lifted-IR
+// GEP index and then by mis-adding the `_16` padding. It is 2472.
 //
-// Two independently-known anchors are still checked at runtime, because a
-// verified table is worth nothing if the recorded pointer is wrong:
+// So two independently-known anchors are checked at runtime as well, because a
+// table read off a header is worth nothing if the arithmetic or the recorded
+// pointer is wrong - and here the anchor is what settled it:
 //
 //   RIP  == the recorded missed PC (0x409B0)
 //   RSP  ∈ the guest stack band (~0x2f000..0x30000)
@@ -78,16 +79,19 @@ const READ = `(() => {
 // ALL FOUR pcs::ARG values exactly (rcx 2248, rdx 2264, r8 2344, r9 2360) - so
 // this is verified, not extrapolated.
 //
-// Note RIP is 2480, NOT 2472: an earlier uniform-8-bytes-per-GEP-index guess
-// missed the extra `_16` field sitting between r15 and rip, and every register
-// conclusion drawn from that mapping was wrong.
+// RIP is 2472 (rip follows `_16` at GPR+256). A first pass extrapolated 8
+// bytes per lifted-IR GEP index and a second pass mis-added the padding and
+// said 2480; the runtime anchor settled it - 2472 held the recorded missed PC.
 const GPR = 2208;
 const KNOWN = {
     [GPR + 8]: 'RAX', [GPR + 24]: 'RBX', [GPR + 40]: 'RCX', [GPR + 56]: 'RDX',
     [GPR + 72]: 'RSI', [GPR + 88]: 'RDI', [GPR + 104]: 'RSP', [GPR + 120]: 'RBP',
     [GPR + 136]: 'R8', [GPR + 152]: 'R9', [GPR + 168]: 'R10', [GPR + 184]: 'R11',
     [GPR + 200]: 'R12', [GPR + 216]: 'R13', [GPR + 232]: 'R14', [GPR + 248]: 'R15',
-    [GPR + 272]: 'RIP',
+    // rip follows `_16` at GPR+256, so it is GPR+264 = 2472. An earlier
+    // reading put it at GPR+272 = 2480; the runtime anchor disproved that
+    // immediately - 2472 held the recorded missed PC and 2480 held zero.
+    [GPR + 264]: 'RIP',
 };
 
 (async () => {
