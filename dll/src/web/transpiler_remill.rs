@@ -11346,19 +11346,31 @@ fn emit_win_tls_init() -> String {
     let Some((template_synth, template_len)) = found else {
         return String::new();
     };
+    // These two stores write GUEST linear memory through `inttoptr` — unlike
+    // every other store in the wrapper, which targets a host alloca.
+    // `tag_state_accesses` blanket-tags untagged wrapper stores with the HOST
+    // scope and `!noalias` guest; that would let LLVM prove them disjoint from
+    // the body's guest `gs:[0x58]` load (same constant address, same function
+    // once the body inlines) and drop them entirely, so the seed would silently
+    // do nothing. Pre-tagging as guest makes the tagger skip them, and
+    // `volatile` matches how every other guest write here is emitted.
+    let guest = format!(
+        ", !alias.scope !{}, !noalias !{}",
+        AZ_GUEST_LIST_MD_ID, AZ_HOST_LIST_MD_ID,
+    );
     let mut ir = format!(
         "  ; Windows thread-locals: seed a synthetic TEB so `gs:[0x58]` resolves.\n  \
          ; TLS template is {template_len} bytes at synth {template_synth:#x}; wasm is\n  \
          ; single-threaded, so the template IS the one live block.\n  \
          %teb_slot = inttoptr i64 {teb_slot} to ptr\n  \
-         store i64 {array}, ptr %teb_slot, align 8\n",
+         store volatile i64 {array}, ptr %teb_slot, align 8{guest}\n",
         teb_slot = AZ_TEB_ADDR + TEB_TLS_POINTER_OFF,
         array = AZ_TLS_ARRAY_ADDR,
     );
     for i in 0..AZ_TLS_SLOTS {
         ir.push_str(&format!(
             "  %tls_slot{i} = inttoptr i64 {addr} to ptr\n  \
-             store i64 {template_synth}, ptr %tls_slot{i}, align 8\n",
+             store volatile i64 {template_synth}, ptr %tls_slot{i}, align 8{guest}\n",
             addr = AZ_TLS_ARRAY_ADDR + i * 8,
         ));
     }
