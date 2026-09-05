@@ -517,10 +517,55 @@ shared transaction so it keeps its own call, but honours the same verdict — an
 re-arms the scrollbar fade before it returns, because the fade has a delay
 phase in which the opacity does not move yet and the re-arm is what wakes it.
 
+**Measured on the device, after the fix.** Same window, same idleness,
+`AZ_LOG=debug,+rendering,+window`, 25 s each, zero errors in either log:
+
+| idle, 25 s              | X11 / GPU before | X11 / GPU after | Wayland / GPU after |
+|-------------------------|-----------------:|----------------:|--------------------:|
+| `new_frame_ready`       | 1087             | **21**          | **4**               |
+| presents                | 1086             | **61**          | 18 frame spans      |
+| full `generate_frame`   | 18               | 20              | -                   |
+| lightweight, no frame   | -                | **40**          | **15**              |
+| lightweight, frame asked| -                | 1               | 2                   |
+
+The accounting closes exactly: 20 full frames + 1 lightweight request = the 21
+frame-ready signals. Frame builds on an idle X11 window are down 98%, and the
+20 that remain are the caret blink at its configured 530 ms - real work, and
+the same number as before. The presents that remain (2.5/s, not 58.6/s) are
+that same caret; they no longer feed themselves.
+
 **A prior fix of the same shape, already in the tree:**
 `synchronize_scrollbar_opacity` counts a scrollbar as fading only at
 `0 < opacity < 1`, with the comment "opacity == 1.0 here causes an infinite
 repaint loop". Someone met this class of bug before, one layer up.
+
+**Mobile cannot have this bug, and one half of it was already fixed there.**
+Android and iOS never build a WebRender transaction at all - both are CPU
+pixmap blits (`android/mod.rs::render_frame` -> `ANativeWindow_lock` +
+`unlockAndPost`; `ios/mod.rs::display_layer` -> `layer.contents`) - so there is
+no `generate_frame` to ask for and nothing to signal frame-ready. Android had
+the CPU twin of tonight's bug and it is already fixed: its loop wakes every
+16 ms for timers and used to present unconditionally, locking and full-copying
+~10 MB at 1080p and posting an identical buffer on every wake, "keeping
+SurfaceFlinger compositing at 60 Hz while the app sat idle" - now gated behind
+`frame_dirty` (`android/mod.rs:1043`). iOS presents only when
+`regeneration_pending()` (`ios/mod.rs:1072`), so it has no idle loop either.
+
+**But iOS has the MIRROR-IMAGE gap, and it is a real one.** Android grew a
+`needs_rerender` flag + `rerender_cpu()` precisely because "the only route to a
+presented frame was `regeneration_pending()`, so every input that changed a
+pixel had to claim it had changed the DOM" (`android/mod.rs:155-160`). iOS is
+still in that pre-fix shape: `request_redraw()` -> `present()` -> `setNeedsDisplay`
+-> `display_layer`, and `display_layer` re-renders ONLY if a regeneration is
+pending - otherwise it blits the PREVIOUS `cpu_backend.last_frame`. Every iOS
+input route therefore calls `request_regeneration(RefreshDom)` and pays a full
+relayout for a repaint; and the one caller that does not - the accessibility
+drain at `ios/mod.rs:1796`, whose Android twin deliberately calls
+`request_regeneration` instead - blits a stale frame, so a VoiceOver
+Focus/Blur/Scroll changes nothing on screen until something else triggers a
+regeneration. NOT FIXED HERE: there is no iOS device and no compiler coverage
+for `target_os = "ios"` on this machine, so this is a code-read finding with
+its Android precedent, not a blind edit.
 
 **The CPU path does not have this loop.** It never builds a WebRender
 transaction, so nothing signals `new_frame_ready`; its only self-feeding edge is
