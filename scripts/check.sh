@@ -42,6 +42,7 @@ STAGES=(
   "check|fast|cargo check azul-css / azul-core / azul-layout"
   "clippy|fast|clippy -D warnings on core/css/layout --all-targets"
   "doc-check|fast|azul-doc check (double-drop invariant + guide links)"
+  "binding-syntax|fast|syntax-check the generated zig/go bindings (skipped if no toolchain)"
   "doc-tests|fast|cargo test -p azul-doc --bins"
   "unit-tests|fast|css+core+layout+webrender --lib, WITH the feature gates CI uses"
   "css-io|fast|--test test_system_style --features io (required-features gate)"
@@ -302,6 +303,53 @@ stage_check() {
     && cargo check -p azul-layout
 }
 
+stage_binding_syntax() {
+  # The derive-parity gate greps generated bindings for NAMES, so it reports
+  # green on code that does not compile - that is not hypothetical, it shipped
+  # three non-compiling PHP methods and a Zig parameter-shadowing error before
+  # anyone looked. Nothing else in this repo builds the non-Rust bindings, so
+  # these two cheap syntax checks are the only thing standing between a codegen
+  # change and a broken artifact.
+  #
+  # Both are pure parsers: no libazul, no cgo, no linking. Skipped rather than
+  # failed when the toolchain is absent, so CI images without them stay green.
+  local gen="target/codegen"
+  if [ ! -d "$gen" ]; then
+    echo "  (skip: $gen missing - run 'cargo run --release -p azul-doc codegen all')"
+    return 0
+  fi
+
+  local rc=0
+  if command -v zig >/dev/null 2>&1; then
+    if zig ast-check "$gen/azul.zig"; then
+      echo "  zig ast-check: ok"
+    else
+      echo "  zig ast-check: FAILED" >&2
+      rc=1
+    fi
+  else
+    echo "  (skip zig: not installed)"
+  fi
+
+  if command -v gofmt >/dev/null 2>&1; then
+    # `gofmt -e` prints syntax errors; formatting differences go to stdout as
+    # filenames, which is why the error stream is what decides the verdict.
+    local goerr
+    goerr="$(gofmt -e "$gen/go" 2>&1 >/dev/null)"
+    if [ -z "$goerr" ]; then
+      echo "  gofmt -e: ok"
+    else
+      echo "  gofmt -e: FAILED" >&2
+      echo "$goerr" >&2
+      rc=1
+    fi
+  else
+    echo "  (skip go: gofmt not installed)"
+  fi
+
+  return $rc
+}
+
 stage_doc_tests() {
   local log="$LOGDIR/doc-tests.raw"
   # `--bins`, not `--lib`: azul-doc is binary-only.
@@ -483,6 +531,7 @@ for s in "${STAGES[@]}"; do
     check)           run_stage "$name" "$desc" stage_check ;;
     doc-tests)       run_stage "$name" "$desc" stage_doc_tests ;;
     doc-check)       run_stage "$name" "$desc" stage_doc_check ;;
+    binding-syntax)  run_stage "$name" "$desc" stage_binding_syntax ;;
     css-io)          run_stage "$name" "$desc" stage_css_io ;;
     unit-tests)        run_stage "$name" "$desc" stage_unit_tests ;;
     integration-tests) run_stage "$name" "$desc" stage_integration_tests ;;

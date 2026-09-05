@@ -396,6 +396,18 @@ fn emit_unit_enum_helper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
 /// The enum flavour of [`emit_trait_methods`]: same entry points, but an enum
 /// wrapper has no `inner` field, so these operate on `*const Raw`.
 fn emit_trait_methods_raw(out: &mut String, class_name: &str, ffi_name: &str, ir: &CodegenIR) {
+    // Zig forbids a parameter shadowing ANY declaration in the containing
+    // scope, and these namespaces already declare one function per variant -
+    // `NodeType` has `pub fn a()`, so a parameter named `a` is a hard error.
+    // The file solves this for ordinary methods with `renamed_param`; this
+    // does the same, against the names this namespace will emit.
+    let mut reserved: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for f in ir.functions_for_class(class_name) {
+        reserved.insert(sanitize_identifier(&idiomatic_method_name(&f.method_name)));
+    }
+    let pa = renamed_param("a", &reserved);
+    let pb = renamed_param("b", &reserved);
+    let pv = renamed_param("v", &reserved);
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for f in ir.functions_for_class(class_name) {
         let (name, text) = match f.kind {
@@ -403,8 +415,8 @@ fn emit_trait_methods_raw(out: &mut String, class_name: &str, ffi_name: &str, ir
                 "eql",
                 format!(
                     "    /// Structural equality, delegating to the Rust `PartialEq`.\n    \
-                     pub fn eql(a: *const Raw, b: *const Raw) bool {{\n        \
-                     return C.{ffi_name}_partialEq(a, b);\n    }}\n"
+                     pub fn eql({pa}: *const Raw, {pb}: *const Raw) bool {{\n        \
+                     return C.{ffi_name}_partialEq({pa}, {pb});\n    }}\n"
                 ),
             ),
             FunctionKind::Cmp => (
@@ -412,8 +424,8 @@ fn emit_trait_methods_raw(out: &mut String, class_name: &str, ffi_name: &str, ir
                 format!(
                     "    /// Total order, delegating to the Rust `Ord`.\n    \
                      /// The C ABI answers 0 = less, 1 = equal, 2 = greater.\n    \
-                     pub fn order(a: *const Raw, b: *const Raw) u8 {{\n        \
-                     return C.{ffi_name}_cmp(a, b);\n    }}\n"
+                     pub fn order({pa}: *const Raw, {pb}: *const Raw) u8 {{\n        \
+                     return C.{ffi_name}_cmp({pa}, {pb});\n    }}\n"
                 ),
             ),
             FunctionKind::PartialCmp => (
@@ -421,16 +433,16 @@ fn emit_trait_methods_raw(out: &mut String, class_name: &str, ffi_name: &str, ir
                 format!(
                     "    /// Partial order, delegating to the Rust `PartialOrd`.\n    \
                      /// Same encoding as `order`.\n    \
-                     pub fn partialOrder(a: *const Raw, b: *const Raw) u8 {{\n        \
-                     return C.{ffi_name}_partialCmp(a, b);\n    }}\n"
+                     pub fn partialOrder({pa}: *const Raw, {pb}: *const Raw) u8 {{\n        \
+                     return C.{ffi_name}_partialCmp({pa}, {pb});\n    }}\n"
                 ),
             ),
             FunctionKind::Hash => (
                 "hash",
                 format!(
                     "    /// The Rust `Hash`, as a 64-bit digest.\n    \
-                     pub fn hash(v: *const Raw) u64 {{\n        \
-                     return C.{ffi_name}_hash(v);\n    }}\n"
+                     pub fn hash({pv}: *const Raw) u64 {{\n        \
+                     return C.{ffi_name}_hash({pv});\n    }}\n"
                 ),
             ),
             FunctionKind::DebugToString => (
@@ -438,16 +450,16 @@ fn emit_trait_methods_raw(out: &mut String, class_name: &str, ffi_name: &str, ir
                 format!(
                     "    /// The Rust `{{:#?}}` rendering. The returned `AzString` owns its\n    \
                      /// buffer — free it with `C.AzString_delete` when done.\n    \
-                     pub fn toDbgString(v: *const Raw) C.AzString {{\n        \
-                     return C.{ffi_name}_toDbgString(v);\n    }}\n"
+                     pub fn toDbgString({pv}: *const Raw) C.AzString {{\n        \
+                     return C.{ffi_name}_toDbgString({pv});\n    }}\n"
                 ),
             ),
             FunctionKind::DeepCopy => (
                 "clone",
                 format!(
                     "    /// A deep copy, delegating to the Rust `Clone`.\n    \
-                     pub fn clone(v: *const Raw) Raw {{\n        \
-                     return C.{ffi_name}_clone(v);\n    }}\n"
+                     pub fn clone({pv}: *const Raw) Raw {{\n        \
+                     return C.{ffi_name}_clone({pv});\n    }}\n"
                 ),
             ),
             _ => continue,
