@@ -39,6 +39,11 @@ DIVERGENCE in AzStartup_setFallbackFont
   trans:   %65 = add i64 %64, 614312
 ```
 
+Across one full run, all 700 divergent line pairs sat in exactly two IR
+positions — `add i64` (442) and `sub i64` (258) — and no callee-name or
+absolute-operand divergence appeared at all. That is the whole population the
+slot kinds have to cover.
+
 Sampling 400 stored templates, of the `add i64 %N, <constant>` sites in them:
 
 | | count |
@@ -97,6 +102,28 @@ is just as probe-invariant as a displacement. It renders as the address itself,
 so `@disp` would never match it; each masked site is therefore tried in both
 shapes, the absolute under a plain fingerprinted identity and the displacement
 under `@disp`.
+
+### What the refusal rule costs
+
+Refusing a function whenever a frozen value is ambiguous could in principle
+disable the cache, so it was measured rather than assumed. Over 598 stored
+templates, counting the constants in the two positions the verifier actually
+reports divergences in (`add i64` / `sub i64`):
+
+| constant occurs … in its own template | share |
+|---|---|
+| exactly once | **85.4%** |
+| 2–4 times | 1.6% |
+| 5+ times | 13.0% |
+
+and **81.5%** of functions have every address-sized constant unique. The
+repeated ones are almost entirely small structural offsets — 73.6% of all
+constants are under four digits (`add i64 %x, 8`) and are never a masked
+site's value. 81.5% is a lower bound on templates kept, because only values
+belonging to a masked site are checked at all and a value absent from the IR
+needs no slot.
+
+### Versioning
 
 Templates are versioned separately from the IR cache. `RELOC_TEMPLATE_VERSION`
 goes to 2, retiring every template built under the old rules. `LIFT_CACHE_VERSION`
