@@ -12122,26 +12122,46 @@ fn emit_helper_ir(
                     .strip_prefix("sub_")
                     .and_then(|h| u64::from_str_radix(h, 16).ok())
                     .unwrap_or(0xDEAD);
-                // Also record the CALLER's pc. `%pc` is the call-site PC the
-                // caller loads from %PC immediately before the call, so it
-                // names the exact instruction that reached this stub. Without
-                // it 0x40048 says only WHICH panic — and the busiest panics
-                // have hundreds of callers, so that alone cannot locate the
-                // bug. Resolve with `name-synth.py <pc> <that run's log>`.
+                // Also record WHO called this stub. 0x40048 says only WHICH
+                // panic, and the busiest panic entry points have over a
+                // thousand callers, so the symbol alone cannot locate the bug.
                 //
-                // `volatile` is what keeps these alive; unlike the TLS seed
-                // they need no guest alias scope, because nothing in the lifted
-                // code reads them — only the JS probes do, so there is no
-                // guest-tagged load for a host tag to be proven disjoint from.
+                // The caller's identity is the RETURN ADDRESS, read from the
+                // guest stack at [RSP] — the lifted caller decrements RSP by 8
+                // and writes it there immediately before the call.
+                //
+                // It is NOT the `%pc` argument. remill's contract is that a
+                // lifted body's `pc` argument is its OWN lift address (the same
+                // invariant the direct-call pc seeding relies on), and the
+                // caller sets %PC to the call TARGET before calling. Recording
+                // `%pc` therefore stored the stub's own address: a run measured
+                // 0x40048 and this recorder as the identical value, which is
+                // what proved it.
+                //
+                // `volatile` is what keeps these stores alive; unlike the TLS
+                // seed they need no guest alias scope, because nothing in the
+                // lifted code reads them — only the JS probes do, so there is
+                // no guest-tagged load for a host tag to be proven disjoint
+                // from. The [RSP] LOAD is a different matter: it reads guest
+                // memory a lifted caller wrote, so it carries the guest scope.
                 branch_stubs.push_str(&format!(
                     "; NeverLift trap for {sym}\n\
                      define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) {{\n  \
                        store volatile i64 {marker}, ptr inttoptr (i64 262216 to ptr), align 8\n  \
-                       store volatile i64 %pc, ptr inttoptr (i64 {caller_rec} to ptr), align 8\n  \
+                       %nlsp_{n} = getelementptr inbounds i8, ptr %state, i64 {sp_off}\n  \
+                       %nlspv_{n} = load i64, ptr %nlsp_{n}, align 8\n  \
+                       %nlretp_{n} = inttoptr i64 %nlspv_{n} to ptr\n  \
+                       %nlret_{n} = load volatile i64, ptr %nlretp_{n}, align 8, \
+                         !alias.scope !{guest}, !noalias !{host}\n  \
+                       store volatile i64 %nlret_{n}, ptr inttoptr (i64 {caller_rec} to ptr), align 8\n  \
                        unreachable\n\
                      }}\n",
                     sym = ext.sym_name,
+                    n = n_suffix,
                     marker = nl_marker,
+                    sp_off = pcs::SP,
+                    guest = AZ_GUEST_LIST_MD_ID,
+                    host = AZ_HOST_LIST_MD_ID,
                     caller_rec = AZ_NEVERLIFT_CALLER_REC,
                 ));
             }
