@@ -238,6 +238,7 @@ pub enum EditOutcome {
 /// [`edit_text`], but the no-op channel is explicit. Appliedness is tracked
 /// from the byte/run-count deltas already computed per selection — no content
 /// comparison. An insert of `""` counts as a miss (both deltas zero).
+#[must_use] 
 pub fn edit_text_outcome(
     content: &[InlineContent],
     selections: &[Selection],
@@ -712,8 +713,8 @@ fn insert_text_with_line_breaks(
 /// value, an overlay entry retiring, a reconcile swapping generations) and
 /// the cursor is only re-seated on the NEXT layout pass. Between those two
 /// moments an edit used to slice `text[..stale_byte]` and ABORT the process
-/// (device crash: AzWidgets Backspace, 2026-08-29). An edit against a stale
-/// cursor must degrade to a clamped edit, never a panic; the debug_asserts
+/// (device crash: `AzWidgets` Backspace, 2026-08-29). An edit against a stale
+/// cursor must degrade to a clamped edit, never a panic; the `debug_asserts`
 /// keep the PRODUCER of such a cursor loud in dev builds.
 fn sanitize_cursor(content: &[InlineContent], cursor: &TextCursor) -> TextCursor {
     let mut c = *cursor;
@@ -724,11 +725,27 @@ fn sanitize_cursor(content: &[InlineContent], cursor: &TextCursor) -> TextCursor
         let byte = c.cluster_id.start_byte_in_run as usize;
         let len = run.text.len();
         if byte > len {
-            debug_assert!(
-                false,
-                "cursor byte {byte} is past the run text (len {len}) - a \
-                 stale cursor survived a content swap",
-            );
+            // LOUD, BUT NOT FATAL. This was `debug_assert!(false, ..)`, which
+            // made the documented degradation path ABORT in dev builds -
+            // including the three `insert_text_*_past_the_end_*` tests below,
+            // which exist to pin the 2026-08-29 contract that a stale past-end
+            // cursor CLAMPS so the keystroke lands instead of being dropped.
+            // It also contradicted this function's own sentence: an edit
+            // against a stale cursor "must degrade to a clamped edit, never a
+            // panic". Past-the-end is a SUPPORTED input; the producer is still
+            // worth naming, so dev builds say so and carry on.
+            //
+            // The char-boundary arm below keeps its `debug_assert!`: a cursor
+            // pointing INTO a UTF-8 sequence is malformed rather than merely
+            // stale, and nothing documents it as supported.
+            #[cfg(debug_assertions)]
+            {
+                eprintln!(
+                    "[azul][text] cursor byte {byte} is past the run text (len \
+                     {len}) - a stale cursor survived a content swap; clamping \
+                     to the end"
+                );
+            }
             c.cluster_id.start_byte_in_run = len as u32;
         } else if !run.text.is_char_boundary(byte) {
             debug_assert!(
@@ -746,6 +763,7 @@ fn sanitize_cursor(content: &[InlineContent], cursor: &TextCursor) -> TextCursor
     c
 }
 
+#[must_use] 
 pub fn delete_backward(
     content: &[InlineContent],
     cursor: &TextCursor,

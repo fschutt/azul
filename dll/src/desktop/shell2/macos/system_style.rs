@@ -782,9 +782,21 @@ fn probe_with(lib: &ObjcLib) -> Option<Theme> {
     }
 }
 
-/// How often the appearance is re-read. The probe is cheap but not free, and a
-/// theme switch is a human action — half a second is imperceptible.
-const APPEARANCE_POLL_INTERVAL: core::time::Duration = core::time::Duration::from_millis(500);
+/// How often the BACKSTOP re-reads the appearance.
+///
+/// The primary path is not this poll: AppKit announces an appearance change to
+/// every view through `viewDidChangeEffectiveAppearance`, and the backend's
+/// override of it (`macos/mod.rs`) adopts the new style the instant the switch
+/// happens, with no latency at all.
+///
+/// The poll stays because that notification is about the APPEARANCE only.
+/// `discover()` also reads the accent/highlight colour, the UI font and the
+/// "reduce transparency"/"increase contrast" accessibility switches, and none of
+/// those change the view's effective appearance — flipping the accent from blue
+/// to pink fires no view callback whatsoever. Two seconds is imperceptible for a
+/// human-driven settings change and the probe is one `objc_msgSend` pair on a
+/// handle that is already open.
+const APPEARANCE_POLL_INTERVAL: core::time::Duration = core::time::Duration::from_secs(2);
 
 std::thread_local! {
     /// Last time this thread probed. A thread-local rather than a field on the
@@ -808,8 +820,6 @@ std::thread_local! {
 pub(crate) fn adopt_observed_theme(
     common: &mut crate::desktop::shell2::common::event::CommonWindowState,
 ) -> Option<alloc::sync::Arc<SystemStyle>> {
-    use azul_core::window::WindowTheme;
-
     let now = std::time::Instant::now();
     let due = LAST_APPEARANCE_POLL.with(|c| match c.get() {
         Some(last) if now.duration_since(last) < APPEARANCE_POLL_INTERVAL => false,
@@ -821,6 +831,33 @@ pub(crate) fn adopt_observed_theme(
     if !due {
         return None;
     }
+
+    adopt_probed_theme(common)
+}
+
+/// Adopt the appearance AppKit just announced, skipping the poll throttle.
+///
+/// The counterpart of [`adopt_observed_theme`] for the EVENT-driven path:
+/// `NSView`'s `viewDidChangeEffectiveAppearance` is AppKit telling us the
+/// appearance already changed, so re-reading it is not a poll and must not be
+/// rate-limited — a switch landing 100 ms after the last backstop probe would
+/// otherwise be deferred by up to a full interval, which is precisely the
+/// latency the notification exists to remove.
+///
+/// The backstop's clock is advanced as a side effect: the appearance has just
+/// been read, so the next poll has nothing to add for another interval.
+pub(crate) fn adopt_announced_theme(
+    common: &mut crate::desktop::shell2::common::event::CommonWindowState,
+) -> Option<alloc::sync::Arc<SystemStyle>> {
+    LAST_APPEARANCE_POLL.with(|c| c.set(Some(std::time::Instant::now())));
+    adopt_probed_theme(common)
+}
+
+/// The probe-and-adopt body both entry points share.
+fn adopt_probed_theme(
+    common: &mut crate::desktop::shell2::common::event::CommonWindowState,
+) -> Option<alloc::sync::Arc<SystemStyle>> {
+    use azul_core::window::WindowTheme;
 
     let theme = probe_effective_appearance()?;
     let theme = match theme {

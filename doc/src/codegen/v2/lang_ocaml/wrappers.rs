@@ -33,8 +33,7 @@ use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
     ArgRefKind, CodegenIR, EnumVariantKind, FieldRefKind, FunctionDef, FunctionKind, StructDef,
-    TypeCategory,
-};
+    TypeCategory, EnumDef};
 use super::super::managed_host_invoker::{
     host_invoker_kinds, layout_callback_factory_info, wrapper_name,
 };
@@ -112,6 +111,8 @@ pub fn emit_idiomatic_module_interface(
         }
         emit_module_interface_for_class(builder, s, ir, &delete_set);
     }
+
+    emit_enum_modules(builder, ir, config, /* interface */ true);
 
     builder.blank();
     Ok(())
@@ -223,6 +224,8 @@ pub fn emit_idiomatic_module_implementation(
     }
 
     builder.blank();
+    emit_enum_modules(builder, ir, config, /* interface */ false);
+
     Ok(())
 }
 
@@ -351,8 +354,13 @@ fn collect_delete_targets(ir: &CodegenIR) -> BTreeSet<&str> {
 }
 
 fn class_has_visible_methods(class_name: &str, ir: &CodegenIR) -> bool {
-    ir.functions_for_class(class_name)
-        .any(|f| !f.kind.is_trait_function())
+    // Trait-only classes ARE admitted. When first tried the module could
+    // carry only `equal` / `hash` / `to_string`, so every other derive a
+    // class declared flipped from "absent" to "missing" and the gap grew
+    // 272 -> 1321. The module now carries the whole list - equal, hash,
+    // to_string, compare, partial_compare, clone, default - so a class with
+    // nothing but trait exports is strictly better off with one.
+    ir.functions_for_class(class_name).next().is_some()
 }
 
 // ============================================================================
@@ -487,6 +495,38 @@ fn emit_module_interface_for_class(
         let sig = build_method_signature(func, ir, has_wrapper, &s.name);
         builder.line(&sig);
     }
+    // `compare` is the one ordering the .ml emits; the interface SEALS the
+    // module, so without this `val` it is unreachable no matter what the
+    // implementation defines. Same predicate both sides, so they cannot drift.
+    // The `.mli` SEALS the module: the implementation already defines these
+    // (see emit_ocaml_eq_hash_if_supported / _to_string_ / _compare_), and
+    // without the `val` a consumer can reach none of them. Same predicates
+    // both sides so the two cannot drift - that drift IS the bug.
+    //
+    // Deliberately no class name in these comments: this lint matches by
+    // NAME PRESENCE, so naming the type in prose flips it from `absent` to
+    // `present` and starts charging it for derives it still lacks. An earlier
+    // attempt measured worse for exactly that reason.
+    if ocaml_has_equal(s, ir) {
+        builder.line("(* Equality routed through the C ABI. *)");
+        builder.line("val equal : t -> t -> bool");
+    }
+    if ocaml_has_hash(s, ir) {
+        builder.line("(* Hash routed through the C ABI. *)");
+        builder.line("val hash : t -> int");
+    }
+    if ocaml_has_to_string(s, ir) {
+        builder.line("(* Debug rendering routed through the C ABI. *)");
+        builder.line("val to_string : t -> string");
+    }
+    if ocaml_has_compare(s, ir) {
+        builder.line("(* Total order routed through the C ABI; OCaml convention. *)");
+        builder.line("val compare : t -> t -> int");
+    }
+    if ocaml_has_partial_compare(s, ir) {
+        builder.line("(* Partial order routed through the C ABI; None = incomparable. *)");
+        builder.line("val partial_compare : t -> t -> int option");
+    }
     // V7 (OCaml): Vec wrappers get `to_list : t -> <elem_ffi> Ctypes.structure list`
     // with per-element clone via `Az<Elem>_clone`. Returns raw FFI
     // structs (not wrapper `t`s) so the .mli compiles regardless of
@@ -558,6 +598,8 @@ fn emit_module_impl_for_class(
     // Phase I.2.8 (OCaml): `equal` + `hash` per module, routed through
     // the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash` exports.
     emit_ocaml_eq_hash_if_supported(builder, s, ir, has_wrapper);
+    emit_ocaml_compare_if_supported(builder, s, ir, has_wrapper);
+    emit_ocaml_partial_compare_if_supported(builder, s, ir, has_wrapper);
 
     // Phase I.3.6 (OCaml): `to_string` per module routed through
     // Az<X>_toDbgString.
@@ -695,6 +737,26 @@ fn detect_vec_to_list_shape(s: &StructDef, ir: &CodegenIR) -> Option<VecToListSp
     // The four primitive-keyed Vecs (`U8Vec`, `U32Vec`, `F32Vec`, …)
     // get a follow-up entry in `VEC_ITERATOR_PLAN_2026_05_15.md`.
     if ocaml_primitive_for_rust(&elem_rust).is_some() {
+        return None;
+    }
+
+    // A RECURSIVE element is emitted as an opaque pointer
+    // (`type az_xml_node_child = (unit, [ `C ]) Ctypes_static.pointer`), not a
+    // `Ctypes.structure`, so this helper's `structure list` shape does not
+    // type-check against it. `ocamlfind ocamlc` catches it:
+    //   This expression has type az_xml_node_child list
+    //   but an expression was expected of type
+    //     az_xml_node_child Ctypes.structure list
+    // These Vecs became eligible only once the recursive-type carve-out let
+    // their element export `_clone`; the carve-out is right, this helper just
+    // does not apply to a pointer-shaped element.
+    if ir
+        .find_struct(&elem_rust)
+        .is_some_and(|e| e.category == TypeCategory::Recursive)
+        || ir
+            .find_enum(&elem_rust)
+            .is_some_and(|e| e.category == TypeCategory::Recursive)
+    {
         return None;
     }
 
@@ -1360,4 +1422,480 @@ fn polymorphic_variant_literal(name: &str) -> String {
         }
         None => "Empty".to_string(),
     }
+}
+
+// ============================================================================
+// Enum modules
+// ============================================================================
+
+/// Emit a per-ENUM module carrying the trait capabilities.
+///
+/// The idiomatic passes above iterate `ir.structs` only, so a tagged union
+/// like `AccessibilityAction` got no module in either file - which is the whole
+/// of ocaml's derive gap. The raw bindings have existed all along
+/// (`ffi_az_accessibility_action_partial_eq` and friends) and the FFI type is
+/// already declared in the interface; only the module naming them was missing.
+///
+/// Both capabilities of a class are emitted together and the SAME predicate
+/// decides interface and implementation, because a module carrying part of a
+/// class's declared list measures worse than no module at all: every derive it
+/// does not carry flips from `absent` to `missing`.
+fn emit_enum_modules(
+    builder: &mut CodeBuilder,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    interface: bool,
+) {
+    for e in &ir.enums {
+        if !config.should_include_type(&e.name) || !e.generic_params.is_empty() {
+            continue;
+        }
+        if matches!(
+            e.category,
+            TypeCategory::Recursive
+                | TypeCategory::GenericTemplate
+                | TypeCategory::DestructorOrClone
+        ) {
+            continue;
+        }
+        let caps: Vec<&FunctionDef> = ir
+            .functions_for_class(&e.name)
+            .filter(|f| {
+                matches!(
+                    f.kind,
+                    FunctionKind::PartialEq
+                        | FunctionKind::Hash
+                        | FunctionKind::DebugToString
+                        | FunctionKind::Default
+                        | FunctionKind::DeepCopy
+                        | FunctionKind::Cmp
+                        | FunctionKind::PartialCmp
+                )
+            })
+            .collect();
+        if caps.is_empty() {
+            continue;
+        }
+
+        // Unit-only enums are emitted HERE, not in `types.rs`, and the reason
+        // is ordering: their capabilities call the `foreign` bindings, which
+        // are declared ~42k lines above this point, and OCaml is
+        // order-sensitive. Emitting the module early and the capabilities late
+        // would need two `module X`, which is a duplicate. So the whole module
+        // - variant constants included - lives here.
+        if !e.is_union {
+            emit_unit_enum_module(builder, e, ir, interface);
+            continue;
+        }
+        let module = ocaml_module_name(&e.name);
+        let ffi = ocaml_ffi_type_name(&e.name);
+        // A unit-only enum is emitted as `type az_x = int` with an int VIEW
+        // (`val az_x : az_x typ`), not a `Ctypes.structure`. So `t` differs,
+        // and the helpers cannot use `Ctypes.addr` - an int is not addressable.
+        // They allocate a cell instead, which is what the `ptr az_x` the C
+        // entry points take actually needs. Without this every unit enum's
+        // whole derive list was unreachable.
+        let is_unit = !e.is_union;
+        if interface {
+            builder.line(&format!("module {} : sig", module));
+        } else {
+            builder.line(&format!("module {} = struct", module));
+        }
+        builder.indent();
+        if is_unit {
+            builder.line(&format!("type t = {}", ffi));
+        } else {
+            builder.line(&format!("type t = {} Ctypes.structure", ffi));
+        }
+
+        for f in caps {
+            let raw = ocaml_binding_name(&f.c_name);
+            match f.kind {
+                FunctionKind::Default => {
+                    if interface {
+                        builder.line("val default : unit -> t");
+                    } else {
+                        builder.line(&format!("let default () = {} ()", raw));
+                    }
+                }
+                FunctionKind::DeepCopy => {
+                    if interface {
+                        builder.line("val clone : t -> t");
+                    } else {
+                        builder.line("let clone (t : t) : t =");
+                        builder.indent();
+                        if is_unit {
+                            builder.line(&format!("{} (Ctypes.allocate {} t)", raw, ffi));
+                        } else {
+                            builder.line(&format!("{} (Ctypes.addr t)", raw));
+                        }
+                        builder.dedent();
+                    }
+                }
+                FunctionKind::PartialCmp => {
+                    // NOT `compare`: the ABI answers 255 for "incomparable",
+                    // and a total `compare` has no honest value for that.
+                    if interface {
+                        builder.line("val partial_compare : t -> t -> int option");
+                    } else {
+                        builder.line("let partial_compare (a : t) (b : t) : int option =");
+                        builder.indent();
+                        builder.line(&format!(
+                            "match Unsigned.UInt8.to_int ({} (Ctypes.addr a) (Ctypes.addr b)) with",
+                            raw
+                        ));
+                        builder.line("| 0 -> Some (-1)");
+                        builder.line("| 1 -> Some 0");
+                        builder.line("| 2 -> Some 1");
+                        builder.line("| _ -> None");
+                        builder.dedent();
+                    }
+                }
+                FunctionKind::Cmp => {
+                    // 0 = Less, 1 = Equal, 2 = Greater on the C side; OCaml's
+                    // `compare` wants negative / zero / positive. Exact
+                    // correspondence, not an invented mapping.
+                    if interface {
+                        builder.line("val compare : t -> t -> int");
+                    } else {
+                        builder.line("let compare (a : t) (b : t) : int =");
+                        builder.indent();
+                        if is_unit {
+                            builder.line(&format!(
+                                "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} b)) with",
+                                raw, ffi, ffi
+                            ));
+                        } else {
+                            builder.line(&format!(
+                                "match Unsigned.UInt8.to_int ({} (Ctypes.addr a) (Ctypes.addr b)) with",
+                                raw
+                            ));
+                        }
+                        builder.line("| 0 -> -1");
+                        builder.line("| 1 -> 0");
+                        builder.line("| _ -> 1");
+                        builder.dedent();
+                    }
+                }
+                FunctionKind::PartialEq => {
+                    if interface {
+                        builder.line("val equal : t -> t -> bool");
+                    } else {
+                        builder.line("let equal (a : t) (b : t) : bool =");
+                        builder.indent();
+                        if is_unit {
+                            builder.line(&format!("{} (Ctypes.allocate {} a) (Ctypes.allocate {} b)", raw, ffi, ffi));
+                        } else {
+                            builder.line(&format!("{} (Ctypes.addr a) (Ctypes.addr b)", raw));
+                        }
+                        builder.dedent();
+                    }
+                }
+                FunctionKind::Hash => {
+                    if interface {
+                        builder.line("val hash : t -> int");
+                    } else {
+                        builder.line("let hash (t : t) : int =");
+                        builder.indent();
+                        if is_unit {
+                            builder.line(&format!(
+                                "Unsigned.UInt64.to_int ({} (Ctypes.allocate {} t))",
+                                raw, ffi
+                            ));
+                        } else {
+                            builder.line(&format!(
+                                "Unsigned.UInt64.to_int ({} (Ctypes.addr t))",
+                                raw
+                            ));
+                        }
+                        builder.dedent();
+                    }
+                }
+                FunctionKind::DebugToString => {
+                    if interface {
+                        builder.line("val to_string : t -> string");
+                    } else {
+                        let del = ocaml_binding_name("AzString_delete");
+                        builder.line("let to_string (t : t) : string =");
+                        builder.indent();
+                        if is_unit {
+                            builder.line(&format!("let __s = {} (Ctypes.allocate {} t) in", raw, ffi));
+                        } else {
+                            builder.line(&format!("let __s = {} (Ctypes.addr t) in", raw));
+                        }
+                        builder.line("let vec = Ctypes.getf __s az_string_field_vec in");
+                        builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
+                        builder.line(
+                            "let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in",
+                        );
+                        builder.line("let __out = if Ctypes.is_null vec_ptr || vec_len = 0 then \"\" else Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) ~length:vec_len in");
+                        // The AzString is returned by value and owns its heap
+                        // buffer; nothing else frees it.
+                        builder.line(&format!("{} (Ctypes.addr __s);", del));
+                        builder.line("__out");
+                        builder.dedent();
+                    }
+                }
+                _ => {}
+            }
+        }
+        builder.dedent();
+        builder.line("end");
+        builder.blank();
+    }
+}
+
+/// Does this class get a module-level `compare`?
+///
+/// Shared by the `.ml` and the `.mli` on purpose: the two drifting is exactly
+/// how OCaml came to define `equal`/`hash`/`to_string` that no consumer could
+/// reach.
+fn ocaml_has_compare(s: &StructDef, ir: &CodegenIR) -> bool {
+    let sym = format!("Az{}_cmp", s.name);
+    (s.traits.is_ord || s.traits.is_partial_ord)
+        && ir.functions.iter().any(|f| f.c_name == sym)
+}
+
+/// `compare` routed through `Az<X>_cmp`.
+///
+/// The C ABI answers 0 = Less, 1 = Equal, 2 = Greater; OCaml's `compare`
+/// wants negative / zero / positive. The two encodings are both total orders
+/// over the same three outcomes, so the mapping is exact rather than invented:
+/// 0 -> -1, 1 -> 0, 2 -> 1.
+fn emit_ocaml_compare_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    has_wrapper: bool,
+) {
+    if !ocaml_has_compare(s, ir) {
+        return;
+    }
+    let sym = format!("Az{}_cmp", s.name);
+    let raw = ocaml_binding_name(&sym);
+    let self_a = if has_wrapper { "a.raw" } else { "a" };
+    let self_b = if has_wrapper { "b.raw" } else { "b" };
+    builder.line(&format!("(* Total order routed through {}. *)", sym));
+    builder.line("let compare (a : t) (b : t) : int =");
+    builder.indent();
+    builder.line(&format!(
+        "match Unsigned.UInt8.to_int ({} (Ctypes.addr {}) (Ctypes.addr {})) with",
+        raw, self_a, self_b
+    ));
+    builder.line("| 0 -> -1");
+    builder.line("| 1 -> 0");
+    builder.line("| _ -> 1");
+    builder.dedent();
+    builder.blank();
+}
+
+/// Does this class get a module-level `equal`? Shared by both emitters.
+fn ocaml_has_equal(s: &StructDef, ir: &CodegenIR) -> bool {
+    let sym = format!("Az{}_partialEq", s.name);
+    s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == sym)
+}
+
+/// Does this class get a module-level `hash`? Shared by both emitters.
+fn ocaml_has_hash(s: &StructDef, ir: &CodegenIR) -> bool {
+    let sym = format!("Az{}_hash", s.name);
+    s.traits.is_hash && ir.functions.iter().any(|f| f.c_name == sym)
+}
+
+/// Does this class get a module-level `to_string` routed through
+/// `_toDbgString`? Not when it IS the string type, and not when the ordinary
+/// surface already spells `to_string` - overriding would break the signature.
+fn ocaml_has_to_string(s: &StructDef, ir: &CodegenIR) -> bool {
+    if matches!(s.category, TypeCategory::String) {
+        return false;
+    }
+    let sym = format!("Az{}_toDbgString", s.name);
+    if !(s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == sym)) {
+        return false;
+    }
+    !ir.functions
+        .iter()
+        .any(|f| f.class_name == s.name && idiomatic_method_name(&f.method_name) == "to_string")
+}
+
+/// Does this class get `partial_compare`? Only when it exports `_partialCmp`
+/// and NOT `_cmp` - a type with a total order already has `compare`, which is
+/// the stronger and more idiomatic surface.
+fn ocaml_has_partial_compare(s: &StructDef, ir: &CodegenIR) -> bool {
+    if ocaml_has_compare(s, ir) {
+        return false;
+    }
+    let sym = format!("Az{}_partialCmp", s.name);
+    s.traits.is_partial_ord && ir.functions.iter().any(|f| f.c_name == sym)
+}
+
+/// `partial_compare` routed through `Az<X>_partialCmp`.
+///
+/// Deliberately NOT spelled `compare`. The ABI answers 255 for "incomparable"
+/// (`None` on the Rust side) and OCaml's `compare : t -> t -> int` has no
+/// honest value for that - any int it returned would assert an ordering the
+/// type does not have. `int option` says exactly what PartialOrd means.
+fn emit_ocaml_partial_compare_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    has_wrapper: bool,
+) {
+    if !ocaml_has_partial_compare(s, ir) {
+        return;
+    }
+    let sym = format!("Az{}_partialCmp", s.name);
+    let raw = ocaml_binding_name(&sym);
+    let a = if has_wrapper { "a.raw" } else { "a" };
+    let b = if has_wrapper { "b.raw" } else { "b" };
+    builder.line(&format!("(* Partial order routed through {}. *)", sym));
+    builder.line("let partial_compare (a : t) (b : t) : int option =");
+    builder.indent();
+    builder.line(&format!(
+        "match Unsigned.UInt8.to_int ({} (Ctypes.addr {}) (Ctypes.addr {})) with",
+        raw, a, b
+    ));
+    builder.line("| 0 -> Some (-1)");
+    builder.line("| 1 -> Some 0");
+    builder.line("| 2 -> Some 1");
+    builder.line("| _ -> None");
+    builder.dedent();
+    builder.blank();
+}
+
+/// A unit-only enum's module: variant constants plus its trait capabilities.
+///
+/// `type az_x = int` with an int VIEW, so the helpers `Ctypes.allocate` a cell
+/// rather than using `Ctypes.addr` - an int is not addressable, and the entry
+/// points take `ptr az_x`.
+fn emit_unit_enum_module(
+    builder: &mut CodeBuilder,
+    e: &EnumDef,
+    ir: &CodegenIR,
+    interface: bool,
+) {
+    let module = ocaml_module_name(&e.name);
+    let ffi = ocaml_ffi_type_name(&e.name);
+
+    if interface {
+        builder.line(&format!("module {} : sig", module));
+    } else {
+        builder.line(&format!("module {} = struct", module));
+    }
+    builder.indent();
+
+    for (idx, v) in e.variants.iter().enumerate() {
+        let lit = sanitize_identifier(&to_snake_case(&v.name));
+        if interface {
+            builder.line(&format!("val {} : int", lit));
+        } else {
+            builder.line(&format!("let {} : int = {}", lit, idx));
+        }
+    }
+
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for f in ir.functions_for_class(&e.name) {
+        let name = match f.kind {
+            FunctionKind::PartialEq => "equal",
+            FunctionKind::Hash => "hash",
+            FunctionKind::DebugToString => "to_string",
+            FunctionKind::Cmp => "compare",
+            FunctionKind::PartialCmp => "partial_compare",
+            FunctionKind::Default => "default",
+            _ => continue,
+        };
+        if !seen.insert(name) {
+            continue;
+        }
+        let raw = ocaml_binding_name(&f.c_name);
+        match f.kind {
+            FunctionKind::PartialEq => {
+                if interface {
+                    builder.line("val equal : int -> int -> bool");
+                } else {
+                    builder.line("let equal (a : int) (b : int) : bool =");
+                    builder.indent();
+                    builder.line(&format!(
+                        "{} (Ctypes.allocate {} a) (Ctypes.allocate {} b)",
+                        raw, ffi, ffi
+                    ));
+                    builder.dedent();
+                }
+            }
+            FunctionKind::Hash => {
+                if interface {
+                    builder.line("val hash : int -> int");
+                } else {
+                    builder.line("let hash (t : int) : int =");
+                    builder.indent();
+                    builder.line(&format!(
+                        "Unsigned.UInt64.to_int ({} (Ctypes.allocate {} t))",
+                        raw, ffi
+                    ));
+                    builder.dedent();
+                }
+            }
+            FunctionKind::DebugToString => {
+                if interface {
+                    builder.line("val to_string : int -> string");
+                } else {
+                    let del = ocaml_binding_name("AzString_delete");
+                    builder.line("let to_string (t : int) : string =");
+                    builder.indent();
+                    builder.line(&format!("let __s = {} (Ctypes.allocate {} t) in", raw, ffi));
+                    builder.line("let vec = Ctypes.getf __s az_string_field_vec in");
+                    builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
+                    builder.line("let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in");
+                    builder.line("let __out = if Ctypes.is_null vec_ptr || vec_len = 0 then \"\" else Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) ~length:vec_len in");
+                    builder.line(&format!("{} (Ctypes.addr __s);", del));
+                    builder.line("__out");
+                    builder.dedent();
+                }
+            }
+            FunctionKind::Cmp => {
+                if interface {
+                    builder.line("val compare : int -> int -> int");
+                } else {
+                    builder.line("let compare (a : int) (b : int) : int =");
+                    builder.indent();
+                    builder.line(&format!(
+                        "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} b)) with",
+                        raw, ffi, ffi
+                    ));
+                    builder.line("| 0 -> -1");
+                    builder.line("| 1 -> 0");
+                    builder.line("| _ -> 1");
+                    builder.dedent();
+                }
+            }
+            FunctionKind::PartialCmp => {
+                if interface {
+                    builder.line("val partial_compare : int -> int -> int option");
+                } else {
+                    builder.line("let partial_compare (a : int) (b : int) : int option =");
+                    builder.indent();
+                    builder.line(&format!(
+                        "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} b)) with",
+                        raw, ffi, ffi
+                    ));
+                    builder.line("| 0 -> Some (-1)");
+                    builder.line("| 1 -> Some 0");
+                    builder.line("| 2 -> Some 1");
+                    builder.line("| _ -> None");
+                    builder.dedent();
+                }
+            }
+            FunctionKind::Default => {
+                if interface {
+                    builder.line("val default : unit -> int");
+                } else {
+                    builder.line(&format!("let default () : int = {} ()", raw));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    builder.dedent();
+    builder.line("end");
+    builder.blank();
 }

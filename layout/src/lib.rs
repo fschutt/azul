@@ -440,6 +440,11 @@ pub mod cpurender;
 /// Default keyboard actions (copy, paste, select-all, undo, etc.).
 #[cfg(feature = "text_layout")]
 pub mod default_actions;
+/// HTML form constraint validation (`required`, `minlength`, `pattern`, ...).
+///
+/// Needs `text_layout` for `crate::window::DomLayoutResult` and `std` because
+/// `regex-lite` declares `compile_error!` without its own `std` feature.
+#[cfg(all(feature = "text_layout", feature = "std"))]
 pub mod form;
 /// Apply structural `DocumentOperation`s to a plain XML tree.
 ///
@@ -516,10 +521,10 @@ pub mod timer;
 pub mod transient;
 /// Render an icon-registry entry to RGBA pixels, for the system tray.
 /// Goes through the same `<icon>` resolution + CPU renderer, so every icon
-/// kind (and any future DOM-expressible one) works without a special case.
-/// The renderer IS the module's job, so it is gated with `cpurender`: a
-/// text-layout-only consumer (printpdf) has no tray to draw for, and without
-/// this `tray_icon.rs` imports `crate::cpurender`, which is configured out.
+/// kind (and any future DOM-expressible one) works without a special case --
+/// which is why it needs `cpurender` too: both of its public items exist to
+/// rasterize an icon, and `render_icon_to_rgba` calls
+/// `cpurender::render_component_preview` directly.
 #[cfg(all(feature = "text_layout", feature = "std", feature = "cpurender"))]
 pub mod tray_icon;
 /// Window layout management: relayout, event processing, state sync.

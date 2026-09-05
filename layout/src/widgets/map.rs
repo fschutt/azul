@@ -149,7 +149,7 @@ impl MapColorScheme {
     pub const fn from_system_theme(theme: azul_css::system::Theme) -> Self {
         match theme {
             azul_css::system::Theme::Dark => Self::Dark,
-            _ => Self::Light,
+            azul_css::system::Theme::Light => Self::Light,
         }
     }
 }
@@ -330,7 +330,7 @@ impl MapTheme {
     /// on macOS only the former is refreshed on a theme flip, so resolving off
     /// the window theme makes the map disagree with its own stylesheet.
     #[must_use]
-    pub fn resolve(self, window_theme: azul_core::window::WindowTheme) -> Self {
+    pub const fn resolve(self, window_theme: azul_core::window::WindowTheme) -> Self {
         let scheme = if matches!(window_theme, azul_core::window::WindowTheme::DarkMode) {
             MapColorScheme::Dark
         } else {
@@ -877,7 +877,7 @@ pub struct MapTileCache {
     ///
     /// `SystemStyle::theme` is the exact input `prefers-color-scheme` matches
     /// on, so the map and the app's stylesheet always agree. It is `None` until
-    /// the first such callback runs — the very first VirtualView render happens
+    /// the first such callback runs — the very first `VirtualView` render happens
     /// before mount, and rather than invent an answer there it renders the
     /// layer's own look and lets the sweep correct it. Getting that first guess
     /// wrong is now free: it re-keys, it does not invalidate, and no tile is
@@ -912,7 +912,7 @@ impl MapTileCache {
     /// The look to render right now: the layer's choice of cartography, taken
     /// to the cascade's light/dark. An explicitly pinned preset wins.
     #[must_use]
-    pub fn current_look(&self) -> MapTheme {
+    pub const fn current_look(&self) -> MapTheme {
         match self.cascade_scheme {
             Some(scheme) => self.layer.theme.for_scheme(scheme),
             // Nothing has told us what the cascade says yet (pre-mount). Use the
@@ -937,7 +937,7 @@ impl MapTileCache {
 
     /// The key `tile` occupies at the look the cache is currently showing.
     #[must_use]
-    pub fn key_at_current_look(&self, tile: MapTileId) -> TileStyleKey {
+    pub const fn key_at_current_look(&self, tile: MapTileId) -> TileStyleKey {
         TileStyleKey {
             tile,
             theme: self.current_look(),

@@ -8,7 +8,7 @@
 //! # Why the vocabulary is SEMANTIC and not a waveform
 //!
 //! Each platform has its own waveform language (Core Haptics patterns, Android
-//! `VibrationEffect` compositions, DualSense trigger profiles) and none of them
+//! `VibrationEffect` compositions, `DualSense` trigger profiles) and none of them
 //! translate. Worse, the same waveform feels different on every actuator: a
 //! Taptic Engine, an LRA in a phone, and the ERM motors in a gamepad have
 //! different resonant frequencies and rise times, so a millisecond envelope
@@ -53,6 +53,8 @@
 //!
 //! A dash means the platform has no native equivalent and the backend walks
 //! [`HapticPattern::fallback`] to reach one it does.
+
+use alloc::vec::Vec;
 
 /// A haptic pattern to play, named by INTENT rather than by waveform.
 ///
@@ -135,8 +137,12 @@ impl HapticPattern {
     /// (differing) fallback and the same call would feel unrelated across
     /// platforms.
     #[must_use]
-    pub const fn fallback(self) -> Option<HapticPattern> {
-        use HapticPattern::*;
+    // The arms are grouped by semantic family, each with the comment explaining
+    // why that family degrades where it does. Several families legitimately land
+    // on `Selection`; merging them into one or-pattern would delete the ladder.
+    #[allow(clippy::match_same_arms)]
+    pub const fn fallback(self) -> Option<Self> {
+        use HapticPattern::{Selection, ImpactLight, ImpactSoft, ImpactMedium, ImpactHeavy, ImpactRigid, Success, Warning, Error, KeyPress, KeyRelease, TextHandleMove, LongPress, ContextClick, GestureStart, GestureEnd, Rise, Fall, Spin};
         match self {
             // The terminus: nothing is simpler than a selection tick.
             Selection => None,
@@ -172,7 +178,7 @@ impl HapticPattern {
     /// `None` if nothing in the chain is supported, which means the request
     /// should be dropped.
     #[must_use]
-    pub fn resolve(self, supported: impl Fn(HapticPattern) -> bool) -> Option<HapticPattern> {
+    pub fn resolve(self, supported: impl Fn(Self) -> bool) -> Option<Self> {
         let mut current = Some(self);
         while let Some(p) = current {
             if supported(p) {
@@ -248,7 +254,7 @@ impl HapticRequest {
     /// out-of-range or NaN value is expected rather than exceptional; a NaN
     /// reaching Android's `addPrimitive` throws.
     #[must_use]
-    pub fn intensity_clamped(&self) -> f32 {
+    pub const fn intensity_clamped(&self) -> f32 {
         if self.intensity.is_nan() {
             1.0
         } else {
@@ -268,7 +274,7 @@ impl HapticRequest {
     /// per-controller vibrator answer the same question, and two copies of a
     /// magic number drift.
     #[must_use]
-    pub fn rumble_duration_ms(&self) -> u32 {
+    pub const fn rumble_duration_ms(&self) -> u32 {
         rumble_duration_ms(self.duration_ms)
     }
 
@@ -281,7 +287,7 @@ impl HapticRequest {
     ///
     /// `true` = the strong (low-frequency) motor.
     #[must_use]
-    pub fn wants_strong_motor(&self) -> bool {
+    pub const fn wants_strong_motor(&self) -> bool {
         matches!(
             self.pattern,
             HapticPattern::ImpactHeavy
@@ -303,9 +309,11 @@ impl HapticRequest {
     #[must_use]
     pub fn amplitude_u8(&self) -> u8 {
         let scaled = self.intensity_clamped() * 255.0;
-        // `as` saturates, and the clamp above already bounds it; the floor at
-        // 1 is the part that matters.
-        (scaled as u8).max(1)
+        // `as` saturates, and the clamp above already bounds it to [0, 255];
+        // the floor at 1 is the part that matters.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let byte = scaled as u8;
+        byte.max(1)
     }
 }
 
@@ -315,7 +323,7 @@ const DEFAULT_RUMBLE_MS: u32 = 150;
 /// The free-function form of [`HapticRequest::rumble_duration_ms`], for a
 /// backend that was handed the duration rather than the whole request.
 #[must_use]
-pub fn rumble_duration_ms(duration_ms: u32) -> u32 {
+pub const fn rumble_duration_ms(duration_ms: u32) -> u32 {
     if duration_ms == 0 {
         DEFAULT_RUMBLE_MS
     } else {
@@ -326,7 +334,7 @@ pub fn rumble_duration_ms(duration_ms: u32) -> u32 {
 /// Collects haptic requests for the platform backend to play.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HapticManager {
-    pending: alloc::vec::Vec<HapticRequest>,
+    pending: Vec<HapticRequest>,
 }
 
 impl HapticManager {
@@ -356,7 +364,7 @@ impl HapticManager {
     }
 
     /// Drain the queue — called by the shell each pass.
-    pub fn take_pending(&mut self) -> alloc::vec::Vec<HapticRequest> {
+    pub fn take_pending(&mut self) -> Vec<HapticRequest> {
         core::mem::take(&mut self.pending)
     }
 
@@ -364,7 +372,7 @@ impl HapticManager {
     /// performer (which on macOS means an Objective-C round trip) when there
     /// is nothing to play. Called once per pass on every window.
     #[must_use]
-    pub fn has_pending(&self) -> bool {
+    pub const fn has_pending(&self) -> bool {
         !self.pending.is_empty()
     }
 }

@@ -8,7 +8,9 @@
 //!
 //! `StyledDom` is the primary input to the layout engine.
 
-use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, vec::Vec};
+use alloc::{
+    boxed::Box, collections::btree_map::BTreeMap, string::String, string::ToString, vec::Vec,
+};
 use core::{
     fmt,
     hash::{Hash, Hasher},

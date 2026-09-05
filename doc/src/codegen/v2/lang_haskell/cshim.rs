@@ -266,6 +266,18 @@ fn emit_inbound_trampoline(out: &mut String, cb: &CallbackTypedefDef) {
 /// foreign-import emitter (so the shim's symbol resolves to the same
 /// libazul export).
 pub fn should_emit_shim_for(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
+    // Kept in lockstep with `functions::should_emit_function`, as the doc above
+    // says: the foreign-import points at `<c_name>_via`, and that symbol exists
+    // only if THIS function emits the shim. Letting a declared capability past
+    // the `DestructorOrClone` exclusion in one and not the other produces an
+    // `AzXVecDestructor_toDbgString_via` import with nothing to link against.
+    if func.kind.is_declared_capability()
+        && ir
+            .find_enum(&func.class_name)
+            .is_some_and(|e| e.category == TypeCategory::DestructorOrClone)
+    {
+        return config.should_include_type(&func.class_name) && needs_shim(func);
+    }
     if !config.should_include_type(&func.class_name) {
         return false;
     }

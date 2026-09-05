@@ -2649,7 +2649,7 @@ fn render_stroked_path(
     if color.a == 0 || !width.is_finite() || width <= 0.0 {
         return;
     }
-    let (sx, sy, tx, ty) = crate::cpurender::pixmap::svg_user_space_mapping(
+    let (sx, sy, tx, ty) = svg_user_space_mapping(
         bounds,
         view_box,
         dpi_factor,
@@ -2660,12 +2660,12 @@ fn render_stroked_path(
     );
     let mx = |x: f32| f64::from((x + tx) * sx + ox);
     let my = |y: f32| f64::from((y + ty) * sy + oy);
-    let mut geometry = crate::cpurender::pixmap::svg_path_to_agg(path, &mx, &my);
+    let mut geometry = svg_path_to_agg(path, &mx, &my);
 
     // A non-uniform scale cannot be expressed as one stroke width; the mean
     // is the honest approximation and matches what every SVG renderer does
     // for a non-uniform viewBox mapping.
-    let scale = f64::from((sx + sy) / 2.0);
+    let scale = f64::from(f32::midpoint(sx, sy));
     let device_width = (f64::from(width) * scale).max(1.0);
 
     // Flattened before stroking: `PathStorage` holds curve3/curve4 as
@@ -2683,7 +2683,7 @@ fn render_stroked_path(
         u32::from(color.b),
         u32::from(color.a),
     );
-    crate::cpurender::pixmap::agg_fill_path_clipped(
+    agg_fill_path_clipped(
         pixmap,
         &mut stroke,
         &agg_color,
@@ -2845,7 +2845,7 @@ pub enum TextAa {
 ///
 /// * The device rotates. Subpixel rendering bakes in one physical RGB stripe
 ///   order; turn the phone 90 degrees and every fringe is wrong.
-/// * Phone panels are frequently not RGB stripe at all — PenTile and other
+/// * Phone panels are frequently not RGB stripe at all — `PenTile` and other
 ///   OLED arrangements have no consistent horizontal triad to address.
 /// * The frame is composited and often scaled (the emulator does this too),
 ///   and any resampling smears the per-channel offsets into visible colour
@@ -2926,9 +2926,9 @@ fn lcd_pretile_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("AZ_LCD_PRETILE").map_or(true, |v| v.trim() != "0"))
 }
 
-/// FreeType default "light" 5-tap FIR LUT (0x56/0x4D/0x08) - the arguments
+/// `FreeType` default "light" 5-tap FIR LUT (0x56/0x4D/0x08) - the arguments
 /// are compile-time constants, but this was rebuilt per text run per frame
-/// (3x256 f64 mul+floor+cast), measurable inside glyph_lcd_sweep.
+/// (3x256 f64 mul+floor+cast), measurable inside `glyph_lcd_sweep`.
 fn lcd_distribution_lut() -> &'static agg_rust::pixfmt_lcd::LcdDistributionLut {
     static LUT: std::sync::OnceLock<agg_rust::pixfmt_lcd::LcdDistributionLut> =
         std::sync::OnceLock::new();
@@ -3082,7 +3082,7 @@ fn render_glyphs_lcd(
         // enhancement and an optional chroma budget — text stays legible
         // on ANY fg/bg pair (thin white on green was unreadable with
         // sRGB-space blending), instead of only on near-b/w pairs.
-        let mut pf = agg_rust::pixfmt_lcd::PixfmtRgba32LcdLinear::new(&mut ra, &lut, params);
+        let mut pf = agg_rust::pixfmt_lcd::PixfmtRgba32LcdLinear::new(&mut ra, lut, params);
         if let Some(c) = clip {
             // The FIR spread writes 2 stripes past every span; the renderer-
             // base clip box cannot bound those writes (task #17: a damage-rect
@@ -3108,7 +3108,7 @@ fn render_glyphs_lcd(
         render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
     } else {
         // Legacy sRGB-space blending (AZ_LCD_BLEND=legacy).
-        let mut pf = PixfmtRgba32Lcd::new(&mut ra, &lut);
+        let mut pf = PixfmtRgba32Lcd::new(&mut ra, lut);
         if let Some(c) = clip {
             // Same stripe-clip as the colorimetric arm above.
             pf.set_stripe_clip((c.x as i32) * 3, ((c.x + c.width) as i32) * 3);
@@ -3406,7 +3406,7 @@ fn render_text_prerendered_lcd(
             hint_correction,
             color,
             bg,
-            &lut,
+            lut,
             params,
         ) else {
             continue; // no cells (space) — nothing to paint for this glyph
@@ -4487,9 +4487,9 @@ fn composite_rgba_row(pixmap: &mut AzulPixmap, di_base: usize, stage: &[u8]) {
 /// destination pixel made every pixel pay two f32 divisions to re-derive the
 /// scale, and four `SrcImage::pixel` calls that each re-matched the pixel
 /// format, re-clamped the coordinates and re-bounds-checked the buffer. On the
-/// path that actually matters — a HiDPI window compositing a logical-sized
+/// path that actually matters — a `HiDPI` window compositing a logical-sized
 /// canvas, i.e. a 2× bilinear UPSCALE over the whole window — that is ~19 ns
-/// per destination pixel, and AzPaint at 1055×677 points blits 2.35 M of them
+/// per destination pixel, and `AzPaint` at 1055×677 points blits 2.35 M of them
 /// on every pointer move: ~45 ms per frame, which is the whole frame budget
 /// three times over. It measured 12× the nearest-neighbour blit it replaced.
 ///
@@ -4619,8 +4619,8 @@ fn blit_sampled_image(
     // Up to `ny` source rows are live at once; consecutive destination rows
     // reuse most of them, so the cache is indexed by source y.
     let mut rows: Vec<RgbaRow> = (0..ny as usize).map(|_| RgbaRow::new(src_w)).collect();
-    let n = nx * ny;
-    let half = n / 2;
+    let tap_count = nx * ny;
+    let half = tap_count / 2;
     for py in py_lo..py_hi {
         let cy = (py as f32 + 0.5) * scale_y;
         let mut live = [0usize; BLIT_MAX_TAPS as usize];
@@ -4632,17 +4632,14 @@ fn blit_sampled_image(
         for (t, slot) in live.iter_mut().enumerate().take(ny as usize) {
             let fy = cy + ((t as f32 + 0.5) / ny as f32 - 0.5) * scale_y;
             let y = (fy.floor() as i32).clamp(0, last_y) as u32;
-            let idx = match rows.iter().position(|r| r.y == Some(y)) {
-                Some(i) => i,
-                None => {
-                    let victim = (0..rows.len())
-                        .find(|i| claimed & (1u32 << i) == 0)
-                        .unwrap_or(0);
-                    source_row_to_rgba(src, y, &mut rows[victim].bytes);
-                    rows[victim].y = Some(y);
-                    conversions.0 += 1;
-                    victim
-                }
+            let idx = if let Some(i) = rows.iter().position(|r| r.y == Some(y)) { i } else {
+                let victim = (0..rows.len())
+                    .find(|i| claimed & (1u32 << i) == 0)
+                    .unwrap_or(0);
+                source_row_to_rgba(src, y, &mut rows[victim].bytes);
+                rows[victim].y = Some(y);
+                conversions.0 += 1;
+                victim
             };
             claimed |= 1u32 << idx;
             *slot = idx;
@@ -4652,18 +4649,18 @@ fn blit_sampled_image(
             for &row_idx in live.iter().take(ny as usize) {
                 let row = &rows[row_idx].bytes;
                 for &off in taps.iter().take(nx as usize) {
-                    let o = off as usize;
-                    r += u32::from(row[o]);
-                    g += u32::from(row[o + 1]);
-                    b += u32::from(row[o + 2]);
-                    a += u32::from(row[o + 3]);
+                    let base = off as usize;
+                    r += u32::from(row[base]);
+                    g += u32::from(row[base + 1]);
+                    b += u32::from(row[base + 2]);
+                    a += u32::from(row[base + 3]);
                 }
             }
-            let s = &mut stage[i * 4..i * 4 + 4];
-            s[0] = ((r + half) / n) as u8;
-            s[1] = ((g + half) / n) as u8;
-            s[2] = ((b + half) / n) as u8;
-            s[3] = ((a + half) / n) as u8;
+            let dst = &mut stage[i * 4..i * 4 + 4];
+            dst[0] = ((r + half) / tap_count) as u8;
+            dst[1] = ((g + half) / tap_count) as u8;
+            dst[2] = ((b + half) / tap_count) as u8;
+            dst[3] = ((a + half) / tap_count) as u8;
         }
         let ty_px = (dst_y + py as i32) as u32;
         let tx_px = (dst_x + px_lo as i32) as u32;
@@ -4992,7 +4989,7 @@ pub fn render_component_preview(
         &[],
         // A preview has no VirtualView history: every view sizes from the
         // outside on its first (and only) pass.
-        &std::collections::BTreeMap::new(),
+        &BTreeMap::new(),
     )
     .map_err(|e| format!("Layout failed: {e:?}"))?;
 

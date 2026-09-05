@@ -818,7 +818,7 @@ pub struct SvgCircle {
 /// sign convention is the whole subtlety and naming it makes the two branches
 /// above readable.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma
-fn cross_sign(a: azul_css::props::basic::SvgPoint, b: azul_css::props::basic::SvgPoint, x: f32, y: f32) -> f32 {
+fn cross_sign(a: SvgPoint, b: SvgPoint, x: f32, y: f32) -> f32 {
     (b.x - a.x) * (y - a.y) - (x - a.x) * (b.y - a.y)
 }
 
@@ -830,7 +830,10 @@ impl SvgPath {
     /// walks the list cyclically and a repeated point contributes a
     /// zero-length segment, which crosses nothing.
     #[must_use]
-    pub fn flatten_to_points(&self, steps: usize) -> alloc::vec::Vec<azul_css::props::basic::SvgPoint> {
+    // The curve arms bind a/b/cc/d and the parameter t: those single letters
+    // ARE the notation the Bezier basis formulas below are read in.
+    #[allow(clippy::many_single_char_names)]
+    pub fn flatten_to_points(&self, steps: usize) -> alloc::vec::Vec<SvgPoint> {
         use azul_css::props::basic::SvgPoint;
 
         let steps = steps.max(1);
@@ -855,8 +858,8 @@ impl SvgPath {
                         let t = i as f32 / steps as f32;
                         let inv = 1.0 - t;
                         push(SvgPoint {
-                            x: inv * inv * q.start.x + 2.0 * inv * t * q.ctrl.x + t * t * q.end.x,
-                            y: inv * inv * q.start.y + 2.0 * inv * t * q.ctrl.y + t * t * q.end.y,
+                            x: (t * t).mul_add(q.end.x, (inv * inv).mul_add(q.start.x, 2.0 * inv * t * q.ctrl.x)),
+                            y: (t * t).mul_add(q.end.y, (inv * inv).mul_add(q.start.y, 2.0 * inv * t * q.ctrl.y)),
                         });
                     }
                 }
@@ -873,8 +876,8 @@ impl SvgPath {
                             t * t * t,
                         );
                         push(SvgPoint {
-                            x: a * c.start.x + b * c.ctrl_1.x + cc * c.ctrl_2.x + d * c.end.x,
-                            y: a * c.start.y + b * c.ctrl_1.y + cc * c.ctrl_2.y + d * c.end.y,
+                            x: d.mul_add(c.end.x, cc.mul_add(c.ctrl_2.x, a.mul_add(c.start.x, b * c.ctrl_1.x))),
+                            y: d.mul_add(c.end.y, cc.mul_add(c.ctrl_2.y, a.mul_add(c.start.y, b * c.ctrl_1.y))),
                         });
                     }
                 }

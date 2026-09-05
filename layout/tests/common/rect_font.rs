@@ -15,7 +15,7 @@
 #![allow(dead_code)] // shared test helper: not every test uses every function
 
 fn pad4(mut b: Vec<u8>) -> Vec<u8> {
-    while b.len() % 4 != 0 {
+    while !b.len().is_multiple_of(4) {
         b.push(0);
     }
     b
@@ -23,7 +23,7 @@ fn pad4(mut b: Vec<u8>) -> Vec<u8> {
 
 fn checksum(b: &[u8]) -> u32 {
     let mut padded = b.to_vec();
-    while padded.len() % 4 != 0 {
+    while !padded.len().is_multiple_of(4) {
         padded.push(0);
     }
     let mut total: u32 = 0;

@@ -188,19 +188,22 @@ impl QuickAccessTheme {
         let c = &style.colors;
         let tb = &style.metrics.titlebar;
         let secondary = c.secondary_text.into_option();
-        let title_text = tb.text_active.into_option().or(c.text.into_option());
+        let title_text = tb
+            .text_active
+            .into_option()
+            .or_else(|| c.text.into_option());
         Self {
             bg: tb
                 .background_active
                 .into_option()
-                .or(c.window_background.into_option())
+                .or_else(|| c.window_background.into_option())
                 .unwrap_or(d.bg),
             text: title_text.unwrap_or(d.text),
             icon: secondary.or(title_text).unwrap_or(d.icon),
             hover_bg: tb
                 .button_hover_background
                 .into_option()
-                .or(c.selection_background_inactive.into_option())
+                .or_else(|| c.selection_background_inactive.into_option())
                 .unwrap_or(d.hover_bg),
             pressed_bg: c.selection_background.into_option().unwrap_or(d.pressed_bg),
             // The close button keeps its own colour on every platform (Breeze
@@ -593,7 +596,7 @@ pub struct QuickAccessBar {
     pub style: QuickAccessStyle,
 
     /// Optional leading content (office-2013: the app logo square).
-    pub leading: azul_core::dom::OptionDom,
+    pub leading: OptionDom,
 
     /// Optional minimize handler.
     pub on_minimize: OptionButtonOnClick,
@@ -684,7 +687,7 @@ impl QuickAccessBar {
 
     /// Sets the safe-area inset above the band - see [`Self::top_inset`].
     #[must_use]
-    pub fn with_top_inset(mut self, top_inset: f32) -> Self {
+    pub const fn with_top_inset(mut self, top_inset: f32) -> Self {
         self.top_inset = top_inset;
         self
     }

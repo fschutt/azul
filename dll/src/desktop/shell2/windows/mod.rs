@@ -3884,6 +3884,67 @@ fn pump_modal_loop_work() {
     MODAL_PUMP_ACTIVE.with(|active| active.set(false));
 }
 
+/// Whether a `WM_SETTINGCHANGE` could have changed what `discover_system_style`
+/// would return.
+///
+/// The message is a BROADCAST to every top-level window in the session and most
+/// of what it carries has nothing to do with how this app looks: an installer
+/// editing `PATH` ("Environment"), a policy refresh ("Policy"), a locale change
+/// ("intl"), a device arriving ("Devices"). Re-discovering for those costs six
+/// `reg query` subprocesses on the UI thread, each with a two-second timeout.
+///
+/// Either of two things says "appearance", and both tests are needed because
+/// they cover disjoint senders:
+///
+///   * `lParam` naming one of the documented theme sections. "ImmersiveColorSet"
+///     is THE dark-mode / accent-colour notification — it is what Windows sends
+///     when the user flips Settings > Personalisation > Colours, and it arrives
+///     with `wParam` 0, so the wParam test below would never catch it.
+///   * a non-zero `wParam`, which means the message came from
+///     `SystemParametersInfo` and names an `SPI_*` action. Every metric
+///     `discover()` reads — non-client fonts, caret width and blink, wheel
+///     scroll lines, hover time, double-click time and distance, high contrast,
+///     client-area animation — changes through one of those, and enumerating
+///     them individually would be a list to keep in sync with a discovery
+///     function that reads more of them over time. The noisy broadcasts above
+///     all carry `wParam` 0, so the coarse test is enough to exclude them.
+///
+/// A NULL `lParam` with `wParam` 0 is accepted: some senders pass neither, and
+/// paying a discovery for an ambiguous message is the safe side of this filter
+/// — the failure mode of being too strict is silently keeping the old theme,
+/// which is the entire bug being fixed.
+unsafe fn settingchange_touches_appearance(
+    wparam: dlopen::WPARAM,
+    lparam: dlopen::LPARAM,
+) -> bool {
+    if wparam != 0 {
+        return true;
+    }
+    if lparam == 0 {
+        return true;
+    }
+    // `lParam` is a NUL-terminated UTF-16 string. Bounded so a non-string
+    // lParam (a caller that passed a raw value with wParam 0) cannot walk off
+    // into unmapped memory looking for a terminator that is not there.
+    const MAX_SECTION_LEN: usize = 64;
+    let mut section = [0u16; MAX_SECTION_LEN];
+    let ptr = lparam as *const u16;
+    let mut len = 0usize;
+    while len < MAX_SECTION_LEN {
+        let ch = *ptr.add(len);
+        if ch == 0 {
+            break;
+        }
+        section[len] = ch;
+        len += 1;
+    }
+    let name = String::from_utf16_lossy(&section[..len]);
+    matches!(
+        name.as_str(),
+        "ImmersiveColorSet" | "WindowsThemeElement" | "WindowMetrics"
+    )
+}
+
 unsafe extern "system" fn window_proc(
     hwnd: HWND,
     msg: u32,
@@ -6655,6 +6716,22 @@ unsafe extern "system" fn window_proc(
             // the startup theme until restart. Re-discover the system style,
             // update the window theme through the diff pipeline (ThemeChange
             // events fire) and rebuild.
+            //
+            // But only when the message is plausibly ABOUT appearance.
+            // WM_SETTINGCHANGE is a broadcast to every top-level window, sent
+            // for environment-variable edits, policy refreshes, locale and
+            // device changes — none of which this window cares about — and
+            // `discover_system_style()` on Windows is not cheap: it spawns
+            // `reg query` (dark mode, accent) plus several more subprocesses,
+            // each with a two-second timeout, SYNCHRONOUSLY inside this
+            // wndproc. An `setx` from a background installer would have frozen
+            // the UI for the duration. The equality check inside
+            // `adopt_system_style` makes an unnecessary re-discovery free of
+            // RELAYOUT, but not free of the discovery itself, which is the
+            // expensive half.
+            if msg == WM_SETTINGCHANGE && !settingchange_touches_appearance(wparam, lparam) {
+                return 0;
+            }
             window.snapshot_window_state_baseline("windows.wm_settingchange");
             let new_style = std::sync::Arc::new(crate::desktop::app::discover_system_style());
             let new_theme = match new_style.theme {

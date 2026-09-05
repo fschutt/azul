@@ -2074,7 +2074,6 @@ mod autotest_generated {
         assert_eq!(padding_right_px(&block), padding_right_px(&flex));
     }
 
-    #[test]
     /// A CSD titlebar paints the DESKTOP's titlebar colour, not the window
     /// background — that is the whole point of carrying it in `SystemStyle`.
     /// Emitted only when the platform stated one, so an app that styles its

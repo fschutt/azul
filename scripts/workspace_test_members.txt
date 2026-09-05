@@ -27,6 +27,7 @@ tested: azul-doc                # azul_doc_tests (`--bins`: azul-doc has NO lib 
 tested: AzPaint              # dll_tests (reuses that job's azul-dll build)
 tested: AzMaps               # dll_tests (the arrow-button projection math, pan_tests)
 tested: AzWriter             # dll_tests (ditto)
+tested: AzReview             # dll_tests (the WAV writer: header/sample-count and clipping)
 
 # ── members with genuinely no tests. The script verifies the claim by grepping
 #    for #[test]; if any of these grows one, it fails until it is moved up and

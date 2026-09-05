@@ -5091,6 +5091,16 @@ fn head_style_text(html_node: &XmlNode) -> String {
     out
 }
 
+/// The document's single root `<html>` node.
+///
+/// # Errors
+///
+/// Returns [`DomXmlParseError::NoHtmlNode`] when the document has no root
+/// `<html>` node, and [`DomXmlParseError::MultipleHtmlRootNodes`] when it has
+/// more than one.
+// `DomXmlParseError` is the crate's public XML error type, shared with the C
+// ABI; boxing it to shrink the Err variant would change that surface.
+#[allow(clippy::result_large_err)]
 pub fn get_html_node(
     root_nodes: &[XmlNodeChild],
 ) -> Result<alloc::borrow::Cow<'_, XmlNode>, DomXmlParseError> {
@@ -5674,7 +5684,9 @@ fn parse_svg_points(pts: &str, close: bool) -> Option<crate::svg::SvgMultiPolygo
 /// verbatim between [`xml_node_to_dom_fast`] (operating on `dom.root`) and
 /// [`xml_node_to_fast_dom`] (operating on the arena `NodeData`). `component_name`
 /// must already be normalized (lowercased); the caller computes `child_inside_svg`.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+// Large but cohesive: one branch per input variant. Splitting the dispatch
+// would scatter the attribute table it exists to keep in one place.
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 fn apply_xml_node_attributes(
     node: &mut crate::dom::NodeData,
     xml_node: &XmlNode,
@@ -5820,7 +5832,7 @@ fn apply_xml_node_attributes(
         let stated = |key: &str| parse_svg_length(xml_node.attributes.get_key(key));
         let usable = |v: f32| v.is_finite() && v > 0.0;
         if let Some(w) = stated("width")
-            .or(view_box.map(|(_, _, w, _)| w))
+            .or_else(|| view_box.map(|(_, _, w, _)| w))
             .filter(|w| usable(*w))
         {
             intrinsic_props.push(
@@ -5832,7 +5844,7 @@ fn apply_xml_node_attributes(
             );
         }
         if let Some(h) = stated("height")
-            .or(view_box.map(|(_, _, _, h)| h))
+            .or_else(|| view_box.map(|(_, _, _, h)| h))
             .filter(|h| usable(*h))
         {
             intrinsic_props.push(
@@ -6204,6 +6216,11 @@ fn collect_style_text(node: &XmlNode, out: &mut Vec<String>, depth: usize) {
     }
 }
 
+// `component_map` is threaded through purely to reach the recursive calls; it
+// stays in the signature because the sibling `xml_node_to_fast_dom` reads it and
+// the two must keep the same shape. `RenderDomError` is large but is the crate's
+// public XML error type, shared with the C ABI, so it is not boxed here.
+#[allow(clippy::only_used_in_recursion, clippy::result_large_err)]
 fn xml_node_to_dom_fast<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a ComponentMap,

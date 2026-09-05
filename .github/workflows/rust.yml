@@ -273,6 +273,46 @@ jobs:
           fi
           ls -la target/release/azul-doc* || true
 
+      - name: Install binding toolchains (best effort)
+        # The derive gate proves a NAME is present in a generated binding; it
+        # cannot prove the binding COMPILES, because it greps text and a broken
+        # method still contains its name. Three non-compiling emissions shipped
+        # before this stage existed, and the V binding turned out never to have
+        # compiled at all while reporting zero unreachable derives.
+        #
+        # Every checker is probed against a known-good sample of its own
+        # language first, so a missing or broken tool SKIPS rather than being
+        # reported as broken generated code. That is why this install is
+        # best-effort: whatever lands gets used, whatever does not is skipped,
+        # and the job never fails because a package name moved.
+        #
+        # node, java and g++ ship on the runner and are exactly the three that
+        # cannot be checked on the maintainer's machine - node has a broken
+        # dylib, javac has no JRE, g++ cannot find <cstdint>. CI is where those
+        # actually get covered.
+        #
+        # `libffi-platypus-perl` is not incidental: Azul.pm loads FFI::Platypus
+        # at compile time, so `perl -c` cannot parse it without the module and
+        # reports a MISSING DEPENDENCY as broken generated code. The probe now
+        # loads the same module, so a runner without it skips perl instead.
+        shell: bash
+        run: |
+          sudo apt-get update -qq || true
+          sudo apt-get install -y -qq \
+            gfortran php-cli luajit ruby perl libffi-platypus-perl \
+            ocaml libctypes-ocaml-dev golang-go || true
+          for t in gcc g++ gfortran perl ruby luajit php node javac go gofmt ocamlfind; do
+            printf '%-10s %s\n' "$t" "$(command -v $t || echo MISSING)"
+          done
+
+      - name: Compile-check the generated bindings
+        # Fails only on a language whose checker WORKS and whose artifact does
+        # not compile. See stage_binding_syntax in scripts/check.sh for the
+        # probe rule and the KNOWN_BROKEN list.
+        shell: bash
+        run: bash scripts/check.sh --only binding-syntax
+
+
       - name: Upload the azul-doc binary
         uses: actions/upload-artifact@v7
         with:
@@ -539,7 +579,7 @@ jobs:
         run: azul-doc check
 
   dll_tests:
-    # Runs azul-dll unit tests and feature checks. Also tests AzPaint, AzMaps, and AzWriter.
+    # Runs azul-dll unit tests and feature checks. Also tests AzPaint, AzMaps, AzWriter and AzReview.
     name: DLL tests + feature check
     needs: [content_state_lint, documentation_paths, clippy, check_crates, codegen_linux]
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
@@ -601,6 +641,14 @@ jobs:
           set -o pipefail
           cargo test -p AzWriter --lib --no-fail-fast 2>&1 | tee azul-writer-tests.txt
           ./scripts/zero_test_guard.sh --strict azul-writer-tests.txt
+
+      - name: Run AzReview tests
+        env:
+          AZ_LINK_PATH: ${{ runner.temp }}/azul-cabi
+        run: |
+          set -o pipefail
+          cargo test -p AzReview --lib --no-fail-fast 2>&1 | tee azul-review-tests.txt
+          ./scripts/zero_test_guard.sh --strict azul-review-tests.txt
 
       - name: Check azul-dll (release feature set)
         run: cargo check -p azul-dll --no-default-features --features "link-static,logging,ico,tga,hdr,webp,pnm,gif,png,tiff,bmp,a11y"
@@ -5273,8 +5321,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.90.0
-      - name: Install clang + headless deps
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev
+      # PINNED, AND PINNED TOGETHER WITH THE NIGHTLY BELOW.
+      #
+      # TSan links Rust-instrumented code against clang's compiler-rt TSan
+      # runtime, so the two have to agree on the instrumentation ABI: rustc
+      # emits calls (`__tsan_memcpy` and friends, LLVM 17+) that the runtime has
+      # to define. Bumping one side without the other fails at LINK time with
+      # undefined `__tsan_*` references, which is why neither is `latest` here.
+      # If you bump one, bump the other and re-run this job.
+      #
+      # `libclang-rt-18-dev` is named explicitly because it is the package that
+      # ships `libclang_rt.tsan-x86_64.a`; plain `clang` does not depend on it,
+      # and the preflight below can only check a runtime that exists.
+      - name: Install clang (pinned) + headless deps
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang-18 libclang-rt-18-dev libgl1-mesa-dev libx11-dev
+          # `clang` is used unqualified throughout this job; make it the pinned one.
+          sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
+          clang --version | head -1
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@v8
         with:
@@ -5285,12 +5351,15 @@ jobs:
         run: cargo build -p azul-dll --features build-dll
 
       # TSan requires Rust instrumentation to avoid false positives with futex-based Mutexes.
-      - name: Install nightly (for -Zsanitizer)
-        run: rustup toolchain install nightly --component rust-src
+      # `-Zsanitizer` and `-Zbuild-std` are unstable, so this half cannot move to
+      # stable; the ASan/UBSan runs below already use the stable 1.90.0 build.
+      # PINNED to a date for the reason given on the clang step above.
+      - name: Install nightly (pinned, for -Zsanitizer)
+        run: rustup toolchain install nightly-2026-09-03 --component rust-src
       - name: Build azul-dll with ThreadSanitizer instrumentation
         run: |
           set -euo pipefail
-          RUSTFLAGS="-Zsanitizer=thread" cargo +nightly build \
+          RUSTFLAGS="-Zsanitizer=thread" cargo +nightly-2026-09-03 build \
             -Zbuild-std=std,panic_abort \
             --target x86_64-unknown-linux-gnu \
             -p azul-dll --features build-dll
@@ -5325,17 +5394,29 @@ jobs:
           san_failed=0
           tsan_preflight() {
             local rt
-            rt=$(clang -print-file-name=libclang_rt.tsan.a 2>/dev/null || true)
+            # On Linux the archive is ARCH-SUFFIXED, so ask for that name first;
+            # `libclang_rt.tsan.a` is the unsuffixed layout some toolchains use.
+            rt=$(clang -print-file-name=libclang_rt.tsan-x86_64.a 2>/dev/null || true)
             if [ ! -f "$rt" ]; then
+              rt=$(clang -print-file-name=libclang_rt.tsan.a 2>/dev/null || true)
+            fi
+            if [ ! -f "$rt" ]; then
+              # `-name 'libclang_rt.tsan*.a'` ALSO matches libclang_rt.tsan_cxx*.a,
+              # the C++-only half, which does not define __tsan_memcpy at all --
+              # and `find | head -1` returned exactly that, so this preflight
+              # reported "clang ships a TSan runtime WITHOUT __tsan_memcpy" about
+              # a perfectly good LLVM 18. Exclude the _cxx half and sort, so the
+              # answer does not depend on directory order.
               rt=$(find "$(dirname "$(readlink -f "$(command -v clang)")")/.." \
-                   -name 'libclang_rt.tsan*.a' 2>/dev/null | head -1)
+                   -name 'libclang_rt.tsan*.a' ! -name '*tsan_cxx*' 2>/dev/null \
+                   | sort | head -1)
             fi
             if [ -z "$rt" ] || [ ! -f "$rt" ]; then
-              echo "::error::cannot locate clang's TSan runtime - $(clang --version | head -1)"
+              echo "::error::cannot locate clang's TSan runtime - $(clang --version | head -1). Is libclang-rt-18-dev installed?"
               return 1
             fi
             if ! nm -g "$rt" 2>/dev/null | grep -q 'T __tsan_memcpy'; then
-              echo "::error::$(clang --version | head -1) ships a TSan runtime WITHOUT __tsan_memcpy (added in LLVM 17). rustc ($(rustc +nightly --version)) instruments memory intrinsics and emits it, so the C link will fail on undefined references."
+              echo "::error::$rt ($(clang --version | head -1)) has no __tsan_memcpy (added in LLVM 17). rustc ($(rustc +nightly-2026-09-03 --version)) instruments memory intrinsics and emits it, so the C link will fail on undefined references. Both toolchains are pinned in this job - if you bumped one, bump the other."
               return 1
             fi
             echo "clang TSan runtime OK ($(clang --version | head -1)): $rt"
@@ -5546,40 +5627,50 @@ jobs:
       - name: Every include_bytes!/include_str! must live inside the package
         run: |
           set -euo pipefail
-          for crate in azul-core azul-layout; do
-            cargo package -p "$crate" --allow-dirty --no-verify >/dev/null
-          done
           python3 - <<'PY'
-          import pathlib, re, subprocess, sys, tarfile, tempfile, json
+          import json, pathlib, re, subprocess, sys
 
-          md = json.loads(subprocess.run(["cargo","metadata","--format-version=1","--no-deps"],
-                                         capture_output=True, text=True, check=True).stdout)
-          target = pathlib.Path(md["target_directory"]) / "package"
+          # `cargo package --list` answers "which files ship?" from the manifest
+          # alone. Building the .crate instead would make this step depend on the
+          # CURRENTLY PUBLISHED azul-core resolving against the local azul-layout,
+          # which is false for most of a release cycle: publish-crates.sh ships
+          # azul-css -> azul-core -> azul-layout in order, so azul-layout only
+          # ever resolves against an azul-core that went out in the same run.
+          md = json.loads(subprocess.run(
+              ["cargo", "metadata", "--format-version=1", "--no-deps"],
+              capture_output=True, text=True, check=True).stdout)
+          roots = {p["name"]: pathlib.Path(p["manifest_path"]).parent
+                   for p in md["packages"]}
 
           bad = False
-          for tar_path in sorted(target.glob("azul-*.crate")):
-              with tarfile.open(tar_path) as tf:
-                  names = set(tf.getnames())
-                  root = tar_path.name[:-len(".crate")]
-                  for member in tf.getmembers():
-                      if not member.name.endswith(".rs"):
-                          continue
-                      src = tf.extractfile(member).read().decode("utf-8", "replace")
-                      here = pathlib.PurePosixPath(member.name).parent
-                      for macro, rel in re.findall(r'include_(bytes|str)!\s*\(\s*"([^"]+)"', src):
-                          resolved = str(pathlib.PurePosixPath(*(here / rel).parts))
-                          parts = []
-                          for p in (here / rel).parts:
-                              if p == "..":
-                                  if parts: parts.pop()
-                              else:
-                                  parts.append(p)
-                          resolved = "/".join(parts)
-                          if resolved not in names:
-                              print(f"::error::{tar_path.name}: {member.name} include_{macro}!(\"{rel}\") "
-                                    f"resolves outside the package ({resolved}) - it will not ship.")
-                              bad = True
-              print(f"checked {tar_path.name}")
+          for crate in ("azul-core", "azul-layout"):
+              root = roots[crate]
+              listing = subprocess.run(
+                  ["cargo", "package", "-p", crate, "--list", "--allow-dirty"],
+                  capture_output=True, text=True, check=True).stdout
+              names = {ln.strip() for ln in listing.splitlines() if ln.strip()}
+              for rel_name in sorted(n for n in names if n.endswith(".rs")):
+                  f = root / rel_name
+                  if not f.is_file():
+                      continue
+                  src = f.read_text(encoding="utf-8", errors="replace")
+                  here = pathlib.PurePosixPath(rel_name).parent
+                  for macro, rel in re.findall(
+                          r'include_(bytes|str)!\s*\(\s*"([^"]+)"', src):
+                      parts = []
+                      for part in (here / rel).parts:
+                          if part == "..":
+                              if parts:
+                                  parts.pop()
+                          else:
+                              parts.append(part)
+                      resolved = "/".join(parts)
+                      if resolved not in names:
+                          print(f"::error::{crate}: {rel_name} "
+                                f"include_{macro}!(\"{rel}\") resolves outside the "
+                                f"package ({resolved}) - it will not ship.")
+                          bad = True
+              print(f"checked {crate} ({len(names)} packaged files)")
           sys.exit(1 if bad else 0)
           PY
 

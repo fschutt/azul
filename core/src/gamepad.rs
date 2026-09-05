@@ -71,9 +71,9 @@ pub enum GamepadButton {
     // these in the middle would silently renumber every bit above it and turn
     // a saved keybinding into a different button.
     /// A miscellaneous button the vendor did not standardise: the Xbox Series
-    /// share button, the DualSense create button, the Switch capture button.
+    /// share button, the `DualSense` create button, the Switch capture button.
     Misc1,
-    /// Rear paddle 1 (Xbox Elite, DualSense Edge, Steam Deck).
+    /// Rear paddle 1 (Xbox Elite, `DualSense` Edge, Steam Deck).
     Paddle1,
     /// Rear paddle 2.
     Paddle2,
@@ -81,7 +81,7 @@ pub enum GamepadButton {
     Paddle3,
     /// Rear paddle 4.
     Paddle4,
-    /// The touchpad pressed as a button (DualShock 4, DualSense). Distinct
+    /// The touchpad pressed as a button (`DualShock` 4, `DualSense`). Distinct
     /// from a touch ON the pad, which is `GamepadState::touchpad`.
     Touchpad,
 }
@@ -140,7 +140,7 @@ pub struct GamepadState {
     /// stable. Wired pads report `-1.0`.
     pub battery: f32,
     /// Where a finger is on the pad's touch surface, if it has one and a
-    /// finger is down (DualShock 4, DualSense, Steam Deck).
+    /// finger is down (`DualShock` 4, `DualSense`, Steam Deck).
     ///
     /// `x`/`y` normalized `[0, 1]` across the surface; `active` false when
     /// nothing is touching. Not a `TouchPoint`: the pad surface is not the
@@ -149,13 +149,13 @@ pub struct GamepadState {
     ///
     /// ORIGIN IS BOTTOM-LEFT: `y` grows upward, like the thumbstick axes
     /// beside it and unlike a window's y-down coordinates. Stated because the
-    /// underlying hardware disagrees with itself - a DualShock's raw HID
+    /// underlying hardware disagrees with itself - a `DualShock`'s raw HID
     /// report counts y downward while the Game Controller framework normalizes
     /// it upward - so a producer needs to be told which one this field is.
     pub touchpad_x: f32,
     /// See [`GamepadState::touchpad_x`].
     pub touchpad_y: f32,
-    /// The SECOND finger on the touch surface (DualShock 4 and DualSense
+    /// The SECOND finger on the touch surface (`DualShock` 4 and `DualSense`
     /// track two), same coordinates as [`GamepadState::touchpad_x`]. Valid
     /// only while `touchpad2_active`; a pinch on the pad reads both slots.
     pub touchpad2_x: f32,
@@ -163,7 +163,7 @@ pub struct GamepadState {
     pub touchpad2_y: f32,
     /// Angular velocity from the pad's own gyroscope, in **rad/s**.
     ///
-    /// Present on DualShock 4, DualSense, Switch Pro and Steam Deck. This is
+    /// Present on `DualShock` 4, `DualSense`, Switch Pro and Steam Deck. This is
     /// the CONTROLLER's motion, not the device's — a phone's `SensorKind`
     /// readings describe the phone, these describe the thing in your hands,
     /// and a game that aims with gyro needs the latter.

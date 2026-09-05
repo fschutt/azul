@@ -13,7 +13,8 @@
 //! The fixtures use a MEMORY-ONLY `FcFontCache`: the system's fonts cannot
 //! rescue an assertion, and the only Arabic-capable face in the world is the
 //! mock one registered by the test. A wrong verdict is therefore the engine's,
-//! not the machine's.
+//! not the machine's. Its fallback config names the LATIN mocks for the
+//! generics (see `latin_generics`), the way a real machine's does.
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
@@ -28,14 +29,12 @@ use azul_layout::{
     window::LayoutWindow,
     window_state::FullWindowState,
 };
-use rust_fontconfig::{FcFontCache, UnicodeRange};
+use rust_fontconfig::{FcFallbackConfig, FcFontCache, GenericFamily, UnicodeRange};
 
 /// `Azul Mock Arabic`: beh/teh/lam/meem/alef + space, nothing else (see
-/// `tests/fonts/README.md`). Registered with exactly its cmap as coverage:
-/// fewer codepoints than the ASCII mocks, so the memory-only generic-family
-/// fallback (which ranks by declared coverage) keeps preferring a Latin face
-/// and the Arabic one is reachable ONLY through a script-aware lookup — the
-/// situation a real machine is in, where `sans-serif` names a Latin font.
+/// `tests/fonts/README.md`). Registered with exactly its cmap as coverage, so
+/// it can be found for Arabic by a script-aware (coverage) lookup and for
+/// nothing else.
 const MOCK_ARABIC: &[u8] = include_bytes!("fonts/azul-mock-arabic.ttf");
 const MOCK_ARABIC_COVERAGE: [UnicodeRange; 3] = [
     UnicodeRange {
@@ -98,10 +97,35 @@ fn run_layout(lw: &mut LayoutWindow, styled_dom: StyledDom) {
     .unwrap();
 }
 
+/// The fallback config of a real machine, in miniature: the generics name
+/// LATIN faces (the built-in ASCII mocks), so the Arabic mock is reachable
+/// ONLY through a script-aware lookup - the situation the tests are about,
+/// where `sans-serif` names a Latin font and Arabic needs a fallback.
+///
+/// rust-fontconfig 5 resolves a generic through this config. With NO config
+/// a generic gets the best-style faces of the whole cache, narrowest first,
+/// which on this three-font cache is the Arabic mock itself: the chain would
+/// cover Arabic from the start and the tests would pass without the code
+/// under test ever running.
+fn latin_generics() -> FcFallbackConfig {
+    let mut config = FcFallbackConfig::empty();
+    for (generic, family) in [
+        (GenericFamily::SansSerif, "Azul Mock Wide"),
+        (GenericFamily::Serif, "Azul Mock Wide"),
+        (GenericFamily::Monospace, "Azul Mock Mono"),
+    ] {
+        config
+            .generic_families
+            .insert(generic, vec![family.to_string()]);
+    }
+    config
+}
+
 /// A window over a memory-only cache: the two built-in mock faces (ASCII) plus
 /// the mock Arabic face, and NOTHING the machine has installed.
 fn window_with_mock_arabic(dom: Dom) -> LayoutWindow {
-    let mut lw = LayoutWindow::new(FcFontCache::default()).unwrap();
+    let fc_cache = FcFontCache::default().with_fallback_config(latin_generics());
+    let mut lw = LayoutWindow::new(fc_cache).unwrap();
     lw.font_manager
         .register_named_font("Azul Mock Arabic", MOCK_ARABIC, MOCK_ARABIC_COVERAGE.to_vec());
     let mut window_state = FullWindowState::default();
@@ -193,7 +217,7 @@ fn assert_premise_no_arabic(lw: &LayoutWindow) {
          sees the text the DOM contains; chain = {:#?}; loaded = {:?}",
         lw.font_manager.font_chain_cache.get(&mono_key(lw)).map(|c| (
             c.css_fallbacks.iter().map(|g| (g.css_name.clone(), g.fonts.iter().map(|f| (f.id, f.unicode_ranges.clone())).collect::<Vec<_>>())).collect::<Vec<_>>(),
-            c.unicode_fallbacks.iter().map(|f| (f.id, f.unicode_ranges.clone())).collect::<Vec<_>>(),
+            c.unicode_fallbacks.iter().map(|g| (g.range, g.fonts.iter().map(|f| (f.id, f.unicode_ranges.clone())).collect::<Vec<_>>())).collect::<Vec<_>>(),
         )),
         lw.font_manager.get_loaded_fonts().iter().map(|(id, _)| *id).collect::<Vec<_>>()
     );

@@ -506,11 +506,6 @@ impl<T> FlatVecVec<T> {
         }
     }
 
-    /// Flatten: sort each inner Vec by key, deduplicate by keeping the last
-    /// occurrence of each key (CSS cascade: later source order wins among
-    /// equal specificity), then compact into flat storage.
-    /// Drains all build-phase Vecs. After this call, only `get_slice()` works.
-
     /// Collapse IDENTICAL per-node runs so nodes with the same property set
     /// share ONE copy of it.
     ///
@@ -571,6 +566,11 @@ impl<T> FlatVecVec<T> {
         self.offsets = new_offsets;
     }
 
+    /// Flatten: sort each inner Vec by key, deduplicate by keeping the last
+    /// occurrence of each key (CSS cascade: later source order wins among
+    /// equal specificity), then compact into flat storage.
+    ///
+    /// Drains all build-phase Vecs. After this call, only `get_slice()` works.
     pub fn sort_each_and_flatten<K: Ord + Eq>(&mut self, key_fn: impl Fn(&T) -> K)
     where
         T: Clone + PartialEq,
@@ -837,7 +837,7 @@ impl InheritedValues {
     /// Number of distinct (type, value) buckets — the figure the scan cost is
     /// linear in. Exposed for the memory/coverage tests.
     #[must_use]
-    pub fn bucket_count(&self) -> usize {
+    pub const fn bucket_count(&self) -> usize {
         self.buckets.len()
     }
 

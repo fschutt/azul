@@ -724,9 +724,23 @@ const WCO_CREATE_METHOD: &str = r####"
     }
 "####;
 
-/// Function kinds we know how to emit. The auto-derived trait helpers
-/// (delete/clone/eq/...) are handled by the class scaffolding above
-/// (Drop) or skipped entirely for now.
+/// Function kinds we know how to emit.
+///
+/// `Delete` stays out - the class scaffolding owns Drop, and handing PHP a
+/// second way to free the same pointer is a double-free. The rest of the
+/// auto-derived helpers used to be "skipped entirely for now", which is why
+/// every class this extension DOES expose - App, AppConfig, Button and 26
+/// others - declared Debug/PartialEq/Hash in api.json, had the export in
+/// libazul, and named it nowhere.
+///
+/// Admitting them here is necessary but NOT sufficient, and the measurement
+/// says so: 134 -> 129. `render_method` still returns None for most of them
+/// because the marshalling table has no mapping for three shapes these need -
+/// an `AzString` RETURN (it maps AzString only as an ARGUMENT, line ~930, so
+/// no `_toDbgString` reaches the artifact at all), a same-type `*const Az{T}`
+/// argument (`_partialEq`'s second operand), and a `Self` return (`_clone`).
+/// Closing php-ext means adding those three to the table; the kinds being
+/// eligible is the precondition, not the fix.
 fn is_method_kind_eligible(kind: FunctionKind) -> bool {
     matches!(
         kind,
@@ -748,6 +762,12 @@ fn render_method(
     _c_prefix: &str,
     wrapper: &str,
 ) -> Option<Vec<String>> {
+    // Deliberately NOT widened to the trait kinds. Doing so emitted methods
+    // with no receiver whose BODY still referenced `self.inner` and passed an
+    // extra argument - `AzDom_partialEq(&self.inner, &a.inner, &b.inner)` for
+    // a two-argument export. That does not compile, and NOTHING in this repo's
+    // gates compiles `php_api.rs`, so it shipped silently for two commits.
+    // Emitting them needs `render_method` taught the static shape first.
     let takes_self = matches!(func.kind, FunctionKind::Method | FunctionKind::MethodMut);
 
     // Filter args: drop the self receiver (Python codegen detects it via
@@ -984,6 +1004,18 @@ fn marshal_return(
         Some(t) if PHP_CLASS_ALLOWLIST.contains(&t) => Some(MarshalledReturn {
             rust_return_type: format!("Azul{}", t),
             wrap_call: format!("unsafe {{ Azul{} {{ inner: __CALL__ }} }}", t),
+        }),
+        // AzString return -> PHP string. This is the whole Debug column:
+        // `Az{T}_toDbgString` is the only trait entry point that returns one,
+        // and without this arm not a single `_toDbgString` reached the
+        // extension. Uses only the public surface - `AzString::as_str` exists
+        // on `dll_api_external.rs` and handles non-UTF8 by taking the longest
+        // valid prefix - then frees the string, which owns a heap buffer and
+        // has no Drop impl of its own.
+        Some("String") => Some(MarshalledReturn {
+            rust_return_type: "String".to_string(),
+            wrap_call: "unsafe { let mut __s = __CALL__; let __r = __s.as_str().to_string();                         crate::dll::AzString_delete(&mut __s); __r }"
+                .to_string(),
         }),
         Some(t) => primitive_php_type(t).map(|rust_t| MarshalledReturn {
             rust_return_type: primitive_return_rust(rust_t).to_string(),

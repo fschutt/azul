@@ -3,13 +3,13 @@
 //! `GamepadState` assumes an Xbox-shaped controller: two sticks, two triggers,
 //! a d-pad, a fixed button set. Plenty of real input hardware is not that
 //! shape — flight sticks with dozens of axes, racing wheels with pedal
-//! clusters and force feedback, 6-DOF SpaceMice, foot pedals, Stream Decks,
+//! clusters and force feedback, 6-DOF `SpaceMice`, foot pedals, Stream Decks,
 //! MIDI controllers, barcode wedges. SDL keeps *joystick* events (arbitrary
 //! axes, hats, balls) separate from *gamepad* events for exactly this reason.
 //!
 //! Rather than grow a taxonomy that can never be complete, this exposes the
 //! raw report and lets the app decode it. That is the same trade the web made
-//! with WebHID, and it is the right one here: azul cannot know what a
+//! with `WebHID`, and it is the right one here: azul cannot know what a
 //! particular device's bytes mean, but the app that chose to support that
 //! device does.
 //!
@@ -45,7 +45,7 @@ pub struct HidDevice {
     /// Human-readable product string, empty when the device reports none.
     pub name: AzString,
     /// The device's SERIAL NUMBER as it reports it (USB `iSerial`; a
-    /// DualSense reports its Bluetooth address), empty when it reports none
+    /// `DualSense` reports its Bluetooth address), empty when it reports none
     /// or the platform does not expose it (Windows, see the backend).
     pub serial: AzString,
     /// PER-INSTANCE identity (8f-i-a-i, user ruling: two identical pads must
@@ -87,7 +87,7 @@ impl HidDevice {
     /// `0`, so "no identity" stays distinguishable from a real one.
     #[must_use]
     pub fn handle_instance(handle: &[u8]) -> u64 {
-        let mut h: u64 = 0x84222325_cbf29ce4;
+        let mut h: u64 = 0x8422_2325_cbf2_9ce4;
         for b in handle {
             h ^= u64::from(*b);
             h = h.wrapping_mul(0x0100_0000_01b3);

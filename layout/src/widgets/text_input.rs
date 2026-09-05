@@ -886,6 +886,7 @@ impl TextInput {
         })
         .into();
     }
+    #[must_use]
     pub fn with_on_focus_lost<C: Into<TextInputOnFocusLostCallback>>(
         mut self,
         refany: RefAny,

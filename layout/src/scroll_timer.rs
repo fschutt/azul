@@ -1469,7 +1469,7 @@ mod autotest_generated {
             self.take_changes()
                 .iter()
                 // See the companion note on the other drain helper.
-                .filter(|c| !matches!(c, CallbackChange::SettleScrollGesture { .. }))
+                .filter(|c| !matches!(c, CallbackChange::SettleScrollGesture))
                 .map(|change| {
                     let CallbackChange::ScrollTo {
                         node_id,
@@ -3103,7 +3103,7 @@ mod autotest_generated {
                     // a physics tick must no longer emit one at all, and
                     // `a_physics_tick_emits_only_scroll_to_changes` pins that.
                     .filter(|ch| {
-                        !matches!(ch, CallbackChange::SettleScrollGesture { .. })
+                        !matches!(ch, CallbackChange::SettleScrollGesture)
                     })
                     .map(|change| {
                         let CallbackChange::ScrollTo {

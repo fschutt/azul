@@ -191,8 +191,15 @@ fn emit_header(builder: &mut CodeBuilder) {
     builder.line("! gfortran >= 4.6 and Intel Fortran (ifort/ifx) >= 14.");
     builder.line("!");
     builder.line("! Build:");
-    builder.line("!   gfortran -c azul.f90");
-    builder.line("!   gfortran main.f90 azul.o -L. -lazul -o main");
+    builder.line("!   gfortran -ffree-line-length-none -c azul.f90");
+    builder.line("!   gfortran -ffree-line-length-none main.f90 azul.o -L. -lazul -o main");
+    builder.line("!");
+    builder.line("! `-ffree-line-length-none` is not optional. Free-form Fortran capped");
+    builder.line("! lines at 132 columns until F2023 lifted it, and the C ABI names here");
+    builder.line("! are long enough that ~1500 declarations run past that. gfortran >= 14");
+    builder.line("! defaults to no limit and accepts the file bare; every older gfortran");
+    builder.line("! truncates the line and then errors on the half-statement that is left.");
+    builder.line("! The generated Makefile already carries the flag in FFLAGS.");
     builder.line("! ============================================================================");
     builder.blank();
 }

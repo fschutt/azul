@@ -374,10 +374,10 @@ impl CssDeclaration {
         use self::CssDeclaration::{Dynamic, Static};
         match self {
             Static(s) => format!("{s:?}"),
-            Dynamic(d) => match self.env_variable() {
-                Some(v) => format!("env({}, {:?})", v.as_css_name(), d.default_value),
-                None => format!("var(--{}, {:?})", d.dynamic_id, d.default_value),
-            },
+            Dynamic(d) => self.env_variable().map_or_else(
+                || format!("var(--{}, {:?})", d.dynamic_id, d.default_value),
+                |v| format!("env({}, {:?})", v.as_css_name(), d.default_value),
+            ),
         }
     }
 
@@ -408,7 +408,7 @@ impl CssDeclaration {
     /// Whether this declaration's value depends on the window's
     /// [`DynamicSelectorContext`](crate::dynamic_selector::DynamicSelectorContext)
     /// - i.e. it is an `env()` - so a context change must re-run the cascade
-    /// for it, exactly as it must for a rule with `@media`-style conditions.
+    ///   for it, exactly as it must for a rule with `@media`-style conditions.
     #[must_use]
     pub fn depends_on_dynamic_context(&self) -> bool {
         self.env_variable().is_some()

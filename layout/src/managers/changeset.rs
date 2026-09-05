@@ -555,6 +555,45 @@ impl TextChangeset {
     }
 }
 
+/// Gated on `xml`: the body of `apply_to_dom` - and its return type - is
+/// `crate::document_edit`, which `layout/src/lib.rs` declares as
+/// `#[cfg(all(feature = "text_layout", feature = "xml"))] pub mod
+/// document_edit;`. `managers` is already `#[cfg(feature = "text_layout")]`,
+/// so `xml` is the only half of that gate still missing here.
+///
+/// What an `xml`-less build loses: the Path-2 convenience method only. Apps
+/// with their own document model are unaffected - they apply the
+/// `DocumentOperation` themselves; it is the built-in "apply this changeset to
+/// a plain `Dom`" helper that disappears.
+#[cfg(feature = "xml")]
+/// Gated exactly like [`crate::document_edit`], the module this reaches into:
+/// `text_layout` alone (printpdf's reduced build) compiles the changeset types
+/// but not `document_edit`, and an ungated method referring to it fails to
+/// resolve. Same class as the `cpurender` gaps on `tray_icon` and
+/// `rasterize_svg_clip_to_r8`.
+#[cfg(all(feature = "text_layout", feature = "xml"))]
+impl DocumentChangeset {
+    /// Apply this changeset to an app-model [`Dom`](azul_core::dom::Dom) -
+    /// the Path-2 helper [`crate::document_edit::apply_document_operation`]
+    /// as a method, so API consumers reach it without free-function plumbing.
+    ///
+    /// `host_path` is the root-to-host child-index path (empty = the model
+    /// root hosts the blocks). On success the returned
+    /// [`AppliedEdit`](crate::document_edit::AppliedEdit) carries the resume
+    /// point and the INVERSE operation to hand back to
+    /// `CallbackInfo::mark_document_edit_applied_with_inverse`.
+    ///
+    /// # Errors
+    /// The tree is left unchanged on error (host/target not found).
+    pub fn apply_to_dom(
+        &self,
+        model: &mut azul_core::dom::Dom,
+        host_path: U32Vec,
+    ) -> crate::document_edit::ResultAppliedEditDocumentEditError {
+        crate::document_edit::apply_document_operation(model, host_path.as_ref(), self).into()
+    }
+}
+
 #[cfg(test)]
 mod autotest_generated {
     use std::{collections::HashSet, thread};
@@ -1242,33 +1281,5 @@ mod autotest_generated {
             }),
             timestamp,
         )
-    }
-}
-
-/// Gated exactly like [`crate::document_edit`] itself (`text_layout` + `xml`):
-/// this is that module's helper wearing a method, and without the gate a
-/// build with `text_layout` but no `xml` referenced a module that had been
-/// configured out - `cargo check -p azul-layout --no-default-features
-/// --features std,text_layout` failed on the return type alone.
-#[cfg(all(feature = "text_layout", feature = "xml"))]
-impl DocumentChangeset {
-    /// Apply this changeset to an app-model [`Dom`](azul_core::dom::Dom) -
-    /// the Path-2 helper [`crate::document_edit::apply_document_operation`]
-    /// as a method, so API consumers reach it without free-function plumbing.
-    ///
-    /// `host_path` is the root-to-host child-index path (empty = the model
-    /// root hosts the blocks). On success the returned
-    /// [`AppliedEdit`](crate::document_edit::AppliedEdit) carries the resume
-    /// point and the INVERSE operation to hand back to
-    /// `CallbackInfo::mark_document_edit_applied_with_inverse`.
-    ///
-    /// # Errors
-    /// The tree is left unchanged on error (host/target not found).
-    pub fn apply_to_dom(
-        &self,
-        model: &mut azul_core::dom::Dom,
-        host_path: U32Vec,
-    ) -> crate::document_edit::ResultAppliedEditDocumentEditError {
-        crate::document_edit::apply_document_operation(model, host_path.as_ref(), self).into()
     }
 }

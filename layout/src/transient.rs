@@ -801,7 +801,7 @@ impl TransientWindowManager {
     }
 
     /// Focus a dismissal owes back to the parent, if any. One-shot.
-    pub fn take_pending_focus_restore(
+    pub const fn take_pending_focus_restore(
         &mut self,
     ) -> Option<(azul_core::dom::DomNodeId, bool)> {
         self.pending_focus_restore.take()

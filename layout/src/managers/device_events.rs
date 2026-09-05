@@ -83,7 +83,7 @@ impl DeviceEventManager {
     ///
     /// Wayland gets this from `wl_registry.global`/`global_remove` for
     /// `wl_output`, Win32 from `WM_DISPLAYCHANGE`, macOS from
-    /// `NSApplicationDidChangeScreenParameters`, X11 from RandR.
+    /// `NSApplicationDidChangeScreenParameters`, X11 from `RandR`.
     pub fn note_monitor(&mut self, connected: bool) {
         self.pending.push(Hotplug {
             kind: HotplugKind::Monitor,
@@ -127,13 +127,13 @@ impl DeviceEventManager {
     }
 
     /// Drain the accumulated raw motion.
-    pub fn take_raw_motion(&mut self) -> Option<PendingRawMotion> {
+    pub const fn take_raw_motion(&mut self) -> Option<PendingRawMotion> {
         self.pending_raw_motion.take()
     }
 
     /// Whether anything is queued (lets a backend skip the drain entirely).
     #[must_use]
-    pub fn has_pending(&self) -> bool {
+    pub const fn has_pending(&self) -> bool {
         !self.pending.is_empty()
     }
 

@@ -549,7 +549,8 @@ fn fallback_ranges_for(chars: &BTreeSet<char>) -> Vec<UnicodeRange> {
 /// does not help, since the typed text lives in the content overlay, not in
 /// the DOM the resolver scans.)
 ///
-/// A char counts as covered when the chain resolves it by OS/2 ranges OR any
+/// A char counts as covered when the chain resolves it by OS/2 ranges
+/// ([`covering_font`], which does not count the last-resort face) OR any
 /// already-loaded face has it in its cmap — exactly the two checks the shaper
 /// makes before giving up. The rest go through [`faces_covering`].
 ///
@@ -590,7 +591,7 @@ pub fn missing_coverage_faces<T: ParsedFontTrait>(
             if !needs_own_glyph(ch) || !seen.insert(ch) {
                 continue;
             }
-            let covered = chain.resolve_char(fc_cache, ch).is_some()
+            let covered = covering_font(chain, ch).is_some()
                 || loaded.iter().any(|(_, font)| font.has_glyph(ch as u32));
             if !covered {
                 missing.entry(key.clone()).or_default().insert(ch);
@@ -650,12 +651,7 @@ pub fn faces_covering(
     if uncovered.is_empty() {
         return Vec::new();
     }
-    let mut known: HashSet<FontId> = chain
-        .css_fallbacks
-        .iter()
-        .flat_map(|g| g.fonts.iter().map(|f| f.id))
-        .chain(chain.unicode_fallbacks.iter().map(|f| f.id))
-        .collect();
+    let mut known: HashSet<FontId> = chain.fonts().map(|f| f.id).collect();
     let ranges = fallback_ranges_for(&uncovered);
     let italic = if key.italic {
         PatternMatch::True
@@ -689,8 +685,13 @@ pub fn faces_covering(
     };
 
     if let Some(registry) = registry {
-        let stack =
-            fc_cache.expand_font_families_config_first(&key.font_families, registry.os, &ranges);
+        // The stack expanded for the MISSING scripts (the probe itself only
+        // expands for the default seven): the generic's families, the
+        // script candidates for `ranges` (fonts.conf aliases merged over the
+        // OS tables) and the config's last resort.
+        let stack = fc_cache
+            .fallback_config()
+            .candidate_families(&key.font_families, &ranges);
         let probed = registry.request_fonts_fast(&[(stack, uncovered.clone())], key.weight, italic);
         for fm in probed
             .iter()
@@ -711,17 +712,56 @@ pub fn faces_covering(
             Some(&ranges),
             &mut trace,
         );
-        for fm in resolved
-            .css_fallbacks
-            .iter()
-            .flat_map(|g| g.fonts.iter())
-            .chain(resolved.unicode_fallbacks.iter())
-        {
+        for fm in resolved.fonts() {
             consider(fm, &mut uncovered);
         }
     }
 
     added
+}
+
+/// The font `chain` resolves `ch` to BY COVERAGE - `None` when nothing in
+/// the chain claims the codepoint.
+///
+/// This is the coverage question; `FontFallbackChain::resolve_codepoint` is
+/// not. Once a chain has a last-resort face (`ensure_chains_nonempty` gives
+/// one to every chain that matched nothing), `resolve_codepoint` hands that
+/// face out for EVERY codepoint, tagged `LAST_RESORT_SOURCE` - so asking it
+/// "is this char covered" would say yes for a char no font on the machine
+/// can draw, and `missing_coverage_faces` would never go looking for one.
+/// Every coverage decision goes through here; the shaper consults the last
+/// resort separately, after the cmap probe, as the tier it is.
+#[must_use]
+pub fn covering_font(chain: &rust_fontconfig::FontFallbackChain, ch: char) -> Option<FontId> {
+    match chain.resolve_codepoint(ch as u32) {
+        Some((id, source)) if source != rust_fontconfig::fallback::LAST_RESORT_SOURCE => Some(id),
+        _ => None,
+    }
+}
+
+/// Append faces found by [`faces_covering`] to `chain` as one more
+/// unicode-fallback group.
+///
+/// The group's range is the whole codepoint space: these faces were chosen
+/// by the cmap/OS-2 coverage of the specific chars that were missing, and
+/// the resolver already checks a face's own `unicode_ranges` before using
+/// it, so a narrower range would only restate what the `FontMatch` carries.
+pub fn append_coverage_faces(
+    chain: &mut rust_fontconfig::FontFallbackChain,
+    faces: Vec<rust_fontconfig::FontMatch>,
+) {
+    if faces.is_empty() {
+        return;
+    }
+    chain
+        .unicode_fallbacks
+        .push(rust_fontconfig::ScriptFallbackGroup {
+            range: UnicodeRange {
+                start: 0,
+                end: 0x0010_FFFF,
+            },
+            fonts: faces,
+        });
 }
 
 /// A map of pre-loaded fonts, keyed by `FontId` (from rust-fontconfig)
@@ -1020,43 +1060,12 @@ impl FontContext {
         let scripts = scripts_present_in_styled_dom(styled_dom);
         let mut chains = resolve_font_chains(&collected, &self.fc_cache, Some(&scripts));
         // Coverage-based prune (matches `collect_and_resolve_font_chains_with_registration`).
+        // A chain that matched nothing already carries its last-resort face
+        // (the resolver applied `ensure_chains_nonempty`), on the tier the
+        // prune never touches.
         let used_chars = collect_used_codepoints(styled_dom);
         for chain in chains.chains.values_mut() {
             prune_chain_to_used_chars(chain, &used_chars);
-        }
-        // WEB-LIFT last resort (after prune, so it survives — prune drops the registered
-        // fallback because its cmap isn't parsed yet): if a chain ended up with no fonts,
-        // append the first registered font so load_missing_for_chains finds it and text
-        // shapes instead of measuring 0. (Done in azul-layout, NOT rust-fontconfig, so the
-        // lift-fragile with_memory_fonts isn't re-codegen'd into a trapping shape.)
-        for chain in chains.chains.values_mut() {
-            let total = chain
-                .css_fallbacks
-                .iter()
-                .map(|g| g.fonts.len())
-                .sum::<usize>()
-                + chain.unicode_fallbacks.len();
-            if total == 0 {
-                // `list()` deep-copies the ENTIRE font database to read one entry;
-                // see `first_font_in_cache` in solver3::getters for the
-                // measurement (717k String clones, 2.3 MB retained).
-                let __first = {
-                    let mut f = None;
-                    self.fc_cache.for_each_pattern(|p, id| {
-                        if f.is_none() {
-                            f = Some((p.clone(), *id));
-                        }
-                    });
-                    f
-                };
-                if let Some((pattern, id)) = __first.as_ref() {
-                    chain.unicode_fallbacks.push(rust_fontconfig::FontMatch {
-                        id: *id,
-                        unicode_ranges: pattern.unicode_ranges.clone(),
-                        fallbacks: Vec::new(),
-                    });
-                }
-            }
         }
         self.font_chain_cache = chains.into_fontconfig_chains();
     }
@@ -1379,8 +1388,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// fast chain resolver can match it by name.
     ///
     /// `coverage` are the codepoint ranges the font actually covers.
-    /// Passing the true ranges matters: `FontFallbackChain::resolve_char`
-    /// skips any font that reports no coverage, and a font claiming
+    /// Passing the true ranges matters: the chain's coverage walk
+    /// (`covering_font`) skips any font that reports no coverage, and a font claiming
     /// coverage it doesn't have would render .notdef instead of falling
     /// back.
     ///
@@ -1998,7 +2007,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
                 .entry(key.clone())
                 .or_insert_with(|| resolve_chain_on_miss(&key, &fc_cache));
             added += faces.len();
-            chain.unicode_fallbacks.extend(faces);
+            append_coverage_faces(chain, faces);
             resolved
                 .chains
                 .insert(FontChainKeyOrRef::Chain(key), chain.clone());
@@ -4079,7 +4088,7 @@ impl Eq for Stroke {}
 
 // Helper function to round f32 for comparison
 #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
-fn round_eq(a: f32, b: f32) -> bool {
+const fn round_eq(a: f32, b: f32) -> bool {
     (a.round() as isize) == (b.round() as isize)
 }
 
@@ -8991,7 +9000,6 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
 fn split_text_by_font_coverage<T: ParsedFontTrait>(
     text: &str,
     font_chain: &rust_fontconfig::FontFallbackChain,
-    fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
 ) -> Vec<(usize, usize, FontId)> {
     let mut segments: Vec<(usize, usize, FontId)> = Vec::new();
@@ -9002,18 +9010,16 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
     let notdef_font_id = loaded_fonts.iter().map(|(id, _)| *id).min();
 
     // Per-character resolution is memoised for the duration of this call.
-    // `resolve_char` walks every fallback group's unicode ranges linearly AND
-    // clones a String for the matched css_name, and the loop below runs it
-    // once per CHARACTER — so a paragraph paid it ~200 times to answer ~40
-    // distinct questions. A `perf` profile of a steady-state frame put the
-    // cmap/range scanning at 7.8% of the whole frame, third behind the pixel
-    // blend and the scanline sweep, plus a share of the malloc traffic from
-    // those per-character String clones.
+    // The chain walk scans every fallback group's unicode ranges linearly,
+    // and the loop below runs it once per CHARACTER — so a paragraph paid it
+    // ~200 times to answer ~40 distinct questions. A `perf` profile of a
+    // steady-state frame put the cmap/range scanning at 7.8% of the whole
+    // frame, third behind the pixel blend and the scanline sweep.
     //
-    // The memo is call-scoped on purpose: `font_chain`, `fc_cache` and
-    // `loaded_fonts` are all fixed for the duration, so a character's answer
-    // cannot change within one call. A longer-lived cache would have to key
-    // on all three and is a different, riskier change.
+    // The memo is call-scoped on purpose: `font_chain` and `loaded_fonts`
+    // are both fixed for the duration, so a character's answer cannot
+    // change within one call. A longer-lived cache would have to key on
+    // both and is a different, riskier change.
     let mut resolved: alloc::collections::BTreeMap<char, Option<FontId>> =
         alloc::collections::BTreeMap::new();
 
@@ -9030,16 +9036,16 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
             }
             continue;
         }
-        // Primary: the resolved fallback chain. Its coverage comes from
-        // rust-fontconfig's OS/2-derived `unicode_ranges`, which can MISS
-        // codepoints a font actually has in its cmap — e.g. Noto Sans CJK's
-        // JP face does not advertise the Hangul OS/2 block, so 한국어 resolves
-        // to None here even though that face's cmap covers it.
-        let font_id = font_chain
-            .resolve_char(fc_cache, ch)
-            .map(|(id, _)| id)
+        // Primary: the resolved fallback chain, BY COVERAGE (`covering_font`
+        // leaves the last-resort tier out; it is consulted last, below). Its
+        // coverage comes from rust-fontconfig's OS/2-derived
+        // `unicode_ranges`, which can MISS codepoints a font actually has in
+        // its cmap — e.g. Noto Sans CJK's JP face does not advertise the
+        // Hangul OS/2 block, so 한국어 resolves to None here even though that
+        // face's cmap covers it.
+        let font_id = covering_font(font_chain, ch)
             // The chain's OWN faces next, in chain order, by REAL cmap
-            // coverage. The metadata behind `resolve_char` is partial for a
+            // coverage. The metadata behind the range walk is partial for a
             // face the fast probe found: it records only the codepoints the
             // DOM had at probe time, so the first 'ü' typed into an ASCII
             // paragraph misses there even though the paragraph's face has
@@ -9048,10 +9054,7 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
             // loaded face (the UI font, say) happens to sort first below.
             .or_else(|| {
                 font_chain
-                    .css_fallbacks
-                    .iter()
-                    .flat_map(|g| g.fonts.iter())
-                    .chain(font_chain.unicode_fallbacks.iter())
+                    .fonts()
                     .map(|fm| fm.id)
                     .find(|id| loaded_fonts.get(id).is_some_and(|f| f.has_glyph(ch as u32)))
             })
@@ -9069,9 +9072,19 @@ fn split_text_by_font_coverage<T: ParsedFontTrait>(
                     .map(|(id, _)| *id)
                     .min()
             })
-            // Last resort: no font advertises OR covers this codepoint. Assign it to
-            // the primary loaded face so the shaper emits a visible .notdef box and
-            // the byte range is preserved (following text is not shifted).
+            // Last resort: no font advertises OR covers this codepoint. The
+            // chain's own last-resort face first (the tier
+            // `ensure_chains_nonempty` fills for a chain that matched
+            // nothing), else the primary loaded face — so the shaper emits a
+            // visible .notdef box and the byte range is preserved (following
+            // text is not shifted).
+            .or_else(|| {
+                font_chain
+                    .last_resort
+                    .first()
+                    .map(|m| m.id)
+                    .filter(|id| loaded_fonts.get(id).is_some())
+            })
             .or(notdef_font_id);
         resolved.insert(ch, font_id);
         if let Some(font_id) = font_id {
@@ -9176,7 +9189,7 @@ pub(crate) fn shape_placeholder_text<T: ParsedFontTrait>(
         return Vec::new();
     }
     let script = crate::text3::script::detect_script(text).unwrap_or(Script::Latin);
-    let language = crate::text3::script::script_to_language(script, text);
+    let language = script_to_language(script, text);
     match &style.font_stack {
         FontStack::Ref(font_ref) => font_ref
             .shape_text(text, script, language, BidiDirection::Ltr, style)
@@ -9190,10 +9203,7 @@ pub(crate) fn shape_placeholder_text<T: ParsedFontTrait>(
             // (a prompt is app-authored, single-script text; per-glyph
             // fallback can come later if a real prompt ever needs it).
             let Some(font) = font_chain
-                .css_fallbacks
-                .iter()
-                .flat_map(|group| group.fonts.iter())
-                .chain(font_chain.unicode_fallbacks.iter())
+                .fonts()
                 .find_map(|m| loaded_fonts.get(&m.id))
             else {
                 return Vec::new();
@@ -9226,7 +9236,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
     static FONT_FB_DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let dbg = *FONT_FB_DEBUG.get_or_init(|| std::env::var_os("AZ_FONT_FALLBACK_DEBUG").is_some());
 
-    let segments = split_text_by_font_coverage(text, font_chain, fc_cache, loaded_fonts);
+    let segments = split_text_by_font_coverage(text, font_chain, loaded_fonts);
 
     if dbg && segments.len() > 1 {
         eprintln!(
@@ -9890,8 +9900,7 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         };
 
                         // Per-character font fallback for CombinedText
-                        let segments =
-                            split_text_by_font_coverage(&text, font_chain, fc_cache, loaded_fonts);
+                        let segments = split_text_by_font_coverage(&text, font_chain, loaded_fonts);
                         let mut all_glyphs = Vec::new();
                         for (seg_start, seg_end, font_id) in &segments {
                             let Some(font) = loaded_fonts.get(font_id) else {
@@ -13946,6 +13955,32 @@ mod font_cache_swap_tests {
         }
     }
 
+    /// A `FontRef` that [`crate::font_ref_to_parsed_font`] is actually allowed
+    /// to reborrow.
+    ///
+    /// This test used to fabricate its probe faces as
+    /// `FontRef::new(core::ptr::addr_of!(A).cast(), noop)` over a one-byte
+    /// `static A: u8`. Every call it makes on such a handle —
+    /// `register_embedded_font`, `resolve_font_by_hash` and the bare
+    /// `get_hash()` in the assertions — routes through
+    /// `<FontRef as ParsedFontTrait>::get_hash` (`text3/default.rs`), which is
+    /// `crate::font_ref_to_parsed_font(self).hash`, i.e.
+    /// `unsafe { &*ptr.cast::<ParsedFont>() }` on a 1-byte-aligned, 1-byte-long
+    /// address. That is undefined behaviour, and `debug_assertions` builds turn
+    /// it into a `misaligned pointer dereference` *non-unwinding* panic that
+    /// aborts the whole test binary — the dev-profile CI job died here, and
+    /// only there, because release builds elide the alignment check.
+    ///
+    /// `parsed_font_to_font_ref` is the constructor whose contract
+    /// `font_ref_to_parsed_font` names ("must have been created by
+    /// `parsed_font_to_font_ref`"), so a handle minted here is genuinely
+    /// backed by a heap `ParsedFont` and the reborrow is sound.
+    fn probe_font_ref(bytes: &[u8]) -> FontRef {
+        let parsed = crate::font::parsed::ParsedFont::from_bytes(bytes, 0, &mut Vec::new())
+            .expect("the built-in mock fonts must parse");
+        crate::parsed_font_to_font_ref(parsed)
+    }
+
     /// REGRESSION: `clone_shared` used to FORK `embedded_fonts` rather than
     /// share it, so a face registered in one manager was invisible to every
     /// other one cloned from it.
@@ -13962,26 +13997,36 @@ mod font_cache_swap_tests {
     /// one-directional test would still pass against a copy-on-clone.
     #[test]
     fn embedded_fonts_are_shared_between_cloned_managers_in_both_directions() {
-        static A: u8 = 0;
-        static B: u8 = 0;
-        extern "C" fn noop(_: *mut core::ffi::c_void) {}
-
         let parent: FontManager<FontRef> =
             FontManager::new(FcFontCache::default()).expect("FontManager::new must not fail");
         let child = parent.clone_shared();
 
-        let from_parent = FontRef::new(core::ptr::addr_of!(A).cast::<core::ffi::c_void>(), noop);
-        let from_child = FontRef::new(core::ptr::addr_of!(B).cast::<core::ffi::c_void>(), noop);
+        // TWO DIFFERENT faces on purpose. `ParsedFont::hash` hashes the font
+        // bytes, so two parses of the same file collide - and with one shared
+        // hash the assertions below would also hold against the copy-on-clone
+        // fork this test exists to catch (each manager would hold the very hash
+        // it is asked for). The `assert_ne!` pins that non-vacuity.
+        let from_parent = probe_font_ref(crate::text3::mock_fonts::MOCK_MONO_TTF);
+        let from_child = probe_font_ref(crate::text3::mock_fonts::MOCK_WIDE_TTF);
+        let parent_hash = from_parent.get_hash();
+        let child_hash = from_child.get_hash();
+        assert_ne!(
+            parent_hash, child_hash,
+            "the two probe faces must be distinguishable, or a forked \
+             `embedded_fonts` would satisfy both directions below"
+        );
 
         parent.register_embedded_font(&from_parent);
         child.register_embedded_font(&from_child);
 
-        assert!(
-            child.resolve_font_by_hash(from_parent.get_hash()).is_some(),
+        assert_eq!(
+            child.resolve_font_by_hash(parent_hash).map(|f| f.get_hash()),
+            Some(parent_hash),
             "a face registered on the PARENT must be visible to a clone"
         );
-        assert!(
-            parent.resolve_font_by_hash(from_child.get_hash()).is_some(),
+        assert_eq!(
+            parent.resolve_font_by_hash(child_hash).map(|f| f.get_hash()),
+            Some(child_hash),
             "a face registered on a CLONE must be visible to the parent"
         );
     }

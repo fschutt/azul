@@ -21,15 +21,15 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 # Core crates - only needed for build-dll and link-static, NOT for link-dynamic
-azul-core = { path = "../core", version = "0.0.14", default-features = false, optional = true }
-azul-css = { path = "../css", version = "0.0.14", default-features = false, optional = true }
+azul-core = { path = "../core", version = "0.0.16", default-features = false, optional = true }
+azul-css = { path = "../css", version = "0.0.16", default-features = false, optional = true }
 # The dll uses azul_layout::widgets (43 sites) and azul_layout::desktop
 # (dialogs), so those features must be DECLARED here. They used to arrive
 # by accident: webrender took azul-layout with default features and cargo
 # feature unification handed the full default set to every crate in the
 # graph. Scoping webrender (2026-08-05) exposed the under-declaration -
 # the dll stopped compiling until this line named what it actually uses.
-azul-layout = { path = "../layout", version = "0.0.14", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender", "widgets", "extra", "icons", "image_decoding", "updater"], optional = true }
+azul-layout = { path = "../layout", version = "0.0.16", default-features = false, features = ["font_loading", "text_layout", "svg", "xml", "cpurender", "widgets", "extra", "icons", "image_decoding", "updater"], optional = true }
 
 # Logging
 log = { version = "0.4.17", default-features = false, optional = true }
@@ -60,7 +60,7 @@ ext-php-rs = { version = "0.15", default-features = false, optional = true }
 # it has no equivalent on Android/iOS (no native modal API from a Rust
 # crate) and its 0.1.0 release uses an older `jni` API that doesn't
 # cross-compile for android targets. Declared per-target below.
-rust-fontconfig = { version = "4.6", default-features = false, features = ["std", "parsing", "async-registry", "cache"], optional = true }
+rust-fontconfig = { version = "5.0", default-features = false, features = ["std", "parsing", "async-registry", "cache"], optional = true }
 gl-context-loader = { version ="0.1.8", default-features = false, optional = true }
 webrender = { path = "../webrender/core", default-features = false, optional = true }
 once_cell = { version = "1.17.1", optional = true }
@@ -169,7 +169,7 @@ aegis = { version = "0.9", features = ["pure-rust"], optional = true }
 # display lists into PDF ops INCLUDING TEXT (SetFont/ShowText via
 # azul_layout::text3::glyphs::get_glyph_runs_pdf) — which dom_to_bytes uses;
 # without it PDFs contained rectangles only (the textless azul-writer bug).
-printpdf = { version = "0.12.7", default-features = false, features = ["html", "images", "png", "jpeg"], optional = true }
+printpdf = { version = "0.12.8", default-features = false, features = ["html", "images", "png", "jpeg"], optional = true }
 
 # Typed multi-flavor clipboard payloads: codecs (RTF/CF_HTML/uri-list/DIB/…)
 # and read/write policy. Deliberately OS-FREE — pure Rust, no system library —

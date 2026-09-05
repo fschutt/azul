@@ -469,6 +469,25 @@ impl FunctionKind {
         matches!(self, FunctionKind::Default)
     }
 
+    /// Is this an entry point that an api.json `derive` list asks for?
+    ///
+    /// The union of the three predicates around it, minus `Delete`. It exists
+    /// because the per-language `should_emit_function` filters exclude whole
+    /// TYPE CATEGORIES for reasons that are about ordinary methods -- callback
+    /// function pointers a managed binding cannot marshal, recursive layouts --
+    /// and those reasons do not apply to `Az{T}_toDbgString(ptr) -> AzString`
+    /// or `Az{T}_partialEq(a, b) -> bool`. Excluding those wholesale is how all
+    /// 114 `*VecDestructor` types came to declare `Debug` in api.json, have the
+    /// export in libazul, and name it in no binding at all.
+    ///
+    /// `Delete` is deliberately NOT included: no `derive` asks for a
+    /// destructor, and handing a caller a free `delete` for a type they hold by
+    /// value is a double-free waiting to happen.
+    pub fn is_declared_capability(&self) -> bool {
+        (self.is_trait_function() || self.is_clone_method() || self.is_default_constructor())
+            && !matches!(self, FunctionKind::Delete)
+    }
+
     /// Check if this is a DeepCopy method (should be generated as clone())
     pub fn is_clone_method(&self) -> bool {
         matches!(self, FunctionKind::DeepCopy)

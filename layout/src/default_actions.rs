@@ -1553,7 +1553,7 @@ mod autotest_generated {
     /// between it — the complaint that opened the item. Per CSS Spatial
     /// Navigation Level 1 the arrow tries focus FIRST and falls back to
     /// scrolling, which is what makes taking the arrows safe at all.
-    #[test]
+    ///
     /// THE WHOLE TRUTH TABLE of `spatial-navigation-action`, all six cases.
     ///
     /// The two overrides differ from the default in exactly one cell each, and

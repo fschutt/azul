@@ -419,7 +419,7 @@ pub enum PointerSource {
     Touchpad,
     /// A trackball.
     Trackball,
-    /// A pointing stick (ThinkPad nub).
+    /// A pointing stick (`ThinkPad` nub).
     Trackpoint,
     /// A direct touch surface reporting through the pointer path.
     Touchscreen,
@@ -430,7 +430,7 @@ pub enum PointerSource {
 }
 
 /// Type-specific event data for mouse events.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct MouseEventData {
     /// Position of the mouse cursor
@@ -626,9 +626,10 @@ azul_css::impl_option!(
 );
 
 /// Data carried by a `MediaControl` event (9h-i-a-i-a, 9h-i-a-i-b): what the
-/// platform's media controls asked for. The URI of an `OpenUri` is not
-/// repeated here - `CallbackInfo::get_media_control_request` carries the
-/// whole request.
+/// platform's media controls asked for.
+///
+/// The URI of an `OpenUri` is not repeated here -
+/// `CallbackInfo::get_media_control_request` carries the whole request.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct MediaControlEventData {
@@ -683,10 +684,11 @@ pub struct CompositionEventData {
 }
 
 /// Carried by `EventType::Input` events so that text-input callbacks can read
-/// the edit details directly off the event — matching how mouse/keyboard/scroll
-/// callbacks read their data — instead of having to reach into the
-/// `TextInputManager`'s pending changeset. The edited node is already available
-/// via `SyntheticEvent.target`.
+/// the edit details directly off the event.
+///
+/// This matches how mouse/keyboard/scroll callbacks read their data, instead of
+/// having to reach into the `TextInputManager`'s pending changeset. The edited
+/// node is already available via `SyntheticEvent.target`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextInputEventData {
     /// The text inserted by this edit (empty for pure deletions).
@@ -1059,8 +1061,8 @@ pub enum EventType {
     /// A modifier or lock key changed state. APPENDED at the end.
     ///
     /// Modifiers arrive today only as ordinary key events, so an app tracking
-    /// "is Shift down" has to watch every KeyDown and KeyUp and reconstruct
-    /// it — and gets it wrong across a focus loss, because the KeyUp for a
+    /// "is Shift down" has to watch every `KeyDown` and `KeyUp` and reconstruct
+    /// it — and gets it wrong across a focus loss, because the `KeyUp` for a
     /// modifier released while another window had focus never arrives. This
     /// event carries the resolved state instead.
     ModifiersChanged,
@@ -1691,6 +1693,7 @@ const fn matches_component_filter(
 }
 
 /// Check if the event data contains a mouse event with the expected button.
+///
 /// `MouseButton::Other(BACK)` — the thumb "back" button, button 4 on a mouse
 /// and index 3 zero-based, which is the numbering the web and every shell
 /// already use (Win32 `XBUTTON1`, X11 button 8, macOS `otherMouseDown:` 3).
@@ -1715,7 +1718,7 @@ fn check_mouse_button(data: &EventData, expected: MouseButton) -> bool {
 // Exhaustive (filter, event-type) truth table: many distinct pairs share the
 // `=> true` body. One arm per pair is intentional; merging into giant or-patterns
 // would destroy the table's readability/maintainability.
-#[allow(clippy::match_same_arms)]
+#[allow(clippy::match_same_arms, clippy::too_many_lines)]
 fn matches_hover_filter(
     filter: HoverEventFilter,
     event: &SyntheticEvent,
@@ -1970,7 +1973,7 @@ fn matches_focus_filter(
 /// `EF::Application(..)` for the monitor pair the whole time.
 // Exhaustive (filter, event-type) truth table — see matches_hover_filter.
 #[allow(clippy::match_same_arms)]
-fn matches_application_filter(
+const fn matches_application_filter(
     filter: ApplicationEventFilter,
     event: &SyntheticEvent,
     _phase: EventPhase,
@@ -1980,15 +1983,15 @@ fn matches_application_filter(
         SystemAudioChange,
     };
 
-    match (filter, &event.event_type) {
-        (MediaControl, EventType::MediaControl) => true,
-        (SystemAudioChange, EventType::SystemAudioChange) => true,
-        (DeviceConnected, EventType::DeviceConnected) => true,
-        (DeviceDisconnected, EventType::DeviceDisconnected) => true,
-        (MonitorConnected, EventType::MonitorConnected) => true,
-        (MonitorDisconnected, EventType::MonitorDisconnected) => true,
-        _ => false,
-    }
+    matches!(
+        (filter, &event.event_type),
+        (MediaControl, EventType::MediaControl)
+            | (SystemAudioChange, EventType::SystemAudioChange)
+            | (DeviceConnected, EventType::DeviceConnected)
+            | (DeviceDisconnected, EventType::DeviceDisconnected)
+            | (MonitorConnected, EventType::MonitorConnected)
+            | (MonitorDisconnected, EventType::MonitorDisconnected)
+    )
 }
 
 /// Check if an external filter matches the event (11c).
@@ -2017,7 +2020,7 @@ const fn matches_external_filter(
 
 /// Check if a window filter matches the event.
 // Exhaustive (filter, event-type) truth table — see matches_hover_filter.
-#[allow(clippy::match_same_arms)]
+#[allow(clippy::match_same_arms, clippy::too_many_lines)]
 fn matches_window_filter(
     filter: WindowEventFilter,
     event: &SyntheticEvent,
@@ -3828,8 +3831,9 @@ static ALL_APPLICATION: &[ApplicationEventFilter] = &[
 /// the matcher again per callback, so "collected" and "fired" now answer to
 /// one table.
 ///
-/// The universe is the four `ALL_*` tables - Hover, Focus, Window, Component
-/// - and it has to be ALL of them: a family missing from the probe is a whole
+/// The universe is the four `ALL_*` tables - Hover, Focus, Window,
+/// Component - and it has to be ALL of them: a family missing from the probe
+/// is a whole
 /// class of listeners that can never fire, and nothing else in the pipeline
 /// notices (the events are still produced, the callbacks still registered).
 /// That is how every lifecycle callback went dead when the derivation first
@@ -3849,9 +3853,9 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
         EventSource::User,
         DomNodeId {
             dom: DomId::ROOT_ID,
-            node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
         },
-        crate::task::Instant::Tick(crate::task::SystemTick::new(0)),
+        Instant::Tick(crate::task::SystemTick::new(0)),
         event_data.clone(),
     );
 
@@ -5206,8 +5210,10 @@ pub trait FocusManagerQuery {
 }
 
 /// The focused node of every NON-primary keyboard seat that `events` carry
-/// (9b-ii-a-i-d), for `InputInterpreterInfo::seat_focus`: the interpreter
-/// resolves a seat's key against that seat's focus, not the primary's.
+/// (9b-ii-a-i-d), for `InputInterpreterInfo::seat_focus`.
+///
+/// The interpreter resolves a seat's key against that seat's focus, not the
+/// primary's.
 #[must_use]
 pub fn seat_focus_of_events<FM: FocusManagerQuery + ?Sized>(
     events: &[SyntheticEvent],

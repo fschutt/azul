@@ -4565,6 +4565,22 @@ impl X11Window {
                 });
             }
 
+            // Desktop light/dark switch: the xdg-desktop-portal `SettingChanged`
+            // signal lands on the watcher thread, which stores the new scheme
+            // and writes this eventfd. Without it in the poll set the answer sat
+            // in the atomic until something ELSE woke the loop — and the branch
+            // below parks with an infinite timeout on an idle window, so on an
+            // app with no timer and no thread that was "never".
+            let theme_wake_idx = pollfds.len();
+            let theme_wake_fd = super::system_style::theme_wake_fd();
+            if theme_wake_fd >= 0 {
+                pollfds.push(libc::pollfd {
+                    fd: theme_wake_fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                });
+            }
+
             // Background threads (e.g. MapWidget tile fetches) have NO fd in the
             // poll set — their completion can't wake poll(). So while any thread
             // is in flight, poll on a ~16ms tick and drain thread writebacks on
@@ -4605,6 +4621,7 @@ impl X11Window {
             );
 
             let mut any_timer_fired = false;
+            let mut theme_woke = false;
             if result > 0 {
                 // Check X11 connection
                 if pollfds[0].revents & libc::POLLIN != 0 {
@@ -4665,6 +4682,18 @@ impl X11Window {
                     }
                 }
 
+                // The desktop's colour scheme moved. Acknowledge the wake and
+                // let `check_timers_and_threads` below do the adopting — it
+                // already owns that call, and routing through it keeps ONE
+                // theme path per backend instead of two.
+                if theme_wake_fd >= 0
+                    && theme_wake_idx < pollfds.len()
+                    && pollfds[theme_wake_idx].revents & libc::POLLIN != 0
+                {
+                    super::system_style::drain_theme_wake();
+                    theme_woke = true;
+                }
+
                 // Pace-timer wake: drain the expiration count and fall
                 // through - returning lets the main loop's render gate run,
                 // and the owed work is still flagged.
@@ -4694,7 +4723,7 @@ impl X11Window {
             // clamp above arranges.
             self.flush_trackpad_gesture_end_all();
 
-            if any_timer_fired || has_threads {
+            if any_timer_fired || has_threads || theme_woke {
                 self.check_timers_and_threads();
             }
         }
@@ -8472,9 +8501,11 @@ impl X11Window {
         // A runtime light/dark switch. The system style was read once at window
         // creation and never again, so toggling the desktop theme did nothing
         // until the app restarted. `observed_system_theme` is a relaxed atomic
-        // load — the D-Bus round trip that feeds it runs on a watcher thread,
-        // never here, because `query_xdg_portal` blocks with a two-second
-        // timeout and that would freeze the event loop.
+        // load — the D-Bus work that feeds it (the portal's `SettingChanged`
+        // subscription) lives on a watcher thread, never here, because it
+        // BLOCKS on the session bus and that would freeze the event loop. The
+        // watcher writes an eventfd that `wait_for_events` parks on, so this
+        // read runs in the same run-loop turn the signal arrived in.
         if let Some(new_style) = super::system_style::adopt_observed_theme(&mut self.common) {
             let _ = self.process_window_events(0);
             // The desktop's own icons are theme artwork: KDE ships breeze and

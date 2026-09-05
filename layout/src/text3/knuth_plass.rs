@@ -216,36 +216,8 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                     )
                 });
 
-                if hyphenation_breaks.is_none() {
-                    // No hyphenation possible, add the whole word as boxes -
-                    // with the SAME soft-wrap opportunities between clusters
-                    // the greedy path grants (word-break: break-all breaks
-                    // between any two clusters, `normal` between CJK ones,
-                    // keep-all suppresses those; the shared predicate is the
-                    // single source of truth). Without this, `text-wrap:
-                    // balance` (the KP path) silently ignored word-break and
-                    // CJK runs never gained intra-word breaks.
-                    let n_word = current_word_clusters.len();
-                    for (ci, c) in current_word_clusters.iter().enumerate() {
-                        nodes.push(LayoutNode::Box(ShapedItem::Cluster(c.clone()), c.advance));
-                        let is_last = ci + 1 == n_word;
-                        if !is_last
-                            && crate::text3::cache::is_break_opportunity_with_word_break(
-                                &ShapedItem::Cluster(c.clone()),
-                                constraints.word_break,
-                                constraints.hyphenation,
-                            )
-                        {
-                            nodes.push(LayoutNode::Penalty {
-                                item: None,
-                                width: 0.0,
-                                penalty: 0.0,
-                            });
-                        }
-                    }
-                } else {
+                if let Some(breaks) = hyphenation_breaks {
                     // 3. Convert word + hyphenation breaks into a sequence of Boxes and Penalties.
-                    let breaks = hyphenation_breaks.unwrap();
                     let mut current_item_cursor = 0;
 
                     for b in &breaks {
@@ -281,6 +253,33 @@ fn convert_items_to_nodes<T: ParsedFontTrait>(
                         // Fallback to just adding the original word.
                         for c in current_word_clusters {
                             nodes.push(LayoutNode::Box(ShapedItem::Cluster(c.clone()), c.advance));
+                        }
+                    }
+                } else {
+                    // No hyphenation possible, add the whole word as boxes -
+                    // with the SAME soft-wrap opportunities between clusters
+                    // the greedy path grants (word-break: break-all breaks
+                    // between any two clusters, `normal` between CJK ones,
+                    // keep-all suppresses those; the shared predicate is the
+                    // single source of truth). Without this, `text-wrap:
+                    // balance` (the KP path) silently ignored word-break and
+                    // CJK runs never gained intra-word breaks.
+                    let n_word = current_word_clusters.len();
+                    for (ci, c) in current_word_clusters.iter().enumerate() {
+                        nodes.push(LayoutNode::Box(ShapedItem::Cluster(c.clone()), c.advance));
+                        let is_last = ci + 1 == n_word;
+                        if !is_last
+                            && crate::text3::cache::is_break_opportunity_with_word_break(
+                                &ShapedItem::Cluster(c.clone()),
+                                constraints.word_break,
+                                constraints.hyphenation,
+                            )
+                        {
+                            nodes.push(LayoutNode::Penalty {
+                                item: None,
+                                width: 0.0,
+                                penalty: 0.0,
+                            });
                         }
                     }
                 }

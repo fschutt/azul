@@ -4954,8 +4954,7 @@ mod autotest_generated {
             assert_eq!(cursor_from_u8(code), c, "{c:?} did not survive the round trip");
 
             // And through the byte it is actually stored in.
-            let mut cold = CompactNodePropsCold::default();
-            cold.cursor = code;
+            let cold = CompactNodePropsCold { cursor: code, ..Default::default() };
             assert_eq!(cursor_from_u8(cold.cursor), c);
         }
         assert_eq!(seen.len(), all.len(), "every variant needs its own code");

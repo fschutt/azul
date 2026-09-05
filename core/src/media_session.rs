@@ -27,6 +27,8 @@
 //! Publishing on a platform with no sink is a no-op, not an error: the same
 //! call site has to be correct everywhere.
 
+use alloc::vec::Vec;
+
 use azul_css::AzString;
 
 /// What the player is doing right now.
@@ -50,7 +52,7 @@ pub enum MediaPlaybackState {
 
 impl Default for MediaPlaybackState {
     fn default() -> Self {
-        MediaPlaybackState::Stopped
+        Self::Stopped
     }
 }
 
@@ -60,7 +62,7 @@ impl Default for MediaPlaybackState {
 /// valid "I do not know" - there is no `Option` here because a media widget
 /// treats an absent title and an empty title identically, and the FFI cost of
 /// six `Option<AzString>`s would buy nothing.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct NowPlayingInfo {
     /// What the player is doing. This is the field that decides whether the
@@ -136,6 +138,7 @@ impl Default for NowPlayingInfo {
 impl NowPlayingInfo {
     /// A stopped player with no track - what an app that has published nothing
     /// looks like.
+    #[must_use] 
     pub fn empty() -> Self {
         Self::default()
     }
@@ -144,6 +147,7 @@ impl NowPlayingInfo {
     /// as opposed to one it will read for itself.
     ///
     /// Everything except the position. See [`MediaSessionManager::set`].
+    #[must_use] 
     pub fn differs_in_announced_fields(&self, other: &Self) -> bool {
         self.state != other.state
             || self.title != other.title
@@ -165,6 +169,7 @@ impl NowPlayingInfo {
     ///
     /// The duration counts as identity because two tracks with the same title
     /// and artist but different lengths are a live version and a studio one.
+    #[must_use] 
     pub fn is_different_track(&self, other: &Self) -> bool {
         self.title != other.title
             || self.artist != other.artist
@@ -178,11 +183,13 @@ impl NowPlayingInfo {
     /// Saturating and `i64`, because D-Bus types this signed: a nonsense
     /// duration from an app must clamp rather than wrap into a negative
     /// length, which some clients render as a progress bar running backwards.
+    #[must_use] 
     pub fn duration_us(&self) -> i64 {
         Self::ms_to_us(self.duration_ms)
     }
 
     /// The playback position in MICROSECONDS. See [`Self::duration_us`].
+    #[must_use] 
     pub fn position_us(&self) -> i64 {
         Self::ms_to_us(self.position_ms)
     }
@@ -192,7 +199,7 @@ impl NowPlayingInfo {
     }
 }
 
-/// Milliseconds as WinRT `TimeSpan` ticks, which are 100 NANOSECONDS each.
+/// Milliseconds as `WinRT` `TimeSpan` ticks, which are 100 NANOSECONDS each.
 ///
 /// A third unit, disagreeing with both of the others: MPRIS wants microseconds
 /// and macOS wants seconds. Publishing milliseconds into a `TimeSpan` makes a
@@ -309,9 +316,11 @@ impl_option!(
 
 /// A position jump larger than this, on the same track, is a SEEK the app
 /// made on its own (a click on its own progress bar) and is announced back to
-/// the desktop (`Seeked`) so a scrubber re-syncs. A player reports its
-/// position once per frame, so the natural step is ~16 ms; 2 s is far above
-/// any frame stutter and far below any jump a person would make.
+/// the desktop (`Seeked`) so a scrubber re-syncs.
+///
+/// A player reports its position once per frame, so the natural step is
+/// ~16 ms; 2 s is far above any frame stutter and far below any jump a person
+/// would make.
 pub const POSITION_JUMP_THRESHOLD_US: i64 = 2_000_000;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -342,6 +351,7 @@ pub struct MediaSessionManager {
 }
 
 impl MediaSessionManager {
+    #[must_use] 
     pub fn new() -> Self {
         Self::default()
     }
@@ -381,7 +391,8 @@ impl MediaSessionManager {
     /// This is what a property GETTER answers with, which is why it is
     /// unconditional: a desktop reading `Position` must get the current value
     /// even though no announcement was made for it.
-    pub fn current(&self) -> &NowPlayingInfo {
+    #[must_use] 
+    pub const fn current(&self) -> &NowPlayingInfo {
         &self.info
     }
 
@@ -421,18 +432,18 @@ impl MediaSessionManager {
     }
 
     #[must_use]
-    pub fn has_pending_requests(&self) -> bool {
+    pub const fn has_pending_requests(&self) -> bool {
         !self.pending_requests.is_empty() || !self.pending_audio_changes.is_empty()
     }
 
     /// Record what the app asked for (9h-i-a-i-d-i): `true` while it wants
     /// to own the system audio.
-    pub fn set_system_audio_active(&mut self, active: bool) {
+    pub const fn set_system_audio_active(&mut self, active: bool) {
         self.system_audio_active = active;
     }
 
     #[must_use]
-    pub fn is_system_audio_active(&self) -> bool {
+    pub const fn is_system_audio_active(&self) -> bool {
         self.system_audio_active
     }
 
@@ -458,7 +469,7 @@ impl MediaSessionManager {
 
     /// The position jump to announce (MPRIS `Seeked`), if any; cleared by
     /// the take.
-    pub fn take_seeked(&mut self) -> Option<i64> {
+    pub const fn take_seeked(&mut self) -> Option<i64> {
         self.seeked_to_us.take()
     }
 }

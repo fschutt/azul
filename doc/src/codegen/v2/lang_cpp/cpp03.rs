@@ -103,6 +103,10 @@ impl CppDialect for Cpp03Generator {
         }
 
         // Close namespace
+        // Trait entry points for the classes that got no wrapper class
+        // (enums, tagged unions). See `generate_freefn_trait_helpers`.
+        code.push_str(&generate_freefn_trait_helpers(ir, config, std));
+
         code.push_str("} // namespace azul\r\n\r\n");
 
         // Include guards end
