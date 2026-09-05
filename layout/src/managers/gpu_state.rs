@@ -48,7 +48,7 @@ pub const DEFAULT_FADE_DURATION_MS: u64 = 200;
 ///
 /// Floats go in BITWISE (`to_bits`): a NaN opacity compares unequal to itself
 /// and would reinstate the very redraw loop this exists to break.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct FrameDigest(u64);
 
 impl Default for FrameDigest {
@@ -86,7 +86,7 @@ impl FrameDigest {
 pub enum SubmittedDigest {
     /// Image keys registered / updated on the transaction.
     Images,
-    /// Scroll offsets pushed to WebRender's scroll frames.
+    /// Scroll offsets pushed to `WebRender`'s scroll frames.
     ScrollOffsets,
 }
 
@@ -134,10 +134,11 @@ impl GpuStateManager {
     ///
     /// THE IDLE REDRAW LOOP THIS EXISTS TO BREAK. The lightweight transaction
     /// path — taken precisely because nothing needs rebuilding — pushed these
-    /// values and then asked WebRender for a frame unconditionally. WebRender
+    /// values and then asked `WebRender` for a frame unconditionally.
+    /// `WebRender`
     /// built one, signalled `new_frame_ready`, the backend woke and presented,
     /// and the present ran the lightweight path again. Measured idle on
-    /// X11/GPU: 1087 submissions, 1087 frame-ready signals, 1086 presents, all
+    /// `X11`/GPU: 1087 submissions, 1087 frame-ready signals, 1086 presents, all
     /// carrying the same two floats and two transforms — ~59 fps of full
     /// render+present for a window nobody was touching.
     ///
@@ -152,9 +153,9 @@ impl GpuStateManager {
         // `HashMap`s, whose iteration order is not a promise; an order that
         // flapped while the values stayed the same would report a change on a
         // frame that changed nothing, and the loop would be back.
-        let mut sorted_floats = floats.iter().collect::<alloc::vec::Vec<_>>();
+        let mut sorted_floats = floats.iter().collect::<Vec<_>>();
         sorted_floats.sort_unstable_by_key(|(k, _)| *k);
-        let mut sorted_transforms = transforms.iter().collect::<alloc::vec::Vec<_>>();
+        let mut sorted_transforms = transforms.iter().collect::<Vec<_>>();
         sorted_transforms.sort_unstable_by_key(|(k, _)| *k);
 
         let mut h = FrameDigest::new();
@@ -201,11 +202,11 @@ impl GpuStateManager {
     /// everything again.
     ///
     /// The full-frame path MUST call this before it builds: a scene rebuild
-    /// gives WebRender a new display list whose property bindings start from
+    /// gives `WebRender` a new display list whose property bindings start from
     /// the values baked into the list, and "identical to what I sent last
     /// time" is then the wrong question — the values have to be re-pushed even
     /// though they did not change.
-    pub fn invalidate_submitted_digests(&mut self) {
+    pub const fn invalidate_submitted_digests(&mut self) {
         self.last_gpu_value_digest = None;
         self.last_image_digest = None;
         self.last_scroll_digest = None;
