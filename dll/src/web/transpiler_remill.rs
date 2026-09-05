@@ -3851,9 +3851,28 @@ impl RemillTranspiler {
             "  br i1 %isfirst, label %unkfirst, label %unkdone\n",
             "unkfirst:\n",
             "  %um4 = call ptr @__remill_write_memory_32(ptr %um3, i64 264624, i32 %pclo)\n",
+            // Also record the STATE POINTER at 0x40A00 (264704), once, on the
+            // first miss only — so it is never clobbered by later noise.
+            //
+            // Recording the PC says what was dispatched; it never says what the
+            // guest registers held, and that is what identifies the dispatching
+            // instruction. Post-mortem scanning cannot recover them: the state
+            // block is an alloca whose address is not otherwise discoverable,
+            // and guessing it from SP arithmetic produced a register mapping
+            // that contradicted the disassembly.
+            //
+            // Deliberately the POINTER and not a set of registers: reading
+            // individual registers here would bake in per-arch State offsets
+            // that are themselves the thing in doubt. With the pointer, the
+            // whole block can be dumped from JS afterwards (mem-dump.js) and
+            // every register identified empirically against known values -
+            // measurement instead of extrapolation.
+            "  %stp = ptrtoint ptr %state to i64\n",
+            "  %stlo = trunc i64 %stp to i32\n",
+            "  %um5 = call ptr @__remill_write_memory_32(ptr %um4, i64 264704, i32 %stlo)\n",
             "  br label %unkdone\n",
             "unkdone:\n",
-            "  %umr = phi ptr [ %um3, %unk ], [ %um4, %unkfirst ]\n",
+            "  %umr = phi ptr [ %um3, %unk ], [ %um5, %unkfirst ]\n",
         ));
         // Recording says WHAT was dispatched but never WHO dispatched it, and the
         // dispatching site is the thing worth knowing: the target is often a

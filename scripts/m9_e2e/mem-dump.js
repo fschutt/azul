@@ -74,10 +74,17 @@ const DUMP = `(() => {
     const o = JSON.parse(v);
     if (o.error) { console.log('ERROR: ' + o.error); ws.close(); return; }
     console.log('mirror @0x' + o.base.toString(16) + ':');
-    o.words.forEach((w, i) => {
-        const target = (o.base + w) >>> 0;
-        console.log('  [' + String(i).padStart(2) + '] ' + String(w).padStart(12) +
-                    '   base+w = 0x' + target.toString(16));
-    });
+    // Print as 64-bit pairs as well: a struct dump is unreadable as signed
+    // int32, and the records being chased here (U8Vec = ptr/len/cap/tag/fn)
+    // are all 64-bit fields.
+    for (let i = 0; i < o.words.length; i += 2) {
+        const lo = o.words[i] >>> 0, hi = (o.words[i + 1] || 0) >>> 0;
+        const q = (BigInt(hi) << 32n) | BigInt(lo);
+        const addr = o.base + i * 4;
+        console.log('  0x' + addr.toString(16).padStart(6, '0') +
+                    '  +0x' + (i * 4).toString(16).padStart(3, '0') +
+                    '  0x' + q.toString(16).padStart(16, '0') +
+                    '   (' + q.toString() + ')');
+    }
     ws.close();
 })();
