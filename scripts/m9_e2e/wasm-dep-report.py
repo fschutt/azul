@@ -32,7 +32,13 @@ def main():
     export_of = {}
     all_fns = set()
 
-    lift_re = re.compile(r'lifting (\S+) .*export_as=(\S+)')
+# Rust names from MSVC/PDB CONTAIN SPACES - `Vec<Box<T> >` renders with a
+# space before the closing angle bracket. Anchoring the name capture on
+# `(\S+)` stops at that space and silently drops the function: measured, it
+# lost 1197 of run39's 5251 lifting lines (23%) and 20.6 MB of wasm, which
+# is more than most of the savings these scripts are used to evaluate. The
+# capture must be non-greedy and anchored on the trailing ` addr=` field.
+    lift_re = re.compile(r'lifting (.+?) addr=0x[0-9a-fA-F]+ .*?export_as=(\S+)')
     dep_re = re.compile(r'dep: \S+ .* resolved=([^@]+)@.*\(pulled in by ([^)]+)\)')
 
     for line in io.open(log, encoding='utf-8', errors='replace'):

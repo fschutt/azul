@@ -62,8 +62,14 @@ def main():
     if '--csv' in sys.argv:
         csv_out = sys.argv[sys.argv.index('--csv') + 1]
 
+# Rust names from MSVC/PDB CONTAIN SPACES - `Vec<Box<T> >` renders with a
+# space before the closing angle bracket. Anchoring the name capture on
+# `(\S+)` stops at that space and silently drops the function: measured, it
+# lost 1197 of run39's 5251 lifting lines (23%) and 20.6 MB of wasm, which
+# is more than most of the savings these scripts are used to evaluate. The
+# capture must be non-greedy and anchored on the trailing ` addr=` field.
     lift_re = re.compile(
-        r'lifting (\S+) addr=0x([0-9a-f]+) size=(\d+) export_as=(\S+)')
+        r'lifting (.+?) addr=0x([0-9a-fA-F]+) size=(\d+) export_as=(\S+)')
     fns = {}  # export_as -> (name, native_size)
     for line in io.open(log, encoding='utf-8', errors='replace'):
         m = lift_re.search(line)
