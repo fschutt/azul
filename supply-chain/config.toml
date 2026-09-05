@@ -1928,7 +1928,7 @@ version = "0.13.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.printpdf]]
-version = "0.12.7"
+version = "0.12.8"
 criteria = "safe-to-deploy"
 
 [[exemptions.proc-macro-crate]]
