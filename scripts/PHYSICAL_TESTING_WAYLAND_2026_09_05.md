@@ -263,6 +263,42 @@ is blocked indefinitely behind the crates.io publish chain — so those fixes
 were stranded on an unmergeable branch while master stayed broken. They belong
 somewhere that can merge. If #457 is rebased later, git drops the duplicates.
 
+## The X11 backend under XWayland — a partial way past "no pointer input"
+
+This session has XWayland (`DISPLAY=:0`) and XTEST works there, so the X11
+backend CAN be driven with `xdotool` even though the Wayland one cannot. Run
+with `AZ_BACKEND=x11`, the window maps, `wmctrl` sees it, and
+`xdotool getmouselocation` reports the pointer inside it.
+
+**Regression check — PASS.** The shared `csd_resize_edge_for_press` refactor in
+this PR rewrote the X11 press path, and the X11 backend had not been run since.
+It starts, maps, lays out and responds.
+
+**The gesture-session fix holds — no alternation.** Sweeping a press-and-drag
+down the title bar and counting how often the interactive-move path is entered
+(`AZ_HIT_DEBUG=1` prints `begin_interactive_move clears buttons`):
+
+    y=10 DRAG   y=14 DRAG   y=18 DRAG   y=21 DRAG   y=24 DRAG   y=27 DRAG
+
+Every attempt, where the pre-fix behaviour on the real X11 session was every
+OTHER attempt (`y=4 drag, y=10 dead, y=14 drag, y=18 dead ...`). Alternation is
+a property of stale SESSION state, not of position, so this result survives the
+coordinate caveat below.
+
+**What could NOT be isolated: the 8 px band gate.** `xdotool windowmove` to
+`(200,200)` is read back as `(200,216)` by `xdotool getwindowgeometry`, while
+`_MOTIF_WM_HINTS = 0x2,0x0,...` and KWin's own `noBorder=true` both say the
+window is undecorated and therefore has no frame to account for those 16 px. A
+press aimed at window-relative y=4 is therefore landing somewhere else, and an
+8 px band cannot be tested with a 16 px addressing error. The maximized case
+does enter the move path as the fix intends, but with the offset unexplained
+that is not proof on its own.
+
+So the band gate stays as it was: device-verified on the REAL X11 session
+(where the sweep showed the top band claiming presses), and code-verified on
+Wayland. XWayland is good enough to prove the session fix and to smoke-test the
+backend, not to measure 8 px.
+
 ## Traps found
 
 1. **`build-dll` and `link-dynamic` fight over `target/release/libazul.so`, in
