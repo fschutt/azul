@@ -95,6 +95,32 @@ pub enum AzBackend {
     Web(crate::web::config::WebConfig),
 }
 
+/// What an `AZ_BACKEND` value says about the RENDER backend.
+///
+/// `None` means "this value is not a render selector" — resolution continues
+/// to the programmatic step and then to the default. That is the whole point:
+/// `AZ_BACKEND` carries two unrelated selectors, and `x11` / `wayland` choose a
+/// WINDOWING system, not a renderer. They used to `return AzBackend::Auto`,
+/// which short-circuited resolution and silently promoted rendering from the
+/// desktop default (`Cpu`) to GPU + WebRender for anyone who asked for a
+/// specific windowing backend.
+///
+/// GPU is OPT-IN: `AZ_BACKEND=gpu` (force) or `=auto` (try GPU, fall back), or
+/// `HwAcceleration::Enabled`. CPU is the default because it starts faster,
+/// uses less memory and is far more reliable across drivers.
+fn render_backend_from_env(val: &str) -> Option<AzBackend> {
+    match val.to_lowercase().as_str() {
+        "headless" => Some(AzBackend::Headless),
+        "cpu" => Some(AzBackend::Cpu),
+        "gpu" | "opengl" | "gl" => Some(AzBackend::Gpu),
+        "auto" => Some(AzBackend::Auto),
+        // Windowing selectors, consumed by `LinuxWindow::select_backend`.
+        // They say nothing about rendering.
+        "x11" | "wayland" => None,
+        _ => None,
+    }
+}
+
 impl AzBackend {
     /// Resolve the backend from environment variable and config.
     ///
@@ -105,14 +131,14 @@ impl AzBackend {
     pub fn resolve(hw_accel: Option<azul_core::window::HwAcceleration>) -> Self {
         // 1. AZ_BACKEND env var
         if let Ok(val) = std::env::var("AZ_BACKEND") {
+            if let Some(explicit) = render_backend_from_env(&val) {
+                return explicit;
+            }
             match val.to_lowercase().as_str() {
-                "headless" => return AzBackend::Headless,
-                "cpu" => return AzBackend::Cpu,
-                "gpu" | "opengl" | "gl" => return AzBackend::Gpu,
-                "auto" => return AzBackend::Auto,
-                // Windowing selectors (consumed by LinuxWindow::select_backend) — not a
-                // render mode; leave the render backend at Auto rather than warning.
-                "x11" | "wayland" => return AzBackend::Auto,
+                // Windowing selectors (consumed by LinuxWindow::select_backend) are
+                // NOT render modes: fall through to the programmatic setting and
+                // then to the default, exactly as if AZ_BACKEND were unset.
+                "x11" | "wayland" => {}
                 _ => {
                     // Try parsing web://ip:port[?options]
                     #[cfg(feature = "web")]
@@ -415,6 +441,50 @@ pub trait Compositor {
 
     /// Present rendered frame to window (swap buffers).
     fn present(&mut self) -> Result<(), CompositorError>;
+}
+
+#[cfg(test)]
+mod render_selector_tests {
+    use super::{render_backend_from_env, AzBackend};
+
+    /// `AZ_BACKEND` carries TWO unrelated selectors: which WINDOWING system to
+    /// use (`x11`, `wayland`) and which RENDER backend to use (`cpu`, `gpu`,
+    /// `auto`, `headless`). The windowing values must not answer the render
+    /// question at all.
+    ///
+    /// They did: `"x11" | "wayland" => return AzBackend::Auto` short-circuited
+    /// resolution, so asking for the X11 WINDOW backend silently promoted
+    /// rendering from the desktop default (`Cpu`) to `Auto`, i.e. GPU +
+    /// WebRender. Measured on this machine: `AZ_BACKEND=x11` logged
+    /// `[X11] GPU rendering initialized`, while the same run with no
+    /// `AZ_BACKEND` at all takes the cpurender path. Every "X11 draws too
+    /// much" measurement was therefore taken on a backend the user never
+    /// selected.
+    #[test]
+    fn a_windowing_selector_does_not_choose_a_renderer() {
+        // Windowing selectors: no opinion on the renderer, so resolution
+        // continues to the programmatic/default steps.
+        assert_eq!(render_backend_from_env("x11"), None);
+        assert_eq!(render_backend_from_env("wayland"), None);
+        assert_eq!(render_backend_from_env("X11"), None);
+
+        // Render selectors keep answering.
+        assert_eq!(render_backend_from_env("cpu"), Some(AzBackend::Cpu));
+        assert_eq!(render_backend_from_env("gpu"), Some(AzBackend::Gpu));
+        assert_eq!(render_backend_from_env("opengl"), Some(AzBackend::Gpu));
+        assert_eq!(render_backend_from_env("gl"), Some(AzBackend::Gpu));
+        assert_eq!(render_backend_from_env("auto"), Some(AzBackend::Auto));
+        assert_eq!(render_backend_from_env("headless"), Some(AzBackend::Headless));
+
+        // An unrecognised value is not a renderer either.
+        assert_eq!(render_backend_from_env("nonsense"), None);
+    }
+
+    /// The documented desktop default. A windowing selector must land here.
+    #[test]
+    fn the_default_desktop_renderer_is_cpu() {
+        assert_eq!(AzBackend::default(), AzBackend::Cpu);
+    }
 }
 
 #[cfg(test)]

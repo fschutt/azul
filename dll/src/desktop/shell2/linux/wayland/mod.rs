@@ -6871,6 +6871,13 @@ impl WaylandWindow {
             .as_ref()
             .map(|lw| !lw.pending_virtual_view_updates.is_empty())
             .unwrap_or(false);
+        // Time the WHOLE frame — layout, render, attach/damage, commit — so
+        // Wayland can be compared with X11's `render_and_present` on the same
+        // basis. `resize_surface`'s `took=` is NOT that: it times only the
+        // buffer reallocation (the shm pool rebuild / GL resize), which is why
+        // it reports single-digit milliseconds and must never be read as a
+        // repaint cost.
+        let frame_started = std::time::Instant::now();
         let needs_work = self.common.regeneration_pending()
             || self.common.relayout_only_pending()
             || self.common.resize_relayout_pending()
@@ -8101,6 +8108,18 @@ impl WaylandWindow {
             .unwrap_or(false);
         if needs_anim_frame {
             self.request_redraw();
+        }
+
+        // Only a pass that actually put content on the surface is a frame;
+        // the early bails above return before here.
+        if surface_committed {
+            log_debug!(
+                LogCategory::Window,
+                "[Wayland] generate_frame {}x{} took={:.2}ms",
+                self.common.current_window_state().size.dimensions.width as u32,
+                self.common.current_window_state().size.dimensions.height as u32,
+                frame_started.elapsed().as_secs_f64() * 1000.0
+            );
         }
     }
 
