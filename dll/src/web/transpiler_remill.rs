@@ -3096,12 +3096,28 @@ impl RemillTranspiler {
                             // silent missing-block at runtime; "already visited"
                             // is benign. Inferring which one from a size number is
                             // what made this take several runs.
-                            if e.canonical_addr != addr && !e.classification.is_recursable() {
-                                eprintln!(
-                                    "[azul-web]   tail-call target {} (0x{:x}) DROPPED: \
-                                     class={:?} is not recursable — no dispatcher case",
-                                    e.canonical_name, target, e.classification,
-                                );
+                            // Report every outcome. A tail call that is dropped,
+                            // or redirected to a DIFFERENT canonical address than
+                            // the one the branch actually targets, leaves no
+                            // dispatcher case for the real target and fails
+                            // silently at runtime as a missing block.
+                            if e.canonical_addr != addr {
+                                let recursable = e.classification.is_recursable();
+                                let seen = visited.contains(&e.canonical_addr);
+                                let canon_differs = e.canonical_addr != target;
+                                if !recursable || canon_differs {
+                                    eprintln!(
+                                        "[azul-web]   tail-call 0x{:x} -> {} canonical=0x{:x} \
+                                         class={:?} recursable={} visited={} canon_differs={}",
+                                        target,
+                                        e.canonical_name,
+                                        e.canonical_addr,
+                                        e.classification,
+                                        recursable,
+                                        seen,
+                                        canon_differs,
+                                    );
+                                }
                             }
                             if e.canonical_addr != addr
                                 && e.classification.is_recursable()
