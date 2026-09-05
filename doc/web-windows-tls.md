@@ -183,13 +183,26 @@ others remain, both pre-existing:
   `%stack_buf`, which the wrapper prologue writes as a host alloca, so the host
   tag is consistent with its writer — not a bug.
 
-## Careful with synth addresses here
+## Synth addresses shift between builds — always recalibrate
 
-`synth = synth_base + rva - 0x1000` does **not** hold for this image. It predicts
-`0x1328de0` for the TLS template; the lift's own log reports `0x132a6e0` — a
-delta of `0x100900`, not `0xff000`. Take the delta from the logged template
-synth and apply it, rather than recomputing from the formula. `__tls_index`
-(rva `0x123e0e8`) is therefore at synth `0x133e9e8`.
+Two consecutive runs, differing only by an edit to `transpiler_remill.rs`:
+
+| run | template rva | logged synth | delta |
+|---|---|---|---|
+| 62 | `0x1229de0` | `0x132a6e0` | `0x100900` |
+| 63 | `0x122b760` | `0x132a760` | `0xff000` |
+
+Both the rva **and** the synth delta moved. The rva moves because **AzWriter
+lifts itself**: the lift host and the lifted image are the same binary, so any
+edit under `dll/src/web/` relinks the image whose addresses are being computed.
+The delta moves too, so `synth = synth_base + rva - 0x1000` is not reliable even
+though run 63 happens to match it.
+
+Practically: a synth address noted in one run is invalid in the next as soon as
+any source changed. Take the delta from that run's own `win-tls` log line and
+apply it to the rva read from that run's own exe. `tls-probe.js` takes the
+`__tls_index` synth as `argv[4]` for exactly this reason; its default is only a
+starting point.
 
 ## Verifying it
 
