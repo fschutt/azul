@@ -1739,6 +1739,10 @@ impl RemillTranspiler {
             Some(table) => {
                 let rewritten =
                     rewrite_sub_names_to_canonical(raw_lifted_ir, table, fn_addr, lift_addr);
+                // MUST run after the canonical rename: it seeds each call with
+                // the name the rename settled on. Running it first would bake
+                // in the pre-chase address and reintroduce the skew it removes.
+                let (rewritten, _seeded) = seed_direct_calls_with_callee_pc(&rewritten);
                 dedup_sub_declares(&rewritten)
             }
             None => raw_lifted_ir.to_string(),
@@ -7337,6 +7341,10 @@ impl RemillTranspiler {
             Some(table) => {
                 let rewritten =
                     rewrite_sub_names_to_canonical(raw_lifted_ir, table, fn_addr, lift_addr);
+                // MUST run after the canonical rename: it seeds each call with
+                // the name the rename settled on. Running it first would bake
+                // in the pre-chase address and reintroduce the skew it removes.
+                let (rewritten, _seeded) = seed_direct_calls_with_callee_pc(&rewritten);
                 dedup_sub_declares(&rewritten)
             }
             None => raw_lifted_ir.to_string(),
@@ -13650,6 +13658,116 @@ fn rewrite_sub_names_to_canonical(
     }
     out.push_str(&ir[cursor..]);
     out
+}
+
+/// Seed every direct `call @sub_<hex>` with the CALLEE's own address.
+///
+/// A lifted body seeds its whole PC chain from its `pc` argument
+/// (`store i64 %program_counter, ptr %NEXT_PC` in the entry block), so every
+/// rip-relative address it computes — jump tables, `lea` of .rdata — is
+/// derived from it. remill's contract is that `pc` IS the lift address.
+///
+/// remill emits a direct call as `call @sub_<target>(state, <target>, memory)`,
+/// where the pc operand is a load of State.rip and therefore the RAW target.
+/// That is correct until [`rewrite_sub_names_to_canonical`] chases a PLT stub
+/// or shim and retargets the callee to its CANONICAL body: the name changes,
+/// the operand does not, and the canonical body is entered carrying the SHIM's
+/// address. Every rip-relative address it forms is then skewed by
+/// (canonical - shim).
+///
+/// Observed: `app_state_from_json` calls a `Vec` drop shim, which resolves to
+/// `U8Vec::drop`. Seeded with the shim's address, that body's destructor
+/// jump-table `lea` landed in the .text of an unlifted webrender function.
+/// Unmirrored .text reads as zero, so `base + table[tag]` returned the bad base
+/// itself and matched no switch case — a trap whose PC named neither the caller
+/// nor any real target, and which appeared in no .ll file, no heap object and
+/// no mirror because it was computed from a bad seed and never stored.
+///
+/// The operand is rewritten unconditionally, not only when the name changed:
+/// the callee is `@sub_<hex>` either way, so `<hex>` is always the right seed,
+/// and a constant is what the dispatcher's cases already pass.
+fn seed_direct_calls_with_callee_pc(ir: &str) -> (String, u32) {
+    let mut out = String::with_capacity(ir.len());
+    let mut fixed = 0u32;
+    for line in ir.lines() {
+        match rewrite_call_pc_operand(line) {
+            Some(new_line) => {
+                out.push_str(&new_line);
+                fixed += 1;
+            }
+            None => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    (out, fixed)
+}
+
+/// Replace the pc operand of one `call ptr @sub_<hex>(ptr .., i64 X, ptr ..)`
+/// with `<hex>` as a decimal constant. Returns `None` when the line is not such
+/// a call — `declare ptr @sub_<hex>(ptr, i64, ptr)` has no operand to rewrite
+/// and is skipped by requiring `call ptr @sub_`.
+fn rewrite_call_pc_operand(line: &str) -> Option<String> {
+    const PAT: &str = "call ptr @sub_";
+    let at = line.find(PAT)?;
+    let hex_start = at + PAT.len();
+    let bytes = line.as_bytes();
+    let mut i = hex_start;
+    while i < bytes.len() && bytes[i].is_ascii_hexdigit() {
+        i += 1;
+    }
+    if i == hex_start {
+        return None;
+    }
+    let callee = u64::from_str_radix(&line[hex_start..i], 16).ok()?;
+    // The first argument is `ptr ...`, so the first `i64 ` after the opening
+    // paren is the pc operand.
+    let open = line[i..].find('(')? + i;
+    let key = "i64 ";
+    let val_start = line[open..].find(key)? + open + key.len();
+    let val_end = val_start + line[val_start..].find(',')?;
+    let mut s = String::with_capacity(line.len() + 16);
+    s.push_str(&line[..val_start]);
+    s.push_str(&callee.to_string());
+    s.push_str(&line[val_end..]);
+    Some(s)
+}
+
+#[cfg(test)]
+mod direct_call_pc_tests {
+    use super::*;
+
+    #[test]
+    fn seeds_the_callee_address_not_the_raw_target() {
+        let ir = "  %229 = load i64, ptr %PC, align 8\n  \
+                  %230 = call ptr @sub_de51f0(ptr %state, i64 %229, ptr %228)\n";
+        let (out, n) = seed_direct_calls_with_callee_pc(ir);
+        assert_eq!(n, 1);
+        // 0xde51f0 = 14569968
+        assert!(
+            out.contains("@sub_de51f0(ptr %state, i64 14569968, ptr %228)"),
+            "pc operand not seeded with the callee address: {out}",
+        );
+        // the unrelated load is untouched
+        assert!(out.contains("%229 = load i64, ptr %PC"));
+    }
+
+    #[test]
+    fn a_declare_has_no_operand_and_is_left_alone() {
+        let ir = "declare ptr @sub_de51f0(ptr, i64, ptr)\n";
+        let (out, n) = seed_direct_calls_with_callee_pc(ir);
+        assert_eq!(n, 0, "a declare must not be rewritten");
+        assert_eq!(out.trim_end(), ir.trim_end());
+    }
+
+    /// The guest-SP wrapper leaves `tail ` in front of some calls, and the
+    /// first operand can carry attributes — neither may defeat the match.
+    #[test]
+    fn tail_and_attributed_operands_still_match() {
+        let ir = "  %9 = tail call ptr @sub_11c340(ptr nonnull %state, i64 %8, ptr %7)\n";
+        let (out, n) = seed_direct_calls_with_callee_pc(ir);
+        assert_eq!(n, 1);
+        assert!(out.contains("i64 1164096,"), "got: {out}");
+    }
 }
 
 // `BranchExternKind` + `classify_branch_extern` deleted in M8.8
