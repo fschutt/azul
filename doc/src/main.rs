@@ -227,7 +227,7 @@ fn main() -> anyhow::Result<()> {
             autofix::autofix_api(&api_data, &project_root, &output_dir, true)?;
             return Ok(());
         }
-        ["check", "derives"] => {
+        ["check", "derives", ..] => {
             // The derive-parity gate. api.json's `derive` list per class is what
             // `IrBuilder::build_trait_functions` turns into real C-ABI exports;
             // this asks whether each of the ~40 emitted bindings then gives its
@@ -238,6 +238,14 @@ fn main() -> anyhow::Result<()> {
             let reports = lint_derives::check(&codegen_dir, &api_data)?;
             let (ok, table) = lint_derives::verdict(&reports);
             print!("{table}");
+            // `--details [binding]` prints the per-derive breakdown and a
+            // sample of concrete gaps. Read-only: it changes no verdict, it
+            // only makes the numbers in the table above actionable without
+            // having to make the gate fail on purpose to see them.
+            if let Some(pos) = args.iter().position(|a| *a == "--details") {
+                let only = args.get(pos + 1).filter(|a| !a.starts_with("--"));
+                print!("{}", lint_derives::details(&reports, only.copied()));
+            }
             if !ok {
                 anyhow::bail!(
                     "azul-doc check derives failed: a declared derive is unreachable from a \

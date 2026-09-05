@@ -620,7 +620,7 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
                         } else {
                             rep.missing += 1;
                             *rep.missing_by_derive.entry((*derive).to_string()).or_insert(0) += 1;
-                            if rep.examples.len() < 5 {
+                            if rep.examples.len() < 40 {
                                 rep.examples.push(Gap {
                                     binding: binding.name.to_string(),
                                     class: class.clone(),
@@ -639,7 +639,7 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
                         } else {
                             rep.missing += 1;
                             *rep.missing_by_derive.entry((*derive).to_string()).or_insert(0) += 1;
-                            if rep.examples.len() < 5 {
+                            if rep.examples.len() < 40 {
                                 rep.examples.push(Gap {
                                     binding: binding.name.to_string(),
                                     class: class.clone(),
@@ -663,15 +663,15 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 /// a baseline that is only ever checked as an upper bound goes stale the day
 /// after it is written and then proves nothing.
 ///
-/// A binding absent from this table must have ZERO gaps. Thirteen are, today:
+/// A binding absent from this table must have ZERO gaps. Fourteen are, today:
 /// the three Rust mirrors, memtest, C, Ruby, Lua, Pascal, Ada, PHP, Perl,
-/// Common Lisp, Algol 68 and COBOL.
+/// Common Lisp, Algol 68, COBOL and the public Rust API.
 ///
 /// WHAT EACH NUMBER IS, IN ONE LINE (measured 2026-09-04):
-///   * `rust-public` — `azul.rs` is `UsingDerive` with NO `extern` block and no
-///     `include!` site in the tree; `generator.rs` marks it "legacy, may be
-///     removed". The LIVE public Rust API is `reexports.rs`, which aliases into
-///     whichever `dll_api_*` is compiled and therefore already inherits the fix.
+///   * `rust-public` (was 7122) — `azul.rs` was `UsingDerive` with no `extern`
+///     block, a combination that could not compile in either direction. It is
+///     now `UsingCAPI` + `ExternalBindings`, the same shape as
+///     `dll_api_external.rs`; see `CodegenConfig::rust_public_api`.
 ///   * `cpp11` / `cpp14` — those two emitters alone apply
 ///     `should_skip_method`, which drops every `is_trait_function()` kind;
 ///     cpp03/17/20/23 do not, which is why they sit at 2133 instead of ~5600.
@@ -690,7 +690,6 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///   * `ocaml` — every capability IS generated in `azul.ml` and the `.mli`
 ///     exports only `clone` and `default`, so a consumer can reach nothing else.
 pub const BASELINE: &[(&str, usize)] = &[
-    ("rust-public (azul.rs)", 7122),
     ("cpp03", 2133),
     ("cpp11", 5682),
     ("cpp14", 5568),
@@ -796,4 +795,33 @@ pub fn verdict(reports: &[BindingReport]) -> (bool, String) {
         );
     }
     (ok, out)
+}
+
+/// The per-derive breakdown behind the table, for one binding or all of them.
+///
+/// The table says "cpp11: 5682 missing"; this says WHICH 5682 — how they split
+/// across `Debug`/`PartialEq`/`Hash`/..., and a sample of the classes. It is a
+/// reporting helper only: it computes nothing the verdict does not already
+/// compute and cannot change a pass into a fail or back.
+pub fn details(reports: &[BindingReport], only: Option<&str>) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    for r in reports {
+        if let Some(want) = only {
+            if r.binding != want {
+                continue;
+            }
+        }
+        if r.missing == 0 {
+            continue;
+        }
+        let _ = writeln!(out, "\n{} - {} unreachable", r.binding, r.missing);
+        for (d, n) in &r.missing_by_derive {
+            let _ = writeln!(out, "    {d:<12} {n}");
+        }
+        for g in &r.examples {
+            let _ = writeln!(out, "    e.g. {} :: {}", g.class, g.derive);
+        }
+    }
+    out
 }
