@@ -491,6 +491,31 @@ the same second the log went silent, so wasm-ld completed and the deadlock is in
 blocking primitive, and the process showed zero CPU, so a loop cannot explain
 it. The phase markers now bracket exactly this window.
 
+# The goal metric has never been measured
+
+Every number in this document is AzWriter's. AzWriter is a full document editor
+— markdown import, CSS cascade, pagination, a 3-page VirtualView canvas,
+structural undo/redo, docx import — and its mini walks **4,528 functions**.
+
+The stated goal is "first-boot azul-mini under 1 MB brotli", which is a claim
+about a *minimal* app, not about AzWriter. The handoff records hello-world's
+mini at **978 functions**, and `examples/c/hello-world.c` is still the reference
+minimal client. Its mini has never been linked and weighed here.
+
+That matters for prioritisation, because the two apps do not share a payload
+profile. Of AzWriter's 52.10 MB of mini objects, 4.37 MB is
+`azwriter::web_state::app_state_from_json` — the app's own state parsing, which
+a hello-world does not have at all — and 10.57 MB is the VirtualView
+measure-DOM subtree, which a hello-world never instantiates. Neither would
+appear in a minimal client's mini even before any chunking work.
+
+**Measure hello-world's mini before spending more effort shrinking AzWriter's.**
+It is the metric the goal is written against, and it may already be far closer
+to 1 MB than the 2.95 MB AzWriter figure suggests. The cost is a
+`build-dll web web-transpiler` build of azul.dll plus a lift run, which is a
+different feature set from `web-lift-static` and so does not disturb the
+AzWriter artifacts.
+
 # What actually owns the mini (measured per root, exclusive)
 
 Two premises that guided earlier ticks are wrong for this artifact, and the
