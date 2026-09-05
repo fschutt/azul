@@ -607,9 +607,32 @@ impl CodegenConfig {
 
     /// Public Rust API (unprefixed, ergonomic)
     ///
-    /// This generates a clean public API without Az prefixes.
-    /// Note: This API re-exports from crate::dll, so it doesn't need
-    /// duplicate GL type aliases (those come from dll module).
+    /// This generates a clean public API without Az prefixes: one standalone
+    /// file that declares the C ABI and wraps it, for a consumer that links
+    /// `libazul` and wants `Dom` rather than `AzDom`.
+    ///
+    /// WHY THIS IS `UsingCAPI` AND NOT `UsingDerive`
+    /// ---------------------------------------------
+    /// It used to be `UsingDerive` with `CAbiFunctionMode::None`, and that
+    /// combination cannot work in either direction:
+    ///
+    ///   * `None` emits no `extern "C"` block, while `generate_impl_blocks`
+    ///     emits `pub fn new(..) { unsafe { AzDom_new(..) } }` regardless. Every
+    ///     method body in the file called an undeclared function.
+    ///   * `UsingDerive` puts `#[derive(Clone)]` on the mirror, which requires
+    ///     every FIELD's mirror to be `Clone` too. The owning leaves (`String`,
+    ///     `*Vec`, `RefAny`) get their `Clone` from the ABI, not from a derive,
+    ///     so the cascade failed for ~400 types.
+    ///
+    /// `UsingCAPI` + `ExternalBindings` is the shape that is internally
+    /// consistent — the same shape `dll_api_external.rs` uses — and it is what
+    /// makes the api.json `derive` list reachable here at all: `Debug`,
+    /// `PartialEq`, `PartialOrd`, `Ord`, `Hash` and `Default` become impls that
+    /// call `Az{T}_toDbgString` / `_partialEq` / `_partialCmp` / `_cmp` /
+    /// `_hash` / `_default`, all of which `libazul` already exports.
+    ///
+    /// Note that the C SYMBOLS stay `Az`-prefixed while the Rust TYPES are not;
+    /// see `lang_rust::ABI_PREFIX`.
     pub fn rust_public_api() -> Self {
         // Skip GL type aliases as they're already in the dll module
         let mut type_exclude = BTreeSet::new();
@@ -632,12 +655,18 @@ impl CodegenConfig {
 
         Self {
             target_lang: TargetLang::Rust,
-            cabi_functions: CAbiFunctionMode::None,
+            cabi_functions: CAbiFunctionMode::ExternalBindings {
+                link_library: "azul".into(),
+            },
             struct_mode: StructMode::Unprefixed,
-            trait_impl_mode: TraitImplMode::UsingDerive,
+            trait_impl_mode: TraitImplMode::UsingCAPI,
             type_prefix: "".into(),
             module_wrapper: None,
-            imports: vec!["use core::ffi::c_void;".into()],
+            imports: vec![
+                "extern crate alloc;".into(),
+                "use core::ffi::c_void;".into(),
+                "use core::ffi::c_int;".into(),
+            ],
             type_filter: None,
             type_exclude,
             indent: "    ".into(),

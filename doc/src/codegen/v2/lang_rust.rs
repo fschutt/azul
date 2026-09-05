@@ -19,6 +19,26 @@ use super::transmute_helpers::{generate_transmuted_fn_body, parse_arg_type};
 
 pub struct RustGenerator;
 
+/// The prefix every C-ABI symbol carries, unconditionally.
+///
+/// `IrBuilder` spells every export as `format!("Az{type}_{method}")` — see
+/// `build_trait_functions` — and `FunctionDef::c_name` is what the `extern "C"`
+/// block declares. That is INDEPENDENT of `config.type_prefix`, which names the
+/// Rust *type* in a given binding and is `""` for the unprefixed public API.
+///
+/// The two used to be conflated: every C-API trait impl built its call as
+/// `format!("{}_clone", config.apply_prefix(class))`, which is correct only
+/// while the two happen to coincide. They coincide in `dll_api_internal.rs`,
+/// `dll_api_external.rs` and `memtest.rs` (all `type_prefix = "Az"`), so the
+/// bug was invisible until `azul.rs` (`type_prefix = ""`) started emitting
+/// C-API impls and every call named a symbol that does not exist.
+const ABI_PREFIX: &str = "Az";
+
+/// The C symbol for one entry point on one class, e.g. `AzDom_clone`.
+fn abi_symbol(class_name: &str, suffix: &str) -> String {
+    format!("{ABI_PREFIX}{class_name}_{suffix}")
+}
+
 impl LanguageGenerator for RustGenerator {
     fn generate(&self, ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
         let mut builder = CodeBuilder::new(&config.indent);
@@ -647,8 +667,8 @@ impl RustGenerator {
         builder.line("fn from(s: &str) -> Self {");
         builder.indent();
         builder.line(&format!(
-            "unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}",
-            prefix
+            "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
+            abi_symbol("String", "copyFromBytes")
         ));
         builder.dedent();
         builder.line("}");
@@ -665,8 +685,8 @@ impl RustGenerator {
         builder.line("fn from(s: alloc::string::String) -> Self {");
         builder.indent();
         builder.line(&format!(
-            "unsafe {{ {}String_copyFromBytes(s.as_ptr(), 0, s.len()) }}",
-            prefix
+            "unsafe {{ {}(s.as_ptr(), 0, s.len()) }}",
+            abi_symbol("String", "copyFromBytes")
         ));
         builder.dedent();
         builder.line("}");
@@ -2421,6 +2441,19 @@ impl RustGenerator {
             builder.raw(&types);
         }
 
+        // C-ABI declarations.
+        //
+        // This section did not exist while the config said `CAbiFunctionMode::
+        // None`, and its absence was not cosmetic: the method impls below have
+        // ALWAYS been emitted as `unsafe { AzDom_new(..) }`, so every one of
+        // them named a function that was never declared in this file. The
+        // artifact could not compile, and nothing noticed because no target
+        // includes it.
+        builder.line("// --- C-ABI Declarations ---");
+        let functions = self.generate_functions(ir, config)?;
+        builder.raw(&functions);
+        builder.blank();
+
         // Trait implementations (if using derive, they're already on types)
         if !matches!(config.trait_impl_mode, TraitImplMode::UsingDerive) {
             builder.line("// --- Trait Implementations ---");
@@ -3571,7 +3604,12 @@ impl RustGenerator {
         config: &CodegenConfig,
         suppress_default: bool,
     ) {
+        // The Rust TYPE as this binding spells it (`AzDom`, or `Dom` in the
+        // unprefixed public API) ...
         let name = config.apply_prefix(class_name);
+        // ... and the C SYMBOL, which is always `Az`-prefixed. These are not the
+        // same string in every binding; see [`ABI_PREFIX`].
+        let sym = |suffix: &str| abi_symbol(class_name, suffix);
 
         // `Debug` is NOT a stub that prints the type name. `Az{T}_toDbgString`
         // is a real entry point whose body on the other side is
@@ -3590,7 +3628,7 @@ impl RustGenerator {
             // The returned `AzString` owns library memory; it is dropped at the
             // end of this scope, and `AzString`'s `AzU8Vec` field runs
             // `AzU8Vec_delete` in its own `Drop`, so nothing leaks.
-            builder.line(&format!("let s = unsafe {{ {name}_toDbgString(self) }};"));
+            builder.line(&format!("let s = unsafe {{ {}(self) }};", sym("toDbgString")));
             builder.line("f.write_str(s.as_str())");
             builder.dedent();
             builder.line("}");
@@ -3614,9 +3652,9 @@ impl RustGenerator {
             builder.line(&format!("fn eq(&self, other: &{name}) -> bool {{"));
             builder.indent();
             if has_partial_eq_fn {
-                builder.line(&format!("unsafe {{ {name}_partialEq(self, other) }}"));
+                builder.line(&format!("unsafe {{ {}(self, other) }}", sym("partialEq")));
             } else {
-                builder.line(&format!("unsafe {{ {name}_partialCmp(self, other) }} == 1"));
+                builder.line(&format!("unsafe {{ {}(self, other) }} == 1", sym("partialCmp")));
             }
             builder.dedent();
             builder.line("}");
@@ -3646,7 +3684,8 @@ impl RustGenerator {
             builder.indent();
             if has_partial_cmp_fn {
                 builder.line(&format!(
-                    "match unsafe {{ {name}_partialCmp(self, other) }} {{"
+                    "match unsafe {{ {}(self, other) }} {{",
+                    sym("partialCmp")
                 ));
                 builder.indent();
                 builder.line("0 => Some(core::cmp::Ordering::Less),");
@@ -3673,7 +3712,7 @@ impl RustGenerator {
                 "fn cmp(&self, other: &{name}) -> core::cmp::Ordering {{"
             ));
             builder.indent();
-            builder.line(&format!("match unsafe {{ {name}_cmp(self, other) }} {{"));
+            builder.line(&format!("match unsafe {{ {}(self, other) }} {{", sym("cmp")));
             builder.indent();
             builder.line("0 => core::cmp::Ordering::Less,");
             builder.line("2 => core::cmp::Ordering::Greater,");
@@ -3701,7 +3740,8 @@ impl RustGenerator {
             builder.line("fn hash<H: core::hash::Hasher>(&self, state: &mut H) {");
             builder.indent();
             builder.line(&format!(
-                "core::hash::Hasher::write_u64(state, unsafe {{ {name}_hash(self) }})"
+                "core::hash::Hasher::write_u64(state, unsafe {{ {}(self) }})",
+                sym("hash")
             ));
             builder.dedent();
             builder.line("}");
@@ -3717,7 +3757,7 @@ impl RustGenerator {
             builder.indent();
             builder.line(&format!("fn default() -> {name} {{"));
             builder.indent();
-            builder.line(&format!("unsafe {{ {name}_default() }}"));
+            builder.line(&format!("unsafe {{ {}() }}", sym("default")));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -3752,7 +3792,7 @@ impl RustGenerator {
 
         // Clone impl calling C-ABI function
         if struct_def.traits.is_clone && !struct_def.traits.is_copy {
-            let deep_copy_fn = format!("{}_clone", name);
+            let deep_copy_fn = abi_symbol(&struct_def.name, "clone");
             builder.line(&format!("impl Clone for {} {{", name));
             builder.indent();
             builder.line("fn clone(&self) -> Self {");
@@ -3772,7 +3812,7 @@ impl RustGenerator {
         // AND then field-glue on the same bytes) never happens. The C `_delete`
         // extern fn is still generated for explicit C frees.
         if struct_def.traits.needs_delete() && self.struct_needs_own_drop(struct_def) {
-            let delete_fn = format!("{}_delete", name);
+            let delete_fn = abi_symbol(&struct_def.name, "delete");
             builder.line(&format!("impl Drop for {} {{", name));
             builder.indent();
             builder.line("fn drop(&mut self) {");
@@ -3840,7 +3880,7 @@ impl RustGenerator {
 
         // Clone impl calling C-ABI function
         if enum_def.traits.is_clone && !enum_def.traits.is_copy {
-            let deep_copy_fn = format!("{}_clone", name);
+            let deep_copy_fn = abi_symbol(&enum_def.name, "clone");
             builder.line(&format!("impl Clone for {} {{", name));
             builder.indent();
             builder.line("fn clone(&self) -> Self {");
@@ -3859,7 +3899,7 @@ impl RustGenerator {
         // payload (`_delete` = `drop_in_place` AND then field-glue). The `_delete`
         // extern fn is still generated for explicit C frees.
         if enum_def.traits.needs_delete() && self.enum_needs_own_drop(enum_def) {
-            let delete_fn = format!("{}_delete", name);
+            let delete_fn = abi_symbol(&enum_def.name, "delete");
             builder.line(&format!("impl Drop for {} {{", name));
             builder.indent();
             builder.line("fn drop(&mut self) {");
