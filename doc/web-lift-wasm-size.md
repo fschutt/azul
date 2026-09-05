@@ -556,18 +556,38 @@ compression ratio. `<1 MB brotli` corresponds to about **10 MB raw**, and
 | | raw | brotli | basis |
 |---|---|---|---|
 | today, AzWriter mini | 28.3 MB | 2.95 MB | measured |
-| AzWriter, chunked (p0 only) | ~20 MB | ~2.0 MB | measured partition |
-| AzWriter, chunked + dead weight + escape work | ~12 MB | ~1.2 MB | estimate |
-| **hello-world mini, today** | **~9 MB** | **~0.9 MB** | **extrapolated, unmeasured** |
-| **hello-world, chunked** | **~6 MB** | **~0.6 MB** | estimate |
+| **p0 core — the floor ANY app pays** | **~19.9 MB** | **~2.0 MB** | measured partition |
+| + register-file privatization (−21% insn) | ~15.7 MB | ~1.6 MB | estimate |
+| + dead weight (W5), if ~5% | ~14.9 MB | ~1.5 MB | estimate |
+| `<1 MB` goal | ~10 MB | 1.0 MB | needs a further ~33% |
 
-**The goal is met for a hello-world first boot (~0.6–0.9 MB) and lands near
-~1.2 MB for AzWriter.** The 500 KB stretch is reachable only for hello-world,
-and only with chunking *plus* the escape work.
+**Correction to an earlier estimate in this document.** A previous revision put a
+hello-world first boot at ~9 MB / ~0.9 MB and concluded the goal was already
+met for a minimal app. That was extrapolated from a handoff note recording
+hello-world's mini at 978 functions, and **the call graph does not support it.**
 
-The least trustworthy row is hello-world's: it is extrapolated from a function
-count, not measured, and it is the row that decides whether the goal is already
-nearly met or still 2x away.
+The mini is built from the `AzStartup_*` entry points, which are the same for
+every app. What differs between apps is only the app-specific subtrees — for
+AzWriter, `app_state_from_json` (4.37 MB) and the VirtualView measure-DOM
+trampoline (10.57 MB). Strip both and what remains is p0: 36.62 MB of objects,
+~19.9 MB of wasm, ~2.0 MB delivered. **A minimal app still pays that**, because
+it still needs the shared core (17.06 MB of objects reachable from ≥2 roots) and
+`AzStartup_solveLayoutReal` (14.18 MB) to cascade CSS, shape text and solve a
+layout at all. "AzWriter chunked" and "minimal app" are therefore the same
+number, not two rows.
+
+So **1 MB is not reached by the known levers**: chunking, the escape work and
+dead-weight removal together land around ~1.5 MB. Closing the last third needs
+something not yet identified. 500 KB is not plausible for lifted code at this
+functionality level — ~5 MB raw is roughly what rustc emits natively for it.
+
+The 978-function figure is not necessarily wrong, but it predates a great deal
+of engine growth and cannot be reconciled with the current graph. Measuring it
+directly is still worthwhile and is currently BLOCKED: `examples/c/hello-world.c`
+aborts at startup, before any lifting, with
+`[RefCount::downcast] FATAL: self.ptr is null!` (`core/src/refany.rs:367`),
+exit `0xC0000409`. Codegen is current, so this is a real breakage on the C/FFI
+path rather than a stale-header mismatch.
 
 ## The compression ratio is flat, so raw savings translate
 
