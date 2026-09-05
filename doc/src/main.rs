@@ -17,6 +17,7 @@ pub mod doc_coverage;
 pub mod docgen;
 pub mod e2erun;
 pub mod gene2e;
+pub mod lint_derives;
 pub mod lint_examples;
 pub mod lint_links;
 pub mod lint_orphans;
@@ -224,6 +225,25 @@ fn main() -> anyhow::Result<()> {
             let output_dir = project_root.join("target").join("autofix");
             let api_data = load_api_json(&api_path)?;
             autofix::autofix_api(&api_data, &project_root, &output_dir, true)?;
+            return Ok(());
+        }
+        ["check", "derives"] => {
+            // The derive-parity gate. api.json's `derive` list per class is what
+            // `IrBuilder::build_trait_functions` turns into real C-ABI exports;
+            // this asks whether each of the ~40 emitted bindings then gives its
+            // users a name for them. See doc/src/lint_derives.rs for the rule
+            // it applies and the one judgement call it makes.
+            let api_data = load_api_json(&api_path)?;
+            let codegen_dir = project_root.join("target").join("codegen");
+            let reports = lint_derives::check(&codegen_dir, &api_data)?;
+            let (ok, table) = lint_derives::verdict(&reports);
+            print!("{table}");
+            if !ok {
+                anyhow::bail!(
+                    "azul-doc check derives failed: a declared derive is unreachable from a \
+                     binding, or a recorded baseline is stale"
+                );
+            }
             return Ok(());
         }
         ["check", "links"] => {
