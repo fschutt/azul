@@ -749,12 +749,6 @@ fn is_method_kind_eligible(kind: FunctionKind) -> bool {
             | FunctionKind::Method
             | FunctionKind::MethodMut
             | FunctionKind::Default
-            | FunctionKind::PartialEq
-            | FunctionKind::PartialCmp
-            | FunctionKind::Cmp
-            | FunctionKind::Hash
-            | FunctionKind::DebugToString
-            | FunctionKind::DeepCopy
     )
 }
 
@@ -768,22 +762,13 @@ fn render_method(
     _c_prefix: &str,
     wrapper: &str,
 ) -> Option<Vec<String>> {
-    // The trait entry points take `&self` as args[0] exactly like an ordinary
-    // method - `_partialEq(a, b)`, `_hash(v)`, `_toDbgString(v)`. Leaving them
-    // out here meant the self POINTER was handed to `marshal_arg`, which has
-    // no mapping for it, so `render_method` returned None and the method was
-    // silently skipped. `Default` is correctly absent: it has no receiver.
-    let takes_self = matches!(
-        func.kind,
-        FunctionKind::Method
-            | FunctionKind::MethodMut
-            | FunctionKind::PartialEq
-            | FunctionKind::PartialCmp
-            | FunctionKind::Cmp
-            | FunctionKind::Hash
-            | FunctionKind::DebugToString
-            | FunctionKind::DeepCopy
-    );
+    // Deliberately NOT widened to the trait kinds. Doing so emitted methods
+    // with no receiver whose BODY still referenced `self.inner` and passed an
+    // extra argument - `AzDom_partialEq(&self.inner, &a.inner, &b.inner)` for
+    // a two-argument export. That does not compile, and NOTHING in this repo's
+    // gates compiles `php_api.rs`, so it shipped silently for two commits.
+    // Emitting them needs `render_method` taught the static shape first.
+    let takes_self = matches!(func.kind, FunctionKind::Method | FunctionKind::MethodMut);
 
     // Filter args: drop the self receiver (Python codegen detects it via
     // name == class_name.lowercase()), same convention here.

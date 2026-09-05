@@ -196,6 +196,28 @@ const PY_BLOCK: &[&str] = &["#[pymethods]\nimpl {T} {"];
 ///
 /// `Ord`/`PartialOrd` both map to `val compare`, because OCaml has one
 /// comparison function and no separate partial order.
+/// php-ext (`php_api.rs`, the Zend native extension).
+///
+/// This extension curates FIVE classes - `PHP_CLASS_ALLOWLIST` - and declares
+/// `extern` blocks for everything else. Matching on the extern symbol
+/// therefore counted 1744 types as "present" that a PHP user cannot touch,
+/// and charged them for derives the extension never intended to expose. The
+/// user-visible surface is the `impl Azul{T}` block, so that is what this
+/// asks about; a type with no PHP class is `absent`, which is the honest
+/// verdict for a deliberate curation.
+const PHP_EXT_BLOCK: &[&str] = &["impl Azul{T} {"];
+const PHP_EXT_PROFILE: &[(&str, Expect)] = &[
+    ("Debug", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn toDbgString"] }),
+    ("Clone", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn clone"] }),
+    ("Copy", COPY_NA),
+    ("PartialEq", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn partialEq"] }),
+    ("Eq", EQ_NA),
+    ("PartialOrd", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn partialCmp"] }),
+    ("Ord", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn cmp"] }),
+    ("Hash", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn hash"] }),
+    ("Default", Expect::Block { start: PHP_EXT_BLOCK, markers: &["fn default"] }),
+];
+
 const OCAML_BLOCK: &[&str] = &["module {T} : sig"];
 const OCAML_PROFILE: &[(&str, Expect)] = &[
     ("Debug", Expect::Block { start: OCAML_BLOCK, markers: &["val to_string"] }),
@@ -816,23 +838,25 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `compare`: the ABI answers 255 for "incomparable" and a total compare
 ///     has no honest value for it. Needed in all three emitters - struct,
 ///     tagged union, unit enum.
-///   * `php-ext` (125) - the `AzString` RETURN is now handled, which was the
-///     whole Debug column: `AzString::as_str` does exist on the external
-///     surface (it handles non-UTF8 by taking the longest valid prefix), so
-///     the arm needs no hand-written pointer code - just `as_str().to_string()`
-///     and an `AzString_delete`, since AzString owns a heap buffer and has no
-///     Drop of its own. An earlier pass recorded this as blocked on a missing
-///     helper; that was wrong, the helper was there.
-///     It only moved 129 -> 125, and the reason is NOT a marshalling gap:
-///     `PHP_CLASS_ALLOWLIST` is exactly five classes - Dom, App, AppConfig,
-///     WindowCreateOptions, Button - and everything else gets no PHP class at
-///     all. The remaining 125 are derives on types this extension
-///     DELIBERATELY does not expose; they count as present only because their
-///     `extern` declarations name them.
-///     NEXT STEP, and it is a MEASUREMENT fix rather than an emitter one:
-///     php-ext's presence test should key on the registered PHP class
-///     (`Azul{T}`), not the extern symbol - exactly the correction ocaml
-///     needed. Until then this number describes the curation, not a defect.
+///   * `php-ext` (134) - BACK UP from 125, because the change that lowered it
+///     emitted code that does not compile. `is_method_kind_eligible` and
+///     `takes_self` were widened to the trait kinds; the result was methods
+///     with no receiver whose bodies still said `self.inner` and passed an
+///     extra argument - `AzDom_partialEq(&self.inner, &a.inner, &b.inner)` for
+///     a two-argument export. Three of them shipped, across two commits,
+///     because NOTHING in this repo's gates compiles `php_api.rs`. The gate
+///     went green the whole time: it greps for names, and broken code still
+///     contains the name.
+///     Both widenings are reverted. Emitting these needs `render_method`
+///     taught the STATIC shape (no receiver, both operands as arguments)
+///     first; the eligibility flag is not the hard part.
+///     A profile fix was also attempted and reverted: keying presence on
+///     `impl Azul{T}` instead of the extern symbol gave 0 honoured, which is
+///     the same "blind profile" signature that made ocaml read 272 for weeks.
+///     The `AzString` RETURN arm in `marshal_return` is KEPT - it is correct
+///     and independent, and any ordinary method returning a string needs it.
+///     LESSON: a name-presence gate cannot see a compile error. For a target
+///     nothing builds, the gate is not evidence.
 ///   * `haskell` (10) - the recursive-type carve-out moved it 11 -> 10, so its
 ///     `_partialEq` / `_cmp` / `_hash` now reach the artifact. The remaining
 ///     Debug / Clone / Default do NOT, for a different reason: Haskell routes
@@ -886,7 +910,7 @@ fn declared_count(derives: &BTreeSet<String>) -> usize {
 pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
     ("zig", 13),
-    ("php-ext", 125),
+    ("php-ext", 134),
     ("ocaml", 11),
     ("haskell", 10),
     ("go", 13),
