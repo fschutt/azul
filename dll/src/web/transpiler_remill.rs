@@ -2144,6 +2144,17 @@ impl RemillTranspiler {
                 }
             }
 
+            // First-paint coverage (AZ_FN_COVERAGE). Off by default.
+            if super::lift_env::lift_env().fn_coverage {
+                if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                    let idx = record_coverage_index(&self.scratch_dir, fn_name, &export_as);
+                    let (marked, n) = inject_fn_coverage(&opt_ir, idx);
+                    if n > 0 {
+                        let _ = std::fs::write(&opt_ir_path, &marked);
+                    }
+                }
+            }
+
             // M12.5y store-address tracer: when AZ_LOG_STORES contains a
             // comma-separated substring matching this dep's stem, instrument
             // the post-opt IR in place (then llc compiles the instrumented
@@ -8895,6 +8906,90 @@ fn inject_selfloop_value_log(opt_ir: &str) -> (String, u32) {
 /// which fails SILENTLY (indirect call finds no case, returns garbage). Over-
 /// scanning only wastes size. So the tolerance is deliberately generous, and
 /// this only ever shrinks a window that was a guess to begin with.
+/// First-paint coverage: mark each lifted function as ENTERED, so we can tell
+/// what actually runs from what is merely reachable.
+///
+/// Static reachability answers the wrong question. The transitive closure is
+/// everything the walk can prove might be called; a first paint executes a small
+/// fraction of it, and the rest is only theoretically reachable. Only the
+/// executed set tells us what must ship eagerly and what can become a lazily
+/// fetched shard.
+///
+/// One byte per lifted function at `AZ_COV_BASE + idx`. The store is `volatile`
+/// so llc cannot fold it away, and it is unconditional at function entry, so a
+/// single execution is enough to set it. Read the region back after first paint
+/// (DataView over the instance memory) and join it against the manifest written
+/// beside the scratch dir.
+///
+/// The region is the `AZ_LOG_STORES` ring buffer (0x41000..0x4EAD0, 56 KiB =
+/// room for 57344 functions). The two are therefore MUTUALLY EXCLUSIVE - do not
+/// enable store logging and coverage in the same run, they would corrupt each
+/// other. Coverage is opt-in via AZ_FN_COVERAGE and off by default, so a normal
+/// build pays nothing.
+const AZ_COV_BASE: u64 = 0x41000;
+const AZ_COV_CAP: u64 = 0xEAD0; // through 0x4EAD0, the on_click stack base
+
+fn inject_fn_coverage(opt_ir: &str, idx: u64) -> (String, u32) {
+    if idx >= AZ_COV_CAP {
+        return (opt_ir.to_string(), 0);
+    }
+    let slot = AZ_COV_BASE + idx;
+    let mut out = String::with_capacity(opt_ir.len() + 256);
+    let mut n: u32 = 0;
+    // Mark at the entry of every define in the module. Inlining means one
+    // lifted function is many defines; they all belong to the same lifted
+    // function, so marking all of them with the SAME index is correct and
+    // avoids having to identify which define is the entry.
+    let mut pending_entry = false;
+    for line in opt_ir.lines() {
+        let tr = line.trim_start();
+        out.push_str(line);
+        out.push('\n');
+        if tr.starts_with("define ") && tr.ends_with('{') {
+            pending_entry = true;
+            continue;
+        }
+        // Insert after the block label, and after any leading PHIs, so the
+        // result stays SSA-valid (a phi must be first in its block).
+        if pending_entry {
+            let is_label = tr.ends_with(':') && !tr.starts_with(';');
+            let is_phi = tr.contains(" = phi ");
+            if is_label || is_phi {
+                continue;
+            }
+            if tr.is_empty() {
+                continue;
+            }
+            // `line` was already emitted; put the marker before it instead.
+            let keep = out.len() - line.len() - 1;
+            let marker = format!(
+                "  store volatile i8 1, ptr inttoptr (i64 {slot} to ptr), align 1
+"
+            );
+            out.insert_str(keep, &marker);
+            n += 1;
+            pending_entry = false;
+        }
+    }
+    (out, n)
+}
+
+/// Monotonic coverage index, one per lifted function, paired with the manifest
+/// line written by `record_coverage_index`.
+static COV_NEXT_IDX: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn record_coverage_index(scratch: &std::path::Path, name: &str, export_as: &str) -> u64 {
+    let idx = COV_NEXT_IDX.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let line = format!("{idx}	{export_as}	{name}
+");
+    let path = scratch.join("coverage-manifest.tsv");
+    use std::io::Write;
+    if let Ok(mut fh) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = fh.write_all(line.as_bytes());
+    }
+    idx
+}
+
 fn plausible_object_extent(data: &[u8], start: usize, is_fn_entry: &mut dyn FnMut(usize) -> bool) -> usize {
     const MAX_NON_PTR_RUN: usize = 4;
     let mut i = start;

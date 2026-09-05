@@ -78,6 +78,11 @@ pub struct LiftEnv {
     /// ~100k times one-per-function, and process creation is both the hang
     /// risk and, with per-process AV scanning, a real cost.
     pub lift_batch: usize,
+    /// Mark every lifted function as ENTERED at runtime, so a first paint can
+    /// be separated into what actually executes and what is only reachable.
+    /// Writes one byte per function into the store-log ring region, so it is
+    /// MUTUALLY EXCLUSIVE with AZ_LOG_STORES. See inject_fn_coverage.
+    pub fn_coverage: bool,
     /// Seconds before a wedged `CreateProcess` aborts the run; 0 disables.
     pub spawn_watchdog_secs: u64,
     /// Seconds a single tool invocation may take, including its pipe reads.
@@ -166,6 +171,7 @@ impl LiftEnv {
             lift_cache_dir: std::env::var_os("AZ_LIFT_CACHE_DIR").map(PathBuf::from),
 
             lift_jobs: num("AZ_LIFT_JOBS").filter(|n: &usize| *n >= 1),
+            fn_coverage: flag("AZ_FN_COVERAGE"),
             lift_batch: num("AZ_LIFT_BATCH").filter(|n: &usize| *n >= 1).unwrap_or(64),
             spawn_watchdog_secs: num("AZ_SPAWN_WATCHDOG_SECS").unwrap_or(300),
             tool_timeout_secs: num("AZ_TOOL_TIMEOUT_SECS").unwrap_or(900),
