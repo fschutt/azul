@@ -3411,6 +3411,28 @@ pub(crate) fn find_hashbrown_empty_group_ranges() -> &'static [(usize, usize)] {
         .as_slice()
 }
 
+/// Non-Mach-O targets: nothing to compute, and computing it DEADLOCKS.
+///
+/// The Mach-O implementation below only ever matches `goblin::Object::Mach`
+/// - a PE or ELF image falls through its `_ => continue` arm - so on any
+/// other platform this function can only ever return an empty vector. It was
+/// still doing all the work to get there, and on Windows the first step is
+/// `enumerate_loaded_images`, which calls `K32EnumProcessModules`. That takes
+/// the Windows LOADER LOCK, and a full lift wedged there: zero CPU, zero I/O
+/// and zero page faults for ten minutes, with the phase marker naming
+/// "finish mirror set". It survives at startup, when nothing else holds the
+/// lock, and hangs later in the run.
+///
+/// So this is not a workaround for the hang - the work was provably useless
+/// on these targets. The EMPTY_GROUP mirroring it feeds has never been active
+/// off Mach-O; if a PE equivalent is ever needed it has to be written against
+/// PE sections, not obtained by taking the loader lock to parse Mach-O.
+#[cfg(not(target_os = "macos"))]
+fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
+    Vec::new()
+}
+
+#[cfg(target_os = "macos")]
 fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
     use goblin::mach::load_command::{
         CommandVariant, SIZEOF_SECTION_64, SIZEOF_SEGMENT_COMMAND_64,
