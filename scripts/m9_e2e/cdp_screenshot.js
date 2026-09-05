@@ -34,7 +34,7 @@ const WAIT = parseInt(process.argv[4] || '12000', 10);
             const d = m.params.exceptionDetails;
             const frames = ((d.stackTrace && d.stackTrace.callFrames) || [])
                 .map(f => (f.functionName || '<anon>') + (f.url.includes('.wasm') ? '@wasm' : ''))
-                .slice(0, 6).join(' <- ');
+                .slice(0, 24).join(' <- ');
             errs.push(String((d.exception && d.exception.description) || d.text).split('\n')[0] + '  ||  ' + frames);
         }
     };
@@ -51,11 +51,24 @@ const WAIT = parseInt(process.argv[4] || '12000', 10);
     await new Promise(r => setTimeout(r, WAIT));
 
     console.log('===== CONSOLE (' + logs.length + ') =====');
-    logs.slice(-40).forEach(l => console.log('  ' + l.slice(0, 200)));
+    // NEVER truncate a message carrying a stack. `bootstrap FAILED: ...` is a
+    // console log, not an exception, so a character cap here silently ate the
+    // frame list that names the faulting caller - which is the entire reason a
+    // debug-linked run exists. Cap only the routine chatter, and print anything
+    // multi-line in full, indenting continuations so the frames stay readable.
+    const emit = (l) => {
+        if (l.includes('\n')) {
+            l.split('\n').forEach((ln, i) => console.log((i ? '      ' : '  ') + ln));
+        } else {
+            console.log('  ' + (l.length > 2000 ? l.slice(0, 2000) + ' …[+' +
+                                (l.length - 2000) + ' chars]' : l));
+        }
+    };
+    logs.slice(-40).forEach(emit);
     console.log('===== EXCEPTIONS (' + errs.length + ') =====');
     // Dedup: a lifting bug usually fires repeatedly from the same frame.
     const seen = new Set();
-    errs.forEach(l => { const k = l.slice(0, 120); if (!seen.has(k)) { seen.add(k); console.log('  ' + l.slice(0, 240)); } });
+    errs.forEach(l => { const k = l.slice(0, 120); if (!seen.has(k)) { seen.add(k); emit(l); } });
 
     const shot = await send('Page.captureScreenshot', { format: 'png' });
     const data = shot.result && shot.result.data;
