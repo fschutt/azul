@@ -169,6 +169,8 @@ fn emit_enum_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str,
             FunctionKind::Cmp => "Order",
             FunctionKind::Hash => "Hash",
             FunctionKind::DebugToString => "String",
+            FunctionKind::DeepCopy => "Clone",
+            FunctionKind::Default => "Default",
             _ => continue,
         };
         if !seen.insert(name) {
@@ -176,6 +178,22 @@ fn emit_enum_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str,
         }
         b.blank();
         match f.kind {
+            FunctionKind::DeepCopy => {
+                b.line("// Clone is a deep copy, delegating to the Rust Clone.");
+                b.line(&format!("func (self {go_name}) Clone() {go_name} {{"));
+                b.line(&format!("    a := C.{go_name}(self)"));
+                b.line(&format!("    return {go_name}(C.{go_name}_clone(&a))"));
+                b.line("}");
+            }
+            FunctionKind::Default => {
+                // A package-level function: Go has no static method, and the
+                // Rust `Default` takes no receiver to hang one on.
+                let bare = go_name.strip_prefix("Az").unwrap_or(go_name);
+                b.line(&format!("// {bare}Default is the Rust Default."));
+                b.line(&format!("func {bare}Default() {go_name} {{"));
+                b.line(&format!("    return {go_name}(C.{go_name}_default())"));
+                b.line("}");
+            }
             FunctionKind::PartialEq => {
                 b.line("// Equal reports structural equality, delegating to the Rust PartialEq.");
                 b.line(&format!("func (self {go_name}) Equal(other {go_name}) bool {{"));
@@ -340,6 +358,87 @@ fn emit_tagged_union(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     b.dedent();
     b.line("}");
     b.blank();
+    emit_union_trait_functions(b, &iface_name, &e.name, ir);
+}
+
+/// The trait entry points for a tagged union, as free functions over the RAW
+/// C type.
+///
+/// Go models a tagged union as a sealed INTERFACE whose variant structs hold
+/// no C value, so these cannot be methods. That is not the obstacle it first
+/// looks like: every generated signature that takes a union already takes
+/// `C.AzCssProperty` rather than the interface (see `SetCssProperty`,
+/// `NewCssPropertyVecFromItem`), so the raw type IS the currency a Go caller
+/// holds. Free functions over it are therefore the honest fit, and the
+/// interface stays what it already was - a type-switch aid.
+fn emit_union_trait_functions(b: &mut CodeBuilder, iface: &str, class_name: &str, ir: &CodegenIR) {
+    let bare = iface.strip_prefix("Az").unwrap_or(iface);
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for f in ir.functions_for_class(class_name) {
+        let name = match f.kind {
+            FunctionKind::PartialEq => "Equal",
+            FunctionKind::PartialCmp => "PartialOrder",
+            FunctionKind::Cmp => "Order",
+            FunctionKind::Hash => "Hash",
+            FunctionKind::DebugToString => "String",
+            FunctionKind::DeepCopy => "Clone",
+            FunctionKind::Default => "Default",
+            _ => continue,
+        };
+        if !seen.insert(name) {
+            continue;
+        }
+        b.blank();
+        match f.kind {
+            FunctionKind::DeepCopy => {
+                b.line(&format!("// {bare}Clone is a deep copy, delegating to the Rust Clone."));
+                b.line(&format!("func {bare}Clone(v C.{iface}) C.{iface} {{"));
+                b.line(&format!("    return C.{iface}_clone(&v)"));
+                b.line("}");
+            }
+            FunctionKind::Default => {
+                b.line(&format!("// {bare}Default is the Rust Default."));
+                b.line(&format!("func {bare}Default() C.{iface} {{"));
+                b.line(&format!("    return C.{iface}_default()"));
+                b.line("}");
+            }
+            FunctionKind::PartialEq => {
+                b.line(&format!("// {bare}Equal reports structural equality, delegating to the Rust PartialEq."));
+                b.line(&format!("func {bare}Equal(a C.{iface}, o C.{iface}) bool {{"));
+                b.line(&format!("    return bool(C.{iface}_partialEq(&a, &o))"));
+                b.line("}");
+            }
+            FunctionKind::PartialCmp => {
+                b.line(&format!("// {bare}PartialOrder delegates to the Rust PartialOrd."));
+                b.line("// The C ABI answers 0 = less, 1 = equal, 2 = greater.");
+                b.line(&format!("func {bare}PartialOrder(a C.{iface}, o C.{iface}) uint8 {{"));
+                b.line(&format!("    return uint8(C.{iface}_partialCmp(&a, &o))"));
+                b.line("}");
+            }
+            FunctionKind::Cmp => {
+                b.line(&format!("// {bare}Order delegates to the Rust Ord. Same encoding as {bare}PartialOrder."));
+                b.line(&format!("func {bare}Order(a C.{iface}, o C.{iface}) uint8 {{"));
+                b.line(&format!("    return uint8(C.{iface}_cmp(&a, &o))"));
+                b.line("}");
+            }
+            FunctionKind::Hash => {
+                b.line(&format!("// {bare}Hash delegates to the Rust Hash, as a 64-bit digest."));
+                b.line(&format!("func {bare}Hash(v C.{iface}) uint64 {{"));
+                b.line(&format!("    return uint64(C.{iface}_hash(&v))"));
+                b.line("}");
+            }
+            FunctionKind::DebugToString => {
+                b.line(&format!("// {bare}String is the Rust `{{:#?}}` rendering. The AzString the ABI"));
+                b.line("// returns owns its buffer and GoStr only copies, so it is freed here.");
+                b.line(&format!("func {bare}String(v C.{iface}) string {{"));
+                b.line(&format!("    s := C.{iface}_toDbgString(&v)"));
+                b.line("    defer C.AzString_delete(&s)");
+                b.line("    return GoStr(s)");
+                b.line("}");
+            }
+            _ => unreachable!(),
+        }
+    }
 }
 
 // ============================================================================
