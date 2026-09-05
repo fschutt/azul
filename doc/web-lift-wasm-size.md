@@ -555,3 +555,66 @@ on it.
 **Before building any of this: run `AZ_FN_COVERAGE`.** The first-paint core above
 is inferred from the call graph, and a runtime measurement supersedes it for one
 build's cost.
+
+---
+
+# Where the expansion actually is
+
+Two corrections to earlier numbers in this document, both from measuring the
+linked artifact instead of the object files.
+
+**Expansion is ~9x, not 17.7x.** The 17.7x came from summing `.o` bytes. Every
+object contains the lifted function TWICE - once as the body `sub_<hex>` and
+once inlined into the export wrapper `__az_dep_<hex>`, because
+`inject_alwaysinline` marks the body `alwaysinline` so the wrapper absorbs it.
+Counting the linked mini instead: 30.51 MB of wasm from ~3.4 MB of native
+`.text`, so **~9x**. rustc's own x86-to-wasm ratio is ~3x, so the gap is 3x,
+not 6x. Matching rustc would put the mini near 10 MB raw / ~1.1 MB brotli -
+which is exactly the stated target, and makes expansion the lever that decides
+whether the target is reachable at all.
+
+**The double compile is a BUILD cost, not a size cost.** The linked mini has
+3,831 defined functions for 3,791 lifted ones - about 1.01 per function - so
+`--gc-sections` already drops the redundant body once the wrapper has inlined
+it. `obj / mini = 1.98x` is that GC, not shipped duplication. What it does cost
+is build time: llc compiles every function twice, and on the largest modules
+that is two 85,000-line functions per object across 3,791 objects. Since llc
+spawns are also what wedged runs 39 and 40 on the CreateProcess lock, halving
+them is worth doing on its own merits - but do not expect bytes from it.
+
+Worth stating plainly because I nearly reported the opposite: seeing the body
+and the wrapper at 50.2% and 49.7% of every module looks exactly like a 2x size
+bug. It is not. Count functions in the linked wasm before believing it.
+
+**`__az_indirect_dispatch` is 6 lines in a per-function module**, not the giant
+switch - the big one lives in its own object (399 KB, 1.3% of the mini) and
+overrides the weak no-op. An earlier note here implying the dispatcher was
+inlined everywhere was a measurement artifact: the span was computed as
+"everything after its `define`", which swept up the functions that follow it.
+
+# The engine bundle is carrying app payload
+
+`azul-mini` is meant to be the engine half, but the lift seeds one extra
+fn-pointer root - `azwriter::web_state::app_state_from_json` - and **6.62 MB
+across 247 functions is reachable only through it**, 12.9% of the reachable
+mass:
+
+| crate | MB |
+|---|---|
+| azul_css (the app's own CSS parsing) | 2.10 |
+| pulldown_cmark (markdown) | 1.77 |
+| alloc | 0.68 |
+| core | 0.47 |
+| serde_json | 0.33 |
+| azul_simplecss | 0.32 |
+| azwriter | 0.26 |
+
+This is the cleanest cut available - one root, no shared mass to untangle, and
+app code by definition. Every app should get its own hydration chunk; the engine
+mini should keep none of it. Simpler than the four-way CH0..CH3 split, and it is
+what "azul-mini = the engine half" actually means.
+
+> Pair a log with its OWN scratch dir. Export names are `__az_dep_<native_hex>`
+> and every rebuild shifts the image base, so a mismatched pair resolves no
+> sizes at all and reads as "nothing there" rather than as an error. This bit me
+> once in this very analysis.
