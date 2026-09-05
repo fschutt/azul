@@ -462,3 +462,96 @@ watchdog's coverage (registration is correctly before `spawn()`), and re-entrant
 `FFI_LOCK` (no holder calls another; the in-process link path is behind a
 feature the gate does not build). `set_lift_phase` markers now bracket the
 region so the next occurrence names its own phase.
+
+---
+
+# Correction: the real artifact is half what the offline link suggested
+
+The delivered figures above were measured on an **offline link with
+`--export-dynamic`**, which exports every symbol and therefore **defeats
+`--gc-sections`**. The production link exports 44 non-`__az_dep_` symbols plus a
+selected subset of deps, so the collector can do its job.
+
+Measured on the real artifact — run 41's own `azul-mini.wasm`:
+
+| | raw | brotli -q11 | ratio |
+|---|---|---|---|
+| **shipped mini (run 41)** | **34.13 MB** | **3.56 MB** | 9.6x |
+| my offline `--export-dynamic` link, same objects | 64.68 MB | 6.70 MB | 9.7x |
+
+So AzWriter's engine wasm delivers as **3.56 MB**, not 6.70 MB. The relative
+run-39-vs-run-41 comparison stands — both sides used identical flags — but every
+absolute number from an offline link is roughly 2x too large. **Link with the
+production export list, or measure the artifact the pipeline actually wrote.**
+
+Also corrected: **run 41's link did NOT hang.** `azul-mini.wasm` was written at
+the same second the log went silent, so wasm-ld completed and the deadlock is in
+**post-link processing** — after `FONT-MIRROR`, which collects the mirror pages
+*for* `inject_user_binary_data_segments`. That function has loops but no
+blocking primitive, and the process showed zero CPU, so a loop cannot explain
+it. The phase markers now bracket exactly this window.
+
+# The chunk plan (measured on run 41)
+
+Four chunks, disjoint over 4,426 functions:
+
+| chunk | holds | wasm | fns |
+|---|---|---|---|
+| **CH0 boot-core** (eager) | init, JSON hydrate, markdown to DOM, CSS parse, cascade, solver3, taffy, display list | 14.34 MB | 1,715 |
+| **CH1 shape** (awaited, not lazy) | text3, allsorts, rust_fontconfig, font, glyph cache | 8.28 MB | 916 |
+| **CH2 measure/virtualize** (lazy) | measure_dom, scratch_layout, layout_document/bfc/ifc, flexbox/grid | 6.56 MB | 548 |
+| **CH3 cold/diagnostics** (lazy) | core::fmt, Debug/Display, dead desktop code | 3.37 MB | 1,247 |
+
+**The uncomfortable result: 89.8% of the mass is on the boot path.** Before
+AzWriter paints a pixel it must parse JSON, parse markdown, parse CSS, build the
+DOM, cascade, load and shape fonts, and solve layout. There is no small hot set,
+so **chunking buys latency, not download size** — CH0 can execute while CH1
+streams. Bytes never fetched on a normal first paint: CH2 + CH3, 30.5%.
+
+The structural facts that make it work:
+
+- **CH0 to CH2 and CH0 to CH3 have ZERO static call edges.** Both are entered
+  only through `__az_indirect_dispatch`, so the whole lazy-loading problem is
+  concentrated in one switch rather than spread over thousands of call sites.
+- **A lazy chunk calling into the always-resident core is free.** Only
+  core-to-lazy edges need boundary machinery, and there are none.
+- **`__az_indirect_dispatch` currently names all 4,965 bodies** (4,965
+  `declare`, 9,948 switch cases). That is why `--gc-sections` cannot strip
+  anything today, and it must be split per chunk.
+
+## Hazards that must be handled before shipping this
+
+1. **Data segments clobber the live heap.** Every `instantiate` replays that
+   module's data segments over the *shared* memory, and the loader already had
+   to move init/hydrate below all instantiation for exactly this reason. A
+   lazily instantiated chunk violates that invariant by construction. Needs
+   disjoint per-chunk mirror bands asserted at build time, or lazy chunks with
+   no data segments at all.
+2. **The async problem is solved at the JS export boundary, not in the shim.** A
+   boundary import is a synchronous wasm to JS to wasm call and cannot await. But
+   every path into a lazy chunk starts at a JS-called export, and JS *is* async
+   there — so `await chunkReady(k)` before the export, prefetch chunks at
+   bootstrap, and let the residual miss be a trap (CH2, an assertion that should
+   never fire) or an existing stub (CH3, a no-op formatter degrades a log line).
+3. **CH2's value is structurally fragile.** The same seam measures 11.99 MB in
+   run 41 but 1.61 MB in run 39, because run 39 lifted `run_track_frames` — a
+   *second* caller of `layout_document`. One extra caller collapses the seam 7x
+   and silently moves ~10 MB back into the eager core. Whatever ships must fail
+   the build if CH0's in-edge count to CH2 exceeds 1.
+
+## Seams measured and killed
+
+grid (0.06 MB), diagnostics inside the boot closure (0.13 MB), desktop-dead code
+(0.13 MB), raster/webrender (0.14 MB) — all too small, consistently in two runs.
+Table layout has 2.80 MB behind it but 174 crossing edges over 110 callees: the
+widest cut measured for the least mass.
+
+**The dead desktop code is a bug, not a seam.** ~0.95 MB of `pdb`, `cpal`,
+`keyring`, `wasapi` and `std::sys::pal::windows::pipe` is in the wasm *only*
+because `.rdata` fn-pointer harvesting enqueued it. Fix it at the harvest site —
+which is what `plausible_object_extent` now does — rather than spending a chunk
+on it.
+
+**Before building any of this: run `AZ_FN_COVERAGE`.** The first-paint core above
+is inferred from the call graph, and a runtime measurement supersedes it for one
+build's cost.
