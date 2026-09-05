@@ -24,6 +24,11 @@ pub mod markdown;
 /// the problem-report dialog and the crash reporter build.
 #[cfg(feature = "cpurender")]
 pub mod report;
+/// The problem-report dialog. Gated with `cpurender` because it is built ON
+/// `dialogs::report` (which is) and decodes its screenshot through
+/// `crate::cpurender::AzulPixmap` — without the gate a `widgets` build with no
+/// CPU renderer referenced two modules that had been configured out.
+#[cfg(feature = "cpurender")]
 pub mod report_problem;
 #[cfg(feature = "telemetry")]
 pub mod telemetry_consent;

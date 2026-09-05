@@ -8227,7 +8227,7 @@ impl MacOSWindow {
         } else {
             // Lightweight: re-invoke image callbacks, update scroll offsets + GPU values
             // Skips scene builder (display lists haven't changed)
-            crate::desktop::wr_translate2::build_image_only_transaction(
+            let frame = crate::desktop::wr_translate2::build_image_only_transaction(
                 &mut txn,
                 layout_window,
                 self.common.render_api.as_mut().unwrap(),
@@ -8236,6 +8236,31 @@ impl MacOSWindow {
             .map_err(|e| {
                 WindowError::PlatformError(format!("Failed to build image-only transaction: {}", e))
             })?;
+
+            // Nothing in this transaction changes what is on screen: it asked
+            // for no frame, so sending it would only make WebRender do
+            // bookkeeping for values it already has. The display-link tick that
+            // brought us here has nothing to present.
+            if !frame.changed {
+                log_trace!(
+                    LogCategory::Rendering,
+                    "[macOS] Lightweight pass: nothing changed, transaction dropped"
+                );
+                // The scrollbar fade is driven by re-requesting frames, and it
+                // has a DELAY phase in which the opacity does not move yet.
+                // Skipping the render must not also skip the re-arm, or the
+                // fade would never start.
+                let needs_fade_frame = self
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+                    .unwrap_or(false);
+                if needs_fade_frame {
+                    self.request_redraw();
+                }
+                return Ok(());
+            }
         }
 
         log_trace!(LogCategory::Rendering, "[build_atomic_txn] COMPLETE");

@@ -356,6 +356,8 @@ pub struct MonitorState {
     pub height: i32,
     pub make: String,  // Manufacturer (from wl_output.geometry)
     pub model: String, // Model (from wl_output.geometry)
+    /// Refresh in mHz as `wl_output.mode` reports it (60000 = 60 Hz).
+    pub refresh_mhz: i32,
 }
 
 impl MonitorState {
@@ -4373,16 +4375,22 @@ impl WaylandWindow {
         // MWA-B11: CSD resize edges — frameless windows previously had NO
         // way to resize. A press in the border band hands the resize to the
         // compositor (xdg_toplevel.resize); edge codes per xdg-shell.
-        if is_down
-            && button == 0x110 // BTN_LEFT
-            && self.common.current_window_state().flags.decorations
-                == azul_core::window::WindowDecorations::None
+        if is_down && button == 0x110
+        // BTN_LEFT
         {
             use crate::desktop::shell2::common::event::{
-                csd_resize_edge_at, CsdResizeEdge, CSD_RESIZE_BAND_PX,
+                csd_resize_edge_for_press, CsdResizeEdge, CSD_RESIZE_BAND_PX,
             };
-            let size = self.common.current_window_state().size.dimensions;
-            if let Some(edge) = csd_resize_edge_at(position, size, CSD_RESIZE_BAND_PX) {
+            let ws = self.common.current_window_state();
+            let size = ws.size.dimensions;
+            let (decorations, frame) = (ws.flags.decorations, ws.flags.frame);
+            // The frame check is the shared rule now: a maximized or
+            // fullscreen window has no resizable edge, and the `return` below
+            // precedes `record_input_sample`, so eating the press here costs
+            // the DragStart and the DoubleClick the title bar needs.
+            if let Some(edge) =
+                csd_resize_edge_for_press(position, size, decorations, frame, CSD_RESIZE_BAND_PX)
+            {
                 let edges: u32 = match edge {
                     CsdResizeEdge::Top => 1,
                     CsdResizeEdge::Bottom => 2,
@@ -6893,6 +6901,13 @@ impl WaylandWindow {
             .as_ref()
             .map(|lw| !lw.pending_virtual_view_updates.is_empty())
             .unwrap_or(false);
+        // Time the WHOLE frame — layout, render, attach/damage, commit — so
+        // Wayland can be compared with X11's `render_and_present` on the same
+        // basis. `resize_surface`'s `took=` is NOT that: it times only the
+        // buffer reallocation (the shm pool rebuild / GL resize), which is why
+        // it reports single-digit milliseconds and must never be read as a
+        // repaint cost.
+        let frame_started = std::time::Instant::now();
         let needs_work = self.common.regeneration_pending()
             || self.common.relayout_only_pending()
             || self.common.resize_relayout_pending()
@@ -7094,23 +7109,17 @@ impl WaylandWindow {
                         &self.common.gl_context_ptr,
                     );
                 } else {
-                    let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
-                    if let Err(e) = crate::desktop::wr_translate2::build_image_only_transaction(
-                        &mut txn,
+                    // Sends nothing when nothing changed - see
+                    // common::layout::submit_lightweight_frame. The scene-builder
+                    // flush is done unconditionally further down, so it is not
+                    // requested here.
+                    let _sent = crate::desktop::shell2::common::layout::submit_lightweight_frame(
                         layout_window,
                         render_api,
+                        document_id,
                         &self.common.gl_context_ptr,
-                    ) {
-                        log_error!(
-                            LogCategory::Rendering,
-                            "[Wayland] Failed to build lightweight transaction: {}",
-                            e
-                        );
-                    }
-
-                    render_api.send_transaction(
-                        crate::desktop::wr_translate2::wr_translate_document_id(document_id),
-                        txn,
+                        false,
+                        "Wayland",
                     );
                 }
             }
@@ -8123,6 +8132,18 @@ impl WaylandWindow {
             .unwrap_or(false);
         if needs_anim_frame {
             self.request_redraw();
+        }
+
+        // Only a pass that actually put content on the surface is a frame;
+        // the early bails above return before here.
+        if surface_committed {
+            log_debug!(
+                LogCategory::Window,
+                "[Wayland] generate_frame {}x{} took={:.2}ms",
+                self.common.current_window_state().size.dimensions.width as u32,
+                self.common.current_window_state().size.dimensions.height as u32,
+                frame_started.elapsed().as_secs_f64() * 1000.0
+            );
         }
     }
 

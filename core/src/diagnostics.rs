@@ -45,9 +45,40 @@ fn ring() -> &'static Mutex<VecDeque<String>> {
 #[cfg(feature = "std")]
 pub type DiagnosticSink = fn(&str);
 
+/// Write one diagnostic line, tolerating a destination that has gone away.
+///
+/// `eprintln!` PANICS when the write fails, and a closed stderr is not exotic:
+/// piping a running app into `head` closes the pipe as soon as `head` has its
+/// lines, and the very next diagnostic kills the app. Observed exactly that
+/// way on 2026-09-04 while capturing a log:
+///
+/// ```text
+/// failed printing to stderr: Broken pipe (os error 32)
+///   std::io::stdio::_eprint
+///   azul_core::diagnostics::default_sink        @ diagnostics.rs:50
+///   azul_core::diagnostics::emit                @ diagnostics.rs:116
+///   azul_layout::widgets::warn_widget_needs_a_name
+///   ...
+///   azul::desktop::app::App::run
+/// ```
+///
+/// A framework warning about a missing accessible name took the whole window
+/// down. The ring below already refuses to do that ("a poisoned diagnostics
+/// ring must never take the app down"); the printing half never got the same
+/// rule. Diagnostics are advisory by definition - failing to deliver one is
+/// never worth the process.
+#[cfg(feature = "std")]
+fn write_diagnostic(mut out: impl std::io::Write, message: &str) {
+    use std::io::Write as _;
+    // `drop`, not `let _ =`: this crate denies `let_underscore_drop`, and
+    // `io::Result` owns a boxed error. Discarding it is the POINT here - see
+    // above - so say so explicitly.
+    drop(writeln!(out, "{message}"));
+}
+
 #[cfg(feature = "std")]
 fn default_sink(message: &str) {
-    eprintln!("{message}");
+    write_diagnostic(std::io::stderr().lock(), message);
 }
 
 #[cfg(feature = "std")]

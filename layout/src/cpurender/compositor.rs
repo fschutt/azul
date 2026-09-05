@@ -3360,19 +3360,64 @@ pub fn compute_virtual_view_damage(
         if let DisplayListItem::VirtualView {
             child_dom_id,
             bounds,
+            content_offset,
             ..
         } = item
         {
-            let changed = match (current.get(child_dom_id), previous.get(child_dom_id)) {
+            let view = *bounds.inner();
+            match (current.get(child_dom_id), previous.get(child_dom_id)) {
                 (Some(c), Some(p)) => {
                     // Same Arc → definitely unchanged (cheap fast-path).
-                    !std::sync::Arc::ptr_eq(c, p) && !display_lists_visually_equal(c, p)
+                    if std::sync::Arc::ptr_eq(c, p) || display_lists_visually_equal(c, p) {
+                        continue;
+                    }
+
+                    // SOMETHING changed - but WHAT. Damaging the whole view
+                    // here is what made a blinking caret cost a full-window
+                    // re-raster plus a full-window blit: AzWriter's document
+                    // body is a VirtualView, the caret lives in its child DOM,
+                    // and every 1200 ms tick reported `render=30ms blit=15ms`
+                    // on an otherwise idle X11/CPU window. The parent list has
+                    // had an item diff all along; the child never got one.
+                    //
+                    // Child lists are 0-relative (see the VirtualView arm in
+                    // raster.rs: the renderer draws at `pos - scroll`, with the
+                    // view origin and content offset pushed as the scroll), so
+                    // a diff rect at content (x, y) lands on screen at
+                    // `origin + (x, y) - content_offset`, clipped to the view.
+                    let empty = ScrollOffsetMap::default();
+                    match compute_display_list_damage(p, c, &empty, &empty) {
+                        // The diff paired every item and found the ones that
+                        // moved: repaint exactly those.
+                        Some(rects) if !rects.is_empty() => {
+                            let dx = view.origin.x - content_offset.x;
+                            let dy = view.origin.y - content_offset.y;
+                            for r in rects {
+                                let on_screen = LogicalRect {
+                                    origin: LogicalPosition {
+                                        x: r.origin.x + dx,
+                                        y: r.origin.y + dy,
+                                    },
+                                    size: r.size,
+                                };
+                                let clipped = intersect_logical_rects(on_screen, view);
+                                // Scrolled out of sight: behind the view's clip,
+                                // so those pixels are a neighbour's, not ours.
+                                if clipped.size.width > 0.0 && clipped.size.height > 0.0 {
+                                    damage.push(clipped);
+                                }
+                            }
+                        }
+                        // The two answers disagree (visually different, but the
+                        // diff found nothing to repaint) or the diff gave up on
+                        // a structural change. Precision is an optimisation;
+                        // correctness is not, so fall back to the whole view.
+                        _ => damage.push(view),
+                    }
                 }
-                (Some(_), None) | (None, Some(_)) => true,
-                (None, None) => false,
-            };
-            if changed {
-                damage.push(*bounds.inner());
+                // Appeared or disappeared this frame - nothing to diff against.
+                (Some(_), None) | (None, Some(_)) => damage.push(view),
+                (None, None) => {}
             }
         }
     }
@@ -5617,6 +5662,141 @@ mod autotest_generated {
         // Absent in both → nothing to draw, nothing to damage.
         cur.remove(&dom);
         assert!(compute_virtual_view_damage(&parent, &cur, &prev).is_empty());
+    }
+
+    /// A BLINKING CARET MUST NOT REPAINT THE DOCUMENT.
+    ///
+    /// AzWriter's document body is a `VirtualView`, and the caret lives inside
+    /// that child DOM. Measured on X11/CPU before this rule existed, with the
+    /// window otherwise completely idle:
+    ///
+    ///     [X11 cpu present] total=45.72ms | render=29.90ms blit=15.65ms ...
+    ///
+    /// every 1200 ms - the caret-blink interval - because ANY difference in the
+    /// child display list damaged the VirtualView's whole on-screen box. The
+    /// item diff the parent list already gets was never run on the child, so a
+    /// 2x18 caret cost a full-window re-raster AND a full-window swizzle +
+    /// XPutImage.
+    ///
+    /// The rule: damage what CHANGED inside the view, translated into parent
+    /// space and clipped to the view - never the whole view because something
+    /// in it moved.
+    #[test]
+    fn a_caret_blink_inside_a_virtual_view_damages_the_caret_not_the_view() {
+        let dom = DomId { inner: 1 };
+        // A document viewport the size of a real window body.
+        let parent = dlist(vec![DisplayListItem::VirtualView {
+            child_dom_id: dom,
+            bounds: wlr(10.0, 20.0, 1200.0, 900.0),
+            clip_rect: wlr(10.0, 20.0, 1200.0, 900.0),
+            content_offset: Default::default(),
+        }]);
+
+        // Two frames of the child: identical except the caret, which is on in
+        // one and off in the other. Same item count - this is a blink, not a
+        // structural change.
+        let caret_on = Arc::new(dlist(vec![
+            opaque_rect(0.0, 0.0, 1200.0, 40.0),
+            opaque_rect(300.0, 400.0, 2.0, 18.0),
+        ]));
+        let caret_off = Arc::new(dlist(vec![
+            opaque_rect(0.0, 0.0, 1200.0, 40.0),
+            rect_item(
+                300.0,
+                400.0,
+                2.0,
+                18.0,
+                ColorU {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                    a: 255,
+                },
+            ),
+        ]));
+
+        let mut cur: BTreeMap<DomId, Arc<DisplayList>> = BTreeMap::new();
+        let mut prev: BTreeMap<DomId, Arc<DisplayList>> = BTreeMap::new();
+        prev.insert(dom, Arc::clone(&caret_on));
+        cur.insert(dom, Arc::clone(&caret_off));
+
+        let d = compute_virtual_view_damage(&parent, &cur, &prev);
+        assert!(!d.is_empty(), "the caret DID change - something must repaint");
+
+        let view_area = 1200.0 * 900.0;
+        let damaged: f32 = d.iter().map(|r| r.size.width * r.size.height).sum();
+        assert!(
+            damaged < view_area * 0.01,
+            "a 2x18 caret must not damage the document: {damaged}px of {view_area}px in {d:?}"
+        );
+
+        // ...and it must be damaged where it actually IS on screen: the child
+        // list is 0-relative, the view sits at (10, 20).
+        let caret = d[0];
+        assert!(
+            (caret.origin.x - 310.0).abs() < 2.0 && (caret.origin.y - 420.0).abs() < 2.0,
+            "caret damage must be translated into parent space, got {caret:?}"
+        );
+    }
+
+    /// The precise path must not leak damage outside the view. A child item
+    /// that changed while scrolled out of sight is behind the view's clip, so
+    /// repainting its position would dirty a neighbour's pixels.
+    #[test]
+    fn virtual_view_damage_is_clipped_to_the_view() {
+        let dom = DomId { inner: 1 };
+        let parent = dlist(vec![DisplayListItem::VirtualView {
+            child_dom_id: dom,
+            bounds: wlr(0.0, 0.0, 100.0, 50.0),
+            clip_rect: wlr(0.0, 0.0, 100.0, 50.0),
+            content_offset: Default::default(),
+        }]);
+        let a = Arc::new(dlist(vec![
+            opaque_rect(0.0, 0.0, 10.0, 10.0),
+            opaque_rect(0.0, 400.0, 10.0, 10.0),
+        ]));
+        let b = Arc::new(dlist(vec![
+            opaque_rect(0.0, 0.0, 10.0, 10.0),
+            opaque_rect(0.0, 400.0, 99.0, 10.0),
+        ]));
+        let mut cur: BTreeMap<DomId, Arc<DisplayList>> = BTreeMap::new();
+        let mut prev: BTreeMap<DomId, Arc<DisplayList>> = BTreeMap::new();
+        prev.insert(dom, Arc::clone(&a));
+        cur.insert(dom, Arc::clone(&b));
+
+        for r in compute_virtual_view_damage(&parent, &cur, &prev) {
+            assert!(
+                r.origin.x >= 0.0
+                    && r.origin.y >= 0.0
+                    && r.origin.x + r.size.width <= 100.0
+                    && r.origin.y + r.size.height <= 50.0,
+                "damage {r:?} escapes the view box 0,0 100x50"
+            );
+        }
+    }
+
+    /// A structural change in the child (the diff cannot pair items) still
+    /// falls back to the whole view. Precision is an optimisation; correctness
+    /// is not negotiable.
+    #[test]
+    fn a_structural_child_change_still_damages_the_whole_view() {
+        let dom = DomId { inner: 1 };
+        let parent = dlist(vec![DisplayListItem::VirtualView {
+            child_dom_id: dom,
+            bounds: wlr(5.0, 6.0, 40.0, 30.0),
+            clip_rect: wlr(5.0, 6.0, 40.0, 30.0),
+            content_offset: Default::default(),
+        }]);
+        // Present last frame, gone this frame: nothing to diff against.
+        let only = Arc::new(dlist(vec![opaque_rect(0.0, 0.0, 10.0, 10.0)]));
+        let mut cur: BTreeMap<DomId, Arc<DisplayList>> = BTreeMap::new();
+        let prev: BTreeMap<DomId, Arc<DisplayList>> = BTreeMap::new();
+        cur.insert(dom, Arc::clone(&only));
+
+        let d = compute_virtual_view_damage(&parent, &cur, &prev);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].size.width, 40.0);
+        assert_eq!(d[0].size.height, 30.0);
     }
 
     // ============================== apply_layer_filters ======================

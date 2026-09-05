@@ -459,12 +459,33 @@ fn discover_linux_extras(style: &mut SystemStyle) {
     // schemas populated - reading those is how an XFCE desktop themed
     // Mint-Y-Aqua ended up rendering as Breeze dark with breeze-dark icons.
     let source = linux_settings_source(&azul_css::system::detect_linux_desktop_env());
-    if source == LinuxSettingsSource::Xfconf && xfce_extras(style) {
-        apply_env_cursor_fallbacks(style);
-        gtk_ini_extras(style);
-        return;
+    let de_answered = match source {
+        LinuxSettingsSource::Xfconf => xfce_extras(style),
+        LinuxSettingsSource::KdeConfig => kde_extras(style),
+        _ => false,
+    };
+
+    // ONLY the theme/icon/cursor/button block belongs to the desktop-specific
+    // reader. Everything after it - animations, sounds, menu and toolbar
+    // hints, the caret blink - is asked of gsettings on every desktop and must
+    // keep running, or a desktop with its own reader silently loses all of it.
+    // An early `return` here did exactly that: on KDE it took
+    // `caret_blink_ms` from 1200 back to the built-in 530, which then showed
+    // up as the app repainting twice a second at a rate nobody configured.
+    if !de_answered {
+        discover_gsettings_appearance(style);
     }
 
+    apply_env_cursor_fallbacks(style);
+    // The GTK config file is the floor under every desktop and every bare WM.
+    gtk_ini_extras(style);
+
+    discover_shared_behaviour(style);
+}
+
+/// The icon / cursor / widget-theme / titlebar-button block, from the GNOME
+/// schemas. Used by the desktops that have no reader of their own.
+fn discover_gsettings_appearance(style: &mut SystemStyle) {
     // Icon theme
     if let Some(icon) = gsettings_get("org.gnome.desktop.interface", "icon-theme") {
         style.linux.icon_theme = OptionString::Some(icon.into());
@@ -499,11 +520,12 @@ fn discover_linux_extras(style: &mut SystemStyle) {
         style.metrics.titlebar.buttons.has_maximize = layout.contains("maximize");
         style.linux.titlebar_button_layout = OptionString::Some(layout.into());
     }
-    // Env-var fallbacks (work on ALL Linux WMs)
-    apply_env_cursor_fallbacks(style);
-    // The GTK config file is the floor under every desktop and every bare WM.
-    gtk_ini_extras(style);
+}
 
+/// The desktop-INDEPENDENT tail: animation, sound, menu/toolbar hints and the
+/// caret blink. Asked of gsettings on every desktop, so it must run whether or
+/// not a desktop-specific reader answered the appearance block above.
+fn discover_shared_behaviour(style: &mut SystemStyle) {
     // ── Animation metrics ────────────────────────────────────────────
     if let Some(anim_s) = gsettings_get("org.gnome.desktop.interface", "enable-animations") {
         let enabled = anim_s.trim() != "false";
@@ -886,6 +908,89 @@ pub(crate) fn titlebar_from_xfwm_layout(layout: &str) -> (TitlebarButtonSide, Ti
         ..TitlebarButtons::default()
     };
     (side, buttons)
+}
+
+/// KDE spells its titlebar buttons as LETTERS across two kwinrc keys:
+/// `M`=menu, `S`=on-all-desktops, `H`=help, `I`=minimize, `A`=maximize,
+/// `X`=close, `F`=keep-above, `B`=keep-below, `L`=shade, `N`=app-menu.
+/// Plasma's default is `ButtonsOnLeft=MS`, `ButtonsOnRight=HIAX`, which
+/// [`titlebar_side_from_layout`] - looking for the WORD "close" - cannot read.
+pub(crate) fn titlebar_from_kde_layout(
+    left: &str,
+    right: &str,
+) -> (TitlebarButtonSide, TitlebarButtons) {
+    let side = if left.contains('X') {
+        TitlebarButtonSide::Left
+    } else {
+        TitlebarButtonSide::Right
+    };
+    let both = alloc::format!("{left}{right}");
+    let buttons = TitlebarButtons {
+        has_close: both.contains('X'),
+        has_minimize: both.contains('I'),
+        has_maximize: both.contains('A'),
+        ..TitlebarButtons::default()
+    };
+    (side, buttons)
+}
+
+/// The KDE half of [`discover_linux_extras`] - icon theme, cursor, widget
+/// style and titlebar buttons, all from KDE's own config.
+///
+/// These used to come from the GNOME schemas even on a Plasma session. That
+/// looked harmless because Plasma writes those schemas for GTK-app
+/// integration, so they agreed - but the CINNAMON schemas in the same session
+/// hold a different desktop's answers entirely (measured: `Mint-Y-Sand`,
+/// `Mint-Y-Aqua`, `Bibata-Modern-Classic` against KDE's `breeze-dark`,
+/// `Breeze`, `breeze_cursors`), and `resolve_schema_family` takes whichever
+/// family answers first. A desktop's own store is the only authority on it.
+///
+/// Returns `false` when KDE's config answered nothing, so the caller can fall
+/// back to the shared path.
+fn kde_extras(style: &mut SystemStyle) -> bool {
+    let sources = kde_color_sources();
+    let get = |group: &str, key: &str| -> Option<String> {
+        sources
+            .iter()
+            .find_map(|ini| ini.get(group, key))
+            .map(String::from)
+    };
+    let mut answered = false;
+
+    if let Some(icon) = get("Icons", "Theme") {
+        style.linux.icon_theme = OptionString::Some(icon.into());
+        answered = true;
+    }
+    if let Some(widget) = get("KDE", "widgetStyle") {
+        style.linux.gtk_theme = OptionString::Some(widget.into());
+        answered = true;
+    }
+    if let Some(cursor) = get("Mouse", "cursorTheme") {
+        style.linux.cursor_theme = OptionString::Some(cursor.into());
+        answered = true;
+    }
+    if let Some(sz) = get("Mouse", "cursorSize").and_then(|v| v.trim().parse::<u32>().ok()) {
+        if sz > 0 {
+            style.linux.cursor_size = sz;
+        }
+    }
+
+    // kwinrc is a separate file from the colour sources.
+    let home = std::env::var("HOME").unwrap_or_default();
+    if let Some(kwinrc) = KdeIni::read(&alloc::format!("{home}/.config/kwinrc")) {
+        let deco = "org.kde.kdecoration2";
+        // Plasma's defaults, used when the user never moved a button.
+        let left = kwinrc.get(deco, "ButtonsOnLeft").unwrap_or("MS");
+        let right = kwinrc.get(deco, "ButtonsOnRight").unwrap_or("HIAX");
+        let (side, buttons) = titlebar_from_kde_layout(left, right);
+        style.metrics.titlebar.button_side = side;
+        style.metrics.titlebar.buttons = buttons;
+        style.linux.titlebar_button_layout =
+            OptionString::Some(alloc::format!("{left}|{right}").into());
+        answered = true;
+    }
+
+    answered
 }
 
 /// The GTK config file every desktop and every bare WM shares.
@@ -2169,6 +2274,17 @@ pub(crate) fn discover() -> SystemStyle {
     // App-specific ricing stylesheet
     style.app_specific_stylesheet = load_app_specific_stylesheet().map(Box::new);
 
+    // Remember what full detection concluded, so a session with no
+    // xdg-desktop-portal still has a light/dark answer for the WINDOW theme.
+    // See `effective_system_theme`.
+    DISCOVERED_THEME.store(
+        match style.theme {
+            Theme::Dark => 1,
+            Theme::Light => 2,
+        },
+        core::sync::atomic::Ordering::Relaxed,
+    );
+
     style
 }
 
@@ -2187,6 +2303,34 @@ pub(crate) fn discover() -> SystemStyle {
 static OBSERVED_COLOR_SCHEME: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
 static THEME_WATCHER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+/// What full detection concluded at startup: 0 = not run yet, 1 = dark,
+/// 2 = light. Written by [`discover`], read when the portal says nothing.
+static DISCOVERED_THEME: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+/// The theme detection read from the desktop's own config at startup.
+fn discovered_startup_theme() -> Option<Theme> {
+    match DISCOVERED_THEME.load(core::sync::atomic::Ordering::Relaxed) {
+        1 => Some(Theme::Dark),
+        2 => Some(Theme::Light),
+        _ => None,
+    }
+}
+
+/// Which theme the WINDOW should carry: the portal's answer when it gives one,
+/// otherwise what full detection read at startup.
+///
+/// The portal is a live SIGNAL and detection is a one-shot READ, so the portal
+/// wins when both speak. But when the portal is absent - no xdg-desktop-portal,
+/// a bare WM, a session where it simply does not answer - the startup read is
+/// the only thing that knows, and it is usually right: it came from kdeglobals,
+/// xfconf or the GTK theme name. Without this the window kept
+/// `WindowTheme::default()` (LightMode) on every portal-less desktop, so a
+/// Breeze Dark KDE session rendered a LIGHT application chrome while
+/// `SystemStyle` sitting right beside it correctly said `Theme::Dark`.
+fn effective_system_theme(observed: Option<Theme>, discovered: Option<Theme>) -> Option<Theme> {
+    observed.or(discovered)
+}
 
 /// Map the XDG `color-scheme` setting onto a [`Theme`].
 ///
@@ -2696,7 +2840,7 @@ pub(crate) fn adopt_observed_theme(
 ) -> Option<alloc::sync::Arc<SystemStyle>> {
     use azul_core::window::WindowTheme;
 
-    let theme = observed_system_theme()?;
+    let theme = effective_system_theme(observed_system_theme(), discovered_startup_theme())?;
     let theme = match theme {
         Theme::Dark => WindowTheme::DarkMode,
         Theme::Light => WindowTheme::LightMode,
@@ -3132,6 +3276,86 @@ mod kde_ini_tests {
         // A layout that drops maximize must not draw one.
         let (_, buttons) = titlebar_from_xfwm_layout("O|HC");
         assert!(buttons.has_close && buttons.has_minimize && !buttons.has_maximize);
+    }
+
+    /// KDE keeps its icon theme, cursor, widget style and titlebar buttons in
+    /// its OWN store - and azul was reading them out of the GNOME schemas.
+    ///
+    /// Measured on this Plasma session, 2026-09-05:
+    ///   kdeglobals [Icons] Theme       = breeze-dark
+    ///   kcminputrc [Mouse] cursorTheme = breeze_cursors
+    ///   org.cinnamon.desktop.interface icon-theme = 'Mint-Y-Sand'
+    ///                                  gtk-theme  = 'Mint-Y-Aqua'
+    ///                                  cursor-theme = 'Bibata-Modern-Classic'
+    /// The GNOME schemas happened to agree with KDE here (Plasma writes them
+    /// for GTK-app integration), so nothing looked wrong - but the CINNAMON
+    /// schemas, sitting in the same session, hold a completely different
+    /// desktop's answers. `resolve_schema_family` picks whichever family
+    /// answers `font-name` first, so on a machine without `org.gnome.*` a KDE
+    /// session reads Mint-Y-Sand icons onto a Breeze desktop. The XFCE fix
+    /// gave XFCE its own store; KDE never got the same treatment.
+    #[test]
+    fn the_kde_button_layout_is_letters_not_words() {
+        // kdecoration2 spells buttons as LETTERS split across two keys:
+        // M=menu S=on-all-desktops H=help I=minimize A=maximize X=close.
+        // Plasma's default is ButtonsOnLeft=MS, ButtonsOnRight=HIAX - nothing
+        // like GNOME's `icon:minimize,maximize,close`, so
+        // `titlebar_side_from_layout` (which looks for the WORD "close")
+        // cannot read it at all.
+        let (side, buttons) = titlebar_from_kde_layout("MS", "HIAX");
+        assert_eq!(side, TitlebarButtonSide::Right);
+        assert!(buttons.has_close && buttons.has_minimize && buttons.has_maximize);
+
+        // Buttons moved to the left: close is in the LEFT key.
+        let (side, _) = titlebar_from_kde_layout("XIA", "M");
+        assert_eq!(side, TitlebarButtonSide::Left);
+
+        // A layout without maximize must not draw one.
+        let (_, buttons) = titlebar_from_kde_layout("M", "IX");
+        assert!(buttons.has_close && buttons.has_minimize && !buttons.has_maximize);
+    }
+
+    /// Observed on KDE Plasma **Wayland** (Breeze Dark), 2026-09-05: the
+    /// window rendered its LIGHT chrome on a dark desktop. Detection was not
+    /// the problem - `AZ_DUMP_SYSTEM_STYLE=1` correctly read `theme Dark` and
+    /// the whole Breeze Dark palette out of kdeglobals. The problem is that
+    /// the WINDOW theme (`WindowState::theme`, which is what an app reads
+    /// through `CallbackInfo::get_theme()`) is fed by ONE source: the
+    /// xdg-desktop-portal watcher. This session logs
+    /// `xdg-desktop-portal unavailable`, so the watcher never stores anything,
+    /// `adopt_observed_theme` returns `None`, and the window keeps
+    /// `WindowTheme::default()` - which is `LightMode` - forever.
+    ///
+    /// `observed_system_theme`'s own doc already states the rule this restores:
+    /// when the portal expresses no preference, "whatever full detection chose
+    /// at startup (GTK theme name, kdeglobals, pywal, ...) remains the better
+    /// answer". It was never actually applied to the window.
+    #[test]
+    fn a_silent_portal_falls_back_to_what_detection_read_at_startup() {
+        // The portal answers: it wins, even against a different startup read.
+        assert_eq!(
+            effective_system_theme(Some(Theme::Dark), Some(Theme::Light)),
+            Some(Theme::Dark)
+        );
+        assert_eq!(
+            effective_system_theme(Some(Theme::Light), Some(Theme::Dark)),
+            Some(Theme::Light)
+        );
+
+        // THE DEFECT: no portal, but startup detection read a dark desktop out
+        // of kdeglobals. Today this is `None` and the window stays LightMode.
+        assert_eq!(
+            effective_system_theme(None, Some(Theme::Dark)),
+            Some(Theme::Dark),
+            "a dark desktop with no portal must still produce a dark window"
+        );
+        assert_eq!(
+            effective_system_theme(None, Some(Theme::Light)),
+            Some(Theme::Light)
+        );
+
+        // Nothing known anywhere: stay quiet rather than guess.
+        assert_eq!(effective_system_theme(None, None), None);
     }
 
     #[test]

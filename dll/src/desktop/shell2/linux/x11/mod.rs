@@ -1377,6 +1377,61 @@ fn x11_event_name(t: i32) -> &'static str {
 /// while another window held focus. Without it the client keeps believing a
 /// modifier is held — the stuck-Alt-after-Alt-Tab class of bug — because the
 /// release event was delivered to whoever had focus at the time.
+/// Whether the window manager can be handed an interactive move/resize.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(super) enum MoveResizeHandoff {
+    /// The WM advertises `_NET_WM_MOVERESIZE`: release the implicit grab, send
+    /// the ClientMessage, and treat the pointer as the WM's from here.
+    HandToWm,
+    /// It does not. Keep the grab and the button state: the press the user is
+    /// still holding is the only thing left to drag with.
+    Unsupported,
+}
+
+/// Does `_NET_SUPPORTED` advertise `_NET_WM_MOVERESIZE`?
+///
+/// EWMH is optional and this was never asked. See `moveresize_handoff_tests`
+/// for what going ahead anyway costs on a WM that cannot answer.
+///
+/// `atom == 0` is `None` - what `XInternAtom` returns when it cannot intern -
+/// and never matches. Format-32 properties come back as C `long`s padded in
+/// the upper bytes, so a stray 0 word in the list is entirely possible.
+pub(super) fn moveresize_handoff(
+    supported: &[std::os::raw::c_ulong],
+    moveresize_atom: std::os::raw::c_ulong,
+) -> MoveResizeHandoff {
+    if moveresize_atom != 0 && supported.contains(&moveresize_atom) {
+        MoveResizeHandoff::HandToWm
+    } else {
+        MoveResizeHandoff::Unsupported
+    }
+}
+
+/// What a set of `_NET_WM_STATE` atoms means for [`WindowFrame`].
+///
+/// Ranked, because the atoms are not exclusive and a window can carry several
+/// at once: HIDDEN (iconified) outranks everything, then FULLSCREEN - the
+/// state with no edges at all - then maximize, which per EWMH means BOTH axes.
+/// A window maximized on one axis still has two draggable edges and is
+/// therefore Normal.
+fn window_frame_from_net_wm_state(
+    max_vert: bool,
+    max_horz: bool,
+    fullscreen: bool,
+    hidden: bool,
+) -> azul_core::window::WindowFrame {
+    use azul_core::window::WindowFrame;
+    if hidden {
+        WindowFrame::Minimized
+    } else if fullscreen {
+        WindowFrame::Fullscreen
+    } else if max_vert && max_horz {
+        WindowFrame::Maximized
+    } else {
+        WindowFrame::Normal
+    }
+}
+
 const X11_WINDOW_EVENT_MASK: c_long = ExposureMask
     | KeyPressMask
     | KeyReleaseMask
@@ -1387,7 +1442,12 @@ const X11_WINDOW_EVENT_MASK: c_long = ExposureMask
     | EnterWindowMask
     | LeaveWindowMask
     | FocusChangeMask
-    | KeymapStateMask;
+    | KeymapStateMask
+    // Without this the client never hears that the WM maximized, restored or
+    // iconified the window - `flags.frame` then stays whatever the app last
+    // believed, and everything keyed off it (the CSD resize band, the
+    // maximize toggle) acts on a stale answer.
+    | PropertyChangeMask;
 
 /// Is this FocusIn/FocusOut a side effect of a GRAB rather than a real change
 /// of keyboard focus?
@@ -1483,8 +1543,23 @@ fn percent_decode(s: &str) -> String {
 /// MotionNotify to this client. So this function is the *sole* delivery path for
 /// mouse button/motion — it translates them into the shared core handlers
 /// (`handle_mouse_button` / `handle_mouse_move`). It also feeds pen
-/// pressure/tilt and multi-touch (which core events can't express). Keyboard is
-/// NOT XI-selected, so keys still arrive as core KeyPress events.
+/// pressure/tilt and multi-touch (which core events can't express).
+///
+/// KEYBOARD: the claim that used to sit here - "keyboard is NOT XI-selected,
+/// so keys still arrive as core KeyPress events" - is FALSE. `XI_KeyPress` and
+/// `XI_KeyRelease` ARE in the `XIAllMasterDevices` mask (see window creation),
+/// added for the per-seat keyboard work, and the XI2 handler then DROPS every
+/// key from the virtual core keyboard because those keys are expected to
+/// arrive as core events too. Per XI2proto ("if the event has been delivered,
+/// event processing stops") that combination should have swallowed keyboard
+/// input entirely.
+///
+/// It does not: keys were typed into the app on this exact configuration
+/// (X11 backend under XWayland on KDE Plasma, 2026-09-05) and reached the
+/// document. So the arrangement is LATENT rather than broken - practical
+/// delivery differs from the spec text here - but nobody should read this
+/// comment and believe the keyboard is unselected, because the next person to
+/// touch either mask will be reasoning from a false premise.
 ///
 /// COOKIE OWNERSHIP: `XGetEventData` may be called at most ONCE per cookie —
 /// libX11 deletes the cookie from its jar on a successful fetch, so a second
@@ -2661,6 +2736,15 @@ pub struct X11Window {
     /// rendered per request: a wheel flood measured ~90 presents/s of
     /// sub-ms frames on a 60Hz display (app_frame_seconds, 2026-08-29).
     /// `AZ_NO_PACE=1` disables the gate.
+    /// `_NET_WM_STATE` and the four state atoms the frame readback compares
+    /// against, interned ONCE.
+    ///
+    /// `PropertyNotify` arrives for every property the WM or the app touches -
+    /// title, icon, workspace bookkeeping - and `XInternAtom` is a round trip
+    /// to the server. Interning five of them per event, just to discover the
+    /// event was about the title, would put five round trips on a path that
+    /// should cost one integer compare.
+    net_wm_state_atoms: Option<[Atom; 5]>,
     last_present_at: Option<std::time::Instant>,
     pace_fd: i32,
     frame_interval: std::time::Duration,
@@ -2704,6 +2788,9 @@ pub struct X11Window {
 
     /// Damage rects for incremental rendering (CPU and GPU)
     gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
+    /// The WM's `_NET_SUPPORTED` list, read once (it changes only when the
+    /// window manager is replaced) and consulted before handing it a drag.
+    net_supported_cache: Option<Vec<std::os::raw::c_ulong>>,
 
     /// Render-intent request: the authoritative "a repaint is needed" signal.
     /// Raised by request_redraw()/Expose/events/timers; retired by
@@ -3880,6 +3967,7 @@ impl X11Window {
             new_frame_ready: new_frame_ready_shared,
             xrandr_event_base: None,
             timer_fds: std::collections::BTreeMap::new(),
+            net_wm_state_atoms: None,
             last_present_at: None,
             pace_fd: -1,
             frame_interval: detect_frame_interval(),
@@ -3906,6 +3994,7 @@ impl X11Window {
             os_present_requested: true, // first present must be full
             frame_ready_wake_fd,
             gpu_damage_rects: Vec::new(),
+            net_supported_cache: None,
             needs_redraw: crate::desktop::shell2::common::event::LatchedRequest::raised(),
             size_to_content_pending: options.size_to_content,
             #[cfg(feature = "a11y")]
@@ -4877,6 +4966,16 @@ impl X11Window {
             }
             defines::SelectionNotify => {
                 self.handle_xdnd_selection_notify(unsafe { &event.selection })
+            }
+            defines::PropertyNotify => {
+                // The ONLY way a client hears that the WM changed the window's
+                // state. Without it `flags.frame` is whatever the app last
+                // believed: after an Alt+F10 / window-menu / edge-drag
+                // un-maximize the client still thought it was maximized, and
+                // its CSD resize band - which is disabled while maximized -
+                // stayed off, so the window could no longer be resized by its
+                // edges.
+                self.handle_property_notify(unsafe { &event.property })
             }
             defines::ButtonPress | defines::ButtonRelease => {
                 self.handle_mouse_button(unsafe { &event.button })
@@ -6168,6 +6267,34 @@ impl X11Window {
     /// its wake re-enters the render gate, and every request that arrived
     /// in between coalesces into that single deferred frame - the timerfd
     /// spelling of macOS's "render at the CVDisplayLink tick".
+    /// Close out a present: stamp the pacing clock and report what it cost.
+    ///
+    /// BOTH render paths must call this. The CPU path used to do neither - it
+    /// returned early, so `last_present_at` stayed `None` for the life of the
+    /// process and [`Self::pace_allows_render`] therefore returned `true`
+    /// unconditionally: the frame pacer existed only for the GPU path, and on
+    /// CPU every wake that carried a redraw request paid a full damage-diff and
+    /// render instead of coalescing into one frame per refresh interval. It was
+    /// also invisible - the `took=` line lived in the GPU tail, so an idle CPU
+    /// run logged zero presents while the window was demonstrably painting, and
+    /// a zero is not a measurement.
+    fn note_present(&mut self, present_started: std::time::Instant) {
+        let now = std::time::Instant::now();
+        let took = now.duration_since(present_started);
+        self.last_present_at = Some(now);
+
+        // Only a call that rendered AND presented reaches this, so it measures
+        // the real thing. Behind the Window category like the rest of the X11
+        // frame logging - `AZ_LOG="debug,+window"`.
+        log_debug!(
+            LogCategory::Window,
+            "[X11] render_and_present {}x{} took={:.2}ms",
+            self.common.current_window_state().size.dimensions.width as u32,
+            self.common.current_window_state().size.dimensions.height as u32,
+            took.as_secs_f64() * 1000.0
+        );
+    }
+
     fn pace_allows_render(&mut self) -> bool {
         use std::sync::OnceLock;
         static NO_PACE: OnceLock<bool> = OnceLock::new();
@@ -6225,6 +6352,13 @@ impl X11Window {
         // re-schedule them — so a minimise, or one transient GPU error, silently
         // cost a repaint that nobody would ever ask for again. It is now retired
         // at the END, on the paths that actually rendered.
+        // Time the WHOLE present, so X11 can answer "how long does a repaint
+        // take" the way Wayland's `resize_surface ... took=` already does.
+        // Without this the only X11 number available was the gap BETWEEN
+        // ConfigureNotify events, which is the rate resize events arrive at,
+        // not the cost of painting - and quoting it as a frame rate is exactly
+        // the mistake the X11 report had to retract.
+        let present_started = std::time::Instant::now();
         let want_redraw = self.needs_redraw.pending();
         // ... and retired BY EPOCH, because this function raises the request
         // again itself: the scrollbar-fade re-arm below calls request_redraw().
@@ -6351,6 +6485,17 @@ impl X11Window {
 
                     let mut rendered = false;
 
+                    // WHERE A CPU PRESENT GOES. `note_present` says a present
+                    // took 40 ms; it cannot say which part. A trace-level run
+                    // with every log category on shows NOTHING between two
+                    // caret-blink presents, so the whole cost is inside this
+                    // block and the only way to attribute it is from inside.
+                    let phase_clock = std::time::Instant::now();
+                    let mut t_vview_ms = 0.0f64;
+                    let mut t_prepare_ms = 0.0f64;
+                    let mut t_render_ms = 0.0f64;
+                    let mut t_blit_ms = 0.0f64;
+
                     // Synchronize window state to layout_window before rendering
                     let window_state = self.common.current_window_state().clone();
                     if let Some(ref mut layout_window) = self.common.layout_window {
@@ -6382,14 +6527,18 @@ impl X11Window {
                     // reads layout_results.
                     // One drain for every backend: it re-invokes in place AND rebuilds
                     // the CPU hit-tester (the rebuilt child DOMs carry fresh NodeIds).
+                    let t0 = std::time::Instant::now();
                     self.common.drain_virtual_view_updates();
+                    t_vview_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
                     // Shared per-frame content preparation (journal clock, image
                     // callbacks through the content chokepoint, scrollbar cache).
                     // The logic lives in LayoutWindow so no backend can skip a piece.
+                    let t0 = std::time::Instant::now();
                     if let Some(lw) = self.common.layout_window.as_mut() {
                         lw.prepare_frame_cpu();
                     }
+                    t_prepare_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
                     if let Some(ref layout_window) = self.common.layout_window {
                         let dom_id = DomId { inner: 0 };
@@ -6414,6 +6563,7 @@ impl X11Window {
                                 // ARGB visual carries it); shape from alpha if asked.
                                 self.cpu_backend
                                     .sync_window_flags(&layout_window.current_window_state);
+                                let t0 = std::time::Instant::now();
                                 self.cpu_backend.render_frame(
                                     layout_window,
                                     &layout_window.renderer_resources,
@@ -6421,6 +6571,7 @@ impl X11Window {
                                     height,
                                     dpi,
                                 );
+                                t_render_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
                                 // #27 native backbuffer: X11 stays LEGACY by
                                 // design. XPutImage requires the image in the
@@ -6473,6 +6624,7 @@ impl X11Window {
                                         .last_present_damage
                                         .to_present_rects_physical(dpi, pw, ph, force_full);
 
+                                    let t_blit0 = std::time::Instant::now();
                                     if let Some(rects) = present_rects {
                                         unsafe {
                                             let screen = (self.xlib.XDefaultScreen)(self.display);
@@ -6573,6 +6725,7 @@ impl X11Window {
                                             }
                                         }
                                     }
+                                    t_blit_ms = t_blit0.elapsed().as_secs_f64() * 1000.0;
                                     // None → nothing changed on screen; the
                                     // retained frame stays valid. Still counts
                                     // as rendered (do NOT fall through to the
@@ -6584,6 +6737,19 @@ impl X11Window {
                             }
                         }
                     }
+
+                    let t_total_ms = phase_clock.elapsed().as_secs_f64() * 1000.0;
+                    log_debug!(
+                        LogCategory::Rendering,
+                        "[X11 cpu present] total={:.2}ms | render={:.2}ms blit={:.2}ms \
+                         prepare={:.2}ms vview={:.2}ms other={:.2}ms",
+                        t_total_ms,
+                        t_render_ms,
+                        t_blit_ms,
+                        t_prepare_ms,
+                        t_vview_ms,
+                        t_total_ms - t_render_ms - t_blit_ms - t_prepare_ms - t_vview_ms
+                    );
 
                     if !rendered {
                         // R2: no pixmap was produced this frame (e.g. unchanged
@@ -6664,6 +6830,10 @@ impl X11Window {
             // so the fade re-arm above and any request raised by a callback
             // inside this render survive (mirrors the Wayland CPU tail).
             self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
+
+            // Same close-out as the GPU tail: the pacer only ever saw GPU
+            // presents, so it did not pace this path at all.
+            self.note_present(present_started);
 
             return Ok(());
         }
@@ -6763,28 +6933,17 @@ impl X11Window {
                         );
                         render_api.flush_scene_builder();
                     }
-                } else {
-                    let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
-                    if let Err(e) = crate::desktop::wr_translate2::build_image_only_transaction(
-                        &mut txn,
+                } else if let Some(document_id) = self.common.document_id {
+                    // Sends nothing when nothing changed - see
+                    // common::layout::submit_lightweight_frame.
+                    let _sent = crate::desktop::shell2::common::layout::submit_lightweight_frame(
                         layout_window,
                         render_api,
+                        document_id,
                         &self.common.gl_context_ptr,
-                    ) {
-                        log_error!(
-                            LogCategory::Rendering,
-                            "[X11] Failed to build lightweight transaction: {}",
-                            e
-                        );
-                    }
-
-                    if let Some(document_id) = self.common.document_id {
-                        render_api.send_transaction(
-                            crate::desktop::wr_translate2::wr_translate_document_id(document_id),
-                            txn,
-                        );
-                        render_api.flush_scene_builder();
-                    }
+                        true,
+                        "X11",
+                    );
                 }
             }
         }
@@ -6919,9 +7078,8 @@ impl X11Window {
         // epoch check means the scrollbar-fade re-arm above survives too.
         self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
 
-        // Frame-pacing stamp (see `pace_allows_render`): only a call that
-        // actually presented reaches this line, same argument as above.
-        self.last_present_at = Some(std::time::Instant::now());
+        // Frame-pacing stamp + the cost of this present (see `note_present`).
+        self.note_present(present_started);
 
         Ok(())
     }
@@ -7117,11 +7275,17 @@ impl X11Window {
         // KWin/xfwm4 jumped the window by that much on the first motion.
         let s = self.hidpi();
         let (ox, oy) = self.root_origin_physical();
-        self.begin_net_wm_moveresize(
+        let handed_over = self.begin_net_wm_moveresize(
             (x * s + ox) as std::os::raw::c_long,
             (y * s + oy) as std::os::raw::c_long,
             8, // _NET_WM_MOVERESIZE_MOVE
         );
+        if !handed_over {
+            // The WM never took the pointer, so it is still ours and the user
+            // is still holding the button. Clearing the state here is what
+            // made the drag die until the next press.
+            return;
+        }
         // The WM takes its own pointer grab now (owner_events = False in
         // mutter, KWin and xfwm4), so the ButtonRelease that ends the drag
         // goes to the WM and never arrives here — and the EnterNotify /
@@ -7138,6 +7302,98 @@ impl X11Window {
             ws.mouse_state.right_down = false;
             ws.mouse_state.middle_down = false;
         });
+    }
+
+    /// Adopt a WM-driven `_NET_WM_STATE` change.
+    ///
+    /// Reads the property back and applies it with `WindowStateSource::Os`, so
+    /// the OS-sync baseline advances with it and `sync_window_state` does not
+    /// echo the state straight back to the window manager.
+    fn handle_property_notify(
+        &mut self,
+        ev: &defines::XPropertyEvent,
+    ) -> ProcessEventResult {
+        let atoms = *self.net_wm_state_atoms.get_or_insert_with(|| {
+            let intern = |name: &[u8]| -> Atom {
+                unsafe { (self.xlib.XInternAtom)(self.display, name.as_ptr().cast(), 0) }
+            };
+            [
+                intern(b"_NET_WM_STATE\0"),
+                intern(b"_NET_WM_STATE_MAXIMIZED_VERT\0"),
+                intern(b"_NET_WM_STATE_MAXIMIZED_HORZ\0"),
+                intern(b"_NET_WM_STATE_FULLSCREEN\0"),
+                intern(b"_NET_WM_STATE_HIDDEN\0"),
+            ]
+        });
+        let wm_state = atoms[0];
+        // The cheap rejection, and the reason the atoms are cached: almost
+        // every PropertyNotify is about something else.
+        if wm_state == 0 || ev.atom != wm_state {
+            return ProcessEventResult::DoNothing;
+        }
+
+        let (max_v, max_h, full, hidden) = {
+            let wanted: [Atom; 4] = [atoms[1], atoms[2], atoms[3], atoms[4]];
+            let mut found = [false; 4];
+            unsafe {
+                let mut actual_type: Atom = 0;
+                let mut actual_format: c_int = 0;
+                let mut nitems: c_ulong = 0;
+                let mut bytes_after: c_ulong = 0;
+                let mut data: *mut u8 = std::ptr::null_mut();
+                let status = (self.xlib.XGetWindowProperty)(
+                    self.display,
+                    self.window,
+                    wm_state,
+                    0,
+                    1024,
+                    0,
+                    defines::AnyPropertyType,
+                    &mut actual_type,
+                    &mut actual_format,
+                    &mut nitems,
+                    &mut bytes_after,
+                    &mut data,
+                );
+                if status == 0 && !data.is_null() {
+                    // format 32 comes back as an array of C `long`, upper bytes
+                    // padded — reading it as u32 is the classic 64-bit trap.
+                    if actual_format == 32 {
+                        let atoms = std::slice::from_raw_parts(
+                            data.cast::<std::os::raw::c_long>(),
+                            nitems as usize,
+                        );
+                        for a in atoms {
+                            for (i, w) in wanted.iter().enumerate() {
+                                if *w != 0 && *a as Atom == *w {
+                                    found[i] = true;
+                                }
+                            }
+                        }
+                    }
+                    (self.xlib.XFree)(data.cast());
+                }
+            }
+            (found[0], found[1], found[2], found[3])
+        };
+
+        let frame = window_frame_from_net_wm_state(max_v, max_h, full, hidden);
+        if self.common.current_window_state().flags.frame == frame {
+            return ProcessEventResult::DoNothing;
+        }
+
+        log_debug!(
+            LogCategory::Window,
+            "[X11] _NET_WM_STATE -> {:?} (was {:?}) — WM-driven, adopting",
+            frame,
+            self.common.current_window_state().flags.frame
+        );
+        self.common.snapshot_window_state_baseline("x11.property_notify");
+        self.common.update_window_state(
+            crate::desktop::shell2::common::event::WindowStateSource::Os,
+            |ws| ws.flags.frame = frame,
+        );
+        ProcessEventResult::DoNothing
     }
 
     fn sync_window_state(&mut self) {
@@ -8110,12 +8366,99 @@ impl X11Window {
     /// via _NET_WM_MOVERESIZE. Mirrors the _NET_WM_STATE ClientMessage
     /// sender above; the implicit pointer grab from the triggering button
     /// press MUST be released first, or the WM cannot take the pointer.
+    /// Read the window manager's `_NET_SUPPORTED` list off the root window.
+    ///
+    /// Cached: the list changes only when the WM is replaced, and this is on
+    /// the press path of every titlebar drag.
+    fn net_supported(&mut self) -> &[std::os::raw::c_ulong] {
+        if self.net_supported_cache.is_none() {
+            let mut list: Vec<std::os::raw::c_ulong> = Vec::new();
+            unsafe {
+                let screen = (self.xlib.XDefaultScreen)(self.display);
+                let root = (self.xlib.XRootWindow)(self.display, screen);
+                let net_supported = (self.xlib.XInternAtom)(
+                    self.display,
+                    b"_NET_SUPPORTED\0".as_ptr() as *const c_char,
+                    0,
+                );
+                if net_supported != 0 {
+                    let mut actual_type: Atom = 0;
+                    let mut actual_format: c_int = 0;
+                    let mut nitems: c_ulong = 0;
+                    let mut bytes_after: c_ulong = 0;
+                    let mut data: *mut u8 = std::ptr::null_mut();
+                    let status = (self.xlib.XGetWindowProperty)(
+                        self.display,
+                        root,
+                        net_supported,
+                        0,
+                        4096,
+                        0,
+                        defines::AnyPropertyType,
+                        &mut actual_type,
+                        &mut actual_format,
+                        &mut nitems,
+                        &mut bytes_after,
+                        &mut data,
+                    );
+                    if status == 0 && !data.is_null() {
+                        // format 32 comes back as an array of C `long`, upper
+                        // bytes padded - reading it as u32 is the classic
+                        // 64-bit trap (same note as the _NET_WM_STATE reader).
+                        if actual_format == 32 {
+                            let atoms = std::slice::from_raw_parts(
+                                data.cast::<std::os::raw::c_long>(),
+                                nitems as usize,
+                            );
+                            list.extend(atoms.iter().map(|a| *a as std::os::raw::c_ulong));
+                        }
+                        (self.xlib.XFree)(data.cast());
+                    }
+                }
+            }
+            log_debug!(
+                LogCategory::Window,
+                "[X11] _NET_SUPPORTED: {} atoms advertised by the WM",
+                list.len()
+            );
+            self.net_supported_cache = Some(list);
+        }
+        self.net_supported_cache.as_deref().unwrap_or(&[])
+    }
+
+    /// Returns whether the drag was actually handed to the WM.
+    ///
+    /// `false` means the WM does not advertise `_NET_WM_MOVERESIZE`: nothing
+    /// was sent, the implicit pointer grab from the triggering press is STILL
+    /// OURS, and the caller must not pretend the pointer left.
     pub(super) fn begin_net_wm_moveresize(
         &mut self,
         x_root: std::os::raw::c_long,
         y_root: std::os::raw::c_long,
         direction: std::os::raw::c_long,
-    ) {
+    ) -> bool {
+        let moveresize_atom = unsafe {
+            (self.xlib.XInternAtom)(
+                self.display,
+                b"_NET_WM_MOVERESIZE\0".as_ptr() as *const c_char,
+                0,
+            )
+        };
+        // ASK BEFORE GIVING ANYTHING AWAY. Releasing the grab, sending the
+        // message and clearing the button state are all irreversible, and on a
+        // WM without EWMH move/resize all three are wrong at once - the window
+        // does not move and the drag is dead until the next press.
+        if moveresize_handoff(self.net_supported(), moveresize_atom)
+            == MoveResizeHandoff::Unsupported
+        {
+            log_warn!(
+                LogCategory::Window,
+                "[X11] the WM does not advertise _NET_WM_MOVERESIZE - keeping the pointer grab \
+                 instead of handing over a drag nobody will take"
+            );
+            return false;
+        }
+
         unsafe {
             (self.xlib.XUngrabPointer)(self.display, 0 /* CurrentTime */);
 
@@ -8125,11 +8468,7 @@ impl X11Window {
             let mut event: defines::XClientMessageEvent = std::mem::zeroed();
             event.type_ = defines::ClientMessage;
             event.window = self.window;
-            event.message_type = (self.xlib.XInternAtom)(
-                self.display,
-                b"_NET_WM_MOVERESIZE\0".as_ptr() as *const c_char,
-                0,
-            );
+            event.message_type = moveresize_atom;
             event.format = 32;
             event.data.l[0] = x_root;
             event.data.l[1] = y_root;
@@ -8146,6 +8485,7 @@ impl X11Window {
             );
             (self.xlib.XFlush)(self.display);
         }
+        true
     }
 
     /// Check timers and threads, trigger callbacks if needed.
@@ -8447,6 +8787,123 @@ impl X11Window {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod moveresize_handoff_tests {
+    use super::{moveresize_handoff, MoveResizeHandoff};
+
+    /// HANDING A DRAG TO A WM THAT CANNOT TAKE IT.
+    ///
+    /// `begin_net_wm_moveresize` did three irreversible things before finding
+    /// out whether the WM understands `_NET_WM_MOVERESIZE`: it released the
+    /// implicit pointer grab from the triggering press, sent a ClientMessage
+    /// to the root window, and - in `handle_begin_interactive_move` - cleared
+    /// `left_down`/`right_down`/`middle_down` on the grounds that "the pointer
+    /// is the WM's from here".
+    ///
+    /// On a WM that does not advertise the atom (EWMH is optional; the X11
+    /// audit flagged the missing `_NET_SUPPORTED` probe) all three are wrong at
+    /// once: the window does not move, the grab is gone, and the app now
+    /// believes no button is down WHILE THE USER IS STILL HOLDING ONE - so the
+    /// drag is dead until the next press.
+    ///
+    /// The probe has to come first, and its answer decides all three.
+    #[test]
+    fn a_wm_that_does_not_advertise_moveresize_keeps_its_grab() {
+        const MOVERESIZE: u64 = 412;
+
+        // Advertised: hand it over.
+        assert_eq!(
+            moveresize_handoff(&[300, MOVERESIZE, 500], MOVERESIZE),
+            MoveResizeHandoff::HandToWm
+        );
+
+        // Not advertised: keep the grab, keep the buttons, do not send.
+        assert_eq!(
+            moveresize_handoff(&[300, 500], MOVERESIZE),
+            MoveResizeHandoff::Unsupported
+        );
+
+        // `_NET_SUPPORTED` absent or unreadable (a bare WM, or the read
+        // failed): an empty list is NOT permission.
+        assert_eq!(
+            moveresize_handoff(&[], MOVERESIZE),
+            MoveResizeHandoff::Unsupported
+        );
+    }
+
+    /// `XInternAtom` returns `None` - the atom 0 - when it cannot intern.
+    /// Zero is not an atom, and must never match, or a failed intern would
+    /// read as "supported" against any list that happens to contain a 0 word.
+    /// Format-32 properties come back as C `long`s padded in the upper bytes,
+    /// which is exactly how a stray 0 gets into such a list.
+    #[test]
+    fn the_none_atom_is_never_supported() {
+        assert_eq!(
+            moveresize_handoff(&[0, 300], 0),
+            MoveResizeHandoff::Unsupported
+        );
+        assert_eq!(moveresize_handoff(&[], 0), MoveResizeHandoff::Unsupported);
+    }
+}
+
+#[cfg(test)]
+mod net_wm_state_readback_tests {
+    use azul_core::window::WindowFrame;
+
+    use super::window_frame_from_net_wm_state;
+
+    /// X11 never reads `_NET_WM_STATE` back - there is no `PropertyNotify`
+    /// handler at all - so after the WINDOW MANAGER changes a window's state
+    /// the client keeps its old belief. Measured on this machine, KDE Plasma,
+    /// 2026-09-05: with the window un-maximized by `wmctrl`, a press in the
+    /// top 8 px still entered the interactive-move path (move-path=1), i.e.
+    /// the CSD resize band stayed disabled, because `flags.frame` was still
+    /// `Maximized`. Un-maximizing through the app's own double-click instead
+    /// gave move-path=0 - the band came back. The user-visible symptom is
+    /// "Alt+F10 the window and its resize edges stop working".
+    ///
+    /// This is the pure half: what a set of state atoms MEANS.
+    #[test]
+    fn the_state_atoms_decide_the_frame() {
+        // Both maximize axes = maximized. EWMH sets them as a pair.
+        assert_eq!(
+            window_frame_from_net_wm_state(true, true, false, false),
+            WindowFrame::Maximized
+        );
+        // ONE axis is not "maximized" - a vertically-maximized window still
+        // has left and right edges to drag.
+        assert_eq!(
+            window_frame_from_net_wm_state(true, false, false, false),
+            WindowFrame::Normal
+        );
+        assert_eq!(
+            window_frame_from_net_wm_state(false, true, false, false),
+            WindowFrame::Normal
+        );
+        // Fullscreen outranks maximize: it is the more specific state and the
+        // one with no edges at all.
+        assert_eq!(
+            window_frame_from_net_wm_state(true, true, true, false),
+            WindowFrame::Fullscreen
+        );
+        // HIDDEN is EWMH's spelling of iconified.
+        assert_eq!(
+            window_frame_from_net_wm_state(false, false, false, true),
+            WindowFrame::Minimized
+        );
+        // Minimized outranks maximized: a maximized window that is then
+        // iconified is minimized, and both atoms are present.
+        assert_eq!(
+            window_frame_from_net_wm_state(true, true, false, true),
+            WindowFrame::Minimized
+        );
+        assert_eq!(
+            window_frame_from_net_wm_state(false, false, false, false),
+            WindowFrame::Normal
+        );
     }
 }
 

@@ -826,7 +826,7 @@ pub const CSD_RESIZE_BAND_PX: f32 = 8.0;
 /// get real WM edges).
 #[must_use]
 pub fn csd_resize_edge_at(
-    pos: azul_core::geom::LogicalPosition,
+    pos: LogicalPosition,
     size: azul_core::geom::LogicalSize,
     band: f32,
 ) -> Option<CsdResizeEdge> {
@@ -845,6 +845,37 @@ pub fn csd_resize_edge_at(
         (_, _, _, true) => CsdResizeEdge::Bottom,
         _ => return None,
     })
+}
+
+/// Whether a press should be handed to the window manager as a RESIZE grab.
+///
+/// The whole rule in one place, because both Linux backends had it wrong in
+/// the same way and neither could see the other drift: the intercept ran
+/// regardless of frame state, and it `return`s before `record_input_sample`,
+/// so a swallowed press produces neither DragStart nor DoubleClick. A
+/// maximized or fullscreen window has no resizable edge - the request is a
+/// no-op at the WM and the press is simply lost - and maximized, the band's
+/// top 8 px sit at screen y = 0, exactly where a user aims for the title bar.
+///
+/// A window the WM decorates has no client band at all: the frame is the
+/// compositor's, and its own edges do the resizing.
+pub fn csd_resize_edge_for_press(
+    pos: LogicalPosition,
+    size: azul_core::geom::LogicalSize,
+    decorations: azul_core::window::WindowDecorations,
+    frame: azul_core::window::WindowFrame,
+    band: f32,
+) -> Option<CsdResizeEdge> {
+    if decorations != azul_core::window::WindowDecorations::None {
+        return None;
+    }
+    if matches!(
+        frame,
+        azul_core::window::WindowFrame::Maximized | azul_core::window::WindowFrame::Fullscreen
+    ) {
+        return None;
+    }
+    csd_resize_edge_at(pos, size, band)
 }
 
 #[cfg(test)]
@@ -902,6 +933,70 @@ mod csd_resize_edge_tests {
         );
         assert_eq!(csd_resize_edge_at(p(8.1, 300.0), size(), 8.0), None);
     }
+
+    /// A press in the edge band must NOT be taken as a resize grab while the
+    /// window is maximized or fullscreen.
+    ///
+    /// Both Linux backends had this wrong in the same way, and the X11 half
+    /// was measured on the device: the intercept ran regardless of frame
+    /// state, and its `return` precedes `record_input_sample`, so the press
+    /// reached neither the gesture manager nor the hit test - no DragStart,
+    /// no DoubleClick. A maximized window has no resizable edge, so the
+    /// request is a no-op at the WM/compositor and the press is simply eaten.
+    /// Maximized, that band's top 8 px sit at screen y = 0, exactly where a
+    /// user aims for the title bar.
+    #[test]
+    fn a_maximized_window_has_no_resize_edges() {
+        use azul_core::window::{WindowDecorations, WindowFrame};
+        let top = LogicalPosition { x: 400.0, y: 2.0 };
+
+        // Undecorated and NORMAL: the band is live.
+        assert_eq!(
+            csd_resize_edge_for_press(
+                top,
+                size(),
+                WindowDecorations::None,
+                WindowFrame::Normal,
+                8.0
+            ),
+            Some(CsdResizeEdge::Top)
+        );
+
+        // Undecorated and MAXIMIZED: there is no edge to resize.
+        assert_eq!(
+            csd_resize_edge_for_press(
+                top,
+                size(),
+                WindowDecorations::None,
+                WindowFrame::Maximized,
+                8.0
+            ),
+            None
+        );
+        assert_eq!(
+            csd_resize_edge_for_press(
+                top,
+                size(),
+                WindowDecorations::None,
+                WindowFrame::Fullscreen,
+                8.0
+            ),
+            None
+        );
+
+        // The window manager draws the frame: never our band.
+        assert_eq!(
+            csd_resize_edge_for_press(
+                top,
+                size(),
+                WindowDecorations::Normal,
+                WindowFrame::Normal,
+                8.0
+            ),
+            None
+        );
+    }
+
 }
 
 // Button state bitfield constants for `record_input_sample`.

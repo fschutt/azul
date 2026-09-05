@@ -20919,6 +20919,38 @@ mod autotest_generated {
         );
     }
 
+    /// THE BLIT HALF OF THE BLINKING-CARET RULE.
+    ///
+    /// Painting only the caret is worth nothing if the presenter then uploads
+    /// the whole window anyway. On X11/CPU the blit is a per-rect
+    /// swizzle + `XPutImage`; a full 1920x1036 upload measured 15 ms, a caret
+    /// measured 0.01 ms. So a caret-sized damage must stay caret-sized here.
+    ///
+    /// The device confirms the pair: six captures 350 ms apart across a blink
+    /// differ by exactly 19 pixels in a 1x19 box, and nowhere else.
+    #[test]
+    fn a_carets_damage_stays_a_caret_when_it_reaches_the_presenter() {
+        // 2x18 logical caret in a 1920x1036 window.
+        let d = FrameDamage::Rects(vec![rect(660.0, 279.0, 2.0, 18.0)]);
+        let got = d
+            .to_present_rects_physical(1.0, 1920, 1036, false)
+            .expect("a caret must be presented");
+        assert_eq!(got, vec![(660, 279, 2, 18)]);
+
+        let uploaded: u64 = got.iter().map(|(_, _, w, h)| u64::from(*w) * u64::from(*h)).sum();
+        assert!(
+            uploaded * 1000 < 1920 * 1036,
+            "a caret must cost under a thousandth of the window, uploaded {uploaded}px"
+        );
+
+        // ...but an OS-driven expose still re-presents everything: the pixels
+        // on screen are undefined then, whatever we last painted.
+        assert_eq!(
+            d.to_present_rects_physical(1.0, 1920, 1036, true),
+            Some(vec![(0, 0, 1920, 1036)])
+        );
+    }
+
     #[test]
     fn present_rects_round_outward_so_fractional_edges_are_covered() {
         // floor(origin) / ceil(far edge): a 1px rect starting at x=0.5 must

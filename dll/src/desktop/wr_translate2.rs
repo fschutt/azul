@@ -27,6 +27,7 @@ use azul_core::{
 use azul_layout::{
     headless::compute_scroll_child_rect,
     hit_test::FullHitTest,
+    managers::gpu_state::{FrameDigest, SubmittedDigest},
     text3::cache::ParsedFontTrait, // For get_hash() method
     window::DomLayoutResult,
 };
@@ -1609,17 +1610,21 @@ pub fn generate_frame(
     // WebRender's device_pixel_scale handles the conversion to device pixels.
     txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
+    // A full frame rebuilds the scene, so "identical to what I sent last time"
+    // is the wrong question: everything has to go across again regardless.
+    layout_window.gpu_state_manager.invalidate_submitted_digests();
+
     // Process image callback updates (invoke callbacks and register textures)
-    process_image_callback_updates(layout_window, gl_context, txn);
+    let _ = process_image_callback_updates(layout_window, gl_context, txn);
 
     // Process VirtualView updates (if any callbacks requested re-rendering)
     process_virtual_view_updates(layout_window, txn);
 
     // Scroll all nodes to their current positions
-    scroll_all_nodes(layout_window, txn);
+    let _ = scroll_all_nodes(layout_window, txn);
 
     // Synchronize GPU values (transforms, opacities, etc.)
-    synchronize_gpu_values(layout_window, txn);
+    let _ = synchronize_gpu_values(layout_window, txn);
 
     log_debug!(
         LogCategory::Rendering,
@@ -1635,8 +1640,12 @@ pub fn generate_frame(
     );
 }
 
-/// Synchronize scroll positions from ScrollManager to WebRender
-pub fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
+/// Synchronize scroll positions from ScrollManager to WebRender.
+///
+/// Returns `true` if the offsets DIFFER from the ones last pushed. Unchanged
+/// offsets are still written into the transaction (cheap, and keeps WebRender's
+/// view authoritative) but are not, by themselves, a reason to build a frame.
+pub fn scroll_all_nodes(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) -> bool {
     use webrender::api::{units::LayoutVector2D as WrLayoutVector2D, SampledScrollOffset};
 
     // Get HiDPI factor for scaling scroll offsets
@@ -1648,6 +1657,10 @@ pub fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
         .get_hidpi_factor()
         .inner
         .get();
+
+    // Digest of everything pushed below, so an identical set of offsets can be
+    // recognised as "not a reason to draw".
+    let mut digest = FrameDigest::new();
 
     // Iterate through all DOMs
     for (dom_id, layout_result) in &layout_window.layout_results {
@@ -1684,6 +1697,11 @@ pub fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
                 scroll_position.children_rect.origin.y * hidpi_factor,
             );
 
+            digest.push_u64(scroll_id);
+            digest.push_u64(u64::from(pipeline_id.0));
+            digest.push_f32(scroll_offset.x);
+            digest.push_f32(scroll_offset.y);
+
             // WebRender expects scroll offsets as sampled offsets
             txn.set_scroll_offsets(
                 external_scroll_id,
@@ -1694,10 +1712,23 @@ pub fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
             );
         }
     }
+
+    layout_window
+        .gpu_state_manager
+        .submitted_digest_changed(SubmittedDigest::ScrollOffsets, digest.finish())
 }
 
-/// Synchronize GPU-animated values (transforms, opacities) to WebRender
-pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
+/// Synchronize GPU-animated values (transforms, opacities) to WebRender.
+///
+/// Returns `true` if anything was actually written into `txn` — that is, if the
+/// property set DIFFERS from the one last handed to the renderer. Re-sending an
+/// identical set is not a reason to draw, and treating it as one is what made
+/// an idle window repaint at vsync forever: the lightweight transaction pushed
+/// the same two floats, asked for a frame, WebRender signalled `new_frame_ready`,
+/// the backend presented, and the present ran the lightweight path again.
+/// See `GpuStateManager::gpu_values_changed`.
+#[must_use]
+pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) -> bool {
     use webrender::api::{DynamicProperties, PropertyBinding, PropertyValue};
 
     // Get DPI scale factor to match display list coordinate space.
@@ -1861,27 +1892,64 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
         }
     }
 
-    // Apply all property updates to the transaction
-    if !properties.floats.is_empty()
-        || !properties.transforms.is_empty()
-        || !properties.colors.is_empty()
+    // Nothing collected at all: nothing to send, nothing changed.
+    if properties.floats.is_empty()
+        && properties.transforms.is_empty()
+        && properties.colors.is_empty()
     {
-        // Store lengths before moving properties
-        let float_count = properties.floats.len();
-        let transform_count = properties.transforms.len();
-        let color_count = properties.colors.len();
+        return false;
+    }
 
-        // WebRender renamed update_dynamic_properties to append_dynamic_properties
-        txn.append_dynamic_properties(properties);
+    // The same values as last time are not news. Compare bitwise (a NaN opacity
+    // must compare equal to itself, or the loop comes straight back).
+    // Order does not matter here: these are collected out of `HashMap`s, whose
+    // iteration order is not a promise, and `gpu_values_changed` sorts by key
+    // before digesting for exactly that reason.
+    let float_digest_input = properties
+        .floats
+        .iter()
+        .map(|p| (p.key.id.to_u64(), p.value))
+        .collect::<Vec<_>>();
+    let transform_digest_input = properties
+        .transforms
+        .iter()
+        .map(|p| (p.key.id.to_u64(), p.value.to_array()))
+        .collect::<Vec<_>>();
 
+    // Colors are never produced today; if that changes, a colour-only update
+    // must not be silenced by a digest that cannot see it.
+    let changed = layout_window
+        .gpu_state_manager
+        .gpu_values_changed(&float_digest_input, &transform_digest_input)
+        || !properties.colors.is_empty();
+
+    if !changed {
         log_debug!(
             LogCategory::Rendering,
-            "[synchronize_gpu_values] Updated {} float properties, {} transforms, {} colors",
-            float_count,
-            transform_count,
-            color_count
+            "[synchronize_gpu_values] {} floats / {} transforms unchanged - not submitting",
+            properties.floats.len(),
+            properties.transforms.len()
         );
+        return false;
     }
+
+    // Store lengths before moving properties
+    let float_count = properties.floats.len();
+    let transform_count = properties.transforms.len();
+    let color_count = properties.colors.len();
+
+    // WebRender renamed update_dynamic_properties to append_dynamic_properties
+    txn.append_dynamic_properties(properties);
+
+    log_debug!(
+        LogCategory::Rendering,
+        "[synchronize_gpu_values] Updated {} float properties, {} transforms, {} colors",
+        float_count,
+        transform_count,
+        color_count
+    );
+
+    true
 }
 
 // Additional Translation Functions
@@ -2310,7 +2378,8 @@ pub fn build_webrender_transaction(
         LogCategory::Rendering,
         "[build_atomic_txn] Step 1.6: Processing image callback updates"
     );
-    process_image_callback_updates(layout_window, gl_context, txn);
+    layout_window.gpu_state_manager.invalidate_submitted_digests();
+    let _ = process_image_callback_updates(layout_window, gl_context, txn);
 
     // Step 1.7: Pre-populate scrollbar opacity keys in GPU cache BEFORE building
     // display lists. The display list generator reads opacity_key from the GPU cache
@@ -2449,7 +2518,7 @@ pub fn build_webrender_transaction(
         LogCategory::Rendering,
         "[build_atomic_txn] Step 5: Adding scroll offsets"
     );
-    scroll_all_nodes(layout_window, txn);
+    let _ = scroll_all_nodes(layout_window, txn);
 
     // Step 5.5: Update scrollbar opacity for overlay fade-in/fade-out
     {
@@ -2476,7 +2545,7 @@ pub fn build_webrender_transaction(
         LogCategory::Rendering,
         "[build_atomic_txn] Step 6: Synchronizing GPU values"
     );
-    synchronize_gpu_values(layout_window, txn);
+    let _ = synchronize_gpu_values(layout_window, txn);
 
     // Step 7: Generate frame
     log_debug!(
@@ -2509,25 +2578,36 @@ pub fn build_webrender_transaction(
 /// - Root pipeline setup (already set from previous frame)
 ///
 /// This reduces frame time from ~5-15ms to ~0.1-0.5ms for unchanged DOMs.
+/// What a lightweight ("nothing was rebuilt") transaction turned out to be.
+///
+/// `changed == false` means the transaction carries nothing the renderer does
+/// not already have: no frame was requested, and the caller should drop it
+/// rather than send it. See `submit_lightweight_frame`.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct LightweightFrame {
+    /// Does this transaction change what is on screen?
+    pub changed: bool,
+}
+
 pub fn build_image_only_transaction(
     txn: &mut WrTransaction,
     layout_window: &mut LayoutWindow,
     _render_api: &mut WrRenderApi,
     gl_context: &azul_core::gl::OptionGlContextPtr,
-) -> Result<(), &'static str> {
+) -> Result<LightweightFrame, &'static str> {
     log_debug!(
         LogCategory::Rendering,
         "[build_image_only_txn] Building lightweight transaction (layout unchanged)"
     );
 
     // Step 1: Re-invoke image callbacks to produce updated GL textures
-    process_image_callback_updates(layout_window, gl_context, txn);
+    let images_changed = process_image_callback_updates(layout_window, gl_context, txn);
 
     // Step 2: Skip scene builder (display lists haven't changed)
     txn.skip_scene_builder();
 
     // Step 3: Add scroll offsets (scroll position may have changed)
-    scroll_all_nodes(layout_window, txn);
+    let scroll_changed = scroll_all_nodes(layout_window, txn);
 
     // Step 3.5: Update scrollbar thumb transforms based on current scroll offsets.
     // This must happen AFTER scroll_all_nodes (which updates WebRender scroll frames)
@@ -2571,16 +2651,33 @@ pub fn build_image_only_transaction(
     }
 
     // Step 4: Synchronize GPU values (opacity/transform animations)
-    synchronize_gpu_values(layout_window, txn);
+    let gpu_values_changed = synchronize_gpu_values(layout_window, txn);
 
-    // Step 5: Generate frame for compositing
-    txn.generate_frame(0, webrender::api::RenderReasons::empty());
+    // Step 5: Generate a frame ONLY if this transaction actually changes what
+    // is on screen.
+    //
+    // Asking for one unconditionally is what made an idle GPU window repaint
+    // forever: WebRender built the frame, `new_frame_ready` woke the backend,
+    // the backend presented, and the present ran this path again — measured at
+    // 1087 identical submissions and 58.6 fps on an X11 window nobody was
+    // touching. Nothing here is a reason to draw unless the images, the scroll
+    // offsets or the animated GPU values differ from what the renderer already
+    // has.
+    let changed = images_changed || scroll_changed || gpu_values_changed;
+    if changed {
+        txn.generate_frame(0, webrender::api::RenderReasons::empty());
+    }
 
     log_debug!(
         LogCategory::Rendering,
-        "[build_image_only_txn] Lightweight transaction ready"
+        "[build_image_only_txn] Lightweight transaction ready (images={} scroll={} gpu={} -> {})",
+        images_changed,
+        scroll_changed,
+        gpu_values_changed,
+        if changed { "frame requested" } else { "idle, no frame" }
     );
-    Ok(())
+
+    Ok(LightweightFrame { changed })
 }
 
 /// Invoke image callbacks THROUGH the content chokepoint, then register the
@@ -2601,11 +2698,18 @@ pub fn build_image_only_transaction(
 /// rebuild the WR scene. The `currently_registered_images` entry is keyed by
 /// the hash the (chokepoint-patched) display list actually carries, so a
 /// later scene REBUILD resolves the same stable key instead of re-uploading.
+///
+/// Returns `true` if the set of images handed to WebRender DIFFERS from the one
+/// handed over last time — a newly registered key, or a node whose `ImageRef`
+/// was replaced (`ImageRefHash` is a never-reused id, so an unchanged callback
+/// result keeps its hash). Re-uploading pixels that are already there is not a
+/// reason to build a frame.
+#[must_use]
 fn process_image_callback_updates(
     layout_window: &mut LayoutWindow,
     gl_context: &azul_core::gl::OptionGlContextPtr,
     txn: &mut WrTransaction,
-) {
+) -> bool {
     use azul_core::resources::DecodedImage;
 
     // Phase 1: journal clock + callback invocation + chokepoint application.
@@ -2636,7 +2740,17 @@ fn process_image_callback_updates(
         }
     }
 
+    // A brand-new registration must always be sent: the bookkeeping below
+    // records the key as registered, so dropping that transaction would leave
+    // WebRender without an image it is told the display list references.
+    let mut new_registration = false;
+    let mut digest = FrameDigest::new();
+
     for (dom_id, node_id, produced_hash, texture) in to_register {
+        digest.push_u64(dom_id.inner as u64);
+        digest.push_u64(node_id.index() as u64);
+        digest.push_u64(produced_hash.inner);
+
         // Stable (dom, node) external id: the same DOM node always maps to the
         // same ExternalImageId, so per-frame texture updates are update_image
         // (pixels only), never a scene rebuild.
@@ -2678,6 +2792,7 @@ fn process_image_callback_updates(
             );
         } else {
             txn.add_image(wr_key, wr_descriptor, wr_data, None);
+            new_registration = true;
         }
 
         // Resolve the hash the display list carries to the stable key.
@@ -2696,6 +2811,12 @@ fn process_image_callback_updates(
             .image_key_map
             .insert(image_key, produced_hash);
     }
+
+    let set_changed = layout_window
+        .gpu_state_manager
+        .submitted_digest_changed(SubmittedDigest::Images, digest.finish());
+
+    new_registration || set_changed
 }
 
 /// Process VirtualView updates requested by callbacks

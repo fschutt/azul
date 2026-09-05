@@ -996,6 +996,22 @@ mod linux {
         }
 
         pub fn get_displays() -> Vec<DisplayInfo> {
+            // BEFORE the cache: the compositor's answer is always the freshest
+            // truth, and the FIRST `get_displays()` runs before the registry
+            // roundtrip has delivered a single `wl_output.done`. Checking the
+            // cache first would pin that startup fallback - a hardcoded
+            // 1920x1080 - for the whole TTL, and the real answer would be
+            // ignored for 15 seconds after it arrived. This costs one mutex,
+            // where the cache exists to avoid four PROCESS SPAWNS.
+            if let Some(displays) = published_wayland_displays() {
+                log_debug!(
+                    LogCategory::General,
+                    "[display] {} output(s) from the compositor (wl_output)",
+                    displays.len()
+                );
+                return displays;
+            }
+
             if let Ok(guard) = DISPLAY_CACHE.lock() {
                 if let Some((at, cached)) = guard.as_ref() {
                     if at.elapsed() < DISPLAY_CACHE_TTL {
@@ -1003,6 +1019,16 @@ mod linux {
                     }
                 }
             }
+            // The COMPOSITOR's own answer first. `wl_output` carries the
+            // position, mode, refresh and scale of every output, and the
+            // Wayland backend already receives all of it - asking an external
+            // process for what the protocol just told us is both slower and,
+            // on most compositors, wrong: the chain below is swaymsg, hyprctl,
+            // kscreen-doctor and wlr-randr, and on KDE Plasma Wayland not one
+            // of them answers, so every query fell through to a hardcoded
+            // 1920x1080. Those spawns also run ON THE UI THREAD (see
+            // DETECT_TOOL_TIMEOUT, added after a tool that never returned froze
+            // the app).
             // Try each detection method in order
             let mut result = None;
             for provider in DETECTION_CHAIN {
@@ -1429,6 +1455,196 @@ mod linux {
             #[cfg(not(feature = "desktop"))]
             Err(())
         }
+    }
+}
+
+/// One output as the COMPOSITOR describes it over `wl_output`.
+///
+/// The Wayland backend already receives every one of these fields
+/// (`geometry` -> x/y/make/model, `mode` -> width/height/refresh,
+/// `scale` -> scale) and stores them in `MonitorState`. This is the shape it
+/// publishes to the display layer so enumeration can stop shelling out.
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+#[derive(Debug, Clone, Default)]
+pub struct WaylandOutput {
+    pub name: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub scale: i32,
+    /// `wl_output.mode` reports refresh in mHz (60000 = 60 Hz).
+    pub refresh_mhz: i32,
+    pub make: String,
+    pub model: String,
+}
+
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+static WAYLAND_OUTPUTS: Mutex<Option<Vec<WaylandOutput>>> = Mutex::new(None);
+
+/// Convert one compositor-described output into a [`DisplayInfo`].
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+fn wayland_output_to_display(out: &WaylandOutput, is_primary: bool) -> DisplayInfo {
+    let scale = if out.scale > 0 { out.scale } else { 1 };
+    let bounds = LogicalRect::new(
+        LogicalPosition::new(out.x as f32, out.y as f32),
+        LogicalSize::new(out.width as f32, out.height as f32),
+    );
+    let name = if out.name.is_empty() {
+        alloc::format!("{} {}", out.make, out.model).trim().to_string()
+    } else {
+        out.name.clone()
+    };
+    DisplayInfo {
+        name,
+        bounds,
+        // Wayland gives a client no panel geometry; the whole output is the
+        // honest answer, and it is the one every toolkit uses here.
+        work_area: bounds,
+        scale_factor: scale as f32,
+        is_primary,
+        video_modes: vec![VideoMode {
+            size: LayoutSize::new(out.width as isize, out.height as isize),
+            bit_depth: 32,
+            // mHz -> Hz, ROUNDED: a 144 Hz panel reports 143997 mHz, and the
+            // frame pacer divides by this. Truncating paces every frame late.
+            refresh_rate: u16::try_from((out.refresh_mhz + 500) / 1000).unwrap_or(60).max(1),
+        }],
+    }
+}
+
+/// Publish what the compositor said. An EMPTY list means "no outputs known
+/// yet" and is stored as `None`, so startup does not serve zero monitors.
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+/// Returns `true` when this publish CHANGED what we know, so the caller can
+/// re-seed anything memoised from the old answer.
+pub fn publish_wayland_outputs(outputs: Vec<WaylandOutput>) -> bool {
+    let summary = outputs
+        .iter()
+        .map(|o| {
+            alloc::format!(
+                "{} {}x{}@{}mHz scale={}",
+                o.name,
+                o.width,
+                o.height,
+                o.refresh_mhz,
+                o.scale
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let known = !outputs.is_empty();
+    let mut changed = false;
+    if let Ok(mut guard) = WAYLAND_OUTPUTS.lock() {
+        let next = if known { Some(outputs) } else { None };
+        changed = match (guard.as_ref(), next.as_ref()) {
+            (None, Some(_)) | (Some(_), None) => true,
+            (Some(a), Some(b)) => {
+                a.len() != b.len()
+                    || a.iter().zip(b.iter()).any(|(x, y)| {
+                        (x.width, x.height, x.scale, x.refresh_mhz, x.x, x.y)
+                            != (y.width, y.height, y.scale, y.refresh_mhz, y.x, y.y)
+                    })
+            }
+            (None, None) => false,
+        };
+        *guard = next;
+    }
+    if known && changed {
+        log_debug!(
+            LogCategory::General,
+            "[display] compositor described {} output(s): {}",
+            summary.matches(',').count() + 1,
+            summary
+        );
+    }
+    changed
+}
+
+/// The compositor's own answer, if it has given one.
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+fn published_wayland_displays() -> Option<Vec<DisplayInfo>> {
+    let guard = WAYLAND_OUTPUTS.lock().ok()?;
+    let outputs = guard.as_ref()?;
+    if outputs.is_empty() {
+        return None;
+    }
+    Some(
+        outputs
+            .iter()
+            .enumerate()
+            .map(|(i, o)| wayland_output_to_display(o, i == 0))
+            .collect(),
+    )
+}
+
+#[cfg(all(test, target_os = "linux", not(target_arch = "wasm32")))]
+mod wayland_output_tests {
+    use super::*;
+
+    /// On Wayland the compositor TELLS us the outputs over `wl_output`, and the
+    /// backend already stores every field of them. Enumeration nevertheless
+    /// went through `DETECTION_CHAIN` - `swaymsg`, `hyprctl`, `kscreen-doctor`,
+    /// `wlr-randr` - four external process spawns, on the UI thread, none of
+    /// which works on KWin. Observed on KDE Plasma Wayland, 2026-09-05:
+    ///
+    ///     [display] All Wayland detection methods failed. Falling back to
+    ///     default display.
+    ///
+    /// so every monitor query returned a hardcoded 1920x1080 guess. (This box
+    /// also has `kscreen-doctor` SEGFAULTING in dmesg, and the chain's own
+    /// comment records a live freeze when the fourth tool never returned.)
+    #[test]
+    fn a_compositor_output_becomes_a_display() {
+        let out = WaylandOutput {
+            name: "DP-1".to_string(),
+            x: 0,
+            y: 0,
+            width: 2560,
+            height: 1440,
+            scale: 2,
+            refresh_mhz: 143_997,
+            make: "Acme".to_string(),
+            model: "X27".to_string(),
+        };
+        let d = wayland_output_to_display(&out, true);
+
+        assert_eq!(d.bounds.size.width as i32, 2560);
+        assert_eq!(d.bounds.size.height as i32, 1440);
+        assert!((d.scale_factor - 2.0).abs() < f32::EPSILON);
+        assert!(d.is_primary);
+        // mHz -> Hz, rounded: 143997 mHz is a 144 Hz panel, and the frame pacer
+        // divides by this. Truncating to 143 would pace every frame slightly
+        // late for the life of the process.
+        assert_eq!(d.video_modes[0].refresh_rate, 144);
+        assert_eq!(d.video_modes[0].size.width, 2560);
+    }
+
+    /// A published snapshot must WIN over the CLI chain, or the spawns and the
+    /// 1920x1080 guess come back.
+    #[test]
+    fn a_published_snapshot_is_preferred_over_the_cli_chain() {
+        publish_wayland_outputs(vec![WaylandOutput {
+            name: "eDP-1".to_string(),
+            x: 0,
+            y: 0,
+            width: 3840,
+            height: 2160,
+            scale: 2,
+            refresh_mhz: 60_000,
+            make: String::new(),
+            model: String::new(),
+        }]);
+
+        let got = published_wayland_displays().expect("a published snapshot must be readable");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].bounds.size.width as i32, 3840);
+        assert_eq!(got[0].video_modes[0].refresh_rate, 60);
+
+        // An empty publish means "we know of no outputs yet" and must NOT be
+        // mistaken for an answer, or startup would serve zero monitors.
+        publish_wayland_outputs(Vec::new());
+        assert!(published_wayland_displays().is_none());
     }
 }
 

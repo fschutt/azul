@@ -1571,11 +1571,25 @@ impl CallbackInfo {
     pub fn invoke_system_dialog(&mut self, dialog: azul_core::window::SysDialogType) {
         match dialog {
             azul_core::window::SysDialogType::ReportProblem => {
-                // Capture BEFORE the dialog exists so it can never be in
-                // its own screenshot. Best-effort: a failed capture still
-                // opens the dialog, just without the attachment.
-                let screenshot = self.take_screenshot(DomId::ROOT_ID).ok();
-                crate::dialogs::report_problem::open(self, screenshot);
+                // Both halves need the CPU renderer - the dialog decodes its
+                // screenshot through `cpurender::AzulPixmap`, and
+                // `take_screenshot` is itself cpurender-only - so the arm
+                // carries the same gate the dialog module does, with the same
+                // shape the `updater` arm below uses.
+                #[cfg(feature = "cpurender")]
+                {
+                    // Capture BEFORE the dialog exists so it can never be in
+                    // its own screenshot. Best-effort: a failed capture still
+                    // opens the dialog, just without the attachment.
+                    let screenshot = self.take_screenshot(DomId::ROOT_ID).ok();
+                    crate::dialogs::report_problem::open(self, screenshot);
+                }
+                #[cfg(not(feature = "cpurender"))]
+                eprintln!(
+                    "[azul] invoke_system_dialog(ReportProblem): azul-layout was built \
+                     without the `cpurender` feature, which the report dialog needs to \
+                     render and redact its screenshot."
+                );
             }
             azul_core::window::SysDialogType::UpdateVersion => {
                 #[cfg(feature = "updater")]

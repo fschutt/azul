@@ -1902,6 +1902,72 @@ pub fn generate_frame(
     render_api.send_transaction(wr_translate2::wr_translate_document_id(document_id), txn);
 }
 
+/// Build and send the LIGHTWEIGHT transaction — the "layout was not
+/// regenerated" path — and report whether it actually asked for a frame.
+///
+/// One copy of what X11, Wayland and Win32 each open-coded: build the image-only
+/// transaction, send it, flush the scene builder. The behavioural difference is
+/// the reason it is shared now: a transaction that changes NOTHING is dropped
+/// instead of sent.
+///
+/// Sending it was how an idle GPU window kept itself awake. The lightweight pass
+/// asked WebRender for a frame unconditionally, WebRender built it and signalled
+/// `new_frame_ready`, the notifier's wake hook fired, the backend presented, and
+/// the present ran this pass again — 58.6 fps of full render+present on an X11
+/// window nobody was touching. With the frame request gated on real change
+/// (see `wr_translate2::build_image_only_transaction`), an idle pass produces an
+/// empty transaction, and an empty transaction is not worth a round trip.
+///
+/// Returns `true` if a transaction was sent (and therefore a present is worth
+/// doing), `false` if nothing had changed.
+pub fn submit_lightweight_frame(
+    layout_window: &mut LayoutWindow,
+    render_api: &mut WrRenderApi,
+    document_id: DocumentId,
+    gl_context: &azul_core::gl::OptionGlContextPtr,
+    flush_scene_builder: bool,
+    who: &str,
+) -> bool {
+    let mut txn = WrTransaction::new();
+
+    let frame = match wr_translate2::build_image_only_transaction(
+        &mut txn,
+        layout_window,
+        render_api,
+        gl_context,
+    ) {
+        Ok(frame) => frame,
+        Err(e) => {
+            crate::log_error!(
+                LogCategory::Rendering,
+                "[{}] Failed to build lightweight transaction: {}",
+                who,
+                e
+            );
+            // The build bailed part-way: whatever it managed to put in the
+            // transaction (image registrations in particular) still has to
+            // reach WebRender, or the display list references keys the
+            // renderer never received.
+            wr_translate2::LightweightFrame { changed: true }
+        }
+    };
+
+    if !frame.changed {
+        crate::log_trace!(
+            LogCategory::Rendering,
+            "[{}] Lightweight pass: nothing changed, transaction dropped",
+            who
+        );
+        return false;
+    }
+
+    render_api.send_transaction(wr_translate2::wr_translate_document_id(document_id), txn);
+    if flush_scene_builder {
+        render_api.flush_scene_builder();
+    }
+    true
+}
+
 /// Drain the queued `VirtualView` re-invocations — `trigger_virtual_view_rerender`
 /// from a callback or a background writeback, a scroll past an edge, or an
 /// unchanged `RefreshDom` (both `LayoutUnchanged` exits of [`regenerate_layout`]
