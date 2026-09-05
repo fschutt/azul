@@ -702,6 +702,32 @@ the blink still moves exactly 19 px in a 1x19 box and nothing else.
 Branch is now 41 ahead / **0 behind** master; PR #463 retargeted from the
 merged `fix/x11-desktop-integration` to `master` and reports MERGEABLE.
 
+## The CI gate was hiding four failures, and one is still open
+
+Fixing Clippy had a side effect worth recording: a whole tier of jobs sits
+behind `needs: [..., clippy, ...]`, so while Clippy was red they were SKIPPED,
+not run. Across the **last eight master runs** `Build lean libazul` was skipped
+every time and `AZ_E2E rust` never appeared at all. Master's green/red signal
+was therefore structurally misleading - "two jobs red" was itself an artifact of
+the gating.
+
+With Clippy green, the tier ran and four failures surfaced. All four PREDATE
+this work; none was caused by the #463 / #466 merges:
+
+| failure | verdict |
+|---|---|
+| `Build lean libazul` (3 OSes) | **FIXED.** `fluent_demo` uses `azul::desktop::fluent` / `::zip`, behind `cabi_internal`, absent in a `link-dynamic` build - its `required-features` never said `link-static`. Its sibling `http_zip_demo` already carries it, with a comment describing this exact failure. RED reproduced locally with the lean feature set, then green |
+| `DLL tests + feature check` | **FIXED.** AzPaint's lib test called `render_metaballs`, which `7ec9b564e` replaced with `metaball_image` - so that crate's tests had not COMPILED since. Call sites adapted, assertions untouched, 7/7 pass |
+| `AZ_E2E rust / c-cpp / scripting-a / -b` | **PRE-EXISTING, NOT FIXED.** `hello_world_counter.json` step 6 (the third click): "could not resolve the click target". Bisected: built libazul + the hello-world example from **pre-merge master `0d3b63eb5`** and got the IDENTICAL failure, so it is not a merge regression. The engine's own in-process `E2E Headless (e2e/*.json)` PASSES the same scenarios - only the shipped-binding lane fails |
+| `Autofix + normalize (api.json drift)` | **PARKED.** Ran CI's exact chain and audited the result: a clean relocation of 14 public classes (`XmlTagName` dom->xml, `NativeGestureEvent` dom->gesture, the font types css->font), 2251 classes in and out, none lost or gained, no `external` key dropped. Reverted rather than committed: it changes public MODULE PATHS, which is what documentation references, and the user is writing documentation |
+
+**And the libazul clobber trap reproduced deterministically** while doing this:
+`cargo build -p azul-examples --example hello-world --no-default-features
+--features link-dynamic` truncates `target/release/libazul.so` to **0 bytes**,
+which then fails the NEXT link with `undefined symbol: AzRefCount_delete`. Keep
+a copy and restore it after any link-dynamic example build - that is what the
+"build libazul LAST" rule is protecting against, seen directly.
+
 ## Traps found
 
 1. **`build-dll` and `link-dynamic` fight over `target/release/libazul.so`, in
