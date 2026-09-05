@@ -30,6 +30,11 @@ to exercise the configure path, but not the click path.
 
 | id / item | promise (one line) | verdict | evidence |
 |---|---|---|---|
+| 7d | seat bound past v7 so `axis_value120` is reachable | **VERIFIED** | `Bound wl_seat v8 (offered v8) - high-res wheel (axis_value120) available`. The cap is `version.min(9)` and both v8/v9 listener slots are wired; KWin offers v8, so high-res wheel works and v9's `axis_relative_direction` is simply not offered by this compositor. The old cap of 7 would have lost both |
+| 7a | `zwp_pointer_gestures_v1` bound | **VERIFIED (bind)** | `Bound zwp_pointer_gestures_v1 v3 - touchpad pinch/swipe/hold` — v3 is the version that has hold |
+| 9d-i-a / 9d-ii-a | relative pointer + pointer constraints bound | **VERIFIED (bind)** | `Bound zwp_relative_pointer_manager_v1`, `Bound zwp_pointer_constraints_v1` |
+| 3d | Wayland IME producer live | **VERIFIED (activation)** | `Bound zwp_text_input_v3`, then on focus `text_input_v3: enabled for contenteditable focus` / `enter - IME activated for surface` / `done serial=1`. Composition delivery itself needs an IME actually composing |
+| monitor enumeration | the app knows its real outputs | **BROKEN → FIXED** | four CLI spawns that all fail on KWin; now read from `wl_output` (see below) |
 | system style (KDE) | the app reads the desktop's own settings | **VERIFIED** | `settings_source kdeglobals`, `theme Dark`, real Breeze values (`background #1b1e20`, `accent #3daee9`, `close-hover #da4453`) — not generic Adwaita. The #461 source-resolution change behaves on a second desktop |
 | system icons | the desktop's icon theme loads | **VERIFIED** | `[system-icons] icon theme 'breeze-dark': registered 18/17` — the widened lookup from #461 did not regress KDE |
 | window theme | `get_theme()` follows the desktop | **BROKEN → FIXED** | portal-less session left `WindowTheme::default()` = LightMode on a Breeze **Dark** desktop. Paper measured `#ffffff` (light palette) before, `#e2e2e2` (dark palette) after. Commit "a portal-less desktop never told the window it was dark" |
@@ -179,12 +184,18 @@ atomic commit for an output) publishes the set to the display layer, and
 Correct mode, correct refresh, correct scale — from the protocol, with no
 process spawned.
 
-**Residual, stated honestly:** the FIRST `get_displays()` runs before the
-registry roundtrip has delivered a single `wl_output.done`, so it still falls
-back once at startup. Anything computed once from that first call keeps the
-fallback value; every query afterwards uses the compositor. Closing that gap
-means making startup wait for the roundtrip, which is a larger change than this
-PR should carry.
+The startup ordering is inherent — window creation seeds the monitor list ~1 s
+BEFORE the first `wl_output.done` arrives — so `wl_output.done` now re-seeds it
+the first time the description actually changes, exactly as the monitor-REMOVAL
+path already did. Measured end to end:
+
+    2032.2ms  All Wayland detection methods failed. Falling back to default display.
+    3028.4ms  compositor described 1 output(s): output-48 1920x1080@60000mHz scale=1
+    3028.4ms  1 output(s) from the compositor (wl_output)
+
+The one startup fallback is unavoidable (nothing has described an output yet);
+a second later the app's memoised list is the compositor's own, instead of
+keeping the 1920x1080 guess until someone plugs a monitor in.
 
 ## Traps found
 

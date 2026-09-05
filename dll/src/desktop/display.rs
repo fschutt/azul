@@ -1516,7 +1516,9 @@ fn wayland_output_to_display(out: &WaylandOutput, is_primary: bool) -> DisplayIn
 /// Publish what the compositor said. An EMPTY list means "no outputs known
 /// yet" and is stored as `None`, so startup does not serve zero monitors.
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
-pub fn publish_wayland_outputs(outputs: Vec<WaylandOutput>) {
+/// Returns `true` when this publish CHANGED what we know, so the caller can
+/// re-seed anything memoised from the old answer.
+pub fn publish_wayland_outputs(outputs: Vec<WaylandOutput>) -> bool {
     let summary = outputs
         .iter()
         .map(|o| {
@@ -1532,10 +1534,23 @@ pub fn publish_wayland_outputs(outputs: Vec<WaylandOutput>) {
         .collect::<Vec<_>>()
         .join(", ");
     let known = !outputs.is_empty();
+    let mut changed = false;
     if let Ok(mut guard) = WAYLAND_OUTPUTS.lock() {
-        *guard = if known { Some(outputs) } else { None };
+        let next = if known { Some(outputs) } else { None };
+        changed = match (guard.as_ref(), next.as_ref()) {
+            (None, Some(_)) | (Some(_), None) => true,
+            (Some(a), Some(b)) => {
+                a.len() != b.len()
+                    || a.iter().zip(b.iter()).any(|(x, y)| {
+                        (x.width, x.height, x.scale, x.refresh_mhz, x.x, x.y)
+                            != (y.width, y.height, y.scale, y.refresh_mhz, y.x, y.y)
+                    })
+            }
+            (None, None) => false,
+        };
+        *guard = next;
     }
-    if known {
+    if known && changed {
         log_debug!(
             LogCategory::General,
             "[display] compositor described {} output(s): {}",
@@ -1543,6 +1558,7 @@ pub fn publish_wayland_outputs(outputs: Vec<WaylandOutput>) {
             summary
         );
     }
+    changed
 }
 
 /// The compositor's own answer, if it has given one.

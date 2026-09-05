@@ -312,7 +312,22 @@ extern "C" fn wl_output_done_handler(data: *mut c_void, _output: *mut wl_output)
             model: m.model.clone(),
         })
         .collect();
-    crate::desktop::display::publish_wayland_outputs(outputs);
+    let changed = crate::desktop::display::publish_wayland_outputs(outputs);
+
+    // Re-seed the window's memoised monitor list the FIRST time the compositor
+    // actually describes its outputs. Window creation seeds that list, and it
+    // runs ~300 ms BEFORE the first `wl_output.done` arrives (measured on this
+    // session: fallback at 2033 ms, outputs known at 2334 ms) - so without
+    // this the app keeps the 1920x1080 startup guess until a monitor is
+    // plugged or unplugged. Same refresh the removal path above performs, for
+    // the same reason: the topology we can describe just changed.
+    if changed {
+        if let Some(ref mut lw) = window.common.layout_window {
+            if let Ok(mut guard) = lw.monitors.lock() {
+                *guard = crate::desktop::display::refresh_monitors();
+            }
+        }
+    }
 }
 
 extern "C" fn wl_output_scale_handler(data: *mut c_void, output: *mut wl_output, factor: i32) {
@@ -587,6 +602,17 @@ pub(super) extern "C" fn registry_global_handler(
             // while both seats' pointers kept writing the one global mouse
             // state - cursor A's buttons at cursor B's position. Every later
             // seat is now a pointer seat of its own.
+            crate::log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Bound wl_seat v{} (offered v{}) - {}",
+                seat_version,
+                version,
+                match seat_version {
+                    9.. => "high-res wheel + relative-direction available",
+                    8 => "high-res wheel (axis_value120) available",
+                    _ => "discrete wheel only",
+                }
+            );
             let seat_id = window.seats.insert(name, seat.cast(), seat_version);
             if seat_id == azul_core::window::PRIMARY_POINTER_SEAT {
                 window.seat = seat;
