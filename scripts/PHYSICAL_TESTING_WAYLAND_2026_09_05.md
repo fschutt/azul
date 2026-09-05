@@ -563,9 +563,22 @@ relayout for a repaint; and the one caller that does not - the accessibility
 drain at `ios/mod.rs:1796`, whose Android twin deliberately calls
 `request_regeneration` instead - blits a stale frame, so a VoiceOver
 Focus/Blur/Scroll changes nothing on screen until something else triggers a
-regeneration. NOT FIXED HERE: there is no iOS device and no compiler coverage
-for `target_os = "ios"` on this machine, so this is a code-read finding with
-its Android precedent, not a blind edit.
+regeneration. FIXED, and compiler-verified: `rustup target add aarch64-apple-ios` gives a
+`cargo check --target aarch64-apple-ios` that DOES type-check `ios/mod.rs`
+(proved by planting a deliberate type error there and watching the check fail
+at `ios/mod.rs:1821`, then removing it). iOS now carries the same
+`needs_rerender` flag Android grew: `request_redraw()` sets it,
+`displayLayer:` re-rasters through a `rerender_cpu()` that is the verbatim twin
+of Android's, and a pending relayout clears it because a relayout re-rasters on
+its way through. Still NOT device-verified - there is no iOS device here.
+
+The same trick verified the OTHER blind edits from the redundant-frame fix:
+`x86_64-apple-darwin` type-checks `macos/mod.rs` clean, so the macOS half of
+that change is confirmed. Windows cannot be checked this way on this machine -
+`cargo check --target x86_64-pc-windows-gnu` dies in a THIRD-PARTY build script
+(`turso_sdk_kit 0.7.2` wants a Windows resource compiler), not in azul, so the
+Win32 edit remains unverified by compiler; it is the same mechanical shape as
+the X11 one, which does compile.
 
 **The CPU path does not over-draw either, and now it can say so.** Idle, 25 s,
 default backend (`Cpu` - GPU is opt-in): Wayland ends with
