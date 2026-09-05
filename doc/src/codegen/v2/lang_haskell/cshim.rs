@@ -271,6 +271,18 @@ pub fn should_emit_shim_for(func: &FunctionDef, ir: &CodegenIR, config: &Codegen
     // only if THIS function emits the shim. Letting a declared capability past
     // the `DestructorOrClone` exclusion in one and not the other produces an
     // `AzXVecDestructor_toDbgString_via` import with nothing to link against.
+    //
+    // KNOWN DIVERGENCE, 2026-09-05: `functions::should_emit_function` has since
+    // gained a second carve-out for `TypeCategory::Recursive` (the XML types)
+    // and this one has NOT. The direction is the safe one - measured, not
+    // assumed: `Azul.hs` emits 0 imports for those types while `azul_shims.c`
+    // carries the shim, so it is a dead C function, not a dangling import. It
+    // is recorded rather than "aligned" because widening here without the
+    // wrapper layer emitting the matching Show/Clone instances would create
+    // exactly the import-with-no-shim this comment warns about, and no GHC is
+    // installed to prove either way. haskell's residual 10 derives are the same
+    // four XML types; closing them means shim + wrapper together, verified by a
+    // real GHC.
     if func.kind.is_declared_capability()
         && ir
             .find_enum(&func.class_name)

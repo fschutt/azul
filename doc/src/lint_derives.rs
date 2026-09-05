@@ -864,6 +864,14 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `cshim.rs`). The four XML types are enums or excluded structs, so no
 ///     shim is generated and the instance has nothing to call. Closing it
 ///     means extending the shim generator, not the function filter.
+///     UPDATE 2026-09-05: the cause is now pinned. `functions.rs` gained the
+///     recursive carve-out and `cshim.rs` did not, and those two files carry a
+///     comment saying they MUST agree. The divergence is the safe direction -
+///     `Azul.hs` has 0 imports for the XML types while the shim exists, so a
+///     dead C function rather than a dangling import. Closing it means shim +
+///     wrapper instances together, and no GHC is installed to verify that, so
+///     it is left rather than emitted blind - three earlier blind emissions in
+///     this arc did not compile.
 ///   * `ocaml` enums - the interface loop iterates `ir.structs` only, so a
 ///     tagged union like `AccessibilityAction` gets NO module at all. That is
 ///     the whole of ocaml's 272, and it is the same shape C++, zig and go each
