@@ -355,8 +355,13 @@ fn collect_delete_targets(ir: &CodegenIR) -> BTreeSet<&str> {
 }
 
 fn class_has_visible_methods(class_name: &str, ir: &CodegenIR) -> bool {
-    ir.functions_for_class(class_name)
-        .any(|f| !f.kind.is_trait_function())
+    // Trait-only classes ARE admitted. When first tried the module could
+    // carry only `equal` / `hash` / `to_string`, so every other derive a
+    // class declared flipped from "absent" to "missing" and the gap grew
+    // 272 -> 1321. The module now carries the whole list - equal, hash,
+    // to_string, compare, partial_compare, clone, default - so a class with
+    // nothing but trait exports is strictly better off with one.
+    ir.functions_for_class(class_name).next().is_some()
 }
 
 // ============================================================================
@@ -1445,6 +1450,7 @@ fn emit_enum_modules(
                         | FunctionKind::Default
                         | FunctionKind::DeepCopy
                         | FunctionKind::Cmp
+                        | FunctionKind::PartialCmp
                 )
             })
             .collect();
@@ -1502,6 +1508,25 @@ fn emit_enum_modules(
                         } else {
                             builder.line(&format!("{} (Ctypes.addr t)", raw));
                         }
+                        builder.dedent();
+                    }
+                }
+                FunctionKind::PartialCmp => {
+                    // NOT `compare`: the ABI answers 255 for "incomparable",
+                    // and a total `compare` has no honest value for that.
+                    if interface {
+                        builder.line("val partial_compare : t -> t -> int option");
+                    } else {
+                        builder.line("let partial_compare (a : t) (b : t) : int option =");
+                        builder.indent();
+                        builder.line(&format!(
+                            "match Unsigned.UInt8.to_int ({} (Ctypes.addr a) (Ctypes.addr b)) with",
+                            raw
+                        ));
+                        builder.line("| 0 -> Some (-1)");
+                        builder.line("| 1 -> Some 0");
+                        builder.line("| 2 -> Some 1");
+                        builder.line("| _ -> None");
                         builder.dedent();
                     }
                 }

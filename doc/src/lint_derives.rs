@@ -801,17 +801,21 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `ResultXmlXmlError`, three classes whose entry points these emitters
 ///     drop for a reason not yet established. Consistent across every binding
 ///     that has a residue at all, so it is one cause, not fourteen.
-///   * `ocaml` (100, was 4010 once measured properly) - the `.mli` SEALS the
+///   * `ocaml` (11, was 4010 once measured properly) - the `.mli` SEALS the
 ///     module, so anything the interface omits is unreachable however complete
-///     `azul.ml` is. Fixed: equal/hash/to_string were defined and never
-///     declared; `compare` was emitted nowhere (2 in the file against 704
-///     `equal`); tagged unions had no module; unit-only enums needed their
-///     capabilities on the module `types.rs` already emits, allocating a cell
-///     because an int view is not addressable.
-///     `PartialOrd` gets `partial_compare : t -> t -> int option`, NOT
-///     `compare`: the ABI answers 255 for "incomparable" and a total `compare`
-///     has no honest value for that. The profile accepts either spelling.
-///     Every capability is decided by ONE predicate both emitters call.
+///     `azul.ml` is. equal/hash/to_string were defined and never declared;
+///     `compare` was emitted nowhere; tagged unions and unit enums had no
+///     capabilities at all; and trait-only classes got no module.
+///     That last one FAILED the first time (272 -> 1321) and succeeded later,
+///     which is the useful lesson: a module carrying three of a class's seven
+///     derives makes the other four flip from `absent` to `missing`, so the
+///     change was not wrong, only premature. Once the module carried the whole
+///     list the same edit was a clean win. Record WHY a revert happened, not
+///     just that it did.
+///     `PartialOrd` gets `partial_compare : t -> t -> int option`, never
+///     `compare`: the ABI answers 255 for "incomparable" and a total compare
+///     has no honest value for it. Needed in all three emitters - struct,
+///     tagged union, unit enum.
 ///   * `php-ext` (129, was 134) - correctly measured, unlike ocaml: the
 ///     artifact really does name `AzApp_*` symbols, and the 1744 absent are a
 ///     genuinely curated surface of 29 classes. `is_method_kind_eligible`
@@ -888,7 +892,7 @@ pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
     ("zig", 13),
     ("php-ext", 129),
-    ("ocaml", 100),
+    ("ocaml", 11),
     ("haskell", 10),
     ("go", 13),
 ];
