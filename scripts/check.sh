@@ -343,7 +343,7 @@ stage_binding_syntax() {
     "zig|zig ast-check $tmp/p.zig|zig ast-check $gen/azul.zig"
     "go|gofmt -e $tmp/p.go|gofmt -e $gen/go"
     "c|gcc -fsyntax-only -x c $tmp/p.c|gcc -fsyntax-only -x c $gen/azul.h"
-    "fortran|gfortran -fsyntax-only $tmp/p.f90|gfortran -fsyntax-only $gen/azul.f90"
+    "fortran|gfortran -fsyntax-only -J$tmp $tmp/p.f90|gfortran -fsyntax-only -J$tmp $gen/azul.f90"
     "perl|perl -c $tmp/p.pm|perl -c $gen/Azul.pm"
     "ruby|ruby -c $tmp/p.rb|ruby -c $gen/azul.rb"
     "lua|luajit -bl $tmp/p.lua /dev/null|luajit -bl $gen/azul.lua /dev/null"
@@ -355,6 +355,11 @@ stage_binding_syntax() {
     "cpp|g++ -fsyntax-only -std=c++17 -x c++ $tmp/p.cpp|g++ -fsyntax-only -std=c++17 -x c++ $gen/azul17.hpp"
   )
 
+  # `-J$tmp` on gfortran: `-fsyntax-only` still WRITES a `.mod` file for every
+  # module it sees, into the current directory. Without it this stage drops
+  # `azul.mod` in the repo root, which then trips the "tree is dirty" guard on
+  # the next run - a gate that dirties the tree it is checking.
+  #
   # Probe samples, one per language.
   printf 'const x: u8 = 1;\n'                    > "$tmp/p.zig"
   printf 'package p\nvar X = 1\n'                > "$tmp/p.go"
