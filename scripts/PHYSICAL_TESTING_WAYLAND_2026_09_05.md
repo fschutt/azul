@@ -376,10 +376,47 @@ is Normal.
 
 ## Still open
 
-- Everything needing a pointer, until an injection path exists (`ydotool` +
-  `input` group, or a second seat).
-- The portal short-circuit path from #461, until a session with a live portal.
-- A real resize-repaint measurement (instrument `render_and_present`).
-- From the X11 audit: no `_NET_FRAME_EXTENTS` / `_GTK_FRAME_EXTENTS`;
-  `XI_KeyPress` selected on `XIAllMasterDevices` while primary-seat keys are
-  dropped; pointer lock uses `XGrabPointer` under XI2.
+Ordered by what the next session can actually act on.
+
+**Needs hardware or a second seat**
+- Anything driven by the WAYLAND pointer: this machine has no injection path
+  (no XTEST under Wayland, `/dev/uinput` is root-only, no `ydotool`/`wtype`).
+  The X11 backend IS drivable through XWayland, which is how titlebar drag,
+  double-click maximize and the CSD band gate got verified — but that exercises
+  the X11 code, not the Wayland pointer path.
+- Multi-seat (9b-ii and everything under it) needs a second `wl_seat`; pen
+  items need a tablet; pad items need a pad. None are present.
+- Event DELIVERY for the protocols that are confirmed BOUND — pointer
+  gestures, relative pointer, pointer constraints, tablet, primary selection.
+  Binding is verified; nothing has sent an event through them.
+
+**Needs a different session**
+- The portal short-circuit fix from #461: this session logs
+  `xdg-desktop-portal unavailable`, so that path never runs here.
+
+**Code, no hardware needed**
+- 20 font families report unresolved while `fc-list` finds most of them
+  installed. Belongs with the font-fallback rework in #457; the cross-check is
+  recorded above so the next session starts from evidence.
+- `render_and_present` is still not instrumented. `resize_surface` gave the
+  Wayland repaint number (median 3.20 ms), but there is no equivalent span on
+  X11, which is why #461's "~23 fps" was inferred from event gaps and had to be
+  retracted.
+- From the X11 audit, still unfixed: no `_NET_FRAME_EXTENTS` /
+  `_GTK_FRAME_EXTENTS` (and xfwm4#603 says the extents must be cleared BEFORE
+  a maximize transition, not after); `XI_KeyPress` is selected on
+  `XIAllMasterDevices` while primary-seat keys are dropped, with a comment
+  asserting the opposite; pointer lock uses `XGrabPointer` while XI2 is
+  selected, so during a lock the pointer path silently switches to the core
+  fallback while `XI_RawMotion` keeps arriving.
+- `_NET_WM_MOVERESIZE` hardening the audit lists: no `_NET_SUPPORTED` probe, no
+  `_NET_WM_MOVERESIZE_CANCEL` on a post-handoff `ButtonRelease`, and
+  `XUngrabPointer` releases only the core pointer where XI2 wants
+  `XIUngrabDevice`.
+
+**Closed during this round** (kept so the next session does not re-open them):
+the window theme on a portal-less desktop, KDE reading GNOME's schemas, the
+shared-tail regression that followed it, the CSD band on Wayland, the
+diagnostics/`log_gate` stderr panic, monitor enumeration via `wl_output`, the
+unresolved-font warning bypassing the ring, the 4/8 feature matrix, and the
+`_NET_WM_STATE` readback (X11 audit item b2).
