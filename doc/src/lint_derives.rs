@@ -742,16 +742,20 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `#[pyclass]` at all. Closing them means DECIDING which of them belong
 ///     in the Python surface and giving them one - a product call, not a
 ///     routing change - so it is logged rather than guessed.
-///   * `zig` (603, was 5168) - two of three causes closed. The wrapper gate
-///     excluded every trait kind, so a class whose only exports were
-///     `_partialEq`/`_cmp`/`_hash`/`_toDbgString` got no wrapper at all - and
-///     `azul.zig` redeclares nothing (`@cImport` parses `azul.h`), so a C
-///     symbol no wrapper calls cannot be spelled from Zig. Enums then needed
-///     their own emitter, because an enum wrapper holds a raw tagged union
-///     rather than an `inner` field. What is LEFT is the third case: a
-///     FIELDLESS C enum (`AccessibilityRole`) gets no wrapper of any kind - it
-///     appears only as a `C.Az*` parameter type - so its derives have nowhere
-///     to hang. Closing it means emitting a wrapper for plain enums.
+///   * `zig` (19, was 5168) - effectively closed. Three causes, all fixed:
+///     the wrapper gate excluded every trait kind (and `azul.zig` redeclares
+///     nothing, so a C symbol no wrapper calls cannot be spelled at all);
+///     enums needed their own emitter because an enum wrapper holds a raw
+///     tagged union rather than an `inner`; and unit-only enums were skipped
+///     entirely on the grounds that their VALUE is usable straight from `C.*`,
+///     which is true and left their trait entry points homeless. They now get
+///     a namespace carrying only those, plus `default()` - a static factory,
+///     so it sits outside the instance-method emitter that the union helper
+///     already covers.
+///     The last 19 are a handful of types the struct emitter excludes BY
+///     CATEGORY - `ImageRef`, `Svg`, `PhysicalSizeU32`, `GlVoidPtrConst`.
+///     Closing them means revisiting those category exclusions, which is a
+///     separate decision from routing a capability.
 ///   * `go` (2246, was 5648) - structs and unit-only enums are closed. The
 ///     struct half was the same gate-plus-emitter pair zig needed; unit enums
 ///     are real named Go types (`type AzAccessibilityRole uint32`), so they
@@ -812,7 +816,7 @@ fn declared_count(derives: &BTreeSet<String>) -> usize {
 pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
     ("freebasic", 11),
-    ("zig", 603),
+    ("zig", 19),
     ("powershell", 4),
     ("php-ext", 134),
     ("ocaml", 272),
