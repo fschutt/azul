@@ -3821,20 +3821,25 @@ impl RemillTranspiler {
             // of .rdata — is derived from that seed. remill's contract is
             // therefore that `pc` IS the address the body was lifted at.
             //
-            // `label` is frequently NOT that address. remill hands
-            // `__remill_function_call` the CALL SITE pc (the intrinsic is meant
-            // to read its target from State.rip), so the dispatcher's cases map
-            // call-site PCs to callees and `label != c` is the normal case.
-            // Passing `label` seeded the callee with an address inside its
-            // CALLER, skewing every rip-relative address by (c - label).
+            // `label` is the dispatched TARGET, which is usually the callee's
+            // address — but not always, and that is the whole bug. The walk
+            // resolves a target through `resolve()`, so a shim or an
+            // ICF-folded duplicate maps onto a DIFFERENT canonical body: the
+            // case is emitted for `label`, the call goes to `sub_c`, and
+            // `label != c`. Seeding the body with `label` then skews every
+            // rip-relative address it computes by exactly (c - label).
             //
-            // Observed: U8Vec::drop computed its destructor jump-table base
-            // 0xa81d90 low, landing in the .text of an unlifted webrender
-            // function. Unmirrored .text reads as zero, so `base + table[tag]`
-            // returned the bad base itself, which no switch case matches — a
-            // trap whose reported PC named neither the caller nor a real
-            // target. The effect also cascades: a callee entered with a wrong
-            // pc computes wrong PCs for ITS direct calls.
+            // Observed, and the arithmetic closes to the byte: 0x363460 is
+            // `AzQuickAccessActionVec_delete`, a shim that is never lifted;
+            // resolve() sends it to `U8Vec::drop` at 0xde51f0. Seeded with
+            // 0x363460, that body's destructor jump-table `lea` computed
+            // 0x363473 + 0x510d8d = 0x874200 instead of 0x12f5f90 — landing in
+            // the .text of an unlifted webrender function. Unmirrored .text
+            // reads as zero, so `base + table[tag]` returned the bad base
+            // itself, which matches no switch case. The reported PC therefore
+            // named neither the caller nor any real target, and the value
+            // existed in no .ll file, no heap object and no mirror, because it
+            // was computed from a bad seed and never stored anywhere.
             ir.push_str(&format!(
                 "c{label:x}:\n  %r{label:x} = call ptr @sub_{c:x}(ptr %state, i64 {c}, ptr %memory)\n  ret ptr %r{label:x}\n",
                 label = label, c = c
