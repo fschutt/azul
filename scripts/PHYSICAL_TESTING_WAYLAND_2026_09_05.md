@@ -235,6 +235,34 @@ PR) and is invisible to the diagnostics ring, so no test could assert that a
 missing family was reported at all. It now goes through
 `azul_core::diagnostics::emit` like every other azul warning.
 
+## The repo's own tripwire was red before any of this started
+
+`scripts/check_feature_matrix.sh` exists to be run before a push. On this
+branch's base it reported **4 of 8 combinations FAILING TO COMPILE**, and CI's
+Feature Matrix job runs the same `azul-layout --no-default-features --features
+"text_layout"` check, so it was red there too.
+
+None of it came from this work — every failing file (`display_list.rs`,
+`tray_icon.rs`, `changeset.rs`, `dialogs/`) is one nothing here had touched,
+which `git diff --name-only` against the base confirms.
+
+Four gates, all the same shape — an item that needs a feature, reached from a
+place that does not require it:
+
+| what | why it broke |
+|---|---|
+| `rasterize_svg_clip_to_r8` | reaches `agg_rust` ungated, while its sibling `rasterize_svg_stroke_to_r8` AND its only caller both already carry `#[cfg(feature = "cpurender")]` |
+| `pub mod tray_icon` | imports `crate::cpurender` unconditionally; driving the CPU renderer is the module's whole job |
+| `DocumentChangeset::apply_to_dom` | returns a `crate::document_edit` type, but that module is gated on `text_layout + xml` — a `text_layout`-only build failed on the return type alone |
+| `dialogs::report_problem` | built on the cpurender-gated `dialogs::report` and decodes via `cpurender::AzulPixmap`; gating it then required gating `invoke_system_dialog`'s `ReportProblem` arm, which now mirrors the `updater` arm beside it |
+
+Now **8/8, "Feature matrix clean"**, with the default-feature tests unaffected.
+
+Worth knowing: the first two are the same gates already fixed on **#457**, which
+is blocked indefinitely behind the crates.io publish chain — so those fixes
+were stranded on an unmergeable branch while master stayed broken. They belong
+somewhere that can merge. If #457 is rebased later, git drops the duplicates.
+
 ## Traps found
 
 1. **`build-dll` and `link-dynamic` fight over `target/release/libazul.so`, in
@@ -259,7 +287,12 @@ missing family was reported at all. It now goes through
    `AZ_LOG_FILE=<path>`, which `log_gate::emit_at` writes to unconditionally,
    bypassing every stderr gate. Hours of "did the app even see that configure?"
    collapse to one grep once this is on.
-5. **`kdotool`/`xdotool` are useless here; KWin scripting is not.**
+5. **The repo has a pre-push tripwire and it was already red.**
+   `scripts/check_feature_matrix.sh` catches exactly the "a gated subsystem
+   does not compile" class, takes minutes, and reported 4/8 failing before any
+   change here. Run it before pushing; a green `cargo test` says nothing about
+   the seven other feature combinations CI builds.
+6. **`kdotool`/`xdotool` are useless here; KWin scripting is not.**
    `org.kde.KWin /Scripting loadScript` + `start`, with output read back from
    `journalctl --user -u plasma-kwin_wayland.service | grep '^js:'`, drives
    window geometry and state from the compositor side. The loaded script has no
