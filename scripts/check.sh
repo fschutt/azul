@@ -42,7 +42,7 @@ STAGES=(
   "check|fast|cargo check azul-css / azul-core / azul-layout"
   "clippy|fast|clippy -D warnings on core/css/layout --all-targets"
   "doc-check|fast|azul-doc check (double-drop invariant + guide links)"
-  "binding-syntax|fast|syntax-check the generated zig/go bindings (skipped if no toolchain)"
+  "binding-syntax|fast|syntax/type-check generated bindings: zig, go, ocaml, ruby, lua, php, node"
   "doc-tests|fast|cargo test -p azul-doc --bins"
   "unit-tests|fast|css+core+layout+webrender --lib, WITH the feature gates CI uses"
   "css-io|fast|--test test_system_style --features io (required-features gate)"
@@ -354,6 +354,43 @@ stage_binding_syntax() {
   else
     echo "  (skip ocaml: ocamlfind or ctypes not installed)"
   fi
+
+  # Every remaining checker follows one rule: PROBE it on a known-good sample
+  # before trusting its verdict. `command -v node` succeeds on this machine and
+  # then node aborts with a missing dylib - exit 134, which a naive gate would
+  # report as "your generated JavaScript is broken". A tool that cannot check
+  # its own trivial sample gets skipped, not believed.
+  probe_and_check() {
+    local label="$1" probe_cmd="$2" real_cmd="$3"
+    if ! eval "$probe_cmd" >/dev/null 2>&1; then
+      echo "  (skip $label: checker unavailable or not working here)"
+      return 0
+    fi
+    local out
+    if out="$(eval "$real_cmd" 2>&1)"; then
+      echo "  $label: ok"
+    else
+      echo "  $label: FAILED" >&2
+      echo "$out" | head -20 >&2
+      rc=1
+    fi
+  }
+
+  local tmp; tmp="$(mktemp -d)"
+  printf 'x = 1\n'        > "$tmp/probe.rb"
+  printf 'local x = 1\n'  > "$tmp/probe.lua"
+  printf '<?php $x = 1;\n' > "$tmp/probe.php"
+  printf 'var x = 1;\n'   > "$tmp/probe.js"
+
+  probe_and_check "ruby -c"   "ruby -c '$tmp/probe.rb'"       "ruby -c '$gen/azul.rb'"
+  probe_and_check "luajit"    "luajit -bl '$tmp/probe.lua' /dev/null" \
+                              "luajit -bl '$gen/azul.lua' /dev/null"
+  probe_and_check "php -l"    "php -l '$tmp/probe.php'"       "php -l '$gen/Azul.php'"
+  if [ -f "$gen/node/azul.js" ]; then
+    probe_and_check "node --check" "node --check '$tmp/probe.js'" \
+                                   "node --check '$gen/node/azul.js'"
+  fi
+  rm -rf "$tmp"
 
   if command -v gofmt >/dev/null 2>&1; then
     # `gofmt -e` prints syntax errors; formatting differences go to stdout as
