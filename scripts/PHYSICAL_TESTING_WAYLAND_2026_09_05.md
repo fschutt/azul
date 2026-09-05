@@ -401,6 +401,36 @@ keymap. `xdotool key <keysym>` presses a key that already carries the keysym
 and has no such race. The bug was in my harness, and one more screenshot would
 have been reported as an azul defect.
 
+## CI on this branch is red, and it is NOT this branch
+
+Worth knowing before reading the checks. `fix/wayland-desktop-integration`
+merges onto its base with **zero conflicts**, but CI fails — and the identical
+failures are present on the base branch `fix/x11-desktop-integration` (#461),
+so they are inherited, not introduced.
+
+The failing job is **Supply chain preflight (build-time code + env)**, and the
+reason is dependency drift rather than anything in the source:
+
+    ##[error]aes 0.9.3: DIGEST — version 0.9.3 is not reviewed (reviewed: 0.8.4, 0.9.1)
+    ##[error]anyhow 1.0.104: DIGEST — version 1.0.104 is not reviewed (reviewed: 1.0.103)
+    ##[error]bigdecimal 0.4.10: UNREVIEWED — no entry in build-script-policy.toml
+
+**94 crates** report a digest whose version has moved past what was reviewed,
+and **15** have no policy entry at all. Nothing in this PR touches
+`Cargo.toml`; the pinned versions simply advanced since the policy ledger was
+last refreshed.
+
+**Deliberately not fixed.** That gate exists to put human review in front of
+third-party code that RUNS AT BUILD TIME. Regenerating the digests to make CI
+green would defeat exactly the control it implements, and doing it unattended
+overnight would be worse. It needs someone to re-review the moved versions and
+decide, which is a person's call and not a testing agent's.
+
+The `build` job fails for the separate, already-recorded reason: a pre-existing
+wall of `unnecessary qualification` warnings in azul-core under `-D warnings`
+(see the X11 report). This branch does not add to it — the two warnings it
+would have introduced were fixed in the lint commit.
+
 ## Traps found
 
 1. **`build-dll` and `link-dynamic` fight over `target/release/libazul.so`, in
