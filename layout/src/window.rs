@@ -5560,7 +5560,7 @@ impl LayoutWindow {
             // just before handing `styled_dom` over. Dump what THIS function sees so
             // we can tell whether the by-value StyledDom move corrupted it.
             unsafe {
-                crate::az_mark(0x40610, compact_cache_ref.is_some() as u32);
+                crate::az_mark(0x40610, u32::from(compact_cache_ref.is_some()));
                 if let Some(cc) = compact_cache_ref {
                     crate::az_mark(0x40614, cc.prev_font_hashes.len() as u32);
                     crate::az_mark(0x40618, cc.prev_font_hashes.as_ptr() as usize as u32);
