@@ -123,6 +123,27 @@ So the wrapper's seed list — SP, the ABI arg slots, GSBASE — is complete for
 every field used as a base address. The x87 reads are worth a look if long
 double math ever misbehaves, but they cannot produce a wild pointer.
 
+## Is `0x42000` safe? Not obviously — the probe checks it
+
+Non-mini wasms get tiled stack slots: `STACK_BASE_FIRST` 192 KiB, stride 128
+KiB, so slot *n*'s stack pointer starts at `0x30000 + n·0x20000` and grows
+**down**. Slot 1 therefore starts at `0x50000` and descends through
+`[0x30000..0x50000]` — a range that contains the recorders (`0x40000`), the
+coverage bitmap (`0x41000`) **and** the TEB at `0x42000`.
+
+One boot hands out 24 slots. With wasm-ld's default 64 KiB stack, a slot-1
+module reaching full depth would bottom out at exactly `0x40000` and take all
+of it with it. Empirically the recorders survive every run, so slot-1 stacks do
+not descend that far in practice — but the TEB sits 8 KiB *above* the recorders,
+so it needs only ~56 KiB of slot-1 depth to be hit, where the recorders need 64.
+
+This is not settled by argument, so `tls-probe.js` reads `TEB + 0x58` back and
+compares it against the expected array address. A clobbered TEB reports as
+`*** expected 0x42200` rather than being mistaken for a TLS failure. If that
+fires, the gap between the recorder block (`0x40A08`) and the coverage bitmap
+(`0x41000`) is 1528 free bytes with exactly the recorders' own exposure, and
+160 bytes is all this needs.
+
 ## The tagging trap this fix fell into
 
 `tag_state_accesses` stamps every *untagged* load/store in the helper IR with
