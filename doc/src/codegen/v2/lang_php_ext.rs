@@ -724,9 +724,23 @@ const WCO_CREATE_METHOD: &str = r####"
     }
 "####;
 
-/// Function kinds we know how to emit. The auto-derived trait helpers
-/// (delete/clone/eq/...) are handled by the class scaffolding above
-/// (Drop) or skipped entirely for now.
+/// Function kinds we know how to emit.
+///
+/// `Delete` stays out - the class scaffolding owns Drop, and handing PHP a
+/// second way to free the same pointer is a double-free. The rest of the
+/// auto-derived helpers used to be "skipped entirely for now", which is why
+/// every class this extension DOES expose - App, AppConfig, Button and 26
+/// others - declared Debug/PartialEq/Hash in api.json, had the export in
+/// libazul, and named it nowhere.
+///
+/// Admitting them here is necessary but NOT sufficient, and the measurement
+/// says so: 134 -> 129. `render_method` still returns None for most of them
+/// because the marshalling table has no mapping for three shapes these need -
+/// an `AzString` RETURN (it maps AzString only as an ARGUMENT, line ~930, so
+/// no `_toDbgString` reaches the artifact at all), a same-type `*const Az{T}`
+/// argument (`_partialEq`'s second operand), and a `Self` return (`_clone`).
+/// Closing php-ext means adding those three to the table; the kinds being
+/// eligible is the precondition, not the fix.
 fn is_method_kind_eligible(kind: FunctionKind) -> bool {
     matches!(
         kind,
@@ -735,6 +749,12 @@ fn is_method_kind_eligible(kind: FunctionKind) -> bool {
             | FunctionKind::Method
             | FunctionKind::MethodMut
             | FunctionKind::Default
+            | FunctionKind::PartialEq
+            | FunctionKind::PartialCmp
+            | FunctionKind::Cmp
+            | FunctionKind::Hash
+            | FunctionKind::DebugToString
+            | FunctionKind::DeepCopy
     )
 }
 
@@ -748,7 +768,22 @@ fn render_method(
     _c_prefix: &str,
     wrapper: &str,
 ) -> Option<Vec<String>> {
-    let takes_self = matches!(func.kind, FunctionKind::Method | FunctionKind::MethodMut);
+    // The trait entry points take `&self` as args[0] exactly like an ordinary
+    // method - `_partialEq(a, b)`, `_hash(v)`, `_toDbgString(v)`. Leaving them
+    // out here meant the self POINTER was handed to `marshal_arg`, which has
+    // no mapping for it, so `render_method` returned None and the method was
+    // silently skipped. `Default` is correctly absent: it has no receiver.
+    let takes_self = matches!(
+        func.kind,
+        FunctionKind::Method
+            | FunctionKind::MethodMut
+            | FunctionKind::PartialEq
+            | FunctionKind::PartialCmp
+            | FunctionKind::Cmp
+            | FunctionKind::Hash
+            | FunctionKind::DebugToString
+            | FunctionKind::DeepCopy
+    );
 
     // Filter args: drop the self receiver (Python codegen detects it via
     // name == class_name.lowercase()), same convention here.
