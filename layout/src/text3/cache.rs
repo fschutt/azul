@@ -758,7 +758,7 @@ pub fn append_coverage_faces(
         .push(rust_fontconfig::ScriptFallbackGroup {
             range: UnicodeRange {
                 start: 0,
-                end: 0x10FFFF,
+                end: 0x0010_FFFF,
             },
             fonts: faces,
         });
