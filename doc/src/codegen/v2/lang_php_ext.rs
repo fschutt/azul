@@ -1020,6 +1020,18 @@ fn marshal_return(
             rust_return_type: format!("Azul{}", t),
             wrap_call: format!("unsafe {{ Azul{} {{ inner: __CALL__ }} }}", t),
         }),
+        // AzString return -> PHP string. This is the whole Debug column:
+        // `Az{T}_toDbgString` is the only trait entry point that returns one,
+        // and without this arm not a single `_toDbgString` reached the
+        // extension. Uses only the public surface - `AzString::as_str` exists
+        // on `dll_api_external.rs` and handles non-UTF8 by taking the longest
+        // valid prefix - then frees the string, which owns a heap buffer and
+        // has no Drop impl of its own.
+        Some("String") => Some(MarshalledReturn {
+            rust_return_type: "String".to_string(),
+            wrap_call: "unsafe { let mut __s = __CALL__; let __r = __s.as_str().to_string();                         crate::dll::AzString_delete(&mut __s); __r }"
+                .to_string(),
+        }),
         Some(t) => primitive_php_type(t).map(|rust_t| MarshalledReturn {
             rust_return_type: primitive_return_rust(rust_t).to_string(),
             wrap_call: primitive_return_wrap(rust_t),

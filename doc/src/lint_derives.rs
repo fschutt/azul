@@ -816,28 +816,23 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `compare`: the ABI answers 255 for "incomparable" and a total compare
 ///     has no honest value for it. Needed in all three emitters - struct,
 ///     tagged union, unit enum.
-///   * `php-ext` (129, was 134) - correctly measured, unlike ocaml: the
-///     artifact really does name `AzApp_*` symbols, and the 1744 absent are a
-///     genuinely curated surface of 29 classes. `is_method_kind_eligible`
-///     said the trait helpers were "skipped entirely for now"; admitting them
-///     landed `_partialEq`, `_hash`, `_cmp` and `_clone` for Dom, Button and
-///     WindowCreateOptions, and NOTHING else - because eligibility is only the
-///     precondition. `render_method` still returns None for the rest: the
-///     marshalling table has no `AzString` RETURN (only the argument
-///     direction), no same-type `*const Az{T}` argument for `_partialEq`'s
-///     second operand, and no `Self` return for `_clone`. Not one
-///     `_toDbgString` reaches the artifact, which is the whole Debug column.
-///     Those three mappings are the fix.
-///     BLOCKED, 2026-09-05, and deliberately not guessed: of the three
-///     missing shapes only the `AzString` RETURN still matters (the
-///     same-class ref arg and the `Self` return are already handled -
-///     `marshal_arg` case 2 and `marshal_return`'s receiver arm). There is
-///     no `as_str` or `From<AzString> for String` on the generated
-///     surface, so emitting it means hand-written unsafe slice code over
-///     `.vec.ptr` / `.vec.len` plus an `AzString_delete` - and NOTHING in
-///     our gates compiles this crate, so a mistake would ship silently.
-///     That is the one combination where guessing is worst: unverifiable
-///     AND unsafe. Needs a conversion helper on the dll surface first.
+///   * `php-ext` (125) - the `AzString` RETURN is now handled, which was the
+///     whole Debug column: `AzString::as_str` does exist on the external
+///     surface (it handles non-UTF8 by taking the longest valid prefix), so
+///     the arm needs no hand-written pointer code - just `as_str().to_string()`
+///     and an `AzString_delete`, since AzString owns a heap buffer and has no
+///     Drop of its own. An earlier pass recorded this as blocked on a missing
+///     helper; that was wrong, the helper was there.
+///     It only moved 129 -> 125, and the reason is NOT a marshalling gap:
+///     `PHP_CLASS_ALLOWLIST` is exactly five classes - Dom, App, AppConfig,
+///     WindowCreateOptions, Button - and everything else gets no PHP class at
+///     all. The remaining 125 are derives on types this extension
+///     DELIBERATELY does not expose; they count as present only because their
+///     `extern` declarations name them.
+///     NEXT STEP, and it is a MEASUREMENT fix rather than an emitter one:
+///     php-ext's presence test should key on the registered PHP class
+///     (`Azul{T}`), not the extern symbol - exactly the correction ocaml
+///     needed. Until then this number describes the curation, not a defect.
 ///   * `haskell` (10) - the recursive-type carve-out moved it 11 -> 10, so its
 ///     `_partialEq` / `_cmp` / `_hash` now reach the artifact. The remaining
 ///     Debug / Clone / Default do NOT, for a different reason: Haskell routes
@@ -891,7 +886,7 @@ fn declared_count(derives: &BTreeSet<String>) -> usize {
 pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
     ("zig", 13),
-    ("php-ext", 129),
+    ("php-ext", 125),
     ("ocaml", 11),
     ("haskell", 10),
     ("go", 13),
