@@ -773,10 +773,24 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `ResultXmlXmlError`, three classes whose entry points these emitters
 ///     drop for a reason not yet established. Consistent across every binding
 ///     that has a residue at all, so it is one cause, not fourteen.
-///   * `ocaml` — every capability IS generated in `azul.ml` and the `.mli`
-///     exports only `clone` and `default`, so a consumer can reach nothing else.
-///
-/// WHAT CAME OFF THIS TABLE, AND HOW:
+///   * `ocaml` (272) - the capability IS generated: `azul.ml` defines `equal`,
+///     `hash` and `to_string` per module, and the raw `foreign` bindings name
+///     all 7893 trait symbols. The `.mli` declares none of them, and in OCaml
+///     the interface SEALS the module, so a consumer can reach nothing.
+///     ATTEMPTED AND REVERTED 2026-09-05, twice, both times making it WORSE.
+///     Recorded so the next attempt does not repeat it:
+///       1. Widening `class_has_visible_methods` to admit trait-only classes
+///          emits a module exposing only `equal`/`hash`/`to_string`, so every
+///          OTHER derive that class declares (Clone, Ord, PartialOrd, Default)
+///          flips from `absent` to `missing`: 272 -> 1321. A module is only an
+///          improvement once it carries the WHOLE declared list.
+///       2. Even the signature-only change measured worse (272 -> 1171),
+///          because this check is TEXT-based: the emitted comment
+///          `(* Equality routed through AzFoo_partialEq. *)` NAMES the class,
+///          so `class_is_named` counts previously-absent classes as present
+///          and starts charging them for derives they still lack. Any fix here
+///          must either carry the full list or avoid naming the class in prose
+///          - and that fragility is worth knowing about the checker itself.
 ///   * `rust-public` (was 7122) — `azul.rs` was `UsingDerive` with no `extern`
 ///     block, a combination that could not compile in either direction. It is
 ///     now `UsingCAPI` + `ExternalBindings`, the same shape as
