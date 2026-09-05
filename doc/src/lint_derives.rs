@@ -756,19 +756,19 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     CATEGORY - `ImageRef`, `Svg`, `PhysicalSizeU32`, `GlVoidPtrConst`.
 ///     Closing them means revisiting those category exclusions, which is a
 ///     separate decision from routing a capability.
-///   * `go` (2246, was 5648) - structs and unit-only enums are closed. The
-///     struct half was the same gate-plus-emitter pair zig needed; unit enums
-///     are real named Go types (`type AzAccessibilityRole uint32`), so they
-///     simply take methods. Go gets idiomatic spellings - `Equal`, `Order`,
-///     `PartialOrder`, `Hash`, and a `String()` implementing fmt.Stringer that
-///     frees the `AzString` (GoStr only copies, so it would otherwise leak one
-///     per call).
-///     What is LEFT is TAGGED UNIONS, and it is a redesign rather than a
-///     missing call: Go models them as a sealed INTERFACE
-///     (`type AzCssProperty interface { isAzCssProperty() }`) whose variant
-///     structs hold no C value, so there is no `C.Az*` whose address a trait
-///     entry point could take. Wiring it means having the variant types carry
-///     the union. Recorded, not guessed at.
+///   * `go` (19, was 5648) - effectively closed, and the last step corrects a
+///     wrong call recorded here earlier. Structs needed the gate-plus-emitter
+///     pair; unit enums are named Go types and simply take methods; TAGGED
+///     UNIONS were written off as "a redesign, because the sealed interface
+///     holds no C value". That was wrong. Every generated signature that takes
+///     a union already takes `C.AzCssProperty`, not the interface - the raw
+///     type IS the currency a Go caller holds - so free functions over it
+///     (`CssPropertyEqual`, `CssPropertyString`, ...) are the honest fit and
+///     the interface stays what it was, a type-switch aid. 2246 -> 583.
+///     `Clone` and `Default` then closed the rest: both are real derives, and
+///     neither is an instance method (`Default` has no receiver at all, so it
+///     is a package-level function).
+///     The last 19 match zig's: types the emitter excludes BY CATEGORY.
 ///   * `4-20` in the remaining tail — `Xml`, `XmlNodeChild` and
 ///     `ResultXmlXmlError`, three classes whose entry points these emitters
 ///     drop for a reason not yet established. Consistent across every binding
@@ -833,7 +833,7 @@ pub const BASELINE: &[(&str, usize)] = &[
     ("php-ext", 134),
     ("ocaml", 272),
     ("haskell", 10),
-    ("go", 2246),
+    ("go", 19),
 ];
 
 /// Compare against [`BASELINE`] and render the verdict.
