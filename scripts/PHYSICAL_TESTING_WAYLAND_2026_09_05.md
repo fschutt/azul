@@ -401,35 +401,46 @@ keymap. `xdotool key <keysym>` presses a key that already carries the keysym
 and has no such race. The bug was in my harness, and one more screenshot would
 have been reported as an azul defect.
 
-## CI on this branch is red, and it is NOT this branch
+## CI is red on this branch — inherited, and already fixed elsewhere
 
-Worth knowing before reading the checks. `fix/wayland-desktop-integration`
-merges onto its base with **zero conflicts**, but CI fails — and the identical
-failures are present on the base branch `fix/x11-desktop-integration` (#461),
-so they are inherited, not introduced.
+`fix/wayland-desktop-integration` merges onto its base with **zero conflicts**,
+but CI fails, and the identical failures are on the base branch #461 — so they
+are inherited, not introduced.
 
-The failing job is **Supply chain preflight (build-time code + env)**, and the
-reason is dependency drift rather than anything in the source:
+The failing job is **Supply chain preflight (build-time code + env)**: **94**
+crates report `DIGEST — version X is not reviewed` and **15** report
+`UNREVIEWED — no entry in build-script-policy.toml`. Nothing in this PR touches
+`Cargo.toml`; the pinned versions moved past the policy ledger.
 
-    ##[error]aes 0.9.3: DIGEST — version 0.9.3 is not reviewed (reviewed: 0.8.4, 0.9.1)
-    ##[error]anyhow 1.0.104: DIGEST — version 1.0.104 is not reviewed (reviewed: 1.0.103)
-    ##[error]bigdecimal 0.4.10: UNREVIEWED — no entry in build-script-policy.toml
+**This is already done on `fix/master-green` (#458)**, whose commit
+`0a16350e0 fix(supply-chain): re-pin 94 bumped build scripts and audit the 15
+new ones` matches those counts exactly. The procedure is `cargo vendor`, audit
+the changed build scripts, then re-pin — not something to leave for later, and
+not something to duplicate here. This branch should land after #458.
 
-**94 crates** report a digest whose version has moved past what was reviewed,
-and **15** have no policy entry at all. Nothing in this PR touches
-`Cargo.toml`; the pinned versions simply advanced since the policy ledger was
-last refreshed.
+The separate `build` failure is the pre-existing `-D warnings` wall in
+azul-core recorded in the X11 report. This branch does not add to it.
 
-**Deliberately not fixed.** That gate exists to put human review in front of
-third-party code that RUNS AT BUILD TIME. Regenerating the digests to make CI
-green would defeat exactly the control it implements, and doing it unattended
-overnight would be worse. It needs someone to re-review the moved versions and
-decide, which is a person's call and not a testing agent's.
+### Overlap with #458 — read before merging
 
-The `build` job fails for the separate, already-recorded reason: a pre-existing
-wall of `unnecessary qualification` warnings in azul-core under `-D warnings`
-(see the X11 report). This branch does not add to it — the two warnings it
-would have introduced were fixed in the lint commit.
+#458 is a "make master green" branch and it reaches several of the same files.
+What it already does, so git should drop the duplicates on a rebase:
+
+| fix | #458 | here |
+|---|---|---|
+| supply-chain re-pin (94 + 15) | **yes** | no |
+| `tray_icon` gated on `cpurender` | yes | yes (duplicate) |
+| `changeset::apply_to_dom` gate | yes (`xml`) | yes (`text_layout + xml`) |
+| `rasterize_svg_clip_to_r8` gate | yes | yes (duplicate) |
+| `headless_window_features` / `TouchPoint::seat_id` | yes | yes, on #461 (duplicate) |
+| **`dialogs::report_problem` + the `ReportProblem` arm** | **NO** | **yes — only here** |
+
+That last row is not cosmetic. On #458 `dialogs::report` is
+`#[cfg(feature = "cpurender")]` while `report_problem` is ungated, and
+`report_problem.rs` still reaches `crate::dialogs::report::RedactRect`
+(lines 72, 212, 249) and `crate::cpurender::AzulPixmap` (93, 592). So a
+`widgets` build without `cpurender` still fails there, and **#458's feature
+matrix is not yet 8/8** — the fourth gate exists only on this branch.
 
 ## Traps found
 
