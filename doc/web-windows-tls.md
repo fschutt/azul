@@ -123,6 +123,35 @@ So the wrapper's seed list — SP, the ABI arg slots, GSBASE — is complete for
 every field used as a base address. The x87 reads are worth a look if long
 double math ever misbehaves, but they cannot produce a wild pointer.
 
+## The tagging trap this fix fell into
+
+`tag_state_accesses` stamps every *untagged* load/store in the helper IR with
+the HOST scope and `!noalias` guest, because everything there normally targets
+`%state_buf` / `%stack_buf`. A store reaching guest memory through `inttoptr`
+gets the same stamp, which is a false `noalias` claim against the lifted body's
+guest access to the same address. The first cut of this fix emitted:
+
+```llvm
+store i64 270848, ptr %teb_slot, align 8, !alias.scope !90005, !noalias !90004
+```
+
+— correct IR, wrong metadata, and the seed would have measured as "no effect".
+The tagger skips pre-tagged lines, so the fix is to emit the guest tag
+(`!alias.scope !90004, !noalias !90005`) directly, plus `volatile` to match
+every other guest write here.
+
+Auditing the whole helper corpus for this shape (`inttoptr`-derived pointer,
+host tag): 16,141 sites, of which 16,137 were this seed × 1793 wrappers. Two
+others remain, both pre-existing:
+
+* **`sub_e82f70`** (`std::env::var_os → None`) writes a 24-byte `None` to the
+  guest sret buffer with three host-tagged stores. A lifted caller reads that
+  buffer guest-tagged. **Genuine bug of the same class**, not on the path this
+  fix addresses; left alone deliberately rather than folded into a TLS change.
+* **`sub_3ad850`** loads a stack arg at `SP+40`. That address is inside
+  `%stack_buf`, which the wrapper prologue writes as a host alloca, so the host
+  tag is consistent with its writer — not a bug.
+
 ## Careful with synth addresses here
 
 `synth = synth_base + rva - 0x1000` does **not** hold for this image. It predicts
