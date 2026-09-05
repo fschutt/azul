@@ -60,6 +60,39 @@ The right instrument for both platforms is a span around `render_and_present`,
 reporting the paint itself. Until that exists, neither platform has a
 trustworthy resize-repaint number.
 
+## Measured, narrowed, NOT fixed: the caret blinks at azul's default, not the desktop's
+
+Idle, with a caret in the document and nothing else happening, the app
+generates **67 WebRender frames in 33.9 s — 1.97 frames/s — at a metronomic
+530 ms** (min 10, median 530, max 530; from `generated frame for document` in
+a `AZ_LOG=debug` capture).
+
+530 ms is not a coincidence: it is
+`text_edit::CURSOR_BLINK_INTERVAL_MS`, azul's built-in default. This KDE
+session is configured for **1200 ms**, and detection read it correctly -
+`AZ_DUMP_SYSTEM_STYLE=1` prints `caret_blink_ms 1200`. So the caret is
+blinking at the framework default while the detected desktop value sits
+unused, and the app repaints twice a second for it.
+
+What has been ruled out, to save the next person the search:
+
+- **Not the CSS override.** `caret_blink_interval_for` lets a declared
+  `caret-animation-duration` win over the system value, which is correct
+  cascade behaviour - but nothing outside `#[cfg(test)]` declares that
+  property. Neither AzWriter nor any UA sheet sets it, so `css_interval` is
+  `None` and the system branch is the one that runs.
+- **Not a missing `set_system_style`.** The shell does attach the style
+  (`dll/src/desktop/shell2/common/layout.rs:275`).
+
+What remains, and is the thing to test first: an **ordering** problem. The
+interval is adopted when the caret timer is ARMED, on focus change
+(`adopt_blink_interval`, whose own doc notes it is meant for "a RUNNING
+timer"), so a timer armed before the style reached the `LayoutWindow` keeps
+`CURSOR_BLINK_INTERVAL` and never re-adopts.
+
+This is deliberately left unfixed rather than guessed at, and it is cheaply
+self-verifying: the fix is right when this idle cadence becomes 1200 ms.
+
 ## Traps found
 
 1. **`build-dll` and `link-dynamic` fight over `target/release/libazul.so`, in
