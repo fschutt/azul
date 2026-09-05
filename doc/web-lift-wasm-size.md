@@ -409,12 +409,34 @@ compression, and the lifter's own `iced_x86`/`goblin`. Matching is on the whole
 leading crate name; a test pins that `StyleFilter::ash_blur` and `derive_style`
 survive `ash` and `der`.
 
-Measured on run 41 (app mode), the excluded set present is 370 functions /
-4.03 MB / 6.0% — mostly rustls at 2.85 MB. turso and accesskit are **not**
-reached at all in app mode; they matter for the full-surface prelift.
+Measured on the app-mode lift with **crate-anchored** matching, the excluded
+payload actually present is **47 functions / 0.174 MB / 0.43%** — essentially
+nothing. turso, rustls, regex and accesskit are not reached at all in app mode.
+The list therefore matters for the **full-surface prelift**, not for an app
+build, where the desktop-shell cut has already done the work.
 
-`webrender` is deliberately not on the list: its types are woven into
-azul_core's display list, so it needs a verification run rather than a guess.
+> An earlier revision of this section claimed 370 functions / 4.03 MB / 6.0%,
+> "mostly rustls at 2.85 MB". That was a substring bug in the audit script, not
+> a measurement: the pattern `ring::` matches `alloc::string::` — the tail of
+> `"string::"` — so 86 functions of ordinary Rust string handling were booked as
+> a TLS stack. There is no rustls in the lift at all. This is the second time an
+> unanchored substring produced a phantom saving (the first matched `Display`
+> inside `DisplayList`), which is why `wasm-payload-audit.py` extracts the
+> leading crate name the way the classifier does.
+
+`webrender` is deliberately **not** on the policy list, and the dependency graph
+says it does not need to be. Of its 51 lifted functions, 41 have no caller at
+all, and every external caller but one is `azul::desktop::*` —
+`shell2::common::layout::generate_frame`, `wr_translate2::generate_frame`,
+`Win32Window::regenerate_layout_inner`, `extra::media_keys::*`. Once the desktop
+shell is `NeverLift`, webrender falls out on its own; run 41 confirms it drops
+from 266 functions to 40. The single engine-side edge is
+`azul_core::compact::apply_css_property_to_compact` reaching a
+`webrender_build::shader` `From` impl, worth 5.8 KB.
+
+That is the pattern to prefer generally: cutting a **reachability root** removes
+a subsystem for free, where a policy exclusion has to be argued and maintained
+per crate.
 
 ## Tooling defect worth remembering
 
