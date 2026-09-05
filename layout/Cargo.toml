@@ -8,7 +8,7 @@
 [package]
 readme = "../README.md"
 name = "azul-layout"
-version = "0.0.14"
+version = "0.0.16"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = "Layout solver + font and image loader the Azul GUI framework"
@@ -55,8 +55,8 @@ autoexamples = true
 autotests = false
 
 [dependencies]
-azul-css                = { version = "0.0.14", path = "../css", default-features = false, features = ["parser"] }
-azul-core               = { version = "0.0.14", path = "../core", default-features = false }
+azul-css                = { version = "0.0.16", path = "../css", default-features = false, features = ["parser"] }
+azul-core               = { version = "0.0.16", path = "../core", default-features = false }
 # `pattern` form validation (11b-i-b). MINIMAL on purpose: only the string API,
 # no dependencies of its own. NOT optional-on-std, though -- regex-lite's own
 # lib.rs is `#[cfg(not(feature = "std"))] compile_error!("'std' is currently a

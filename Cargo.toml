@@ -84,8 +84,27 @@ azul-layout = { path = "layout" }
 # find. printpdf 0.12.8+ declares `>=5.0, <6`, which intersects this
 # workspace's `>=5.0, <5.1` at 5.0.x — one copy. printpdf 0.12.7 and older
 # declare `<5` and CANNOT share a graph with this tree: the rust-fontconfig 5
-# migration, the azul-* 0.0.15 bump and dll's printpdf 0.12.8 pin land as
+# migration, the azul-* 0.0.16 bump and dll's printpdf 0.12.8 pin land as
 # ONE atomic pair (see the 0.0.14 history: bump alone = two azul_layouts).
+#
+# THE RELEASE ORDER, because the bump makes this workspace unbuildable until
+# printpdf catches up. printpdf pins azul-* EXACTLY (0.0.x semantics), so the
+# moment css/core/layout become a new version the published printpdf falls off the
+# [patch] above and drags crates.io azul-core 0.0.14 (rust-fontconfig <4.5)
+# into the graph. Nothing in-tree links until step 3:
+#
+#   1. bump azul-css/core/layout + every internal `version =` reference, then
+#      publish css, core, layout in that order. `cargo publish -p <crate>`
+#      does NOT work here — it resolves the whole workspace and hits the
+#      conflict above. Publish each from a copy of the crate directory with
+#      `[workspace]` appended to its manifest to detach it; azul-core and
+#      azul-layout need their predecessor on the index first.
+#   2. printpdf's paired PR goes green on its own and publishes.
+#   3. re-pin dll/Cargo.toml to the new printpdf; this tree goes green again.
+#
+# Do NOT shortcut step 1 with a `[patch.crates-io] printpdf = { path = .. }`.
+# It builds locally and publishes something nobody has tested — the exact
+# failure mode recorded for allsorts below.
 #
 # allsorts-azul is NOT patched. It used to be (`path = "third_party/allsorts"`), and that
 # is exactly how azul-layout 0.0.9 shipped broken: the vendored tree grew
