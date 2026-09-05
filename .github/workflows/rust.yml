@@ -290,11 +290,16 @@ jobs:
         # cannot be checked on the maintainer's machine - node has a broken
         # dylib, javac has no JRE, g++ cannot find <cstdint>. CI is where those
         # actually get covered.
+        #
+        # `libffi-platypus-perl` is not incidental: Azul.pm loads FFI::Platypus
+        # at compile time, so `perl -c` cannot parse it without the module and
+        # reports a MISSING DEPENDENCY as broken generated code. The probe now
+        # loads the same module, so a runner without it skips perl instead.
         shell: bash
         run: |
           sudo apt-get update -qq || true
           sudo apt-get install -y -qq \
-            gfortran php-cli luajit ruby perl \
+            gfortran php-cli luajit ruby perl libffi-platypus-perl \
             ocaml libctypes-ocaml-dev golang-go || true
           for t in gcc g++ gfortran perl ruby luajit php node javac go gofmt ocamlfind; do
             printf '%-10s %s\n' "$t" "$(command -v $t || echo MISSING)"

@@ -338,12 +338,13 @@ stage_binding_syntax() {
   local tmp; tmp="$(mktemp -d)"
 
   # label|probe command|real command
-  # KNOWN_BROKEN entries carry a trailing |broken plus a one-line reason.
+  # Exactly three fields. A binding that cannot pass yet is handled below the
+  # loop instead (see the `v` KNOWN_BROKEN block), so it can carry its reason.
   local checks=(
     "zig|zig ast-check $tmp/p.zig|zig ast-check $gen/azul.zig"
     "go|gofmt -e $tmp/p.go|gofmt -e $gen/go"
     "c|gcc -fsyntax-only -x c $tmp/p.c|gcc -fsyntax-only -x c $gen/azul.h"
-    "fortran|gfortran -fsyntax-only -J$tmp $tmp/p.f90|gfortran -fsyntax-only -J$tmp $gen/azul.f90"
+    "fortran|gfortran -fsyntax-only -ffree-line-length-none -J$tmp $tmp/p.f90|gfortran -fsyntax-only -ffree-line-length-none -J$tmp $gen/azul.f90"
     "perl|perl -c $tmp/p.pm|perl -c $gen/Azul.pm"
     "ruby|ruby -c $tmp/p.rb|ruby -c $gen/azul.rb"
     "lua|luajit -bl $tmp/p.lua /dev/null|luajit -bl $gen/azul.lua /dev/null"
@@ -366,7 +367,7 @@ stage_binding_syntax() {
   printf 'int x;\n'                              > "$tmp/p.c"
   printf '#include <cstdint>\nint x;\n'          > "$tmp/p.cpp"
   printf '      program p\n      end program p\n' > "$tmp/p.f90"
-  printf '1;\n'                                  > "$tmp/p.pm"
+  printf 'use FFI::Platypus;\n1;\n'             > "$tmp/p.pm"
   printf 'x = 1\n'                               > "$tmp/p.rb"
   printf 'local x = 1\n'                         > "$tmp/p.lua"
   printf '<?php $x = 1;\n'                       > "$tmp/p.php"
@@ -379,8 +380,9 @@ stage_binding_syntax() {
   local entry label probe real out
   for entry in "${checks[@]}"; do
     label="${entry%%|*}"
-    probe="$(echo "$entry" | cut -d"|" -f2)"
-    real="$(echo "$entry" | cut -d"|" -f3)"
+    local rest="${entry#*|}"
+    probe="${rest%%|*}"
+    real="${rest#*|}"
     if ! eval "$probe" >/dev/null 2>&1; then
       echo "  (skip $label: checker unavailable or not working here)"
       continue
@@ -389,7 +391,7 @@ stage_binding_syntax() {
       echo "  $label: ok"
     else
       echo "  $label: FAILED" >&2
-      echo "$out" | head -15 >&2
+      echo "$out" | awk 'NR<=15' >&2
       rc=1
     fi
   done
