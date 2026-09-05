@@ -125,6 +125,15 @@ pub(crate) mod pcs {
     pub const XMM: [u64; 4] = [16, 80, 144, 208];
     #[cfg(target_arch = "x86_64")]
     pub const SP: u64 = 2312; // RSP
+    /// `State.addr.gs_base` — the segment base Windows `thread_local!`
+    /// reads through (`mov r10, gs:[0x58]`). `AddressSpace` interleaves a
+    /// padding qword before every base (`_0, ss, _1, es, _2, gs, …`), so
+    /// LLVM field 5 is `gs_base`; `addr` itself starts at 2112 (ArchState
+    /// 16 + vec 2048 + aflag 16 + rflag 8 + seg 24). 2112 + 40 = 2152.
+    /// Cross-checks: `gpr` lands at 2208, matching [`RET`]/[`ARG`], and the
+    /// total 3504 matches remill's own `sizeof(X86State)` static_assert.
+    #[cfg(target_arch = "x86_64")]
+    pub const GSBASE: u64 = 2152;
     #[cfg(target_arch = "x86_64")]
     pub const STATE_SIZE: u64 = 3520; // sizeof(X86State)=3504, 16-aligned
     /// Bytes ABOVE the initial SP: 8 (fake return address, zeroed) +
@@ -11281,6 +11290,87 @@ const AZ_HOST_SCOPE_MD_ID: u32 = 90003;
 const AZ_GUEST_LIST_MD_ID: u32 = 90004;
 const AZ_HOST_LIST_MD_ID: u32 = 90005;
 
+/// Linear address of the synthetic TEB stub. Windows `thread_local!` lowers to
+/// `mov r10, gs:[0x58]` — the TEB's `ThreadLocalStoragePointer` — so the lift
+/// needs *something* at `GSBASE + 0x58`. Placed above the recorder block
+/// (`0x40000`–`0x40A08`) and the coverage bitmap ([`AZ_COV_BASE`], `0x41000`
+/// plus one byte per lifted fn), below the image band at `synth_base`.
+const AZ_TEB_ADDR: u64 = 0x4_2000;
+/// Linear address of the synthetic TLS slot array that `TEB + 0x58` points at.
+/// Indexed by the module's `__tls_index`, which the real loader writes into the
+/// image; nothing writes it here, so it reads 0 — but a mis-set index would
+/// otherwise fetch a wild pointer, so [`AZ_TLS_SLOTS`] entries all alias the
+/// same block and any plausible index lands somewhere valid.
+const AZ_TLS_ARRAY_ADDR: u64 = 0x4_2200;
+/// How many TLS slot entries to point at the module block. A main EXE gets
+/// index 0; a handful covers the statically-linked CRT's own slot without
+/// costing anything measurable.
+const AZ_TLS_SLOTS: u64 = 8;
+/// TEB field offset of `ThreadLocalStoragePointer` on x86-64 Windows.
+const TEB_TLS_POINTER_OFF: u64 = 0x58;
+
+/// Wrapper IR that makes Windows thread-locals readable.
+///
+/// wasm is single-threaded, so "thread-local" collapses to "one global block"
+/// and the image's own TLS *template* can serve as that block directly: writes
+/// to it are exactly the semantics the one thread wants. That leaves three
+/// stores — TEB slot → array, array entries → template, `State.gs_base` → TEB —
+/// after which `mov r10, gs:[0x58]` walks a chain that resolves.
+///
+/// Emitted by the wrapper at runtime rather than as a data segment on purpose:
+/// the mini has ZERO data segments today, which is what lets lazily-fetched
+/// chunks be instantiated against a live memory (see `web-lift-wasm-size.md`).
+///
+/// Returns an empty string when the target is not x86-64 Windows or the image
+/// carries no TLS directory, so the wrapper is byte-identical to before.
+#[cfg(not(target_arch = "x86_64"))]
+fn emit_win_tls_init() -> String {
+    String::new()
+}
+
+#[cfg(target_arch = "x86_64")]
+fn emit_win_tls_init() -> String {
+    // Called once per exported wrapper; report the decision once, because
+    // "no TLS directory" and "TLS seeded" are indistinguishable in a boot log
+    // otherwise — an empty return is silent by design.
+    static LOG_ONCE: std::sync::Once = std::sync::Once::new();
+    let found = symbol_table::get().and_then(|t| t.win_tls_template_synth());
+    LOG_ONCE.call_once(|| match found {
+        Some((synth, len)) => eprintln!(
+            "[azul-web] win-tls: template synth={synth:#x} len={len} \
+             → TEB {AZ_TEB_ADDR:#x}, slots {AZ_TLS_ARRAY_ADDR:#x}, GSBASE off {}",
+            pcs::GSBASE
+        ),
+        None => eprintln!("[azul-web] win-tls: no TLS directory in image; gs:[0x58] stays 0"),
+    });
+    let Some((template_synth, template_len)) = found else {
+        return String::new();
+    };
+    let mut ir = format!(
+        "  ; Windows thread-locals: seed a synthetic TEB so `gs:[0x58]` resolves.\n  \
+         ; TLS template is {template_len} bytes at synth {template_synth:#x}; wasm is\n  \
+         ; single-threaded, so the template IS the one live block.\n  \
+         %teb_slot = inttoptr i64 {teb_slot} to ptr\n  \
+         store i64 {array}, ptr %teb_slot, align 8\n",
+        teb_slot = AZ_TEB_ADDR + TEB_TLS_POINTER_OFF,
+        array = AZ_TLS_ARRAY_ADDR,
+    );
+    for i in 0..AZ_TLS_SLOTS {
+        ir.push_str(&format!(
+            "  %tls_slot{i} = inttoptr i64 {addr} to ptr\n  \
+             store i64 {template_synth}, ptr %tls_slot{i}, align 8\n",
+            addr = AZ_TLS_ARRAY_ADDR + i * 8,
+        ));
+    }
+    ir.push_str(&format!(
+        "  %gsbase_slot = getelementptr inbounds i8, ptr %state_buf, i64 {gsbase}\n  \
+         store i64 {teb}, ptr %gsbase_slot, align 8\n",
+        gsbase = pcs::GSBASE,
+        teb = AZ_TEB_ADDR,
+    ));
+    ir
+}
+
 /// Emit the per-fn helper module: `__remill_*` intrinsics with real bodies
 /// (memory ops become load/store, control intrinsics thread the memory token,
 /// barriers are noops — all `alwaysinline`), plus the callback wrapper that
@@ -12470,7 +12560,7 @@ define {ret_ty} @{export_as}({params}) {{
   %sp_int = ptrtoint ptr %sp_top to i64
   %sp_slot = getelementptr inbounds i8, ptr %state_buf, i64 {sp_off}
   store i64 %sp_int, ptr %sp_slot, align 8
-{retaddr_zero}{prologue}
+{tls_init}{retaddr_zero}{prologue}
   ; Memory token is null — every memory op was lowered to a real
   ; load/store above, so the token is dead inside the body.
   %_ret_mem = call ptr @sub_{lift_addr_hex}(ptr %state_buf, i64 {lift_addr_dec}, ptr null)
@@ -12501,6 +12591,7 @@ define {ret_ty} @{export_as}({params}) {{
         state_size = state_size,
         stack_size = stack_size,
         sp_init_off = sp_init_off,
+        tls_init = emit_win_tls_init(),
         retaddr_zero = if cfg!(target_arch = "x86_64") {
             "  ; x86: zero the fake return-address slot at [SP] so the lifted\n  \
                ; body's final `ret` pops 0 (mirrors aarch64's zeroed X30/LR).\n  \

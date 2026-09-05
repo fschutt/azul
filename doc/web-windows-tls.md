@@ -1,7 +1,7 @@
 # Windows thread-locals are unimplemented in the lift
 
-Status: root-caused, not yet fixed. This is the blocker that follows the
-pc-seeding fixes (see `web-lifted-pc-seeding.md`).
+Status: root-caused and implemented; boot effect not yet measured. This is the
+blocker that follows the pc-seeding fixes (see `web-lifted-pc-seeding.md`).
 
 ## Symptom
 
@@ -66,27 +66,56 @@ Data directory 9 of `AzWriter.exe`:
 The template is part of the image, so its synth address is computable with the
 existing rebase and it is mirrorable by the existing machinery.
 
-## Proposed fix
+## The fix
 
 wasm is single-threaded, so "thread-local" collapses to "one global block", and
 the template can serve as that block directly — writes to it are exactly the
 semantics one thread wants.
 
-1. Reserve a small region above the recorders (they occupy `0x40000`–`0x40A08`,
-   and `AZ_COV_BASE` is `0x41000`): a TEB stub plus a TLS array.
-2. In the export wrapper, before calling the body, store
-   * `TEB + 0x58` = address of the TLS array
-   * `tls_array[i]` = synth of the TLS template, for a handful of low indices
-     (`__tls_index` for a main EXE is normally 0)
-   * `state_buf + 2152` (GSBASE) = the TEB address
-3. Nothing else changes.
+`emit_win_tls_init` (in `transpiler_remill.rs`) emits three kinds of store into
+the export wrapper, just after the SP seed:
+
+| address | value | why |
+|---|---|---|
+| `AZ_TEB_ADDR + 0x58` = `0x42058` | `AZ_TLS_ARRAY_ADDR` | what `gs:[0x58]` fetches |
+| `AZ_TLS_ARRAY_ADDR + 8·i`, i<8 | template synth | indexed by `__tls_index` |
+| `state_buf + pcs::GSBASE` | `AZ_TEB_ADDR` | makes `gs:` resolve at all |
+
+`0x42000` sits above the recorders (`0x40000`–`0x40A08`) and above the coverage
+bitmap (`AZ_COV_BASE` `0x41000` + one byte per lifted fn), and below the image
+band at `synth_base`.
+
+`__tls_index` lives in the image at rva `0x123e0e8` and is written by the real
+loader, so the mirrored copy reads 0 — index 0 is the live one. The other seven
+entries cost 7 stores and remove a whole class of wild-pointer failure if some
+statically-linked component picks a different index.
 
 **Initialise at runtime in the wrapper, not with a data segment.** The mini
 currently has ZERO data segments, which is what makes lazily-instantiated chunks
 safe (see `web-lift-wasm-size.md`); adding one to carry a TEB would silently
 reintroduce the hazard that the chunk plan depends on being absent.
 
+The wrapper is the only site that allocates a State buffer — every deeper frame
+receives `%state` from its caller — so seeding there covers the whole call tree.
+
+### Why the template and not a zeroed scratch block
+
+A zeroed block would be *nearly* right: `LocalKey`'s state byte 0 means
+Uninitialized, so lazy initialization would still run. But a `thread_local!`
+with a non-zero const initializer takes its value from the template, and a
+zeroed block would silently hand it 0. Pointing at the template is correct
+whether or not that `.rdata` window turns out to be mirrored; if it is not, the
+behaviour degrades to exactly the zeroed-block case rather than breaking.
+
 ## Verifying it
 
-Boot and read recorder `0x40048`. If it stays 0, no NeverLift stub was reached.
-The 23 GSBASE-referencing bodies are the population that changes behaviour.
+The wrapper emitter logs its decision once per lift:
+
+```
+[azul-web] win-tls: template synth=… len=… → TEB 0x42000, slots 0x42200, GSBASE off 2152
+```
+
+— an empty emission is otherwise indistinguishable from a working one in a boot
+log. Then boot and read recorder `0x40048`: if it stays 0, no NeverLift stub was
+reached. The 23 GSBASE-referencing bodies are the population that changes
+behaviour.

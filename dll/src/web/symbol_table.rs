@@ -1161,6 +1161,62 @@ impl SymbolTable {
         let r = self.tlv_regions.first()?;
         self.native_to_synth(r.tls_base).map(|s| s as u32)
     }
+
+    /// Synthetic address and byte size of the Windows TLS template.
+    ///
+    /// Windows `thread_local!` reads `gs:[0x58]` — the TEB's
+    /// `ThreadLocalStoragePointer` — and indexes it by the module's
+    /// `__tls_index` to reach that module's block. wasm is single-threaded,
+    /// so exactly as for the macOS TLV path above, a thread-local is just a
+    /// static and the module's own TLS template can BE the one block: writes
+    /// land in it and persist, which is what one thread wants.
+    ///
+    /// The template is described by PE data directory 9 and lives inside the
+    /// image, so the existing per-image rebase maps it to synth.
+    ///
+    /// Iterates `image_rebases` and re-reads each file by path rather than
+    /// zipping `image_bytes`: those two are NOT parallel. `image_rebases` is
+    /// empty until `assign_synthetic_addresses` fills it, and `image_bytes`
+    /// also collects images whose parse failed, so index-pairing them yields a
+    /// plausible but wrong address.
+    pub fn win_tls_template_synth(&self) -> Option<(u32, u32)> {
+        for reb in &self.image_rebases {
+            let Ok(bytes) = std::fs::read(&reb.path) else {
+                continue;
+            };
+            let Ok(pe) = goblin::pe::PE::parse(&bytes) else {
+                continue;
+            };
+            let Some(tls) = pe.tls_data.as_ref() else {
+                continue;
+            };
+            let d = &tls.image_tls_directory;
+            let start = d.start_address_of_raw_data;
+            let end = d.end_address_of_raw_data;
+            if end <= start {
+                continue;
+            }
+            let Some(rva) = start.checked_sub(pe.image_base) else {
+                continue;
+            };
+            // `native_base` is the first SECTION's live address, not the
+            // module base, so recover the module base from the lowest section
+            // RVA rather than assuming the usual 0x1000.
+            let Some(first_rva) = pe.sections.iter().map(|s| s.virtual_address).min() else {
+                continue;
+            };
+            let Some(module_base) = reb.native_base.checked_sub(first_rva as usize) else {
+                continue;
+            };
+            let live = module_base + rva as usize;
+            let Some(synth) = self.native_to_synth(live) else {
+                continue;
+            };
+            let size = (end - start) as u32 + d.size_of_zero_fill;
+            return Some((synth as u32, size));
+        }
+        None
+    }
 }
 
 // ── Image enumeration ───────────────────────────────────────────────
