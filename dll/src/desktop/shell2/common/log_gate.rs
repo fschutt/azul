@@ -314,7 +314,14 @@ pub fn emit_at(level: LogLevel, category: LogCategory, message: String, window_i
     // `log` facade in the lean build, which lands in azul's own StderrLogger —
     // so printing here unconditionally duplicated every single line.
     if gate_writes_stderr(level) {
-        eprintln!("[{us:>12}us][{level:?}][{category:?}] {message}");
+        // NOT `eprintln!`: it panics when the write fails, and a closed stderr
+        // is ordinary - piping a running app into `head` closes the pipe the
+        // moment `head` has its lines. A log line is advisory; failing to
+        // deliver one must never take the process down. `StderrLogger` already
+        // writes with `let _ = writeln!(..)` for the same reason.
+        use std::io::Write as _;
+        let mut err = std::io::stderr().lock();
+        let _ = writeln!(err, "[{us:>12}us][{level:?}][{category:?}] {message}");
     }
     super::debug_server::log(level, category, message, window_id);
 }

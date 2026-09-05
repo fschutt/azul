@@ -37,3 +37,26 @@ mod tests {
         clear();
     }
 }
+
+/// A diagnostic must never take the process down because its destination
+/// closed. `eprintln!` panics on a failed write, so piping a running app into
+/// `head` killed it the moment `head` exited - see `write_diagnostic`'s own
+/// doc for the captured backtrace.
+#[test]
+fn a_diagnostic_survives_a_destination_that_is_gone() {
+    use std::io::{Error, ErrorKind, Write};
+
+    struct ClosedPipe;
+    impl Write for ClosedPipe {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(Error::new(ErrorKind::BrokenPipe, "broken pipe"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Err(Error::new(ErrorKind::BrokenPipe, "broken pipe"))
+        }
+    }
+
+    // The assertion is that this RETURNS. With `writeln!(..).unwrap()` or
+    // `eprintln!` behind it, this test panics instead.
+    super::write_diagnostic(ClosedPipe, "a warning nobody can hear");
+}
