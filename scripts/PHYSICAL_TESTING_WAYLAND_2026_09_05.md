@@ -94,6 +94,62 @@ added to serve one desktop silently deleted work that belonged to all of them,
 and no test covered the tail. The device measurement caught it, which is the
 argument for running the thing rather than only compiling it.
 
+## The resize repaint, finally measured — the fast path IS hit
+
+`AZ_LOG="debug,+platform"` plus `AZ_LOG_FILE` turns on the Wayland platform
+trace, which times the repaint itself rather than the gaps between events:
+
+    [WL] xdg_toplevel.configure resize 1280x800 -> 1920x1036: fast relayout
+    [WL] resize_surface logical=1920x1036 buffer=1920x1036 scale=1 took=1.78ms
+
+Driving 12 spaced resizes from a KWin script (so each produces its own
+configure) gives **13 samples: min 1.75 ms, median 3.20 ms, max 17.45 ms** —
+and the 17.45 ms is the FIRST resize after startup, cold. Every warm sample is
+between 1.75 and 3.56 ms:
+
+    17.45  2.09  2.63  1.75  3.43  2.63  2.63  3.42  3.56  3.39  3.20  3.24  3.17
+
+So on Wayland the fast resize path is confirmed taken (the trace says
+`fast relayout`, and no full DOM regeneration appears), and the repaint costs
+~2-3.5 ms warm, comfortably inside a 16.7 ms frame. **Resize paint cost is not
+a source of jitter here.**
+
+This also settles the X11 "~23 fps" figure from #461: if the paint is ~3 ms,
+the 44 ms gaps measured there were the arrival rate of resize EVENTS under
+synthetic pacing, never the cost of painting. The corrected claim is in that
+report too.
+
+## Wayland protocols this compositor actually gives us
+
+Every optional protocol the ledger items depend on binds on KWin (Plasma 6).
+The bind sites were silent, so this needed a log line each - added in this PR,
+in the same `[Wayland] Bound ...` style the other arms already used:
+
+| protocol | bound | serves |
+|---|---|---|
+| `zwp_text_input_v3` | yes | 3d (IME), 9b-ii-a-i-d-ii-c |
+| `zwp_pointer_gestures_v1` | **v3** | 7a — v3 means pinch, swipe AND hold |
+| `zwp_relative_pointer_manager_v1` | yes | 9d-i-a (raw motion) |
+| `zwp_pointer_constraints_v1` | yes | 9d-ii-a (pointer lock) |
+| `zwp_tablet_manager_v2` | yes | 8c, 5b, 9b-ii-b-i-b-i (pen) |
+| `zwp_primary_selection_device_manager_v1` | yes | 9b-ii-b-i-b-i-a-i (middle-click paste) |
+| `zxdg_decoration_manager_v1` | yes | CSD/SSD negotiation |
+| `wp_viewporter`, `wp_fractional_scale_manager_v1` | yes | scaling |
+
+That verifies the BINDING half of those items on real hardware. The
+event-delivery half still needs a pointer, a pen or a second seat, and remains
+untested for the reasons above.
+
+The IME path goes further than binding - it activates on focus with no input
+needed:
+
+    [Wayland] text_input_v3: enabled for contenteditable focus
+    [Wayland] text_input_v3: enter - IME activated for surface
+    [Wayland] text_input_v3: done serial=1
+
+so 3d's Wayland producer is live; what is untested is `preedit_string` /
+`commit_string` delivery, which needs an IME actually composing.
+
 ## Traps found
 
 1. **`build-dll` and `link-dynamic` fight over `target/release/libazul.so`, in
@@ -111,7 +167,14 @@ argument for running the thing rather than only compiling it.
    at INFO for every step; the Wayland handler's equivalent is `wl_trace!`,
    gated behind `AZ_WL_TRACE` *and* Platform/Debug. Half an hour went into
    "did the app even see that configure?" before a screenshot answered it.
-4. **`kdotool`/`xdotool` are useless here; KWin scripting is not.**
+4. **The Wayland platform trace needs THREE things, not one.** `AZ_WL_TRACE=1`
+   alone prints nothing: `wl_trace!` emits at Debug into the `Platform`
+   category, which `AZ_LOG=debug` does not enable on its own. The combination
+   that works is `AZ_LOG="debug,+platform"` — and to be sure of capturing it,
+   `AZ_LOG_FILE=<path>`, which `log_gate::emit_at` writes to unconditionally,
+   bypassing every stderr gate. Hours of "did the app even see that configure?"
+   collapse to one grep once this is on.
+5. **`kdotool`/`xdotool` are useless here; KWin scripting is not.**
    `org.kde.KWin /Scripting loadScript` + `start`, with output read back from
    `journalctl --user -u plasma-kwin_wayland.service | grep '^js:'`, drives
    window geometry and state from the compositor side. The loaded script has no

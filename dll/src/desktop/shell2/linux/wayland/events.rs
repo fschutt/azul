@@ -595,6 +595,10 @@ pub(super) extern "C" fn registry_global_handler(
                     1,
                 ) as *mut _
             };
+            crate::log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Bound zwp_relative_pointer_manager_v1 - raw motion available"
+            );
         }
         "zwp_pointer_constraints_v1" => {
             window.pointer_constraints = unsafe {
@@ -605,6 +609,10 @@ pub(super) extern "C" fn registry_global_handler(
                     1,
                 ) as *mut _
             };
+            crate::log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Bound zwp_pointer_constraints_v1 - pointer lock available"
+            );
         }
         "zwp_pointer_gestures_v1" => {
             // Touchpad pinch / swipe / hold. Bound at up to v3 — v1 has swipe
@@ -619,6 +627,12 @@ pub(super) extern "C" fn registry_global_handler(
                     v,
                 ) as *mut _
             };
+            crate::log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Bound zwp_pointer_gestures_v1 v{} - touchpad {}",
+                v,
+                if v >= 3 { "pinch/swipe/hold" } else { "pinch/swipe" }
+            );
             unsafe { try_init_pointer_gestures(window, data) };
         }
         "zwp_tablet_manager_v2" => {
@@ -630,6 +644,10 @@ pub(super) extern "C" fn registry_global_handler(
                     version.min(2),
                 ) as *mut _
             };
+            crate::log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Bound zwp_tablet_manager_v2 - pen/tablet available"
+            );
             unsafe { try_init_tablet(window, data) };
         }
         "wl_data_device_manager" => {
@@ -659,6 +677,10 @@ pub(super) extern "C" fn registry_global_handler(
                     version.min(1),
                 ) as *mut _
             };
+            crate::log_debug!(
+                LogCategory::Platform,
+                "[Wayland] Bound zwp_primary_selection_device_manager_v1 - middle-click paste available"
+            );
             unsafe { try_init_primary_selection(window, data) };
             unsafe { try_init_seat_primary_selections(window, data) };
         }
