@@ -16,6 +16,23 @@ fn escape_dialog_html(s: &str) -> String {
     s.replace('<', "&lt;").replace('>', "&gt;")
 }
 
+/// Binary-parsing crates log one DEBUG record per import, section and symbol.
+/// Walking a large PE therefore buries the application's own output under
+/// multiple gigabytes — a single web-transpiler run produced a 2.6 GB log in
+/// under half an hour, which is slow to search and eats disk for nothing.
+///
+/// Cap those targets at `Warn`, never raising above the level the caller asked
+/// for. `AZ_LOG_DEPS=1` restores full third-party output for anyone actually
+/// debugging the parsers.
+#[cfg(all(feature = "fern_logger", not(feature = "pyo3_logger")))]
+fn dependency_log_level(log_level: LevelFilter) -> LevelFilter {
+    if std::env::var_os("AZ_LOG_DEPS").is_some() {
+        log_level
+    } else {
+        log_level.min(LevelFilter::Warn)
+    }
+}
+
 /// Configures the global logger using `fern` to write to stdout at the given level.
 #[cfg(all(feature = "fern_logger", not(feature = "pyo3_logger")))]
 pub fn set_up_logging(log_level: LevelFilter) {
@@ -25,6 +42,7 @@ pub fn set_up_logging(log_level: LevelFilter) {
 
     /// Sets up the global logger
     fn set_up_logging_internal(log_level: LevelFilter) -> Result<(), InitError> {
+        let deps = dependency_log_level(log_level);
         fern::Dispatch::new()
             .format(|out, message, record| {
                 out.finish(format_args!(
@@ -35,6 +53,8 @@ pub fn set_up_logging(log_level: LevelFilter) {
                 ))
             })
             .level(log_level)
+            .level_for("goblin", deps)
+            .level_for("pdb", deps)
             .chain(::std::io::stdout())
             .apply()?;
         Ok(())
