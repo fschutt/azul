@@ -315,3 +315,128 @@ rules, every allocation would become a trap and nothing would boot.
 The narrower fix — seeding only from a *run* of consecutive function pointers,
 which is what a real vtable looks like — is still open. The classifier bounds
 the damage; it does not fix the seed.
+
+---
+
+# Measured: delivered bytes, not raw bytes
+
+The shipped wasm is already `--strip-all`'d — zero name/debug sections, 98% code
+— so stripping has nothing left to give. Compression has plenty.
+
+Controlled A/B, each run's own objects through the same `wasm-ld` with the same
+flags:
+
+| | run 39 (no DSE, no cut) | run 41 (both) | change |
+|---|---|---|---|
+| raw wasm | 91.57 MB | 64.68 MB | **-29.4%** |
+| **brotli -q11 (delivered)** | **9.08 MB** | **6.70 MB** | **-26.2%** |
+| gzip -9 | — | 12.35 MB | — |
+| brotli -q5 (on-the-fly) | — | 8.79 MB | — |
+
+Two methodology traps, both of which I fell into first:
+
+- **Do not compare against an older prebuilt wasm.** Against a build from a
+  different day the same work measured -0.3% delivered, which would have
+  supported a wrong conclusion ("compression already eats the wins"). Linking
+  both runs' own objects with identical flags shows -26.2%. The wins survive
+  compression roughly proportionally.
+- **An offline link omits the data segments.** azul injects mirrored data
+  separately (`inject_user_binary_data_segments`), so an offline `wasm-ld`
+  produces a code-only module. The A/B is valid because both sides omit it
+  equally, but the absolute figure understates the real artifact by ~1.4 MB raw.
+
+Useful consequence: **a size number does not require a completed gate run.**
+`wasm-ld --no-entry --allow-undefined --export-dynamic --strip-all
+--gc-sections --initial-memory=536870912 @objs.txt -o out.wasm` links a run's
+scratch objects in seconds. The response file needs Windows paths, one quoted
+path per line.
+
+## Why 36,500 functions — it is not the framework
+
+Engine logic is **7.8% of the function count**. The lift target is the full
+desktop DLL, so it drags in an embedded SQL database (turso, 1668 fns), a GPU
+renderer (webrender, 872), TLS (rustls, 855), a regex engine (695), Vulkan
+(498), PDF (406), accessibility (315) — and the lifter's **own** dependencies:
+`iced_x86`, its x86 disassembler, and `goblin`, its PE parser, were being
+compiled into the payload they exist to produce.
+
+Measured, not projected: deleting the desktop/webrender family from run 39's
+dependency graph orphans **1,393 functions = 24.09 MB = 25.4%** of that run.
+
+A second root: `api_surface_roots` seeds a BFS root for *every* symbol starting
+with `Az`, with no allowlist. 3,721 of those are auto-derived trait shims, and
+`Az<T>_toDbgString` alone is 1,406 functions — each a `format!("{:#?}")` that
+roots the entire formatting tree.
+
+Three hypotheses died under measurement:
+
+- **ICF is worth 0.00 MB.** MSVC already ran `/OPT:ICF` (3,280 duplicate names
+  folded into 1,357 addresses) and the walk is address-keyed, so it inherits
+  that. Even after normalising remill's baked-in PC constant, folding recovers
+  0.03%. Do not build it.
+- **azul's own generics are not the problem** — only 499 of 12,501 azul
+  functions carry generic arguments. It is the `#[derive]`s and the sheer type
+  count (1,440 distinct `Az*` types).
+- **Drop glue is 6.8% of count, not the largest category**, contrary to the
+  usual Rust rule of thumb, and it is a leaf with no fan-out.
+
+## Chunking, not sharding
+
+Per-function shards would be actively worse. The measured size model is
+`obj ~= 2117 + 20.6 x native`, i.e. **~2.1 KB of fixed overhead per function** —
+about 76 MB of pure overhead at 36,000 functions, before any real code. Shards
+also destroy brotli's cross-function dictionary (the ~10x ratio comes from
+repetition *across* functions) and cost one fetch plus one `instantiate` each.
+
+The right shape is **2 to 5 chunks**: one eager core holding the first-paint hot
+set, and a few lazily fetched chunks grouped by feature. The mechanism exists
+and is dormant behind `AZ_ENABLE_SHARDS` — `BoundaryImport` emits an import,
+`--allow-undefined` makes it an env import, and the loader already has an
+`azBoundarySymbols` map.
+
+Worth noting the argument that survives even if transfer size does not move
+much: the browser still has to **compile** what it receives. 34 MB of wasm is a
+multi-second compile even when it arrives as 4 MB on the wire, so splitting
+helps time-to-first-paint independently of bytes.
+
+## Excluded by policy
+
+`is_browser_excluded_crate` (distinct from `is_platform_native`, which is code
+that *cannot* run in wasm) routes to `NeverLift` the crates whose capability the
+browser already provides: turso to browser storage, regex to `RegExp`, accesskit
+to the DOM, TLS to `fetch`, plus GPU/gamepad/native-dialog loaders, transport
+compression, and the lifter's own `iced_x86`/`goblin`. Matching is on the whole
+leading crate name; a test pins that `StyleFilter::ash_blur` and `derive_style`
+survive `ash` and `der`.
+
+Measured on run 41 (app mode), the excluded set present is 370 functions /
+4.03 MB / 6.0% — mostly rustls at 2.85 MB. turso and accesskit are **not**
+reached at all in app mode; they matter for the full-surface prelift.
+
+`webrender` is deliberately not on the list: its types are woven into
+azul_core's display list, so it needs a verification run rather than a guess.
+
+## Tooling defect worth remembering
+
+`wasm-size-report.py` and `wasm-dep-report.py` anchored the function-name
+capture on `(\S+)`. MSVC renders nested generics **with a space** —
+`Vec<Box<T> >` — so 1,197 of run 39's 5,251 functions (23%, 20.6 MB) never
+matched, biased toward exactly the non-generic names least affected by
+monomorphization. Fixed to a non-greedy capture anchored on ` addr='. The DSE
+result re-checked with the fix: **-22.1% over 2,718 functions**, against -23.4%
+over 859 before.
+
+Two related traps: join runs by **function name**, never by `__az_dep_<hex>`
+(a rebuild shifts every address), and filter zero-byte objects — orphaned `llc`
+children keep writing after an abort, and a truncated object reads as a 100%
+reduction.
+
+## Open: the link deadlock
+
+Run 41 wedged after the walk — zero CPU, zero I/O, zero page faults over 30s,
+two threads, no children. Ruled out: the linker (`wasm-ld` links the same 4,967
+objects offline in seconds with the full production flag set), the spawn
+watchdog's coverage (registration is correctly before `spawn()`), and re-entrant
+`FFI_LOCK` (no holder calls another; the in-process link path is behind a
+feature the gate does not build). `set_lift_phase` markers now bracket the
+region so the next occurrence names its own phase.
