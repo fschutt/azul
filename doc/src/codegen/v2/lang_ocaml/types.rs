@@ -21,7 +21,7 @@ use anyhow::Result;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
-use super::super::ir::{CodegenIR, EnumDef, FieldDef, FieldRefKind, StructDef, TypeCategory};
+use super::super::ir::{CodegenIR, EnumDef, FieldDef, FieldRefKind, StructDef, TypeCategory, FunctionKind};
 use super::{map_type_to_ocaml, ocaml_ffi_type_name, sanitize_doc, sanitize_identifier};
 
 // ============================================================================
@@ -110,6 +110,7 @@ pub fn emit_interface_types(
                 let lit = sanitize_identifier(&super::to_snake_case(&v.name));
                 builder.line(&format!("val {} : int", lit));
             }
+            emit_unit_enum_trait_decls(builder, e, ir);
             builder.dedent();
             builder.line("end");
         }
@@ -338,7 +339,7 @@ pub fn emit_struct_fields_and_enums(
             continue;
         }
         if !e.is_union {
-            emit_unit_enum(builder, e);
+            emit_unit_enum(builder, e, ir);
         }
     }
 
@@ -961,7 +962,7 @@ fn c_size_of_tagged_enum(
 // Unit enum (integer round-trip helpers)
 // ============================================================================
 
-fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
+fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     let ffi = ocaml_ffi_type_name(&e.name);
 
     if !e.doc.is_empty() {
@@ -1016,6 +1017,7 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
         let lit = sanitize_identifier(&super::to_snake_case(&v.name));
         builder.line(&format!("let {} : int = {}", lit, idx));
     }
+    emit_unit_enum_trait_impls(builder, e, ir);
     builder.dedent();
     builder.line("end");
     builder.blank();
@@ -1067,4 +1069,93 @@ fn sanitize_field_identifier(name: &str) -> String {
 /// for `field` lookups to resolve.
 fn format_c_struct_name(ir_name: &str) -> String {
     format!("Az{}", ir_name)
+}
+
+// ============================================================================
+// Unit-only enum capabilities
+// ============================================================================
+//
+// A unit enum is `type az_x = int` with an int VIEW, not a `Ctypes.structure`,
+// so `Ctypes.addr` does not apply - an int is not addressable. The entry
+// points take `ptr az_x`, so these allocate a cell. Both surfaces are driven
+// from `unit_enum_caps` so the interface cannot omit what the module defines;
+// in OCaml the `.mli` seals the module, and that drift is the bug this whole
+// file keeps rediscovering.
+
+/// Which trait entry points this unit enum actually exports.
+fn unit_enum_caps(e: &EnumDef, ir: &CodegenIR) -> Vec<(FunctionKind, String)> {
+    let mut out = Vec::new();
+    for f in ir.functions_for_class(&e.name) {
+        if matches!(
+            f.kind,
+            FunctionKind::PartialEq | FunctionKind::Hash | FunctionKind::DebugToString
+        ) && !out.iter().any(|(k, _): &(FunctionKind, String)| *k == f.kind)
+        {
+            out.push((f.kind, super::functions::ocaml_binding_name(&f.c_name)));
+        }
+    }
+    out
+}
+
+fn emit_unit_enum_trait_decls(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
+    for (kind, _) in unit_enum_caps(e, ir) {
+        match kind {
+            FunctionKind::PartialEq => {
+                builder.line("(* Equality routed through the C ABI. *)");
+                builder.line("val equal : int -> int -> bool");
+            }
+            FunctionKind::Hash => {
+                builder.line("(* Hash routed through the C ABI. *)");
+                builder.line("val hash : int -> int");
+            }
+            FunctionKind::DebugToString => {
+                builder.line("(* Debug rendering routed through the C ABI. *)");
+                builder.line("val to_string : int -> string");
+            }
+            _ => {}
+        }
+    }
+}
+
+fn emit_unit_enum_trait_impls(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
+    let ffi = super::ocaml_ffi_type_name(&e.name);
+    for (kind, raw) in unit_enum_caps(e, ir) {
+        match kind {
+            FunctionKind::PartialEq => {
+                builder.line("let equal (a : int) (b : int) : bool =");
+                builder.indent();
+                builder.line(&format!(
+                    "{} (Ctypes.allocate {} a) (Ctypes.allocate {} b)",
+                    raw, ffi, ffi
+                ));
+                builder.dedent();
+            }
+            FunctionKind::Hash => {
+                builder.line("let hash (t : int) : int =");
+                builder.indent();
+                builder.line(&format!(
+                    "Unsigned.UInt64.to_int ({} (Ctypes.allocate {} t))",
+                    raw, ffi
+                ));
+                builder.dedent();
+            }
+            FunctionKind::DebugToString => {
+                let del = super::functions::ocaml_binding_name("AzString_delete");
+                builder.line("let to_string (t : int) : string =");
+                builder.indent();
+                builder.line(&format!(
+                    "let __s = {} (Ctypes.allocate {} t) in",
+                    raw, ffi
+                ));
+                builder.line("let vec = Ctypes.getf __s az_string_field_vec in");
+                builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
+                builder.line("let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in");
+                builder.line("let __out = if Ctypes.is_null vec_ptr || vec_len = 0 then \"\" else Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) ~length:vec_len in");
+                builder.line(&format!("{} (Ctypes.addr __s);", del));
+                builder.line("__out");
+                builder.dedent();
+            }
+            _ => {}
+        }
+    }
 }

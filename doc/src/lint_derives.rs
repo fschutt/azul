@@ -798,20 +798,22 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `ResultXmlXmlError`, three classes whose entry points these emitters
 ///     drop for a reason not yet established. Consistent across every binding
 ///     that has a residue at all, so it is one cause, not fourteen.
-///   * `ocaml` (1233, was 4010 once measured properly) - three fixes, all the
-///     same fault in different places: the `.mli` SEALS the module, so a value
-///     the interface does not list is unreachable however complete the `.ml`
-///     is. (1) The implementation defined `equal` / `hash` / `to_string` and
-///     the interface declared none of them. (2) Nothing emitted `compare` at
-///     all: 2 in the whole file against 704 `equal`, so almost every declared
-///     Ord/PartialOrd was dead. It maps the ABI's 0/1/2 onto OCaml's
-///     negative/zero/positive - an exact correspondence, not an invention.
-///     (3) Enums had no module at all and now carry the same six.
-///     Every capability is decided by ONE predicate used by both emitters,
-///     because the two drifting is the whole bug.
-///     The residue is unit-only enums (`AccessibilityRole`): they are plain C
-///     enums with no `Ctypes.structure`, so the pointer-taking `Ctypes.addr`
-///     shape these helpers use does not apply. Different plumbing, logged.
+///   * `ocaml` (619, was 4010 once measured properly) - four fixes, one fault:
+///     the `.mli` SEALS the module, so a value the interface does not list is
+///     unreachable however complete `azul.ml` is. The implementation defined
+///     `equal`/`hash`/`to_string` that the interface never declared; nothing
+///     emitted `compare` at all (2 in the file against 704 `equal`); tagged
+///     unions got no module; and unit-only enums needed their capabilities on
+///     the module `types.rs` ALREADY emits - adding a second one produced a
+///     duplicate `module X`, which is an OCaml compile error AND invisible to
+///     a name-presence lint that stops at the first block.
+///     A unit enum is `type az_x = int` with an int view, so the helpers
+///     allocate a cell rather than using `Ctypes.addr`; an int is not
+///     addressable.
+///     Every capability is decided by ONE predicate both emitters call.
+///     The residue is ordering on unit enums (187 Ord + 275 PartialOrd) and
+///     121 Default: `unit_enum_caps` covers equality, hash and debug only, and
+///     `_cmp` / `_default` want the same allocate-a-cell treatment.
 ///   * `php-ext` (129, was 134) - correctly measured, unlike ocaml: the
 ///     artifact really does name `AzApp_*` symbols, and the 1744 absent are a
 ///     genuinely curated surface of 29 classes. `is_method_kind_eligible`
@@ -878,7 +880,7 @@ pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
     ("zig", 19),
     ("php-ext", 129),
-    ("ocaml", 1233),
+    ("ocaml", 619),
     ("haskell", 10),
     ("go", 19),
 ];

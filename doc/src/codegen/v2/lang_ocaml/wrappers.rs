@@ -1447,15 +1447,34 @@ fn emit_enum_modules(
             continue;
         }
 
+        // Unit-only enums ALREADY get a module from `types.rs` (variant
+        // constants, both surfaces). Emitting another here produced a DUPLICATE
+        // `module X` - an OCaml compile error, and invisible to a name-presence
+        // lint that stops at the first block. Their capabilities belong on that
+        // existing module; this loop owns tagged unions only.
+        if !e.is_union {
+            continue;
+        }
         let module = ocaml_module_name(&e.name);
         let ffi = ocaml_ffi_type_name(&e.name);
+        // A unit-only enum is emitted as `type az_x = int` with an int VIEW
+        // (`val az_x : az_x typ`), not a `Ctypes.structure`. So `t` differs,
+        // and the helpers cannot use `Ctypes.addr` - an int is not addressable.
+        // They allocate a cell instead, which is what the `ptr az_x` the C
+        // entry points take actually needs. Without this every unit enum's
+        // whole derive list was unreachable.
+        let is_unit = !e.is_union;
         if interface {
             builder.line(&format!("module {} : sig", module));
         } else {
             builder.line(&format!("module {} = struct", module));
         }
         builder.indent();
-        builder.line(&format!("type t = {} Ctypes.structure", ffi));
+        if is_unit {
+            builder.line(&format!("type t = {}", ffi));
+        } else {
+            builder.line(&format!("type t = {} Ctypes.structure", ffi));
+        }
 
         for f in caps {
             let raw = ocaml_binding_name(&f.c_name);
@@ -1473,7 +1492,11 @@ fn emit_enum_modules(
                     } else {
                         builder.line("let clone (t : t) : t =");
                         builder.indent();
-                        builder.line(&format!("{} (Ctypes.addr t)", raw));
+                        if is_unit {
+                            builder.line(&format!("{} (Ctypes.allocate {} t)", raw, ffi));
+                        } else {
+                            builder.line(&format!("{} (Ctypes.addr t)", raw));
+                        }
                         builder.dedent();
                     }
                 }
@@ -1486,10 +1509,17 @@ fn emit_enum_modules(
                     } else {
                         builder.line("let compare (a : t) (b : t) : int =");
                         builder.indent();
-                        builder.line(&format!(
-                            "match Unsigned.UInt8.to_int ({} (Ctypes.addr a) (Ctypes.addr b)) with",
-                            raw
-                        ));
+                        if is_unit {
+                            builder.line(&format!(
+                                "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} b)) with",
+                                raw, ffi, ffi
+                            ));
+                        } else {
+                            builder.line(&format!(
+                                "match Unsigned.UInt8.to_int ({} (Ctypes.addr a) (Ctypes.addr b)) with",
+                                raw
+                            ));
+                        }
                         builder.line("| 0 -> -1");
                         builder.line("| 1 -> 0");
                         builder.line("| _ -> 1");
@@ -1502,7 +1532,11 @@ fn emit_enum_modules(
                     } else {
                         builder.line("let equal (a : t) (b : t) : bool =");
                         builder.indent();
-                        builder.line(&format!("{} (Ctypes.addr a) (Ctypes.addr b)", raw));
+                        if is_unit {
+                            builder.line(&format!("{} (Ctypes.allocate {} a) (Ctypes.allocate {} b)", raw, ffi, ffi));
+                        } else {
+                            builder.line(&format!("{} (Ctypes.addr a) (Ctypes.addr b)", raw));
+                        }
                         builder.dedent();
                     }
                 }
@@ -1512,10 +1546,17 @@ fn emit_enum_modules(
                     } else {
                         builder.line("let hash (t : t) : int =");
                         builder.indent();
-                        builder.line(&format!(
-                            "Unsigned.UInt64.to_int ({} (Ctypes.addr t))",
-                            raw
-                        ));
+                        if is_unit {
+                            builder.line(&format!(
+                                "Unsigned.UInt64.to_int ({} (Ctypes.allocate {} t))",
+                                raw, ffi
+                            ));
+                        } else {
+                            builder.line(&format!(
+                                "Unsigned.UInt64.to_int ({} (Ctypes.addr t))",
+                                raw
+                            ));
+                        }
                         builder.dedent();
                     }
                 }
@@ -1526,7 +1567,11 @@ fn emit_enum_modules(
                         let del = ocaml_binding_name("AzString_delete");
                         builder.line("let to_string (t : t) : string =");
                         builder.indent();
-                        builder.line(&format!("let __s = {} (Ctypes.addr t) in", raw));
+                        if is_unit {
+                            builder.line(&format!("let __s = {} (Ctypes.allocate {} t) in", raw, ffi));
+                        } else {
+                            builder.line(&format!("let __s = {} (Ctypes.addr t) in", raw));
+                        }
                         builder.line("let vec = Ctypes.getf __s az_string_field_vec in");
                         builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
                         builder.line(
