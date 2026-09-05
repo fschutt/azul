@@ -752,10 +752,16 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     FIELDLESS C enum (`AccessibilityRole`) gets no wrapper of any kind - it
 ///     appears only as a `C.Az*` parameter type - so its derives have nowhere
 ///     to hang. Closing it means emitting a wrapper for plain enums.
-///   * `go` (5648) - the same whitelist defect zig had, untouched. The fix is
-///     the pair that worked here: admit the trait kinds to `has_useful_method`
-///     AND emit the methods. Doing only the first makes the number WORSE,
-///     because the class then exists as a wrapper with nothing on it.
+///   * `go` (3217, was 5648) - the struct half is closed by the same pair that
+///     worked for zig: admit the trait kinds to `has_useful_method` AND emit
+///     the methods, in one change. Go gets idiomatic spellings - `Equal`,
+///     `Order`, `PartialOrder`, `Hash`, and a `String()` that implements
+///     fmt.Stringer. `String()` frees the `AzString` the ABI returns, because
+///     `GoStr` only copies and would otherwise leak one per call.
+///     What is LEFT is enums. Go carries them in `types.go` as real named
+///     types (`type AzAccessibilityRole uint32` plus constants, and an
+///     interface + marker methods for the tagged unions), so they CAN take
+///     methods - nothing emits them today. That is the next change.
 ///   * `4-20` in the remaining tail — `Xml`, `XmlNodeChild` and
 ///     `ResultXmlXmlError`, three classes whose entry points these emitters
 ///     drop for a reason not yet established. Consistent across every binding
@@ -809,7 +815,7 @@ pub const BASELINE: &[(&str, usize)] = &[
     ("ocaml", 272),
     ("haskell", 11),
     ("fortran", 20),
-    ("go", 5648),
+    ("go", 3217),
     ("smalltalk", 10),
     ("vb6", 10),
     ("crystal", 20),
