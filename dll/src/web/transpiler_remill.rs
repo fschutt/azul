@@ -3091,6 +3091,18 @@ impl RemillTranspiler {
                             Some(e)
                         });
                         if let Some(e) = entry {
+                            // Say WHY a target is dropped. "not recursable" means
+                            // no dispatcher case is emitted for it, which is a
+                            // silent missing-block at runtime; "already visited"
+                            // is benign. Inferring which one from a size number is
+                            // what made this take several runs.
+                            if e.canonical_addr != addr && !e.classification.is_recursable() {
+                                eprintln!(
+                                    "[azul-web]   tail-call target {} (0x{:x}) DROPPED: \
+                                     class={:?} is not recursable — no dispatcher case",
+                                    e.canonical_name, target, e.classification,
+                                );
+                            }
                             if e.canonical_addr != addr
                                 && e.classification.is_recursable()
                                 && !visited.contains(&e.canonical_addr)
