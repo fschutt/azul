@@ -30,7 +30,7 @@
 
 use super::symbol_table::{self, FnClass as SymFnClass};
 use super::transpiler::{TranspileError, Transpiler, WasmModule};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -3016,6 +3016,7 @@ impl RemillTranspiler {
                         "[azul-web]   tail-call dep: → {}@0x{:x} size={} (from {})",
                         nm, a, sz, name,
                     );
+                    note_reached_by_code(a);
                     queue.push_back(TransitiveLiftTarget::Dep {
                         name: nm,
                         addr: a,
@@ -3196,6 +3197,7 @@ impl RemillTranspiler {
                         if visited.contains(&e.canonical_addr) {
                             continue;
                         }
+                        note_data_sweep_seed(e.canonical_addr, &e.canonical_name, &name);
                         queue.push_back(TransitiveLiftTarget::Dep {
                             name: e.canonical_name.clone(),
                             addr: e.canonical_addr,
@@ -3301,6 +3303,11 @@ impl RemillTranspiler {
                     used_boundaries.insert(entry.canonical_addr);
                     continue;
                 }
+                // A direct call is the strongest reachability evidence. Record it
+                // before the recursable filter: a call to a Leaf/NeverLift target
+                // still means code reaches it, which is what the data-sweep check
+                // asks about.
+                note_reached_by_code(entry.canonical_addr);
                 if !entry.classification.is_recursable() {
                     // Leaf / BumpAlloc / CallIndirect /
                     // ResolveCallback / NeverLift: the helper IR
@@ -3331,8 +3338,14 @@ impl RemillTranspiler {
             // Enqueue the recursable ones exactly like the IR-walk deps above.
             {
                 let fn_bytes = unsafe { std::slice::from_raw_parts(addr as *const u8, size) };
-                let mut ptr_targets = scan_guest_code_addr_targets(fn_bytes, addr);
-                ptr_targets.extend(scan_guest_data_code_ptrs(fn_bytes, addr));
+                // Kept separate for provenance: a `lea` of a function address in
+                // THIS function's code is a genuine address-take, while a pointer
+                // found in referenced const data is only as trustworthy as the
+                // mirrored window it was found in. Both are still enqueued.
+                let code_taken = scan_guest_code_addr_targets(fn_bytes, addr);
+                let data_found = scan_guest_data_code_ptrs(fn_bytes, addr);
+                let mut ptr_targets = code_taken.clone();
+                ptr_targets.extend(data_found);
                 if let Some(table) = symbol_table::get() {
                     for t in ptr_targets {
                         let Some(entry) = table.resolve(t) else {
@@ -3347,6 +3360,15 @@ impl RemillTranspiler {
                         }
                         if visited.contains(&entry.canonical_addr) {
                             continue;
+                        }
+                        if code_taken.contains(&t) {
+                            note_reached_by_code(entry.canonical_addr);
+                        } else {
+                            note_data_sweep_seed(
+                                entry.canonical_addr,
+                                &entry.canonical_name,
+                                &name,
+                            );
                         }
                         queue.push_back(TransitiveLiftTarget::Dep {
                             name: entry.canonical_name.clone(),
@@ -12413,6 +12435,58 @@ fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileEr
 static SPAWN_INFLIGHT: std::sync::Mutex<
     std::collections::BTreeMap<u64, (std::time::Instant, String)>,
 > = std::sync::Mutex::new(std::collections::BTreeMap::new());
+/// Functions enqueued ONLY because a function pointer to them appeared inside a
+/// mirrored `.rdata` window. Address -> (function, the function whose window it
+/// came from).
+///
+/// This is the weakest reachability evidence the walk has. The window exists so
+/// switch jump tables get mirrored for devirt (`LEA_MIRROR_WINDOW`, 1024 B), and
+/// mirroring generously is harmless. But a `lea` that materializes a small
+/// constant mirrors 1024 bytes regardless, so the window routinely spills into
+/// NEIGHBOURING .rdata - and every 8-aligned qword there that happens to resolve
+/// to a function entry is enqueued as if it were reachable code.
+static DATA_SWEEP_SEEDS: std::sync::Mutex<Option<BTreeMap<usize, (String, String)>>> =
+    std::sync::Mutex::new(None);
+
+/// Functions reached by real evidence: a direct call, a tail call, or a `lea` of
+/// the function address inside a function BODY (an address-take by code).
+static REACHED_BY_CODE: std::sync::Mutex<Option<BTreeSet<usize>>> =
+    std::sync::Mutex::new(None);
+
+fn note_data_sweep_seed(addr: usize, name: &str, from: &str) {
+    let mut g = DATA_SWEEP_SEEDS.lock().unwrap_or_else(|e| e.into_inner());
+    g.get_or_insert_with(BTreeMap::new)
+        .entry(addr)
+        .or_insert_with(|| (name.to_string(), from.to_string()));
+}
+
+fn note_reached_by_code(addr: usize) {
+    let mut g = REACHED_BY_CODE.lock().unwrap_or_else(|e| e.into_inner());
+    g.get_or_insert_with(BTreeSet::new).insert(addr);
+}
+
+/// Functions that NO code ever reaches: lifted only because a pointer to them
+/// turned up in a mirrored data window, with no call and no address-take
+/// anywhere. Returns (name, seeder) sorted by name.
+///
+/// A non-empty list is not automatically a bug - a genuine vtable slot that is
+/// only ever called indirectly looks the same. It is the signal to check, and it
+/// is how a whole desktop windowing stack got into a wasm build unnoticed.
+pub fn unreached_data_seeds() -> Vec<(String, String)> {
+    let seeds = DATA_SWEEP_SEEDS.lock().unwrap_or_else(|e| e.into_inner());
+    let reached = REACHED_BY_CODE.lock().unwrap_or_else(|e| e.into_inner());
+    let (Some(seeds), reached) = (seeds.as_ref(), reached.as_ref()) else {
+        return Vec::new();
+    };
+    let mut out: Vec<(String, String)> = seeds
+        .iter()
+        .filter(|(a, _)| !reached.map(|r| r.contains(*a)).unwrap_or(false))
+        .map(|(_, (n, f))| (n.clone(), f.clone()))
+        .collect();
+    out.sort();
+    out
+}
+
 static STATE_STORES_REMOVED: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 

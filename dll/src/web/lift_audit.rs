@@ -492,6 +492,49 @@ pub fn run(
             "[azul-web][lift-audit] ⚠ W2 {mb_fns} fn(s) contain __remill_missing_block — usually benign tails; runtime recorder @0x400FC tracks live hits",
         );
     }
+    // F6: native-platform code in a wasm build. is_platform_native routes the
+    // whole family to NeverLift, so reaching this list means the classifier has
+    // a gap - a new platform module, a differently-spelled binding crate - and
+    // the wasm is carrying OS code it can never execute.
+    let native: Vec<&String> = preflight
+        .iter()
+        .map(|(n, _, _)| n)
+        .filter(|n| super::symbol_table::is_platform_native(n))
+        .collect();
+    if !native.is_empty() {
+        eprintln!(
+            "[azul-web][lift-audit] x F6 {} native-platform fn(s) were LIFTED into wasm (OS windowing / WinRT / Cocoa). These cannot run in a browser; they should be NeverLift traps. Extend is_platform_native to cover them:",
+            native.len(),
+        );
+        for n in native.iter().take(15) {
+            eprintln!("[azul-web][lift-audit]     {n}");
+        }
+        if native.len() > 15 {
+            eprintln!("[azul-web][lift-audit]     ... {} more", native.len() - 15);
+        }
+        fatal = true;
+    }
+
+    // W5: functions NO code reaches. Enqueued only because a pointer to them
+    // turned up in a mirrored .rdata window - no call, no address-take. Not
+    // automatically wrong (a vtable slot called only indirectly looks the same),
+    // but it is how an entire Win32 event loop once entered a wasm build: a
+    // 1024-byte window over a Vec-growth helper's constant spilled into a
+    // neighbouring COM vtable, and ~20 MB of desktop shell followed.
+    let orphans = super::transpiler_remill::unreached_data_seeds();
+    if !orphans.is_empty() {
+        eprintln!(
+            "[azul-web][lift-audit] ! W5 {} fn(s) reached ONLY via a mirrored data window - no call site, no address-take anywhere. Each is either a genuine indirect-only vtable slot or dead weight swept in from neighbouring .rdata:",
+            orphans.len(),
+        );
+        for (n, from) in orphans.iter().take(10) {
+            eprintln!("[azul-web][lift-audit]     {n}  (swept in from {from}'s data window)");
+        }
+        if orphans.len() > 10 {
+            eprintln!("[azul-web][lift-audit]     ... {} more", orphans.len() - 10);
+        }
+    }
+
     if !fatal && lift_failures == 0 && err_new.is_empty() {
         eprintln!("[azul-web][lift-audit] ✓ CLEAN — no fatal findings, no unreviewed __remill_error, no crash stubs");
     }

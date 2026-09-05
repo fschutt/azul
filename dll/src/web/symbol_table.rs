@@ -2495,6 +2495,57 @@ fn strip_leading_underscore(name: &str) -> String {
 /// api.json; bump / call_indirect / resolve_callback names hardcode
 /// to the relevant FnClass; everything else gets Leaf or Recursable
 /// based on coarse name patterns.
+/// Native-platform code that CANNOT run in wasm: OS window management, the
+/// Win32/WinRT COM surface, X11/Wayland/Cocoa. Classified `NeverLift` so it
+/// traps loudly if ever reached instead of being lifted.
+///
+/// These are not reachable from the web roots by any call edge - measured on a
+/// full AzWriter lift, all 13 lifted `TypedEventHandlerBox` functions and the
+/// Win32 window procedure had ZERO call sites. They enter through the fn-ptr
+/// scan over `LEA_MIRROR_WINDOW`: a `lea` that materializes a small .rdata
+/// constant mirrors 1024 bytes, and every 8-aligned qword in that window that
+/// resolves to a function entry is enqueued as reachable. In a desktop Windows
+/// binary that window routinely runs into a neighbouring COM vtable. One such
+/// false seed inside `alloc::raw_vec::do_reserve_and_handle` - a Vec growth
+/// helper - pulled in the entire Win32 event loop, 2.5 MB of it in the
+/// truncated run and ~20 MB of `shell2` closure in a complete one.
+///
+/// The window itself is correct and must stay: it exists so switch jump tables
+/// are mirrored for devirt. MIRRORING a generous range is harmless (extra bytes
+/// get copied); treating every function pointer inside it as REACHABLE CODE is
+/// not. Until the seed is narrowed, this rule bounds the damage - and it stays
+/// useful afterwards, because a web target should never lift OS window code
+/// however it got there.
+pub fn is_platform_native(name: &str) -> bool {
+    // Platform-specific window types. These appear in the name as the type
+    // argument of a monomorphized generic, so `PlatformWindow::foo<Win32Window>`
+    // matches while `PlatformWindow::foo<HeadlessWindow>` - the one the web
+    // backend actually runs - does not.
+    const PLATFORM_WINDOWS: &[&str] = &[
+        "Win32Window", "X11Window", "XlibWindow", "WaylandWindow", "MacWindow",
+        "NSWindow", "CocoaWindow", "AppKitWindow",
+    ];
+    // Platform backend modules inside the shell.
+    const PLATFORM_MODULES: &[&str] = &[
+        "shell2::windows::", "shell2::x11::", "shell2::wayland::",
+        "shell2::macos::", "shell2::appkit::", "shell2::cocoa::",
+        "shell2..windows..", "shell2..x11..", "shell2..wayland..",
+        "shell2..macos..", "shell2..appkit..", "shell2..cocoa..",
+    ];
+    // WinRT / COM projections and the Obj-C runtime. Deliberately NOT a bare
+    // `windows::` - that would also match `std::sys::alloc::windows::`
+    // (process_heap_alloc, which MUST stay BumpAllocWinHeap) and
+    // `std::sys::pal::windows::`. Match only the WinRT namespace roots.
+    const NATIVE_BINDINGS: &[&str] = &[
+        "windows::Win32::", "windows::UI::", "windows::Media::",
+        "windows::Graphics::", "windows::Foundation::", "windows::ApplicationModel::",
+        "windows_core::", "objc::", "objc2::", "cocoa::", "core_foundation::",
+    ];
+    PLATFORM_WINDOWS.iter().any(|m| name.contains(m))
+        || PLATFORM_MODULES.iter().any(|m| name.contains(m))
+        || NATIVE_BINDINGS.iter().any(|m| name.contains(m))
+}
+
 fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // 1) Special bridge symbols emitted by remill helper IR or the
     //    Rust runtime. The Rust allocator API has three layers of
@@ -2557,6 +2608,15 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
             return FnClass::BumpAlloc;
         }
     }
+    // Native-platform code (OS windowing / WinRT / Cocoa) can never run in
+    // wasm. Trap instead of lifting - see is_platform_native. Placed AFTER the
+    // allocator rules above so `std::sys::alloc::windows::process_heap_alloc`
+    // keeps its bump class, and before the crate dispatch so it wins over the
+    // `_ => Recursable` default that was lifting all of it.
+    if is_platform_native(name) {
+        return FnClass::NeverLift;
+    }
+
     // PLATFORM allocator shims. With a statically linked host binary, LTO
     // inlines the whole __rust_alloc → System.alloc chain down to the raw
     // OS heap wrapper, so the call target that survives is e.g.
@@ -3544,6 +3604,61 @@ mod tests {
         // Bare Az* not in api.json → Recursable (transitively reachable
         // user-bound cb names land here).
         assert_eq!(classify_for_name("AzMyHelper", &api), FnClass::Recursable);
+    }
+
+    #[test]
+    fn classify_platform_native_as_never_lift() {
+        let api: HashMap<String, ApiFnClass> = HashMap::new();
+        // Win32/WinRT/Cocoa cannot run in wasm - trap instead of lifting.
+        for n in [
+            "azul::desktop::shell2::windows::Win32Window::sync_window_state",
+            "azul::desktop::shell2::common::event::PlatformWindow::process_window_events_inner<azul::desktop::shell2::windows::Win32Window>",
+            "windows::Foundation::TypedEventHandlerBox::Invoke<windows::UI::Input::RadialController>",
+            "windows::Media::SystemMediaTransportControls::SetPlaybackStatus",
+            "windows_core::imp::factory_cache::load_factory<windows::Media::X>",
+            "azul::desktop::shell2::x11::X11Window::flush",
+            "azul::desktop::shell2::macos::MacWindow::set_title",
+        ] {
+            assert_eq!(classify_for_name(n, &api), FnClass::NeverLift, "{n}");
+        }
+
+        // The HEADLESS monomorphization is the one the web backend runs - it
+        // must NOT be caught by the same rule that catches <Win32Window>.
+        assert_eq!(
+            classify_for_name(
+                "azul::desktop::shell2::common::event::PlatformWindow::process_window_events_inner<azul::desktop::shell2::headless::HeadlessWindow>",
+                &api,
+            ),
+            FnClass::Recursable,
+        );
+        // Platform-neutral shell code stays liftable.
+        assert_eq!(
+            classify_for_name(
+                "azul::desktop::shell2::common::layout::regenerate_layout",
+                &api,
+            ),
+            FnClass::Recursable,
+        );
+    }
+
+    #[test]
+    fn platform_native_rule_does_not_steal_the_allocator() {
+        // ORDERING GUARD. `std::sys::alloc::windows::process_heap_alloc` is the
+        // surviving allocator after LTO in a static build, and it contains the
+        // substring `windows::`. If the platform-native rule ever runs before
+        // the allocator rules - or widens to a bare `windows::` marker - every
+        // allocation in the lifted binary becomes a trap and nothing boots.
+        let api: HashMap<String, ApiFnClass> = HashMap::new();
+        assert_eq!(
+            classify_for_name("std::sys::alloc::windows::process_heap_alloc", &api),
+            FnClass::BumpAllocWinHeap,
+        );
+        assert_eq!(
+            classify_for_name("std::sys::alloc::windows::process_heap_free", &api),
+            FnClass::BumpDealloc,
+        );
+        assert!(!is_platform_native("std::sys::alloc::windows::process_heap_alloc"));
+        assert!(!is_platform_native("std::sys::pal::windows::c::CreateFileW"));
     }
 
     #[test]
