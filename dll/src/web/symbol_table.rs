@@ -23,7 +23,7 @@
 //! Mach-O / ELF metadata. Every lift consumer reads from it rather
 //! than rederiving.
 //!
-//! # Contract
+//! # Contract (per `scripts/M8.8_NEW_SESSION_PROMPT.md`)
 //!
 //! - `lookup(addr) -> Option<&SymbolEntry>`: returns the entry FOR
 //!   THE GIVEN ADDRESS without chasing PLT stubs. The entry's `kind`
@@ -125,6 +125,15 @@ pub enum FnClass {
     /// body that bumps `@__az_bump_ptr` by State.X0 and returns the
     /// old value. See `emit_helper_ir` BranchExternKind::RustAlloc.
     BumpAlloc,
+    /// Platform heap wrapper with the `HeapAlloc(heap, flags, dwBytes)`
+    /// argument shape — `std::sys::alloc::windows::process_heap_alloc`,
+    /// which LTO leaves as the surviving allocator call in a statically
+    /// linked binary. Same bump body as [`FnClass::BumpAlloc`] but the
+    /// size is the THIRD argument, not the first: classifying it as
+    /// plain BumpAlloc made the helper read the heap handle as a size,
+    /// so `AzStartup_init` allocated 0 bytes and its EventloopState
+    /// aliased the next allocation.
+    BumpAllocWinHeap,
     /// `__rust_realloc(old_ptr, old_size, align, new_size)`. Helper
     /// IR emits a body that bumps `@__az_bump_ptr` by new_size,
     /// memcpys `min(old_size, new_size)` bytes from old_ptr into the
@@ -164,6 +173,39 @@ pub enum FnClass {
     /// HashMaps hash + probe consistently. The seed needn't be random — only
     /// consistent within the process (no HashDoS threat here).
     HashmapRandomKeys,
+    /// `std::env::var_os(key) -> Option<OsString>` — reads the host process
+    /// environment block, which does NOT exist in wasm. As a plain `Leaf` it
+    /// becomes an env import whose stub returns 0 and, crucially, NEVER WRITES
+    /// THE SRET BUFFER, so the caller reads an uninitialised `Option<OsString>`
+    /// off the guest stack: a garbage `Some(ptr,cap,len)`. The first consumer
+    /// (`OsStr::to_str` → `core::str::from_utf8`) then walks a wild slice and
+    /// traps `memory access out of bounds`. Observed as the REAL
+    /// solveLayoutReal OOB via `ScrollManager::new`'s `AZ_NATURAL_SCROLL`
+    /// override. Helper IR gives it a body that writes `None` (`Option<OsString>`
+    /// uses the null-pointer niche, so all-zero IS `None`) — semantically the
+    /// right answer in a browser: no environment ⇒ variable unset.
+    EnvVarOs,
+    /// MSVC's stack-probe thunk (`__chkstk` / `_alloca_probe` /
+    /// `_chkstk`). EVERY function whose frame is >= one page uses the
+    /// idiom `mov eax, <frame_size>; call __chkstk; sub rsp, rax`. Its
+    /// Win-x64 contract is: RAX in = frame size, and it **returns with
+    /// RAX UNCHANGED** (it only touches guard pages, via
+    /// `mov r11, gs:[0x10]` = TEB StackLimit, and probes downwards).
+    ///
+    /// As a plain `Leaf` its stub RETURNS 0, so `sub rsp, rax` becomes
+    /// `sub rsp, 0` and **the frame is never allocated**: the function's
+    /// locals then overlap every callee's frame, and each call scribbles
+    /// over them. Observed as the real `solveLayoutReal` OOB —
+    /// its `StyledDom` local (0x200(%rsp), frame 0x3698) read back as
+    /// ASCII fragments of font/CSS strings left by `with_memory_fonts` /
+    /// `LayoutWindow::new`, and the FNV loop over `prev_font_hashes` then
+    /// dereferenced `0x2C005B02`. Systemic: it hits EVERY fn with a large
+    /// frame (also pulled in by `LayoutWindow::from_font_manager`).
+    ///
+    /// wasm has no guard pages, so the probing is pointless here; the
+    /// only semantics that matters is "leave RAX alone". Helper IR gives
+    /// it an empty body that does NOT write the return slot.
+    ChkStk,
     /// Known leaf with no real body to lift — typed extern goes to
     /// the WASM as an env import. (System libraries, libc, libdyld,
     /// libpthread, mangled Rust runtime internals like
@@ -220,7 +262,7 @@ impl FnClass {
     /// bump/noop body. The web force-enqueue lifts these so indirect
     /// calls to them (Drop glue) get a dispatcher `switch` case.
     pub fn is_bump_alloc(self) -> bool {
-        matches!(self, FnClass::BumpAlloc)
+        matches!(self, FnClass::BumpAlloc | FnClass::BumpAllocWinHeap)
     }
 
     /// M10-D: whether this symbol ships as its own per-fn wasm shard.
@@ -251,7 +293,7 @@ pub struct SymbolEntry {
     /// image `bl`/`adrp` lifts at `--address=synthetic_addr` produce
     /// correct cross-call / cross-page targets without IR rewriting).
     ///
-    /// **Why it exists (M9-review fix, 2026-05-18)**: passing the
+    /// **Why it exists (M9-review fix)**: passing the
     /// post-ASLR runtime `canonical_addr` to `remill-lift --address=…`
     /// bakes that high value as the PC for every lifted instruction.
     /// ARM64 `adrp x<n>, …` lifts to `(PC & ~0xFFF) | (imm << 12)`,
@@ -315,6 +357,9 @@ pub struct SymbolTable {
     /// (single-threaded wasm ⇒ TLS is just statics). See
     /// `transpiler_remill.rs` `AZ_TLV_MAGIC_PC`.
     tlv_regions: Vec<TlvRegion>,
+    /// Canonical names carried by more than one canonical address
+    /// (duplicate monomorphizations) — see [`Self::name_is_ambiguous`].
+    ambiguous_names: HashSet<String>,
 }
 
 /// One image's `__DATA.__thread_vars` + TLS-image geometry (live, slid
@@ -415,6 +460,21 @@ impl SymbolTable {
         self.by_addr.get(&addr)
     }
 
+    /// Whether `name` is carried by more than one canonical address
+    /// (duplicate monomorphizations). `by_name` answers arbitrarily for
+    /// these, so name-based identities must not be minted for them.
+    pub fn name_is_ambiguous(&self, name: &str) -> bool {
+        self.ambiguous_names.contains(name)
+    }
+
+    /// Nearest symbol at-or-below `addr`. Used by the relocation-canonical
+    /// cache to identify anonymous data targets as `<neighbor>+offset`
+    /// (verified by a pointee fingerprint at translate time) — callers
+    /// bound the acceptable offset themselves.
+    pub fn nearest_below(&self, addr: usize) -> Option<&SymbolEntry> {
+        self.by_addr.range(..=addr).next_back().map(|(_, e)| e)
+    }
+
     /// Total number of entries (sum of Function + Stub + Data kinds).
     pub fn len(&self) -> usize {
         self.by_addr.len()
@@ -474,10 +534,7 @@ impl SymbolTable {
                 goblin::Object::Mach(goblin::mach::Mach::Fat(fat)) => {
                     match pick_fat_slice(&fat, &img.bytes) {
                         Ok(Some(macho)) => collect_macho_low32_sections(
-                            &macho,
-                            &img.bytes,
-                            img.slide,
-                            wasm_offset_limit,
+                            &macho, &img.bytes, img.slide, wasm_offset_limit,
                         ),
                         _ => Vec::new(),
                     }
@@ -528,8 +585,11 @@ impl SymbolTable {
             });
         }
 
-        let api_class_by_name: HashMap<String, ApiFnClass> =
-            api.functions.iter().map(|(n, c)| (n.clone(), *c)).collect();
+        let api_class_by_name: HashMap<String, ApiFnClass> = api
+            .functions
+            .iter()
+            .map(|(n, c)| (n.clone(), *c))
+            .collect();
 
         let mut by_addr: BTreeMap<usize, SymbolEntry> = BTreeMap::new();
         let mut by_name: HashMap<String, usize> = HashMap::new();
@@ -628,6 +688,29 @@ impl SymbolTable {
             chain.entry(addr).or_insert(addr);
         }
 
+        // Names carried by MORE THAN ONE canonical address (duplicate
+        // monomorphizations the linker did not ICF). A name-based identity
+        // for such a target is ambiguous: `by_name` can only answer with one
+        // of the copies, and same-source copies share their first hundreds
+        // of bytes, so a short content fingerprint cannot arbitrate either —
+        // the reloc cache uses this set to refuse name identities outright
+        // for these targets.
+        let mut first_addr: HashMap<&str, usize> = HashMap::new();
+        let mut ambiguous_names: HashSet<String> = HashSet::new();
+        for e in by_addr.values() {
+            match first_addr.entry(e.canonical_name.as_str()) {
+                std::collections::hash_map::Entry::Occupied(o) => {
+                    if *o.get() != e.canonical_addr {
+                        ambiguous_names.insert(e.canonical_name.clone());
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert(e.canonical_addr);
+                }
+            }
+        }
+        drop(first_addr);
+
         let mut table = SymbolTable {
             by_addr,
             by_name,
@@ -636,19 +719,18 @@ impl SymbolTable {
             synth_chain: HashMap::new(),
             image_bytes,
             tlv_regions,
+            ambiguous_names,
         };
 
-        // Assign per-image synthetic bases so lifted code uses
-        // wasm-friendly addresses for `adrp+ldr` page targets. A real
-        // image base is 200+ MiB, and the lift bakes those in as
-        // constants — which would force a wasm memory sized to match
-        // the address rather than to the actual image.
+        // M9-review: assign per-image synthetic bases so lifted code
+        // uses wasm-friendly addresses for `adrp+ldr` page targets.
+        // See `M9_REVIEW_AND_OPTION_A.md` for the rationale.
         table.assign_synthetic_addresses();
 
         Ok(table)
     }
 
-    /// M9-review (2026-05-18): walk every loaded image, group
+    /// M9-review : walk every loaded image, group
     /// `SymbolEntry`s by their `canonical_addr`'s containing image,
     /// assign each image a unique `synth_base` in monotonically
     /// increasing order, then fill in `entry.synthetic_addr` =
@@ -694,7 +776,9 @@ impl SymbolTable {
                         _ => (0, 0),
                     }
                 }
-                goblin::Object::Elf(elf) => elf_image_text_data_range(&elf, &img.bytes),
+                goblin::Object::Elf(elf) => {
+                    elf_image_text_data_range(&elf, &img.bytes)
+                }
                 goblin::Object::PE(pe) => pe_image_text_data_range(&pe),
                 _ => (0, 0),
             };
@@ -715,8 +799,19 @@ impl SymbolTable {
         // ascending order with 1 MiB rounding so different images
         // sit in separate megabyte-aligned bands.
         rebases.sort_by_key(|r| r.native_base);
-        const FIRST_SYNTH_BASE: usize = 0x10000; // 64 KiB
-        const SYNTH_ALIGN: usize = 0x10_0000; // 1 MiB
+        // The first image must start ABOVE the runtime's fixed low region:
+        // the bump cursor (0x40020), its size/count slots, the dispatcher
+        // and missing-block recorders (0x400FC/0x40158/0x40160/0x40900),
+        // the NeverLift recorder (0x40048) and the C stack all
+        // live at hardcoded addresses below 1 MiB. A base of 64 KiB put the
+        // FIRST image's mirrored data straight over them: for a
+        // statically-linked host exe (~18 MiB span starting at 0x10000) the
+        // data segments zeroed the bump cursor, so every allocation
+        // returned null and init died in handle_alloc_error. azul.dll only
+        // escaped because it happened to be the second image, based above
+        // the region.
+        const FIRST_SYNTH_BASE: usize = 0x10_0000; // 1 MiB — past the runtime region
+        const SYNTH_ALIGN: usize = 0x10_0000;       // 1 MiB
         let mut next_synth = FIRST_SYNTH_BASE;
         for r in &mut rebases {
             r.synth_base = next_synth;
@@ -741,7 +836,8 @@ impl SymbolTable {
         for (native_loc, entry) in self.by_addr.iter_mut() {
             for r in &rebases {
                 if *native_loc >= r.native_base && *native_loc < r.native_end {
-                    entry.synthetic_addr = r.synth_base.wrapping_add(*native_loc - r.native_base);
+                    entry.synthetic_addr =
+                        r.synth_base.wrapping_add(*native_loc - r.native_base);
                     break;
                 }
             }
@@ -786,6 +882,8 @@ impl SymbolTable {
                     | FnClass::CallIndirectLayout4
                     | FnClass::ResolveCallback
                     | FnClass::HashmapRandomKeys
+                    | FnClass::EnvVarOs
+                    | FnClass::ChkStk
                     | FnClass::NeverLift
                     // LibcMemcpy is *always* out-of-image (it IS a
                     // libsystem symbol) — but it has a synthetic
@@ -822,7 +920,9 @@ impl SymbolTable {
         let synth_chain: HashMap<usize, usize> = self
             .chain
             .iter()
-            .map(|(stub_native, canon_native)| (synth_of(*stub_native), synth_of(*canon_native)))
+            .map(|(stub_native, canon_native)| {
+                (synth_of(*stub_native), synth_of(*canon_native))
+            })
             .collect();
 
         eprintln!(
@@ -980,7 +1080,7 @@ impl SymbolTable {
         false
     }
 
-    /// [WEB-LIFT 2026-06-11] TLV geometry of every loaded image that has
+    /// [WEB-LIFT] TLV geometry of every loaded image that has
     /// thread-locals (see [`TlvRegion`]). Live addresses.
     pub fn tlv_regions(&self) -> &[TlvRegion] {
         &self.tlv_regions
@@ -1088,7 +1188,11 @@ fn enumerate_loaded_images() -> Result<Vec<LoadedImage>, BuildError> {
             data: *mut c_void,
         ) -> c_int;
     }
-    extern "C" fn cb(info: *mut DlPhdrInfo, _size: usize, data: *mut c_void) -> c_int {
+    extern "C" fn cb(
+        info: *mut DlPhdrInfo,
+        _size: usize,
+        data: *mut c_void,
+    ) -> c_int {
         unsafe {
             let images = &mut *(data as *mut Vec<LoadedImage>);
             if info.is_null() {
@@ -1257,8 +1361,8 @@ fn is_system_image(path: &std::path::Path) -> bool {
 // in the .pdb next to the image (or at the absolute path embedded in
 // the PE debug directory). Names are LOAD-BEARING for the classifier:
 // an unnamed internal fn falls to the default classification and the
-// whole A1 "Leaf-stub garbage" class comes back. So a missing PDB
-// degrades to
+// whole A1 "Leaf-stub garbage" class comes back (see
+// scripts/WEB_LIFT_BUG_COMPENDIUM.md). So a missing PDB degrades to
 // exports-only ingestion with a LOUD warning.
 //
 // Import calls on Windows go through the IAT: either a direct
@@ -1301,9 +1405,7 @@ fn ingest_pe(
     let mut text_section: Option<(usize, usize)> = None;
     for s in &pe.sections {
         let name = s.name().unwrap_or("");
-        if name == ".text"
-            || (text_section.is_none() && (s.characteristics & IMAGE_SCN_CNT_CODE) != 0)
-        {
+        if name == ".text" || (text_section.is_none() && (s.characteristics & IMAGE_SCN_CNT_CODE) != 0) {
             let start = image_base + s.virtual_address as usize;
             let size = s.virtual_size as usize;
             if name == ".text" {
@@ -1422,11 +1524,7 @@ fn ingest_pe(
         }
         by_name.entry(name.clone()).or_insert(target_live);
         chain.entry(target_live).or_insert(target_live);
-        iat_slots.push(PeIatSlot {
-            slot_live,
-            target_live,
-            name,
-        });
+        iat_slots.push(PeIatSlot { slot_live, target_live, name });
     }
 
     // 5) Tail-call shims, x86 spelling (compendium B7/A2):
@@ -1457,11 +1555,7 @@ fn read_pdb_function_symbols(
     // resolved against the image's own directory (rustc/link often
     // record just "azul.pdb"), and `<image>.pdb` as a final fallback.
     let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Some(cv) = pe
-        .debug_data
-        .as_ref()
-        .and_then(|d| d.codeview_pdb70_debug_info.as_ref())
-    {
+    if let Some(cv) = pe.debug_data.as_ref().and_then(|d| d.codeview_pdb70_debug_info.as_ref()) {
         let raw = cv.filename;
         let trimmed: &[u8] = raw.split(|b| *b == 0).next().unwrap_or(raw);
         if let Ok(s) = core::str::from_utf8(trimmed) {
@@ -1480,13 +1574,9 @@ fn read_pdb_function_symbols(
         .iter()
         .find(|p| p.exists())
         .ok_or_else(|| format!("no .pdb found (tried {:?})", candidates))?;
-    let file =
-        fs::File::open(pdb_path).map_err(|e| format!("open {}: {}", pdb_path.display(), e))?;
-    let mut pdb =
-        pdb::PDB::open(file).map_err(|e| format!("parse {}: {}", pdb_path.display(), e))?;
-    let address_map = pdb
-        .address_map()
-        .map_err(|e| format!("address_map: {}", e))?;
+    let file = fs::File::open(pdb_path).map_err(|e| format!("open {}: {}", pdb_path.display(), e))?;
+    let mut pdb = pdb::PDB::open(file).map_err(|e| format!("parse {}: {}", pdb_path.display(), e))?;
+    let address_map = pdb.address_map().map_err(|e| format!("address_map: {}", e))?;
 
     let mut n_publics = 0usize;
     let mut n_procs = 0usize;
@@ -1500,9 +1590,7 @@ fn read_pdb_function_symbols(
                 if !(p.code || p.function) {
                     continue;
                 }
-                let Some(rva) = p.offset.to_rva(&address_map) else {
-                    continue;
-                };
+                let Some(rva) = p.offset.to_rva(&address_map) else { continue };
                 if rva.0 == 0 {
                     continue;
                 }
@@ -1519,21 +1607,16 @@ fn read_pdb_function_symbols(
     if let Ok(di) = pdb.debug_information() {
         if let Ok(mut modules) = di.modules() {
             while let Ok(Some(module)) = modules.next() {
-                let Ok(Some(mi)) = pdb.module_info(&module) else {
-                    continue;
-                };
+                let Ok(Some(mi)) = pdb.module_info(&module) else { continue };
                 let Ok(mut syms) = mi.symbols() else { continue };
                 while let Ok(Some(symbol)) = syms.next() {
                     let Ok(data) = symbol.parse() else { continue };
                     if let pdb::SymbolData::Procedure(p) = data {
-                        let Some(rva) = p.offset.to_rva(&address_map) else {
-                            continue;
-                        };
+                        let Some(rva) = p.offset.to_rva(&address_map) else { continue };
                         if rva.0 == 0 {
                             continue;
                         }
-                        defined
-                            .push((p.name.to_string().into_owned(), image_base + rva.0 as usize));
+                        defined.push((p.name.to_string().into_owned(), image_base + rva.0 as usize));
                         n_procs += 1;
                     }
                 }
@@ -1542,10 +1625,7 @@ fn read_pdb_function_symbols(
     }
 
     if n_publics == 0 && n_procs == 0 {
-        return Err(format!(
-            "{}: parsed but contained 0 function symbols",
-            pdb_path.display()
-        ));
+        return Err(format!("{}: parsed but contained 0 function symbols", pdb_path.display()));
     }
     eprintln!(
         "[symbol_table] {}: {} publics + {} procs from {}",
@@ -1674,9 +1754,7 @@ fn ingest_macho(
     let mut stubs_section: Option<MachOStubsInfo> = None;
 
     for lc in &macho.load_commands {
-        let CommandVariant::Segment64(seg64) = &lc.command else {
-            continue;
-        };
+        let CommandVariant::Segment64(seg64) = &lc.command else { continue };
         let segname = trim_macho_name(&seg64.segname);
         if segname != "__TEXT" {
             continue;
@@ -1785,13 +1863,16 @@ fn ingest_macho(
             // image's symbol table; __TEXT stays mapped for the
             // process lifetime; the slice is read-only.
             if live_addr != 0 && size > 0 {
-                Some(core::slice::from_raw_parts(live_addr as *const u8, size))
+                Some(core::slice::from_raw_parts(
+                    live_addr as *const u8,
+                    size,
+                ))
             } else {
                 None
             }
         };
         let mut classification = classify_for_name(&canonical_name, api);
-        // WEB-LIFT FIX (2026-06-03): SP-restoring machine-outliner epilogues
+        // WEB-LIFT FIX : SP-restoring machine-outliner epilogues
         // (`add sp,sp,#N; ret` or `ldp ...,[sp],#N; ret`) are tail-jumped via INDIRECT `br Xn`
         // in the allsorts shaping path. classify_for_name marks the tiny ones Leaf → they lift as
         // a STUB that returns WITHOUT the `add sp` → SP never restored → downstream `unreachable`
@@ -1830,7 +1911,7 @@ fn ingest_macho(
         let entry = SymbolEntry {
             canonical_name: canonical_name.clone(),
             canonical_addr: live_addr,
-            synthetic_addr: live_addr, // assigned in pass 2
+            synthetic_addr: live_addr,  // assigned in pass 2
             size,
             bytes,
             kind: SymKind::Function,
@@ -1855,7 +1936,14 @@ fn ingest_macho(
     //    pipeline's resolve() unifies stub + real-callee references.
     if let Some(stubs) = stubs_section {
         ingest_macho_stubs(
-            macho, file_bytes, slide, stubs, api, by_addr, by_name, chain,
+            macho,
+            file_bytes,
+            slide,
+            stubs,
+            api,
+            by_addr,
+            by_name,
+            chain,
         )?;
     }
 
@@ -1979,19 +2067,8 @@ fn ingest_macho_stubs(
             _ => {}
         }
     }
-    let (
-        Some(indirect_off),
-        Some(n_indirect),
-        Some(symtab_off),
-        Some(strtab_off),
-        Some(strtab_size),
-    ) = (
-        indirect_off,
-        n_indirect,
-        symtab_off,
-        strtab_off,
-        strtab_size,
-    )
+    let (Some(indirect_off), Some(n_indirect), Some(symtab_off), Some(strtab_off), Some(strtab_size)) =
+        (indirect_off, n_indirect, symtab_off, strtab_off, strtab_size)
     else {
         return Ok(());
     };
@@ -2093,15 +2170,11 @@ fn ingest_macho_stubs(
                     target_addr
                 } else {
                     stub_live_addr
-                }, // assigned in pass 2
+                },  // assigned in pass 2
                 size: stub_size,
                 bytes: stub_bytes,
                 kind: SymKind::Stub {
-                    target: if target_addr != 0 {
-                        target_addr
-                    } else {
-                        stub_live_addr
-                    },
+                    target: if target_addr != 0 { target_addr } else { stub_live_addr },
                 },
                 classification: classify_for_name(&canonical_name, api),
             },
@@ -2117,7 +2190,7 @@ fn ingest_macho_stubs(
             let placeholder = SymbolEntry {
                 canonical_name: canonical_name.clone(),
                 canonical_addr: target_addr,
-                synthetic_addr: target_addr, // assigned in pass 2
+                synthetic_addr: target_addr,  // assigned in pass 2
                 size: 0,
                 bytes: None,
                 kind: SymKind::Function,
@@ -2137,7 +2210,11 @@ fn ingest_macho_stubs(
 /// symtab entry from the defining image, the upsert promotes the
 /// real entry. Equal-score collisions keep the existing entry
 /// (deterministic for testing).
-fn upsert_entry(by_addr: &mut BTreeMap<usize, SymbolEntry>, addr: usize, new_entry: SymbolEntry) {
+fn upsert_entry(
+    by_addr: &mut BTreeMap<usize, SymbolEntry>,
+    addr: usize,
+    new_entry: SymbolEntry,
+) {
     fn score(e: &SymbolEntry) -> u32 {
         let mut s = 0u32;
         if e.size > 0 {
@@ -2227,12 +2304,14 @@ fn ingest_elf(
     // sym.st_shndx != SHN_UNDEF. Iterate .symtab if present; fall back
     // to .dynsym (always present in shared libs).
     let collect_defined = |symtab: &goblin::elf::Symtab<'_>,
-                           strtab: &goblin::strtab::Strtab<'_>|
+                            strtab: &goblin::strtab::Strtab<'_>|
      -> Vec<(String, usize, usize)> {
         let mut out: Vec<(String, usize, usize)> = Vec::new();
         for sym in symtab.iter() {
             let st_type = sym.st_type();
-            if st_type != goblin::elf::sym::STT_FUNC && st_type != goblin::elf::sym::STT_OBJECT {
+            if st_type != goblin::elf::sym::STT_FUNC
+                && st_type != goblin::elf::sym::STT_OBJECT
+            {
                 continue;
             }
             if sym.st_value == 0 {
@@ -2248,11 +2327,7 @@ fn ingest_elf(
             if name.is_empty() {
                 continue;
             }
-            out.push((
-                name.to_string(),
-                sym.st_value as usize,
-                sym.st_size as usize,
-            ));
+            out.push((name.to_string(), sym.st_value as usize, sym.st_size as usize));
         }
         out
     };
@@ -2284,7 +2359,10 @@ fn ingest_elf(
         }
         let bytes: Option<&'static [u8]> = unsafe {
             if live_addr != 0 && size > 0 {
-                Some(core::slice::from_raw_parts(live_addr as *const u8, size))
+                Some(core::slice::from_raw_parts(
+                    live_addr as *const u8,
+                    size,
+                ))
             } else {
                 None
             }
@@ -2293,7 +2371,7 @@ fn ingest_elf(
         by_addr.entry(live_addr).or_insert(SymbolEntry {
             canonical_name: name.clone(),
             canonical_addr: live_addr,
-            synthetic_addr: live_addr, // assigned in pass 2
+            synthetic_addr: live_addr,  // assigned in pass 2
             size,
             bytes,
             kind: SymKind::Function,
@@ -2364,15 +2442,24 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     //    macOS-style `___rust_alloc`, Linux-style `__rust_alloc`,
     //    and v0-mangled wrappers.
     let stripped = name.trim_start_matches('_');
-    // Windows x64 stack probe (compendium A2): MSVC emits a `__chkstk`
-    // call in the prologue of every fn with a frame > 4 KiB. On x64
-    // the probe does NOT adjust RSP (RAX carries the size; only guard
-    // pages get touched) — wasm linear memory needs no guard probing,
-    // so a plain no-op Leaf IS "SP as if the probe ran". (The x86-32
-    // `_chkstk` variant DOES move ESP and must never be Leaf'd; this
-    // port targets x64 only.)
-    if stripped == "chkstk" {
-        return FnClass::Leaf;
+    // Windows x64 stack probe (compendium A2): MSVC emits a `__chkstk` /
+    // `_alloca_probe` call in the prologue of every fn with a frame > 4 KiB.
+    //
+    // this used to `return FnClass::Leaf` here, on the reasoning
+    // that "the probe does NOT adjust RSP, and wasm needs no guard probing, so
+    // a no-op Leaf IS 'SP as if the probe ran'". That is HALF RIGHT AND FATAL:
+    // the probe doesn't move RSP, but it DOES return RAX unchanged, and the
+    // caller's very next instruction is `sub rsp, rax`. A Leaf stub RETURNS 0,
+    // so the frame silently collapses to zero bytes and every callee then
+    // overwrites this function's locals. (Observed as the solveLayoutReal OOB:
+    // its `StyledDom` local read back as ASCII fragments of font/CSS strings.)
+    // `FnClass::ChkStk` gets an EMPTY helper body that leaves RAX alone.
+    //
+    // NOTE `stripped` has already had leading underscores trimmed, so the real
+    // symbol `_alloca_probe` arrives here as `alloca_probe` — matching on
+    // `_alloca_probe` would never fire. Variants: `_alloca_probe_16`, `_chkstk`.
+    if stripped == "chkstk" || stripped.starts_with("alloca_probe") {
+        return FnClass::ChkStk;
     }
     // Order matters: `rust_alloc_zeroed` must match BEFORE `rust_alloc`
     // (which is a prefix). Similarly `rust_realloc` is a separate
@@ -2397,6 +2484,37 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     for variant in ["rust_alloc", "rdl_alloc", "rg_alloc"] {
         if stripped == variant || stripped.ends_with(variant) {
             return FnClass::BumpAlloc;
+        }
+    }
+    // PLATFORM allocator shims. With a statically linked host binary, LTO
+    // inlines the whole __rust_alloc → System.alloc chain down to the raw
+    // OS heap wrapper, so the call target that survives is e.g.
+    // `std::sys::alloc::windows::process_heap_alloc` — which matches none
+    // of the rust_*/rdl_*/rg_* names above and used to land in the
+    // std → Leaf bucket. That stub returns 0, so EVERY allocation in the
+    // lifted binary returned null and init died in handle_alloc_error
+    // (AzWriter's boot). azul.dll escaped it only because the dll build
+    // keeps the __rust_alloc symbol intact. Route the whole family to the
+    // bump helpers, matching the layering of the rules above (free before
+    // realloc before zeroed before alloc, so prefix overlaps can't
+    // mis-bind).
+    {
+        let is_platform_alloc_mod = stripped.contains("sys::alloc::")
+            || stripped.contains("sys..alloc..");
+        if is_platform_alloc_mod || stripped.contains("process_heap") {
+            if stripped.contains("free") || stripped.contains("dealloc") {
+                return FnClass::BumpDealloc;
+            }
+            if stripped.contains("realloc") {
+                return FnClass::BumpRealloc;
+            }
+            if stripped.contains("process_heap_alloc") {
+                // HeapAlloc(heap, flags, dwBytes): size is arg 3.
+                return FnClass::BumpAllocWinHeap;
+            }
+            if stripped.contains("alloc") {
+                return FnClass::BumpAlloc;
+            }
         }
     }
     // libc bulk-copy primitives: `memcpy` / `memmove` (and their
@@ -2441,6 +2559,16 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // dedicated helper that returns a FIXED non-zero seed so all lifted HashMaps
     // are internally consistent. (Matched on the std module path, not a one-off
     // mangled-name fragment — this is a known std primitive needing a real stub.)
+    // `std::env::var_os` reads the host process environment block, which does not
+    // exist in wasm. Left as a Leaf, its stub returns 0 and never writes the sret
+    // `Option<OsString>`, so the caller consumes uninitialised guest stack as a
+    // garbage `Some(ptr,cap,len)` and the first `to_str()`/`from_utf8` walks a wild
+    // slice → `memory access out of bounds`. Give it a real "None" body instead.
+    if stripped.contains("env::var_os") || stripped.contains("env..var_os") {
+        return FnClass::EnvVarOs;
+    }
+    // (The MSVC stack-probe thunks __chkstk / _alloca_probe are classified as
+    // FnClass::ChkStk at the very top of this fn, before any other rule.)
     if stripped.contains("hashmap_random_keys") {
         return FnClass::HashmapRandomKeys;
     }
@@ -2453,11 +2581,23 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // so the transitive lifter stops at the `generate_display_list` entry
     // and never descends into the painters (~300+ fns: glyph emission,
     // gradients, borders, tables, images, …) — a large lift-surface +
-    // lift-time reduction. The mangled Rust module path contains
-    // lowercase `display_list`; the `Az*` C API uses camelCase
-    // `DisplayList`, so framework symbols are unaffected.
-    if name.contains("display_list") {
-        return FnClass::Leaf;
+    // lift-time reduction.
+    //
+    // The match must stay a MODULE-PATH cut (`display_list::`), never a bare
+    // substring: a substring match once stubbed `set_skip_display_list` (the
+    // setter of the very gate that makes this cut sound) and std/alloc/core
+    // generics that merely mention display-list TYPES as parameters
+    // (`Vec<DisplayListItem>` clone/drop, slice sorts on
+    // `(DomId, Arc<DisplayList>)`) — all of which run on LIVE paths and
+    // trapped or corrupted memory when stubbed. Trait impls on display-list
+    // types still match and stay cut — they are painter surface.
+    {
+        let is_std_generic = name.starts_with("alloc::")
+            || name.starts_with("core::")
+            || name.starts_with("std::");
+        if name.contains("display_list::") && !is_std_generic {
+            return FnClass::Leaf;
+        }
     }
     // M12.7: azul_layout/azul_core `probe` is profiling instrumentation
     // (timing `Span`s). `Span::drop` reads a THREAD-LOCAL event buffer; the
@@ -2472,7 +2612,9 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // M9-3: check the more specific layout4 variant FIRST — its name
     // is a superstring of `az_call_indirect`, so a naive ends_with
     // match would mis-classify it as the 3-arg variant.
-    if stripped == "az_call_indirect_layout4" || stripped.ends_with("az_call_indirect_layout4") {
+    if stripped == "az_call_indirect_layout4"
+        || stripped.ends_with("az_call_indirect_layout4")
+    {
         return FnClass::CallIndirectLayout4;
     }
     if stripped == "az_call_indirect" || stripped.ends_with("az_call_indirect") {
@@ -2575,8 +2717,9 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                 }
                 return FnClass::Recursable;
             }
-            "std" | "compiler_builtins" | "panic_abort" | "panic_unwind" | "rustc_demangle"
-            | "backtrace" | "addr2line" | "gimli" | "object" | "miniz_oxide" => {
+            "std" | "compiler_builtins" | "panic_abort" | "panic_unwind"
+            | "rustc_demangle" | "backtrace" | "addr2line" | "gimli" | "object"
+            | "miniz_oxide" => {
                 if name.contains("hashmap_random_keys") {
                     return FnClass::HashmapRandomKeys;
                 }
@@ -2670,7 +2813,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         {
                             return FnClass::NeverLift;
                         }
-                        // MECH-B ROOT-CAUSE FIX (2026-06-12): `alloc` + `core` default to
+                        // MECH-B ROOT-CAUSE FIX : `alloc` + `core` default to
                         // RECURSABLE, not Leaf. Both are no-syscall crates by construction
                         // (no_std): their only external edges are the allocator shims
                         // (matched to BumpAlloc/BumpRealloc/BumpDealloc by name above) and
@@ -2699,7 +2842,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         if crate_name == "alloc" || crate_name == "core" {
                             return FnClass::Recursable;
                         }
-                        // COLLECT-CHAIN ROOT-CAUSE (2026-06-10): `Vec::from_iter`/`collect()` lowers
+                        // COLLECT-CHAIN ROOT-CAUSE : `Vec::from_iter`/`collect()` lowers
                         // to `alloc::vec::spec_from_iter*::from_iter`, `alloc::vec::in_place_collect::
                         // from_iter_in_place`, and `spec_extend`/`extend_trusted`/`extend_desugared` —
                         // ALL real-work Vec builders that the runtime-crates filter stubbed to Leaf.
@@ -2734,7 +2877,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                             // the node-free + advance logic.
                             return FnClass::Recursable;
                         }
-                        // CSS-apply ROOT-CAUSE (2026-06-01): Vec::resize and the slice
+                        // CSS-apply ROOT-CAUSE : Vec::resize and the slice
                         // sorts do REAL WORK but defaulted to a no-op Leaf stub — same
                         // class as raw_vec/btree above. `Vec::resize` fills/grows per-node
                         // prop Vecs in the cascade (computed_values @prop_cache.rs:5135,
@@ -2750,7 +2893,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                             || (crate_name == "core"
                                 && name.contains("5slice")
                                 && name.contains("4sort"))
-                            // CSS-apply ROOT-CAUSE (2026-06-01, cont.): `core::slice::binary_search*`
+                            // CSS-apply ROOT-CAUSE (cont.): `core::slice::binary_search*`
                             // does REAL WORK (it compares + halves to find an index) but defaulted to a
                             // no-op Leaf stub returning X0=0 = `Ok(0)`. The layout font-size resolver
                             // `resolve_font_size_slow` (getters.rs:233) does
@@ -2767,7 +2910,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         {
                             return FnClass::Recursable;
                         }
-                        // WEB-LIFT TEXT ROOT-CAUSE (2026-06-03): UTF-8 conversion/validation
+                        // WEB-LIFT TEXT ROOT-CAUSE : UTF-8 conversion/validation
                         // (`String::from_utf8_lossy`, `str::from_utf8`, `run_utf8_validation`,
                         // `from_utf8_unchecked`) do REAL WORK but defaulted to a no-op Leaf stub
                         // returning garbage. `AzString::copy_from_bytes` (the C-API string ctor,
@@ -2778,7 +2921,8 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         // OOBs copying the corrupt AzString. Same class as raw_vec/resize/sort/
                         // binary_search above. Lift it (the UTF-8-validation NEON cmhi/CMHS ops are
                         // supported by the remill fork). THE last blocker for web text.
-                        if (crate_name == "alloc" || crate_name == "core") && name.contains("utf8")
+                        if (crate_name == "alloc" || crate_name == "core")
+                            && name.contains("utf8")
                         {
                             return FnClass::Recursable;
                         }
@@ -2825,37 +2969,14 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         // lifts to an `unreachable` trap, breaking the cascade (hydrate).
                         return FnClass::Leaf;
                     }
-                    // WEB FONT BOUNDARY (2026-06-01): the web backend NEVER
-                    // parses or shapes fonts in-wasm. Fonts are fetched from
-                    // the browser as resources (the PART 2 RequestResources
-                    // design) and the `FcFontCache` is built natively,
-                    // server-side, then handed to the lifted layout callback.
-                    // `allsorts_azul` (glyph outlines, cmap, GSUB/GPOS shaping,
-                    // woff2 / variable-font table parsing) is therefore DEAD in
-                    // the lifted callback: for a box layout with no text,
-                    // `font_hash_to_families` is empty, so
-                    // `collect_and_resolve_font_chains_with_registration`
-                    // resolves zero chains and never enters allsorts. Lifting it
-                    // anyway dragged 627 transitive deps into the module (1680
-                    // total → bloat + slow lift) AND its large table-parsing
-                    // match/jump-table functions are a runtime-trap surface that
-                    // poisons the whole wasm. Treat the entire font parser as a
-                    // lift boundary (Leaf no-op stub). NOTE: CSS font-SIZE math
-                    // (em/rem/% → px, `compute_all_font_sizes_px`) lives in
-                    // `azul_core`, NOT allsorts, so layout geometry is unaffected.
-                    // PART 2 will swap these stubs for a resource-request emitter.
-                    // 2026-06-02: REMOVED the allsorts Leaf boundary so TEXT can be
-                    // shaped/measured in-wasm (hello-world's label/counter measured to
-                    // height 0 because allsorts was stubbed → no glyphs/metrics). The
-                    // original concern was that allsorts' large table-parsing jump-table
-                    // fns are a runtime-trap surface — but this session's static jump-table
-                    // devirt (azul_remill.cpp exact-decode + extra_data) now resolves those
-                    // jump tables, so lifting allsorts should no longer poison the wasm.
-                    // Cost: ~+627 transitive deps (bigger/slower lift). Re-add the boundary
-                    // (return Leaf) if allsorts traps return.
-                    // if crate_name == "allsorts_azul" {
-                    //     return FnClass::Leaf;
-                    // }
+                    // `allsorts_azul` (glyph outlines, cmap, shaping, font
+                    // table parsing) lifts as Recursable so text can be
+                    // shaped/measured in-wasm. It was once a Leaf boundary —
+                    // its big table-parsing jump tables were a trap surface —
+                    // but the lifter's exact jump-table devirt resolves those
+                    // now. Cost is ~600 extra transitive deps; re-add a
+                    // `crate_name == "allsorts_azul" => Leaf` cut only if
+                    // allsorts traps return.
                     // Our own crates + 3rd party crates we want to lift
                     // into (azul_*, webrender_*, serde_*) → Recursable.
                     return FnClass::Recursable;
@@ -2901,12 +3022,8 @@ fn macho_image_text_data_range(
             let start = seg64.vmaddr;
             let end = start.saturating_add(seg64.vmsize);
             if end > start {
-                if start < min {
-                    min = start;
-                }
-                if end > max {
-                    max = end;
-                }
+                if start < min { min = start; }
+                if end > max { max = end; }
             }
         }
     }
@@ -2920,7 +3037,10 @@ fn macho_image_text_data_range(
 /// M9-review helper: ELF sibling of [`macho_image_text_data_range`].
 /// Walks PT_LOAD program headers + reports the union of their virtual
 /// address ranges.
-fn elf_image_text_data_range(elf: &goblin::elf::Elf<'_>, _file_bytes: &[u8]) -> (usize, usize) {
+fn elf_image_text_data_range(
+    elf: &goblin::elf::Elf<'_>,
+    _file_bytes: &[u8],
+) -> (usize, usize) {
     let mut min: u64 = u64::MAX;
     let mut max: u64 = 0;
     for ph in &elf.program_headers {
@@ -2929,12 +3049,8 @@ fn elf_image_text_data_range(elf: &goblin::elf::Elf<'_>, _file_bytes: &[u8]) -> 
         }
         let start = ph.p_vaddr;
         let end = start.saturating_add(ph.p_memsz);
-        if start < min {
-            min = start;
-        }
-        if end > max {
-            max = end;
-        }
+        if start < min { min = start; }
+        if end > max { max = end; }
     }
     if min == u64::MAX {
         (0, 0)
@@ -2973,9 +3089,7 @@ pub(crate) fn collect_macho_low32_sections(
         )
     };
     for lc in &macho.load_commands {
-        let CommandVariant::Segment64(seg64) = &lc.command else {
-            continue;
-        };
+        let CommandVariant::Segment64(seg64) = &lc.command else { continue };
         let segname = trim_macho_name(&seg64.segname);
         let sections_off = lc.offset + SIZEOF_SEGMENT_COMMAND_64;
         for i in 0..seg64.nsects as usize {
@@ -3001,7 +3115,7 @@ pub(crate) fn collect_macho_low32_sections(
     out
 }
 
-/// [WEB-LIFT FIX 2026-06-11] macOS thread-local geometry of one image:
+/// [WEB-LIFT FIX] macOS thread-local geometry of one image:
 /// `__DATA.__thread_vars` (the 24-byte `{thunk, key, offset}` descriptor
 /// array) + `__DATA.__thread_data` (the TLS initial image; descriptor
 /// offsets are relative to its start, with `__thread_bss` contiguous
@@ -3041,9 +3155,7 @@ fn collect_macho_tlv_regions(
     let mut vars: Option<(usize, usize)> = None;
     let mut data: Option<(usize, usize)> = None;
     for lc in &macho.load_commands {
-        let CommandVariant::Segment64(seg64) = &lc.command else {
-            continue;
-        };
+        let CommandVariant::Segment64(seg64) = &lc.command else { continue };
         if trim_macho_name(&seg64.segname) != "__DATA" {
             continue;
         }
@@ -3086,7 +3198,7 @@ fn collect_macho_tlv_regions(
     }
 }
 
-/// [WEB-LIFT FIX 2026-06-06] Find hashbrown's `EMPTY_GROUP` static(s) in the
+/// [WEB-LIFT FIX] Find hashbrown's `EMPTY_GROUP` static(s) in the
 /// loaded `libazul` image, returned as NATIVE `(addr, len)` ranges to mirror.
 ///
 /// hashbrown encodes an EMPTY control byte as `0xFF`; an empty `RawTable`'s
@@ -3110,9 +3222,7 @@ fn collect_macho_tlv_regions(
 /// Signature-based, so it tracks `EMPTY_GROUP` wherever a rebuild moves it.
 pub(crate) fn find_hashbrown_empty_group_ranges() -> &'static [(usize, usize)] {
     static RANGES: std::sync::OnceLock<Vec<(usize, usize)>> = std::sync::OnceLock::new();
-    RANGES
-        .get_or_init(compute_hashbrown_empty_group_ranges)
-        .as_slice()
+    RANGES.get_or_init(compute_hashbrown_empty_group_ranges).as_slice()
 }
 
 fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
@@ -3147,17 +3257,15 @@ fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
         let img_hi = maxv.wrapping_add(slide);
         // Locate __TEXT.__text (native range, mapped r-x → readable).
         let mut text: Option<(usize, usize)> = None; // (native_lo, size)
-                                                     // [g211] Also locate const DATA sections (`__const` in any segment) so we can
-                                                     // signature-scan them for hashbrown's EMPTY_GROUP. EMPTY_GROUP is reached only
-                                                     // via the empty-table singleton's REBASED `ctrl` data-pointer — never a direct
-                                                     // `adrp`/`add` in code — so the instruction scan below structurally misses it,
-                                                     // and an empty map's ctrl-scan then reads 0x00 → "all-FULL" → RawIterRange loops
-                                                     // forever → text shaping hangs.
+        // [g211] Also locate const DATA sections (`__const` in any segment) so we can
+        // signature-scan them for hashbrown's EMPTY_GROUP. EMPTY_GROUP is reached only
+        // via the empty-table singleton's REBASED `ctrl` data-pointer — never a direct
+        // `adrp`/`add` in code — so the instruction scan below structurally misses it,
+        // and an empty map's ctrl-scan then reads 0x00 → "all-FULL" → RawIterRange loops
+        // forever → text shaping hangs.
         let mut const_secs: Vec<(usize, usize)> = Vec::new(); // (native_lo, size)
         for lc in &macho.load_commands {
-            let CommandVariant::Segment64(seg64) = &lc.command else {
-                continue;
-            };
+            let CommandVariant::Segment64(seg64) = &lc.command else { continue };
             let sections_off = lc.offset + SIZEOF_SEGMENT_COMMAND_64;
             for i in 0..seg64.nsects as usize {
                 let so = sections_off + i * SIZEOF_SECTION_64;
@@ -3175,9 +3283,7 @@ fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
                 }
             }
         }
-        let Some((text_lo, tsize)) = text else {
-            continue;
-        };
+        let Some((text_lo, tsize)) = text else { continue };
         if tsize < 8 || text_lo < img_lo || text_lo + tsize > img_hi {
             continue;
         }
@@ -3222,8 +3328,9 @@ fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
                         let target = pg.wrapping_add(imm12);
                         if (target & 0x7) == 0 && target >= img_lo && target + 8 <= img_hi {
                             let max_rl = core::cmp::min(64, img_hi - target);
-                            let tb =
-                                unsafe { core::slice::from_raw_parts(target as *const u8, max_rl) };
+                            let tb = unsafe {
+                                core::slice::from_raw_parts(target as *const u8, max_rl)
+                            };
                             let mut rl = 0usize;
                             while rl < max_rl && tb[rl] == 0xFF {
                                 rl += 1;
@@ -3298,9 +3405,7 @@ pub(crate) fn collect_elf_low32_sections(
     let _ = file_bytes;
     let mut out = Vec::new();
     for sh in &elf.section_headers {
-        let Some(name) = elf.shdr_strtab.get_at(sh.sh_name) else {
-            continue;
-        };
+        let Some(name) = elf.shdr_strtab.get_at(sh.sh_name) else { continue };
         if !matches!(name, ".rodata" | ".data" | ".data.rel.ro") {
             continue;
         }
@@ -3367,9 +3472,12 @@ mod tests {
             FnClass::NeverLift
         );
         // MECH-B regression: out-of-line alloc/core monomorphizations are
-        // real compute and must be lifted, never no-op stubbed (2026-06-12).
+        // real compute and must be lifted, never no-op stubbed .
         assert_eq!(
-            classify_for_name("_ZN5alloc3str17join_generic_copy17h9c9d2f7abfe94f50E", &api),
+            classify_for_name(
+                "_ZN5alloc3str17join_generic_copy17h9c9d2f7abfe94f50E",
+                &api
+            ),
             FnClass::Recursable
         );
         // std stays Leaf-by-default (syscall surface).
@@ -3379,7 +3487,10 @@ mod tests {
         );
         // Known landmine stays stubbed: core fn-ptr blanket impls.
         assert_eq!(
-            classify_for_name("_ZN4core3ops8function5impls5whatever17h00E", &api),
+            classify_for_name(
+                "_ZN4core3ops8function5impls5whatever17h00E",
+                &api
+            ),
             FnClass::Leaf
         );
     }

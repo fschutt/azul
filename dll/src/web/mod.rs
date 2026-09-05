@@ -17,21 +17,23 @@
 //!     → Phase E: start HTTP server, serve pages + /az/img/ + /az/font/
 //! ```
 
-pub mod classify;
 pub mod config;
-pub mod eventloop;
-pub mod headless;
-pub mod html_render;
-pub mod hydration;
-pub mod loader_js;
-#[cfg(feature = "web-transpiler-static")]
-pub mod native_remill;
 pub mod server;
-#[cfg(feature = "web-transpiler")]
-pub mod symbol_table;
+pub mod html_render;
+pub mod loader_js;
+pub mod classify;
 pub mod transpiler;
 #[cfg(feature = "web-transpiler")]
+pub mod lift_audit;
+#[cfg(feature = "web-transpiler")]
 pub mod transpiler_remill;
+#[cfg(feature = "web-transpiler")]
+pub mod symbol_table;
+#[cfg(feature = "web-transpiler-static")]
+pub mod native_remill;
+pub mod eventloop;
+pub mod headless;
+pub mod hydration;
 
 /// Whether M10-D per-fn WASM sharding is active. Always `false` when the
 /// transpiler (and thus `symbol_table`) isn't compiled in — keeps the non-
@@ -57,68 +59,94 @@ fn shards_enabled() -> bool {
 ///
 /// Keep in sync with the `#[no_mangle] pub extern "C"` exports in
 /// [`eventloop`]. Wired into the lift loop in M8.2.
-pub const EVENTLOOP_SYMBOLS: &[&str] = &[
-    "AzStartup_alloc",
-    "AzStartup_free",
+///
+/// One macro generates BOTH the name list and
+/// [`eventloop_symbol_addr`], the static-link-safe address resolver:
+/// `dlsym_self` needs a PE export table, but a host exe that links
+/// azul-dll statically (azul-writer's `link-static`) exports nothing,
+/// so every `dlsym(AzStartup_*)` returned null and the mini fell back
+/// to the 8-byte stub — the whole eventloop surface vanished while
+/// the layout-callback modules (registered by address at runtime)
+/// lifted fine. These functions are in THIS crate, so `fn as usize`
+/// is exact in every link mode; no export table, no dlsym, no PDB.
+macro_rules! eventloop_symbols {
+    ($($name:ident),* $(,)?) => {
+        pub const EVENTLOOP_SYMBOLS: &[&str] = &[$(stringify!($name)),*];
+
+        /// Resolve an eventloop symbol to its in-process address the
+        /// direct way (same-crate `fn as usize`). Superset-safe: names
+        /// outside the generated list return `None`.
+        fn eventloop_symbol_addr(name: &str) -> Option<usize> {
+            match name {
+                $(stringify!($name) => Some(eventloop::$name as usize),)*
+                _ => None,
+            }
+        }
+    };
+}
+
+eventloop_symbols![
+    AzStartup_alloc,
+    AzStartup_free,
     // WEB-FONT-VIA-JS: JS registers a fallback-font buffer it wrote into wasm memory.
-    "AzStartup_setFallbackFont",
-    "AzStartup_init",
-    "AzStartup_hydrate",
-    "AzStartup_dispatchEvent",
-    "AzStartup_registerStateDeserializer",
+    AzStartup_setFallbackFont,
+    AzStartup_init,
+    AzStartup_hydrate,
+    // Reflection-based hydration for models whose raw bytes are
+    // meaningless in the guest (see doc/web-json-hydrate-plan.md).
+    AzStartup_hydrateJson,
+    AzStartup_dispatchEvent,
+    AzStartup_registerStateDeserializer,
     // M9-2: Layout-cb wasm-side LayoutCallbackInfo builder.
-    "AzStartup_buildLayoutInfo",
+    AzStartup_buildLayoutInfo,
     // M9-3: Layout-cb dispatch infrastructure.
-    "AzStartup_setLayoutCbTableIdx",
-    "AzStartup_setRefAny",
-    "AzStartup_initLayoutCache",
-    "AzStartup_getCurrentDomPtr",
-    "AzStartup_getLastLayoutStatus",
-    "AzStartup_getCascadeProbe",
-    "AzStartup_pokeLastLayout",
+    AzStartup_setLayoutCbTableIdx,
+    AzStartup_setRefAny,
+    AzStartup_initLayoutCache,
+    AzStartup_getCurrentDomPtr,
+    AzStartup_getLastLayoutStatus,
+    AzStartup_getCascadeProbe,
+    AzStartup_pokeLastLayout,
     // M9-4: WASM-side hit-test (stub, returns last registered cb node).
-    "AzStartup_registerCbNode",
-    // 2026-06-10: per-EventFilter dispatch — registerCbNode + the event kind.
-    "AzStartup_registerCbNodeKind",
-    "AzStartup_hitTest",
+    AzStartup_registerCbNode,
+    // per-EventFilter dispatch — registerCbNode + the event kind.
+    AzStartup_registerCbNodeKind,
+    AzStartup_hitTest,
     // M9-5: TLV patch emission.
-    "AzStartup_buildCounterPatch",
+    AzStartup_buildCounterPatch,
     // M9-6: wasm-resident dispatch state setters.
-    "AzStartup_setModelPtr",
-    "AzStartup_setDisplayNode",
+    AzStartup_setModelPtr,
+    AzStartup_setDisplayNode,
     // M11 Sprint 1: StyledDom hydrate — runs the cascade
     // (`StyledDom::create(&mut dom, Css::empty())`) wasm-side via
     // the S1.A transitive lift pipeline. `getStyledDomNodeCount`
     // returns the StyledDom's node count for cross-checking
     // against `getDomNodeCount` (the raw AzDom walker).
-    "AzStartup_hydrateStyledDom",
-    "AzStartup_isStyledDomHydrated",
-    "AzStartup_getDomNodeCount",
-    "AzStartup_getStyledDomNodeCount",
-    "AzStartup_getStyledDomPtr",
+    AzStartup_hydrateStyledDom,
+    AzStartup_isStyledDomHydrated,
+    AzStartup_getDomNodeCount,
+    AzStartup_getStyledDomNodeCount,
+    AzStartup_getStyledDomPtr,
     // M11 Sprint 1.C / Sprint 2: layout solver + positioned-rect
     // cache. AzStartup_hitTest now consumes the cache for real
     // bbox-walk dispatch.
-    "AzStartup_solveLayout",
+    AzStartup_solveLayout,
     // M12.7: real layout solver (LayoutWindow::layout_and_generate_display_list
     // → taffy block/flex/grid). Same signature as solveLayout.
-    "AzStartup_solveLayoutReal",
-    "AzStartup_isLayoutSolved",
-    "AzStartup_getPositionedRectsLen",
-    "AzStartup_getPositionedRectsPtr",
-    // M12.7 debug: peek a u32 from wasm linear memory (reads the diag
-    // markers the layout solver writes via write_volatile).
-    "AzStartup_peekU32",
+    AzStartup_solveLayoutReal,
+    AzStartup_isLayoutSolved,
+    AzStartup_getPositionedRectsLen,
+    AzStartup_getPositionedRectsPtr,
     // M11 Sprint 3: relayout + generalized patch builder for
     // SetText / SetAttr / SetInlineStyle / RemoveNode / InsertNode.
     // The JS decoder switches on kind.
-    "AzStartup_relayout",
-    "AzStartup_buildPatch",
+    AzStartup_relayout,
+    AzStartup_buildPatch,
     // M11 Sprint 5: VirtualView infrastructure (threshold + provider
     // table-idx). Full auto-virtualization pending Box::new init gap.
-    "AzStartup_setAutoVirtualizeThreshold",
-    "AzStartup_getAutoVirtualizeThreshold",
-    "AzStartup_setVirtualViewProvider",
+    AzStartup_setAutoVirtualizeThreshold,
+    AzStartup_getAutoVirtualizeThreshold,
+    AzStartup_setVirtualViewProvider,
 ];
 
 use std::collections::{BTreeMap, HashMap};
@@ -129,8 +157,8 @@ use azul_core::callbacks::{CoreCallback, LayoutCallback};
 use azul_core::refany::RefAny;
 use azul_core::resources::{AppConfig, RouteMatch};
 use azul_layout::window_state::WindowCreateOptions;
-use rust_fontconfig::registry::FcFontRegistry;
 use rust_fontconfig::FcFontCache;
+use rust_fontconfig::registry::FcFontRegistry;
 
 use crate::desktop::shell2::common::WindowError;
 
@@ -321,11 +349,7 @@ pub(crate) fn resolve_fn_ptr(fn_ptr: usize) -> FnPtrSymbol {
             return FnPtrSymbol {
                 name: entry.canonical_name.clone(),
                 addr: entry.canonical_addr,
-                size: if entry.size > 0 {
-                    entry.size
-                } else {
-                    LIFT_READ_WINDOW
-                },
+                size: if entry.size > 0 { entry.size } else { LIFT_READ_WINDOW },
             };
         }
         // Windows incremental-link thunk (ILT) chase. MSVC's
@@ -344,11 +368,7 @@ pub(crate) fn resolve_fn_ptr(fn_ptr: usize) -> FnPtrSymbol {
                 return FnPtrSymbol {
                     name: entry.canonical_name.clone(),
                     addr: entry.canonical_addr,
-                    size: if entry.size > 0 {
-                        entry.size
-                    } else {
-                        LIFT_READ_WINDOW
-                    },
+                    size: if entry.size > 0 { entry.size } else { LIFT_READ_WINDOW },
                 };
             }
         }
@@ -397,12 +417,7 @@ fn chase_ilt_thunk(_addr: usize) -> Option<usize> {
 /// verification checks that this fallback NEVER fires in the lift
 /// logs (any cb_<hex> indicates a missed symbol classification).
 fn resolve_fn_ptr_dladdr(fn_ptr: usize) -> FnPtrSymbol {
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "android"
-    ))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android"))]
     unsafe {
         #[repr(C)]
         struct DlInfo {
@@ -461,12 +476,7 @@ pub(crate) fn resolve_fn_ptr_name(fn_ptr: usize) -> String {
 /// listed in [`EVENTLOOP_SYMBOLS`] so the remill lift pipeline can
 /// read function bytes from `.text`.
 pub(crate) fn dlsym_self(name: &str) -> Option<usize> {
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "android"
-    ))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "ios", target_os = "android"))]
     unsafe {
         // RTLD_DEFAULT: look up the symbol in the global scope of the
         // running process (matches the running dylib's exported
@@ -780,7 +790,9 @@ fn generate_mini_wasm_stub() -> Vec<u8> {
 /// transpiler isn't the real RemillTranspiler (e.g. StubTranspiler
 /// in tests) — the stub can't lift anything anyway.
 #[cfg(feature = "web-transpiler")]
-pub fn lift_boundary_shards(initial_boundaries: &[usize]) -> Vec<BoundaryWasm> {
+pub fn lift_boundary_shards(
+    initial_boundaries: &[usize],
+) -> Vec<BoundaryWasm> {
     use std::collections::{HashSet, VecDeque};
     use transpiler::Transpiler;
 
@@ -792,7 +804,9 @@ pub fn lift_boundary_shards(initial_boundaries: &[usize]) -> Vec<BoundaryWasm> {
 
     let transpiler = transpiler_remill::RemillTranspiler::new();
     if !transpiler.is_available() {
-        eprintln!("[azul-web] boundary-lift: transpiler unavailable, skipping shards");
+        eprintln!(
+            "[azul-web] boundary-lift: transpiler unavailable, skipping shards"
+        );
         return Vec::new();
     }
 
@@ -885,10 +899,7 @@ pub fn lift_layout_callbacks(layout_callbacks: &[LayoutCallback]) -> Vec<LayoutW
         );
         eprintln!(
             "[azul-web]   layout-cb: {:<40} addr=0x{:016x} wasm={} client_side={}",
-            sym.name,
-            sym.addr,
-            wasm_bytes.len(),
-            is_client_side,
+            sym.name, sym.addr, wasm_bytes.len(), is_client_side,
         );
         let content_hash = fnv1a64_hex(sym.name.as_bytes());
         out.push(LayoutWasm {
@@ -909,7 +920,7 @@ pub fn lift_layout_callbacks(layout_callbacks: &[LayoutCallback]) -> Vec<LayoutW
 /// `(name, addr, size)` tuples to `transpiler.lift_and_link_eventloop`.
 /// On any failure log + fall back to the 8-byte stub so the rest of
 /// run_web can proceed (per the M0-M7 "fail soft" discipline).
-fn lift_eventloop_mini_wasm() -> Vec<u8> {
+fn lift_eventloop_mini_wasm(extra_roots: &[(String, usize, usize)]) -> Vec<u8> {
     let transpiler = transpiler::default_transpiler();
     if !transpiler.is_available() {
         eprintln!(
@@ -920,15 +931,33 @@ fn lift_eventloop_mini_wasm() -> Vec<u8> {
     }
     let mut targets: Vec<(String, usize, usize)> = Vec::with_capacity(EVENTLOOP_SYMBOLS.len());
     for sym_name in EVENTLOOP_SYMBOLS {
-        let Some(addr) = dlsym_self(sym_name) else {
+        // Direct same-crate `fn as usize` first (works for statically
+        // linked host exes, which have no export table); dlsym only as
+        // a belt-and-suspenders fallback for names not in the macro
+        // list (there are none today).
+        let Some(addr) = eventloop_symbol_addr(sym_name).or_else(|| dlsym_self(sym_name)) else {
             eprintln!(
-                "[azul-web] azul-mini: dlsym({}) returned null — falling back to stub",
+                "[azul-web] azul-mini: could not resolve {} (direct + dlsym) — falling back to stub",
                 sym_name,
             );
             return generate_mini_wasm_stub();
         };
         let sym = resolve_fn_ptr(addr);
         targets.push((sym_name.to_string(), sym.addr, sym.size));
+    }
+    // Extra roots reachable ONLY through a function pointer — the byte-scan
+    // walk can never discover them. Today: the app's JSON state
+    // deserializer, which AzStartup_hydrateJson calls through the address
+    // the server ships (doc/web-json-hydrate-plan.md).
+    for (name, addr, size) in extra_roots {
+        if targets.iter().any(|(_, a, _)| a == addr) {
+            continue;
+        }
+        eprintln!(
+            "[azul-web] azul-mini: extra fn-pointer root {} addr=0x{:016x} size={}",
+            name, addr, size,
+        );
+        targets.push((name.clone(), *addr, *size));
     }
     match transpiler.lift_and_link_eventloop(&targets) {
         Ok(module) => {
@@ -962,6 +991,7 @@ pub fn run_web(
     root_window: WindowCreateOptions,
     web_config: config::WebConfig,
 ) -> Result<(), WindowError> {
+
     eprintln!("[azul-web] Starting web backend...");
 
     // M8.7a: validate the App can be hydrated on the wasm client.
@@ -1035,7 +1065,17 @@ pub fn run_web(
     // or dlsym path can't satisfy the request — keeps Phase D/E
     // unblocked even if the eventloop lift fails.
     let _ = &classification; // M8.9 will use this to wire framework-call routing.
-    let mini_wasm = lift_eventloop_mini_wasm();
+    // The app's state deserializer is invoked through a stored fn-pointer,
+    // so nothing in the call-graph walk points at it — seed it explicitly.
+    let mut mini_extra_roots: Vec<(String, usize, usize)> = Vec::new();
+    {
+        let deser = app_data.get_deserialize_fn();
+        if deser != 0 {
+            let sym = resolve_fn_ptr(deser);
+            mini_extra_roots.push((sym.name.clone(), sym.addr, sym.size));
+        }
+    }
+    let mini_wasm = lift_eventloop_mini_wasm(&mini_extra_roots);
     eprintln!("[azul-web] azul-mini.wasm: {} bytes", mini_wasm.len());
 
     // Phase D: Pre-render all routes. The walk also collects every
@@ -1066,27 +1106,19 @@ pub fn run_web(
             None,
             config.bundled_fonts.as_ref(),
         );
-        eprintln!(
-            "[azul-web] Route / : {} bytes HTML, {} images, {} fonts, {} callbacks",
-            output.html.len(),
-            output.images.len(),
-            output.fonts.len(),
-            output.callbacks.len()
-        );
+        eprintln!("[azul-web] Route / : {} bytes HTML, {} images, {} fonts, {} callbacks",
+            output.html.len(), output.images.len(), output.fonts.len(), output.callbacks.len());
 
         let callback_index = build_callback_index(&output.callbacks);
         all_images.extend(output.images);
         all_fonts.extend(output.fonts);
         discovered_per_route.insert("/".to_string(), output.callbacks);
-        rendered_routes.insert(
-            "/".to_string(),
-            server::RenderedRoute {
-                pattern: "/".to_string(),
-                html: output.html,
-                layout_callback: default_layout_callback.clone(),
-                callback_index,
-            },
-        );
+        rendered_routes.insert("/".to_string(), server::RenderedRoute {
+            pattern: "/".to_string(),
+            html: output.html,
+            layout_callback: default_layout_callback.clone(),
+            callback_index,
+        });
     } else {
         // Pre-render each registered route
         for route in routes.iter() {
@@ -1109,14 +1141,9 @@ pub fn run_web(
                 config.bundled_fonts.as_ref(),
             );
 
-            eprintln!(
-                "[azul-web] Route {} : {} bytes HTML, {} images, {} fonts, {} callbacks",
-                pattern,
-                output.html.len(),
-                output.images.len(),
-                output.fonts.len(),
-                output.callbacks.len()
-            );
+            eprintln!("[azul-web] Route {} : {} bytes HTML, {} images, {} fonts, {} callbacks",
+                pattern, output.html.len(), output.images.len(), output.fonts.len(),
+                output.callbacks.len());
 
             // Rebase image/font IDs to avoid collisions across routes
             let img_offset = all_images.len();
@@ -1146,15 +1173,12 @@ pub fn run_web(
 
             let callback_index = build_callback_index(&output.callbacks);
             discovered_per_route.insert(pattern.to_string(), output.callbacks);
-            rendered_routes.insert(
-                pattern.to_string(),
-                server::RenderedRoute {
-                    pattern: pattern.to_string(),
-                    html,
-                    layout_callback: route.layout_callback.clone(),
-                    callback_index,
-                },
-            );
+            rendered_routes.insert(pattern.to_string(), server::RenderedRoute {
+                pattern: pattern.to_string(),
+                html,
+                layout_callback: route.layout_callback.clone(),
+                callback_index,
+            });
         }
     }
 
@@ -1164,8 +1188,7 @@ pub fn run_web(
     let mut cb_wasms = discover_and_transpile_callbacks(&discovered_per_route);
     eprintln!(
         "[azul-web] Discovered {} unique callbacks across {} route(s); transpile lift is stubbed",
-        cb_wasms.len(),
-        discovered_per_route.len(),
+        cb_wasms.len(), discovered_per_route.len(),
     );
     for cb in &cb_wasms {
         eprintln!(
@@ -1201,10 +1224,7 @@ pub fn run_web(
 
     eprintln!(
         "[azul-web] Pre-rendered {} routes, {} total images, {} total fonts, {} layout WASMs",
-        rendered_routes.len(),
-        all_images.len(),
-        all_fonts.len(),
-        layout_wasms.len(),
+        rendered_routes.len(), all_images.len(), all_fonts.len(), layout_wasms.len(),
     );
 
     // Phase F (M10-D): union every cb / layout used_boundaries set
@@ -1213,7 +1233,8 @@ pub fn run_web(
     // in legacy bundled mode (when AZ_ENABLE_SHARDS isn't set or
     // AZ_BUNDLED_LEGACY=1) — the cb / layout wasms still embed
     // their framework deps inline.
-    let mut initial_boundaries: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut initial_boundaries: std::collections::HashSet<usize> =
+        std::collections::HashSet::new();
     for cb in &cb_wasms {
         for &addr in &cb.used_boundaries {
             initial_boundaries.insert(addr);
@@ -1244,7 +1265,7 @@ pub fn run_web(
         shards_enabled(),
     );
 
-    // Phase D-cache (2026-06-10): turn the cb/layout wasm URL hashes into REAL
+    // Phase D-cache : turn the cb/layout wasm URL hashes into REAL
     // content hashes. The HTML is pre-rendered BEFORE the lifts, so the URLs are
     // emitted with `fnv1a64(name)` placeholders — which are CONSTANT across
     // builds. Served with `Cache-Control: immutable, max-age=1yr`, a browser
@@ -1302,13 +1323,53 @@ pub fn run_web(
     #[cfg(feature = "web-transpiler")]
     transpiler_remill::preflight_report();
 
-    // web-prelift: the startup above lifted the eventloop + route/layout
-    // callbacks into the on-disk cache (AZ_LIFT_CACHE_DIR). Exit now, before
-    // binding the server — used to bake a warm lift cache into the docker base
-    // image so a derived app only pays to lift ITS OWN callbacks.
-    if web_config.prelift {
-        eprintln!("[azul-web] prelift complete — lift cache warmed; exiting before serve");
-        return Ok(());
+    // Startup lift-audit (always on): refuse to serve a build that will
+    // crash at runtime — stub mini, remill-crash stubs, env imports the
+    // loader can't provide, untranslated native pointers, unreviewed
+    // __remill_error functions. AZ_LIFT_STRICT=0 downgrades to warnings.
+    #[cfg(feature = "web-transpiler")]
+    {
+        let mut artifacts: Vec<(&str, &[u8])> = vec![("mini", mini_wasm.as_slice())];
+        for lw in &layout_wasms {
+            artifacts.push(("layout", lw.wasm_bytes.as_slice()));
+        }
+        for cb in &cb_wasms {
+            artifacts.push(("cb", cb.wasm_bytes.as_slice()));
+        }
+        {
+            use std::sync::atomic::Ordering;
+            let hits = transpiler_remill::RELOC_CACHE_HITS.load(Ordering::Relaxed);
+            let lifts = transpiler_remill::RELOC_CACHE_LIFTS.load(Ordering::Relaxed);
+            eprintln!(
+                "[azul-web][lift-audit] reloc-canonical cache: {hits} translated hit(s), {lifts} fresh remill lift(s)",
+            );
+            let snan = transpiler_remill::PREFLIGHT_SNAN_SITES.load(Ordering::Relaxed);
+            let ud2 = transpiler_remill::PREFLIGHT_UD2_SITES.load(Ordering::Relaxed);
+            if snan > 0 || ud2 > 0 {
+                eprintln!(
+                    "[azul-web][lift-audit] ✓ benign __remill_error classes: {snan} guarded fault-semantics site(s) (sNaN/div), {ud2} ud2 site(s) (faithful lifts, not counted toward F5)",
+                );
+            }
+        }
+        let preflight = transpiler_remill::preflight_entries();
+        let fatal = lift_audit::run(
+            &artifacts,
+            transpiler::default_transpiler().is_available(),
+            transpiler_remill::lift_failure_count(),
+            &preflight,
+        );
+        let strict = std::env::var("AZ_LIFT_STRICT").map(|v| v != "0").unwrap_or(true);
+        if fatal {
+            if strict {
+                eprintln!(
+                    "[azul-web][lift-audit] FATAL findings — refusing to start the server. \
+                     Debug each finding (or set AZ_LIFT_STRICT=0 to serve anyway at your own risk)."
+                );
+                std::process::exit(1);
+            } else {
+                eprintln!("[azul-web][lift-audit] FATAL findings, but AZ_LIFT_STRICT=0 — serving anyway");
+            }
+        }
     }
 
     // Phase E: Start HTTP server
@@ -1321,11 +1382,7 @@ pub fn run_web(
     // startup seconds for a normal (post-wasm-opt) module, but if the module
     // is still huge (opt fell back) drop to q=9 so startup doesn't stall.
     let mini_wasm_br = {
-        let q = if mini_wasm.len() <= 8 * 1024 * 1024 {
-            11
-        } else {
-            9
-        };
+        let q = if mini_wasm.len() <= 8 * 1024 * 1024 { 11 } else { 9 };
         let br = server::brotli_compress(&mini_wasm, q);
         if let Some(ref b) = br {
             eprintln!(

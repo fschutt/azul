@@ -35,13 +35,31 @@ async function main() {
     return r.result.value;
   };
   const before = await readCounter();
-  // Click the button (or the counter region) via a real synthesized mouse event.
+  // Click the front-most non-sentinel wasm rect (the geometric hit-test's
+  // source of truth, read via window.__azProbe). The loader does not yet
+  // apply solved rects to the DOM, so browser-CSS element centers diverge
+  // from wasm geometry — clicking an element center missed the wasm button
+  // rect entirely. Element-center remains the fallback when __azProbe or
+  // the rect cache is unavailable.
   await send('Runtime.evaluate', {
-    expression: `(()=>{const b=[...document.querySelectorAll('button,[data-az-cb],div')].find(e=>/increase|counter|\\d/i.test(e.textContent));
-      const r=(b||document.body).getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2};})()`,
+    expression: `(()=>{const P=window.__azProbe;
+      if(P&&P.mini&&typeof P.mini.AzStartup_getPositionedRectsLen==='function'){
+        const n=P.mini.AzStartup_getPositionedRectsLen(P.state)>>>0,
+              p=P.mini.AzStartup_getPositionedRectsPtr(P.state)>>>0;
+        if(n>0&&p>0){const dv=new DataView(P.memory.buffer);
+          for(let i=n-1;i>=0;i--){const o=p+16*i,x=dv.getUint32(o,true),
+              y=dv.getUint32(o+4,true),w=dv.getUint32(o+8,true),h=dv.getUint32(o+12,true);
+            // 0xFFFFFFFF w/h = sentinel (text/anonymous); any coord with the
+            // high bit set is a flag/sentinel form, not a clickable px value.
+            if(w===0||h===0)continue;
+            if((x|y|w|h)>>>31)continue;
+            return {x:x+Math.floor(w/2),y:y+Math.floor(h/2),src:'wasm-rect node '+i};}}}
+      const b=[...document.querySelectorAll('button,[data-az-cb],div')].find(e=>/increase|counter|\\d/i.test(e.textContent));
+      const r=(b||document.body).getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2,src:'element-center'};})()`,
     returnByValue: true,
   }).then(async pt => {
-    const { x, y } = pt.result.value || { x: 50, y: 50 };
+    const { x, y, src } = pt.result.value || { x: 50, y: 50, src: 'default' };
+    console.log(`click target: (${x},${y}) via ${src}`);
     for (const type of ['mousePressed', 'mouseReleased']) {
       await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1, buttons: 1 });
     }

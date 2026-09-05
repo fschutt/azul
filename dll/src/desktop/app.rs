@@ -311,6 +311,12 @@ impl App {
             "[azul] App::run starting (AZ_BACKEND={:?})",
             std::env::var("AZ_BACKEND").ok()
         );
+        // Embedded web-e2e executor: AZ_BACKEND=<http url> + AZ_E2E=<specs>
+        // turns THIS binary into the test runner against that URL and exits
+        // with the harness's status (desktop-parity semantics; the
+        // AZ_BACKEND=headless runner below keeps its own path).
+        #[cfg(feature = "web-e2e-runner")]
+        crate::e2e_web_runner::maybe_run_and_exit();
         let data = self.ptr.data.clone();
         let config = self.ptr.config.clone();
         let fc_cache = (*self.ptr.fc_cache).clone();
