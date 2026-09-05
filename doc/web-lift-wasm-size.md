@@ -491,6 +491,47 @@ the same second the log went silent, so wasm-ld completed and the deadlock is in
 blocking primitive, and the process showed zero CPU, so a loop cannot explain
 it. The phase markers now bracket exactly this window.
 
+# What actually owns the mini (measured per root, exclusive)
+
+Two premises that guided earlier ticks are wrong for this artifact, and the
+call graph in the run log settles both. Every `dep:` line carries
+`(pulled in by <caller>)`, so the whole walk graph is recoverable: 12,206 edges
+over 4,162 nodes for the mini. For a root category C the number that matters is
+`exclusive(C) = reachable(C) - reachable(all other roots)` — the bytes deleting
+C would actually remove. A root whose subtree is shared with the boot path is
+free to keep no matter how ugly its name is.
+
+Measured on the mini walk (4,525 functions, 52.10 MB of objects):
+
+| root, exclusive subtree | MB | fns | % of mini |
+|---|---|---|---|
+| `AzStartup_solveLayoutReal` | 14.18 | 969 | 27.2% |
+| **`azul_layout::window::virtual_view_measure_dom_trampoline`** | **10.57** | **508** | **20.3%** |
+| `azwriter::web_state::app_state_from_json` | 4.37 | 227 | 8.4% |
+| `azul_core::icon::resolve_icons_in_dom_inner` | 0.29 | 16 | 0.6% |
+| all non-`Az` roots together | 21.37 | 2,005 | 41.0% |
+
+**Wrong premise 1: `api_surface_roots` is not this artifact's problem.** It seeds
+a root per `Az` symbol only in FULL mode. This build runs `mode=app`, where the
+mini has **1,083 roots, 37 of them `Az*`**, and `Az*_toDbgString` and `AzPdf_*`
+seed **zero** roots. Filtering the API root set is still right for a full lift;
+it is worth nothing here. The `Az*` roots' entire exclusive cost is 14.43 MB and
+27.7%, essentially all of it `solveLayoutReal`, which is genuine boot path.
+
+**Wrong premise 2: PDF is not in the payload.** `web-lift-static` does not enable
+`azul/pdf`, so no PDF crate is lifted at all. The whole run contains six
+pdf-named symbols (`AzPdf_computePagination`, `AzPdf_fromDomInCallback`,
+`Pdf::compute_pagination`, `ParsedFont::parse_pdf_font_metrics`,
+`azwriter::on_export_pdf`, `azwriter::pdf_bytes`) and none of them roots the
+mini. Splitting PDF out is the right instinct applied to the wrong payload.
+
+**The real lever is the measure-DOM trampoline: 10.57 MB, 20.3% of the mini.**
+It is a *root* in the walk graph, which is exactly the structural property the
+chunk plan requires — being a root means **no static call edge reaches it**, so
+it is entered only through `__az_indirect_dispatch`. That is CH2
+"measure/virtualize", already classified lazy. Nothing about the boot path needs
+it resident.
+
 # The chunk plan (measured on run 41)
 
 Four chunks, disjoint over 4,426 functions:
