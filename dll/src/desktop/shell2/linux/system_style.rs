@@ -464,6 +464,11 @@ fn discover_linux_extras(style: &mut SystemStyle) {
         gtk_ini_extras(style);
         return;
     }
+    if source == LinuxSettingsSource::KdeConfig && kde_extras(style) {
+        apply_env_cursor_fallbacks(style);
+        gtk_ini_extras(style);
+        return;
+    }
 
     // Icon theme
     if let Some(icon) = gsettings_get("org.gnome.desktop.interface", "icon-theme") {
@@ -886,6 +891,89 @@ pub(crate) fn titlebar_from_xfwm_layout(layout: &str) -> (TitlebarButtonSide, Ti
         ..TitlebarButtons::default()
     };
     (side, buttons)
+}
+
+/// KDE spells its titlebar buttons as LETTERS across two kwinrc keys:
+/// `M`=menu, `S`=on-all-desktops, `H`=help, `I`=minimize, `A`=maximize,
+/// `X`=close, `F`=keep-above, `B`=keep-below, `L`=shade, `N`=app-menu.
+/// Plasma's default is `ButtonsOnLeft=MS`, `ButtonsOnRight=HIAX`, which
+/// [`titlebar_side_from_layout`] - looking for the WORD "close" - cannot read.
+pub(crate) fn titlebar_from_kde_layout(
+    left: &str,
+    right: &str,
+) -> (TitlebarButtonSide, TitlebarButtons) {
+    let side = if left.contains('X') {
+        TitlebarButtonSide::Left
+    } else {
+        TitlebarButtonSide::Right
+    };
+    let both = alloc::format!("{left}{right}");
+    let buttons = TitlebarButtons {
+        has_close: both.contains('X'),
+        has_minimize: both.contains('I'),
+        has_maximize: both.contains('A'),
+        ..TitlebarButtons::default()
+    };
+    (side, buttons)
+}
+
+/// The KDE half of [`discover_linux_extras`] - icon theme, cursor, widget
+/// style and titlebar buttons, all from KDE's own config.
+///
+/// These used to come from the GNOME schemas even on a Plasma session. That
+/// looked harmless because Plasma writes those schemas for GTK-app
+/// integration, so they agreed - but the CINNAMON schemas in the same session
+/// hold a different desktop's answers entirely (measured: `Mint-Y-Sand`,
+/// `Mint-Y-Aqua`, `Bibata-Modern-Classic` against KDE's `breeze-dark`,
+/// `Breeze`, `breeze_cursors`), and `resolve_schema_family` takes whichever
+/// family answers first. A desktop's own store is the only authority on it.
+///
+/// Returns `false` when KDE's config answered nothing, so the caller can fall
+/// back to the shared path.
+fn kde_extras(style: &mut SystemStyle) -> bool {
+    let sources = kde_color_sources();
+    let get = |group: &str, key: &str| -> Option<String> {
+        sources
+            .iter()
+            .find_map(|ini| ini.get(group, key))
+            .map(String::from)
+    };
+    let mut answered = false;
+
+    if let Some(icon) = get("Icons", "Theme") {
+        style.linux.icon_theme = OptionString::Some(icon.into());
+        answered = true;
+    }
+    if let Some(widget) = get("KDE", "widgetStyle") {
+        style.linux.gtk_theme = OptionString::Some(widget.into());
+        answered = true;
+    }
+    if let Some(cursor) = get("Mouse", "cursorTheme") {
+        style.linux.cursor_theme = OptionString::Some(cursor.into());
+        answered = true;
+    }
+    if let Some(sz) = get("Mouse", "cursorSize").and_then(|v| v.trim().parse::<u32>().ok()) {
+        if sz > 0 {
+            style.linux.cursor_size = sz;
+        }
+    }
+
+    // kwinrc is a separate file from the colour sources.
+    let home = std::env::var("HOME").unwrap_or_default();
+    if let Some(kwinrc) = KdeIni::read(&alloc::format!("{home}/.config/kwinrc")) {
+        let deco = "org.kde.kdecoration2";
+        // Plasma's defaults, used when the user never moved a button.
+        let left = kwinrc.get(deco, "ButtonsOnLeft").unwrap_or("MS");
+        let right = kwinrc.get(deco, "ButtonsOnRight").unwrap_or("HIAX");
+        let (side, buttons) = titlebar_from_kde_layout(left, right);
+        style.metrics.titlebar.button_side = side;
+        style.metrics.titlebar.buttons = buttons;
+        style.linux.titlebar_button_layout =
+            OptionString::Some(alloc::format!("{left}|{right}").into());
+        answered = true;
+    }
+
+    answered
 }
 
 /// The GTK config file every desktop and every bare WM shares.
@@ -2735,6 +2823,43 @@ mod kde_ini_tests {
 
         // A layout that drops maximize must not draw one.
         let (_, buttons) = titlebar_from_xfwm_layout("O|HC");
+        assert!(buttons.has_close && buttons.has_minimize && !buttons.has_maximize);
+    }
+
+    /// KDE keeps its icon theme, cursor, widget style and titlebar buttons in
+    /// its OWN store - and azul was reading them out of the GNOME schemas.
+    ///
+    /// Measured on this Plasma session, 2026-09-05:
+    ///   kdeglobals [Icons] Theme       = breeze-dark
+    ///   kcminputrc [Mouse] cursorTheme = breeze_cursors
+    ///   org.cinnamon.desktop.interface icon-theme = 'Mint-Y-Sand'
+    ///                                  gtk-theme  = 'Mint-Y-Aqua'
+    ///                                  cursor-theme = 'Bibata-Modern-Classic'
+    /// The GNOME schemas happened to agree with KDE here (Plasma writes them
+    /// for GTK-app integration), so nothing looked wrong - but the CINNAMON
+    /// schemas, sitting in the same session, hold a completely different
+    /// desktop's answers. `resolve_schema_family` picks whichever family
+    /// answers `font-name` first, so on a machine without `org.gnome.*` a KDE
+    /// session reads Mint-Y-Sand icons onto a Breeze desktop. The XFCE fix
+    /// gave XFCE its own store; KDE never got the same treatment.
+    #[test]
+    fn the_kde_button_layout_is_letters_not_words() {
+        // kdecoration2 spells buttons as LETTERS split across two keys:
+        // M=menu S=on-all-desktops H=help I=minimize A=maximize X=close.
+        // Plasma's default is ButtonsOnLeft=MS, ButtonsOnRight=HIAX - nothing
+        // like GNOME's `icon:minimize,maximize,close`, so
+        // `titlebar_side_from_layout` (which looks for the WORD "close")
+        // cannot read it at all.
+        let (side, buttons) = titlebar_from_kde_layout("MS", "HIAX");
+        assert_eq!(side, TitlebarButtonSide::Right);
+        assert!(buttons.has_close && buttons.has_minimize && buttons.has_maximize);
+
+        // Buttons moved to the left: close is in the LEFT key.
+        let (side, _) = titlebar_from_kde_layout("XIA", "M");
+        assert_eq!(side, TitlebarButtonSide::Left);
+
+        // A layout without maximize must not draw one.
+        let (_, buttons) = titlebar_from_kde_layout("M", "IX");
         assert!(buttons.has_close && buttons.has_minimize && !buttons.has_maximize);
     }
 
