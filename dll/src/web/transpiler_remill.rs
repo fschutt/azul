@@ -2482,7 +2482,11 @@ impl RemillTranspiler {
             // --keep-section preserves the function-names custom
             // section so wasm-objdump can map indices → `sub_<addr>`.
             args.push("--lto-O0".to_string());
-            args.push("--keep-section=name".to_string());
+            // NOT `--keep-section=name`: wasm-ld rejects it as an unknown
+            // argument, which failed every link under AZ_WASM_DEBUG and left the
+            // mini an 8-byte stub. It is redundant anyway - the name section
+            // survives because debug mode omits `--strip-all` above, which is
+            // what actually strips it.
         }
         // [g129 diag] AZ_WASM_LD_MLLVM=<comma-sep flags> forwards `-mllvm <flag>` to the LTO
         // backend (e.g. "--enable-dse-partial-store-merging=false") to isolate LTO opt miscompiles.
