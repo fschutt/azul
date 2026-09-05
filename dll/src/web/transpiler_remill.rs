@@ -3813,8 +3813,30 @@ impl RemillTranspiler {
             ));
         }
         for (label, c) in cases {
+            // Pass the CALLEE's own lift address, never the dispatched label.
+            //
+            // A lifted function seeds its whole PC chain from this argument
+            // (`store i64 %program_counter, ptr %NEXT_PC` in its entry block),
+            // and every rip-relative computation inside it — jump tables, `lea`
+            // of .rdata — is derived from that seed. remill's contract is
+            // therefore that `pc` IS the address the body was lifted at.
+            //
+            // `label` is frequently NOT that address. remill hands
+            // `__remill_function_call` the CALL SITE pc (the intrinsic is meant
+            // to read its target from State.rip), so the dispatcher's cases map
+            // call-site PCs to callees and `label != c` is the normal case.
+            // Passing `label` seeded the callee with an address inside its
+            // CALLER, skewing every rip-relative address by (c - label).
+            //
+            // Observed: U8Vec::drop computed its destructor jump-table base
+            // 0xa81d90 low, landing in the .text of an unlifted webrender
+            // function. Unmirrored .text reads as zero, so `base + table[tag]`
+            // returned the bad base itself, which no switch case matches — a
+            // trap whose reported PC named neither the caller nor a real
+            // target. The effect also cascades: a callee entered with a wrong
+            // pc computes wrong PCs for ITS direct calls.
             ir.push_str(&format!(
-                "c{label:x}:\n  %r{label:x} = call ptr @sub_{c:x}(ptr %state, i64 %pcm, ptr %memory)\n  ret ptr %r{label:x}\n",
+                "c{label:x}:\n  %r{label:x} = call ptr @sub_{c:x}(ptr %state, i64 {c}, ptr %memory)\n  ret ptr %r{label:x}\n",
                 label = label, c = c
             ));
         }
