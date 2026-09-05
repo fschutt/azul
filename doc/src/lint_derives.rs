@@ -823,22 +823,20 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `ResultXmlXmlError`, three classes whose entry points these emitters
 ///     drop for a reason not yet established. Consistent across every binding
 ///     that has a residue at all, so it is one cause, not fourteen.
-///   * `ocaml` (1100) - BACK UP from 11, because two of the emissions that
-///     lowered it DID NOT TYPE-CHECK. `ocamlfind ocamlc` says so:
-///       1. Unit-enum capabilities were emitted in the TYPES section, ~42k
-///          lines before the `foreign` bindings they call. OCaml is
-///          order-sensitive: "Unbound value ffi_az_style_cursor_partial_eq".
-///          A unit enum's capabilities need a LATE pass, after the bindings -
-///          and it cannot simply reuse the late enum-module loop, because
-///          `types.rs` already emits `module X` and a second one is a
-///          duplicate. That is the open design question here.
-///       2. The recursive carve-out let `XmlNodeChildVec` reach the Vec
-///          `to_list` helper, whose `structure list` shape does not fit an
-///          element emitted as an opaque pointer. Fixed by skipping recursive
-///          elements - the carve-out is right, the helper just does not apply.
-///     Both were invisible to this lint, which greps for names. `azul.mli`
-///     and `azul.ml` now type-check clean, and `scripts/check.sh
-///     --only binding-syntax` keeps them that way.
+///   * `ocaml` (11) - and this 11 differs from the previous one: the code now
+///     TYPE-CHECKS. `ocamlfind ocamlc -package ctypes,ctypes.foreign` compiles
+///     both `azul.mli` and `azul.ml` clean, and `scripts/check.sh --only
+///     binding-syntax` runs it.
+///     The fix was ORDERING, not capability. OCaml is order-sensitive, so a
+///     unit enum's module cannot sit in the types section and call `foreign`
+///     bindings declared 42k lines later. The module could not be split either
+///     - two `module X` is a duplicate - so the WHOLE module, variant
+///     constants included, moved to the late idiomatic pass. Nothing in the
+///     file references these modules internally, which is what made the move
+///     safe; the type checker confirmed it.
+///     Everything else here was the same fault in different places: the `.mli`
+///     SEALS the module, so anything the interface omits is unreachable
+///     however complete `azul.ml` is.
 ///   * `php-ext` (134) - BACK UP from 125, because the change that lowered it
 ///     emitted code that does not compile. `is_method_kind_eligible` and
 ///     `takes_self` were widened to the trait kinds; the result was methods
@@ -912,7 +910,7 @@ pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
     ("zig", 13),
     ("php-ext", 134),
-    ("ocaml", 1100),
+    ("ocaml", 11),
     ("haskell", 10),
     ("go", 13),
 ];

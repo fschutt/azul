@@ -33,8 +33,7 @@ use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
     ArgRefKind, CodegenIR, EnumVariantKind, FieldRefKind, FunctionDef, FunctionKind, StructDef,
-    TypeCategory,
-};
+    TypeCategory, EnumDef};
 use super::super::managed_host_invoker::{
     host_invoker_kinds, layout_callback_factory_info, wrapper_name,
 };
@@ -1478,12 +1477,14 @@ fn emit_enum_modules(
             continue;
         }
 
-        // Unit-only enums ALREADY get a module from `types.rs` (variant
-        // constants, both surfaces). Emitting another here produced a DUPLICATE
-        // `module X` - an OCaml compile error, and invisible to a name-presence
-        // lint that stops at the first block. Their capabilities belong on that
-        // existing module; this loop owns tagged unions only.
+        // Unit-only enums are emitted HERE, not in `types.rs`, and the reason
+        // is ordering: their capabilities call the `foreign` bindings, which
+        // are declared ~42k lines above this point, and OCaml is
+        // order-sensitive. Emitting the module early and the capabilities late
+        // would need two `module X`, which is a duplicate. So the whole module
+        // - variant constants included - lives here.
         if !e.is_union {
+            emit_unit_enum_module(builder, e, ir, interface);
             continue;
         }
         let module = ocaml_module_name(&e.name);
@@ -1758,5 +1759,143 @@ fn emit_ocaml_partial_compare_if_supported(
     builder.line("| 2 -> Some 1");
     builder.line("| _ -> None");
     builder.dedent();
+    builder.blank();
+}
+
+/// A unit-only enum's module: variant constants plus its trait capabilities.
+///
+/// `type az_x = int` with an int VIEW, so the helpers `Ctypes.allocate` a cell
+/// rather than using `Ctypes.addr` - an int is not addressable, and the entry
+/// points take `ptr az_x`.
+fn emit_unit_enum_module(
+    builder: &mut CodeBuilder,
+    e: &EnumDef,
+    ir: &CodegenIR,
+    interface: bool,
+) {
+    let module = ocaml_module_name(&e.name);
+    let ffi = ocaml_ffi_type_name(&e.name);
+
+    if interface {
+        builder.line(&format!("module {} : sig", module));
+    } else {
+        builder.line(&format!("module {} = struct", module));
+    }
+    builder.indent();
+
+    for (idx, v) in e.variants.iter().enumerate() {
+        let lit = sanitize_identifier(&to_snake_case(&v.name));
+        if interface {
+            builder.line(&format!("val {} : int", lit));
+        } else {
+            builder.line(&format!("let {} : int = {}", lit, idx));
+        }
+    }
+
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for f in ir.functions_for_class(&e.name) {
+        let name = match f.kind {
+            FunctionKind::PartialEq => "equal",
+            FunctionKind::Hash => "hash",
+            FunctionKind::DebugToString => "to_string",
+            FunctionKind::Cmp => "compare",
+            FunctionKind::PartialCmp => "partial_compare",
+            FunctionKind::Default => "default",
+            _ => continue,
+        };
+        if !seen.insert(name) {
+            continue;
+        }
+        let raw = ocaml_binding_name(&f.c_name);
+        match f.kind {
+            FunctionKind::PartialEq => {
+                if interface {
+                    builder.line("val equal : int -> int -> bool");
+                } else {
+                    builder.line("let equal (a : int) (b : int) : bool =");
+                    builder.indent();
+                    builder.line(&format!(
+                        "{} (Ctypes.allocate {} a) (Ctypes.allocate {} b)",
+                        raw, ffi, ffi
+                    ));
+                    builder.dedent();
+                }
+            }
+            FunctionKind::Hash => {
+                if interface {
+                    builder.line("val hash : int -> int");
+                } else {
+                    builder.line("let hash (t : int) : int =");
+                    builder.indent();
+                    builder.line(&format!(
+                        "Unsigned.UInt64.to_int ({} (Ctypes.allocate {} t))",
+                        raw, ffi
+                    ));
+                    builder.dedent();
+                }
+            }
+            FunctionKind::DebugToString => {
+                if interface {
+                    builder.line("val to_string : int -> string");
+                } else {
+                    let del = ocaml_binding_name("AzString_delete");
+                    builder.line("let to_string (t : int) : string =");
+                    builder.indent();
+                    builder.line(&format!("let __s = {} (Ctypes.allocate {} t) in", raw, ffi));
+                    builder.line("let vec = Ctypes.getf __s az_string_field_vec in");
+                    builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
+                    builder.line("let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in");
+                    builder.line("let __out = if Ctypes.is_null vec_ptr || vec_len = 0 then \"\" else Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) ~length:vec_len in");
+                    builder.line(&format!("{} (Ctypes.addr __s);", del));
+                    builder.line("__out");
+                    builder.dedent();
+                }
+            }
+            FunctionKind::Cmp => {
+                if interface {
+                    builder.line("val compare : int -> int -> int");
+                } else {
+                    builder.line("let compare (a : int) (b : int) : int =");
+                    builder.indent();
+                    builder.line(&format!(
+                        "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} b)) with",
+                        raw, ffi, ffi
+                    ));
+                    builder.line("| 0 -> -1");
+                    builder.line("| 1 -> 0");
+                    builder.line("| _ -> 1");
+                    builder.dedent();
+                }
+            }
+            FunctionKind::PartialCmp => {
+                if interface {
+                    builder.line("val partial_compare : int -> int -> int option");
+                } else {
+                    builder.line("let partial_compare (a : int) (b : int) : int option =");
+                    builder.indent();
+                    builder.line(&format!(
+                        "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} b)) with",
+                        raw, ffi, ffi
+                    ));
+                    builder.line("| 0 -> Some (-1)");
+                    builder.line("| 1 -> Some 0");
+                    builder.line("| 2 -> Some 1");
+                    builder.line("| _ -> None");
+                    builder.dedent();
+                }
+            }
+            FunctionKind::Default => {
+                if interface {
+                    builder.line("val default : unit -> int");
+                } else {
+                    builder.line(&format!("let default () : int = {} ()", raw));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    builder.dedent();
+    builder.line("end");
     builder.blank();
 }
