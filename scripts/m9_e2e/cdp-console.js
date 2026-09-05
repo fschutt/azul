@@ -31,8 +31,15 @@ async function main() {
                  (m.params.args || []).map(argToStr).join(' '));
     } else if (m.method === 'Runtime.exceptionThrown') {
       const d = m.params.exceptionDetails || {};
-      lines.push('EXCEPTION: ' + (d.text || '') + ' ' +
-                 ((d.exception && (d.exception.description || d.exception.value)) || ''));
+      const desc = (d.exception && (d.exception.description || d.exception.value)) || '';
+      lines.push('EXCEPTION: ' + (d.text || '') + ' ' + desc);
+      const st = d.stackTrace && d.stackTrace.callFrames;
+      if (st) {
+        for (const f of st) {
+          lines.push('    at ' + (f.functionName || '<anon>') + ' ' +
+                     (f.url || '') + ':' + f.lineNumber + ':' + f.columnNumber);
+        }
+      }
     }
   };
   await new Promise(r => (ws.onopen = r));
@@ -55,7 +62,9 @@ async function main() {
   console.log('__azProbe: ' + (probe.result && probe.result.result &&
                                probe.result.result.value));
   console.log('--- console (' + lines.length + ' lines) ---');
-  for (const l of lines) console.log(l.slice(0, 220));
+  // Do not truncate: a wasm trap stack is the whole point of running this, and
+  // 220 chars cuts it off after two frames.
+  for (const l of lines) console.log(l);
   ws.close();
 }
 

@@ -87,6 +87,13 @@ pub struct LiftEnv {
     /// it removes the redundancy the compressor was exploiting. Turn it on
     /// when browser compile time matters more than bytes on the wire.
     pub wasm_opt_enable: bool,
+    /// Disable every hand-written IR pass (state-store DSE, CFG-liveness
+    /// flag DSE, flag privatization) in one switch.
+    ///
+    /// A bisect knob, not a feature. Every boot-tested run traps at the same
+    /// indirect dispatch and every one carried at least one of these passes;
+    /// this answers "is it mine at all?" in a single run instead of three.
+    pub no_ir_passes: bool,
     pub fn_coverage: bool,
     /// Seconds before a wedged `CreateProcess` aborts the run; 0 disables.
     pub spawn_watchdog_secs: u64,
@@ -177,6 +184,7 @@ impl LiftEnv {
 
             lift_jobs: num("AZ_LIFT_JOBS").filter(|n: &usize| *n >= 1),
             wasm_opt_enable: flag("AZ_WASM_OPT"),
+            no_ir_passes: flag("AZ_NO_IR_PASSES"),
             fn_coverage: flag("AZ_FN_COVERAGE"),
             lift_batch: num("AZ_LIFT_BATCH").filter(|n: &usize| *n >= 1).unwrap_or(64),
             spawn_watchdog_secs: num("AZ_SPAWN_WATCHDOG_SECS").unwrap_or(300),

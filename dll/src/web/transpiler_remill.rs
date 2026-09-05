@@ -1988,7 +1988,11 @@ impl RemillTranspiler {
             // up after opt, the point here is to let LLVM do the work.
             {
                 if let Ok(ir) = std::fs::read_to_string(&linked_ir_path) {
-                    let (split, n) = privatize_flag_storage(&ir);
+                    let (split, n) = if super::lift_env::lift_env().no_ir_passes {
+                        (ir.clone(), 0)
+                    } else {
+                        privatize_flag_storage(&ir)
+                    };
                     if n > 0 {
                         let _ = std::fs::write(&linked_ir_path, &split);
                     }
@@ -2147,7 +2151,11 @@ impl RemillTranspiler {
             // input is rustc output - see strip_dead_state_stores.
             {
                 if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
-                    let (stripped, n) = strip_dead_state_stores(&opt_ir);
+                    let (stripped, n) = if super::lift_env::lift_env().no_ir_passes {
+                        (opt_ir.clone(), 0)
+                    } else {
+                        strip_dead_state_stores(&opt_ir)
+                    };
                     if n > 0 {
                         let _ = std::fs::write(&opt_ir_path, &stripped);
                         STATE_STORES_REMOVED
@@ -2158,7 +2166,11 @@ impl RemillTranspiler {
                 // zero-load rule above cannot: flags that DO have readers
                 // somewhere but are overwritten before any of them runs.
                 if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
-                    let (stripped, n) = strip_dead_flag_stores_cfg(&opt_ir);
+                    let (stripped, n) = if super::lift_env::lift_env().no_ir_passes {
+                        (opt_ir.clone(), 0)
+                    } else {
+                        strip_dead_flag_stores_cfg(&opt_ir)
+                    };
                     if n > 0 {
                         let _ = std::fs::write(&opt_ir_path, &stripped);
                         STATE_STORES_REMOVED
