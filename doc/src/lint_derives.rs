@@ -791,6 +791,20 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///          and starts charging them for derives they still lack. Any fix here
 ///          must either carry the full list or avoid naming the class in prose
 ///          - and that fragility is worth knowing about the checker itself.
+///   * `haskell` (10) - the recursive-type carve-out moved it 11 -> 10, so its
+///     `_partialEq` / `_cmp` / `_hash` now reach the artifact. The remaining
+///     Debug / Clone / Default do NOT, for a different reason: Haskell routes
+///     Show and Eq through a per-struct `Az{T}_toDbgString_via` C SHIM, and
+///     the shim generator has its own filter (see the `*VecDestructor` note in
+///     `cshim.rs`). The four XML types are enums or excluded structs, so no
+///     shim is generated and the instance has nothing to call. Closing it
+///     means extending the shim generator, not the function filter.
+///   * `ocaml` enums - the interface loop iterates `ir.structs` only, so a
+///     tagged union like `AccessibilityAction` gets NO module at all. That is
+///     the whole of ocaml's 272, and it is the same shape C++, zig and go each
+///     had. It needs the module emitted in BOTH `azul.ml` and `azul.mli`
+///     carrying the full derive list at once - a partial module measures worse,
+///     see the two reverted attempts recorded above.
 ///   * `rust-public` (was 7122) — `azul.rs` was `UsingDerive` with no `extern`
 ///     block, a combination that could not compile in either direction. It is
 ///     now `UsingCAPI` + `ExternalBindings`, the same shape as
