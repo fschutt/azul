@@ -374,6 +374,33 @@ So #461's "~23 fps" is fully retired: the paint costs ~1 ms of work, the swap
 waits for vblank, and the loop delivers 60 fps. Those 44 ms gaps were the rate
 synthetic resize EVENTS were arriving at.
 
+## Keyboard input on X11 — the audit's XI2 worry is latent, not live
+
+The X11 audit flagged that `XI_KeyPress`/`XI_KeyRelease` are selected on
+`XIAllMasterDevices` while the handler DROPS every primary-seat key, and that
+per XI2proto "if the event has been delivered, event processing stops" this
+should suppress core key delivery for the client. It also said, correctly, to
+**verify on the box before changing anything**.
+
+Verified: **keys work**. Clicking into the document and pressing keys through
+XWayland puts text in the document and moves the word count off zero. So
+practical delivery differs from the spec text here, the concern is latent
+rather than live, and the false comment at `mod.rs:1483-1486` is a
+documentation bug rather than a broken path. Nothing changed.
+
+**A correction to my own first reading.** `xdotool type "Hello azul"` rendered
+`Hello ayul` — the `z` came out as `y`. On a `de-DE` session that looks exactly
+like a QWERTZ/QWERTY layout bug, and I went looking for azul interpreting
+keycodes with a German keymap. It is not that. The X layout here is `us`
+(keycode 52 = `z`, 29 = `y`), and pressing the keys explicitly with
+`xdotool key` produced `y z q w` — every one correct, `z` included.
+
+The difference is the tool: `xdotool type` synthesises arbitrary characters by
+temporarily REMAPPING a spare keycode, which races the client's view of the
+keymap. `xdotool key <keysym>` presses a key that already carries the keysym
+and has no such race. The bug was in my harness, and one more screenshot would
+have been reported as an azul defect.
+
 ## Traps found
 
 1. **`build-dll` and `link-dynamic` fight over `target/release/libazul.so`, in
@@ -403,7 +430,13 @@ synthetic resize EVENTS were arriving at.
    does not compile" class, takes minutes, and reported 4/8 failing before any
    change here. Run it before pushing; a green `cargo test` says nothing about
    the seven other feature combinations CI builds.
-6. **`kdotool`/`xdotool` are useless here; KWin scripting is not.**
+6. **`xdotool type` lies; `xdotool key` does not.** `type` remaps a spare
+   keycode to synthesise characters, which races the client's keymap: typing
+   "azul" rendered "ayul", which on a de-DE session reads exactly like a
+   QWERTZ layout bug in the app. Pressing the same keys with
+   `xdotool key <keysym>` produced every character correctly. Use `key` for
+   anything you intend to draw a conclusion from.
+7. **`kdotool`/`xdotool` are useless here; KWin scripting is not.**
    `org.kde.KWin /Scripting loadScript` + `start`, with output read back from
    `journalctl --user -u plasma-kwin_wayland.service | grep '^js:'`, drives
    window geometry and state from the compositor side. The loaded script has no
