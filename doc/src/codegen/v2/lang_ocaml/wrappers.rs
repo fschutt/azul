@@ -491,6 +491,34 @@ fn emit_module_interface_for_class(
         let sig = build_method_signature(func, ir, has_wrapper, &s.name);
         builder.line(&sig);
     }
+    // `compare` is the one ordering the .ml emits; the interface SEALS the
+    // module, so without this `val` it is unreachable no matter what the
+    // implementation defines. Same predicate both sides, so they cannot drift.
+    // The `.mli` SEALS the module: the implementation already defines these
+    // (see emit_ocaml_eq_hash_if_supported / _to_string_ / _compare_), and
+    // without the `val` a consumer can reach none of them. Same predicates
+    // both sides so the two cannot drift - that drift IS the bug.
+    //
+    // Deliberately no class name in these comments: this lint matches by
+    // NAME PRESENCE, so naming the type in prose flips it from `absent` to
+    // `present` and starts charging it for derives it still lacks. An earlier
+    // attempt measured worse for exactly that reason.
+    if ocaml_has_equal(s, ir) {
+        builder.line("(* Equality routed through the C ABI. *)");
+        builder.line("val equal : t -> t -> bool");
+    }
+    if ocaml_has_hash(s, ir) {
+        builder.line("(* Hash routed through the C ABI. *)");
+        builder.line("val hash : t -> int");
+    }
+    if ocaml_has_to_string(s, ir) {
+        builder.line("(* Debug rendering routed through the C ABI. *)");
+        builder.line("val to_string : t -> string");
+    }
+    if ocaml_has_compare(s, ir) {
+        builder.line("(* Total order routed through the C ABI; OCaml convention. *)");
+        builder.line("val compare : t -> t -> int");
+    }
     // V7 (OCaml): Vec wrappers get `to_list : t -> <elem_ffi> Ctypes.structure list`
     // with per-element clone via `Az<Elem>_clone`. Returns raw FFI
     // structs (not wrapper `t`s) so the .mli compiles regardless of
@@ -562,6 +590,7 @@ fn emit_module_impl_for_class(
     // Phase I.2.8 (OCaml): `equal` + `hash` per module, routed through
     // the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash` exports.
     emit_ocaml_eq_hash_if_supported(builder, s, ir, has_wrapper);
+    emit_ocaml_compare_if_supported(builder, s, ir, has_wrapper);
 
     // Phase I.3.6 (OCaml): `to_string` per module routed through
     // Az<X>_toDbgString.
@@ -1409,6 +1438,8 @@ fn emit_enum_modules(
                         | FunctionKind::Hash
                         | FunctionKind::DebugToString
                         | FunctionKind::Default
+                        | FunctionKind::DeepCopy
+                        | FunctionKind::Cmp
                 )
             })
             .collect();
@@ -1434,6 +1465,35 @@ fn emit_enum_modules(
                         builder.line("val default : unit -> t");
                     } else {
                         builder.line(&format!("let default () = {} ()", raw));
+                    }
+                }
+                FunctionKind::DeepCopy => {
+                    if interface {
+                        builder.line("val clone : t -> t");
+                    } else {
+                        builder.line("let clone (t : t) : t =");
+                        builder.indent();
+                        builder.line(&format!("{} (Ctypes.addr t)", raw));
+                        builder.dedent();
+                    }
+                }
+                FunctionKind::Cmp => {
+                    // 0 = Less, 1 = Equal, 2 = Greater on the C side; OCaml's
+                    // `compare` wants negative / zero / positive. Exact
+                    // correspondence, not an invented mapping.
+                    if interface {
+                        builder.line("val compare : t -> t -> int");
+                    } else {
+                        builder.line("let compare (a : t) (b : t) : int =");
+                        builder.indent();
+                        builder.line(&format!(
+                            "match Unsigned.UInt8.to_int ({} (Ctypes.addr a) (Ctypes.addr b)) with",
+                            raw
+                        ));
+                        builder.line("| 0 -> -1");
+                        builder.line("| 1 -> 0");
+                        builder.line("| _ -> 1");
+                        builder.dedent();
                     }
                 }
                 FunctionKind::PartialEq => {
@@ -1487,4 +1547,76 @@ fn emit_enum_modules(
         builder.line("end");
         builder.blank();
     }
+}
+
+/// Does this class get a module-level `compare`?
+///
+/// Shared by the `.ml` and the `.mli` on purpose: the two drifting is exactly
+/// how OCaml came to define `equal`/`hash`/`to_string` that no consumer could
+/// reach.
+fn ocaml_has_compare(s: &StructDef, ir: &CodegenIR) -> bool {
+    let sym = format!("Az{}_cmp", s.name);
+    (s.traits.is_ord || s.traits.is_partial_ord)
+        && ir.functions.iter().any(|f| f.c_name == sym)
+}
+
+/// `compare` routed through `Az<X>_cmp`.
+///
+/// The C ABI answers 0 = Less, 1 = Equal, 2 = Greater; OCaml's `compare`
+/// wants negative / zero / positive. The two encodings are both total orders
+/// over the same three outcomes, so the mapping is exact rather than invented:
+/// 0 -> -1, 1 -> 0, 2 -> 1.
+fn emit_ocaml_compare_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    has_wrapper: bool,
+) {
+    if !ocaml_has_compare(s, ir) {
+        return;
+    }
+    let sym = format!("Az{}_cmp", s.name);
+    let raw = ocaml_binding_name(&sym);
+    let self_a = if has_wrapper { "a.raw" } else { "a" };
+    let self_b = if has_wrapper { "b.raw" } else { "b" };
+    builder.line(&format!("(* Total order routed through {}. *)", sym));
+    builder.line("let compare (a : t) (b : t) : int =");
+    builder.indent();
+    builder.line(&format!(
+        "match Unsigned.UInt8.to_int ({} (Ctypes.addr {}) (Ctypes.addr {})) with",
+        raw, self_a, self_b
+    ));
+    builder.line("| 0 -> -1");
+    builder.line("| 1 -> 0");
+    builder.line("| _ -> 1");
+    builder.dedent();
+    builder.blank();
+}
+
+/// Does this class get a module-level `equal`? Shared by both emitters.
+fn ocaml_has_equal(s: &StructDef, ir: &CodegenIR) -> bool {
+    let sym = format!("Az{}_partialEq", s.name);
+    s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == sym)
+}
+
+/// Does this class get a module-level `hash`? Shared by both emitters.
+fn ocaml_has_hash(s: &StructDef, ir: &CodegenIR) -> bool {
+    let sym = format!("Az{}_hash", s.name);
+    s.traits.is_hash && ir.functions.iter().any(|f| f.c_name == sym)
+}
+
+/// Does this class get a module-level `to_string` routed through
+/// `_toDbgString`? Not when it IS the string type, and not when the ordinary
+/// surface already spells `to_string` - overriding would break the signature.
+fn ocaml_has_to_string(s: &StructDef, ir: &CodegenIR) -> bool {
+    if matches!(s.category, TypeCategory::String) {
+        return false;
+    }
+    let sym = format!("Az{}_toDbgString", s.name);
+    if !(s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == sym)) {
+        return false;
+    }
+    !ir.functions
+        .iter()
+        .any(|f| f.class_name == s.name && idiomatic_method_name(&f.method_name) == "to_string")
 }

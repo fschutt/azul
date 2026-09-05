@@ -798,25 +798,20 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `ResultXmlXmlError`, three classes whose entry points these emitters
 ///     drop for a reason not yet established. Consistent across every binding
 ///     that has a residue at all, so it is one cause, not fourteen.
-///   * `ocaml` (4010) - THIS NUMBER WENT UP, and nothing regressed. It was
-///     272 because the check could not see this binding at all: it matched
-///     `Az{T}_partialEq` against `azul.mli`, which spells the FFI type
-///     `az_accessibility_action`, the module `AccessibilityAction`, and never
-///     mentions a C symbol (those live in `azul.ml` as `foreign "..."`
-///     strings). It reported 0 honoured and 1703 absent - blind to all 1718
-///     modules the interface publishes. `OCAML_PROFILE` now asks in OCaml's
-///     own vocabulary (`val equal`, `val hash`, `val to_string`, `val clone`,
-///     `val default`, `val compare` inside `module {T} : sig`), and the real
-///     figure is 1770 honoured / 4010 missing.
-///     Most of the 4010 is `compare`: the interface publishes 704 `equal`,
-///     754 `to_string`, 560 `clone`, 496 `default`, 399 `hash` - and TWO
-///     `compare`, so nearly every declared Ord/PartialOrd is genuinely
-///     unreachable. Enums now get a module too (they had none, which was the
-///     original diagnosis and was real), carrying equal/hash/to_string/default.
-///     LESSON, worth more than the fix: a binding reporting a suspiciously
-///     SMALL gap deserves the same scrutiny as a large one. 0 honoured is not
-///     a good sign, it is the signature of a profile that does not match its
-///     artifact.
+///   * `ocaml` (1233, was 4010 once measured properly) - three fixes, all the
+///     same fault in different places: the `.mli` SEALS the module, so a value
+///     the interface does not list is unreachable however complete the `.ml`
+///     is. (1) The implementation defined `equal` / `hash` / `to_string` and
+///     the interface declared none of them. (2) Nothing emitted `compare` at
+///     all: 2 in the whole file against 704 `equal`, so almost every declared
+///     Ord/PartialOrd was dead. It maps the ABI's 0/1/2 onto OCaml's
+///     negative/zero/positive - an exact correspondence, not an invention.
+///     (3) Enums had no module at all and now carry the same six.
+///     Every capability is decided by ONE predicate used by both emitters,
+///     because the two drifting is the whole bug.
+///     The residue is unit-only enums (`AccessibilityRole`): they are plain C
+///     enums with no `Ctypes.structure`, so the pointer-taking `Ctypes.addr`
+///     shape these helpers use does not apply. Different plumbing, logged.
 ///   * `php-ext` (129, was 134) - correctly measured, unlike ocaml: the
 ///     artifact really does name `AzApp_*` symbols, and the 1744 absent are a
 ///     genuinely curated surface of 29 classes. `is_method_kind_eligible`
@@ -883,7 +878,7 @@ pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
     ("zig", 19),
     ("php-ext", 129),
-    ("ocaml", 4010),
+    ("ocaml", 1233),
     ("haskell", 10),
     ("go", 19),
 ];
