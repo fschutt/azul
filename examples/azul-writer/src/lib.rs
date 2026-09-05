@@ -27,6 +27,7 @@ mod editor_ui;
 mod fonts;
 pub mod ir;
 mod palette;
+mod web_state;
 mod perf;
 mod ribbon_ui;
 
@@ -1311,7 +1312,11 @@ pub fn start(args: Args) {
         eprintln!("[primer] SECOND pagination (warm) took {:?}", t.elapsed());
     }
 
-    let data = RefAny::new(state);
+    let mut data = RefAny::new(state);
+    // The web backend refuses to serve a root RefAny it cannot hand to the
+    // wasm client; registering here means the SAME binary works on desktop
+    // and when lifted (see web_state).
+    web_state::register(&mut data);
     let mut config = AppConfig::create();
     // Identity for the engine services (updater state dir, telemetry service
     // name when the `telemetry` feature is on): metrics/logs then arrive

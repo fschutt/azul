@@ -30,12 +30,12 @@
 
 use super::symbol_table::{self, FnClass as SymFnClass};
 use super::transpiler::{TranspileError, Transpiler, WasmModule};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 // ============================================================================
-// Callback signature architecture (per user direction 2026-05-18)
+// Callback signature architecture (per user direction)
 // ============================================================================
 //
 // Goal: per-typedef wrapper synthesis. Every callback type defined in
@@ -117,8 +117,23 @@ pub(crate) mod pcs {
     pub const RET_HI: u64 = 2264; // RDX (Rust-internal ScalarPair second word)
     #[cfg(target_arch = "x86_64")]
     pub const SRET: u64 = 2248; // RCX — hidden first arg carries the dest ptr
+    /// Win64 float arg/return registers XMM0..XMM3. Offsets computed from the
+    /// real `%struct.X86State` by constant-folding a getelementptr through it
+    /// (`[32 x VectorReg]` is field 1, 64 bytes apart), not by guessing — the
+    /// same derivation yields RAX = 2216, which matches [`RET`] above.
+    #[cfg(target_arch = "x86_64")]
+    pub const XMM: [u64; 4] = [16, 80, 144, 208];
     #[cfg(target_arch = "x86_64")]
     pub const SP: u64 = 2312; // RSP
+    /// `State.addr.gs_base` — the segment base Windows `thread_local!`
+    /// reads through (`mov r10, gs:[0x58]`). `AddressSpace` interleaves a
+    /// padding qword before every base (`_0, ss, _1, es, _2, gs, …`), so
+    /// LLVM field 5 is `gs_base`; `addr` itself starts at 2112 (ArchState
+    /// 16 + vec 2048 + aflag 16 + rflag 8 + seg 24). 2112 + 40 = 2152.
+    /// Cross-checks: `gpr` lands at 2208, matching [`RET`]/[`ARG`], and the
+    /// total 3504 matches remill's own `sizeof(X86State)` static_assert.
+    #[cfg(target_arch = "x86_64")]
+    pub const GSBASE: u64 = 2152;
     #[cfg(target_arch = "x86_64")]
     pub const STATE_SIZE: u64 = 3520; // sizeof(X86State)=3504, 16-aligned
     /// Bytes ABOVE the initial SP: 8 (fake return address, zeroed) +
@@ -323,6 +338,12 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             args: vec![wreg_arg(0), wreg_arg(1), wreg_arg(2), wreg_arg(3)],
             ret: ret_w(),
         }),
+        "AzStartup_hydrateJson" => Some(CallbackSignature {
+            kind: "AzStartup_hydrateJson".to_string(),
+            // (state: u32, json_ptr: u32, json_len: u32) -> refany_ptr: u32
+            args: vec![wreg_arg(0), wreg_arg(1), wreg_arg(2)],
+            ret: ret_w(),
+        }),
         "AzStartup_dispatchEvent" => Some(CallbackSignature {
             kind: "AzStartup_dispatchEvent".to_string(),
             // (state, kind, evt_ptr, evt_len, out_len_ptr) -> patches_ptr
@@ -379,7 +400,7 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
             args: vec![wreg_arg(0), wreg_arg(1)],
             ret: None,
         }),
-        // 2026-06-10 per-EventFilter dispatch: registerCbNode + the EVT_* kind.
+        // per-EventFilter dispatch: registerCbNode + the EVT_* kind.
         "AzStartup_registerCbNodeKind" => Some(CallbackSignature {
             kind: "AzStartup_registerCbNodeKind".to_string(),
             // (state: u32, node_idx: u32, kind: u32) -> ()
@@ -413,9 +434,7 @@ pub fn signature_for_eventloop_fn(name: &str) -> Option<CallbackSignature> {
         | "AzStartup_getStyledDomPtr"
         | "AzStartup_isLayoutSolved"
         | "AzStartup_getPositionedRectsLen"
-        | "AzStartup_getPositionedRectsPtr"
-        // M12.7 debug: peek(addr: u32) -> u32 — same 1-arg ABI.
-        | "AzStartup_peekU32" => Some(CallbackSignature {
+        | "AzStartup_getPositionedRectsPtr" => Some(CallbackSignature {
             kind: name.to_string(),
             // (state_or_addr: u32) -> u32
             args: vec![wreg_arg(0)],
@@ -843,6 +862,125 @@ pub struct RemillTranspiler {
     object_cache: std::sync::Mutex<std::collections::HashMap<(usize, String), PathBuf>>,
 }
 
+/// Whether the subprocess toolchain is complete, WITHOUT building a
+/// transpiler to ask.
+///
+/// `RemillTranspiler::drop` wipes the scratch directory, and that directory is
+/// shared by every instance in the process (it is keyed on the pid). So
+/// constructing one purely to call `is_available()` deleted the scratch tree
+/// out from under the real transpilers as the temporary was dropped - masked
+/// locally only because the debug runs set AZ_REMILL_KEEP_SCRATCH, which
+/// returns early from that Drop.
+pub fn subprocess_tools_available() -> bool {
+    discover_remill_lift().is_some()
+        && discover_llc().is_some()
+        && discover_opt().is_some()
+        && discover_llvm_link().is_some()
+        && discover_wasm_ld().is_some()
+}
+
+/// Read a lift output and apply the x87 -> double demotion, rewriting the
+/// on-disk copy so scratch artifacts and cache templates match what actually
+/// compiles (llc asserts on fp80 memory ops). One implementation for the
+/// single-shot lift and the batch reader, so they cannot drift.
+fn read_and_demote(lifted_ir_path: &Path, fn_name: &str) -> Result<String, TranspileError> {
+    let ir = std::fs::read_to_string(lifted_ir_path).map_err(|e| TranspileError {
+        fn_name: fn_name.to_string(),
+        reason: format!("read lifted IR: {e}"),
+    })?;
+    match demote_x86_fp80(&ir) {
+        Some(demoted) => {
+            eprintln!(
+                "[azul-web]   x87 demotion: {} — x86_fp80 -> double (wasm has no 80-bit float)",
+                fn_name,
+            );
+            let _ = std::fs::write(lifted_ir_path, &demoted);
+            Ok(demoted)
+        }
+        None => Ok(ir),
+    }
+}
+
+struct WaveEntry {
+    name: String,
+    addr: usize,
+    size: usize,
+    lift_addr: u64,
+    ctx: LiftPrepCtx,
+}
+
+struct WaveInFlight {
+    pending: Vec<WaveEntry>,
+    /// Several children, each with a slice of the wave's manifest. remill's
+    /// per-entry cost is dominated by the per-entry semantics load, which the
+    /// tool cannot amortize (its Arch caches types bound to the semantics
+    /// module) - so the remaining lever is running slices CONCURRENTLY.
+    /// A handful of long-lived children is exactly the load the spawn
+    /// machinery handles well; the 100k-tiny-spawn hazard does not apply.
+    children: Vec<(std::process::Child, PathBuf)>,
+    started: std::time::Instant,
+}
+
+/// Deadline-wait a batch child. No pipes are involved (its output went to a
+/// file), so the only hazard is a wedged child; on expiry it is killed and
+/// the wave falls back to individual lifts.
+fn wait_batch_child(mut child: std::process::Child, manifest: &Path) -> bool {
+    let deadline = std::time::Instant::now()
+        + std::time::Duration::from_secs(lift_env_tool_timeout());
+    let ok = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status.success(),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break false;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            Err(_) => break false,
+        }
+    };
+    let _ = std::fs::remove_file(manifest);
+    if ok {
+        let _ = std::fs::remove_file(manifest.with_extension("log"));
+    } else if let Ok(tail) = std::fs::read_to_string(manifest.with_extension("log")) {
+        for l in tail.lines().rev().take(4) {
+            eprintln!("[azul-web]   batch stderr: {l}");
+        }
+    }
+    ok
+}
+
+fn lift_env_tool_timeout() -> u64 {
+    super::lift_env::lift_env().tool_timeout_secs
+}
+
+struct BatchJob {
+    lift_addr: u64,
+    ir_out: PathBuf,
+    bytes: Vec<u8>,
+    fn_addr: usize,
+}
+
+enum LiftPrep {
+    Ready(String),
+    Fresh(LiftPrepCtx),
+}
+
+struct LiftPrepCtx {
+    /// Post-rewrite machine bytes (guest pre-lift + IAT-call rewriting
+    /// applied) - what the lifter is handed, and what every cache key and
+    /// fingerprint in the finish step is computed over.
+    bytes: Vec<u8>,
+    ir_path: PathBuf,
+    cache_path: Option<PathBuf>,
+    #[cfg(target_arch = "x86_64")]
+    reloc_canon: Option<RelocCanon>,
+    #[cfg(not(target_arch = "x86_64"))]
+    reloc_canon: Option<()>,
+}
+
 impl RemillTranspiler {
     pub fn new() -> Self {
         let scratch_dir =
@@ -864,7 +1002,7 @@ impl RemillTranspiler {
     /// debugging. Default behavior wipes them — the build cycle of
     /// the M8.9 audit left ~95 MB of stale scratch dirs around.
     fn should_keep_scratch() -> bool {
-        std::env::var_os("AZ_REMILL_KEEP_SCRATCH").is_some()
+        super::lift_env::lift_env().keep_scratch
     }
 
     /// Whether the in-process remill+LLVM+LLD pipeline should be used
@@ -890,7 +1028,7 @@ impl RemillTranspiler {
     /// that lands + the triple/datalayout normalization is fixed, this
     /// can flip back to default. Until then subprocess is the default.
     fn use_native_remill(&self) -> bool {
-        cfg!(feature = "web-transpiler-static") && std::env::var_os("AZ_NATIVE_REMILL").is_some()
+        cfg!(feature = "web-transpiler-static") && super::lift_env::lift_env().native_remill
     }
 
     /// Return the full toolchain or a structured TranspileError naming
@@ -979,16 +1117,18 @@ impl RemillTranspiler {
         // The two target lines are placeholders retarget_to_wasm32
         // overwrites with the wasm32 datalayout/triple.
         let stub_ir = format!(
-            "; azul-web Leaf stub for {fn_name} (real lift unavailable — remill crashed)\n\
+            "; azul-web TRAP stub for {fn_name} (real lift unavailable — remill/llc crashed)\n\
              target datalayout = \"e-m:w-i64:64-f80:128-n8:16:32:64-S128\"\n\
              target triple = \"x86_64-unknown-windows-msvc-coff\"\n\
              define ptr @sub_{lift_hex}(ptr noalias %state, i64 %pc, ptr noalias %memory) {{\n  \
                %rp = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
                store i64 0, ptr %rp, align 8\n  \
-               ret ptr %memory\n\
+               store volatile i64 {lift_dec}, ptr inttoptr (i64 262216 to ptr), align 8\n  \
+               unreachable\n\
              }}\n",
             fn_name = fn_name,
             lift_hex = format!("{:x}", lift_addr),
+            lift_dec = lift_addr,
             ret_off = pcs::RET,
         );
         self.produce_object_from_lifted_ir(fn_name, fn_addr, lift_addr, sig, export_as, &stub_ir)
@@ -999,6 +1139,254 @@ impl RemillTranspiler {
     /// targets). Used by `produce_object_for` for the per-fn path;
     /// batched-lift call sites bypass this and use
     /// `native_remill::lift_batch` directly to share LoadArchSemantics.
+    /// What `lift_prepare` decided for one function: either a cache satisfied
+    /// it (IR in hand, preflight already recorded), or it must be lifted fresh
+    /// and here is everything the lift and the post-lift bookkeeping need.
+    /// Splitting at exactly this point is what lets a wave of functions share
+    /// ONE remill process: prepare each, batch the Fresh ones, finish each.
+    #[allow(clippy::large_enum_variant)]
+    /// Launch a wave: prepare every entry (cache hits land in `out`
+    /// immediately), then start ONE remill --batch_manifest process for the
+    /// misses WITHOUT waiting for it. The caller reaps it at the next wave
+    /// boundary, so the batch lifts wave N+1 while the walk and the object
+    /// pool consume wave N - the overlap is the speedup; a synchronous wave
+    /// merely rearranged the same serial time.
+    fn wave_launch(
+        &self,
+        wave: &[(String, usize, usize, u64)],
+        out: &mut std::collections::HashMap<usize, String>,
+    ) -> Option<WaveInFlight> {
+        let mut pending: Vec<WaveEntry> = Vec::new();
+        for (name, addr, size, lift_addr) in wave {
+            match self.lift_prepare(name, *addr, *size, *lift_addr) {
+                Ok(LiftPrep::Ready(ir)) => {
+                    out.insert(*addr, ir);
+                }
+                Ok(LiftPrep::Fresh(ctx)) => pending.push(WaveEntry {
+                    name: name.clone(),
+                    addr: *addr,
+                    size: *size,
+                    lift_addr: *lift_addr,
+                    ctx,
+                }),
+                // Leave it to the individual retry, which surfaces the error.
+                Err(_) => {}
+            }
+        }
+        if pending.is_empty() {
+            return None;
+        }
+        let mut jobs: Vec<BatchJob> = Vec::with_capacity(pending.len() * 2);
+        for p in &pending {
+            jobs.push(BatchJob {
+                lift_addr: p.lift_addr,
+                ir_out: p.ctx.ir_path.clone(),
+                bytes: p.ctx.bytes.clone(),
+                fn_addr: p.addr,
+            });
+            // The reloc-template probe (same bytes at a probe address) rides
+            // the SAME manifest as its primary instead of a second serial
+            // child - the pair even lands in the same slice, so a child that
+            // dies takes the pair together and the fallback story stays
+            // per-function.
+            if p.ctx.reloc_canon.is_some() {
+                jobs.push(BatchJob {
+                    lift_addr: p.lift_addr.wrapping_add(0x4000_0000),
+                    ir_out: self.scratch_dir.join(format!(
+                        "{}_{:x}.probe.ll",
+                        sanitize_filename(&p.name),
+                        p.addr
+                    )),
+                    bytes: p.ctx.bytes.clone(),
+                    fn_addr: p.addr,
+                });
+            }
+        }
+        let slices = std::thread::available_parallelism()
+            .map(|n| (n.get() / 4).clamp(2, 6))
+            .unwrap_or(4)
+            .min(jobs.len().max(1));
+        let per = jobs.len().div_ceil(slices);
+        let mut children = Vec::new();
+        for chunk in jobs.chunks(per.max(1)) {
+            match self.spawn_batch_child(chunk, "wave") {
+                Ok(cm) => children.push(cm),
+                Err(e) => {
+                    eprintln!(
+                        "[azul-web]   batch: slice of {} could not launch ({}) — per-fn lifts",
+                        chunk.len(),
+                        e.reason.lines().next().unwrap_or(""),
+                    );
+                }
+            }
+        }
+        if children.is_empty() {
+            return None;
+        }
+        Some(WaveInFlight {
+            pending,
+            children,
+            started: std::time::Instant::now(),
+        })
+    }
+
+    /// Wait for a launched wave, then do the per-function bookkeeping: read
+    /// each IR, batch the reloc-probe lifts as a second child, store caches
+    /// and templates, and publish results into `out`. A function missing its
+    /// IR is simply not inserted - the walk retries it individually with full
+    /// error attribution.
+    fn wave_reap(
+        &self,
+        wave: WaveInFlight,
+        out: &mut std::collections::HashMap<usize, String>,
+    ) {
+        let WaveInFlight {
+            pending,
+            children,
+            started,
+        } = wave;
+        let n = pending.len();
+        let n_children = children.len();
+        let mut ok_children = 0usize;
+        for (child, manifest) in children {
+            if wait_batch_child(child, &manifest) {
+                ok_children += 1;
+            }
+        }
+        eprintln!(
+            "[azul-web]   batch: {n} fn(s)+probes across {ok_children}/{n_children} remill process(es) ({} ms)",
+            started.elapsed().as_millis(),
+        );
+        // A failed slice's functions simply miss their IR below and fall back
+        // to the individual path; the healthy slices still count.
+        // Probe IRs were lifted by the same children, straight to disk.
+        #[cfg(target_arch = "x86_64")]
+        let probe_irs: std::collections::HashMap<usize, String> = {
+            let mut m = std::collections::HashMap::new();
+            for p in pending.iter().filter(|p| p.ctx.reloc_canon.is_some()) {
+                let pp = self.scratch_dir.join(format!(
+                    "{}_{:x}.probe.ll",
+                    sanitize_filename(&p.name),
+                    p.addr
+                ));
+                if let Ok(p_ir) = read_and_demote(&pp, "probe") {
+                    m.insert(p.addr, p_ir);
+                }
+                let _ = std::fs::remove_file(&pp);
+            }
+            m
+        };
+        #[cfg(not(target_arch = "x86_64"))]
+        let probe_irs: std::collections::HashMap<usize, String> = Default::default();
+        let mut finished = 0usize;
+        let mut failed = 0usize;
+        for p in pending {
+            let Ok(ir) = read_and_demote(&p.ctx.ir_path, &p.name) else {
+                failed += 1;
+                continue;
+            };
+            match self.lift_store_finish(
+                &p.name,
+                p.addr,
+                p.size,
+                p.lift_addr,
+                &p.ctx,
+                ir,
+                probe_irs.get(&p.addr).cloned(),
+            ) {
+                Ok(done) => {
+                    out.insert(p.addr, done);
+                    finished += 1;
+                }
+                Err(_) => failed += 1,
+            }
+        }
+        eprintln!(
+            "[azul-web]   wave: {n} lifted, {finished} finished{}",
+            if failed > 0 {
+                format!(", {failed} failed → individual retry")
+            } else {
+                String::new()
+            },
+        );
+    }
+
+    /// Write the manifest and SPAWN the batch child without waiting. Its
+    /// stdout/stderr go to a file, not pipes, so there is no reader to hang;
+    /// the deadline is enforced at reap time.
+    fn spawn_batch_child(
+        &self,
+        jobs: &[BatchJob],
+        tag: &str,
+    ) -> Result<(std::process::Child, PathBuf), TranspileError> {
+        let arch_tag = host_arch_tag().ok_or_else(|| TranspileError {
+            fn_name: "batch".into(),
+            reason: "unsupported host architecture".into(),
+        })?;
+        let tools = self.tools("batch")?;
+        let mut manifest = String::new();
+        for j in jobs {
+            let ir_out = j.ir_out.to_str().ok_or_else(|| TranspileError {
+                fn_name: "batch".into(),
+                reason: "non-utf8 scratch path".into(),
+            })?;
+            // The manifest is whitespace-split; a path with spaces cannot be
+            // encoded, so such an environment falls back to per-fn lifts.
+            if ir_out.contains(char::is_whitespace) {
+                return Err(TranspileError {
+                    fn_name: "batch".into(),
+                    reason: "scratch path contains whitespace".into(),
+                });
+            }
+            let extra = build_extra_data(&j.bytes, j.fn_addr, j.lift_addr);
+            use std::fmt::Write as _;
+            let _ = writeln!(
+                manifest,
+                "{:x} {} {} {}",
+                j.lift_addr,
+                ir_out,
+                bytes_to_hex(&j.bytes),
+                if extra.is_empty() { "-" } else { &extra },
+            );
+        }
+        static WAVE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = WAVE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mpath = self
+            .scratch_dir
+            .join(format!("{tag}_{seq}.manifest"));
+        std::fs::write(&mpath, &manifest).map_err(|e| TranspileError {
+            fn_name: "batch".into(),
+            reason: format!("write manifest: {e}"),
+        })?;
+        let log = std::fs::File::create(mpath.with_extension("log")).map_err(|e| {
+            TranspileError {
+                fn_name: "batch".into(),
+                reason: format!("batch log: {e}"),
+            }
+        })?;
+        let child = Command::new(tools.remill_lift)
+            .args([
+                "--arch",
+                arch_tag,
+                "--os",
+                host_os_tag(),
+                "--batch_manifest",
+                mpath.to_str().expect("scratch path is utf-8"),
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(log.try_clone().map_err(|e| TranspileError {
+                fn_name: "batch".into(),
+                reason: format!("batch log: {e}"),
+            })?)
+            .stderr(log)
+            .spawn()
+            .map_err(|e| TranspileError {
+                fn_name: "batch".into(),
+                reason: format!("spawn batch: {e}"),
+            })?;
+        Ok((child, mpath))
+    }
+
     fn lift_fn(
         &self,
         fn_name: &str,
@@ -1006,6 +1394,23 @@ impl RemillTranspiler {
         fn_size: usize,
         lift_addr: u64,
     ) -> Result<String, TranspileError> {
+        match self.lift_prepare(fn_name, fn_addr, fn_size, lift_addr)? {
+            LiftPrep::Ready(ir) => Ok(ir),
+            LiftPrep::Fresh(ctx) => {
+                let ir =
+                    self.lift_fn_fresh(fn_name, fn_addr, &ctx.bytes, lift_addr, &ctx.ir_path)?;
+                self.lift_store_finish(fn_name, fn_addr, fn_size, lift_addr, &ctx, ir, None)
+            }
+        }
+    }
+
+    fn lift_prepare(
+        &self,
+        fn_name: &str,
+        fn_addr: usize,
+        fn_size: usize,
+        lift_addr: u64,
+    ) -> Result<LiftPrep, TranspileError> {
         let use_native = self.use_native_remill();
         std::fs::create_dir_all(&self.scratch_dir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -1027,7 +1432,13 @@ impl RemillTranspiler {
             fn_name: fn_name.to_string(),
             reason: "unsupported host architecture for remill (need aarch64 or x86_64)".into(),
         })?;
-        let stem = sanitize_filename(fn_name);
+        // Keyed on (name, ADDRESS): a fn_name does not identify a function -
+        // multiply-monomorphized generics share one, which the object path
+        // already accounts for by keying on export_as. Keyed on the name alone,
+        // two such functions wrote the SAME .lifted.ll, so whichever finished
+        // last decided what the other's dep discovery read, and parallel lifts
+        // would race on one path outright.
+        let stem = format!("{}_{:x}", sanitize_filename(fn_name), fn_addr);
         let lifted_ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
         // On-disk lift cache (subprocess path only). OPT-IN via AZ_LIFT_CACHE=1,
         // default OFF: a hit skips the remill-lift-17 subprocess (the slowest
@@ -1037,17 +1448,79 @@ impl RemillTranspiler {
         // so the pre-lifted Docker base image's cache is reused across CPUs and
         // re-lifts when the source ref changes. Dirty/dev builds fall back to
         // byte-keying (catches every recompile). `bytes` here is post-rewrite.
-        let cache_path = if !use_native && std::env::var_os("AZ_LIFT_CACHE").is_some() {
+        let cache_path = if !use_native && super::lift_env::lift_env().lift_cache {
             Some(lift_cache_path(&bytes, lift_addr, fn_name))
         } else {
             None
         };
+        // Relocation-canonical cache (survives rebuilds / rebases / other
+        // binaries of the same source): canonical-key lookup + manifest-
+        // driven address translation. Checked BEFORE the exact-bytes key;
+        // any translation failure falls through as a plain miss.
+        #[cfg(target_arch = "x86_64")]
+        let reloc_canon = if cache_path.is_some() {
+            reloc_canonicalize(&bytes, lift_addr, fn_addr, symbol_table::get())
+        } else {
+            None
+        };
+        #[cfg(target_arch = "x86_64")]
+        if let Some(ref rc) = reloc_canon {
+            let (irp, mp) = reloc_cache_paths(rc, fn_size);
+            if let (Ok(ir), Ok(man)) = (std::fs::read_to_string(&irp), std::fs::read_to_string(&mp)) {
+                if let Some(translated) =
+                    reloc_translate(&ir, &man, lift_addr, &bytes, fn_addr, symbol_table::get())
+                {
+                    // AZ_RELOC_VERIFY=1: self-check mode. ALSO lift fresh and
+                    // byte-compare — a perfect translation must be IDENTICAL
+                    // to the fresh lift of the same bytes at the same address.
+                    // Any divergence is logged with the first differing lines
+                    // (the exact mistranslated constants, no guessing) and the
+                    // FRESH result is used. This is the instrument that turns
+                    // "which constants are addresses?" from hypothesis into
+                    // measurement; expensive (full remill per fn), debug-only.
+                    if super::lift_env::lift_env().reloc_verify {
+                        // fall through to the fresh lift below, then compare
+                        let fresh = self.lift_fn_fresh(
+                            fn_name, fn_addr, &bytes, lift_addr, &lifted_ir_path,
+                        )?;
+                        if fresh != translated {
+                            let mut shown = 0;
+                            for (a, b) in fresh.lines().zip(translated.lines()) {
+                                if a != b && shown < 6 {
+                                    eprintln!("[azul-web][reloc-verify]   fresh: {a}");
+                                    eprintln!("[azul-web][reloc-verify]   trans: {b}");
+                                    shown += 1;
+                                }
+                            }
+                            eprintln!(
+                                "[azul-web][reloc-verify] ✗ DIVERGENCE in {fn_name} ({} differing line(s) shown) — using the fresh lift; bad template deleted",
+                                shown,
+                            );
+                            // Self-heal: a diverging template must never be
+                            // served again; the next cold pass re-stores it
+                            // with the current (fixed) classifier.
+                            let _ = std::fs::remove_file(&irp);
+                            let _ = std::fs::remove_file(&mp);
+                            RELOC_VERIFY_FAILS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        } else {
+                            RELOC_VERIFY_OKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        preflight_scan(fn_name, &fresh, count_ud2_pairs(&bytes));
+                        return Ok(LiftPrep::Ready(fresh));
+                    }
+                    RELOC_CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let _ = std::fs::write(&lifted_ir_path, &translated);
+                    preflight_scan(fn_name, &translated, count_ud2_pairs(&bytes));
+                    return Ok(LiftPrep::Ready(translated));
+                }
+            }
+        }
         if let Some(ref cp) = cache_path {
             if let Ok(ir) = std::fs::read_to_string(cp) {
                 // Mirror into scratch so downstream stem-based reads work.
                 let _ = std::fs::write(&lifted_ir_path, &ir);
-                preflight_scan(fn_name, &ir);
-                return Ok(ir);
+                preflight_scan(fn_name, &ir, count_ud2_pairs(&bytes));
+                return Ok(LiftPrep::Ready(ir));
             }
         }
         if use_native {
@@ -1062,14 +1535,113 @@ impl RemillTranspiler {
                     fn_name: fn_name.to_string(),
                     reason: format!("write lifted IR: {e}"),
                 })?;
-                preflight_scan(fn_name, &ir);
-                return Ok(ir);
+                preflight_scan(fn_name, &ir, count_ud2_pairs(&bytes));
+                return Ok(LiftPrep::Ready(ir));
             }
             #[cfg(not(feature = "web-transpiler-static"))]
             unreachable!("use_native_remill() returns false without the feature");
         }
+        let _ = arch_tag; // host arch validated above; the helper re-derives it
+        // Counted here, not in lift_fn_fresh: the v6 probe lift at store time
+        // would otherwise double every "fresh lift" in the telemetry.
+        RELOC_CACHE_LIFTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(target_arch = "x86_64"))]
+        let reloc_canon = None;
+        return Ok(LiftPrep::Fresh(LiftPrepCtx {
+            bytes,
+            ir_path: lifted_ir_path,
+            cache_path,
+            reloc_canon,
+        }));
+    }
+
+    /// Everything that happens AFTER a fresh lift produced `ir`: exact-bytes
+    /// cache store, the relocation-template probe (a second lift of the same
+    /// bytes at a probe address; `probe_ir` supplies it when a wave already
+    /// batched that lift), template store, and the preflight record.
+    fn lift_store_finish(
+        &self,
+        fn_name: &str,
+        fn_addr: usize,
+        fn_size: usize,
+        lift_addr: u64,
+        ctx: &LiftPrepCtx,
+        ir: String,
+        probe_ir: Option<String>,
+    ) -> Result<String, TranspileError> {
+        let bytes = &ctx.bytes;
+        let cache_path = &ctx.cache_path;
+        let reloc_canon = &ctx.reloc_canon;
+        let stem = format!("{}_{:x}", sanitize_filename(fn_name), fn_addr);
+        let _ = (&stem, fn_size, lift_addr);
+        // Store the freshly-lifted IR in the on-disk cache for future runs.
+        if let Some(ref cp) = cache_path {
+            if let Some(parent) = cp.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(cp, &ir);
+        }
+        // …and under the relocation-canonical key with its v6 TEMPLATE, so
+        // the NEXT layout (rebuild/rebase/other binary) can substitute
+        // instead of re-lifting. The template comes from a second lift of
+        // the same bytes at a probe address: tokens that vary between the
+        // two lifts are address-derived by construction — no heuristics.
+        // The probe lift doubles cold-store cost; translated hits repay it
+        // on every later layout.
+        #[cfg(target_arch = "x86_64")]
+        if let Some(ref rc) = reloc_canon {
+            let probe_addr = lift_addr.wrapping_add(0x4000_0000);
+            let probe_path = self.scratch_dir.join(format!("{}.probe.ll", stem));
+            let probe_result = match probe_ir {
+                Some(p) => Ok(p),
+                None => {
+                    let r = self.lift_fn_fresh(fn_name, fn_addr, bytes, probe_addr, &probe_path);
+                    let _ = std::fs::remove_file(&probe_path);
+                    r
+                }
+            };
+            if let Ok(probe_ir) = probe_result {
+                if let Some(manifest) = reloc_templateize(
+                    &ir,
+                    &probe_ir,
+                    lift_addr,
+                    probe_addr,
+                    bytes.len(),
+                    fn_addr,
+                    &rc.sites,
+                    symbol_table::get(),
+                ) {
+                    let (irp, mp) = reloc_cache_paths(rc, fn_size);
+                    if let Some(parent) = irp.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    let _ = std::fs::write(&irp, &ir);
+                    let _ = std::fs::write(&mp, manifest);
+                }
+            }
+        }
+        preflight_scan(fn_name, &ir, count_ud2_pairs(&bytes));
+        Ok(ir)
+    }
+
+    /// The bare remill-lift subprocess for one fn: bytes + extra_data at
+    /// `lift_addr` -> raw IR written to `lifted_ir_path`. No caching, no
+    /// preflight - callers own those. Split out so AZ_RELOC_VERIFY can
+    /// obtain a fresh lift to byte-compare against a cache translation.
+    fn lift_fn_fresh(
+        &self,
+        fn_name: &str,
+        fn_addr: usize,
+        bytes: &[u8],
+        lift_addr: u64,
+        lifted_ir_path: &Path,
+    ) -> Result<String, TranspileError> {
+        let arch_tag = host_arch_tag().ok_or_else(|| TranspileError {
+            fn_name: fn_name.to_string(),
+            reason: "unsupported host architecture for remill (need aarch64 or x86_64)".into(),
+        })?;
         let tools = self.tools(fn_name)?;
-        let hex = bytes_to_hex(&bytes);
+        let hex = bytes_to_hex(bytes);
         let addr_s = format!("0x{:x}", lift_addr);
         let lift_out = lifted_ir_path
             .to_str()
@@ -1077,10 +1649,8 @@ impl RemillTranspiler {
             .to_string();
         // M12.7: provide this fn's adrp-referenced .rodata (its jump tables) to the lifter
         // at SYNTH addresses, so ForEachDevirtualizedTarget reads the EXACT jump-table
-        // targets (only the real arm blocks) instead of over-sweeping a window — the
-        // over-sweep adds the helper-return block as a spurious switch case, creating a
-        // dispatch edge into it where a callee's f32 return isn't in State yet (body w=0).
-        let extra_data = build_extra_data(&bytes, fn_addr, lift_addr);
+        // targets (only the real arm blocks) instead of over-sweeping a window.
+        let extra_data = build_extra_data(bytes, fn_addr, lift_addr);
         let mut args: Vec<&str> = vec![
             "--arch",
             arch_tag,
@@ -1100,19 +1670,7 @@ impl RemillTranspiler {
             args.push(&extra_data);
         }
         run_tool(tools.remill_lift, &args, fn_name)?;
-        let ir = std::fs::read_to_string(&lifted_ir_path).map_err(|e| TranspileError {
-            fn_name: fn_name.to_string(),
-            reason: format!("read lifted IR: {e}"),
-        })?;
-        // Store the freshly-lifted IR in the on-disk cache for future runs.
-        if let Some(ref cp) = cache_path {
-            if let Some(parent) = cp.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let _ = std::fs::write(cp, &ir);
-        }
-        preflight_scan(fn_name, &ir);
-        Ok(ir)
+        read_and_demote(lifted_ir_path, fn_name)
     }
 
     /// Post-lift pipeline: takes a `raw_lifted_ir` (from `lift_fn` for
@@ -1149,17 +1707,6 @@ impl RemillTranspiler {
         // the first and both paths get pushed into object_paths,
         // producing a wasm-ld "duplicate symbol" error.
         let stem = sanitize_filename(export_as);
-        // Stash the raw lifted IR for debugging (key on fn_name + addr
-        // so the dump is identifiable in scratch listings).
-        let _ = std::fs::write(
-            self.scratch_dir.join(format!(
-                "{}_{:x}.lifted.ll",
-                sanitize_filename(fn_name),
-                fn_addr
-            )),
-            raw_lifted_ir,
-        );
-
         // M6 — IR cleanup phase.
         //
         // 1. Patch the lifted IR to mark `sub_<entry>` as `alwaysinline`.
@@ -1201,6 +1748,10 @@ impl RemillTranspiler {
             Some(table) => {
                 let rewritten =
                     rewrite_sub_names_to_canonical(raw_lifted_ir, table, fn_addr, lift_addr);
+                // MUST run after the canonical rename: it seeds each call with
+                // the name the rename settled on. Running it first would bake
+                // in the pre-chase address and reintroduce the skew it removes.
+                let (rewritten, _seeded) = seed_direct_calls_with_callee_pc(&rewritten);
                 dedup_sub_declares(&rewritten)
             }
             None => raw_lifted_ir.to_string(),
@@ -1236,12 +1787,15 @@ impl RemillTranspiler {
         // address as its hex. To find the entry's `define` line for
         // `inject_alwaysinline`, look up fn_addr's synthetic_addr +
         // chase the synth chain to its canonical synth target.
+        // Same PDB-gap fallback as the lift-address derivations: a
+        // synthesized entry has no by_addr record, and the raw-native
+        // fallback made the WRAPPER call @sub_<native> while the body
+        // defines @sub_<synth> — an unresolved import in every bundle.
         let canonical_entry_addr = symbol_table::get()
             .and_then(|t| {
-                t.lookup(fn_addr).map(|e| {
-                    t.resolve_synth(e.synthetic_addr)
-                        .unwrap_or(e.synthetic_addr)
-                })
+                t.lookup(fn_addr)
+                    .map(|e| t.resolve_synth(e.synthetic_addr).unwrap_or(e.synthetic_addr))
+                    .or_else(|| t.native_to_synth(fn_addr))
             })
             .unwrap_or(fn_addr) as u64;
 
@@ -1348,12 +1902,18 @@ impl RemillTranspiler {
 
         // Compile to wasm32 object.
         //
-        // Native path (M8.9 Phase 2a, gated on AZ_NATIVE_REMILL=1):
-        // concatenate patched_ir + helper_ir text-side (stripping
-        // helper's `target datalayout` / `target triple` headers so
-        // LLVM's parseIR doesn't see duplicates), then call
-        // `az_remill_compile_to_wasm32_obj` which runs opt -O2 + llc
-        // -mtriple=wasm32 in-process.
+        // Native path (gated on AZ_NATIVE_REMILL): hand both modules to
+        // `az_remill_compile_to_wasm32_obj`, which links them with
+        // llvm::Linker::linkInModule and then runs opt -O2 + llc
+        // -mtriple=wasm32 in-process — one process, no intermediate files.
+        //
+        // NOT by concatenating the two IR texts, which is what this comment
+        // used to describe. The modules are only superficially mergeable:
+        // both define the SAME metadata ids (!90001..!90005, chosen identical
+        // so the linker uniques them structurally) and both define
+        // `attributes #1` with DIFFERENT contents — the helper's carries the
+        // wasm-import-module/name of a real import. Concatenated, every #1 in
+        // the helper would silently rebind to the other module's group.
         //
         // Subprocess path: `llvm-link` merges patched_ir + helper_ir,
         // `opt -O2` cleans + inlines, `llc -mtriple=wasm32` emits the
@@ -1411,7 +1971,7 @@ impl RemillTranspiler {
                 fn_name,
             )?;
 
-            // [WEB-LIFT FIX 2026-06-11, DEFAULT; AZ_KEEP_ALIAS_SCOPE=1 to disable]
+            // [WEB-LIFT FIX, DEFAULT; AZ_KEEP_ALIAS_SCOPE=1 to disable]
             // Strip remill's `!alias.scope`/`!noalias` from the linked IR before
             // opt. remill tags State-register accesses and guest-memory accesses
             // into mutually-noalias scopes (registers don't alias memory) — sound
@@ -1428,11 +1988,27 @@ impl RemillTranspiler {
             // the metadata makes opt conservatively assume reg/mem may alias;
             // correctness over the lost forwarding. (strip_noalias_from_sub_args
             // only handled `noalias` on sub_ ARGS, not these per-access scopes.)
-            if std::env::var_os("AZ_KEEP_ALIAS_SCOPE").is_none() {
+            if !super::lift_env::lift_env().keep_alias_scope {
                 if let Ok(ir) = std::fs::read_to_string(&linked_ir_path) {
                     let (stripped, n) = strip_alias_scope_metadata(&ir);
                     if n > 0 {
                         let _ = std::fs::write(&linked_ir_path, &stripped);
+                    }
+                }
+            }
+
+            // Move flag storage out of the shared State BEFORE opt runs, so
+            // SROA can promote it. Unlike the state-store passes, which clean
+            // up after opt, the point here is to let LLVM do the work.
+            {
+                if let Ok(ir) = std::fs::read_to_string(&linked_ir_path) {
+                    let (split, n) = if super::lift_env::lift_env().no_ir_passes {
+                        (ir.clone(), 0)
+                    } else {
+                        privatize_flag_storage(&ir)
+                    };
+                    if n > 0 {
+                        let _ = std::fs::write(&linked_ir_path, &split);
                     }
                 }
             }
@@ -1472,7 +2048,7 @@ impl RemillTranspiler {
             // `add sp,#N` and leaks the guest SP into the caller's frame —
             // which cumulatively drifts create_from's SP-relative cache base
             // toward NULL (the M12 node_count-corruption / 768 MiB OOB).
-            if std::env::var_os("AZ_NO_FIX_SP").is_none() {
+            if !super::lift_env::lift_env().no_fix_sp {
                 if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
                     let (fixed, n) = enforce_sp_preservation(&opt_ir);
                     if n > 0 {
@@ -1485,7 +2061,7 @@ impl RemillTranspiler {
             // `store volatile i64` guest writes; direct ring stores work here like AZ_SP_TRACE — no
             // memory-model break / LinkError, unlike instrumenting patched.ll's pre-opt __remill calls).
             // Logs (ptr,val) to the 0xD0000 ring (counter 0xCFFF0) → catches the hashbrown ctrl write-back.
-            if let Ok(target) = std::env::var("AZ_WRITE_TRACE") {
+            if let Ok(target) = super::lift_env::lift_env().write_trace.clone().ok_or(()) {
                 let matched = target == "ALL"
                     || target
                         .split(',')
@@ -1504,7 +2080,7 @@ impl RemillTranspiler {
             // guest read (the hashbrown ctrl-group probe load) to the 0xE0000 ring (counter 0xDFFF0). The find
             // spins on it → ring tail = the addr the find reads ctrl from. Compare vs the AZ_WRITE_TRACE ctrl
             // write-back addr/value to prove the find reads a STALE/wrong self.table.ctrl (the deep bug).
-            if let Ok(target) = std::env::var("AZ_READ_TRACE") {
+            if let Ok(target) = super::lift_env::lift_env().read_trace.clone().ok_or(()) {
                 let matched = target == "ALL"
                     || target
                         .split(',')
@@ -1524,7 +2100,7 @@ impl RemillTranspiler {
             // Captures the runtime VALUES the lift assigns to the guest GPRs in program order → compare the
             // resize's &self.table base (X19) vs the find's (X26) + their input chain (X23, X20-X28) against a
             // native lldb dump at the same PCs → the first divergent reg brackets the mis-lifted instruction.
-            if let Ok(target) = std::env::var("AZ_REG_TRACE") {
+            if let Ok(target) = super::lift_env::lift_env().reg_trace.clone().ok_or(()) {
                 let matched = target == "ALL"
                     || target
                         .split(',')
@@ -1555,7 +2131,7 @@ impl RemillTranspiler {
             // empty self-loops become traps, log the value `v` that routes INTO
             // each (the `icmp eq i64 %v, 0` operand) to 0x40078, so a post-trap
             // peek reveals WHAT non-zero value opt folded the loop-exit on.
-            if let Ok(target) = std::env::var("AZ_LOG_SELFLOOP_VAL") {
+            if let Ok(target) = super::lift_env::lift_env().log_selfloop_val.clone().ok_or(()) {
                 let matched = target == "ALL"
                     || target
                         .split(',')
@@ -1573,7 +2149,7 @@ impl RemillTranspiler {
                     }
                 }
             }
-            if std::env::var_os("AZ_NO_TRAP_SELFLOOP").is_none() {
+            if !super::lift_env::lift_env().no_trap_selfloop {
                 if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
                     let (fixed, n) = rewrite_empty_self_loops(&opt_ir);
                     if n > 0 {
@@ -1582,11 +2158,57 @@ impl RemillTranspiler {
                 }
             }
 
+            // Delete CPU-state stores nothing can read (PC restores and
+            // never-consumed flag writes). ~49% of the stores that survive
+            // -O2 in a typical lifted function; opt cannot do it because the
+            // State pointer escapes to every callee. Safe here because the
+            // input is rustc output - see strip_dead_state_stores.
+            {
+                if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                    let (stripped, n) = if super::lift_env::lift_env().no_ir_passes {
+                        (opt_ir.clone(), 0)
+                    } else {
+                        strip_dead_state_stores(&opt_ir)
+                    };
+                    if n > 0 {
+                        let _ = std::fs::write(&opt_ir_path, &stripped);
+                        STATE_STORES_REMOVED
+                            .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+                // Then the CFG-liveness pass, which catches what the
+                // zero-load rule above cannot: flags that DO have readers
+                // somewhere but are overwritten before any of them runs.
+                if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                    let (stripped, n) = if super::lift_env::lift_env().no_ir_passes {
+                        (opt_ir.clone(), 0)
+                    } else {
+                        strip_dead_flag_stores_cfg(&opt_ir)
+                    };
+                    if n > 0 {
+                        let _ = std::fs::write(&opt_ir_path, &stripped);
+                        STATE_STORES_REMOVED
+                            .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+            }
+
+            // First-paint coverage (AZ_FN_COVERAGE). Off by default.
+            if super::lift_env::lift_env().fn_coverage {
+                if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
+                    let idx = record_coverage_index(&self.scratch_dir, fn_name, &export_as);
+                    let (marked, n) = inject_fn_coverage(&opt_ir, idx);
+                    if n > 0 {
+                        let _ = std::fs::write(&opt_ir_path, &marked);
+                    }
+                }
+            }
+
             // M12.5y store-address tracer: when AZ_LOG_STORES contains a
             // comma-separated substring matching this dep's stem, instrument
             // the post-opt IR in place (then llc compiles the instrumented
             // version). See `inject_store_logging`.
-            if let Ok(target) = std::env::var("AZ_LOG_STORES") {
+            if let Ok(target) = super::lift_env::lift_env().log_stores.clone().ok_or(()) {
                 let is_wrapper =
                     export_as.starts_with("AzStartup_") || export_as.contains("AzBoundary_");
                 let matched = if target == "ALL" {
@@ -1650,7 +2272,7 @@ impl RemillTranspiler {
             // that traps after AZ_FUEL_LIMIT block-executions. Run with
             // AZ_WASM_DEBUG=1 so the trap's named stack pinpoints the
             // looping fn. See `inject_fuel`.
-            if let Ok(target) = std::env::var("AZ_FUEL") {
+            if let Ok(target) = super::lift_env::lift_env().fuel.clone().ok_or(()) {
                 let is_wrapper =
                     export_as.starts_with("AzStartup_") || export_as.contains("AzBoundary_");
                 let matched = (target == "ALL" && !is_wrapper)
@@ -1672,12 +2294,13 @@ impl RemillTranspiler {
                 }
             }
 
+            let llc_opt: &str = opt_flag_for(fn_name);
             run_tool(
                 tools.llc,
                 &[
                     "-mtriple=wasm32-unknown-unknown",
                     "-filetype=obj",
-                    opt_flag_for(fn_name),
+                    llc_opt,
                     "-o",
                     obj_path.to_str().expect("scratch path is utf-8"),
                     opt_ir_path.to_str().expect("scratch path is utf-8"),
@@ -1804,7 +2427,7 @@ impl RemillTranspiler {
         // per-layout (ImportMemory) and azul-mini.wasm (OwnMemory)
         // need this for __az_call_indirect to work.
         let import_table = true;
-        let debug_link = std::env::var_os("AZ_WASM_DEBUG").is_some();
+        let debug_link = super::lift_env::lift_env().wasm_debug;
         if self.use_native_remill() {
             #[cfg(feature = "web-transpiler-static")]
             {
@@ -1836,9 +2459,11 @@ impl RemillTranspiler {
                         .scratch_dir
                         .join(format!("{}.pre-opt.wasm", output_stem));
                     let _ = std::fs::write(&pre_opt_path, &linked);
+                    set_lift_phase("wasm-opt postprocess");
                     postprocess_wasm_opt(&pre_opt_path, output_stem).unwrap_or(linked)
                 };
                 relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
+                set_lift_phase("inject data segments");
                 inject_user_binary_data_segments(
                     &mut final_wasm,
                     accessed_pages,
@@ -1848,6 +2473,7 @@ impl RemillTranspiler {
                 return Ok(final_wasm);
             }
         }
+        set_lift_phase("build wasm-ld argv");
         let tools = self.tools(output_stem)?;
         let wasm_path = self.scratch_dir.join(format!("{}.wasm", output_stem));
         // Set `AZ_WASM_DEBUG=1` to keep the names section + dwarf and
@@ -1882,11 +2508,15 @@ impl RemillTranspiler {
             // --keep-section preserves the function-names custom
             // section so wasm-objdump can map indices → `sub_<addr>`.
             args.push("--lto-O0".to_string());
-            args.push("--keep-section=name".to_string());
+            // NOT `--keep-section=name`: wasm-ld rejects it as an unknown
+            // argument, which failed every link under AZ_WASM_DEBUG and left the
+            // mini an 8-byte stub. It is redundant anyway - the name section
+            // survives because debug mode omits `--strip-all` above, which is
+            // what actually strips it.
         }
         // [g129 diag] AZ_WASM_LD_MLLVM=<comma-sep flags> forwards `-mllvm <flag>` to the LTO
         // backend (e.g. "--enable-dse-partial-store-merging=false") to isolate LTO opt miscompiles.
-        if let Ok(mllvm) = std::env::var("AZ_WASM_LD_MLLVM") {
+        if let Ok(mllvm) = super::lift_env::lift_env().wasm_ld_mllvm.clone().ok_or(()) {
             for f in mllvm.split(',').filter(|s| !s.is_empty()) {
                 args.push("-mllvm".to_string());
                 args.push(f.to_string());
@@ -1908,13 +2538,28 @@ impl RemillTranspiler {
             args.push("--import-memory".to_string());
         }
         args.push(format!("--initial-memory={}", initial_memory_bytes));
+        // Dependency wrappers are never called from JS - the dispatcher calls
+        // `@sub_<synth>` directly, and nothing in the loader or the product
+        // resolves an `__az_dep_` name. Exporting them pins one wrapper per
+        // lifted function (each carrying a State alloca and prologue), so
+        // --gc-sections cannot strip a single one, and adds an --export flag
+        // per function to an already enormous link line.
+        //
+        // They stay exported under AZ_WASM_DEBUG because fmt-lab calls lifted
+        // functions in isolation through exactly these names - that is the
+        // cheapest tool for debugging a single lifted function, and it needs a
+        // saved wasm that still has them.
         for e in exports {
+            if !debug_link && e.starts_with("__az_dep_") {
+                continue;
+            }
             args.push(format!("--export={}", e));
         }
         for p in objects {
             args.push(p.to_string_lossy().into_owned());
         }
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        set_lift_phase("wasm-ld link (subprocess)");
         run_tool(tools.wasm_ld, &arg_refs, output_stem)?;
         // Post-process with binaryen wasm-opt -Oz when available.
         // wasm-ld already runs --gc-sections + --strip-all + --lto-O2,
@@ -1935,6 +2580,7 @@ impl RemillTranspiler {
             })?,
         };
         relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
+        set_lift_phase("inject data segments");
         inject_user_binary_data_segments(
             &mut final_wasm,
             accessed_pages,
@@ -2005,6 +2651,49 @@ impl RemillTranspiler {
         roots: Vec<TransitiveLiftRoot>,
         opts: &LiftOpts,
     ) -> Result<WasmModule, TranspileError> {
+        // The object pool overlaps the walk: workers consume opt+llc jobs
+        // WHILE remill/discovery produces them, so total wall-clock is
+        // max(walk, llc/N) instead of walk + drain. The scope wraps the
+        // whole body; `?`/`return` inside propagate through the closure
+        // unchanged.
+        struct ObjJob {
+            obj_idx: usize,
+            name: String,
+            addr: usize,
+            lift_addr: u64,
+            sig: CallbackSignature,
+            export_as: String,
+            cache_key: (usize, String),
+            raw_ir: String,
+        }
+        struct ObjJobMeta {
+            obj_idx: usize,
+            name: String,
+            addr: usize,
+            lift_addr: u64,
+            sig: CallbackSignature,
+            export_as: String,
+            cache_key: (usize, String),
+        }
+        // Shared pool state (created before the spawns; scoped threads may
+        // borrow it). Jobs append during the walk; workers claim by index
+        // under the queue lock (no overshoot); results key on obj_idx.
+        let pool_jobs: std::sync::Mutex<Vec<Option<ObjJob>>> = std::sync::Mutex::new(Vec::new());
+        let pool_claimed = std::sync::atomic::AtomicUsize::new(0);
+        let pool_done = std::sync::atomic::AtomicBool::new(false);
+        let pool_results: std::sync::Mutex<
+            std::collections::HashMap<usize, Result<PathBuf, TranspileError>>,
+        > = std::sync::Mutex::new(std::collections::HashMap::new());
+        let n_workers = std::env::var("AZ_LIFT_JOBS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| *n >= 1)
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism()
+                    .map(|n| n.get().saturating_sub(2).clamp(1, 10))
+                    .unwrap_or(4)
+            });
+        std::thread::scope(|__pool_sc| -> Result<WasmModule, TranspileError> {
         // Hard cap on the number of functions a single root's
         // transitive closure can pull in. Bumped from 64 → 256 in
         // M8.8 once exact-size lifts surface the full layout-cb
@@ -2018,8 +2707,65 @@ impl RemillTranspiler {
         // — eventloop bumps this to absorb cascade + layout deps.
         let max_recursive_depth = opts.max_recursive_depth;
 
+        let mut pool_handles = Vec::new();
+        for _ in 0..n_workers {
+            // Explicit big stack: scoped threads default to ~2 MiB while the
+            // main thread gets 8, and object production runs LLVM-sized IR
+            // through the rewriters. A worker blowing its stack takes the
+            // whole process down with no panic message — which is exactly
+            // what two runs of an identical binary did, dying at different
+            // functions each time.
+            let spawned = std::thread::Builder::new()
+                .stack_size(32 * 1024 * 1024)
+                .spawn_scoped(__pool_sc, || loop {
+                let job = {
+                    let mut q = pool_jobs.lock().unwrap();
+                    let c = pool_claimed.load(std::sync::atomic::Ordering::SeqCst);
+                    if c < q.len() {
+                        pool_claimed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        q[c].take()
+                    } else {
+                        None
+                    }
+                };
+                match job {
+                    Some(j) => {
+                        let r = self.produce_object_from_lifted_ir(
+                            &j.name, j.addr, j.lift_addr, &j.sig, &j.export_as, &j.raw_ir,
+                        );
+                        pool_results.lock().unwrap().insert(j.obj_idx, r);
+                    }
+                    None => {
+                        if pool_done.load(std::sync::atomic::Ordering::SeqCst) {
+                            let q_len = pool_jobs.lock().unwrap().len();
+                            if pool_claimed.load(std::sync::atomic::Ordering::SeqCst) >= q_len {
+                                break;
+                            }
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(15));
+                    }
+                }
+            });
+            match spawned {
+                Ok(h) => pool_handles.push(h),
+                Err(e) => {
+                    eprintln!("[azul-web] could not spawn object-pool worker ({e}) — continuing with fewer");
+                    break;
+                }
+            }
+        }
+
         let mut visited: HashSet<usize> = HashSet::new();
         let mut queue: VecDeque<TransitiveLiftTarget> = VecDeque::new();
+        // IRs produced ahead of the walk by prelift_wave: one remill process
+        // per wave instead of one per function. Consumed (removed) when the
+        // walk reaches the function; a miss falls through to the individual
+        // lift, so a batch failure only costs the batching.
+        let mut prelifted: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
+        // The wave in flight: launched before the previous wave is reaped, so
+        // one remill batch always runs WHILE the walk and the object pool
+        // consume the previous wave's results.
+        let mut wave_inflight: Option<WaveInFlight> = None;
         let mut object_paths: Vec<PathBuf> = Vec::new();
         let mut exports: Vec<String> = Vec::new();
         // Functions that defeated remill and were Leaf-stubbed (see the
@@ -2047,7 +2793,7 @@ impl RemillTranspiler {
             extra_exports.extend(r.extra_exports.iter().cloned());
         }
 
-        // WEB-LIFT FIX (2026-06-03): only the mini runtime (AzStartup_* roots) runs the cascade +
+        // WEB-LIFT FIX : only the mini runtime (AzStartup_* roots) runs the cascade +
         // allsorts shaping that hits the indirect-br outlined-epilogue MISSING_BLOCK.
         let is_mini_runtime = roots.iter().any(|r| r.fn_name.starts_with("AzStartup_"));
 
@@ -2055,7 +2801,7 @@ impl RemillTranspiler {
             queue.push_back(TransitiveLiftTarget::Root(root));
         }
 
-        // WEB-LIFT FIX (2026-06-03): force-enqueue ONLY the SP-RESTORING machine-outliner epilogues.
+        // WEB-LIFT FIX : force-enqueue ONLY the SP-RESTORING machine-outliner epilogues.
         // These shared `add sp,#N; ret` / `ldp ...,[sp],#N; ret` tails are reached via INDIRECT
         // `br Xn` tail-jumps (register target) that the static scan can't resolve → never lifted →
         // dispatcher MISSING_BLOCK → the `br` SKIPS the epilogue → SP not restored → `unreachable`.
@@ -2068,7 +2814,7 @@ impl RemillTranspiler {
                 let mut enq = 0usize;
                 let mut bump = 0usize;
                 for (_a, e) in table.iter() {
-                    // FACET 2 (2026-06-03): BumpAlloc-class fns (e.g. __rust_dealloc, a noop on the
+                    // FACET 2 : BumpAlloc-class fns (e.g. __rust_dealloc, a noop on the
                     // bump heap) are reached via INDIRECT calls/tail-jumps (Drop glue / outlined
                     // chains) but excluded from the dispatcher csynths → __remill_MISSING_BLOCK at
                     // their synth PC → the fatal `unreachable` (trap PC = __rust_dealloc). Force-
@@ -2087,7 +2833,7 @@ impl RemillTranspiler {
                         bump += 1;
                         continue;
                     }
-                    // FACET 3 (2026-06-03): real fns reached ONLY via a JUMP TABLE (indirect blr,
+                    // FACET 3 : real fns reached ONLY via a JUMP TABLE (indirect blr,
                     // the table fn-ptrs ARE synth-rebased so the dispatcher gets their SYNTH PC) but
                     // never via a direct `bl` → the direct-call discovery misses them → no csynth →
                     // MISSING_BLOCK → the fn returns garbage → downstream `unreachable`. These (from
@@ -2097,7 +2843,7 @@ impl RemillTranspiler {
                         "get_ua_property",
                         "determine_formatting_context_for_display",
                         "4Once4call",
-                        // 2026-06-10 (fn-ptr targets): azul_core::task time callbacks are
+                        // (fn-ptr targets): azul_core::task time callbacks are
                         // reached ONLY through fn POINTERS stored in callback structs
                         // (GetSystemTimeCallback etc.) — invisible to the BL/B scan, so the
                         // dispatcher unk-dropped every call (the persistent Instant::now /
@@ -2150,17 +2896,6 @@ impl RemillTranspiler {
                         o += 4;
                     }
                     if restores_sp {
-                        // DIAG (2026-06-03, REVERT): trace _OUTLINED_FUNCTION_2 instances — the
-                        // fatal missing_block. Print canonical_addr + synthetic_addr so we can
-                        // compare against the harness missing_block synth (same build).
-                        if e.canonical_name.contains("OUTLINED_FUNCTION_2")
-                            && !e.canonical_name.contains("OUTLINED_FUNCTION_2_")
-                        {
-                            eprintln!(
-                                "[az-diag] ENQ _2 name={} canon=0x{:x} synth=0x{:x} size={}",
-                                e.canonical_name, e.canonical_addr, e.synthetic_addr, e.size
-                            );
-                        }
                         queue.push_back(TransitiveLiftTarget::Dep {
                             name: e.canonical_name.clone(),
                             addr: e.canonical_addr,
@@ -2183,6 +2918,7 @@ impl RemillTranspiler {
         let canonical_sig = signature_for_callback_kind("Callback");
         let mut lifted_count = 0usize;
 
+        let mut job_meta: Vec<ObjJobMeta> = Vec::new();
         while let Some(target) = queue.pop_front() {
             let (name, addr, size, sig, export_as) = match target {
                 TransitiveLiftTarget::Root(r) => {
@@ -2200,6 +2936,84 @@ impl RemillTranspiler {
             if !visited.insert(addr) {
                 continue;
             }
+            // Build the next lift wave: this target plus up to batch-1 queued,
+            // unvisited, not-yet-prelifted functions, lifted with ONE remill
+            // process. lift_addr is derived exactly as the body below derives
+            // it. Entries whose object is already cached cost one wasted lift;
+            // visited/prelifted dedup bounds everything else.
+            let wave_n = super::lift_env::lift_env().lift_batch;
+            if wave_n > 1 && !prelifted.contains_key(&addr) {
+                // This target missed the prelift map, so the in-flight wave
+                // (which was built from queue state that included it) is the
+                // likely producer: reap it first.
+                if let Some(w) = wave_inflight.take() {
+                    self.wave_reap(w, &mut prelifted);
+                }
+                let wla = |a: usize| -> u64 {
+                    symbol_table::get()
+                        .and_then(|t| {
+                            t.lookup(a)
+                                .map(|e| e.synthetic_addr)
+                                .or_else(|| t.native_to_synth(a))
+                        })
+                        .map(|s| s as u64)
+                        .unwrap_or(a as u64)
+                };
+                let build_wave = |first: Option<(String, usize, usize)>,
+                                  queue: &VecDeque<TransitiveLiftTarget>,
+                                  visited: &HashSet<usize>,
+                                  prelifted: &std::collections::HashMap<usize, String>|
+                 -> Vec<(String, usize, usize, u64)> {
+                    let mut wave: Vec<(String, usize, usize, u64)> = Vec::new();
+                    let mut in_wave: HashSet<usize> = HashSet::new();
+                    if let Some((fname, faddr, fsize)) = first {
+                        in_wave.insert(faddr);
+                        wave.push((fname, faddr, fsize, wla(faddr)));
+                    }
+                    for qt in queue.iter() {
+                        if wave.len() >= wave_n {
+                            break;
+                        }
+                        let (qn, qa, qs) = match qt {
+                            TransitiveLiftTarget::Root(r) => {
+                                (r.fn_name.clone(), r.fn_addr, r.fn_size)
+                            }
+                            TransitiveLiftTarget::Dep { name, addr, size } => {
+                                (name.clone(), *addr, *size)
+                            }
+                        };
+                        if visited.contains(&qa)
+                            || in_wave.contains(&qa)
+                            || prelifted.contains_key(&qa)
+                        {
+                            continue;
+                        }
+                        in_wave.insert(qa);
+                        wave.push((qn, qa, qs, wla(qa)));
+                    }
+                    wave
+                };
+                // Still missing (first wave, or this fn failed in its batch):
+                // lift a wave headed by the current target SYNCHRONOUSLY so
+                // the walk can proceed.
+                if !prelifted.contains_key(&addr) {
+                    let wave =
+                        build_wave(Some((name.clone(), addr, size)), &queue, &visited, &prelifted);
+                    if wave.len() > 1 {
+                        if let Some(w) = self.wave_launch(&wave, &mut prelifted) {
+                            self.wave_reap(w, &mut prelifted);
+                        }
+                    }
+                }
+                // And put the NEXT wave in flight; it lifts while the walk and
+                // the pool consume everything reaped above.
+                let next = build_wave(None, &queue, &visited, &prelifted);
+                if next.len() > 1 {
+                    wave_inflight = self.wave_launch(&next, &mut prelifted);
+                }
+            }
+            // Set when this iteration lifts fresh; consumed by the dep walk.
+            let mut walk_ir: Option<String> = None;
             lifted_count += 1;
             if lifted_count > max_recursive_depth {
                 return Err(TranspileError {
@@ -2223,63 +3037,121 @@ impl RemillTranspiler {
                 accessed_ranges.insert(r);
             }
 
-            // WEB-LIFT FIX (2026-06-02): enqueue CROSS-FUNCTION TAIL-CALL targets.
-            // ARM64 `b <addr>` (opcode bits[31:26]==0b000101) to an address OUTSIDE this fn's
-            // [addr, addr+size) is a TAIL CALL (e.g. to a shared `_OUTLINED_FUNCTION_N`
-            // epilogue/thunk the machine-outliner emitted). remill lowers such a `b` to
-            // `__remill_missing_block(target)` — NOT a `sub_<hex>` call extern — so
-            // parse_extern_sub_declares (below) never sees it and the target fn is never
-            // lifted → at runtime __az_indirect_dispatch has no `switch` case → MISSING_BLOCK
-            // trap (the systemic "small-fn missing_blocks" root). Lift these targets so the
-            // dispatcher routes the `br` to them. (intra-fn `b` = a normal loop/if branch, skip.)
+            // WEB-LIFT FIX : enqueue CROSS-FUNCTION TAIL-CALL targets.
+            // A `b <addr>` (arm64) / `jmp <rel>` (x86-64) into a DISTINCT function's entry
+            // is a TAIL CALL (e.g. `<String as Display>::fmt` = 15 bytes of argument
+            // shuffling then `jmp core::fmt::Formatter::pad`, or a shared outlined
+            // epilogue/thunk). remill lowers it to `__remill_missing_block(target)` —
+            // NOT a `sub_<hex>` call extern — so parse_extern_sub_declares (below) never
+            // sees it and the target fn is never lifted. `__remill_missing_block` RETURNS
+            // rather than traps, so the caller silently receives GARBAGE in RAX (the
+            // systemic "small-fn missing_blocks" root). Lift these targets.
+            //
+            // this scan used to hard-code the AArch64 `b` encoding
+            // (bits[31:26]==0b000101, fixed 4-byte stride), so on the Windows x86-64 port
+            // it matched nothing and NO tail-call target was ever enqueued. That is why
+            // `core::fmt::Formatter::pad` was absent from the entire lift: it is reached
+            // ONLY by tail-jmp from the Display thunks, so `<String as Display>::fmt`
+            // returned garbage, `core::fmt::write` read it as `Err`, and
+            // `format_inner`'s `.expect` hit `unreachable` — i.e. every `format!` of a
+            // string was broken. Now arch-dispatched via scan_guest_tail_call_targets.
             {
                 let mut tail_deps: Vec<(String, usize, usize)> = Vec::new();
                 if let Some(table) = symbol_table::get() {
-                    let mut off = 0usize;
-                    while off + 4 <= size {
-                        let instr = u32::from_le_bytes([
-                            fn_bytes_slice[off],
-                            fn_bytes_slice[off + 1],
-                            fn_bytes_slice[off + 2],
-                            fn_bytes_slice[off + 3],
-                        ]);
-                        if (instr >> 26) == 0x5 {
-                            // imm26 (signed) * 4, PC-relative to this instruction.
-                            let simm = (((instr & 0x03FF_FFFF) as i64) << 38) >> 38;
-                            let target =
-                                (addr.wrapping_add(off) as i64).wrapping_add(simm * 4) as usize;
-                            // A `b` is a cross-fn TAIL CALL iff its target is a DISTINCT
-                            // function's START. `table.lookup` is EXACT (by_addr.get) → it
-                            // returns Some ONLY for a symbol start, so an intra-fn `b` to a
-                            // mid-fn label yields None and is skipped. We DON'T range-test
-                            // [addr,addr+size) because symbol `size`s are often over-estimated
-                            // (spanning adjacent tiny outlined fns) — that made real tail-calls
-                            // look intra-fn and get dropped (the leftover OUTLINED epilogue trap).
-                            if let Some(e) = table.lookup(target) {
-                                if e.canonical_addr != addr
-                                    && e.classification.is_recursable()
-                                    && !visited.contains(&e.canonical_addr)
-                                {
-                                    tail_deps.push((
-                                        e.canonical_name.clone(),
+                    for target in scan_guest_tail_call_targets(fn_bytes_slice, addr) {
+                        // A jump is a cross-fn TAIL CALL iff its target is a DISTINCT
+                        // function's START. `table.lookup` is EXACT (by_addr.get) → it
+                        // returns Some ONLY for a symbol start, so an intra-fn branch to a
+                        // mid-fn label yields None and is skipped. We DON'T range-test
+                        // [addr,addr+size) because symbol `size`s are often over-estimated
+                        // (spanning adjacent tiny outlined fns) — that made real tail-calls
+                        // look intra-fn and get dropped (the leftover OUTLINED epilogue trap).
+                        // An exact symbol means a clean cross-fn tail call.
+                        let entry = table.lookup(target).cloned().or_else(|| {
+                            // No symbol AT the target. That is not "not a tail
+                            // call": tail-merged code makes a thunk jump into the
+                            // MIDDLE of another function, where no symbol exists.
+                            // `<&T as Display>::fmt` does exactly this - it jumps
+                            // into `RawVecInner::grow_amortized` - and dropping it
+                            // left the target unlifted with no dispatcher case, so
+                            // remill's missing-block handler fired at runtime with
+                            // the address baked in as a constant.
+                            //
+                            // ONLY when the jump LEAVES this function. The exact
+                            // symbol lookup had been doing double duty: it also
+                            // filtered out intra-function branches, since a loop
+                            // back-edge or if/else label has no symbol either.
+                            // Without this guard the fallback fired 52,591 times in
+                            // one run, synthesizing a "function" for every branch
+                            // label - some sized 29 KB by the gap to the next symbol.
+                            //
+                            // The range test belongs HERE and not on the exact-symbol
+                            // path, where symbol sizes are often over-estimated across
+                            // adjacent tiny outlined functions and testing would hide
+                            // real tail calls.
+                            let fn_end = addr.saturating_add(fn_bytes_slice.len());
+                            if target >= addr && target < fn_end {
+                                return None;
+                            }
+                            // Only in-image addresses synthesize, so a genuinely
+                            // external jump still yields None and is skipped.
+                            let synth = table.native_to_synth(target)?;
+                            let e = table.synthesize_text_entry(synth)?;
+                            eprintln!(
+                                "[azul-web]   tail-call target 0x{:x} has NO symbol \
+                                 (tail-merged mid-fn) — SYNTHESIZED {} bytes",
+                                target, e.size,
+                            );
+                            Some(e)
+                        });
+                        if let Some(e) = entry {
+                            // Say WHY a target is dropped. "not recursable" means
+                            // no dispatcher case is emitted for it, which is a
+                            // silent missing-block at runtime; "already visited"
+                            // is benign. Inferring which one from a size number is
+                            // what made this take several runs.
+                            // Report every outcome. A tail call that is dropped,
+                            // or redirected to a DIFFERENT canonical address than
+                            // the one the branch actually targets, leaves no
+                            // dispatcher case for the real target and fails
+                            // silently at runtime as a missing block.
+                            if e.canonical_addr != addr {
+                                let recursable = e.classification.is_recursable();
+                                let seen = visited.contains(&e.canonical_addr);
+                                let canon_differs = e.canonical_addr != target;
+                                if !recursable || canon_differs {
+                                    eprintln!(
+                                        "[azul-web]   tail-call 0x{:x} -> {} canonical=0x{:x} \
+                                         class={:?} recursable={} visited={} canon_differs={}",
+                                        target,
+                                        e.canonical_name,
                                         e.canonical_addr,
-                                        if e.size > 0 {
-                                            e.size
-                                        } else {
-                                            super::LIFT_READ_WINDOW
-                                        },
-                                    ));
+                                        e.classification,
+                                        recursable,
+                                        seen,
+                                        canon_differs,
+                                    );
                                 }
                             }
+                            if e.canonical_addr != addr
+                                && e.classification.is_recursable()
+                                && !visited.contains(&e.canonical_addr)
+                            {
+                                tail_deps.push((
+                                    e.canonical_name.clone(),
+                                    e.canonical_addr,
+                                    if e.size > 0 { e.size } else { super::LIFT_READ_WINDOW },
+                                ));
+                            }
                         }
-                        off += 4;
                     }
                 }
                 for (nm, a, sz) in tail_deps {
                     eprintln!(
-                        "[azul-web]   tail-call dep: b → {}@0x{:x} size={} (from {})",
+                        "[azul-web]   tail-call dep: → {}@0x{:x} size={} (from {})",
                         nm, a, sz, name,
                     );
+                    note_reached_by_code(a);
                     queue.push_back(TransitiveLiftTarget::Dep {
                         name: nm,
                         addr: a,
@@ -2293,9 +3165,19 @@ impl RemillTranspiler {
             // land in wasm-friendly low offsets. Symbol resolution
             // continues to work because per-image distances are
             // preserved in synthetic space.
+            // Synthesized PDB-gap entries are never inserted into by_addr,
+            // so lookup() misses and the raw-native fallback made the lift
+            // define @sub_<native> while every caller referenced
+            // @sub_<synth> — an unresolved import WITH its definition
+            // sitting unused in the same link (AzWriter's boot trap).
+            // native_to_synth works straight off the image rebases.
             let lift_addr = symbol_table::get()
-                .and_then(|t| t.lookup(addr))
-                .map(|e| e.synthetic_addr as u64)
+                .and_then(|t| {
+                    t.lookup(addr)
+                        .map(|e| e.synthetic_addr)
+                        .or_else(|| t.native_to_synth(addr))
+                })
+                .map(|s| s as u64)
                 .unwrap_or(addr as u64);
 
             // M8.8 perf: check the per-(addr, export_as) cache before
@@ -2308,6 +3190,9 @@ impl RemillTranspiler {
             let cached = self.object_cache.lock().unwrap().get(&cache_key).cloned();
             let obj = match cached {
                 Some(p) => {
+                    // A wave may have prelifted this before the cache probe
+                    // ran; drop the IR so the map stays bounded.
+                    prelifted.remove(&addr);
                     eprintln!(
                         "[azul-web]   transitive[{}]: cached {} addr=0x{:016x} → {}",
                         lifted_count,
@@ -2330,10 +3215,48 @@ impl RemillTranspiler {
                     // entire mini wasm. On failure, substitute a Leaf
                     // stub `.o` and continue; a genuinely hot stubbed fn
                     // surfaces downstream, not silently.
-                    let produced = match self
-                        .produce_object_for(&name, addr, size, &sig, &export_as, lift_addr)
+                    // Two-phase pipeline: only the REMILL lift runs inside
+                    // the walk (its IR feeds dep discovery); the heavy
+                    // opt+llc object production is deferred into a parallel
+                    // worker pool that drains before the link. On
+                    // translated-cache runs the in-loop half is nearly free,
+                    // so the walk collapses to discovery speed.
+                    match prelifted
+                        .remove(&addr)
+                        .map(Ok)
+                        .unwrap_or_else(|| self.lift_fn(&name, addr, size, lift_addr))
                     {
-                        Ok(p) => p,
+                        Ok(raw_ir) => {
+                            walk_ir = Some(raw_ir.clone());
+                            let obj_idx = object_paths.len();
+                            object_paths.push(PathBuf::new()); // patched at drain
+                            exports.push(export_as.clone());
+                            job_meta.push(ObjJobMeta {
+                                obj_idx,
+                                name: name.clone(),
+                                addr,
+                                lift_addr,
+                                sig: sig.clone(),
+                                export_as: export_as.clone(),
+                                cache_key: cache_key.clone(),
+                            });
+                            pool_jobs.lock().unwrap().push(Some(ObjJob {
+                                obj_idx,
+                                name: name.clone(),
+                                addr,
+                                lift_addr,
+                                sig: sig.clone(),
+                                export_as: export_as.clone(),
+                                cache_key: cache_key.clone(),
+                                // Carried in-memory: the walk's fn_name-stemmed
+                                // .lifted.ll gets OVERWRITTEN by a later lift of a
+                                // same-named monomorphization copy (write_fmt<String>
+                                // exists at two addresses), so a deferred file
+                                // re-read hands the second fn's IR to both jobs and
+                                // wasm-ld dies on duplicate sub_<hex> defines.
+                                raw_ir,
+                            }));
+                        }
                         Err(e) => {
                             eprintln!(
                                 "[azul-web]   ⚠ transitive[{}]: {} FAILED to lift ({}) \
@@ -2356,21 +3279,130 @@ impl RemillTranspiler {
                             // deps to enqueue. Skip the dep-walk.
                             continue;
                         }
-                    };
-                    self.object_cache
-                        .lock()
-                        .unwrap()
-                        .insert(cache_key, produced.clone());
-                    produced
+                    }
+                    PathBuf::new() // unused marker; real path lands at drain
                 }
             };
-            object_paths.push(obj);
-            exports.push(export_as);
+            if obj != PathBuf::new() {
+                object_paths.push(obj);
+                exports.push(export_as);
+            }
+
+            // Data-resident FUNCTION POINTERS. rustc puts constant
+            // `fmt::Arguments` (and vtables, jump tables, callback tables)
+            // in .rdata, so the formatter fn-ptrs they carry are reachable
+            // ONLY by loading them at runtime — no call site names them, so
+            // the byte-scan below never sees them and they get no dispatcher
+            // case. The indirect call then finds no case, returns garbage,
+            // and the caller reads it as a bogus Err (AzWriter's
+            // `Json::to_string` failing) or walks off memory.
+            //
+            // The regions a function actually references are already known
+            // (they are what `build_extra_data` hands to remill), so scan
+            // exactly those for 8-aligned values that resolve to a function
+            // entry and enqueue them like any other dep. Bounded by the
+            // referenced regions, and it converges: each newly lifted
+            // function contributes its own.
+            if let Some(table) = symbol_table::get() {
+                let fn_bytes = unsafe {
+                    core::slice::from_raw_parts(addr as *const u8, size)
+                };
+                let mut data_fnptrs = 0usize;
+                for (raddr, rlen) in scan_guest_data_accesses(fn_bytes, addr) {
+                    if rlen == 0 || rlen > 65536 {
+                        continue;
+                    }
+                    // SAFETY: same provenance as build_extra_data's read —
+                    // an adrp/lea-referenced range inside the live image.
+                    let data = unsafe {
+                        core::slice::from_raw_parts(raddr as *const u8, rlen)
+                    };
+                    let start = (8 - (raddr % 8)) % 8;
+                    // Bound the scan to the object the code actually referenced.
+                    // `rlen` for a `lea` is LEA_MIRROR_WINDOW - a guess sized for
+                    // jump tables - so without this the scan walks into whatever
+                    // unrelated .rdata follows. See plausible_object_extent.
+                    // DISABLED: bounding this scan cost a dispatcher case and
+                    // the module trapped at boot with "unmatched indirect
+                    // dispatch 0xec5450". Two rules were tried and both made it
+                    // worse - the run-length rule suppressed 72,700 pointers,
+                    // and the supposedly-more-permissive first-word gate
+                    // suppressed 79,109, because a region whose first word is
+                    // data but whose later words are function pointers is
+                    // rejected outright by the gate where the run-length rule
+                    // still scanned part of it.
+                    //
+                    // The Win32 pull-in this was meant to prevent is a SIZE
+                    // problem; a missing dispatcher case is a CORRECTNESS
+                    // problem that fails silently at runtime. Correctness wins
+                    // until the bound can be derived from real data-object
+                    // extents rather than guessed from the contents.
+                    //
+                    // The counter below still reports what a bound WOULD have
+                    // suppressed, so the next attempt can be judged against a
+                    // build that boots.
+                    let extent = data.len();
+                    if extent < data.len() {
+                        let mut past = 0u64;
+                        let mut j = extent;
+                        while j + 8 <= data.len() {
+                            let v = u64::from_le_bytes(data[j..j + 8].try_into().unwrap()) as usize;
+                            if v >= 0x1000
+                                && table.resolve(v).map(|e| e.canonical_addr == v).unwrap_or(false)
+                            {
+                                past += 1;
+                            }
+                            j += 8;
+                        }
+                        if past > 0 {
+                            FNPTR_SEEDS_BOUNDED
+                                .fetch_add(past, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                    let mut i = start;
+                    while i + 8 <= extent {
+                        let v = u64::from_le_bytes(data[i..i + 8].try_into().unwrap()) as usize;
+                        i += 8;
+                        if v < 0x1000 {
+                            continue;
+                        }
+                        let Some(e) = table.resolve(v) else { continue };
+                        if e.canonical_addr != v || !e.classification.is_recursable() {
+                            continue;
+                        }
+                        if visited.contains(&e.canonical_addr) {
+                            continue;
+                        }
+                        note_data_sweep_seed(e.canonical_addr, &e.canonical_name, &name);
+                        queue.push_back(TransitiveLiftTarget::Dep {
+                            name: e.canonical_name.clone(),
+                            addr: e.canonical_addr,
+                            size: if e.size > 0 { e.size } else { super::LIFT_READ_WINDOW },
+                        });
+                        data_fnptrs += 1;
+                    }
+                }
+                if data_fnptrs > 0 {
+                    eprintln!(
+                        "[azul-web]     data fn-ptrs: {} target(s) enqueued from {}'s referenced .rdata",
+                        data_fnptrs, name,
+                    );
+                }
+            }
 
             // Parse this lift's branch externs + enqueue deps.
-            let stem = sanitize_filename(&name);
+            // The IR comes from the lift we JUST ran, in memory. Reading it
+            // back from `<fn_name>.lifted.ll` made dep discovery depend on
+            // file state that the object-production pool races with (and
+            // that same-named monomorphizations overwrite), so the walk
+            // found a different dep set on every run — observed as export
+            // counts drifting between identical builds.
+            let stem = format!("{}_{:x}", sanitize_filename(&name), addr);
             let lifted_ir_path = self.scratch_dir.join(format!("{}.lifted.ll", stem));
-            let lifted_ir = match std::fs::read_to_string(&lifted_ir_path) {
+            let lifted_ir = match walk_ir.take().map_or_else(
+                || std::fs::read_to_string(&lifted_ir_path),
+                Ok,
+            ) {
                 Ok(s) => s,
                 Err(_) => {
                     // remill should always produce the .lifted.ll
@@ -2447,6 +3479,11 @@ impl RemillTranspiler {
                     used_boundaries.insert(entry.canonical_addr);
                     continue;
                 }
+                // A direct call is the strongest reachability evidence. Record it
+                // before the recursable filter: a call to a Leaf/NeverLift target
+                // still means code reaches it, which is what the data-sweep check
+                // asks about.
+                note_reached_by_code(entry.canonical_addr);
                 if !entry.classification.is_recursable() {
                     // Leaf / BumpAlloc / CallIndirect /
                     // ResolveCallback / NeverLift: the helper IR
@@ -2463,6 +3500,63 @@ impl RemillTranspiler {
                         super::LIFT_READ_WINDOW
                     },
                 });
+            }
+            // [FIX] The IR-walk above only sees `sub_<hex>` externs =
+            // STATIC call targets. INDIRECT-dispatch targets (vtable / trait-object /
+            // core::fmt::Arguments fn-pointers) are RUNTIME values, so they never
+            // appear as externs and stay unlifted → the `__az_indirect_dispatch`
+            // switch has no case → hits its `default` no-op → e.g. core::fmt::write's
+            // arg-formatter dispatch silently fails → fmt::write returns Err →
+            // format_inner `.expect` → core::result::unwrap_failed (the solveLayoutReal
+            // trap). Discover them by scanning THIS fn's bytes: code-lea'd fn-ptrs
+            // (rt::Argument formatters, materialized inline for runtime args) + fn-ptrs
+            // inside referenced const data (Formatter-write / trait-object vtables).
+            // Enqueue the recursable ones exactly like the IR-walk deps above.
+            {
+                let fn_bytes = unsafe { std::slice::from_raw_parts(addr as *const u8, size) };
+                // Kept separate for provenance: a `lea` of a function address in
+                // THIS function's code is a genuine address-take, while a pointer
+                // found in referenced const data is only as trustworthy as the
+                // mirrored window it was found in. Both are still enqueued.
+                let code_taken = scan_guest_code_addr_targets(fn_bytes, addr);
+                let data_found = scan_guest_data_code_ptrs(fn_bytes, addr);
+                let mut ptr_targets = code_taken.clone();
+                ptr_targets.extend(data_found);
+                if let Some(table) = symbol_table::get() {
+                    for t in ptr_targets {
+                        let Some(entry) = table.resolve(t) else {
+                            continue;
+                        };
+                        if entry.classification.is_boundary_import() {
+                            used_boundaries.insert(entry.canonical_addr);
+                            continue;
+                        }
+                        if !entry.classification.is_recursable() {
+                            continue;
+                        }
+                        if visited.contains(&entry.canonical_addr) {
+                            continue;
+                        }
+                        if code_taken.contains(&t) {
+                            note_reached_by_code(entry.canonical_addr);
+                        } else {
+                            note_data_sweep_seed(
+                                entry.canonical_addr,
+                                &entry.canonical_name,
+                                &name,
+                            );
+                        }
+                        queue.push_back(TransitiveLiftTarget::Dep {
+                            name: entry.canonical_name.clone(),
+                            addr: entry.canonical_addr,
+                            size: if entry.size > 0 {
+                                entry.size
+                            } else {
+                                super::LIFT_READ_WINDOW
+                            },
+                        });
+                    }
+                }
             }
         }
 
@@ -2488,16 +3582,70 @@ impl RemillTranspiler {
             object_paths.push(obj.clone());
         }
 
+        // Overlapped pool: the walk already fed every job to the live
+        // workers; signal completion, join, then commit results in order.
+        if let Some(w) = wave_inflight.take() {
+            self.wave_reap(w, &mut prelifted);
+        }
+        pool_done.store(true, std::sync::atomic::Ordering::SeqCst);
+        if !job_meta.is_empty() {
+            eprintln!(
+                "[azul-web] joining object pool: {} job(s), {} worker(s) (AZ_LIFT_JOBS overrides)",
+                job_meta.len(),
+                n_workers,
+            );
+        }
+        for h in pool_handles {
+            let _ = h.join();
+        }
+        {
+            let mut results = pool_results.lock().unwrap();
+            for m in &job_meta {
+                let r = results
+                    .remove(&m.obj_idx)
+                    .expect("pool worker filled every claimed job");
+                match r {
+                    Ok(p) => {
+                        self.object_cache
+                            .lock()
+                            .unwrap()
+                            .insert(m.cache_key.clone(), p.clone());
+                        object_paths[m.obj_idx] = p;
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[azul-web]   ⚠ object production FAILED for {} ({}) — Leaf stub",
+                            m.name, e.reason,
+                        );
+                        stubbed_fns.push(m.name.clone());
+                        let stub = self.produce_leaf_stub_object(
+                            &m.name, m.addr, &m.sig, &m.export_as, m.lift_addr,
+                        )?;
+                        self.object_cache
+                            .lock()
+                            .unwrap()
+                            .insert(m.cache_key.clone(), stub.clone());
+                        object_paths[m.obj_idx] = stub;
+                    }
+                }
+            }
+        }
+
         eprintln!(
             "[azul-web] transitive lift complete: {} functions lifted, {} unique exports",
             visited.len(),
             exports.len()
         );
+            set_lift_phase("collect data pages + mirror set");
         if !stubbed_fns.is_empty() {
             eprintln!(
                 "[azul-web] ⚠ {} function(s) Leaf-stubbed (remill could not lift them): {}",
                 stubbed_fns.len(),
                 stubbed_fns.join(", ")
+            );
+            LIFT_FAILURES.fetch_add(
+                stubbed_fns.len() as u32,
+                std::sync::atomic::Ordering::Relaxed,
             );
         }
 
@@ -2513,7 +3661,7 @@ impl RemillTranspiler {
         // web-transpiler-static; the dispatcher .o is plain wasm-linkable
         // and `visited` is populated on the sequential path, so it belongs
         // here too.) AZ_NO_INDIRECT_DISPATCH=1 disables.
-        if std::env::var_os("AZ_NO_INDIRECT_DISPATCH").is_none() {
+        if !super::lift_env::lift_env().no_indirect_dispatch {
             let cs = self.dispatcher_csynths(visited.iter().copied());
             if let Some(o) = self.emit_indirect_dispatcher_obj(&cs) {
                 object_paths.push(o);
@@ -2548,6 +3696,7 @@ impl RemillTranspiler {
             imports_from_mini: Vec::new(),
             used_boundaries: boundaries,
         })
+    })
     }
 
     /// M12.7: build + compile the indirect-call dispatcher object. `csynths` is
@@ -2573,13 +3722,13 @@ impl RemillTranspiler {
         ir.push_str("declare ptr @__remill_write_memory_32(ptr, i64, i32)\n");
         ir.push_str("declare i32 @__remill_read_memory_32(ptr, i64)\n");
         ir.push_str("declare i64 @__remill_read_memory_64(ptr, i64)\n");
-        // [WEB-LIFT FIX 2026-06-11] wasm-side TLS base for the TLV case
+        // [WEB-LIFT FIX] wasm-side TLS base for the TLV case
         // below: the SYNTH address of __thread_data (descriptor offsets
         // are relative to it; mirror + lifted adrp both live in synth
         // space). None ⇒ the image has no thread-locals and no TLV case
         // is emitted.
         let tlv_tls_base: Option<u32> = symbol_table::get().and_then(|t| t.tlv_tls_base_synth());
-        // WEB-LIFT FIX (2026-06-03, DEFINITIVE): the dispatcher must call the remill-ABI BODY
+        // WEB-LIFT FIX (DEFINITIVE): the dispatcher must call the remill-ABI BODY
         // `@sub_<csynth>(ptr state, i64 pc, ptr memory)` — NOT the `@__az_dep_<addr>` export, which
         // is the EXTERNAL callback-ABI wrapper with a DIFFERENT signature `(i64 lo, i64 hi, i32)`
         // (split-128-bit args for JS/loader). Declaring `@__az_dep_<addr>(ptr,i64,ptr)` triggered a
@@ -2594,7 +3743,48 @@ impl RemillTranspiler {
                 ir.push_str(&format!("declare ptr @sub_{:x}(ptr, i64, ptr)\n", c));
             }
         }
-        // WEB-LIFT FIX (2026-06-02): mask %pc to low 32 bits before the switch. Tail-jump
+        // IAT imports. The import address table is mirrored into guest memory
+        // with its LOAD-TIME resolved addresses, which point into KERNEL32 /
+        // ntdll / VCRUNTIME140 — modules the symbol table does not track, so
+        // `native_to_synth` returns None and the pointer is left raw. Lifted
+        // code that loads a slot into a register and calls through it therefore
+        // arrives here with a `0x7ffd…` value, matches nothing, and the default
+        // arm returns as if the call had succeeded. (`rewrite_iat_calls` covers
+        // the direct `call [rip+iat]` form; this is the other one.)
+        //
+        // Dropped silently, that is a wrong answer rather than a crash: a
+        // no-op `memcmp` makes serde's field-name matching answer wrongly,
+        // which is what turned AzWriter's state deserializer into an
+        // `unwrap_failed`. See doc/web-iat-import-dispatch.md.
+        //
+        // These resolve in OUR OWN process, so the addresses match the mirrored
+        // IAT exactly, and the dispatcher object is rebuilt every run (it is not
+        // object-cached), so ASLR cannot make them stale.
+        let import_cases = intercepted_import_labels(cases);
+        for (label, kind, name) in &import_cases {
+            eprintln!(
+                "[azul-web]   M12.7: IAT import {} → 0x{:x} routed to the {} helper",
+                name,
+                label,
+                kind.helper_name(),
+            );
+        }
+        if !import_cases.is_empty() {
+            // `memcmp` walks bytes one at a time through the guest memory
+            // intrinsic rather than importing a host `memcmp`: adding a new env
+            // import would make every probe script that zero-stubs unknown
+            // imports fail in a way that looks exactly like a mis-lift (the
+            // __multi3 / __udivti3 artifact, which cost a full false diagnosis).
+            ir.push_str("declare i8 @__remill_read_memory_8(ptr, i64)\n");
+            ir.push_str("declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n");
+            ir.push_str("declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");
+            ir.push_str("declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)\n");
+            for intrin in ["trunc", "floor", "ceil", "fabs", "sqrt"] {
+                ir.push_str(&format!("declare double @llvm.{intrin}.f64(double)\n"));
+                ir.push_str(&format!("declare float @llvm.{intrin}.f32(float)\n"));
+            }
+        }
+        // WEB-LIFT FIX : mask %pc to low 32 bits before the switch. Tail-jump
         // (`br`) PCs arrive TAGGED in the high bits (e.g. 0x8_00f70ebc / 0x9_00f6dfc4 — a
         // missing-block/region marker the lift OR's in), but the csynth case labels are the
         // CLEAN synth (0xf70ebc, < 0x10000000 since libazul is ~250 MiB). Without masking the
@@ -2606,10 +3796,16 @@ impl RemillTranspiler {
         for (label, _c) in cases {
             ir.push_str(&format!("    i64 {}, label %c{:x}\n", label, label));
         }
+        for (label, _kind, _name) in &import_cases {
+            ir.push_str(&format!("    i64 {}, label %imp{:x}\n", label, label));
+        }
         if tlv_tls_base.is_some() {
             ir.push_str(&format!("    i64 {}, label %tlv\n", AZ_TLV_MAGIC_PC));
         }
         ir.push_str("  ]\n");
+        for (label, kind, _name) in &import_cases {
+            ir.push_str(&kind.emit_case_block(*label));
+        }
         // TLV getter (macOS thread-locals, see AZ_TLV_MAGIC_PC): the
         // caller did `adrp x0,<descriptor>; ldr x8,[x0]; blr x8` with
         // the mirrored thunk rewritten to the magic PC. Emulate
@@ -2630,12 +3826,123 @@ impl RemillTranspiler {
             ));
         }
         for (label, c) in cases {
+            // Pass the CALLEE's own lift address, never the dispatched label.
+            //
+            // A lifted function seeds its whole PC chain from this argument
+            // (`store i64 %program_counter, ptr %NEXT_PC` in its entry block),
+            // and every rip-relative computation inside it — jump tables, `lea`
+            // of .rdata — is derived from that seed. remill's contract is
+            // therefore that `pc` IS the address the body was lifted at.
+            //
+            // `label` is the dispatched TARGET, which is usually the callee's
+            // address — but not always, and that is the whole bug. The walk
+            // resolves a target through `resolve()`, so a shim or an
+            // ICF-folded duplicate maps onto a DIFFERENT canonical body: the
+            // case is emitted for `label`, the call goes to `sub_c`, and
+            // `label != c`. Seeding the body with `label` then skews every
+            // rip-relative address it computes by exactly (c - label).
+            //
+            // Observed, and the arithmetic closes to the byte: 0x363460 is
+            // `AzQuickAccessActionVec_delete`, a shim that is never lifted;
+            // resolve() sends it to `U8Vec::drop` at 0xde51f0. Seeded with
+            // 0x363460, that body's destructor jump-table `lea` computed
+            // 0x363473 + 0x510d8d = 0x874200 instead of 0x12f5f90 — landing in
+            // the .text of an unlifted webrender function. Unmirrored .text
+            // reads as zero, so `base + table[tag]` returned the bad base
+            // itself, which matches no switch case. The reported PC therefore
+            // named neither the caller nor any real target, and the value
+            // existed in no .ll file, no heap object and no mirror, because it
+            // was computed from a bad seed and never stored anywhere.
             ir.push_str(&format!(
-                "c{label:x}:\n  %r{label:x} = call ptr @sub_{c:x}(ptr %state, i64 %pcm, ptr %memory)\n  ret ptr %r{label:x}\n",
+                "c{label:x}:\n  %r{label:x} = call ptr @sub_{c:x}(ptr %state, i64 {c}, ptr %memory)\n  ret ptr %r{label:x}\n",
                 label = label, c = c
             ));
         }
-        ir.push_str("unk:\n  %uc = call i32 @__remill_read_memory_32(ptr %memory, i64 262488)\n  %uc1 = add i32 %uc, 1\n  %um = call ptr @__remill_write_memory_32(ptr %memory, i64 262488, i32 %uc1)\n  ret ptr %um\n}\n");
+        // `unk` = no switch case matched. It already counts hits at 0x40158 (262488);
+        // ALSO record the unmatched target PC at 0x40900 (264448) — that value names the
+        // broken layer outright: 0 ⇒ the fn-ptr slot was never mirrored (guest read zero);
+        // a NATIVE addr (0x7ff8…) ⇒ mirrored but not native→synth translated; a plausible
+        // SYNTH addr ⇒ translated but the target was never lifted (no case emitted).
+        //
+        // The LAST PC alone is a trap for the reader: once one dispatch misses, the
+        // caller continues on a garbage return value and the PCs that follow are
+        // downstream noise, so 0x40900 names a symptom while the causal miss is long
+        // overwritten. (Chasing it cost a debugging cycle: the last PC pointed at a
+        // RawVec drop that has no fn-pointer anywhere in the image, while the FIRST
+        // miss was an ordinary lifted serializer.) So also record the FIRST unmatched
+        // PC at 0x409B0 (264624), which is written once and never clobbered, and an
+        // ordered ring of 16 at 0x409C0 (264640) — same shape as the missing-block
+        // ring at 0x40160, which is what made this diagnosable at all.
+        ir.push_str(concat!(
+            "unk:\n",
+            "  %uc = call i32 @__remill_read_memory_32(ptr %memory, i64 262488)\n",
+            "  %uc1 = add i32 %uc, 1\n",
+            "  %um = call ptr @__remill_write_memory_32(ptr %memory, i64 262488, i32 %uc1)\n",
+            "  %pclo = trunc i64 %pcm to i32\n",
+            "  %um2 = call ptr @__remill_write_memory_32(ptr %um, i64 264448, i32 %pclo)\n",
+            // ring slot = (pre-increment count % 16), so the order of the first 16
+            // misses survives regardless of how many follow.
+            "  %idx = and i32 %uc, 15\n",
+            "  %idx64 = zext i32 %idx to i64\n",
+            "  %roff = shl i64 %idx64, 2\n",
+            "  %rslot = add i64 264640, %roff\n",
+            "  %um3 = call ptr @__remill_write_memory_32(ptr %um2, i64 %rslot, i32 %pclo)\n",
+            "  %isfirst = icmp eq i32 %uc, 0\n",
+            "  br i1 %isfirst, label %unkfirst, label %unkdone\n",
+            "unkfirst:\n",
+            "  %um4 = call ptr @__remill_write_memory_32(ptr %um3, i64 264624, i32 %pclo)\n",
+            // Also record the STATE POINTER at 0x40A00 (264704), once, on the
+            // first miss only — so it is never clobbered by later noise.
+            //
+            // Recording the PC says what was dispatched; it never says what the
+            // guest registers held, and that is what identifies the dispatching
+            // instruction. Post-mortem scanning cannot recover them: the state
+            // block is an alloca whose address is not otherwise discoverable,
+            // and guessing it from SP arithmetic produced a register mapping
+            // that contradicted the disassembly.
+            //
+            // Deliberately the POINTER and not a set of registers: reading
+            // individual registers here would bake in per-arch State offsets
+            // that are themselves the thing in doubt. With the pointer, the
+            // whole block can be dumped from JS afterwards (mem-dump.js) and
+            // every register identified empirically against known values -
+            // measurement instead of extrapolation.
+            "  %stp = ptrtoint ptr %state to i64\n",
+            "  %stlo = trunc i64 %stp to i32\n",
+            "  %um5 = call ptr @__remill_write_memory_32(ptr %um4, i64 264704, i32 %stlo)\n",
+            "  br label %unkdone\n",
+            "unkdone:\n",
+            "  %umr = phi ptr [ %um3, %unk ], [ %um5, %unkfirst ]\n",
+        ));
+        // Recording says WHAT was dispatched but never WHO dispatched it, and the
+        // dispatching site is the thing worth knowing: the target is often a
+        // computed value that appears nowhere in the image, so it cannot be traced
+        // back statically (a `lea`-materialised address is a displacement, not a
+        // literal, and remill emits these rip-relative computations symbolically —
+        // grepping the IR for the constant finds nothing).
+        //
+        // Trapping here instead makes V8 unwind the guest stack, and the frame
+        // BELOW the dispatcher is the lifted function that jumped — one
+        // `wfunc.mjs` lookup away from a name.
+        //
+        // Off by default: an unmatched dispatch is always a defect, but turning
+        // every one into a hard stop would take out a bundle that currently boots
+        // through benign ones, and the hello-world gate is the regression baseline
+        // this whole hunt is measured against. Flip it on for the run you are
+        // debugging. Once the known misses are routed this should become the
+        // default, since returning as if a call succeeded is never right.
+        let unk_traps = std::env::var("AZ_UNK_TRAP").map(|v| v != "0").unwrap_or(false);
+        if unk_traps {
+            ir.push_str(
+                "  %umt = call ptr @__remill_write_memory_32(ptr %umr, i64 262216, i32 %pclo)\n  \
+                 unreachable\n}\n",
+            );
+            eprintln!(
+                "[azul-web]   M12.7: AZ_UNK_TRAP=1 — unmatched dispatches TRAP (stack names the caller)"
+            );
+        } else {
+            ir.push_str("  ret ptr %umr\n}\n");
+        }
         let disp_o = self.scratch_dir.join("az_indirect_dispatch.o");
         if self.use_native_remill() {
             #[cfg(feature = "web-transpiler-static")]
@@ -2722,12 +4029,32 @@ impl RemillTranspiler {
         let addr_set: HashSet<usize> = addrs.collect();
         let mut cs: Vec<(u64, u64)> = Vec::new();
         let mut seen: HashSet<u64> = HashSet::new();
+        let mut synthesized_cases = 0usize;
         for &a in &addr_set {
-            let Some(e) = tbl.lookup(a) else { continue };
-            let raw = e.synthetic_addr as u64;
-            let c = tbl
-                .resolve_synth(e.synthetic_addr)
-                .unwrap_or(e.synthetic_addr) as u64;
+            // PDB coverage gaps: `synthesize_text_entry` hands the walk an entry
+            // for a call target the PDB has no symbol for, but it takes `&self`
+            // and therefore never inserts into `by_addr` — so `lookup` misses
+            // here even though the function WAS lifted and its body is in the
+            // bundle. Skipping it emitted no case, and every indirect call or
+            // tail-jump to that body then fell into the dispatcher's default arm,
+            // which returns as if the call had succeeded. Silent, and invisible
+            // to the audit: unlike the four sibling sites of this bug (lift_addr,
+            // synth_of, canonical_entry_addr x2) it produces no unresolved extern
+            // to refuse on, only a wrong answer at runtime.
+            //
+            // Derive the synth from the image rebases instead, which is what the
+            // other four sites already fall back to.
+            let (raw, c) = match tbl.lookup(a) {
+                Some(e) => (
+                    e.synthetic_addr as u64,
+                    tbl.resolve_synth(e.synthetic_addr).unwrap_or(e.synthetic_addr) as u64,
+                ),
+                None => {
+                    let Some(s) = tbl.native_to_synth(a) else { continue };
+                    synthesized_cases += 1;
+                    (s as u64, tbl.resolve_synth(s).unwrap_or(s) as u64)
+                }
+            };
             if c == 0 {
                 continue;
             }
@@ -2736,7 +4063,7 @@ impl RemillTranspiler {
                     cs.push((label, c));
                 }
             }
-            // 2026-06-10: ALSO match the NATIVE address truncated to 32 bits. Function
+            // ALSO match the NATIVE address truncated to 32 bits. Function
             // pointers stored in MIRRORED DATA (vtables, fn-ptr struct fields baked into
             // __DATA_CONST) carry the callee's NATIVE address; the wasm-side blr then
             // dispatches with that value, which the synth-keyed switch missed (silent
@@ -2748,6 +4075,13 @@ impl RemillTranspiler {
             if trunc != 0 && !tbl.is_synth_in_image_span(trunc as usize) && seen.insert(trunc) {
                 cs.push((trunc, c));
             }
+        }
+        if synthesized_cases > 0 {
+            eprintln!(
+                "[azul-web]   M12.7: {} dispatcher case(s) from PDB-gap bodies \
+                 (no by_addr entry — would have been silently undispatchable)",
+                synthesized_cases,
+            );
         }
         cs
     }
@@ -2828,10 +4162,10 @@ impl RemillTranspiler {
                 r.export_as,
             ));
         }
-        // (2026-06-03: see the sequential path — force-enqueuing ALL ~8048 _OUTLINED_FUNCTION_*
+        // (see the sequential path — force-enqueuing ALL ~8048 _OUTLINED_FUNCTION_*
         // blows the runaway limit; reverted. Fix needs a narrowed set / raised limits / dispatcher
         // epilogue emulation.)
-        // 2026-06-10 (fn-ptr roots): seed targets that are reached ONLY through function
+        // (fn-ptr roots): seed targets that are reached ONLY through function
         // POINTERS whose values live in mirrored DATA (callback-struct fields like
         // azul_core::task::GetSystemTimeCallback) — invisible to both the BL/B scan and the
         // adrp+add scan, so they were never lifted and the indirect dispatcher unk-dropped
@@ -2875,9 +4209,21 @@ impl RemillTranspiler {
                 });
             }
             // Scan this fn's bytes for BL/B targets.
-            let bytes_slice = unsafe { std::slice::from_raw_parts(addr as *const u8, size) };
+            //
+            // Scan the bytes AS THE LIFTER WILL SEE THEM. On Windows an import
+            // is called indirectly through the IAT (`call [rip+disp]`), which a
+            // direct-branch scan cannot follow; `rewrite_iat_calls` turns those
+            // into direct calls, and remill is handed that rewritten copy. Scanning
+            // the raw bytes here therefore missed every cross-image callee reached
+            // through an import - this walk discovers deps from the SCAN alone, so
+            // the miss is silent and the callee simply never gets lifted.
+            let raw = unsafe { std::slice::from_raw_parts(addr as *const u8, size) };
+            let mut scan_bytes = raw.to_vec();
+            #[cfg(target_arch = "x86_64")]
+            x86_scan::rewrite_iat_calls(&mut scan_bytes, addr, addr as u64);
+            let bytes_slice: &[u8] = &scan_bytes;
             let mut bl_targets = scan_guest_branch_targets(bytes_slice, addr);
-            // 2026-06-10: ALSO scan `adrp+add` code-address materializations (function
+            // ALSO scan `adrp+add` code-address materializations (function
             // POINTERS taken for vtables / callback structs, e.g. azul_core::task::
             // Instant::now stored in GetSystemTimeCallback). Those targets are reached
             // only via blr at runtime — the BL/B scan never sees them, they stay
@@ -2942,7 +4288,7 @@ impl RemillTranspiler {
         // Debug: verify all targets have unique addr — a duplicate
         // would explain "wasm-ld: error: duplicate symbol: sub_<X>"
         // (two .o files defining sub_<canonical_X>).
-        if std::env::var_os("AZ_REMILL_DEBUG").is_some() {
+        if super::lift_env::lift_env().remill_debug {
             let mut seen_addrs: HashSet<usize> = HashSet::new();
             for t in &targets {
                 if !seen_addrs.insert(t.addr) {
@@ -3021,9 +4367,16 @@ impl RemillTranspiler {
             // offsets. Native `t.addr` is now used only as the
             // identity key for caching + symbol resolution.
             let synth_of = |native_addr: usize| -> u64 {
+                // Same PDB-gap fallback as the sequential path: a
+                // synthesized entry has no by_addr record, but the image
+                // rebases still map it.
                 symbol_table::get()
-                    .and_then(|t| t.lookup(native_addr))
-                    .map(|e| e.synthetic_addr as u64)
+                    .and_then(|t| {
+                        t.lookup(native_addr)
+                            .map(|e| e.synthetic_addr)
+                            .or_else(|| t.native_to_synth(native_addr))
+                    })
+                    .map(|s| s as u64)
                     .unwrap_or(native_addr as u64)
             };
             let items: Vec<(u64, &[u8])> = to_lift_idx
@@ -3045,7 +4398,7 @@ impl RemillTranspiler {
                 .zip(bytes_vec.iter())
                 .filter_map(|(&i, b)| {
                     // Gated to big fns (>12 KB): the big CssProperty match fns need the exact
-                    // jump-table decode. (2026-06-02: ungating for small fns had ZERO effect on
+                    // jump-table decode. (ungating for small fns had ZERO effect on
                     // the missing_block ring — the small-fn missing_blocks are NOT devirt
                     // failures; see memory web_flexbox_lift_2026_06_01.)
                     if b.len() <= 12288 {
@@ -3097,8 +4450,8 @@ impl RemillTranspiler {
             //   AZ_REMILL_MERGED_COMPILE=1 forces ON regardless of size.
             //   AZ_REMILL_DISABLE_AUTO_MERGE=1 forces OFF (regression-test path).
             const MERGED_AUTO_THRESHOLD: usize = 30;
-            let env_force_on = std::env::var_os("AZ_REMILL_MERGED_COMPILE").is_some();
-            let env_force_off = std::env::var_os("AZ_REMILL_DISABLE_AUTO_MERGE").is_some();
+            let env_force_on = super::lift_env::lift_env().merged_compile;
+            let env_force_off = super::lift_env::lift_env().disable_auto_merge;
             let auto_on = targets.len() <= MERGED_AUTO_THRESHOLD;
             let merged_mode =
                 self.use_native_remill() && !env_force_off && (env_force_on || auto_on);
@@ -3214,7 +4567,7 @@ impl RemillTranspiler {
 
         // Debug: log any duplicate paths (same .o file in object_paths
         // twice would explain a wasm-ld "duplicate symbol" error).
-        if std::env::var_os("AZ_REMILL_DEBUG").is_some() {
+        if super::lift_env::lift_env().remill_debug {
             let mut seen: HashSet<PathBuf> = HashSet::new();
             for p in &object_paths {
                 if !seen.insert(p.clone()) {
@@ -3236,12 +4589,12 @@ impl RemillTranspiler {
         // call them. Skipped via AZ_NO_INDIRECT_DISPATCH=1. See
         // [`Self::emit_indirect_dispatcher_obj`].
         {
-            let env_force_on_d = std::env::var_os("AZ_REMILL_MERGED_COMPILE").is_some();
-            let env_force_off_d = std::env::var_os("AZ_REMILL_DISABLE_AUTO_MERGE").is_some();
+            let env_force_on_d = super::lift_env::lift_env().merged_compile;
+            let env_force_off_d = super::lift_env::lift_env().disable_auto_merge;
             let merged_d = self.use_native_remill()
                 && !env_force_off_d
                 && (env_force_on_d || targets.len() <= 30);
-            if !merged_d && std::env::var_os("AZ_NO_INDIRECT_DISPATCH").is_none() {
+            if !merged_d && !super::lift_env::lift_env().no_indirect_dispatch {
                 let cs = self.dispatcher_csynths(targets.iter().map(|t| t.addr));
                 if let Some(o) = self.emit_indirect_dispatcher_obj(&cs) {
                     object_paths.push(o);
@@ -3323,14 +4676,14 @@ impl Drop for RemillTranspiler {
 static NEXT_NON_MINI_STACK_SLOT: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);
 
-const STACK_BASE_FIRST: u32 = 192 * 1024; // 192 KiB
-const STACK_BASE_STRIDE: u32 = 128 * 1024; // 128 KiB / wasm
-                                           // NOTE (2026-06-02): tried 2MiB/2MiB to fix the direct-prop layout-cb OOB —
-                                           // it did NOT help (the cb still OOBs with 2 MiB stacks), so the cb crash is
-                                           // NOT a stack overflow; it's a struct-by-value-arg mis-lift (the m12_7 HFA class:
-                                           // padding/border struct literals + AzColorU passed by value to AzCssProperty_*).
-                                           // Reverted to the verified-good 192K/128K. (web-direct-body's plain-constructor
-                                           // width/height props lift fine; the struct-literal args are the gap.)
+const STACK_BASE_FIRST: u32 = 192 * 1024;   // 192 KiB
+const STACK_BASE_STRIDE: u32 = 128 * 1024;  // 128 KiB / wasm
+// NOTE : tried 2MiB/2MiB to fix the direct-prop layout-cb OOB —
+// it did NOT help (the cb still OOBs with 2 MiB stacks), so the cb crash is
+// NOT a stack overflow; it's a struct-by-value-arg mis-lift (the m12_7 HFA class:
+// padding/border struct literals + AzColorU passed by value to AzCssProperty_*).
+// Reverted to the verified-good 192K/128K. (web-direct-body's plain-constructor
+// width/height props lift fine; the struct-literal args are the gap.)
 
 /// Patch the stack-pointer global (global[0]) of every wasm (both
 /// mini and per-cb / per-layout) so each gets a distinct
@@ -3403,7 +4756,7 @@ fn inject_user_binary_data_segments(
         Some(t) => t,
         None => return,
     };
-    // WEB-LIFT FIX (2026-06-02): force-mirror the FULL embedded fallback font. It is read by
+    // WEB-LIFT FIX : force-mirror the FULL embedded fallback font. It is read by
     // DYNAMIC index, so the adrp scanner only captures its header (~28 bytes) — every table
     // read past the header (e.g. head@file 0x16f9c) lands in a page never in accessed_pages and
     // reads 0 → allsorts font parse fails → text measures height 0. Add every page the font
@@ -3434,6 +4787,7 @@ fn inject_user_binary_data_segments(
                  synth(first)={:?} synth(p22)={:?}",
                 added, font_ptr, font_len, output_stem, syn_first, syn_p22,
             );
+                set_lift_phase("finish mirror set");
         }
     }
     // [g93] speculative force-mirror of hashbrown EMPTY_GROUP candidate const pages: the lifted
@@ -3468,7 +4822,7 @@ fn inject_user_binary_data_segments(
             eprintln!("[azul-web] AZ_FORCE_MIRROR: no libazul image rebase found");
         }
     }
-    // [WEB-LIFT FIX 2026-06-11] Seed TLV ranges at THE mirror chokepoint
+    // [WEB-LIFT FIX] Seed TLV ranges at THE mirror chokepoint
     // (every module's data mirror flows through here, and `table` is in
     // hand — the earlier per-lift seeding could silently no-op when the
     // global symbol table wasn't initialized yet).
@@ -3476,7 +4830,7 @@ fn inject_user_binary_data_segments(
     seed_tlv_mirror_ranges(table, &mut accessed_pages_owned, &mut accessed_ranges_owned);
     let mut segments =
         collect_synth_data_pages(table, &accessed_pages_owned, &accessed_ranges_owned);
-    // [WEB-LIFT FIX 2026-06-06] Permanently mirror hashbrown's EMPTY_GROUP
+    // [WEB-LIFT FIX] Permanently mirror hashbrown's EMPTY_GROUP
     // static(s) as PRECISE all-0xFF segments appended LAST (active data segments
     // are applied in order; last write wins, so this is idempotent over any
     // whole-page mirror that already covers these bytes and never flips a page
@@ -3489,25 +4843,11 @@ fn inject_user_binary_data_segments(
         let eg = super::symbol_table::find_hashbrown_empty_group_ranges();
         let mut appended = 0usize;
         let mut bytes = 0usize;
-        // [g212 DIAG] When set, log native/synth/trunc for every EMPTY_GROUP run so we can
-        // compare against the AZ_READ_TRACE ctrl-read address and learn WHICH offset the
-        // lifted probe actually reads (synth-packed vs low-32 truncation).
-        let eg_trace = std::env::var_os("AZ_EMPTY_GROUP_TRACE").is_some();
         for &(target, len) in eg {
             if let Some(synth) = table.native_to_synth(target) {
                 segments.push((synth as u32, vec![0xFFu8; len]));
                 appended += 1;
                 bytes += len;
-                if eg_trace {
-                    eprintln!(
-                        "[azul-web] EG-RUN {}: native=0x{:x} synth=0x{:x} trunc=0x{:x} len={}",
-                        output_stem,
-                        target,
-                        synth,
-                        (target as u64) & 0xFFFF_FFFF,
-                        len,
-                    );
-                }
             }
         }
         if appended > 0 {
@@ -3525,6 +4865,114 @@ fn inject_user_binary_data_segments(
             output_stem,
         );
         return;
+    }
+    // [FIX] Rewrite embedded CODE POINTERS in mirrored const data from
+    // NATIVE → SYNTH. Vtables / trait objects / `fmt::Arguments` store ABSOLUTE NATIVE
+    // function addresses. The lifted code loads one and calls
+    // `__remill_function_call(target_pc = <that value>)`, but `__az_indirect_dispatch`
+    // switches on SYNTH addresses (see `dispatcher_csynths`) — so a native value matches
+    // NO case and falls into the `default` no-op. That is why `core::fmt::write`'s
+    // arg-formatter dispatch silently did nothing → returned `Err` → `format_inner`'s
+    // `.expect` → `core::result::unwrap_failed` = the solveLayoutReal trap. Lifting the
+    // formatters (the fn-ptr discovery fix) is necessary but NOT sufficient: the pointer
+    // the guest actually dispatches on must be in the same address space as the switch.
+    // [FIX] TRANSITIVE DATA MIRROR (one level). A `mov rax,[rip+X]` records
+    // only the 8 bytes at X, but the VALUE there points at ANOTHER const table whose
+    // slots the guest then indexes — e.g. `fmt::Arguments` holds a pointer to a slice of
+    // `rt::Argument{value_ptr, formatter_fn}`. That pointed-to table was never mirrored,
+    // so its `formatter_fn` slots read 0 → indirect dispatch no-op. Follow data pointers
+    // found in the already-mirrored bytes and mirror a window at each target, so the
+    // rewrite pass below can translate the fn-ptrs they contain.
+    {
+        let mut extra: Vec<(u32, Vec<u8>)> = Vec::new();
+        let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        const FOLLOW_WINDOW: usize = 128;
+        const MAX_FOLLOW: usize = 4096;
+        for (off, bytes) in segments.iter() {
+            let mut i = ((8 - (*off as usize % 8)) % 8) as usize;
+            while i + 8 <= bytes.len() && extra.len() < MAX_FOLLOW {
+                let v = u64::from_le_bytes(bytes[i..i + 8].try_into().unwrap()) as usize;
+                i += 8;
+                if v <= 0x1_0000 || table.resolve(v).is_some() {
+                    continue; // not a pointer, or already a known code/symbol addr
+                }
+                let Some(img) = table
+                    .image_rebases()
+                    .iter()
+                    .find(|r| v >= r.native_base && v < r.native_end)
+                else {
+                    continue;
+                };
+                let base = v & !7usize; // 8-align the table start
+                if !seen.insert(base) {
+                    continue;
+                }
+                let end = base.saturating_add(FOLLOW_WINDOW).min(img.native_end);
+                if end < base + 8 {
+                    continue;
+                }
+                let Some(synth) = table.native_to_synth(base) else {
+                    continue;
+                };
+                // SAFETY: [base, end) ⊂ a loaded image, mapped for the process lifetime.
+                let data =
+                    unsafe { core::slice::from_raw_parts(base as *const u8, end - base) }.to_vec();
+                extra.push((synth as u32, data));
+            }
+        }
+        if !extra.is_empty() {
+            eprintln!(
+                "[azul-web] data-mirror ({}): +{} transitively-referenced const table(s)",
+                output_stem,
+                extra.len(),
+            );
+            segments.extend(extra);
+        }
+    }
+    {
+        use crate::web::symbol_table::SymKind;
+        let mut rewritten = 0usize;
+        let mut rewritten_data = 0usize;
+        for (off, bytes) in segments.iter_mut() {
+            // Align to the SEGMENT'S address, not to its start: a segment can begin at
+            // any synth offset, so scanning from index 0 in 8-byte steps would probe
+            // misaligned words and miss every real pointer.
+            let mut i = ((8 - (*off as usize % 8)) % 8) as usize;
+            while i + 8 <= bytes.len() {
+                let v = u64::from_le_bytes(bytes[i..i + 8].try_into().unwrap()) as usize;
+                // Cheap reject before the map lookup: real code addresses are large.
+                if v > 0x1_0000 {
+                    if let Some(e) = table.resolve(v) {
+                        if matches!(e.kind, SymKind::Function) {
+                            if let Some(s) = table.native_to_synth(e.canonical_addr) {
+                                bytes[i..i + 8].copy_from_slice(&(s as u64).to_le_bytes());
+                                rewritten += 1;
+                            }
+                        }
+                    } else if let Some(s) = table.native_to_synth(v) {
+                        // ALSO translate DATA pointers (values inside a
+                        // tracked image that resolve to no symbol) — .rdata is full of
+                        // const structs pointing at neighbouring .rdata: &str slices,
+                        // nested const records, and hashbrown's RawTable template whose
+                        // `ctrl` holds &EMPTY_GROUP. Function-only left those native;
+                        // the guest truncates a native to 0x2B..0x2D_xxxxxx and traps
+                        // OOB past the 512 MB memory. (Values already translated by
+                        // collect_synth_data_pages are small synth offsets, far outside
+                        // any image's native range, so re-translation cannot fire.)
+                        bytes[i..i + 8].copy_from_slice(&(s as u64).to_le_bytes());
+                        rewritten_data += 1;
+                    }
+                }
+                i += 8;
+            }
+        }
+        if rewritten > 0 || rewritten_data > 0 {
+            eprintln!(
+                "[azul-web] data-mirror ({}): rewrote {} embedded code pointer(s) + {} \
+                 data pointer(s) native→synth",
+                output_stem, rewritten, rewritten_data,
+            );
+        }
     }
     let total_bytes: usize = segments.iter().map(|(_, b)| b.len()).sum();
     let pre_len = wasm.len();
@@ -3563,7 +5011,7 @@ fn inject_user_binary_data_segments(
 /// caused mini.wasm to balloon to 27 MiB even for hello-world.
 /// Per-page is bounded by what the cb actually touches — typically
 /// a few dozen pages = a few hundred KiB.
-/// [WEB-LIFT FIX 2026-06-11] The synthetic PC every mirrored macOS TLV
+/// [WEB-LIFT FIX] The synthetic PC every mirrored macOS TLV
 /// descriptor's `thunk` field is rewritten to. The lifted thread-local
 /// access (`adrp x0,<desc>; ldr x8,[x0]; blr x8`) then reaches the
 /// indirect dispatcher with this PC; its dedicated case computes
@@ -3580,6 +5028,333 @@ fn inject_user_binary_data_segments(
 /// `RandomState`'s KEYS in `HashSet::new()` post-rebase).
 #[cfg(feature = "web-transpiler")]
 const AZ_TLV_MAGIC_PC: u64 = 0xA271_C0DE;
+
+/// Opaque non-zero value handed back for `GetProcessHeap`. Nothing in the
+/// lifted world dereferences a heap handle — the only consumers are the
+/// Heap{Alloc,Free,ReAlloc} intercepts below, which ignore it — so any
+/// non-zero token works. A distinctive one makes it obvious in a memory dump
+/// that this came from here rather than being a real pointer.
+#[cfg(feature = "web-transpiler")]
+const AZ_FAKE_HEAP_HANDLE: u64 = 0x00A2_0000;
+
+/// How an intercepted Win32 import is emulated inside the dispatcher.
+///
+/// The shapes are Win64 ABI, NOT the Rust wrapper shapes: `HeapAlloc(hHeap,
+/// dwFlags, dwBytes)` puts the size in ARG[2], not ARG[0]. Getting that wrong
+/// is silent — it reads a heap handle as a length — which is exactly how the
+/// earlier `process_heap_alloc` misclassification produced zero-byte
+/// allocations. Each arm below states which argument it reads.
+#[cfg(feature = "web-transpiler")]
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum ImportIntercept {
+    /// `GetProcessHeap()` → a fixed non-zero token.
+    ProcessHeap,
+    /// `HeapAlloc(hHeap, dwFlags, dwBytes)` / `RtlAllocateHeap` — size ARG[2].
+    HeapAlloc,
+    /// `HeapFree(hHeap, dwFlags, lpMem)` / `RtlFreeHeap` — bump never frees.
+    HeapFree,
+    /// `HeapReAlloc(hHeap, dwFlags, lpMem, dwBytes)` / `RtlReAllocateHeap`
+    /// — old pointer ARG[2], new size ARG[3].
+    HeapReAlloc,
+    /// `memcmp(a, b, n)`.
+    Memcmp,
+    /// `memcpy` / `memmove(dst, src, n)`.
+    Memmove,
+    /// `memset(dst, c, n)`.
+    Memset,
+    /// A one-argument `double -> double` CRT math call whose LLVM intrinsic
+    /// lowers to a single wasm instruction, so it needs no env import: the
+    /// argument arrives in XMM0 and the result goes back to XMM0.
+    ///
+    /// These come from ucrtbase, which the first pass of import routing did not
+    /// cover at all — `Display for Json`'s Number arm reaches `ucrtbase!trunc`
+    /// through `f64_as_i64` and silently gets a no-op.
+    /// `(llvm intrinsic stem, is_f32)` — the f32 forms are separate ucrtbase
+    /// exports and the guest calls them directly (an audit of a real bundle
+    /// turned up floorf/ceilf alongside floor).
+    F64Unary(&'static str, bool),
+}
+
+#[cfg(feature = "web-transpiler")]
+impl ImportIntercept {
+    fn helper_name(self) -> &'static str {
+        match self {
+            ImportIntercept::ProcessHeap => "fixed-heap-handle",
+            ImportIntercept::HeapAlloc => "bump-alloc",
+            ImportIntercept::HeapFree => "bump-dealloc (no-op)",
+            ImportIntercept::HeapReAlloc => "bump-realloc",
+            ImportIntercept::Memcmp => "memcmp",
+            ImportIntercept::Memmove => "memmove",
+            ImportIntercept::Memset => "memset",
+            ImportIntercept::F64Unary(n, _) => n,
+        }
+    }
+
+    /// The dispatcher switch-case block. Emitted inline rather than as a
+    /// separate `define` so the whole intercept stays inside the one module
+    /// the dispatcher already builds and links.
+    fn emit_case_block(self, label: u64) -> String {
+        let l = format!("{:x}", label);
+        let (a0, a1, a2, a3) = (pcs::ARG[0], pcs::ARG[1], pcs::ARG[2], pcs::ARG[3]);
+        let ret = pcs::RET;
+        // Bump-heap runtime slots, matching the BumpAlloc helper bodies:
+        // cursor u32 @0x40020 (262176), last-size @0x40030, count @0x40038.
+        const CURSOR: u64 = 262176;
+        match self {
+            ImportIntercept::ProcessHeap => format!(
+                "imp{l}:\n  %hp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n  \
+                 store i64 {handle}, ptr %hp{l}, align 8\n  ret ptr %memory\n",
+                l = l, ret = ret, handle = AZ_FAKE_HEAP_HANDLE,
+            ),
+            ImportIntercept::HeapFree => format!(
+                // Bump-only: never reuses a region, so a free is a no-op.
+                // HeapFree returns BOOL; a zero would read as failure.
+                "imp{l}:\n  %fp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n  \
+                 store i64 1, ptr %fp{l}, align 8\n  ret ptr %memory\n",
+                l = l, ret = ret,
+            ),
+            ImportIntercept::HeapAlloc => format!(
+                "imp{l}:\n\
+                 \x20 %szp{l} = getelementptr inbounds i8, ptr %state, i64 {a2}\n\
+                 \x20 %sz{l} = load i64, ptr %szp{l}, align 8\n\
+                 \x20 %sza{l} = add i64 %sz{l}, 7\n\
+                 \x20 %szal{l} = and i64 %sza{l}, -8\n\
+                 \x20 %old{l} = load i32, ptr inttoptr (i64 {cur} to ptr), align 4\n\
+                 \x20 %old64{l} = zext i32 %old{l} to i64\n\
+                 \x20 %new64{l} = add i64 %old64{l}, %szal{l}\n\
+                 \x20 %new{l} = trunc i64 %new64{l} to i32\n\
+                 \x20 store i32 %new{l}, ptr inttoptr (i64 {cur} to ptr), align 4\n\
+                 \x20 %rp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n\
+                 \x20 store i64 %old64{l}, ptr %rp{l}, align 8\n\
+                 \x20 %dst{l} = inttoptr i32 %old{l} to ptr\n\
+                 \x20 call void @llvm.memset.p0.i64(ptr %dst{l}, i8 0, i64 %szal{l}, i1 false)\n\
+                 \x20 ret ptr %memory\n",
+                l = l, a2 = a2, cur = CURSOR, ret = ret,
+            ),
+            ImportIntercept::HeapReAlloc => format!(
+                // Copy `new_size` bytes from the old block. The old size is not
+                // an argument and cannot be recovered, but realloc leaves bytes
+                // past the old length indeterminate, so copying the new length
+                // is conforming: the prefix that mattered is exact, and the
+                // tail reads bump memory the guest may not treat as defined
+                // anyway. A null old pointer means "behave like alloc".
+                "imp{l}:\n\
+                 \x20 %opp{l} = getelementptr inbounds i8, ptr %state, i64 {a2}\n\
+                 \x20 %op{l} = load i64, ptr %opp{l}, align 8\n\
+                 \x20 %szp{l} = getelementptr inbounds i8, ptr %state, i64 {a3}\n\
+                 \x20 %sz{l} = load i64, ptr %szp{l}, align 8\n\
+                 \x20 %sza{l} = add i64 %sz{l}, 7\n\
+                 \x20 %szal{l} = and i64 %sza{l}, -8\n\
+                 \x20 %old{l} = load i32, ptr inttoptr (i64 {cur} to ptr), align 4\n\
+                 \x20 %old64{l} = zext i32 %old{l} to i64\n\
+                 \x20 %new64{l} = add i64 %old64{l}, %szal{l}\n\
+                 \x20 %new{l} = trunc i64 %new64{l} to i32\n\
+                 \x20 store i32 %new{l}, ptr inttoptr (i64 {cur} to ptr), align 4\n\
+                 \x20 %rp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n\
+                 \x20 store i64 %old64{l}, ptr %rp{l}, align 8\n\
+                 \x20 %dst{l} = inttoptr i32 %old{l} to ptr\n\
+                 \x20 %isnull{l} = icmp eq i64 %op{l}, 0\n\
+                 \x20 br i1 %isnull{l}, label %imp_zero_{l}, label %imp_copy_{l}\n\
+                 imp_copy_{l}:\n\
+                 \x20 %op32{l} = trunc i64 %op{l} to i32\n\
+                 \x20 %src{l} = inttoptr i32 %op32{l} to ptr\n\
+                 \x20 call void @llvm.memmove.p0.p0.i64(ptr %dst{l}, ptr %src{l}, i64 %szal{l}, i1 false)\n\
+                 \x20 ret ptr %memory\n\
+                 imp_zero_{l}:\n\
+                 \x20 call void @llvm.memset.p0.i64(ptr %dst{l}, i8 0, i64 %szal{l}, i1 false)\n\
+                 \x20 ret ptr %memory\n",
+                l = l, a2 = a2, a3 = a3, cur = CURSOR, ret = ret,
+            ),
+            ImportIntercept::Memmove | ImportIntercept::Memset => {
+                let is_set = self == ImportIntercept::Memset;
+                let mid = if is_set {
+                    format!(
+                        "\x20 %c{l} = load i64, ptr %bp{l}, align 8\n\
+                         \x20 %c8{l} = trunc i64 %c{l} to i8\n\
+                         \x20 call void @llvm.memset.p0.i64(ptr %dst{l}, i8 %c8{l}, i64 %n{l}, i1 false)\n",
+                        l = l,
+                    )
+                } else {
+                    format!(
+                        "\x20 %b32{l} = load i64, ptr %bp{l}, align 8\n\
+                         \x20 %b32t{l} = trunc i64 %b32{l} to i32\n\
+                         \x20 %src{l} = inttoptr i32 %b32t{l} to ptr\n\
+                         \x20 call void @llvm.memmove.p0.p0.i64(ptr %dst{l}, ptr %src{l}, i64 %n{l}, i1 false)\n",
+                        l = l,
+                    )
+                };
+                format!(
+                    "imp{l}:\n\
+                     \x20 %ap{l} = getelementptr inbounds i8, ptr %state, i64 {a0}\n\
+                     \x20 %a{l} = load i64, ptr %ap{l}, align 8\n\
+                     \x20 %a32{l} = trunc i64 %a{l} to i32\n\
+                     \x20 %dst{l} = inttoptr i32 %a32{l} to ptr\n\
+                     \x20 %bp{l} = getelementptr inbounds i8, ptr %state, i64 {a1}\n\
+                     \x20 %np{l} = getelementptr inbounds i8, ptr %state, i64 {a2}\n\
+                     \x20 %n{l} = load i64, ptr %np{l}, align 8\n\
+                     {mid}\
+                     \x20 %rp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n\
+                     \x20 store i64 %a{l}, ptr %rp{l}, align 8\n\
+                     \x20 ret ptr %memory\n",
+                    l = l, a0 = a0, a1 = a1, a2 = a2, ret = ret, mid = mid,
+                )
+            }
+            ImportIntercept::F64Unary(intrin, is_f32) => format!(
+                // Argument and result both live in XMM0 (the f32 forms use its
+                // low half). llvm.trunc/floor/ceil/fabs/sqrt each lower to a
+                // single wasm instruction in both widths, so this stays
+                // self-contained — no new env symbol that a probe harness could
+                // zero-stub and make look like a mis-lift.
+                "imp{l}:\n\
+                 \x20 %xp{l} = getelementptr inbounds i8, ptr %state, i64 {x0}\n\
+                 \x20 %xv{l} = load {ty}, ptr %xp{l}, align {al}\n\
+                 \x20 %xr{l} = call {ty} @llvm.{intrin}.{sfx}({ty} %xv{l})\n\
+                 \x20 store {ty} %xr{l}, ptr %xp{l}, align {al}\n\
+                 \x20 ret ptr %memory\n",
+                l = l,
+                x0 = pcs::XMM[0],
+                intrin = intrin,
+                ty = if is_f32 { "float" } else { "double" },
+                sfx = if is_f32 { "f32" } else { "f64" },
+                al = if is_f32 { 4 } else { 8 },
+            ),
+            ImportIntercept::Memcmp => format!(
+                // Byte loop through the guest memory intrinsic. Importing a
+                // host memcmp would add an env symbol every probe harness has
+                // to know about; a missing one zero-stubs and then looks
+                // exactly like a mis-lift.
+                "imp{l}:\n\
+                 \x20 %ap{l} = getelementptr inbounds i8, ptr %state, i64 {a0}\n\
+                 \x20 %a{l} = load i64, ptr %ap{l}, align 8\n\
+                 \x20 %bp{l} = getelementptr inbounds i8, ptr %state, i64 {a1}\n\
+                 \x20 %b{l} = load i64, ptr %bp{l}, align 8\n\
+                 \x20 %np{l} = getelementptr inbounds i8, ptr %state, i64 {a2}\n\
+                 \x20 %n{l} = load i64, ptr %np{l}, align 8\n\
+                 \x20 br label %imp_loop_{l}\n\
+                 imp_loop_{l}:\n\
+                 \x20 %i{l} = phi i64 [ 0, %imp{l} ], [ %i1{l}, %imp_next_{l} ]\n\
+                 \x20 %done{l} = icmp uge i64 %i{l}, %n{l}\n\
+                 \x20 br i1 %done{l}, label %imp_eq_{l}, label %imp_body_{l}\n\
+                 imp_body_{l}:\n\
+                 \x20 %aa{l} = add i64 %a{l}, %i{l}\n\
+                 \x20 %ba{l} = add i64 %b{l}, %i{l}\n\
+                 \x20 %va{l} = call i8 @__remill_read_memory_8(ptr %memory, i64 %aa{l})\n\
+                 \x20 %vb{l} = call i8 @__remill_read_memory_8(ptr %memory, i64 %ba{l})\n\
+                 \x20 %same{l} = icmp eq i8 %va{l}, %vb{l}\n\
+                 \x20 br i1 %same{l}, label %imp_next_{l}, label %imp_diff_{l}\n\
+                 imp_next_{l}:\n\
+                 \x20 %i1{l} = add i64 %i{l}, 1\n\
+                 \x20 br label %imp_loop_{l}\n\
+                 imp_diff_{l}:\n\
+                 \x20 %za{l} = zext i8 %va{l} to i32\n\
+                 \x20 %zb{l} = zext i8 %vb{l} to i32\n\
+                 \x20 %d{l} = sub i32 %za{l}, %zb{l}\n\
+                 \x20 br label %imp_store_{l}\n\
+                 imp_eq_{l}:\n\
+                 \x20 br label %imp_store_{l}\n\
+                 imp_store_{l}:\n\
+                 \x20 %res{l} = phi i32 [ %d{l}, %imp_diff_{l} ], [ 0, %imp_eq_{l} ]\n\
+                 \x20 %res64{l} = sext i32 %res{l} to i64\n\
+                 \x20 %rp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n\
+                 \x20 store i64 %res64{l}, ptr %rp{l}, align 8\n\
+                 \x20 ret ptr %memory\n",
+                l = l, a0 = a0, a1 = a1, a2 = a2, ret = ret,
+            ),
+        }
+    }
+}
+
+/// Resolve the Win32 imports worth intercepting to their live addresses,
+/// masked to 32 bits the way the dispatcher masks an incoming PC.
+///
+/// Resolution happens in OUR OWN process, which is also the process whose IAT
+/// was mirrored into guest memory, so the values match by construction. Labels
+/// that collide with an existing case, or that land inside the synth band, are
+/// dropped — mis-routing a real lifted function would be far worse than
+/// leaving one import undispatched.
+#[cfg(all(feature = "web-transpiler", target_os = "windows"))]
+fn intercepted_import_labels(cases: &[(u64, u64)]) -> Vec<(u64, ImportIntercept, String)> {
+    extern "system" {
+        fn GetModuleHandleA(name: *const u8) -> *mut core::ffi::c_void;
+        fn GetProcAddress(
+            module: *mut core::ffi::c_void,
+            name: *const u8,
+        ) -> *mut core::ffi::c_void;
+    }
+    const WANTED: &[(&str, &str, ImportIntercept)] = &[
+        ("KERNEL32.DLL\0", "GetProcessHeap\0", ImportIntercept::ProcessHeap),
+        ("KERNEL32.DLL\0", "HeapAlloc\0", ImportIntercept::HeapAlloc),
+        ("KERNEL32.DLL\0", "HeapFree\0", ImportIntercept::HeapFree),
+        ("KERNEL32.DLL\0", "HeapReAlloc\0", ImportIntercept::HeapReAlloc),
+        ("ntdll.dll\0", "RtlAllocateHeap\0", ImportIntercept::HeapAlloc),
+        ("ntdll.dll\0", "RtlFreeHeap\0", ImportIntercept::HeapFree),
+        ("ntdll.dll\0", "RtlReAllocateHeap\0", ImportIntercept::HeapReAlloc),
+        ("VCRUNTIME140.dll\0", "memcmp\0", ImportIntercept::Memcmp),
+        ("VCRUNTIME140.dll\0", "memcpy\0", ImportIntercept::Memmove),
+        ("VCRUNTIME140.dll\0", "memmove\0", ImportIntercept::Memmove),
+        ("VCRUNTIME140.dll\0", "memset\0", ImportIntercept::Memset),
+        // ucrtbase: the C runtime. Rust's float formatting calls straight into
+        // it, and the first pass of import routing did not cover this module at
+        // all — `Display for Json`'s Number arm reaches `trunc` via `f64_as_i64`
+        // and silently gets a no-op.
+        //
+        // Only shapes whose intrinsic is a single wasm instruction are routed.
+        // Anything needing a real libm (pow/exp/log/fmod) is left out rather
+        // than approximated, and `round` too: its half-away-from-zero rule is
+        // NOT wasm's f64.nearest, which rounds half to even.
+        ("ucrtbase.dll\0", "trunc\0", ImportIntercept::F64Unary("trunc", false)),
+        ("ucrtbase.dll\0", "floor\0", ImportIntercept::F64Unary("floor", false)),
+        ("ucrtbase.dll\0", "ceil\0", ImportIntercept::F64Unary("ceil", false)),
+        ("ucrtbase.dll\0", "fabs\0", ImportIntercept::F64Unary("fabs", false)),
+        ("ucrtbase.dll\0", "sqrt\0", ImportIntercept::F64Unary("sqrt", false)),
+        // The f32 forms are separate exports and the guest calls them directly:
+        // auditing a real bundle turned up floorf/ceilf alongside floor. Same
+        // single-instruction rule, on `float` (XMM0's low half).
+        ("ucrtbase.dll\0", "truncf\0", ImportIntercept::F64Unary("trunc", true)),
+        ("ucrtbase.dll\0", "floorf\0", ImportIntercept::F64Unary("floor", true)),
+        ("ucrtbase.dll\0", "ceilf\0", ImportIntercept::F64Unary("ceil", true)),
+        ("ucrtbase.dll\0", "fabsf\0", ImportIntercept::F64Unary("fabs", true)),
+        ("ucrtbase.dll\0", "sqrtf\0", ImportIntercept::F64Unary("sqrt", true)),
+    ];
+    let table = symbol_table::get();
+    let mut used: HashSet<u64> = cases.iter().map(|(l, _)| *l).collect();
+    let mut out = Vec::new();
+    for (dll, func, kind) in WANTED {
+        // SAFETY: both strings are NUL-terminated literals; a module that is
+        // not loaded yields a null handle, which GetProcAddress rejects.
+        let addr = unsafe {
+            let m = GetModuleHandleA(dll.as_ptr());
+            if m.is_null() {
+                continue;
+            }
+            GetProcAddress(m, func.as_ptr())
+        };
+        if addr.is_null() {
+            continue;
+        }
+        let label = (addr as usize as u64) & 0xFFFF_FFFF;
+        if label == 0 || !used.insert(label) {
+            continue;
+        }
+        if table
+            .map(|t| t.is_synth_in_image_span(label as usize))
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        out.push((
+            label,
+            *kind,
+            format!("{}!{}", dll.trim_end_matches('\0'), func.trim_end_matches('\0')),
+        ));
+    }
+    out
+}
+
+#[cfg(all(feature = "web-transpiler", not(target_os = "windows")))]
+fn intercepted_import_labels(_cases: &[(u64, u64)]) -> Vec<(u64, ImportIntercept, String)> {
+    Vec::new()
+}
 
 /// Seed the data mirror with every image's full `__thread_vars`
 /// (descriptors — the translation pass rewrites their thunk slots to
@@ -3617,7 +5392,6 @@ fn seed_tlv_mirror_ranges(
     }
 }
 
-#[cfg(feature = "web-transpiler")]
 fn collect_synth_data_pages(
     table: &super::symbol_table::SymbolTable,
     accessed_pages: &std::collections::HashSet<usize>,
@@ -3650,13 +5424,6 @@ fn collect_synth_data_pages(
     let mut precise_pages = 0usize;
     let mut precise_bytes_kept = 0usize;
     let mut fallback_pages = 0usize;
-    // M12.5d diagnostic: when set, ignore precise ranges and mirror
-    // every accessed page in full (4 KiB, zero-trimmed). Tests the
-    // hypothesis that the cascade reads const-pool data via patterns
-    // `scan_arm64_adrp_accesses` doesn't recognize — those addresses
-    // read back zero under precise-only mirroring (0 whole-page
-    // fallbacks observed in the cascade build).
-    let force_whole_page = std::env::var_os("AZ_FORCE_WHOLE_PAGE").is_some();
     // M12.7: pages reached only INDIRECTLY via a mirrored pointer (never a
     // direct `adrp`) — e.g. hashbrown's static EMPTY_GROUP, pointed at by the
     // empty-table singleton's rebased `ctrl`. Such a page is not in
@@ -3670,7 +5437,7 @@ fn collect_synth_data_pages(
         // Find which image this page belongs to.
         let Some(synth_page) = table.native_to_synth(native_page) else {
             skipped += 1;
-            if std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
+            if super::lift_env::lift_env().wasm_mirror_trace {
                 eprintln!(
                     "[azul-web] mirror SKIP native_page=0x{:x} — not in any tracked image",
                     native_page,
@@ -3681,10 +5448,7 @@ fn collect_synth_data_pages(
         // M10-E1: if we have precise ranges for this page, mirror
         // just those byte windows instead of the whole 4 KiB. The
         // ranges' bytes get pointer-translated below.
-        if let Some(ranges) = ranges_by_page
-            .get(&native_page)
-            .filter(|_| !force_whole_page)
-        {
+        if let Some(ranges) = ranges_by_page.get(&native_page) {
             // Build a bitmap of which bytes are needed within the page
             // (handles overlapping / adjacent ranges naturally).
             let mut needed = [false; PAGE_SIZE];
@@ -3736,14 +5500,22 @@ fn collect_synth_data_pages(
                 let mut run = raw_page[start..end].to_vec();
                 let mut translated_in_run = 0usize;
                 let run_off_in_page = start;
-                for chunk_start in (0..run.len()).step_by(8) {
+                // Translate at 8-byte-aligned PAGE offsets. this used to
+                // step `chunk_start` by 8 from 0 and then skip when
+                // `(run_off_in_page + chunk_start) % 8 != 0` — for a run starting at an
+                // unaligned page offset those two conditions can NEVER both hold
+                // (chunk_start ≡ 0 mod 8, so the sum stays ≡ run_off mod 8), i.e. the
+                // WHOLE run silently skipped translation. Every native pointer inside
+                // such a run reached the guest untranslated, truncating to
+                // 0x2B..0x2D_xxxxxx (past the 512 MB memory) on first deref — observed
+                // as hashbrown's `ctrl` (the RawTable const template's &EMPTY_GROUP)
+                // trapping rustc_entry's group load. 468 such pointers in one mini.
+                // Start at the first aligned offset instead (pages are 4 KiB-aligned in
+                // synth space, so page-relative alignment == absolute alignment).
+                let align_skip = (8 - (run_off_in_page % 8)) % 8;
+                for chunk_start in (align_skip..run.len()).step_by(8) {
                     if chunk_start + 8 > run.len() {
                         break;
-                    }
-                    // Only translate at 8-byte aligned offsets within
-                    // the page (matches the original page-mirror logic).
-                    if (run_off_in_page + chunk_start) % 8 != 0 {
-                        continue;
                     }
                     let value = u64::from_le_bytes([
                         run[chunk_start],
@@ -3767,14 +5539,14 @@ fn collect_synth_data_pages(
                         run[chunk_start..chunk_start + 8].copy_from_slice(&synth_bytes);
                         translated_in_run += 1;
                         pending_targets.push(value as usize & !0xFFF);
-                    } else if std::env::var_os("AZ_TRACE_STALE_PTR").is_some()
+                    } else if super::lift_env::lift_env().trace_stale_ptr
                         && value >= 0x1_0000_0000
                         && value < 0x2_0000_0000_0000
                     {
-                        // 2026-06-02 cb-OOB DIAG (REVERT): a pointer-like value NOT in any
-                        // tracked image = a runtime heap/stack/shared-cache ptr baked into a
-                        // mirrored static at lift time → cb derefs it → OOB. Log synth+native
-                        // so the symbol can be identified (atos/nm) and re-init'd in wasm.
+                        // A pointer-like value NOT in any tracked image = a runtime
+                        // heap/stack ptr baked into a mirrored static at lift time; a
+                        // cb that derefs it goes OOB. Log synth+native so the symbol
+                        // can be identified and re-initialized in wasm.
                         eprintln!(
                             "[azul-web] STALE-PTR(precise): synth=0x{:x} native=0x{:x} value=0x{:x}",
                             synth_page + start + chunk_start,
@@ -3795,7 +5567,7 @@ fn collect_synth_data_pages(
         // No precise ranges for this page — fall back to whole-page
         // mirror (the legacy M9-after-review path).
         fallback_pages += 1;
-        if std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
+        if super::lift_env::lift_env().wasm_mirror_trace {
             eprintln!(
                 "[azul-web] mirror native_page=0x{:x} → synth=0x{:x} (whole-page fallback)",
                 native_page, synth_page,
@@ -3842,7 +5614,7 @@ fn collect_synth_data_pages(
                 bytes[chunk_start..chunk_start + 8].copy_from_slice(&synth_bytes);
                 translated_in_page += 1;
                 pending_targets.push(value as usize & !0xFFF);
-            } else if std::env::var_os("AZ_TRACE_STALE_PTR").is_some()
+            } else if super::lift_env::lift_env().trace_stale_ptr
                 && value >= 0x1_0000_0000
                 && value < 0x2_0000_0000_0000
             {
@@ -3942,7 +5714,7 @@ fn collect_synth_data_pages(
         );
     }
     let out = trimmed;
-    if skipped > 0 && std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
+    if skipped > 0 && super::lift_env::lift_env().wasm_mirror_trace {
         eprintln!(
             "[azul-web] mirror: skipped {} accessed pages (not in any tracked image)",
             skipped,
@@ -4024,7 +5796,7 @@ fn collect_synth_data_segments_legacy(
     const PER_SECTION_LIMIT: usize = 32 * 1024 * 1024;
     // Synth-offset upper bound: just below the bump-heap base the
     // loader passes to AzStartup_resetBumpHeap (160 MiB as of
-    // 2026-06-11 — keep in lockstep with loader_js.rs). Sections
+    // — keep in lockstep with loader_js.rs). Sections
     // landing past this would overlap with the heap.
     const SYNTH_OFFSET_LIMIT: u64 = 160 * 1024 * 1024;
     for rebase in table.image_rebases() {
@@ -4682,6 +6454,18 @@ mod x86_scan {
             .filter(|i| i.is_ip_rel_memory_operand())
             .map(|i| {
                 let sz = i.memory_size().size();
+                if i.mnemonic() == Mnemonic::Lea {
+                    // [FIX] `lea` doesn't access memory, so memory_size()==0
+                    // and this used to mirror just 8 bytes at the target. But a `lea`
+                    // materializes the BASE of a struct / vtable / fn-ptr table that
+                    // LATER instructions index into — e.g. `core::fmt::write` does
+                    // `lea rax,[rip+vtable]` then `callq *0x18(%rax)`, reading at +0x18,
+                    // which fell OUTSIDE the 8 mirrored bytes → the guest read 0 → the
+                    // indirect dispatch got target_pc=0 → `default` no-op → fmt::write
+                    // returned Err → format_inner `.expect` → unwrap_failed. Mirror a
+                    // window instead so indexed reads off the base are covered.
+                    return (i.ip_rel_memory_address() as usize, LEA_MIRROR_WINDOW);
+                }
                 (
                     i.ip_rel_memory_address() as usize,
                     if sz == 0 { 8 } else { sz },
@@ -4689,6 +6473,28 @@ mod x86_scan {
             })
             .collect()
     }
+
+    /// Bytes mirrored at a `lea`-materialized data base (vtables / fn-ptr tables /
+    /// const structs indexed by later instructions, and — critically — SWITCH
+    /// JUMP TABLES). These ranges are deduped and only cover addresses the lifted
+    /// code actually references.
+    ///
+    /// was 128 B, which covers a Rust vtable but only **32 entries**
+    /// of an i32 jump table. Rust `match` lowers to tables far larger than that
+    /// (`build_compact_cache_with_inheritance` has one guarded by `cmp $0x74` =
+    /// 117 entries = 468 B), so the tail of every big table was truncated. That
+    /// broke BOTH consumers:
+    ///   - devirt (`build_extra_data` feeds these same ranges to remill): the
+    ///     entry read fails past the window, so only the first 32 arms become
+    ///     `switch` cases — 16 of that fn's 23 tables produced no switch at all
+    ///     and fell through to `__remill_missing_block`, which RETURNS, silently
+    ///     skipping the whole `match` body and leaving struct fields unwritten;
+    ///   - the runtime data mirror: the guest's `movslq (%Rb,%Ri,4)` for any
+    ///     index >= 32 read UNMIRRORED (zero) memory, so the computed target was
+    ///     `table_base + 0` — a jump into the table data itself.
+    /// Measured on that function: 128 B => 7 devirt switches, 1024 B => 20.
+    /// 1024 B = 256 table entries, which covers real-world `match` arms.
+    const LEA_MIRROR_WINDOW: usize = 1024;
 
     /// Direct near `call rel32` / tail-`jmp rel32` targets — sibling
     /// of `scan_arm64_bl_b_targets` (B7). Calls always count; jmps
@@ -4722,6 +6528,36 @@ mod x86_scan {
         out
     }
 
+    /// Cross-function TAIL-CALL targets: `jmp <rel>` into another
+    /// function's entry — the x86-64 sibling of arm64's `b <addr>`.
+    /// remill lowers such a `jmp` to `__remill_missing_block(target)`
+    /// rather than a `sub_<hex>` call extern, so the IR walk never sees
+    /// it and the callee is never lifted.
+    ///
+    /// Returns EVERY unconditional near-branch target; the caller
+    /// filters through the SymbolTable, whose `lookup` is exact
+    /// (by-address), so an intra-fn `jmp` to a mid-fn label yields None
+    /// and drops out. Deliberately NOT range-filtered against
+    /// [fn_addr, fn_addr+len): symbol sizes are frequently
+    /// over-estimated (spanning adjacent tiny thunks), which would make
+    /// real tail calls look intra-fn and hide them again.
+    pub fn tail_jmp_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+        let mut out: Vec<usize> = decode_all(fn_bytes, fn_addr)
+            .iter()
+            .filter(|i| {
+                i.flow_control() == FlowControl::UnconditionalBranch
+                    && matches!(
+                        i.op0_kind(),
+                        OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64
+                    )
+            })
+            .map(|i| i.near_branch_target() as usize)
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
     /// Code addresses materialized by `lea reg, [rip+disp]` — the x86
     /// sibling of `scan_arm64_adrp_add_code_targets` (fn-ptr / vtable
     /// materialization later consumed by an indirect call). Returns
@@ -4733,6 +6569,98 @@ mod x86_scan {
             .filter(|i| i.mnemonic() == Mnemonic::Lea && i.is_ip_rel_memory_operand())
             .map(|i| i.ip_rel_memory_address() as usize)
             .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// Code pointers stored INSIDE const data that a function references via
+    /// `lea reg,[rip+disp]` — the fn-ptrs in vtables / trait objects /
+    /// `core::fmt::Arguments` that `lea_code_targets` (a CODE scan) cannot see
+    /// because they live in DATA, not materialized by a code-lea. They are
+    /// dispatched at runtime via `call [reg+disp]`; without lifting them the
+    /// `__az_indirect_dispatch` switch hits its `default` no-op (e.g.
+    /// `core::fmt::write`'s arg-formatter dispatch silently fails → fmt::write
+    /// returns `Err` → `format_inner`'s `.expect` → `core::result::unwrap_failed`
+    /// = the solveLayoutReal trap). For each `lea` whose target is const DATA
+    /// (not itself a code fn), scan a bounded window of that data — clamped to
+    /// the owning loaded image so the read never walks off the mapping — for
+    /// 8-byte-aligned values that resolve to recursable `.text` functions.
+    pub fn data_referenced_code_ptrs(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+        use crate::web::symbol_table::SymKind;
+        let Some(table) = crate::web::symbol_table::get() else {
+            return Vec::new();
+        };
+        let images = table.image_rebases();
+        const WINDOW: usize = 512;
+        let mut out = Vec::new();
+        for insn in decode_all(fn_bytes, fn_addr) {
+            if insn.mnemonic() != Mnemonic::Lea || !insn.is_ip_rel_memory_operand() {
+                continue;
+            }
+            let d = insn.ip_rel_memory_address() as usize;
+            // A lea whose target is itself a code fn is `lea_code_targets`' job.
+            if table
+                .resolve(d)
+                .is_some_and(|e| matches!(e.kind, SymKind::Function))
+            {
+                continue;
+            }
+            // Only read DATA that lives inside a loaded image (mapped for the
+            // process lifetime); clamp the window to the image end.
+            let Some(img) = images
+                .iter()
+                .find(|r| d >= r.native_base && d < r.native_end)
+            else {
+                continue;
+            };
+            // 8-byte aligned start (vtables/fn-ptr arrays always are).
+            if d % 8 != 0 {
+                continue;
+            }
+            let end = d.saturating_add(WINDOW).min(img.native_end);
+            if end < d + 8 {
+                continue;
+            }
+            // SAFETY: [d, end) ⊂ [native_base, native_end) of a loaded image,
+            // which the loader keeps mapped for the process lifetime.
+            let data = unsafe { core::slice::from_raw_parts(d as *const u8, end - d) };
+            // Walk 8-byte slots collecting function pointers, stopping once we hit a
+            // long enough run of NON-pointer slots — that's where the table ends and
+            // unrelated data begins. This bounds the scan (a flat 512B sweep at every
+            // .rdata lea over-approximates the dep set badly and blows the transitive-
+            // depth cap) WITHOUT missing interleaved tables.
+            //
+            // Tolerance matters: real Rust metadata is NOT a dense fn-ptr array. A
+            // vtable is [drop_in_place, size, align, method…] (2 non-fn slots right
+            // after the first hit), and enum/variant tables interleave name strings +
+            // size/align between fn-ptrs (observed in azul.dll: 4 non-fn slots between
+            // consecutive formatters). Breaking at the FIRST gap would capture only
+            // `drop_in_place` and silently drop every method — the exact class of miss
+            // this fix exists to prevent. So allow a short desert, then stop.
+            const MAX_SLOTS: usize = 64;
+            const MAX_CONSECUTIVE_MISSES: usize = 6;
+            let mut i = 0usize;
+            let mut slots = 0usize;
+            let mut misses = 0usize;
+            while i + 8 <= data.len() && slots < MAX_SLOTS {
+                let v = u64::from_le_bytes(data[i..i + 8].try_into().unwrap()) as usize;
+                let is_fn = table.resolve(v).is_some_and(|e| {
+                    matches!(e.kind, SymKind::Function) && e.classification.is_recursable()
+                });
+                if is_fn {
+                    out.push(v);
+                    misses = 0;
+                } else {
+                    misses += 1;
+                    if misses >= MAX_CONSECUTIVE_MISSES {
+                        break;
+                    }
+                }
+                i += 8;
+                slots += 1;
+            }
+        }
         out.sort_unstable();
         out.dedup();
         out
@@ -4880,6 +6808,45 @@ fn scan_guest_data_accesses(fn_bytes: &[u8], fn_addr: usize) -> Vec<(usize, usiz
     }
 }
 
+/// CROSS-FUNCTION TAIL-CALL targets only (arm64 `b` ↔ x86-64 `jmp`).
+///
+/// Kept separate from `scan_guest_branch_targets` because direct CALLs
+/// (`bl` / `call rel32`) already surface as `sub_<hex>` externs in the
+/// lifted IR and are enqueued by `parse_extern_sub_declares`; only the
+/// tail-jump form is invisible there.
+#[cfg(feature = "web-transpiler")]
+fn scan_guest_tail_call_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+    #[cfg(target_arch = "aarch64")]
+    {
+        // imm26 (signed) * 4, PC-relative to the instruction itself.
+        let mut out = Vec::new();
+        let mut off = 0usize;
+        while off + 4 <= fn_bytes.len() {
+            let instr = u32::from_le_bytes([
+                fn_bytes[off],
+                fn_bytes[off + 1],
+                fn_bytes[off + 2],
+                fn_bytes[off + 3],
+            ]);
+            if (instr >> 26) == 0x5 {
+                let simm = (((instr & 0x03FF_FFFF) as i64) << 38) >> 38;
+                out.push((fn_addr.wrapping_add(off) as i64).wrapping_add(simm * 4) as usize);
+            }
+            off += 4;
+        }
+        out.sort_unstable();
+        out.dedup();
+        return out;
+    }
+    #[cfg(target_arch = "x86_64")]
+    return x86_scan::tail_jmp_targets(fn_bytes, fn_addr);
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    {
+        let _ = (fn_bytes, fn_addr);
+        Vec::new()
+    }
+}
+
 /// Direct call + tail-jump targets (bl/b ↔ call/jmp rel32).
 #[cfg(feature = "web-transpiler")]
 fn scan_guest_branch_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
@@ -4902,6 +6869,19 @@ fn scan_guest_code_addr_targets(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
     #[cfg(target_arch = "x86_64")]
     return x86_scan::lea_code_targets(fn_bytes, fn_addr);
     #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    {
+        let _ = (fn_bytes, fn_addr);
+        Vec::new()
+    }
+}
+
+/// Code pointers living INSIDE const data a fn references (vtable / trait-object /
+/// fmt::Arguments fn-ptrs) — the DATA sibling of `scan_guest_code_addr_targets`
+/// (which only sees code-lea'd pointers). x86-only for now (Windows web-lift).
+fn scan_guest_data_code_ptrs(fn_bytes: &[u8], fn_addr: usize) -> Vec<usize> {
+    #[cfg(target_arch = "x86_64")]
+    return x86_scan::data_referenced_code_ptrs(fn_bytes, fn_addr);
+    #[cfg(not(target_arch = "x86_64"))]
     {
         let _ = (fn_bytes, fn_addr);
         Vec::new()
@@ -4941,7 +6921,17 @@ impl Default for LiftOpts {
             extra_objects: Vec::new(),
             extra_exports_passthrough: Vec::new(),
             memory_mode: MemoryMode::ImportMemory,
-            max_recursive_depth: 256,
+            // [FIX] Was 256 — too low once fn-pointer discovery (vtable /
+            // trait-object / fmt::Arguments targets, see `data_referenced_code_ptrs`)
+            // legitimately widens the closure: the per-cb lifts (`on_click`, `layout`)
+            // blew the cap and fell back to NO-OP STUBS, so calling the layout cb trapped
+            // with "null function or function signature mismatch" at initLayoutCache.
+            // Hitting the cap is fatal-by-fallback, not a graceful truncation, so it must
+            // sit above the real closure size. `AZ_CB_MAX_DEPTH` overrides.
+            max_recursive_depth: std::env::var("AZ_CB_MAX_DEPTH")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(8192),
             output_stem: "transitive-lift".to_string(),
         }
     }
@@ -5143,20 +7133,26 @@ impl Transpiler for RemillTranspiler {
         // the same wasm.
         let mut roots: Vec<TransitiveLiftRoot> = Vec::with_capacity(symbols.len());
         for (name, addr, size) in symbols {
-            let sig = signature_for_eventloop_fn(name).ok_or_else(|| TranspileError {
-                fn_name: name.clone(),
-                reason: format!(
-                    "no entry in signature_for_eventloop_fn for {} — add it before \
-                     listing in EVENTLOOP_SYMBOLS",
-                    name
+            // Eventloop exports are called BY NAME from JS, so each needs its
+            // hand-written wrapper signature. Extra roots (fn-pointer-only
+            // targets seeded by the caller — today the app's state
+            // deserializer) are only ever reached through the indirect-call
+            // dispatcher, so they take the generic dep treatment: a
+            // `__az_dep_<addr>` export with the canonical callback shape,
+            // exactly as if the walk had discovered them itself.
+            let (sig, export_as) = match signature_for_eventloop_fn(name) {
+                Some(sig) => (sig, name.clone()),
+                None => (
+                    signature_for_callback_kind("Callback"),
+                    format!("__az_dep_{:x}", addr),
                 ),
-            })?;
+            };
             roots.push(TransitiveLiftRoot {
                 fn_name: name.clone(),
                 fn_addr: *addr,
                 fn_size: *size,
                 sig,
-                export_as: name.clone(),
+                export_as,
                 extra_exports: Vec::new(),
             });
         }
@@ -5354,6 +7350,10 @@ impl RemillTranspiler {
             Some(table) => {
                 let rewritten =
                     rewrite_sub_names_to_canonical(raw_lifted_ir, table, fn_addr, lift_addr);
+                // MUST run after the canonical rename: it seeds each call with
+                // the name the rename settled on. Running it first would bake
+                // in the pre-chase address and reintroduce the skew it removes.
+                let (rewritten, _seeded) = seed_direct_calls_with_callee_pc(&rewritten);
                 dedup_sub_declares(&rewritten)
             }
             None => raw_lifted_ir.to_string(),
@@ -5365,12 +7365,15 @@ impl RemillTranspiler {
         // M12.5d-fix: strip noalias from sub_* args (see fn docs).
         let lifted_ir = strip_noalias_from_sub_args(&lifted_ir);
 
+        // Same PDB-gap fallback as the lift-address derivations: a
+        // synthesized entry has no by_addr record, and the raw-native
+        // fallback made the WRAPPER call @sub_<native> while the body
+        // defines @sub_<synth> — an unresolved import in every bundle.
         let canonical_entry_addr = symbol_table::get()
             .and_then(|t| {
-                t.lookup(fn_addr).map(|e| {
-                    t.resolve_synth(e.synthetic_addr)
-                        .unwrap_or(e.synthetic_addr)
-                })
+                t.lookup(fn_addr)
+                    .map(|e| t.resolve_synth(e.synthetic_addr).unwrap_or(e.synthetic_addr))
+                    .or_else(|| t.native_to_synth(fn_addr))
             })
             .unwrap_or(fn_addr) as u64;
 
@@ -5594,8 +7597,7 @@ fn workspace_root() -> PathBuf {
 }
 
 fn discover_remill_lift() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("REMILL_LIFT_BIN") {
-        let pb = PathBuf::from(p);
+    if let Some(pb) = super::lift_env::lift_env().remill_lift_bin.clone() {
         if pb.is_file() {
             return Some(pb);
         }
@@ -5640,8 +7642,7 @@ fn discover_remill_lift() -> Option<PathBuf> {
 }
 
 fn discover_llc() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("LLC") {
-        let pb = PathBuf::from(p);
+    if let Some(pb) = super::lift_env::lift_env().llc.clone() {
         if pb.is_file() {
             return Some(pb);
         }
@@ -5671,8 +7672,7 @@ fn discover_llc() -> Option<PathBuf> {
 }
 
 fn discover_opt() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("LLVM_OPT") {
-        let pb = PathBuf::from(p);
+    if let Some(pb) = super::lift_env::lift_env().llvm_opt.clone() {
         if pb.is_file() {
             return Some(pb);
         }
@@ -5701,8 +7701,7 @@ fn discover_opt() -> Option<PathBuf> {
 }
 
 fn discover_llvm_link() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("LLVM_LINK") {
-        let pb = PathBuf::from(p);
+    if let Some(pb) = super::lift_env::lift_env().llvm_link.clone() {
         if pb.is_file() {
             return Some(pb);
         }
@@ -5731,8 +7730,7 @@ fn discover_llvm_link() -> Option<PathBuf> {
 }
 
 fn discover_wasm_ld() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("WASM_LD") {
-        let pb = PathBuf::from(p);
+    if let Some(pb) = super::lift_env::lift_env().wasm_ld.clone() {
         if pb.is_file() {
             return Some(pb);
         }
@@ -5761,20 +7759,31 @@ fn discover_wasm_ld() -> Option<PathBuf> {
 }
 
 fn discover_wasm_opt() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("WASM_OPT") {
-        let pb = PathBuf::from(p);
+    if let Some(pb) = super::lift_env::lift_env().wasm_opt.clone() {
         if pb.is_file() {
             return Some(pb);
         }
     }
-    let candidates = [
-        "/opt/homebrew/bin/wasm-opt",
-        "/opt/homebrew/opt/binaryen/bin/wasm-opt",
-        "/usr/local/bin/wasm-opt",
-        "/usr/bin/wasm-opt",
+    // Unix-only paths meant this was NEVER found on Windows, so the same
+    // source produced a different artifact per platform and nobody was told.
+    // Search the workspace toolchain and PATH too, so discovery is uniform
+    // and "wasm-opt did not run" is a decision rather than an accident.
+    let ws = workspace_root();
+    let mut candidates: Vec<PathBuf> = vec![
+        ws.join("third_party/remill/dependencies/install/bin/wasm-opt.exe"),
+        ws.join("third_party/remill/dependencies/install/bin/wasm-opt"),
+        PathBuf::from("/opt/homebrew/bin/wasm-opt"),
+        PathBuf::from("/opt/homebrew/opt/binaryen/bin/wasm-opt"),
+        PathBuf::from("/usr/local/bin/wasm-opt"),
+        PathBuf::from("/usr/bin/wasm-opt"),
     ];
-    for c in candidates {
-        let pb = PathBuf::from(c);
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            candidates.push(dir.join("wasm-opt.exe"));
+            candidates.push(dir.join("wasm-opt"));
+        }
+    }
+    for pb in candidates {
         if pb.is_file() {
             return Some(pb);
         }
@@ -5791,7 +7800,26 @@ fn discover_wasm_opt() -> Option<PathBuf> {
 /// debugging codegen and you don't want wasm-opt's rewrites in
 /// the way.
 fn postprocess_wasm_opt(input_path: &Path, fn_name: &str) -> Option<Vec<u8>> {
-    if std::env::var_os("AZ_REMILL_SKIP_WASM_OPT").is_some() {
+    // OFF unless asked for, because -Oz makes the DELIVERED artifact BIGGER.
+    //
+    // Measured on a 30.51 MB mini: -Oz gives 27.18 MB, -10.9% raw - and
+    // 3.23 -> 3.33 MB brotli, +2.9%. The compression ratio falls from 9.4x to
+    // 8.2x because -Oz removes exactly the redundancy brotli was collapsing
+    // for free. Lifted code is enormously repetitive, so re-encoding it more
+    // densely trades a large free win for a small paid one.
+    //
+    // The distinction that matters: passes which DELETE semantically dead work
+    // (the state-store DSE) survive compression almost proportionally, because
+    // they remove information. Passes which merely RE-ENCODE do not, because
+    // the compressor had already handled that.
+    //
+    // Still worth running when browser COMPILE time or memory matters more
+    // than transfer - 27 MB compiles faster than 30 MB however it arrived.
+    // AZ_WASM_OPT=1 opts in; AZ_REMILL_SKIP_WASM_OPT is kept for scripts that
+    // already set it.
+    if !super::lift_env::lift_env().wasm_opt_enable
+        || super::lift_env::lift_env().skip_wasm_opt
+    {
         return None;
     }
     let wasm_opt = discover_wasm_opt()?;
@@ -5912,7 +7940,20 @@ fn remill_export_symbol(entry_addr: u64) -> String {
 /// input bytes (the byte rewrites in `lift_fn`, the synth-address scheme). The
 /// remill ENGINE rev is captured automatically by [`engine_fingerprint`], so
 /// you only bump this for changes inside this crate's lift logic.
-const LIFT_CACHE_VERSION: u32 = 4;
+const LIFT_CACHE_VERSION: u32 = 9;
+
+/// Version for the RELOCATION-TEMPLATE cache alone.
+///
+/// Bumped to 2 when the `@disp` / absolute slot kinds landed: every earlier
+/// template froze its relocatable fields as literal text while the key had
+/// already masked those same bytes away, so an old hit can splice a stale
+/// address. Those entries are not repairable and must not be read.
+///
+/// Deliberately NOT `LIFT_CACHE_VERSION`. The exact-bytes cache is keyed on
+/// the bytes themselves, and a reloc hit returns without ever writing to it,
+/// so it was never poisoned — invalidating it too would cost a full cold
+/// re-lift (hours) for no correctness gain.
+const RELOC_TEMPLATE_VERSION: u32 = 2;
 
 /// Fingerprint of the lifting ENGINE — the `remill-lift-17` binary — folded
 /// into the cache key so an engine change auto-invalidates every entry without
@@ -5932,22 +7973,32 @@ fn engine_fingerprint() -> u64 {
                 which_remill_lift()
             });
         let Some(path) = path else { return 0 };
-        let Ok(meta) = std::fs::metadata(&path) else {
-            return 0;
-        };
-        let len = meta.len();
-        let mtime = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        // Fold len + mtime into one u64 (FNV-ish).
+        // The cached OBJECT is opt's and llc's product, not remill's, so an LLVM
+        // upgrade has to invalidate it too - fingerprinting the lifter alone let a
+        // new toolchain serve objects built by the old one.
+        //
+        // CONTENT hash, deliberately not len+mtime: lifts mostly run in CI,
+        // where every image build stamps fresh mtimes on byte-identical
+        // binaries - under an mtime key the baked prelift cache could never
+        // hit across builds, silently defeating its purpose. Reading a few
+        // hundred MB once per process is noise next to a lift.
         let mut h: u64 = super::FNV_OFFSET_BASIS;
-        for b in len.to_le_bytes().iter().chain(mtime.to_le_bytes().iter()) {
-            h ^= *b as u64;
-            h = h.wrapping_mul(super::FNV_PRIME);
+        let mut fold = |p: &std::path::Path| {
+            let Ok(bytes) = std::fs::read(p) else { return };
+            for b in &bytes {
+                h ^= *b as u64;
+                h = h.wrapping_mul(super::FNV_PRIME);
+            }
+        };
+        fold(&path);
+        for tool in [discover_llc(), discover_opt()] {
+            if let Some(p) = tool {
+                fold(&p);
+            }
         }
+        eprintln!(
+            "[azul-web] engine fingerprint {h:016x} (content of remill-lift + llc + opt)"
+        );
         h
     })
 }
@@ -5972,45 +8023,164 @@ fn which_remill_lift() -> Option<PathBuf> {
 // visible BEFORE it mis-behaves at runtime. Opt-in via `AZ_PREFLIGHT=1`.
 // =====================================================================
 
-/// `fn_name -> (remill_error_calls, missing_block_calls)` for the current
-/// server process. Populated by [`preflight_scan`] when `AZ_PREFLIGHT` is set.
-static PREFLIGHT: std::sync::OnceLock<
-    std::sync::Mutex<std::collections::BTreeMap<String, (u32, u32)>>,
-> = std::sync::OnceLock::new();
+/// `fn_name -> (unexplained_error_calls, missing_block_calls)` for the
+/// current server process. Populated by [`preflight_scan`].
+static PREFLIGHT: std::sync::OnceLock<std::sync::Mutex<std::collections::BTreeMap<String, (u32, u32)>>> =
+    std::sync::OnceLock::new();
+
+/// Corpus-wide counts of the two KNOWN-BENIGN `__remill_error` classes,
+/// reported (never fatal) by the startup lift-audit:
+/// sNaN-guard sites and ud2 sites.
+pub static PREFLIGHT_SNAN_SITES: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+pub static PREFLIGHT_UD2_SITES: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
 
 fn preflight_enabled() -> bool {
-    std::env::var_os("AZ_PREFLIGHT").is_some()
+    super::lift_env::lift_env().preflight
 }
 
-/// Count `call … @__remill_error(` and `call … @__remill_missing_block(` sites
-/// in `ir` and record them under `fn_name`. No-op unless `AZ_PREFLIGHT` is set.
-fn preflight_scan(fn_name: &str, ir: &str) {
-    if !preflight_enabled() {
-        return;
-    }
-    let mut errors = 0u32;
+/// Count `call … @__remill_error(` and `call … @__remill_missing_block(`
+/// sites in `ir`, CLASSIFY the error sites, and record the unexplained
+/// remainder under `fn_name`.
+///
+/// ALWAYS on — the startup lift-audit gates server startup on these counts:
+/// warn early, be aggressive, debug each firing. Corpus survey (3966 sites
+/// across a full hello-world lift) found exactly two benign classes covering
+/// every site, both recognized here so the audit fires only on the residue:
+///
+/// 1. **sNaN guards** — float-op semantics plant a CONDITIONAL error behind
+///    a signaling-NaN mantissa test; the branch condition traces to
+///    `and i32 %x, 4194303` (f32) / `and i64 %x, 2251799813685247` (f64)
+///    within the guard chain. Unreachable for non-signaling values.
+/// 2. **ud2** — rustc's intentional trap instruction lifts to an
+///    unconditional error block whose NEXT_PC advances by exactly 2; this
+///    is the FAITHFUL lift (native would #UD too). Corroborated against the
+///    machine bytes: at most as many sites are attributed as `0f 0b` pairs
+///    actually present (`ud2_in_bytes`), so a genuinely-undecoded 2-byte
+///    opcode cannot hide behind the shape alone.
+///
+/// Everything else stays an F5-fatal "unexplained" site.
+fn preflight_scan(fn_name: &str, ir: &str, ud2_in_bytes: u32) {
+    let mut snan = 0u32;
+    let mut plus2 = 0u32;
+    let mut other = 0u32;
     let mut missing = 0u32;
-    for line in ir.lines() {
+    let lines: Vec<&str> = ir.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
         if !line.contains("call ") {
             continue;
-        }
-        if line.contains("@__remill_error") {
-            errors += 1;
         }
         if line.contains("@__remill_missing_block") {
             missing += 1;
         }
+        if !line.contains("@__remill_error") {
+            continue;
+        }
+        let lo = i.saturating_sub(14);
+        let window = &lines[lo..i];
+        let is_snan = window.iter().any(|l| {
+            (l.contains("and i32 ") && l.ends_with(", 4194303"))
+                || (l.contains("and i64 ") && l.ends_with(", 2251799813685247"))
+        });
+        if is_snan {
+            snan += 1;
+            continue;
+        }
+        // Class 3: integer DIV/IDIV fault guards (divide-by-zero and the
+        // IDIV overflow arm). Remill's division semantics guard the #DE
+        // paths with an error call; the inlined semantic's mangled name
+        // survives as the exit-label suffix right after the call
+        // (`…DIVrdxrax….exit`, `…IDIV….exit`). Faithful lift of a fault
+        // the native code would also take.
+        let hi = (i + 4).min(lines.len());
+        let is_div_guard = lines[i..hi]
+            .iter()
+            .any(|l| l.contains("DIV") && l.contains(".exit"));
+        if is_div_guard {
+            snan += 1; // reported jointly as "guarded fault semantics"
+            continue;
+        }
+        // Class 4: software-interrupt aborts (`int 29h` = Windows fail-fast,
+        // rustc's abort lowering). Remill stores the vector number into the
+        // State's first field right before the error call — nothing else
+        // stores an i32 directly to %state base.
+        // Class 5: interrupt-family instructions lifted through
+        // __remill_sync_hyper_call (int3 hot-patch/padding bytes under
+        // synthesized PDB-gap entries, int1, hlt) — the error is the
+        // faithful lift of an instruction that traps natively too.
+        let is_int_abort = window.iter().any(|l| {
+            (l.contains("store i32 ") && l.contains(", ptr %state, align"))
+                || l.contains("@__remill_sync_hyper_call")
+        });
+        if is_int_abort {
+            snan += 1; // reported jointly as "guarded fault semantics"
+            continue;
+        }
+        // ud2 shape: the error block advanced NEXT_PC by exactly 2 (the
+        // `add i64 %x, 2` feeding the NEXT_PC store a few lines up).
+        let is_plus2 = window.windows(2).any(|w| {
+            w[0].contains("add i64 ") && w[0].ends_with(", 2")
+                && w[1].contains("store i64 ") && w[1].contains("ptr %NEXT_PC")
+        });
+        if is_plus2 {
+            plus2 += 1;
+        } else {
+            other += 1;
+        }
     }
-    if errors == 0 && missing == 0 {
+    // Bytes corroboration: only as many +2-shaped sites as real ud2s.
+    let ud2 = plus2.min(ud2_in_bytes);
+    let unexplained = other + (plus2 - ud2);
+    PREFLIGHT_SNAN_SITES.fetch_add(snan, std::sync::atomic::Ordering::Relaxed);
+    PREFLIGHT_UD2_SITES.fetch_add(ud2, std::sync::atomic::Ordering::Relaxed);
+    if unexplained == 0 && missing == 0 {
         return;
     }
     let map = PREFLIGHT.get_or_init(|| std::sync::Mutex::new(std::collections::BTreeMap::new()));
     if let Ok(mut m) = map.lock() {
         let e = m.entry(fn_name.to_string()).or_insert((0, 0));
         // Keep the max across re-lifts of the same fn (cache hits re-scan).
-        e.0 = e.0.max(errors);
+        e.0 = e.0.max(unexplained);
         e.1 = e.1.max(missing);
     }
+}
+
+/// Count `0f 0b` (ud2) pairs in the machine bytes — the corroboration input
+/// for [`preflight_scan`]'s class-2 attribution. A plain byte scan can hit
+/// immediates, which only ever RAISES the allowance; the +2-shape test on
+/// the IR side is what actually attributes a site.
+fn count_ud2_pairs(bytes: &[u8]) -> u32 {
+    bytes.windows(2).filter(|w| w[0] == 0x0F && w[1] == 0x0B).count() as u32
+}
+
+/// Count of functions Leaf-stubbed because remill/llc CRASHED (not the
+/// intentional Leaf classifications). Read by the startup lift-audit.
+static LIFT_FAILURES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Relocation-canonical cache telemetry: translated hits vs fresh lifts,
+/// printed by the startup lift-audit so every run reports how warm the
+/// canonical cache ran.
+pub static RELOC_CACHE_HITS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+pub static RELOC_CACHE_LIFTS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// AZ_RELOC_VERIFY self-check tallies (translation == fresh lift?).
+pub static RELOC_VERIFY_OKS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+pub static RELOC_VERIFY_FAILS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn lift_failure_count() -> u32 {
+    LIFT_FAILURES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Per-fn preflight counts for the startup lift-audit:
+/// `(fn_name, remill_error_sites, missing_block_sites)`.
+pub fn preflight_entries() -> Vec<(String, u32, u32)> {
+    let Some(map) = PREFLIGHT.get() else {
+        return Vec::new();
+    };
+    let Ok(m) = map.lock() else {
+        return Vec::new();
+    };
+    m.iter().map(|(k, (e, mb))| (k.clone(), *e, *mb)).collect()
 }
 
 /// Print the accumulated preflight report. Call once at server startup (after
@@ -6049,7 +8219,7 @@ pub fn preflight_report() {
     }
 }
 
-/// S0 cache-v2a (2026-06-11): content-keyed cache for produced wasm32
+/// S0 cache-v2a : content-keyed cache for produced wasm32
 /// OBJECTS. The per-bundle transitive walks (mini + layout + one per cb)
 /// re-compile byte-identical lifted IR for every shared dependency — with
 /// N callbacks that's up to N+2 redundant `llvm-link|opt|llc` subprocess
@@ -6066,7 +8236,7 @@ fn obj_cache_path(
     stem: &str,
     use_native: bool,
 ) -> Option<PathBuf> {
-    if std::env::var_os("AZ_LIFT_CACHE").is_none() || std::env::var_os("AZ_NO_LIFT_CACHE").is_some()
+    if !super::lift_env::lift_env().lift_cache || super::lift_env::lift_env().no_lift_cache
     {
         return None;
     }
@@ -6099,7 +8269,7 @@ fn obj_cache_path(
     h = fold(h, patched_ir.as_bytes());
     h = fold(h, helper_ir.as_bytes());
     h = fold(h, opt_flag_for(fn_name).as_bytes());
-    // [az-diag] per-fn opt-bisect: the bisect limit changes this fn's opt output
+    // Per-fn opt-bisect: the bisect limit changes this fn's opt output
     // → key it so each AZ_BISECT_LIMIT re-lifts the matched fn (others stay cached).
     if let Some(b) = opt_bisect_arg(fn_name) {
         h = fold(h, b.as_bytes());
@@ -6108,18 +8278,25 @@ fn obj_cache_path(
         h,
         &[
             use_native as u8,
-            std::env::var_os("AZ_NO_FIX_SP").is_some() as u8,
-            std::env::var_os("AZ_NO_TRAP_SELFLOOP").is_some() as u8,
+            super::lift_env::lift_env().no_fix_sp as u8,
+            super::lift_env::lift_env().no_trap_selfloop as u8,
             // AZ_KEEP_ALIAS_SCOPE toggles the post-link alias-metadata strip
             // (default-on); it changes the opt input → must key the object.
-            std::env::var_os("AZ_KEEP_ALIAS_SCOPE").is_some() as u8,
+            super::lift_env::lift_env().keep_alias_scope as u8,
             // AZ_FULL_CS_RESTORE toggles unconditional X19-X28 restore in
             // enforce_sp_preservation → changes the post-opt IR → key it.
-            std::env::var_os("AZ_FULL_CS_RESTORE").is_some() as u8,
+            super::lift_env::lift_env().full_cs_restore as u8,
         ],
     );
     let dir = lift_cache_root();
-    let _ = std::fs::create_dir_all(&dir);
+    // Created once per process, not once per function: this is called for every
+    // lift and the directory is the same every time.
+    {
+        static MADE: std::sync::Once = std::sync::Once::new();
+        MADE.call_once(|| {
+            let _ = std::fs::create_dir_all(&dir);
+        });
+    }
     Some(dir.join(format!(
         "{:016x}_v{}_e{:x}.o",
         h,
@@ -6148,7 +8325,7 @@ fn lift_cache_root() -> PathBuf {
 /// fingerprint (so an engine change auto-invalidates). Lives in
 /// `$TMPDIR/az-lift-cache` by default (override the root with
 /// `AZ_LIFT_CACHE_DIR=<abs path>`; persists across server restarts; clear with
-/// `rm -rf` or `AZ_LIFT_CACHE_CLEAR=1`). Disable entirely with
+/// `rm -rf` the cache dir; there is no clear-on-start knob). Disable entirely with
 /// `AZ_NO_LIFT_CACHE=1`.
 /// The azul source build identity embedded at compile time by `dll/build.rs`
 /// (short git hash, `-dirty` on an uncommitted tree, or `unknown` without git).
@@ -6169,7 +8346,17 @@ fn lift_cache_path(rewritten_bytes: &[u8], lift_addr: u64, fn_name: &str) -> Pat
     // carry the cache version + engine fingerprint so a toolchain/format change
     // still invalidates; the ref key drops `lift_addr` + machine bytes (both
     // arch-specific) and uses the arch-neutral fn-name hash instead.
-    let key = if build_id == "unknown" || build_id.ends_with("-dirty") {
+    // ...but the fn-name hash is only a valid identity while the name identifies
+    // ONE function. Duplicate monomorphizations share a canonical_name (the same
+    // ambiguity that made the reloc cache splice the wrong callee), so under the
+    // ref key the second copy would be served the FIRST copy's IR - silently wrong
+    // code, since the bodies differ in their embedded displacements. Those names
+    // fall back to the byte key; every unambiguous name keeps arch-neutral reuse,
+    // which is what lets one prelift serve every arch.
+    let ambiguous_name = symbol_table::get()
+        .map(|t| t.name_is_ambiguous(fn_name))
+        .unwrap_or(false);
+    let key = if build_id == "unknown" || build_id.ends_with("-dirty") || ambiguous_name {
         format!(
             "{}_{:x}_v{}_e{:x}",
             super::fnv1a64_hex(rewritten_bytes),
@@ -6189,6 +8376,806 @@ fn lift_cache_path(rewritten_bytes: &[u8], lift_addr: u64, fn_name: &str) -> Pat
     dir.join(format!("{key}.lifted.ll"))
 }
 
+// =====================================================================
+// Relocation-canonical lift cache
+// =====================================================================
+//
+// The exact-bytes key above misses on EVERY layout change: a rebuild (or
+// even an ASLR rebase) shifts each rel32 call, RIP-relative disp32, and
+// materialized address, so byte-identical-in-spirit functions rekey and
+// the whole 2h AzWriter-class lift goes cold. This layer keys on a
+// CANONICAL form instead: relocatable fields are zeroed out of the hashed
+// bytes and each site's target contributes a build-independent identity
+// (its symbol name + interior offset) to the key. The cached artifact is
+// the RAW lifted IR plus a manifest of `(old_target, identity)` pairs; on
+// a hit in a new layout every embedded address is re-derived from the
+// identity (or the intra-fn delta) and substituted textually. ANY
+// resolution or verification failure degrades to a plain miss — a
+// mistranslated artifact is never served. Non-x86_64 and undecodable
+// functions fall back to the exact-bytes key untouched.
+
+#[cfg(target_arch = "x86_64")]
+struct RelocSite {
+    field_off: usize,
+    width: u8,
+    /// Offset one past the instruction carrying the field — the value a
+    /// pc-relative field is measured from. Needed to reconstruct the
+    /// DISPLACEMENT the lifter bakes into the IR for this site, which is
+    /// what a template has to re-resolve (see `reloc_templateize`).
+    next_off: usize,
+    old_target: u64,
+    /// "name+0x<off>" when the symbol table names the target,
+    /// "$raw:<hex>" otherwise (keys per-layout, still translation-safe
+    /// because old == new under an identical key).
+    ident: String,
+}
+
+#[cfg(target_arch = "x86_64")]
+struct RelocCanon {
+    canonical: Vec<u8>,
+    sites: Vec<RelocSite>,
+}
+
+/// Decode the (post-rewrite) fn bytes at `lift_addr` (synth space — synth
+/// preserves intra-image PC-relative distances, so decoded branch/disp
+/// targets are synth values) and canonicalize every EXTRA-function
+/// relocatable field. Intra-fn branches are layout-stable and stay in the
+/// hashed bytes. Returns None on any decode anomaly (padding, data-in-code)
+/// — the caller then uses the exact-bytes key.
+#[cfg(target_arch = "x86_64")]
+fn reloc_canonicalize(
+    bytes: &[u8],
+    lift_addr: u64,
+    fn_addr: usize,
+    table: Option<&symbol_table::SymbolTable>,
+) -> Option<RelocCanon> {
+    use iced_x86::{Decoder, DecoderOptions, Instruction, OpKind};
+    let fn_lo = lift_addr;
+    let fn_hi = lift_addr.checked_add(bytes.len() as u64)?;
+    // synth → native within this image (targets outside the image get the
+    // wrong native and simply fail the resolve → "$raw" identity).
+    let bias = (fn_addr as u64).wrapping_sub(lift_addr);
+    let mut canonical = bytes.to_vec();
+    let mut sites: Vec<RelocSite> = Vec::new();
+    // Image bounds for safe pointee reads (fingerprint identities).
+    let img = super::lift_audit::native_image_range(fn_addr);
+    let ident_for = |t: u64| -> String {
+        if let Some(tab) = table {
+            let native = t.wrapping_add(bias) as usize;
+            if let Some(e) = tab.resolve(native) {
+                // A name carried by several canonical addresses (duplicate
+                // monomorphizations) cannot identify this target: two
+                // callers, byte-identical after reloc masking, calling
+                // DIFFERENT same-named copies would collide on the cache
+                // key, and the stored template would splice the first
+                // copy's callee into the second's callers. A content
+                // fingerprint cannot arbitrate either — same-source copies
+                // share their first hundreds of bytes and differ only in
+                // reloc fields (verified: three write_str→do_reserve
+                // triplets, byte-identical through +32). $raw keys the
+                // caller per-exact-layout instead: a cross-build miss,
+                // never a wrong splice.
+                if tab.name_is_ambiguous(&e.canonical_name) {
+                    return format!("$raw:{t:x}");
+                }
+                let off = native.wrapping_sub(e.canonical_addr);
+                if off < 0x1000 {
+                    return format!("{}+0x{:x}", e.canonical_name, off);
+                }
+            }
+            // Anonymous data (string constants, jump tables, float pools):
+            // identify as nearest-named-neighbor + offset, VERIFIED by a
+            // 16-byte pointee fingerprint at translate time. This is what
+            // lifts the cross-build hit rate past call-only functions —
+            // without it every fn touching unnamed .rdata keys per-layout.
+            if let (Some(e), Some((lo, hi))) = (tab.nearest_below(native), img) {
+                let off = native.wrapping_sub(e.canonical_addr);
+                let n64 = native as u64;
+                if off < 0x100000
+                    && n64 >= lo
+                    && n64.saturating_add(16) <= hi
+                    // An ambiguous neighbor name poisons the whole
+                    // neighbor+offset identity — same reasoning as above.
+                    && !tab.name_is_ambiguous(&e.canonical_name)
+                {
+                    let pointee =
+                        unsafe { std::slice::from_raw_parts(native as *const u8, 16) };
+                    return format!(
+                        "near:{}+0x{:x}:{}",
+                        e.canonical_name,
+                        off,
+                        super::fnv1a64_hex(pointee),
+                    );
+                }
+            }
+        }
+        format!("$raw:{t:x}")
+    };
+    let mut dec = Decoder::with_ip(64, bytes, lift_addr, DecoderOptions::NONE);
+    let mut insn = Instruction::default();
+    while dec.can_decode() {
+        let pos = dec.position();
+        dec.decode_out(&mut insn);
+        if insn.is_invalid() {
+            // int3 / 0x00 padding tails are normal; anything undecodable
+            // before the end disqualifies canonicalization entirely.
+            let rest = &bytes[pos..];
+            if rest.iter().all(|b| *b == 0xCC || *b == 0x00) {
+                break;
+            }
+            return None;
+        }
+        let co = dec.get_constant_offsets(&insn);
+        // Near branches / calls with a relative immediate.
+        let mut branch_target: Option<u64> = None;
+        for i in 0..insn.op_count() {
+            if matches!(
+                insn.op_kind(i),
+                OpKind::NearBranch16 | OpKind::NearBranch32 | OpKind::NearBranch64
+            ) {
+                branch_target = Some(insn.near_branch_target());
+            }
+        }
+        if let Some(t) = branch_target {
+            if (t < fn_lo || t >= fn_hi) && co.has_immediate() {
+                let off = pos + co.immediate_offset();
+                let w = co.immediate_size();
+                if off + w <= canonical.len() {
+                    for b in &mut canonical[off..off + w] {
+                        *b = 0;
+                    }
+                    sites.push(RelocSite {
+                        field_off: off,
+                        width: w as u8,
+                        next_off: pos + insn.len(),
+                        old_target: t,
+                        ident: ident_for(t),
+                    });
+                }
+            }
+        }
+        // RIP-relative memory operands (data refs, IAT-rewritten targets).
+        if insn.is_ip_rel_memory_operand() {
+            let t = insn.ip_rel_memory_address();
+            if (t < fn_lo || t >= fn_hi) && co.has_displacement() {
+                let off = pos + co.displacement_offset();
+                let w = co.displacement_size();
+                if off + w <= canonical.len() {
+                    for b in &mut canonical[off..off + w] {
+                        *b = 0;
+                    }
+                    sites.push(RelocSite {
+                        field_off: off,
+                        width: w as u8,
+                        next_off: pos + insn.len(),
+                        old_target: t,
+                        ident: ident_for(t),
+                    });
+                }
+            }
+        }
+        // Absolute 64-bit immediates: treat as a relocation ONLY when the
+        // symbol table positively names the target (a plain large constant
+        // must never be rewritten). Unresolved address-looking imm64s stay
+        // in the canonical bytes — per-layout key, always correct.
+        for i in 0..insn.op_count() {
+            if insn.op_kind(i) == OpKind::Immediate64 {
+                let t = insn.immediate64();
+                if t >= 0x10000 && (t < fn_lo || t >= fn_hi) && co.has_immediate() {
+                    let id = ident_for(t);
+                    if !id.starts_with("$raw:") {
+                        let off = pos + co.immediate_offset();
+                        let w = co.immediate_size();
+                        if w == 8 && off + w <= canonical.len() {
+                            for b in &mut canonical[off..off + w] {
+                                *b = 0;
+                            }
+                            sites.push(RelocSite {
+                                field_off: off,
+                                width: 8,
+                                next_off: pos + insn.len(),
+                                old_target: t,
+                                ident: id,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Some(RelocCanon { canonical, sites })
+}
+
+/// Cache paths for the relocation-canonical key: hash of the canonical
+/// bytes + the ordered site identities (+ size/version/engine). The synth
+/// lift address is deliberately NOT part of the key.
+#[cfg(target_arch = "x86_64")]
+fn reloc_cache_paths(canon: &RelocCanon, fn_size: usize) -> (PathBuf, PathBuf) {
+    let dir = lift_cache_root();
+    let mut idents = String::new();
+    for s in &canon.sites {
+        idents.push_str(&s.ident);
+        idents.push('\0');
+    }
+    let key = format!(
+        "r{}_{}_{:x}_t{}_e{:x}",
+        super::fnv1a64_hex(&canon.canonical),
+        super::fnv1a64_hex(idents.as_bytes()),
+        fn_size,
+        RELOC_TEMPLATE_VERSION,
+        engine_fingerprint(),
+    );
+    (
+        dir.join(format!("{key}.lifted.ll")),
+        dir.join(format!("{key}.manifest")),
+    )
+}
+
+/// Shared token scanner for the v6 template machinery: yields
+/// (start, end, kind, value) for `sub_<hex>` name tokens (kind `s`, value =
+/// the hex) and decimal integer runs of 4+ digits (kind `d`). Literal text
+/// between tokens is what must match across the two probe lifts.
+#[cfg(target_arch = "x86_64")]
+fn reloc_next_token(b: &[u8], mut i: usize) -> Option<(usize, usize, u8, u64)> {
+    while i < b.len() {
+        if b[i..].starts_with(b"sub_") {
+            let start = i;
+            let mut j = i + 4;
+            while j < b.len() && b[j].is_ascii_hexdigit() {
+                j += 1;
+            }
+            if j > i + 4 {
+                if let Ok(v) =
+                    u64::from_str_radix(std::str::from_utf8(&b[i + 4..j]).ok()?, 16)
+                {
+                    return Some((start, j, b's', v));
+                }
+            }
+            i = j.max(i + 4);
+            continue;
+        }
+        let c = b[i];
+        if c.is_ascii_digit()
+            && (i == 0
+                || (!b[i - 1].is_ascii_alphanumeric() && b[i - 1] != b'_' && b[i - 1] != b'.'))
+        {
+            let start = i;
+            let mut j = i;
+            while j < b.len() && b[j].is_ascii_digit() {
+                j += 1;
+            }
+            let followed_by = if j < b.len() { b[j] } else { 0 };
+            if j - start >= 4
+                && followed_by != b'.'
+                && followed_by != b'e'
+                && followed_by != b'E'
+                && followed_by != b'x'
+            {
+                if let Ok(v) = std::str::from_utf8(&b[start..j]).ok()?.parse::<u64>() {
+                    return Some((start, j, b'd', v));
+                }
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Build the v6 relocation template by DIFFING two fresh lifts of the SAME
+/// bytes at two different addresses: any token that varies between them is
+/// address-derived BY CONSTRUCTION (only the lift address changed), and
+/// every varying token must differ by exactly `probe - lift` (all embedded
+/// addresses shift together - rel32/RIP encodings are position-relative).
+/// Values inside [lift, lift+len] become entry-relative slots (`@rel:`);
+/// extra-function values resolve through symbol identities. Returns the
+/// manifest text ("v6 <lift> <len>" header + one "<off> <len> <kind>
+/// <ident>" line per slot, offsets into the STORED ir), or None when the
+/// two lifts differ structurally or an extra-fn slot has no build-stable
+/// identity - the exact-bytes cache still serves those.
+#[cfg(target_arch = "x86_64")]
+fn reloc_templateize(
+    ir: &str,
+    probe_ir: &str,
+    lift_addr: u64,
+    probe_addr: u64,
+    fn_len: usize,
+    fn_addr: usize,
+    sites: &[RelocSite],
+    table: Option<&symbol_table::SymbolTable>,
+) -> Option<String> {
+    let a = ir.as_bytes();
+    let b = probe_ir.as_bytes();
+    let delta = probe_addr.wrapping_sub(lift_addr);
+    let bias = (fn_addr as u64).wrapping_sub(lift_addr);
+    let img = super::lift_audit::native_image_range(fn_addr);
+    // EVERY symbol identity is fingerprint-verified: by_name keeps ONE
+    // address per name, so duplicate-named monomorphization copies
+    // (write_fmt<String> at two addresses) resolve to the wrong copy for
+    // half their callers — the verifier caught exactly that as wrong-callee
+    // sub_ slots. The 16 pointee bytes discriminate copies at translate
+    // time (mismatch = miss, never wrong code). The fingerprint needs
+    // entropy: all-alike bytes (zeroed .bss around SKIP_DISPLAY_LIST)
+    // false-match everywhere, so low-entropy targets are untemplateable.
+    let ident_for = |t: u64| -> Option<String> {
+        let tab = table?;
+        let native = t.wrapping_add(bias) as usize;
+        let (lo, hi) = img?;
+        let n64 = native as u64;
+        if n64 < lo || n64.saturating_add(16) > hi {
+            return None;
+        }
+        let pointee = unsafe { std::slice::from_raw_parts(native as *const u8, 16) };
+        let mut seen = std::collections::HashSet::new();
+        for byte in pointee {
+            seen.insert(*byte);
+        }
+        if seen.len() < 4 {
+            return None;
+        }
+        let fp = super::fnv1a64_hex(pointee);
+        // Duplicate-named copies defeat BOTH halves of this identity:
+        // `by_name` at translate answers with an arbitrary copy, and the
+        // 16-byte fingerprint false-matches because same-source copies
+        // share their prologues (they differ only in reloc fields deep in
+        // the body). Untemplatable is the only sound answer — the
+        // exact-bytes cache still serves these callers.
+        if let Some(e) = tab.resolve(native) {
+            if tab.name_is_ambiguous(&e.canonical_name) {
+                return None;
+            }
+            let off = native.wrapping_sub(e.canonical_addr);
+            if off < 0x1000 {
+                return Some(format!("near:{}+0x{:x}:{}", e.canonical_name, off, fp));
+            }
+        }
+        let e = tab.nearest_below(native)?;
+        if tab.name_is_ambiguous(&e.canonical_name) {
+            return None;
+        }
+        let off = native.wrapping_sub(e.canonical_addr);
+        if off < 0x100000 {
+            return Some(format!("near:{}+0x{:x}:{}", e.canonical_name, off, fp));
+        }
+        None
+    };
+
+    let mut slots = String::new();
+    let mut ia = 0usize;
+    let mut ib = 0usize;
+    let mut prev_a_end = 0usize;
+    let mut prev_b_end = 0usize;
+    loop {
+        let ta = reloc_next_token(a, ia);
+        let tb = reloc_next_token(b, ib);
+        match (ta, tb) {
+            (None, None) => {
+                if a[prev_a_end..] != b[prev_b_end..] {
+                    return None;
+                }
+                break;
+            }
+            (Some((sa, ea, ka, va)), Some((sb, eb, kb, vb))) => {
+                if ka != kb || a[prev_a_end..sa] != b[prev_b_end..sb] {
+                    return None;
+                }
+                if va != vb {
+                    if vb.wrapping_sub(va) != delta {
+                        return None;
+                    }
+                    // STRICTLY inside the fn: one-past-end IS the next
+                    // function's entry (tail shims target it), and that
+                    // neighbor shifts independently across layouts — the
+                    // verifier caught an inclusive bound here as a
+                    // 16-byte mistranslation in a 32-byte shim. At-or-
+                    // beyond-end targets resolve via symbol identity.
+                    let rel = va.wrapping_sub(lift_addr);
+                    // @delta translates by THIS fn's lift delta, which is only
+                    // sound for pc-ARITHMETIC tokens (`pc - fixed` difference
+                    // values in backward-offset computations). The old guard
+                    // tested va against the RUNTIME synth band — but va is
+                    // PROBE-space, where image addresses sit wherever the
+                    // probe base puts them (typically below 0x100000), so
+                    // cross-function targets slipped into @delta and were
+                    // translated by the wrong delta: the verifier caught
+                    // <str as Display>::fmt's tail-jmp to Formatter::pad
+                    // spliced 2014896 short, into Vec::Drain::drop. Decide by
+                    // mapping va through the probe bias instead: an address
+                    // inside the native image is never pc-arithmetic.
+                    let in_image = img
+                        .map(|(lo, hi)| {
+                            let n = va.wrapping_add(bias);
+                            n >= lo && n < hi
+                        })
+                        .unwrap_or(false);
+                    let ident = if rel < fn_len as u64 {
+                        format!("@rel:{rel:x}")
+                    } else if !in_image && !(0x100000..0x6000000).contains(&va) {
+                        format!("@delta:{va:x}")
+                    } else {
+                        ident_for(va)?
+                    };
+                    slots.push_str(&format!(
+                        "{:x} {:x} {} {}\n",
+                        sa,
+                        ea - sa,
+                        ka as char,
+                        ident,
+                    ));
+                }
+                prev_a_end = ea;
+                prev_b_end = eb;
+                ia = ea;
+                ib = eb;
+            }
+            _ => return None,
+        }
+    }
+    // ── Frozen relocatable displacements ────────────────────────────
+    //
+    // The diff above can only slot a token that DIFFERS between the two
+    // probe lifts. A pc-relative displacement is derived from the bytes, so
+    // both probes emit the same number and it stays literal text — while
+    // `reloc_canonicalize` has already zeroed that same field out of the
+    // hashed key and identified the target by symbol. Masked out of the key
+    // but never re-resolved is a stale value by construction: a later build
+    // where the callee moved relative to the caller is still a HIT and
+    // splices the old displacement, yielding a well-formed branch to a
+    // wrong address. Measured on one AzWriter run: 0 of 2,726 such `add`
+    // sites across 400 templates were covered by a slot, and the resulting
+    // jump sent <str as Display>::fmt into the middle of reserve_rehash.
+    //
+    // Slot each one explicitly under the same fingerprinted identity the
+    // `s` slots use. Where that cannot be done safely — the value occurs
+    // more than once, or collides with another site, or the target has no
+    // verifiable identity — refuse the whole function. A miss costs one
+    // remill invocation; a wrong splice costs silent wrong code.
+    let mut covered: Vec<(usize, usize)> = Vec::new();
+    for line in slots.lines() {
+        let mut f = line.split(' ');
+        let (Some(o), Some(l)) = (f.next(), f.next()) else {
+            continue;
+        };
+        if let (Ok(o), Ok(l)) = (usize::from_str_radix(o, 16), usize::from_str_radix(l, 16)) {
+            covered.push((o, o + l));
+        }
+    }
+    let bytes_ir = ir.as_bytes();
+    let mut claimed: Vec<(usize, usize)> = Vec::new();
+    for site in sites {
+        let next_ip = lift_addr.wrapping_add(site.next_off as u64);
+        let disp = site.old_target.wrapping_sub(next_ip) as i64;
+        // A masked field reaches the IR in one of three shapes, all of them
+        // probe-invariant and therefore frozen: an absolute operand (an
+        // imm64 target) renders as the address itself; a pc-relative one as
+        // the displacement remill decoded, which it emits as `add pc, d` for
+        // a forward reference and as `sub pc, -d` — a POSITIVE magnitude —
+        // for a backward one. Searching only the signed displacement misses
+        // every `sub` site, which is the shape the verifier caught in
+        // core::fmt::impl$75::fmt<str$>. Slot whichever is present.
+        let ndisp = next_ip.wrapping_sub(site.old_target) as i64;
+        for (text, shape) in [
+            (site.old_target.to_string(), b'd'),
+            (disp.to_string(), b'D'),
+            (ndisp.to_string(), b'N'),
+        ] {
+            // A one-character run is not a token anything can splice
+            // unambiguously, and only reaches inside this function anyway.
+            if text.len() < 2 {
+                continue;
+            }
+            // Token-boundary matches only: "5234" must not be found inside
+            // "15234" or "0x5234", and a leading '-' belongs to the number.
+            let mut hits: Vec<usize> = Vec::new();
+            for (p, _) in ir.match_indices(text.as_str()) {
+                let before = if p == 0 { None } else { bytes_ir.get(p - 1).copied() };
+                let after = bytes_ir.get(p + text.len()).copied();
+                let bad_before = matches!(before, Some(c)
+                    if c.is_ascii_digit() || c == b'-' || c == b'.' || c == b'x');
+                let bad_after = matches!(after, Some(c) if c.is_ascii_digit());
+                if !bad_before && !bad_after {
+                    hits.push(p);
+                }
+            }
+            if hits.is_empty() {
+                continue; // not frozen in this shape
+            }
+            if hits.len() > 1 {
+                return None; // ambiguous — no single safe splice point
+            }
+            let (at, end) = (hits[0], hits[0] + text.len());
+            if covered.iter().any(|(lo, hi)| at < *hi && end > *lo) {
+                continue; // the probe diff already slotted this field
+            }
+            if claimed.iter().any(|(lo, hi)| at < *hi && end > *lo) {
+                return None; // two sites resolving to one token
+            }
+            let ident = ident_for(site.old_target)?;
+            claimed.push((at, end));
+            match shape {
+                b'D' => slots.push_str(&format!(
+                    "{:x} {:x} D @disp:{:x}:{}\n",
+                    at,
+                    text.len(),
+                    site.next_off,
+                    ident,
+                )),
+                b'N' => slots.push_str(&format!(
+                    "{:x} {:x} N @ndisp:{:x}:{}\n",
+                    at,
+                    text.len(),
+                    site.next_off,
+                    ident,
+                )),
+                _ => slots.push_str(&format!("{:x} {:x} d {}\n", at, text.len(), ident)),
+            }
+        }
+    }
+
+    Some(format!("v6 {lift_addr:x} {fn_len:x}\n{slots}"))
+}
+
+#[cfg(all(test, target_arch = "x86_64"))]
+mod reloc_disp_tests {
+    use super::*;
+
+    /// An address inside this binary's loaded image. `native_image_range`
+    /// walks backwards from whatever it is handed looking for the MZ header,
+    /// dereferencing as it goes, so a null or stack address faults.
+    fn in_image_addr() -> usize {
+        let f: fn() -> usize = in_image_addr;
+        f as usize
+    }
+
+    fn site(next_off: usize, old_target: u64) -> RelocSite {
+        RelocSite {
+            field_off: next_off.saturating_sub(4),
+            width: 4,
+            next_off,
+            old_target,
+            ident: String::new(),
+        }
+    }
+
+    /// The failure this whole slot kind exists to stop.
+    ///
+    /// Both probe lifts decode the same bytes, so a pc-relative displacement
+    /// is the SAME number in each and the token diff leaves it as literal
+    /// text — while `reloc_canonicalize` has already zeroed that field out of
+    /// the hashed cache key. Emitting the template anyway means a later build
+    /// whose callee moved relative to its caller gets a HIT and splices the
+    /// stale displacement. With no symbol table the target has no verifiable
+    /// identity, so the only sound answer is to refuse the function.
+    #[test]
+    fn frozen_displacement_without_identity_refuses_the_template() {
+        let lift = 0x10_0000u64;
+        let disp = 14_296_350u64;
+        let ir = "  %2 = add i64 %1, 14296350\n";
+        let out = reloc_templateize(
+            ir,
+            ir,
+            lift,
+            lift.wrapping_add(0x4000_0000),
+            0x20,
+            in_image_addr(),
+            &[site(5, lift + 5 + disp)],
+            None,
+        );
+        assert!(
+            out.is_none(),
+            "a frozen displacement with no verifiable identity must be a cache \
+             MISS, not a template that splices a stale branch target",
+        );
+    }
+
+    /// The shape the verifier actually caught in the boot-trap thunk. remill
+    /// emits a backward reference as `sub pc, <positive magnitude>`, so a
+    /// search for the signed displacement (`-N`) finds nothing and the field
+    /// stays frozen. The negated form has to be searched too.
+    #[test]
+    fn frozen_backward_displacement_is_seen_in_its_sub_form() {
+        // High enough that a backward reference stays in range.
+        let lift = 0x100_0000u64;
+        // target sits BELOW the reference point, so the displacement is
+        // negative and the IR carries its magnitude under a `sub`.
+        let target = lift + 5 - 7_860_144;
+        let ir = "  %73 = sub i64 %72, 7860144\n";
+        let out = reloc_templateize(
+            ir,
+            ir,
+            lift,
+            lift.wrapping_add(0x4000_0000),
+            0x20,
+            in_image_addr(),
+            &[site(5, target)],
+            None,
+        );
+        assert!(
+            out.is_none(),
+            "a `sub`-shaped frozen displacement must be seen; searching only \
+             the signed form silently leaves every backward reference stale",
+        );
+    }
+
+    /// The same defect in its other shape. `reloc_canonicalize` masks absolute
+    /// imm64 targets out of the key as well, and an absolute address is also
+    /// identical in both probes — but it renders as the address itself, not as
+    /// a displacement, so a `@disp` slot would never match it.
+    #[test]
+    fn frozen_absolute_target_without_identity_refuses_the_template() {
+        let lift = 0x10_0000u64;
+        let target = 987_654_321u64;
+        let ir = "  %2 = load i64, ptr inttoptr (i64 987654321 to ptr)\n";
+        let out = reloc_templateize(
+            ir,
+            ir,
+            lift,
+            lift.wrapping_add(0x4000_0000),
+            0x20,
+            in_image_addr(),
+            &[site(5, target)],
+            None,
+        );
+        assert!(
+            out.is_none(),
+            "a frozen absolute target with no verifiable identity must be a \
+             cache MISS, not a template that splices a stale address",
+        );
+    }
+
+    /// The common case must still template. remill renders a direct `call` as
+    /// `call @sub_<hex>`, so no displacement literal appears in the IR at all
+    /// and there is nothing frozen to repair — refusing here would cost the
+    /// cache its hit rate for no correctness gain.
+    #[test]
+    fn a_site_whose_displacement_is_absent_still_templates() {
+        let lift = 0x10_0000u64;
+        let ir = "  %2 = add i64 %1, 999\n";
+        let out = reloc_templateize(
+            ir,
+            ir,
+            lift,
+            lift.wrapping_add(0x4000_0000),
+            0x20,
+            in_image_addr(),
+            &[site(5, lift + 5 + 555_555)],
+            None,
+        );
+        assert_eq!(out.as_deref(), Some("v6 100000 20\n"));
+    }
+}
+
+/// Apply a v6 template: pure slot substitution, no scanning heuristics.
+/// Every slot value comes from its identity (`@rel:` = new_lift + rel;
+/// symbol identities re-resolve through the current table, `near:`
+/// verified by the pointee fingerprint) and splices at its recorded byte
+/// range, descending so offsets stay valid. Any unresolved identity is a
+/// miss.
+#[cfg(target_arch = "x86_64")]
+fn reloc_translate(
+    ir: &str,
+    manifest: &str,
+    new_lift_addr: u64,
+    bytes: &[u8],
+    fn_addr: usize,
+    table: Option<&symbol_table::SymbolTable>,
+) -> Option<String> {
+    let fn_len = bytes.len();
+    let new_img = super::lift_audit::native_image_range(fn_addr);
+    let new_bias = (fn_addr as u64).wrapping_sub(new_lift_addr);
+    // Shared `near:` resolution: a fingerprint-verified symbol identity to
+    // this build's synthetic address. Used directly by an `s`/`d` slot and
+    // again inside a `@disp:` slot, which turns the same answer into a
+    // pc-relative displacement.
+    let resolve_near = |rest: &str| -> Option<u64> {
+        let (name_off, fp_hex) = rest.rsplit_once(':')?;
+        let (name, off_hex) = name_off.rsplit_once("+0x")?;
+        let soff = u64::from_str_radix(off_hex, 16).ok()?;
+        let e = table?.by_name(name)?;
+        // An entry can share the target's NATIVE address (fingerprint
+        // trivially matches) while its synthetic address was never
+        // assigned — translating through it produced values like 1551.
+        if e.synthetic_addr < 0x1000 {
+            return None;
+        }
+        let cand_synth = (e.synthetic_addr as u64).checked_add(soff)?;
+        let cand_native = cand_synth.wrapping_add(new_bias);
+        let (lo, hi) = new_img?;
+        if cand_native < lo || cand_native.saturating_add(16) > hi {
+            return None;
+        }
+        let pointee =
+            unsafe { std::slice::from_raw_parts(cand_native as usize as *const u8, 16) };
+        if super::fnv1a64_hex(pointee) != fp_hex {
+            return None;
+        }
+        Some(cand_synth)
+    };
+    let mut lines = manifest.lines();
+    let header = lines.next()?;
+    let mut h = header.split(' ');
+    if h.next()? != "v6" {
+        return None;
+    }
+    let _old_lift = u64::from_str_radix(h.next()?, 16).ok()?;
+    let old_len = usize::from_str_radix(h.next()?, 16).ok()?;
+    if old_len != fn_len {
+        return None;
+    }
+
+    struct Slot {
+        off: usize,
+        len: usize,
+        kind: u8,
+        val: u64,
+    }
+    let mut slots: Vec<Slot> = Vec::new();
+    for line in lines {
+        if line.is_empty() {
+            continue;
+        }
+        let mut f = line.splitn(4, ' ');
+        let off = usize::from_str_radix(f.next()?, 16).ok()?;
+        let len = usize::from_str_radix(f.next()?, 16).ok()?;
+        let kind = f.next()?.bytes().next()?;
+        let ident = f.next()?;
+        let val = if let Some(rel_hex) = ident.strip_prefix("@rel:") {
+            new_lift_addr.checked_add(u64::from_str_radix(rel_hex, 16).ok()?)?
+        } else if let Some(va_hex) = ident.strip_prefix("@delta:") {
+            let old_va = u64::from_str_radix(va_hex, 16).ok()?;
+            old_va.wrapping_add(new_lift_addr.wrapping_sub(_old_lift))
+        } else if let Some(rest) = ident.strip_prefix("near:") {
+            resolve_near(rest)?
+        } else if let Some(rest) = ident.strip_prefix("@disp:") {
+            // A pc-relative field. `reloc_canonicalize` masked it out of the
+            // key, and the probe diff cannot slot it because both probes
+            // decode the same bytes to the same number — so it must be
+            // re-derived here: resolve the target's identity in THIS build,
+            // then measure from the end of the instruction that carries it.
+            let (off_hex, inner) = rest.split_once(':')?;
+            let next_off = u64::from_str_radix(off_hex, 16).ok()?;
+            let target = resolve_near(inner.strip_prefix("near:")?)?;
+            target.wrapping_sub(new_lift_addr.wrapping_add(next_off))
+        } else if let Some(rest) = ident.strip_prefix("@ndisp:") {
+            // The same field as `@disp`, in the shape remill uses for a
+            // backward reference: `sub pc, <positive magnitude>`.
+            let (off_hex, inner) = rest.split_once(':')?;
+            let next_off = u64::from_str_radix(off_hex, 16).ok()?;
+            let target = resolve_near(inner.strip_prefix("near:")?)?;
+            new_lift_addr.wrapping_add(next_off).wrapping_sub(target)
+        } else {
+            // Only fingerprinted identities are translatable; anything else
+            // (including manifests from before the fingerprint upgrade) is
+            // a miss.
+            return None;
+        };
+        slots.push(Slot { off, len, kind, val });
+    }
+
+    let src = ir.as_bytes();
+    let mut out = src.to_vec();
+    slots.sort_by(|x, y| y.off.cmp(&x.off));
+    for s in &slots {
+        if s.off + s.len > out.len() {
+            return None;
+        }
+        let repl = match s.kind {
+            b's' => format!("sub_{:x}", s.val),
+            // A displacement is signed: a backward branch splices as `-N`.
+            // An `N` slot is its negation, already positive at a `sub` site.
+            b'D' | b'N' => (s.val as i64).to_string(),
+            _ => s.val.to_string(),
+        };
+        out.splice(s.off..s.off + s.len, repl.bytes());
+    }
+    let out = String::from_utf8(out).ok()?;
+    if !out.contains(&format!("@sub_{new_lift_addr:x}(")) {
+        return None;
+    }
+    Some(out)
+}
+
 /// LLVM `-O<level>` flag for the lift's `opt` + `llc` passes. Defaults to
 /// `-O2`; set `AZ_OPT_LEVEL=0` (or 1/s/z) for faster-but-larger lifting
 /// during debug iterations — the lift is still correct at `-O0` (only
@@ -6197,7 +9184,7 @@ fn lift_cache_path(rewritten_bytes: &[u8], lift_addr: u64, fn_name: &str) -> Pat
 fn llvm_opt_flag() -> &'static str {
     use std::sync::OnceLock;
     static FLAG: OnceLock<String> = OnceLock::new();
-    FLAG.get_or_init(|| match std::env::var("AZ_OPT_LEVEL").as_deref() {
+    FLAG.get_or_init(|| match super::lift_env::lift_env().opt_level.clone().ok_or(()).as_deref() {
         Ok("0") => "-O0".to_string(),
         Ok("1") => "-O1".to_string(),
         Ok("s") | Ok("S") => "-Os".to_string(),
@@ -6216,7 +9203,7 @@ fn opt_flag_for(fn_name: &str) -> &'static str {
     use std::sync::OnceLock;
     static LOW: OnceLock<Vec<String>> = OnceLock::new();
     let low = LOW.get_or_init(|| {
-        std::env::var("AZ_LOWOPT_FNS")
+        super::lift_env::lift_env().lowopt_fns.clone().ok_or(())
             .unwrap_or_default()
             .split(',')
             .filter(|s| !s.is_empty())
@@ -6230,20 +9217,16 @@ fn opt_flag_for(fn_name: &str) -> &'static str {
     }
 }
 
-/// [az-diag 2026-06-11] Per-function opt-bisect harness for heisenbug-class
-/// mis-transforms (e.g. class-B mechanism B). When `AZ_BISECT_FN=<substr>`
-/// matches `fn_name`, return `Some("-opt-bisect-limit=<N>")` where N is
-/// `AZ_BISECT_LIMIT` (default huge = all passes). The opt pass for ONLY that
-/// function is then bisected, so a binary search over N — relift (only the
-/// matched fn re-lifts; obj cache keys on the limit) + CDP-peek a correctness
-/// marker — pinpoints the exact corrupting pass, like opt-bisect cracked
-/// mechanism A. Returns None (no extra arg) when the fn doesn't match.
+/// Per-function opt-bisect: when `AZ_BISECT_FN=<substr>` matches `fn_name`,
+/// return `-opt-bisect-limit=<AZ_BISECT_LIMIT>` for that function only. A
+/// binary search over the limit (the obj cache keys on it, so only the
+/// matched fn re-lifts) pinpoints the exact corrupting opt pass.
 fn opt_bisect_arg(fn_name: &str) -> Option<String> {
-    let pat = std::env::var("AZ_BISECT_FN").ok()?;
+    let pat = super::lift_env::lift_env().bisect_fn.clone()?;
     if pat.is_empty() || !fn_name.contains(&pat) {
         return None;
     }
-    let n = std::env::var("AZ_BISECT_LIMIT").ok()?;
+    let n = super::lift_env::lift_env().bisect_limit.clone()?;
     Some(format!("-opt-bisect-limit={}", n.trim()))
 }
 
@@ -6285,40 +9268,6 @@ fn sanitize_filename(name: &str) -> String {
     format!("{}_{:016x}", prefix, h)
 }
 
-/// M12.5y — Heisenbug-proof store-address tracer.
-///
-/// Injects, before every `store <ty> <val>, ptr %X, ...` in the POST-OPT IR
-/// of a target dep, a `ptrtoint`+`call @__az_logst(addr, id)` that records the
-/// runtime store address + a per-store id into a ring buffer at wasm linear
-/// address 0x41000 when the address is in the guest-stack window
-/// [0x20000, 0x40000) (excludes the heap 0x6000000+ and the ~4 MiB mirror
-/// pages).
-///
-/// Why this beats every runtime probe we tried: the corrupting `push_to`
-/// element-copy slot store SHOULD target the heap (excluded by the window) but
-/// at runtime lands on `self`(~0x2ee10, in-window). It therefore shows up in
-/// the log *because* it is corrupt. The store addresses are fixed SSA values
-/// after `opt`; only `llc` register allocation runs afterwards, and that cannot
-/// change a computed address — so this observes the real (corrupting) store
-/// without perturbing the AArch64 lift (the source of the Heisenbug in every
-/// Rust-source-level probe). The emitted id maps each in-window store back to
-/// its exact `.opt.ll` line (saved as `<stem>.instr.ll`), which traces through
-/// SSA to the offending register (`%X27`/`%X8`/...).
-/// M12.7 loop-fuel hang-finder: insert `call void @__az_fuel()` before
-/// every terminator in the post-opt IR, and append an internal
-/// `__az_fuel` that bumps a global tick (at 0x40068) and traps
-/// (`unreachable`) once it exceeds the fuel limit (default 200M, override
-/// with AZ_FUEL_LIMIT). An infinite loop runs its block's terminator
-/// unboundedly → the tick overflows → trap; with AZ_WASM_DEBUG the trap's
-/// named stack pinpoints the looping fn. Inserted before (never after) a
-/// terminator and after any block-leading PHIs, so it is CFG/SSA-safe.
-/// Rewrite empty infinite self-loops (`LABEL:` immediately followed by only
-/// `br label %LABEL`) into `unreachable`. remill lifts `b .` / abort-spin
-/// instructions — and opt can fold a real loop's exit away — into a block that
-/// branches only to itself, which HANGS the wasm. In the lifted layout/cascade
-/// those are abort / unreachable paths, so trapping is correct and far faster to
-/// debug than a 120 s hang. Only empty self-loops are touched (a real loop has a
-/// body between its label and its back-edge). Returns (rewritten_ir, count).
 /// M12.7 diagnostic: for each conditional branch into an empty self-loop
 /// (`br i1 %c, .., %SELFLOOP` where %c = `icmp eq i64 %v, 0`), insert
 /// `store volatile i64 %v, 0x40078` before the branch. Only the LIVE branch's
@@ -6389,6 +9338,932 @@ fn inject_selfloop_value_log(opt_ir: &str) -> (String, u32) {
     (out, n)
 }
 
+/// Rewrite empty infinite self-loops (`LABEL:` followed only by
+/// `br label %LABEL`) into `unreachable`. remill lifts `b .` / abort-spins —
+/// and opt can fold a real loop's exit away — into a block branching only to
+/// itself, which HANGS the wasm; those are abort paths, so trapping is
+/// correct and far faster to debug. Only empty self-loops are touched.
+/// Returns (rewritten_ir, count).
+/// Delete CPU-state stores that nothing can read, using a guarantee LLVM
+/// cannot derive: every byte we lift is rustc output.
+///
+/// remill models each x86 instruction's full effect on the machine - it
+/// restores the program counter before every basic block and recomputes all
+/// six arithmetic flags after every add/sub/cmp, consumed or not. In one
+/// 38 KB function that is 38,895 surviving stores after -O2, of which ~18,900
+/// (49%) write values nothing ever reads: 11,702 to `%PC` against 20 loads,
+/// and 7,171 to `%af`/`%pf`/`%cf` against ZERO loads.
+///
+/// `opt` cannot remove them because the State pointer ESCAPES - it is passed
+/// to every lifted callee - so dead-store elimination must assume a callee
+/// loads `%af`. That is an alias-analysis limit, not a missing pass.
+///
+/// Two facts about rustc-compiled input license the removal:
+///   1. A callee receives its PC as an explicit argument and overwrites `%PC`
+///      at its own entry, so it never reads the caller's stored PC.
+///   2. The SysV / Windows-x64 ABIs leave EFLAGS undefined across calls, and
+///      rustc never emits a function that begins by consuming caller flags -
+///      so a flag store is dead unless a branch in the SAME function reads it.
+///
+/// Both are conservative here: a field is only cleared when the module
+/// contains no load of it at all, and a `%PC` store survives if any load OR
+/// call appears before the next store to `%PC`. Returns (ir, removed_count).
+/// How far, from the start of a mirrored region, is the data still plausibly
+/// part of the OBJECT the code referenced?
+///
+/// The fn-ptr scan used to run over the whole mirrored region, and for a `lea`
+/// that region is `LEA_MIRROR_WINDOW` (1024 B) regardless of how big the real
+/// object is. Mirroring generously is required - switch jump tables must be
+/// complete for devirt - but SCANNING generously is not: every 8-aligned qword
+/// in the window that happens to resolve to a function entry was enqueued as
+/// reachable code, including whatever unrelated object sits next in `.rdata`.
+///
+/// That is not a hypothetical. `alloc::raw_vec::do_reserve_and_handle` - a Vec
+/// growth helper whose `lea` materializes a panic `Location` - enqueued 18
+/// function pointers, among them a WinRT delegate vtable, and the entire Win32
+/// event loop became "reachable" from a Vec resize. None of it had a call site.
+///
+/// The bound is structural, not name-based, and it tests only the object's
+/// FIRST word: a function-pointer table begins with a function pointer, while
+/// a panic `Location` is `{&str, len, line, col}` and begins with a pointer to
+/// string DATA. If the first word is not a function entry this is not a table
+/// and nothing in the window is reachable through it; if it is, scan the whole
+/// window.
+///
+/// An earlier version instead bounded the scan by a RUN of consecutive
+/// non-pointers, tolerating a Rust vtable's size/align pair. That was wrong:
+/// interior gaps in real tables are both common and larger than any tolerance
+/// worth setting, so it suppressed 72,700 pointers across a full lift, dropped
+/// a dispatcher case, and the module trapped at boot with "unmatched indirect
+/// dispatch" - the exact silent failure the note below warns about. The first
+/// word is the part that reliably distinguishes a table from a struct.
+///
+/// Conservative direction matters here: under-scanning drops a dispatcher case,
+/// which fails SILENTLY (indirect call finds no case, returns garbage). Over-
+/// scanning only wastes size. So the tolerance is deliberately generous, and
+/// this only ever shrinks a window that was a guess to begin with.
+/// First-paint coverage: mark each lifted function as ENTERED, so we can tell
+/// what actually runs from what is merely reachable.
+///
+/// Static reachability answers the wrong question. The transitive closure is
+/// everything the walk can prove might be called; a first paint executes a small
+/// fraction of it, and the rest is only theoretically reachable. Only the
+/// executed set tells us what must ship eagerly and what can become a lazily
+/// fetched shard.
+///
+/// One byte per lifted function at `AZ_COV_BASE + idx`. The store is `volatile`
+/// so llc cannot fold it away, and it is unconditional at function entry, so a
+/// single execution is enough to set it. Read the region back after first paint
+/// (DataView over the instance memory) and join it against the manifest written
+/// beside the scratch dir.
+///
+/// The region is the `AZ_LOG_STORES` ring buffer (0x41000..0x4EAD0, 56 KiB =
+/// room for 57344 functions). The two are therefore MUTUALLY EXCLUSIVE - do not
+/// enable store logging and coverage in the same run, they would corrupt each
+/// other. Coverage is opt-in via AZ_FN_COVERAGE and off by default, so a normal
+/// build pays nothing.
+const AZ_COV_BASE: u64 = 0x41000;
+const AZ_COV_CAP: u64 = 0xEAD0; // through 0x4EAD0, the on_click stack base
+
+fn inject_fn_coverage(opt_ir: &str, idx: u64) -> (String, u32) {
+    if idx >= AZ_COV_CAP {
+        return (opt_ir.to_string(), 0);
+    }
+    let slot = AZ_COV_BASE + idx;
+    let mut out = String::with_capacity(opt_ir.len() + 256);
+    let mut n: u32 = 0;
+    // Mark at the entry of every define in the module. Inlining means one
+    // lifted function is many defines; they all belong to the same lifted
+    // function, so marking all of them with the SAME index is correct and
+    // avoids having to identify which define is the entry.
+    let mut pending_entry = false;
+    for line in opt_ir.lines() {
+        let tr = line.trim_start();
+        out.push_str(line);
+        out.push('\n');
+        if tr.starts_with("define ") && tr.ends_with('{') {
+            pending_entry = true;
+            continue;
+        }
+        // Insert after the block label, and after any leading PHIs, so the
+        // result stays SSA-valid (a phi must be first in its block).
+        if pending_entry {
+            let is_label = tr.ends_with(':') && !tr.starts_with(';');
+            let is_phi = tr.contains(" = phi ");
+            if is_label || is_phi {
+                continue;
+            }
+            if tr.is_empty() {
+                continue;
+            }
+            // `line` was already emitted; put the marker before it instead.
+            let keep = out.len() - line.len() - 1;
+            let marker = format!(
+                "  store volatile i8 1, ptr inttoptr (i64 {slot} to ptr), align 1
+"
+            );
+            out.insert_str(keep, &marker);
+            n += 1;
+            pending_entry = false;
+        }
+    }
+    (out, n)
+}
+
+/// Monotonic coverage index, one per lifted function, paired with the manifest
+/// line written by `record_coverage_index`.
+static COV_NEXT_IDX: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn record_coverage_index(scratch: &std::path::Path, name: &str, export_as: &str) -> u64 {
+    let idx = COV_NEXT_IDX.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let line = format!("{idx}	{export_as}	{name}
+");
+    let path = scratch.join("coverage-manifest.tsv");
+    use std::io::Write;
+    if let Ok(mut fh) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = fh.write_all(line.as_bytes());
+    }
+    idx
+}
+
+/// Coarse progress marker, so a hang NAMES ITSELF instead of needing a
+/// debugger.
+///
+/// The spawn watchdog only sees subprocess spawns. A run wedged anywhere else
+/// - and one was: zero CPU, zero I/O and zero page faults for ten minutes,
+/// two threads, no children, with the last log line being an unrelated
+/// mirroring message - is invisible to it. There is no cdb/procdump on this
+/// box, so the process could not be introspected after the fact and the phase
+/// had to be inferred from which log line came last. That is guesswork; this
+/// removes it.
+///
+/// `phase_watchdog` reports any phase still running after a threshold, and
+/// keeps reporting, so the log names the stuck phase even when the run is
+/// eventually killed from outside.
+static LIFT_PHASE: std::sync::Mutex<Option<(std::time::Instant, String)>> =
+    std::sync::Mutex::new(None);
+
+fn set_lift_phase(what: &str) {
+    start_phase_watchdog();
+    let mut g = LIFT_PHASE.lock().unwrap_or_else(|e| e.into_inner());
+    *g = Some((std::time::Instant::now(), what.to_string()));
+    eprintln!("[azul-web] phase: {what}");
+}
+
+fn clear_lift_phase() {
+    let mut g = LIFT_PHASE.lock().unwrap_or_else(|e| e.into_inner());
+    *g = None;
+}
+
+fn start_phase_watchdog() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::thread::spawn(move || {
+            let mut last_reported = String::new();
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                let cur = {
+                    let g = LIFT_PHASE.lock().unwrap_or_else(|e| e.into_inner());
+                    g.as_ref().map(|(t, w)| (t.elapsed(), w.clone()))
+                };
+                let Some((waited, what)) = cur else {
+                    last_reported.clear();
+                    continue;
+                };
+                if waited < std::time::Duration::from_secs(90) {
+                    continue;
+                }
+                // Re-report the same phase periodically: a wedged run is often
+                // killed from outside, and the LAST line in the log is what
+                // gets read afterwards.
+                let tag = format!("{what}|{}", waited.as_secs() / 60);
+                if tag == last_reported {
+                    continue;
+                }
+                last_reported = tag;
+                eprintln!(
+                    "[azul-web] STILL IN PHASE \"{what}\" after {}s - if the run is \
+                     wedged, THIS is where.",
+                    waited.as_secs(),
+                );
+            }
+        });
+    });
+}
+
+fn plausible_object_extent(data: &[u8], start: usize, is_fn_entry: &mut dyn FnMut(usize) -> bool) -> usize {
+    // A function-pointer TABLE begins with a function pointer. Test only the
+    // first word: interior gaps are common in real tables (a Rust vtable is
+    // [drop_in_place, size, align, methods...]), so a run-length rule
+    // mis-truncates them, but a panic `Location` - {&str, len, line, col} -
+    // begins with a pointer to string DATA and is rejected outright. That is
+    // the case that dragged in the Win32 event loop.
+    if start + 8 > data.len() {
+        return start;
+    }
+    let first = u64::from_le_bytes(data[start..start + 8].try_into().unwrap()) as usize;
+    if first >= 0x1000 && is_fn_entry(first) {
+        data.len()
+    } else {
+        start
+    }
+}
+
+/// Function pointers dropped by [`plausible_object_extent`] - i.e. pointers
+/// that were inside a mirrored window but past the end of the object the code
+/// actually referenced. Reported by the audit so a suppression that turns out
+/// to be wrong is visible rather than silent.
+static FNPTR_SEEDS_BOUNDED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn fnptr_seeds_bounded() -> u64 {
+    FNPTR_SEEDS_BOUNDED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Delete flag stores that no path can read, using real liveness over the
+/// function's CFG plus two ABI facts LLVM cannot derive.
+///
+/// [`strip_dead_state_stores`] only clears a flag field when the module contains
+/// NO load of it anywhere. Measured on real post-opt IR that almost never fires:
+/// every flag has a handful of genuine readers, so 82,000 flag stores survived
+/// against about 5,000 loads. x86 recomputes all six flags on every add/sub/cmp
+/// whether or not anything branches on the result, so most of those writes are
+/// overwritten before any branch reads them.
+///
+/// The two facts that license removing them:
+///
+///   1. A CALL does not read the caller's flags. SysV and Windows-x64 both leave
+///      EFLAGS undefined across a call, and rustc never emits a function that
+///      begins by consuming its caller's flags - so calls are transparent to
+///      flag liveness.
+///   2. Flags are DEAD AT `ret`, for the same reason: the caller cannot read
+///      them. That kills the last flag write before every return.
+///
+/// Everything else is ordinary backward dataflow:
+///   live_in[B]  = gen[B] | (live_out[B] & !kill[B])
+///   live_out[B] = union of live_in over successors
+/// and a store is dead when its field is not live immediately after it.
+///
+/// Conservative wherever the text cannot be parsed: a block whose terminator is
+/// not recognised is treated as if every field were live out, so nothing in it
+/// is removed. Under-removal costs size; over-removal would corrupt a branch.
+///
+/// Measured: -13.0% on the largest lifted function, on top of the existing pass
+/// (the same analysis restricted to straight-line runs manages only -2.6%).
+#[cfg(test)]
+mod flag_dse_tests {
+    use super::strip_dead_flag_stores_cfg;
+
+    /// A flag written twice with no read in between: the first write is dead.
+    #[test]
+    fn overwritten_flag_store_is_removed() {
+        let ir = "define i32 @sub_1(ptr %state) {\nentry:\n  \
+                  store i8 1, ptr %zf, align 1\n  \
+                  store i8 0, ptr %zf, align 1\n  \
+                  ret i32 0\n}\n";
+        let (out, n) = strip_dead_flag_stores_cfg(ir);
+        // both are dead in fact - the second one too, because flags are dead at
+        // `ret` - so the whole pair goes.
+        assert_eq!(n, 2, "got:\n{out}");
+        assert!(!out.contains("ptr %zf"), "got:\n{out}");
+    }
+
+    /// A flag that IS read before being overwritten must survive.
+    #[test]
+    fn read_flag_store_survives() {
+        let ir = "define i32 @sub_2(ptr %state) {\nentry:\n  \
+                  store i8 1, ptr %zf, align 1\n  \
+                  %v = load i8, ptr %zf, align 1\n  \
+                  %c = icmp ne i8 %v, 0\n  \
+                  br i1 %c, label %t, label %f\nt:\n  \
+                  ret i32 1\nf:\n  ret i32 0\n}\n";
+        let (out, n) = strip_dead_flag_stores_cfg(ir);
+        assert_eq!(n, 0, "a flag read by a branch must not be removed:\n{out}");
+        assert!(out.contains("store i8 1, ptr %zf"), "got:\n{out}");
+    }
+
+    /// THE ABI RULE. A call between the store and the overwrite does NOT keep
+    /// the store alive: both SysV and Windows-x64 leave EFLAGS undefined across
+    /// a call, so no callee can observe the caller's flags. If this test ever
+    /// starts failing because calls were made opaque again, the pass has lost
+    /// most of its value - that is the whole point of it.
+    #[test]
+    fn a_call_does_not_keep_a_flag_alive() {
+        let ir = "define i32 @sub_3(ptr %state) {\nentry:\n  \
+                  store i8 1, ptr %cf, align 1\n  \
+                  %r = call i32 @sub_9(ptr %state)\n  \
+                  store i8 0, ptr %cf, align 1\n  \
+                  %v = load i8, ptr %cf, align 1\n  \
+                  ret i32 0\n}\n";
+        let (_out, n) = strip_dead_flag_stores_cfg(ir);
+        assert_eq!(n, 1, "the pre-call store is dead despite the call");
+    }
+
+    /// Liveness must cross blocks: a store in one block read in a SUCCESSOR is
+    /// live. A block-local pass would wrongly delete this.
+    #[test]
+    fn flag_live_into_a_successor_block_survives() {
+        let ir = "define i32 @sub_4(ptr %state) {\nentry:\n  \
+                  store i8 1, ptr %sf, align 1\n  \
+                  br label %next\nnext:\n  \
+                  %v = load i8, ptr %sf, align 1\n  \
+                  ret i32 0\n}\n";
+        let (out, n) = strip_dead_flag_stores_cfg(ir);
+        assert_eq!(n, 0, "store is read in a successor block:\n{out}");
+    }
+
+    /// An unparseable terminator must be treated as "everything live out", so
+    /// nothing in that block is removed.
+    #[test]
+    fn unparseable_terminator_is_conservative() {
+        let ir = "define i32 @sub_5(ptr %state) {\nentry:\n  \
+                  store i8 1, ptr %of, align 1\n  \
+                  indirectbr ptr %somewhere, []\n}\n";
+        let (_out, n) = strip_dead_flag_stores_cfg(ir);
+        assert_eq!(n, 0, "must not remove when the CFG cannot be read");
+    }
+
+    /// Non-flag state fields are out of scope here - `%PC` and the general
+    /// registers are handled by other rules with different licences.
+    #[test]
+    fn leaves_non_flag_fields_alone() {
+        let ir = "define i32 @sub_6(ptr %state) {\nentry:\n  \
+                  store i64 1, ptr %PC, align 8\n  \
+                  store i64 2, ptr %PC, align 8\n  \
+                  store i64 3, ptr %RAX, align 8\n  \
+                  ret i32 0\n}\n";
+        let (out, n) = strip_dead_flag_stores_cfg(ir);
+        assert_eq!(n, 0, "got:\n{out}");
+    }
+}
+
+fn strip_dead_flag_stores_cfg(ir: &str) -> (String, u32) {
+    const FLAGS: &[&str] = &["af", "pf", "cf", "sf", "of", "zf"];
+
+    let lines: Vec<&str> = ir.lines().collect();
+
+    // `ptr %zf.i.i27960` -> "zf"
+    fn field_of(line: &str) -> Option<String> {
+        let idx = line.rfind("ptr %")?;
+        let rest = &line[idx + 5..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_'))
+            .unwrap_or(rest.len());
+        let full = &rest[..end];
+        Some(full.split('.').next().unwrap_or(full).to_ascii_lowercase())
+    }
+
+    fn label_of(s: &str) -> Option<&str> {
+        // `entry:` or `bb12:                    ; preds = %bb3`
+        let head = s.split_whitespace().next()?;
+        let name = head.strip_suffix(':')?;
+        if name.is_empty() || !name.chars().all(|c| {
+            c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' || c == '$'
+        }) {
+            return None;
+        }
+        Some(name)
+    }
+
+    fn branch_targets(s: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut rest = s;
+        while let Some(i) = rest.find("label %") {
+            rest = &rest[i + 7..];
+            let end = rest
+                .find(|c: char| {
+                    !(c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' || c == '$')
+                })
+                .unwrap_or(rest.len());
+            if end > 0 {
+                out.push(rest[..end].to_string());
+            }
+            rest = &rest[end..];
+        }
+        out
+    }
+
+    struct Block {
+        lines: Vec<usize>,
+        succ: Vec<String>,
+        parsed: bool,
+    }
+
+    let mut doomed: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    // Walk function by function.
+    let mut i = 0usize;
+    while i < lines.len() {
+        let s = lines[i].trim_start();
+        if !(s.starts_with("define ") && lines[i].trim_end().ends_with('{')) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        let mut end = i + 1;
+        while end < lines.len() && lines[end].trim() != "}" {
+            end += 1;
+        }
+        i = end + 1;
+
+        // Build blocks.
+        let mut order: Vec<String> = vec!["\u{0}entry".to_string()];
+        let mut blocks: std::collections::HashMap<String, Block> =
+            std::collections::HashMap::new();
+        blocks.insert(
+            "\u{0}entry".to_string(),
+            Block { lines: Vec::new(), succ: Vec::new(), parsed: true },
+        );
+        let mut cur = "\u{0}entry".to_string();
+        for n in (start + 1)..end {
+            let t = lines[n].trim();
+            if let Some(l) = label_of(t) {
+                cur = l.to_string();
+                if !blocks.contains_key(&cur) {
+                    order.push(cur.clone());
+                    blocks.insert(
+                        cur.clone(),
+                        Block { lines: Vec::new(), succ: Vec::new(), parsed: true },
+                    );
+                }
+                continue;
+            }
+            let b = blocks.get_mut(&cur).expect("current block exists");
+            b.lines.push(n);
+            if t.starts_with("br ") || t.starts_with("switch ") {
+                b.succ = branch_targets(t);
+            } else if t.starts_with("ret ") || t == "ret void" || t == "unreachable" {
+                // Flags are dead at return - the caller cannot read them.
+                b.succ = Vec::new();
+            } else if t.starts_with("indirectbr ")
+                || t.starts_with("invoke ")
+                || t.starts_with("callbr ")
+            {
+                b.succ = branch_targets(t);
+                if b.succ.is_empty() {
+                    b.parsed = false;
+                }
+            }
+        }
+
+        for flag in FLAGS {
+            // gen = reads the flag before writing it; kill = writes before reading.
+            let mut gen: std::collections::HashMap<&str, bool> =
+                std::collections::HashMap::new();
+            let mut kill: std::collections::HashMap<&str, bool> =
+                std::collections::HashMap::new();
+            for name in &order {
+                let b = &blocks[name];
+                let (mut g, mut k) = (false, false);
+                for &ln in &b.lines {
+                    let t = lines[ln].trim_start();
+                    let f = if t.starts_with("store ") || t.contains(" = load ") {
+                        field_of(lines[ln])
+                    } else {
+                        None
+                    };
+                    if f.as_deref() != Some(*flag) {
+                        continue;
+                    }
+                    if t.contains(" = load ") {
+                        if !k {
+                            g = true;
+                        }
+                        break;
+                    } else if !g {
+                        k = true;
+                    }
+                }
+                gen.insert(name.as_str(), g);
+                kill.insert(name.as_str(), k);
+            }
+
+            let mut live_in: std::collections::HashMap<&str, bool> =
+                order.iter().map(|n| (n.as_str(), false)).collect();
+            // Iterate to fixpoint. Bounded: the lattice is one bool per block, so
+            // it can only rise, but bound it anyway rather than trust the parse.
+            let mut guard = 0usize;
+            loop {
+                let mut changed = false;
+                guard += 1;
+                if guard > 4 * order.len() + 16 {
+                    break;
+                }
+                for name in order.iter().rev() {
+                    let b = &blocks[name];
+                    let lo = if !b.parsed {
+                        true
+                    } else {
+                        b.succ.iter().any(|s| *live_in.get(s.as_str()).unwrap_or(&false))
+                    };
+                    let li = gen[name.as_str()] || (lo && !kill[name.as_str()]);
+                    if li != live_in[name.as_str()] {
+                        live_in.insert(name.as_str(), li);
+                        changed = true;
+                    }
+                }
+                if !changed {
+                    break;
+                }
+            }
+
+            // Backward walk each block: mark stores that are not live after.
+            for name in &order {
+                let b = &blocks[name];
+                let mut live = if !b.parsed {
+                    true
+                } else {
+                    b.succ.iter().any(|s| *live_in.get(s.as_str()).unwrap_or(&false))
+                };
+                for &ln in b.lines.iter().rev() {
+                    let t = lines[ln].trim_start();
+                    let is_store = t.starts_with("store ");
+                    let is_load = t.contains(" = load ");
+                    if !is_store && !is_load {
+                        continue;
+                    }
+                    if field_of(lines[ln]).as_deref() != Some(*flag) {
+                        continue;
+                    }
+                    if is_load {
+                        live = true;
+                    } else {
+                        if !live {
+                            doomed.insert(ln);
+                        }
+                        live = false;
+                    }
+                }
+            }
+        }
+    }
+
+    if doomed.is_empty() {
+        return (ir.to_string(), 0);
+    }
+    let mut out = String::with_capacity(ir.len());
+    for (n, l) in lines.iter().enumerate() {
+        if doomed.contains(&n) {
+            continue;
+        }
+        out.push_str(l);
+        out.push('\n');
+    }
+    (out, doomed.len() as u32)
+}
+
+/// Give each lifted function a PRIVATE flag buffer, so the CPU flags stop
+/// living in the shared State and SROA can promote them.
+///
+/// This is the escape fix, and it is where the expansion actually comes from.
+/// The State buffer is handed to every lifted callee, so SROA cannot promote it;
+/// every flag access therefore stays a GEP plus a load or store, with wasm
+/// locals to carry the values. Measured on a median lifted function,
+/// `local.get`/`local.set`/`local.tee` is 48.8% of the emitted instructions -
+/// more than loads, stores, arithmetic and calls combined.
+///
+/// The flags do not need to be in that buffer at all. SysV and Windows-x64 both
+/// leave EFLAGS undefined across a call, and rustc never emits a function that
+/// reads its caller's flags, so a lifted function's flag storage is private to
+/// it in BOTH directions: no callee can observe ours, and we can never observe a
+/// caller's. Pointing the flag GEPs at a fresh `alloca` therefore changes no
+/// observable behaviour, and the alloca does not escape - which is exactly what
+/// SROA needs.
+///
+/// Measured on one function through `opt -O2` + `llc`: 575,339 -> 328,202 bytes,
+/// **-43.0%**, with the IR still passing the verifier.
+///
+/// Runs on the LINKED IR before `opt`, unlike the state-store passes, which
+/// clean up after it. The point here is to let LLVM's own pipeline do the work.
+///
+/// The buffer is zero-initialised. Entry flags are undefined per the ABI, so any
+/// value is legal, but `undef` is not merely "some value" to LLVM - it may fold
+/// inconsistently at different uses - and zero is deterministic. It costs
+/// nothing: the store folds away, and the measured size is byte-identical with
+/// and without it.
+///
+/// `%PC` moves too, for a different reason and with a different seed. A lifted
+/// callee receives its program counter as an EXPLICIT argument -
+/// `sub_Y(ptr %state, i64 %pc, ptr %memory)` - and overwrites `%PC` at its own
+/// entry, so it never reads the caller's stored PC. But unlike the flags the
+/// ENTRY value is load-bearing: lifted x86 uses `%PC` for PC-relative data
+/// addressing, and switch jump tables index off it. So the private PC slot is
+/// seeded from the function's own `i64` program-counter argument rather than
+/// zeroed.
+///
+/// Sub-register aliases (AL/AX/ECX...) are deliberately left alone: they alias
+/// the parent GP registers, which really are shared with callees through the
+/// State, so moving them would break argument passing.
+///
+/// Verified structurally, not just by size: across baseline, flags-private and
+/// flags+PC-private the module keeps all 84 switches, all 182 case arms, the
+/// same returns and unreachables, and loses ZERO calls to lifted `sub_*`
+/// functions. The 2,891 calls that do vanish are all `llvm.ctpop.i8` - x86's
+/// parity-flag computation, dead once the flag it feeds is promoted and unused.
+/// Measured: 575,339 -> 328,202 B with flags alone, -> 260,024 B with PC too,
+/// i.e. -43.0% and -54.8%.
+fn privatize_flag_storage(ir: &str) -> (String, u32) {
+    const FLAGS: &[&str] = &["af", "pf", "cf", "sf", "of", "zf"];
+
+    // remill names the GEP after the flag, with inlining suffixes:
+    // `%cf.i.i28925 = getelementptr inbounds %struct.X86State, ptr %state, ...`
+    // Match on that name; the index path differs between remill versions but the
+    // name does not.
+    fn flag_slot(name: &str) -> Option<usize> {
+        let base = name.split('.').next().unwrap_or(name).to_ascii_lowercase();
+        FLAGS.iter().position(|f| *f == base)
+    }
+
+    fn gep_target(line: &str) -> Option<&str> {
+        let t = line.trim_start();
+        let rest = t.strip_prefix('%')?;
+        let eq = rest.find(" = ")?;
+        let name = &rest[..eq];
+        let after = &rest[eq + 3..];
+        if !after.starts_with("getelementptr") {
+            return None;
+        }
+        // only rewrite accesses into the State struct itself
+        if !after.contains("%struct.State") && !after.contains("%struct.X86State") {
+            return None;
+        }
+        Some(name)
+    }
+
+    let lines: Vec<&str> = ir.lines().collect();
+
+    // `i64 %<name>` in the signature is the program-counter argument; the
+    // private PC slot is seeded from it.
+    fn pc_arg_of(define_line: &str) -> Option<String> {
+        let open = define_line.find('(')?;
+        let close = define_line[open..].find(')')? + open;
+        for part in define_line[open + 1..close].split(',') {
+            let p = part.trim();
+            if let Some(rest) = p.strip_prefix("i64 %") {
+                let end = rest
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+                    .unwrap_or(rest.len());
+                return Some(rest[..end].to_string());
+            }
+        }
+        None
+    }
+
+    // Which functions touch a flag or PC at all? Only those get a buffer.
+    let mut fn_has_flag: Vec<bool> = Vec::new();
+    let mut fn_has_pc: Vec<bool> = Vec::new();
+    let mut fn_pc_arg: Vec<Option<String>> = Vec::new();
+    let mut cur: isize = -1;
+    for l in &lines {
+        if l.starts_with("define ") {
+            fn_has_flag.push(false);
+            fn_has_pc.push(false);
+            fn_pc_arg.push(pc_arg_of(l));
+            cur = fn_has_flag.len() as isize - 1;
+        }
+        if cur >= 0 {
+            if let Some(n) = gep_target(l) {
+                if flag_slot(n).is_some() {
+                    fn_has_flag[cur as usize] = true;
+                } else if n.split('.').next().unwrap_or(n).eq_ignore_ascii_case("pc") {
+                    fn_has_pc[cur as usize] = true;
+                }
+            }
+        }
+    }
+
+    let mut out = String::with_capacity(ir.len() + 4096);
+    let mut rewritten = 0u32;
+    let mut cur: isize = -1;
+    let mut pending = false;
+    for l in &lines {
+        if l.starts_with("define ") {
+            cur += 1;
+            let i = cur as usize;
+            pending = i < fn_has_flag.len() && (fn_has_flag[i] || fn_has_pc[i]);
+            out.push_str(l);
+            out.push('\n');
+            continue;
+        }
+
+        if pending {
+            let s = l.trim();
+            // first real instruction of the entry block
+            if !s.is_empty() && !s.ends_with(':') && !s.starts_with(';') {
+                let i = cur as usize;
+                if fn_has_flag[i] {
+                    out.push_str("  %az_flags = alloca [8 x i8], align 8\n");
+                    out.push_str("  store i64 0, ptr %az_flags, align 8\n");
+                }
+                if fn_has_pc[i] && false {
+                    out.push_str("  %az_pc = alloca i64, align 8\n");
+                    match fn_pc_arg[i].as_deref() {
+                        // seed from the function's own PC argument: lifted x86
+                        // reads %PC for PC-relative data, so the entry value is
+                        // load-bearing, unlike the flags.
+                        Some(a) => out.push_str(&format!(
+                            "  store i64 %{a}, ptr %az_pc, align 8\n"
+                        )),
+                        None => out.push_str("  store i64 0, ptr %az_pc, align 8\n"),
+                    }
+                }
+                pending = false;
+            }
+        }
+
+        if let Some(name) = gep_target(l) {
+            if let Some(slot) = flag_slot(name) {
+                out.push_str(&format!(
+                    "  %{name} = getelementptr inbounds [8 x i8], ptr %az_flags, \
+                     i64 0, i64 {slot}\n"
+                ));
+                rewritten += 1;
+                continue;
+            }
+            // PC PRIVATIZATION IS DISABLED pending a bisect. Run 46 shipped it
+            // with the fn-ptr bound also removed and still failed to boot, with
+            // three UNALIGNED unmatched dispatch targets clustered just above
+            // the web eventloop's own callback helpers. Real function entries
+            // are aligned; unaligned targets are what a PC-relative computation
+            // produces from a wrong base, and %PC is the only thing in flight
+            // that feeds PC-relative addressing (lifted x86 reads it for switch
+            // jump tables). Seeding the private slot from the program-counter
+            // argument is necessary but may not be sufficient: if any path
+            // expects %PC to have been updated through the SHARED State rather
+            // than by this function's own stores, a local slot diverges.
+            //
+            // Flags stay private - they cannot affect addressing at all - and
+            // they are the larger share of the win (-43% of the -54.8%).
+            const PRIVATIZE_PC: bool = false;
+            if PRIVATIZE_PC
+                && cur >= 0
+                && fn_has_pc[cur as usize]
+                && name.split('.').next().unwrap_or(name).eq_ignore_ascii_case("pc")
+            {
+                out.push_str(&format!(
+                    "  %{name} = getelementptr inbounds i64, ptr %az_pc, i64 0\n"
+                ));
+                rewritten += 1;
+                continue;
+            }
+        }
+        out.push_str(l);
+        out.push('\n');
+    }
+    (out, rewritten)
+}
+
+#[cfg(test)]
+mod flag_privatize_tests {
+    use super::privatize_flag_storage;
+
+    #[test]
+    fn flag_geps_are_redirected_to_a_local_buffer() {
+        let ir = "define i32 @sub_1(ptr %state) {\nentry:\n  \
+                  %cf.i.i1 = getelementptr inbounds %struct.X86State, ptr %state, i64 0, i32 2, i32 1\n  \
+                  store i8 1, ptr %cf.i.i1, align 1\n  ret i32 0\n}\n";
+        let (out, n) = privatize_flag_storage(ir);
+        assert_eq!(n, 1, "got:\n{out}");
+        assert!(out.contains("%az_flags = alloca [8 x i8]"), "got:\n{out}");
+        assert!(out.contains("ptr %az_flags"), "got:\n{out}");
+        assert!(!out.contains("%struct.X86State"), "got:\n{out}");
+    }
+
+    /// Only FLAG fields move. A general-purpose register is genuinely shared
+    /// with callees through the State - moving RCX would break argument passing.
+    #[test]
+    fn registers_are_left_in_the_shared_state() {
+        let ir = "define i32 @sub_2(ptr %state) {\nentry:\n  \
+                  %RCX = getelementptr inbounds %struct.State, ptr %state, i32 0, i32 0, i32 6, i32 5\n  \
+                  store i64 7, ptr %RCX, align 8\n  ret i32 0\n}\n";
+        let (out, n) = privatize_flag_storage(ir);
+        assert_eq!(n, 0, "got:\n{out}");
+        assert!(out.contains("%struct.State"), "got:\n{out}");
+        assert!(!out.contains("az_flags"), "a function with no flag use needs no buffer");
+    }
+
+    /// %PC is currently NOT privatised, and this test pins that so re-enabling
+    /// it has to be a deliberate act rather than a silent regression.
+    ///
+    /// It was enabled and then backed out: run 46 shipped it and failed to boot
+    /// with three UNALIGNED unmatched dispatch targets clustered just above the
+    /// web eventloop's callback helpers. Real function entries are aligned, and
+    /// unaligned targets are what a PC-relative computation yields from a wrong
+    /// base - %PC being the only thing in flight that feeds PC-relative
+    /// addressing, since lifted x86 reads it for switch jump tables.
+    ///
+    /// Seeding the private slot from the program-counter argument is necessary
+    /// but evidently not sufficient. Before turning `PRIVATIZE_PC` back on,
+    /// establish where %PC is expected to be updated through the SHARED State
+    /// rather than by the function's own stores - a local slot diverges there.
+    #[test]
+    fn pc_stays_in_the_shared_state_for_now() {
+        let ir = "define ptr @sub_4(ptr %state, i64 %program_counter, ptr %memory) {\nentry:\n  \
+                  %PC = getelementptr inbounds %struct.State, ptr %state, i32 0, i32 0, i32 6, i32 33\n  \
+                  store i64 5, ptr %PC, align 8\n  ret ptr %memory\n}\n";
+        let (out, n) = privatize_flag_storage(ir);
+        assert_eq!(n, 0, "PC must not be rewritten while PRIVATIZE_PC is off:\n{out}");
+        assert!(out.contains("%struct.State"), "got:\n{out}");
+        assert!(!out.contains("az_pc"), "no PC buffer should be emitted:\n{out}");
+    }
+
+    /// A function with neither flags nor PC gets no buffers at all.
+    #[test]
+    fn untouched_function_gets_no_buffer() {
+        let ir = "define i32 @sub_5(ptr %state) {\nentry:\n  ret i32 0\n}\n";
+        let (out, n) = privatize_flag_storage(ir);
+        assert_eq!(n, 0);
+        assert!(!out.contains("az_flags"), "got:\n{out}");
+        assert!(!out.contains("az_pc"), "got:\n{out}");
+    }
+
+    /// The buffer is zero-initialised: entry flags are undefined per the ABI, so
+    /// any value is legal, but `undef` can fold inconsistently at different uses.
+    #[test]
+    fn buffer_is_zero_initialised() {
+        let ir = "define i32 @sub_3(ptr %state) {\nentry:\n  \
+                  %zf.i = getelementptr inbounds %struct.X86State, ptr %state, i64 0, i32 2, i32 7\n  \
+                  %v = load i8, ptr %zf.i, align 1\n  ret i32 0\n}\n";
+        let (out, _n) = privatize_flag_storage(ir);
+        assert!(out.contains("store i64 0, ptr %az_flags"), "got:\n{out}");
+    }
+}
+
+fn strip_dead_state_stores(ir: &str) -> (String, u32) {
+    // Flag fields remill writes eagerly. `zf` is deliberately absent: it has
+    // hundreds of genuine readers, so it needs real liveness, not this.
+    const FLAG_FIELDS: &[&str] = &["af", "pf", "cf", "sf", "of"];
+
+    // A state field reference looks like `ptr %af`, `ptr %af.i`, or
+    // `ptr %af.i.i27960` - the base name plus opt's inlining suffixes.
+    fn field_of(line: &str) -> Option<&str> {
+        let idx = line.rfind("ptr %")?;
+        let rest = &line[idx + 5..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_'))
+            .unwrap_or(rest.len());
+        let full = &rest[..end];
+        Some(full.split('.').next().unwrap_or(full))
+    }
+
+    // Pass 1: which fields are ever LOADED anywhere in the module?
+    let mut loaded: HashSet<&str> = HashSet::new();
+    for line in ir.lines() {
+        let l = line.trim_start();
+        if l.starts_with("%") && l.contains(" = load ") {
+            if let Some(f) = field_of(line) {
+                loaded.insert(f);
+            }
+        }
+    }
+
+    // Pass 2: rewrite. Field-level DCE for never-loaded flags, plus located
+    // dead-store elimination for %PC.
+    let mut out = String::with_capacity(ir.len());
+    let mut removed = 0u32;
+    // Index of the last emitted `%PC` store line in `out`, if it is still a
+    // candidate for removal (no load or call seen since).
+    let mut pending_pc: Option<(usize, usize)> = None; // (start, end) byte range
+    for line in ir.lines() {
+        let l = line.trim_start();
+        let is_store = l.starts_with("store ");
+        let is_call = l.contains(" call ") || l.starts_with("call ");
+        let is_load = l.contains(" = load ");
+        let field = if is_store || is_load { field_of(line) } else { None };
+
+        // Anything that could observe the State kills the pending PC store.
+        if is_call || (is_load && field == Some("PC")) {
+            pending_pc = None;
+        }
+
+        if is_store {
+            match field {
+                // Never loaded anywhere: the store cannot be observed.
+                Some(f) if FLAG_FIELDS.contains(&f) && !loaded.contains(f) => {
+                    removed += 1;
+                    continue;
+                }
+                Some("PC") => {
+                    // This store overwrites the previous one with nothing able
+                    // to read it in between - drop the earlier one.
+                    if let Some((s, e)) = pending_pc.take() {
+                        out.replace_range(s..e, "");
+                        removed += 1;
+                    }
+                    let start = out.len();
+                    out.push_str(line);
+                    out.push('\n');
+                    pending_pc = Some((start, out.len()));
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    (out, removed)
+}
+
 fn rewrite_empty_self_loops(opt_ir: &str) -> (String, u32) {
     let lines: Vec<&str> = opt_ir.lines().collect();
     let mut out = String::with_capacity(opt_ir.len());
@@ -6423,6 +10298,11 @@ fn rewrite_empty_self_loops(opt_ir: &str) -> (String, u32) {
     (out, n)
 }
 
+/// Loop-fuel hang-finder: insert `call void @__az_fuel()` before every
+/// terminator; `__az_fuel` bumps a tick at 0x40068 and traps once it exceeds
+/// the fuel limit (default 200M, `AZ_FUEL_LIMIT` overrides), so an infinite
+/// loop becomes a named trap instead of a hang. Inserted before terminators
+/// and after block-leading PHIs, so it is CFG/SSA-safe.
 fn inject_fuel(opt_ir: &str) -> (String, u32) {
     // GLOBAL terminator id, unique across ALL fueled fns (AZ_FUEL=ALL). The
     // trap records this gid at 0x40070; grep the saved `*.fuel.ll` files for
@@ -6493,6 +10373,12 @@ fn inject_unreachable_tagging(opt_ir: &str) -> (String, u32) {
     (out, id)
 }
 
+/// Store-address tracer (`AZ_LOG_STORES`): before every `store` in the
+/// post-opt IR of a target dep, record the runtime address + a per-store id
+/// into a ring at 0x41000 when the address falls in the guest-stack window
+/// [0x20000, 0x40000). Post-opt injection observes the real store without
+/// perturbing the lift itself; the id maps back to the exact `.instr.ll`
+/// line for SSA tracing.
 fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
     let mut out = String::with_capacity(opt_ir.len() + (1 << 17));
     let mut id: u32 = 0;
@@ -6507,7 +10393,7 @@ fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
                 .or_else(|| s.parse().ok())
         })
         .unwrap_or(196608);
-    // 2026-06-11: optional LOW bound — lets a trace target ONE region (e.g.
+    // optional LOW bound — lets a trace target ONE region (e.g.
     // a caller frame at 0x2exxx) without per-loop SP-region (0xffxx) or heap
     // writes flooding the 3500-entry ring.
     let win_lo: u32 = std::env::var("AZ_LSWIN_LO")
@@ -6518,7 +10404,7 @@ fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
                 .or_else(|| s.parse().ok())
         })
         .unwrap_or(0);
-    // 2026-06-11: optional id floor — instrumentation ids follow static
+    // optional id floor — instrumentation ids follow static
     // program order, so `AZ_LSID_LO=N` traces only a function's TAIL (e.g.
     // an sret return-copy) regardless of target address, without the body's
     // thousands of loop stores flooding the ring.
@@ -6782,7 +10668,7 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
     // AAPCS64 geometry — meaningless on Windows-x64. Compile the gate to a const `false` on x86 so
     // the block is dead-code-eliminated rather than emitting wrong-offset stores when toggled there.
     #[cfg(target_arch = "aarch64")]
-    let sp_trace = std::env::var_os("AZ_SP_TRACE").is_some();
+    let sp_trace = super::lift_env::lift_env().sp_trace;
     #[cfg(not(target_arch = "aarch64"))]
     let sp_trace = false;
     let mut k: u32 = 0;
@@ -6828,7 +10714,7 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
             // no longer be a tail call. (Previously only `tail call ptr @sub_` was de-tailed.)
             out.push_str(&line.replacen("tail call ptr @", "call ptr @", 1));
             out.push('\n');
-            // LEAK-GATED restore (class-B root-cause fix, 2026-06-10). The original
+            // LEAK-GATED restore (class-B root-cause fix). The original
             // UNCONDITIONAL restore enforced AAPCS callee-saved preservation across every
             // wrapped call — but `parse_sub_call` also matches lifted TAIL-JUMPS
             // (`b <target>` → missing_block/__az_indirect_dispatch → call): those are
@@ -6845,7 +10731,7 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
             // epilogue DROPS the `add sp,#N` restore, returning with SP *below* entry)
             // is detected precisely by `SP_after < SP_before`. Restore the snapshot ONLY
             // in that case; otherwise keep the callee's (correct) register state.
-            // [x86 SP ret-delta, 2026-06-20] The snapshot %azv_k_11 is SP as seen
+            // [x86 SP ret-delta] The snapshot %azv_k_11 is SP as seen
             // right before `call @sub_X`. On x86-64 the guest `call` has ALREADY
             // pushed the 8-byte return address at that point, so a correctly
             // returning callee (whose `ret` pops it) leaves SP at snapshot+8. A
@@ -6885,11 +10771,11 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
                 // loop never terminates, walking off the heap → OOB). Continuations
                 // (tail-jumps that legitimately pop the frame, SP_after > snapshot+DELTA)
                 // do NOT trip the gate, so their intentional register state is kept.
-                // [az-diag 2026-06-11] AZ_FULL_CS_RESTORE=1 ALSO restores the
+                // AZ_FULL_CS_RESTORE=1 ALSO restores the
                 // callee-saved GPRs (indices 0..=9) UNCONDITIONALLY (snapshot), not
                 // leak-gated — a stronger diagnostic for clobbers that don't even leak
                 // SP; default off, may re-break shape_text's tail-jump path.
-                let full_gpr = j <= 9 && std::env::var_os("AZ_FULL_CS_RESTORE").is_some();
+                let full_gpr = j <= 9 && super::lift_env::lift_env().full_cs_restore;
                 if full_gpr {
                     out.push_str(&format!(
                         "{indent}store i64 %azv_{k}_{j}, ptr %azg_{k}_{j}, align 8\n"
@@ -7145,7 +11031,7 @@ fn instrument_reg_stores(opt_ir: &str) -> (String, u32) {
     // so the FIRST 8191 reg-stores are preserved (slot 8191 absorbs the overflow). Use this to
     // capture a function's ENTRY + early blocks (e.g. an input-vec arg read + a loop preheader)
     // when a later runaway loop would otherwise overwrite the ring. Default = wrap (tail trajectory).
-    let nowrap = std::env::var_os("AZ_REG_TRACE_NOWRAP").is_some();
+    let nowrap = super::lift_env::lift_env().reg_trace_nowrap;
     let mut k: u32 = 0;
     for line in opt_ir.lines() {
         if let Some((reg_id, val_op)) = parse_reg_store(line) {
@@ -7239,7 +11125,7 @@ fn parse_reg_store(line: &str) -> Option<(u32, String)> {
 /// (or `@__remill_function_call(ptr %S, ...)`), returning `(result_ssa, state_arg_ssa)`.
 /// `None` for other calls.
 ///
-/// WEB-LIFT FIX (2026-06-05, M12 SP class): also match `@__remill_function_call` — remill's
+/// WEB-LIFT FIX (M12 SP class): also match `@__remill_function_call` — remill's
 /// indirect/computed-call dispatcher. Those LEAK guest SP exactly like `sub_<hex>` calls (the
 /// dispatched target may drop its epilogue `add sp,#N`), but `enforce_sp_preservation` was only
 /// wrapping `@sub_`. A `__remill_function_call` in `layout_document`'s post-reconcile window
@@ -7261,7 +11147,7 @@ fn parse_sub_call(line: &str) -> Option<(String, String)> {
     // Accept `sub_<hex>(...)` OR `__remill_function_call(...)` OR `__az_indirect_dispatch(...)`;
     // reject everything else.
     //
-    // WEB-LIFT FIX (2026-06-06, g129 — THE sret Vec-return-len root cause): also wrap
+    // WEB-LIFT FIX (g129 — THE sret Vec-return-len root cause): also wrap
     // `@__az_indirect_dispatch`. Indirect calls (trait methods / closures / fn-pointers — e.g.
     // ParsedFontTrait::shape_text, the allsorts GSUB/GPOS shaping, iterator closures) are dispatched
     // through `@__az_indirect_dispatch` (the M12.7 PC-switch), NOT `@sub_`. enforce_sp was NOT
@@ -7391,47 +11277,6 @@ fn inject_alwaysinline_all_subs(ir: &str) -> String {
     out
 }
 
-/// Emit the M6 helper module. Contains:
-///
-///   1. `__remill_*` definitions with real bodies — memory ops
-///      become actual `load`/`store`, control intrinsics (function
-///      return, jump, missing block, error) thread the memory token
-///      through unchanged, barriers are noops. All marked
-///      `alwaysinline` so opt -O2 inlines them at every call site.
-///
-///   2. A `callback` wrapper that allocates a separate buffer for
-///      the State struct AND a separate stack-scratch buffer. The
-///      split lets SROA promote State (no `ptrtoint` ever taken of
-///      it) while the stack-scratch buffer absorbs the lifted body's
-///      SP-relative spills.
-///
-/// Wrapper signature: `(i64, i64, i32) -> i32` per the AArch64 PCS
-/// for `extern "C" fn(AzRefAny, AzCallbackInfo) -> AzUpdate`:
-///
-///   X0/X1 = AzRefAny `(refcount_ptr, instance_id)` — 16-byte
-///           struct passed in two 64-bit regs.
-///   X2    = `*const AzCallbackInfo` — the struct itself is huge
-///           (~kilobytes), so the AArch64 PCS passes it by pointer
-///           in X2. On wasm32 the pointer is `i32`; the wrapper
-///           zero-extends to `i64` when storing into State's X2
-///           slot so the lifted body's `i64`-typed register reads
-///           see the right bit pattern.
-///   W0    = AzUpdate (4-byte enum, low half of X0).
-///
-/// Note: this wrapper signature is callback-shape-specific. Other
-/// callback types (`LayoutCallback` returning a struct,
-/// `CheckBoxOnToggleCallback` taking an extra bool arg, …) need
-/// their own signatures synthesized from `api.json`. That
-/// generalization is M7 work.
-///
-/// Panic/unwind: the lifted body may contain code paths reaching
-/// `core::panicking::panic_*` which the lift sees as another
-/// `sub_<hex>` extern. The JS-side proxy noops these, so a "panic"
-/// silently returns memory unchanged and control falls through to
-/// whatever comes next in the lifted body. For correctness, panic
-/// call sites should trap the WASM (M7+ would route a typed
-/// `__az_panic` import to `() => throw new Error(...)` in JS); for
-/// the demo path the noop fallback is acceptable.
 // M10-B1.a metadata-ID slots. Numbers are arbitrary within each
 // module — they MUST NOT collide with metadata IDs the lifted IR or
 // llvm-link's own emission uses, so pick high IDs unlikely to clash.
@@ -7445,6 +11290,123 @@ const AZ_HOST_SCOPE_MD_ID: u32 = 90003;
 const AZ_GUEST_LIST_MD_ID: u32 = 90004;
 const AZ_HOST_LIST_MD_ID: u32 = 90005;
 
+/// Records the call-site PC that reached a `NeverLift` stub, alongside the
+/// symbol recorded at `0x40048`. Sits in the free gap above the recorder block's
+/// used slots (`0x40020`–`0x40078`, then `0x400F0`+).
+///
+/// 26 of the 29 NeverLift symbols are panic entry points and the busiest have
+/// over a thousand callers (see `doc/web-neverlift-decode.md`), so knowing which
+/// panic fired does not locate the bug — this does.
+const AZ_NEVERLIFT_CALLER_REC: u64 = 0x4_0080;
+
+/// Linear address of the synthetic TEB stub. Windows `thread_local!` lowers to
+/// `mov r10, gs:[0x58]` — the TEB's `ThreadLocalStoragePointer` — so the lift
+/// needs *something* at `GSBASE + 0x58`. Placed above the recorder block
+/// (`0x40000`–`0x40A08`) and the coverage bitmap ([`AZ_COV_BASE`], `0x41000`
+/// plus one byte per lifted fn), below the image band at `synth_base`.
+const AZ_TEB_ADDR: u64 = 0x4_2000;
+/// Linear address of the synthetic TLS slot array that `TEB + 0x58` points at.
+/// Indexed by the module's `__tls_index`, which the real loader writes into the
+/// image; nothing writes it here, so it reads 0 — but a mis-set index would
+/// otherwise fetch a wild pointer, so [`AZ_TLS_SLOTS`] entries all alias the
+/// same block and any plausible index lands somewhere valid.
+const AZ_TLS_ARRAY_ADDR: u64 = 0x4_2200;
+/// How many TLS slot entries to point at the module block. A main EXE gets
+/// index 0; a handful covers the statically-linked CRT's own slot without
+/// costing anything measurable.
+const AZ_TLS_SLOTS: u64 = 8;
+/// TEB field offset of `ThreadLocalStoragePointer` on x86-64 Windows.
+const TEB_TLS_POINTER_OFF: u64 = 0x58;
+
+/// Wrapper IR that makes Windows thread-locals readable.
+///
+/// wasm is single-threaded, so "thread-local" collapses to "one global block"
+/// and the image's own TLS *template* can serve as that block directly: writes
+/// to it are exactly the semantics the one thread wants. That leaves three
+/// stores — TEB slot → array, array entries → template, `State.gs_base` → TEB —
+/// after which `mov r10, gs:[0x58]` walks a chain that resolves.
+///
+/// Emitted by the wrapper at runtime rather than as a data segment on purpose:
+/// the mini has ZERO data segments today, which is what lets lazily-fetched
+/// chunks be instantiated against a live memory (see `web-lift-wasm-size.md`).
+///
+/// Returns an empty string when the target is not x86-64 Windows or the image
+/// carries no TLS directory, so the wrapper is byte-identical to before.
+#[cfg(not(target_arch = "x86_64"))]
+fn emit_win_tls_init() -> String {
+    String::new()
+}
+
+#[cfg(target_arch = "x86_64")]
+fn emit_win_tls_init() -> String {
+    // Memoized because this runs once per exported wrapper — ~1800 times — and
+    // `win_tls_template_synth` re-reads the whole image from disk and re-parses
+    // it with goblin on every call. Unmemoized that was ~36 GB of file reads and
+    // 180k goblin DEBUG records (a 5.9 GB log, up from 25 MB), and it stretched
+    // a 29-minute lift to over 70. The answer cannot change within a run.
+    static TLS_TEMPLATE: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();
+    let found =
+        *TLS_TEMPLATE.get_or_init(|| symbol_table::get().and_then(|t| t.win_tls_template_synth()));
+
+    // Report the decision once: "no TLS directory" and "TLS seeded" are
+    // indistinguishable in a boot log otherwise — an empty return is silent by
+    // design.
+    static LOG_ONCE: std::sync::Once = std::sync::Once::new();
+    LOG_ONCE.call_once(|| match found {
+        Some((synth, len)) => eprintln!(
+            "[azul-web] win-tls: template synth={synth:#x} len={len} \
+             → TEB {AZ_TEB_ADDR:#x}, slots {AZ_TLS_ARRAY_ADDR:#x}, GSBASE off {}",
+            pcs::GSBASE
+        ),
+        None => eprintln!("[azul-web] win-tls: no TLS directory in image; gs:[0x58] stays 0"),
+    });
+    let Some((template_synth, template_len)) = found else {
+        return String::new();
+    };
+    // These two stores write GUEST linear memory through `inttoptr` — unlike
+    // every other store in the wrapper, which targets a host alloca.
+    // `tag_state_accesses` blanket-tags untagged wrapper stores with the HOST
+    // scope and `!noalias` guest; that would let LLVM prove them disjoint from
+    // the body's guest `gs:[0x58]` load (same constant address, same function
+    // once the body inlines) and drop them entirely, so the seed would silently
+    // do nothing. Pre-tagging as guest makes the tagger skip them, and
+    // `volatile` matches how every other guest write here is emitted.
+    let guest = format!(
+        ", !alias.scope !{}, !noalias !{}",
+        AZ_GUEST_LIST_MD_ID, AZ_HOST_LIST_MD_ID,
+    );
+    let mut ir = format!(
+        "  ; Windows thread-locals: seed a synthetic TEB so `gs:[0x58]` resolves.\n  \
+         ; TLS template is {template_len} bytes at synth {template_synth:#x}; wasm is\n  \
+         ; single-threaded, so the template IS the one live block.\n  \
+         %teb_slot = inttoptr i64 {teb_slot} to ptr\n  \
+         store volatile i64 {array}, ptr %teb_slot, align 8{guest}\n",
+        teb_slot = AZ_TEB_ADDR + TEB_TLS_POINTER_OFF,
+        array = AZ_TLS_ARRAY_ADDR,
+    );
+    for i in 0..AZ_TLS_SLOTS {
+        ir.push_str(&format!(
+            "  %tls_slot{i} = inttoptr i64 {addr} to ptr\n  \
+             store volatile i64 {template_synth}, ptr %tls_slot{i}, align 8{guest}\n",
+            addr = AZ_TLS_ARRAY_ADDR + i * 8,
+        ));
+    }
+    ir.push_str(&format!(
+        "  %gsbase_slot = getelementptr inbounds i8, ptr %state_buf, i64 {gsbase}\n  \
+         store i64 {teb}, ptr %gsbase_slot, align 8\n",
+        gsbase = pcs::GSBASE,
+        teb = AZ_TEB_ADDR,
+    ));
+    ir
+}
+
+/// Emit the per-fn helper module: `__remill_*` intrinsics with real bodies
+/// (memory ops become load/store, control intrinsics thread the memory token,
+/// barriers are noops — all `alwaysinline`), plus the callback wrapper that
+/// allocates a State buffer and a separate stack-scratch buffer so SROA can
+/// promote State while SP-relative spills land in the scratch. The wrapper
+/// signature is synthesized per callback shape from `sig` (see
+/// `signature_for_callback_kind`); panic externs are nooped by the JS proxy.
 fn emit_helper_ir(
     lift_addr: u64,
     sig: &CallbackSignature,
@@ -7564,6 +11526,40 @@ fn emit_helper_ir(
             // populated bytes in that region. To make this fully
             // correct we memset(0) the freshly allocated region.
             // Negligible cost (memset is intrinsic-fast on wasm).
+            // HeapAlloc(heap, flags, dwBytes) shape: identical bump body,
+            // size read from ARG[2] instead of ARG[0]. See
+            // FnClass::BumpAllocWinHeap.
+            Some(SymFnClass::BumpAllocWinHeap) => {
+                branch_stubs.push_str(&format!(
+                    "; bump-allocator body for {sym} (HeapAlloc arg shape: size in arg3)
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
+                         %x0_p_{n} = getelementptr inbounds i8, ptr %state, i64 {size_off}
+                         %size_{n} = load i64, ptr %x0_p_{n}, align 8
+                         store volatile i64 %size_{n}, ptr inttoptr (i64 262192 to ptr), align 8
+                         %dbgc_{n} = load volatile i64, ptr inttoptr (i64 262200 to ptr), align 8
+                         %dbgcp_{n} = add i64 %dbgc_{n}, 1
+                         store volatile i64 %dbgcp_{n}, ptr inttoptr (i64 262200 to ptr), align 8
+                         %size_a_{n} = add i64 %size_{n}, 7
+                         %size_aligned_{n} = and i64 %size_a_{n}, -8
+                         %old_{n} = load i32, ptr inttoptr (i64 262176 to ptr), align 4
+                         %old_i64_{n} = zext i32 %old_{n} to i64
+                         %new_i64_{n} = add i64 %old_i64_{n}, %size_aligned_{n}
+                         %new_{n} = trunc i64 %new_i64_{n} to i32
+                         store i32 %new_{n}, ptr inttoptr (i64 262176 to ptr), align 4
+                         %ret_p_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}
+                         store i64 %old_i64_{n}, ptr %ret_p_{n}, align 8
+                         store volatile i64 %old_i64_{n}, ptr inttoptr (i64 262208 to ptr), align 8
+                         %dest_p_{n} = inttoptr i32 %old_{n} to ptr
+                         call void @llvm.memset.p0.i64(ptr %dest_p_{n}, i8 0, i64 %size_aligned_{n}, i1 false)
+                         ret ptr %memory
+                     }}
+",
+                    sym = ext.sym_name,
+                    n = n_suffix,
+                    size_off = arg2_off,
+                    ret_off = ret_off,
+                ));
+            }
             Some(SymFnClass::BumpAlloc) => {
                 branch_stubs.push_str(&format!(
                     "; bump-allocator body for {sym}\n\
@@ -7617,6 +11613,63 @@ fn emit_helper_ir(
                     // X0:X1 on aarch64, RAX:RDX on x86-64.
                     x0_off = ret_off,
                     x1_off = ret_hi_off,
+                ));
+            }
+            // EnvVarOs: `std::env::var_os(key) -> Option<OsString>`.
+            //   Windows x64: hidden sret pointer in ARG[0] (RCX); the callee also
+            //   returns that pointer in RAX. There is no process environment in
+            //   wasm, so the semantically correct answer is ALWAYS `None`.
+            //   `Option<OsString>` = `Option<Vec<u8>>`-shaped {ptr,cap,len} = 24 B
+            //   using the null-pointer niche, so writing 24 zero bytes IS `None`.
+            //   Without this the Leaf stub leaves the sret buffer untouched and the
+            //   caller reads stack garbage as `Some(..)` → `from_utf8` OOB.
+            // __chkstk / _alloca_probe: probe guard pages, return RAX UNCHANGED.
+            // wasm has no guard pages, so the correct body is *empty* — and it must
+            // NOT write the return slot, because the caller's next instruction is
+            // `sub rsp, rax`. The default Leaf stub writes 0 there, which silently
+            // deletes the whole stack frame (see FnClass::ChkStk).
+            Some(SymFnClass::ChkStk) => {
+                branch_stubs.push_str(&format!(
+                    "; __chkstk/_alloca_probe no-op (RAX left untouched: caller does `sub rsp, rax`) for {sym}\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                ));
+            }
+            Some(SymFnClass::EnvVarOs) => {
+                // The three sret stores reach GUEST memory through `inttoptr`,
+                // so they must carry the guest scope. `tag_state_accesses`
+                // stamps untagged stores here with the HOST scope and
+                // `!noalias` guest — a false claim against the lifted caller's
+                // guest-tagged read of the same buffer, which would let LLVM
+                // drop them and resurrect exactly the `Some(..)` garbage read
+                // this stub exists to prevent. The `%state` GEPs below are
+                // genuinely host and stay untagged.
+                let guest = format!(
+                    ", !alias.scope !{}, !noalias !{}",
+                    AZ_GUEST_LIST_MD_ID, AZ_HOST_LIST_MD_ID,
+                );
+                branch_stubs.push_str(&format!(
+                    "; std::env::var_os → None (no process environment in wasm) for {sym}\n\
+                     define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) alwaysinline {{\n  \
+                       %sretp_{n} = getelementptr inbounds i8, ptr %state, i64 {x0_off}\n  \
+                       %sret64_{n} = load i64, ptr %sretp_{n}, align 8\n  \
+                       %sret32_{n} = trunc i64 %sret64_{n} to i32\n  \
+                       %dst_{n} = inttoptr i32 %sret32_{n} to ptr\n  \
+                       store volatile i64 0, ptr %dst_{n}, align 8{guest}\n  \
+                       %d8_{n} = getelementptr inbounds i8, ptr %dst_{n}, i64 8\n  \
+                       store volatile i64 0, ptr %d8_{n}, align 8{guest}\n  \
+                       %d16_{n} = getelementptr inbounds i8, ptr %dst_{n}, i64 16\n  \
+                       store volatile i64 0, ptr %d16_{n}, align 8{guest}\n  \
+                       %retp_{n} = getelementptr inbounds i8, ptr %state, i64 {ret_off}\n  \
+                       store i64 %sret64_{n}, ptr %retp_{n}, align 8\n  \
+                       ret ptr %memory\n\
+                     }}\n",
+                    sym = ext.sym_name,
+                    n = n_suffix,
+                    x0_off = x0_off,
+                    ret_off = ret_off,
                 ));
             }
             // BumpRealloc: __rust_realloc(old_ptr, old_size, align, new_size).
@@ -8069,14 +12122,47 @@ fn emit_helper_ir(
                     .strip_prefix("sub_")
                     .and_then(|h| u64::from_str_radix(h, 16).ok())
                     .unwrap_or(0xDEAD);
+                // Also record WHO called this stub. 0x40048 says only WHICH
+                // panic, and the busiest panic entry points have over a
+                // thousand callers, so the symbol alone cannot locate the bug.
+                //
+                // The caller's identity is the RETURN ADDRESS, read from the
+                // guest stack at [RSP] — the lifted caller decrements RSP by 8
+                // and writes it there immediately before the call.
+                //
+                // It is NOT the `%pc` argument. remill's contract is that a
+                // lifted body's `pc` argument is its OWN lift address (the same
+                // invariant the direct-call pc seeding relies on), and the
+                // caller sets %PC to the call TARGET before calling. Recording
+                // `%pc` therefore stored the stub's own address: a run measured
+                // 0x40048 and this recorder as the identical value, which is
+                // what proved it.
+                //
+                // `volatile` is what keeps these stores alive; unlike the TLS
+                // seed they need no guest alias scope, because nothing in the
+                // lifted code reads them — only the JS probes do, so there is
+                // no guest-tagged load for a host tag to be proven disjoint
+                // from. The [RSP] LOAD is a different matter: it reads guest
+                // memory a lifted caller wrote, so it carries the guest scope.
                 branch_stubs.push_str(&format!(
                     "; NeverLift trap for {sym}\n\
                      define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) {{\n  \
                        store volatile i64 {marker}, ptr inttoptr (i64 262216 to ptr), align 8\n  \
+                       %nlsp_{n} = getelementptr inbounds i8, ptr %state, i64 {sp_off}\n  \
+                       %nlspv_{n} = load i64, ptr %nlsp_{n}, align 8\n  \
+                       %nlretp_{n} = inttoptr i64 %nlspv_{n} to ptr\n  \
+                       %nlret_{n} = load volatile i64, ptr %nlretp_{n}, align 8, \
+                         !alias.scope !{guest}, !noalias !{host}\n  \
+                       store volatile i64 %nlret_{n}, ptr inttoptr (i64 {caller_rec} to ptr), align 8\n  \
                        unreachable\n\
                      }}\n",
                     sym = ext.sym_name,
+                    n = n_suffix,
                     marker = nl_marker,
+                    sp_off = pcs::SP,
+                    guest = AZ_GUEST_LIST_MD_ID,
+                    host = AZ_HOST_LIST_MD_ID,
+                    caller_rec = AZ_NEVERLIFT_CALLER_REC,
                 ));
             }
             // No classification: the SymbolTable didn't have this
@@ -8107,7 +12193,7 @@ fn emit_helper_ir(
                     // dispatches to garbage. aarch64 `rewrite_recursive_bl` uses
                     // +0x4000000; x86-64 `x86_scan::rewrite_recursive_call` sets
                     // `new_rel = 0x1000_0000` (+0x10000000). (THE x86 browser
-                    // text-shaping OOB, 2026-06-23: allsorts' recursive parsers
+                    // text-shaping OOB: allsorts' recursive parsers
                     // hit this — the aarch64-hardcoded 0x4000000 never matched on
                     // x86, so every self-recursive call stubbed to garbage.) The
                     // call's PC is in [lift_addr, lift_addr + fn_size); functions
@@ -8122,7 +12208,7 @@ fn emit_helper_ir(
                     delta >= lift_addr && delta < lift_addr.saturating_add(0x0100_0000)
                 });
                 if is_recursive_marker {
-                    // [x86 recursive-pc fix, 2026-06-24] Pass the recursive fn's
+                    // [x86 recursive-pc fix] Pass the recursive fn's
                     // ENTRY pc (lift_addr) as the callee %pc, NOT the incoming %pc.
                     // The lifted body computes the recursive target as
                     // `next_pc + REC_MARKER` (the rewriter's 0x1000_0000 sentinel,
@@ -8134,7 +12220,7 @@ fn emit_helper_ir(
                     // sentinel) → after ~3 levels %pc ≈ 768 MB and the jump-table
                     // load blows past linear memory → trap (the hydrate
                     // StyledDom::create cascade OOB: func698 `i64.load32_s
-                    // [%pc+0x9FB888+idx*4]`, root-caused 2026-06-24). Forcing
+                    // [%pc+0x9FB888+idx*4]`, root-caused). Forcing
                     // %pc == lift_addr makes every recursion frame's pc identical to
                     // the first (non-recursive) call's pc (= the entry), so
                     // PC-relative data + PC-dispatch both resolve correctly. aarch64
@@ -8161,15 +12247,32 @@ fn emit_helper_ir(
                         ext.sym_name, lift_addr,
                     );
                 } else {
+                    // Unresolvable target (out-of-image / negative devirt
+                    // artifact). Emitting an env import let the loader's
+                    // Proxy zero-stub it, so the call silently returned 0
+                    // and the caller walked garbage into an allocator
+                    // failure. Trap instead: a wild target is a wild call
+                    // natively too, and the marker at 0x40048 names it.
+                    let marker = parsed_addr.unwrap_or(0xDEAD);
+                    branch_stubs.push_str(&format!(
+                        "; unresolvable-extern trap for {sym}
+                         define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) {{
+                             store volatile i64 {marker}, ptr inttoptr (i64 262216 to ptr), align 8
+                             unreachable
+                         }}
+",
+                        sym = ext.sym_name,
+                        marker = marker,
+                    ));
                     eprintln!(
-                        "[azul-web]   unclassified extern: {} — emitting env import",
+                        "[azul-web]   unclassified extern: {} — emitting TRAP body (was: env import)",
                         ext.sym_name
                     );
                 }
             }
         }
     }
-    // [x86 ret-pop, 2026-06-20] On x86-64 a guest `call` PUSHES the return
+    // [x86 ret-pop] On x86-64 a guest `call` PUSHES the return
     // address (RSP -= 8; modeled by remill — see the CallIndirectLayout4
     // `[SP+40]` read above) and the callee's `ret` POPS it (RSP += 8). The
     // synthetic helper bodies above model the callee but have NO lifted `ret`,
@@ -8179,7 +12282,7 @@ fn emit_helper_ir(
     // __rust_alloc); after ~6 iters RSP is 152 B (19×8) low, so the loop
     // index's SP-relative reload (`mov rdi,[rsp+0x58]`) reads a pushed return
     // address instead of the index → `mov [rax+rdi<<7],8` indexes ~2.4 GB →
-    // OOB (the full-hello-world trap, root-caused 2026-06-15). enforce_sp_*
+    // OOB (the full-hello-world trap, root-caused). enforce_sp_*
     // can't fix it: these bodies are `alwaysinline` and GONE (inlined into the
     // caller) by the time enforce_sp runs on opt.ll, so there's no `@sub_` call
     // left to wrap. Model the missing `ret`-pop directly in the body instead.
@@ -8274,7 +12377,26 @@ define linkonce_odr ptr @__remill_function_call(ptr %state, i64 %pc, ptr %memory
   ret ptr %fcr
 }}
 define linkonce_odr ptr @__remill_jump(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
-  ret ptr %memory
+  ; [FIX] Dispatch the indirect JUMP — this was `ret ptr %memory`,
+  ; i.e. a SILENT no-op, and it swallowed every register-indirect TAIL-CALL.
+  ; Rust at -O lowers dyn-trait tail positions to exactly that shape:
+  ;   mov rdx,[rdx+8]      ; Formatter.buf.vtable
+  ;   mov r8,[rdx+0x20]    ; the write_char slot (translated to a SYNTH entry
+  ;                        ;  by the data-pointer rewrite)
+  ;   jmp r8
+  ; With the no-op, the wrapper skipped the entire tail callee and returned
+  ; with garbage AL — observed as `<char as Display>::fmt` "returning" the
+  ; char itself, so core::fmt::write saw Err and format_inner's .expect blew
+  ; up: EVERY `format!` with a formatted argument failed, silently (no trap,
+  ; no unk count). Route to the dispatcher exactly like __remill_function_call
+  ; above (its "M12.7 FIX" line): entry-PC targets hit their case and run; a
+  ; genuinely unknown PC falls to `unk`, which counts at 0x40158 and records
+  ; the PC at 0x40900 — visible instead of silent. A jump is a continuation
+  ; (no return address involved), so returning the callee's memory token here
+  ; and letting the caller's own `ret` propagate is exactly the tail-call
+  ; semantics; the callee's RAX is already in State.
+  %jr = call ptr @__az_indirect_dispatch(ptr %state, i64 %pc, ptr %memory)
+  ret ptr %jr
 }}
 define linkonce_odr ptr @__remill_missing_block(ptr %state, i64 %pc, ptr %memory) alwaysinline {{
   ; NOTE: must RETURN (not trap) — the cascade/hydration path has hot missing_blocks
@@ -8307,7 +12429,7 @@ define linkonce_odr ptr @__remill_error(ptr %state, i64 %pc, ptr %memory) always
   %erc = call i32 @__remill_read_memory_32(ptr %erm1, i64 262388)
   %erc1 = add i32 %erc, 1
   %erm2 = call ptr @__remill_write_memory_32(ptr %erm1, i64 262388, i32 %erc1)
-  ; 2026-06-02: also record each unlifted-instr PC into a 16-slot ring @0x401A0
+  ; Also record each unlifted-instr PC into a 16-slot ring @0x401A0
   ; (262560)+i*4 (i = count & 15), mirroring the missing_block ring @0x40160, so
   ; the gate can otool ALL unlifted-instruction sites (not just the last) in one pass.
   %eridx = and i32 %erc, 15
@@ -8512,7 +12634,7 @@ define {ret_ty} @{export_as}({params}) {{
   %sp_int = ptrtoint ptr %sp_top to i64
   %sp_slot = getelementptr inbounds i8, ptr %state_buf, i64 {sp_off}
   store i64 %sp_int, ptr %sp_slot, align 8
-{retaddr_zero}{prologue}
+{tls_init}{retaddr_zero}{prologue}
   ; Memory token is null — every memory op was lowered to a real
   ; load/store above, so the token is dead inside the body.
   %_ret_mem = call ptr @sub_{lift_addr_hex}(ptr %state_buf, i64 {lift_addr_dec}, ptr null)
@@ -8543,6 +12665,7 @@ define {ret_ty} @{export_as}({params}) {{
         state_size = state_size,
         stack_size = stack_size,
         sp_init_off = sp_init_off,
+        tls_init = emit_win_tls_init(),
         retaddr_zero = if cfg!(target_arch = "x86_64") {
             "  ; x86: zero the fake return-address slot at [SP] so the lifted\n  \
                ; body's final `ret` pops 0 (mirrors aarch64's zeroed X30/LR).\n  \
@@ -8771,7 +12894,7 @@ fn strip_noalias_from_sub_args(ir: &str) -> String {
     out
 }
 
-/// [WEB-LIFT FIX 2026-06-11] Remove ALL `!alias.scope`/`!noalias` metadata
+/// [WEB-LIFT FIX] Remove ALL `!alias.scope`/`!noalias` metadata
 /// from a linked module. remill emits `!alias.scope !0, !noalias !3` on every
 /// State-register access and guest-memory intrinsic to declare registers and
 /// guest memory mutually-non-aliasing — TRUE on hardware (disjoint address
@@ -8834,7 +12957,7 @@ fn tag_state_accesses(ir: &str) -> String {
         ", !alias.scope !{}, !noalias !{}",
         AZ_HOST_LIST_MD_ID, AZ_GUEST_LIST_MD_ID,
     );
-    // [2026-06-08 az-web-lift] AZ_NO_HOST_SCOPE=1 disables the host/guest alias-scope SEPARATION
+    // [ az-web-lift] AZ_NO_HOST_SCOPE=1 disables the host/guest alias-scope SEPARATION
     // (State/local accesses stay untagged → conservative AA). Kept as a diagnostic toggle, default OFF.
     // ⚠ g188/g189 LESSON: AZ_NO_HOST_SCOPE appeared to fix the hashbrown hang, but that was CONFOUNDED by
     // AZ_FUEL — every "fixed" run (g186/g187/g188) also had AZ_FUEL=ALL, whose per-terminator fuel-tick
@@ -8844,7 +12967,7 @@ fn tag_state_accesses(ir: &str) -> String {
     // of guest mem ops across an inline-cloned alias scope), but the fix is a BARRIER, not (only) disabling
     // the scope. NEXT: isolate AZ_FUEL-barrier-alone vs scope; a minimal barrier pass (a volatile fence per
     // guest store, like the write-tracer minus logging) is the likely real fix. See handoff g189.
-    let disable_host_scope = std::env::var("AZ_NO_HOST_SCOPE").is_ok();
+    let disable_host_scope = super::lift_env::lift_env().no_host_scope;
 
     for line in ir.lines() {
         if disable_host_scope {
@@ -9045,14 +13168,46 @@ fn build_extra_data(bytes: &[u8], fn_addr: usize, lift_addr: u64) -> String {
         if len == 0 || len > 65536 {
             continue;
         }
-        if total + len > 1_000_000 {
-            break; // bound the CLI arg size
+        if total + len > 8_000_000 {
+            // Bound the arg size. Raised from 1 MB with LEA_MIRROR_WINDOW 128->1024:
+            // this `break` DROPS every remaining region, and a dropped region is a
+            // jump table remill then can't read — i.e. a silently skipped `match`.
+            // run_tool switches to a --flagfile once the args are long, so the old
+            // command-line limit no longer applies.
+            eprintln!(
+                "[azul-web]   ⚠ extra_data cap hit at {} regions ({} bytes) — later \
+                 jump tables will NOT devirtualize",
+                regions.len(),
+                total
+            );
+            break;
         }
         // SAFETY: (raddr, len) are adrp+ldr-referenced ranges in the live dylib's
         // read-only data — the same ranges the wasm data-mirror reads.
         let data = unsafe { std::slice::from_raw_parts(raddr as *const u8, len) };
         let synth = ((raddr as i128) + synth_off) as u64;
-        regions.push(format!("{:x}:{}", synth, bytes_to_hex(data)));
+        // Translate pointer-shaped content before handing it to remill —
+        // absolute jump tables carry NATIVE addresses, and untranslated
+        // they surface as devirt switch targets in native space, i.e.
+        // unclassified `sub_7ff6…` externs that zero-stub at runtime (the
+        // AzWriter bootstrap trap). Same 8-aligned rule as the data
+        // mirror's pointer pass.
+        let mut owned = data.to_vec();
+        if let Some(tab) = symbol_table::get() {
+            let mis = (synth % 8) as usize;
+            let start = if mis == 0 { 0 } else { 8 - mis };
+            let mut i = start;
+            while i + 8 <= owned.len() {
+                let v = u64::from_le_bytes(owned[i..i + 8].try_into().unwrap()) as usize;
+                if v > 0x1_0000 {
+                    if let Some(sv) = tab.native_to_synth(v) {
+                        owned[i..i + 8].copy_from_slice(&(sv as u64).to_le_bytes());
+                    }
+                }
+                i += 8;
+            }
+        }
+        regions.push(format!("{:x}:{}", synth, bytes_to_hex(&owned)));
         total += len;
     }
     regions.join(";")
@@ -9513,53 +13668,103 @@ fn parse_sub_hex_as_addr(sym_name: &str) -> Option<usize> {
     usize::from_str_radix(hex, 16).ok()
 }
 
-/// Post-lift IR rewriter — Stage 1's load-bearing change.
+/// Re-encode LLVM `0xK…` (x87 extended) float literals as f64 bit patterns.
+/// Zero maps to zero; normals re-bias 16383 -> 1023 and drop the explicit
+/// integer bit. Anything malformed is left alone so the caller's own guards
+/// (and llc) still reject it loudly rather than silently mis-encoding.
+fn rewrite_fp80_literals(ir: &str) -> String {
+    let mut out = String::with_capacity(ir.len());
+    let mut rest = ir;
+    while let Some(pos) = rest.find("0xK") {
+        out.push_str(&rest[..pos]);
+        let tail = &rest[pos + 3..];
+        let hex_len = tail
+            .char_indices()
+            .take_while(|(_, c)| c.is_ascii_hexdigit())
+            .count();
+        if hex_len != 20 {
+            out.push_str("0xK");
+            rest = tail;
+            continue;
+        }
+        let (hex, after) = tail.split_at(20);
+        let se = u16::from_str_radix(&hex[..4], 16).unwrap_or(0);
+        let mant = u64::from_str_radix(&hex[4..], 16).unwrap_or(0);
+        let sign = ((se >> 15) as u64) << 63;
+        let exp = (se & 0x7FFF) as i64;
+        let bits = if exp == 0 && mant == 0 {
+            sign
+        } else {
+            let e64 = exp - 16383 + 1023;
+            if e64 <= 0 || e64 >= 0x7FF {
+                sign | if e64 >= 0x7FF { 0x7FF0_0000_0000_0000 } else { 0 }
+            } else {
+                sign | ((e64 as u64) << 52) | ((mant >> 11) & 0x000F_FFFF_FFFF_FFFF)
+            }
+        };
+        out.push_str(&format!("0x{:016X}", bits));
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Demote x87 80-bit floats to `double` in lifted IR.
 ///
-/// Walks every `@sub_<hex>[.N]` token in the lifted IR and rewrites
-/// it to `@sub_<canonical_addr_hex>` based on the SymbolTable's
-/// chain map. This single pass dissolves four pre-M8.8 problems:
-///
-///   1. **`.N` suffix dedup** — remill emits `sub_<addr>.2`,
-///      `sub_<addr>.3`, … for repeat call sites of the same `bl`
-///      target. The pre-M8.8 path emitted a separate helper-IR
-///      body per `.N` to keep wasm-ld from leaving them as imports.
-///      Post-rewrite, every `.N` collapses to the same canonical
-///      name — wasm-ld dedupes naturally.
-///
-///   2. **PLT-stub thunk mismatch** — caller's IR previously said
-///      `sub_<stub_addr>` while the dep's lifted body was defined
-///      as `sub_<real_addr>`. The pre-M8.8 path emitted a
-///      `linkonce_odr` thunk `sub_<stub_addr> → musttail
-///      sub_<real_addr>` to bridge. Post-rewrite, the chain map
-///      pre-canonicalizes the caller's reference to `sub_<real_addr>`
-///      and wasm-ld matches the dep's defn directly.
-///
-///   3. **Bare-`b imm26` tail-call shims** — same as PLT stubs but
-///      detected at the byte level. SymbolTable's
-///      `detect_arm64_tail_shims` populates the chain map for
-///      these; the rewriter applies it.
-///
-///   4. **`lift_addr` arithmetic** — `branch_target_to_host_addr`
-///      computed `host_target = fn_addr + (lift_target - lift_addr)`
-///      at every callsite. The rewriter centralizes this so
-///      downstream helpers operate in canonical-address space only.
-///
-/// Reference form:
-///
-///   `@sub_<hex>`     — entry defn, branch declare/call, etc.
-///   `@sub_<hex>.<N>` — remill's per-call-site dedup variant
-///
-/// where `<hex>` is hexadecimal and `<N>` is decimal. The rewriter
-/// matches both shapes and emits `@sub_<canonical_addr_hex>` (no
-/// `.N`). Tokens with non-hex bodies are left intact (rare; some
-/// helper-IR names like `@__remill_*` start with `@` but the
-/// `sub_` prefix discriminator keeps them out of the match).
+/// wasm has no 80-bit float type, and an `x86_fp80` load/store reaching the
+/// LLVM wasm backend is a hard llc assert that would cost the whole function
+/// a Leaf stub. `double` is the closest faithful lowering; the extended
+/// mantissa/exponent are lost and an 80-bit store writes 8 bytes, both
+/// strictly better than a stub returning 0. Only forms that stay
+/// type-consistent under a uniform token swap are rewritten; anything else
+/// returns `None` so the crash-stub path and the audit's F2 finding still
+/// fire loudly.
+fn demote_x86_fp80(ir: &str) -> Option<String> {
+    if !ir.contains("x86_fp80") {
+        return None;
+    }
+    // Conversions between fp80 and another float width would need real SSA
+    // surgery (the value changes type mid-chain), so those still bail.
+    for bad in ["fptrunc x86_fp80", "fpext x86_fp80", "to x86_fp80"] {
+        if ir.contains(bad) {
+            return None;
+        }
+    }
+    // remill models the x87 register file as raw i80 bit patterns and casts
+    // into the float domain with `bitcast i80 %v to x86_fp80`. Decoding that
+    // to f64 is expressible in LLVM but needs i80 shifts/truncs, which the
+    // wasm backend cannot legalize (it segfaults outright), so functions
+    // carrying x87 BIT-PATTERN plumbing are left for the crash path and the
+    // audit's F2 finding — deliberately not silently stubbed. Only the
+    // float-domain shapes below are demoted.
+    if ir.contains("bitcast i80") {
+        return None;
+    }
+    let out = ir.to_string();
+    // fp80 LITERALS: LLVM writes them as `0xK` + 20 hex digits (16-bit
+    // sign/exponent, then the 64-bit mantissa with its explicit integer
+    // bit). Re-encode each as the equivalent f64 bit pattern (`0x` + 16
+    // hex), the same decode the runtime sequence above performs.
+    let out = rewrite_fp80_literals(&out);
+    Some(out.replace("x86_fp80", "double").replace(".f80", ".f64"))
+}
+
+/// Post-lift IR rewriter: every `@sub_<hex>[.N]` token becomes
+/// `@sub_<canonical_addr_hex>` via the SymbolTable chain map. This one pass
+/// dissolves four problems at once: remill's `.N` per-call-site duplicates
+/// (wasm-ld now dedupes naturally), PLT-stub vs real-address name mismatches
+/// (no bridging thunks needed), bare-`b imm26` tail-call shims (chain map
+/// entries from `detect_arm64_tail_shims`), and per-callsite
+/// `lift_addr` arithmetic (all downstream helpers operate in
+/// canonical-address space). Tokens without a hex body after `sub_` are
+/// left intact.
 fn rewrite_sub_names_to_canonical(
     ir: &str,
     table: &symbol_table::SymbolTable,
     _fn_addr: usize,
     _lift_addr: u64,
 ) -> String {
+    use std::fmt::Write as _;
     // M9-review: `lift_addr` is now `entry.synthetic_addr` (passed
     // to remill via `--address=`), so the IR's `sub_<hex>` values
     // are already in synthetic-address space. No more lift→host
@@ -9604,7 +13809,10 @@ fn rewrite_sub_names_to_canonical(
             Ok(raw_synth) => {
                 // Synth-space stub chain follow.
                 let canonical_synth = table.resolve_synth(raw_synth).unwrap_or(raw_synth);
-                out.push_str(&format!("@sub_{:x}", canonical_synth));
+                // write! into `out` rather than allocating a String per token:
+                // this fires for every @sub_ reference in every lifted function.
+                out.push_str("@sub_");
+                let _ = write!(out, "{canonical_synth:x}");
             }
             Err(_) => {
                 // Hex didn't parse — leave the original token intact.
@@ -9615,6 +13823,116 @@ fn rewrite_sub_names_to_canonical(
     }
     out.push_str(&ir[cursor..]);
     out
+}
+
+/// Seed every direct `call @sub_<hex>` with the CALLEE's own address.
+///
+/// A lifted body seeds its whole PC chain from its `pc` argument
+/// (`store i64 %program_counter, ptr %NEXT_PC` in the entry block), so every
+/// rip-relative address it computes — jump tables, `lea` of .rdata — is
+/// derived from it. remill's contract is that `pc` IS the lift address.
+///
+/// remill emits a direct call as `call @sub_<target>(state, <target>, memory)`,
+/// where the pc operand is a load of State.rip and therefore the RAW target.
+/// That is correct until [`rewrite_sub_names_to_canonical`] chases a PLT stub
+/// or shim and retargets the callee to its CANONICAL body: the name changes,
+/// the operand does not, and the canonical body is entered carrying the SHIM's
+/// address. Every rip-relative address it forms is then skewed by
+/// (canonical - shim).
+///
+/// Observed: `app_state_from_json` calls a `Vec` drop shim, which resolves to
+/// `U8Vec::drop`. Seeded with the shim's address, that body's destructor
+/// jump-table `lea` landed in the .text of an unlifted webrender function.
+/// Unmirrored .text reads as zero, so `base + table[tag]` returned the bad base
+/// itself and matched no switch case — a trap whose PC named neither the caller
+/// nor any real target, and which appeared in no .ll file, no heap object and
+/// no mirror because it was computed from a bad seed and never stored.
+///
+/// The operand is rewritten unconditionally, not only when the name changed:
+/// the callee is `@sub_<hex>` either way, so `<hex>` is always the right seed,
+/// and a constant is what the dispatcher's cases already pass.
+fn seed_direct_calls_with_callee_pc(ir: &str) -> (String, u32) {
+    let mut out = String::with_capacity(ir.len());
+    let mut fixed = 0u32;
+    for line in ir.lines() {
+        match rewrite_call_pc_operand(line) {
+            Some(new_line) => {
+                out.push_str(&new_line);
+                fixed += 1;
+            }
+            None => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    (out, fixed)
+}
+
+/// Replace the pc operand of one `call ptr @sub_<hex>(ptr .., i64 X, ptr ..)`
+/// with `<hex>` as a decimal constant. Returns `None` when the line is not such
+/// a call — `declare ptr @sub_<hex>(ptr, i64, ptr)` has no operand to rewrite
+/// and is skipped by requiring `call ptr @sub_`.
+fn rewrite_call_pc_operand(line: &str) -> Option<String> {
+    const PAT: &str = "call ptr @sub_";
+    let at = line.find(PAT)?;
+    let hex_start = at + PAT.len();
+    let bytes = line.as_bytes();
+    let mut i = hex_start;
+    while i < bytes.len() && bytes[i].is_ascii_hexdigit() {
+        i += 1;
+    }
+    if i == hex_start {
+        return None;
+    }
+    let callee = u64::from_str_radix(&line[hex_start..i], 16).ok()?;
+    // The first argument is `ptr ...`, so the first `i64 ` after the opening
+    // paren is the pc operand.
+    let open = line[i..].find('(')? + i;
+    let key = "i64 ";
+    let val_start = line[open..].find(key)? + open + key.len();
+    let val_end = val_start + line[val_start..].find(',')?;
+    let mut s = String::with_capacity(line.len() + 16);
+    s.push_str(&line[..val_start]);
+    s.push_str(&callee.to_string());
+    s.push_str(&line[val_end..]);
+    Some(s)
+}
+
+#[cfg(test)]
+mod direct_call_pc_tests {
+    use super::*;
+
+    #[test]
+    fn seeds_the_callee_address_not_the_raw_target() {
+        let ir = "  %229 = load i64, ptr %PC, align 8\n  \
+                  %230 = call ptr @sub_de51f0(ptr %state, i64 %229, ptr %228)\n";
+        let (out, n) = seed_direct_calls_with_callee_pc(ir);
+        assert_eq!(n, 1);
+        // 0xde51f0 = 14569968
+        assert!(
+            out.contains("@sub_de51f0(ptr %state, i64 14569968, ptr %228)"),
+            "pc operand not seeded with the callee address: {out}",
+        );
+        // the unrelated load is untouched
+        assert!(out.contains("%229 = load i64, ptr %PC"));
+    }
+
+    #[test]
+    fn a_declare_has_no_operand_and_is_left_alone() {
+        let ir = "declare ptr @sub_de51f0(ptr, i64, ptr)\n";
+        let (out, n) = seed_direct_calls_with_callee_pc(ir);
+        assert_eq!(n, 0, "a declare must not be rewritten");
+        assert_eq!(out.trim_end(), ir.trim_end());
+    }
+
+    /// The guest-SP wrapper leaves `tail ` in front of some calls, and the
+    /// first operand can carry attributes — neither may defeat the match.
+    #[test]
+    fn tail_and_attributed_operands_still_match() {
+        let ir = "  %9 = tail call ptr @sub_11c340(ptr nonnull %state, i64 %8, ptr %7)\n";
+        let (out, n) = seed_direct_calls_with_callee_pc(ir);
+        assert_eq!(n, 1);
+        assert!(out.contains("i64 1164096,"), "got: {out}");
+    }
 }
 
 // `BranchExternKind` + `classify_branch_extern` deleted in M8.8
@@ -9657,6 +13975,18 @@ pub struct ResolvedBranchExtern {
 fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileError> {
     #[cfg(target_os = "windows")]
     {
+        // Exit codes that mean "Windows could not start this process right now",
+        // not "the tool rejected our input", so re-running is the correct
+        // response rather than failing the function:
+        //   0xC0000142 STATUS_DLL_INIT_FAILED - the child launched but a DLL
+        //              failed to initialise, which is what desktop-heap /
+        //              handle exhaustion looks like from the parent.
+        //   0xC0000017 STATUS_NO_MEMORY - no kernel memory for the new process.
+        // Both come from the SAME pressure as the spawn hang the watchdog
+        // covers (see start_spawn_watchdog): a full lift creates ~100k
+        // processes. Here Windows refuses and reports; there it stalls
+        // instead, which no retry can see. Neither code has appeared in a
+        // recorded run, so this path is a safety net, not a hot path.
         const TRANSIENT: &[i64] = &[0xC000_0142u32 as i32 as i64, 0xC000_0017u32 as i32 as i64];
         let mut last_err = None;
         for attempt in 0..4 {
@@ -9674,7 +14004,7 @@ fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileEr
                             attempt + 1,
                             e.reason.lines().next().unwrap_or("")
                         );
-                        // brief backoff lets the spawn-storm drain
+                        // Back off so the process-creation pressure eases before retrying.
                         std::thread::sleep(std::time::Duration::from_millis(
                             150 * (attempt as u64 + 1),
                         ));
@@ -9690,6 +14020,223 @@ fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileEr
     #[cfg(not(target_os = "windows"))]
     {
         run_tool_once(prog, args, fn_name)
+    }
+}
+
+/// `Command::output()` with a deadline that also covers the PIPE READS.
+///
+/// A lift run wedged for 43 minutes with zero CPU: ten idle worker threads, the
+/// walk thread in an unclassified wait, and NO child processes left alive. The
+/// tool had exited; what never finished was reading its stdout to EOF, which
+/// happens on Windows when a concurrently-spawned sibling inherits the pipe's
+/// write handle. `output()` waits for EOF, so the walk stops forever and the
+/// whole lift (hours of work) is lost with nothing in the log.
+///
+/// Bounding the child alone is not enough, precisely because the child is
+/// already gone in that state - the reads are what hang. So readers run on
+/// their own threads and are collected through channels with the same
+/// deadline; on expiry the child is killed and the threads are abandoned
+/// rather than joined (joining is the thing that blocks). A timeout is
+/// reported as a transient failure, so the existing retry path re-runs the
+/// tool instead of failing the function.
+/// In-flight `Command::spawn()` calls, for the watchdog below.
+/// Keyed by a monotonic id, NOT by position: entries retire out of order, and
+/// `Vec::remove` shifts every later index, so a positional scheme retires the
+/// wrong entry (or silently none). A leaked entry then ages past the limit and
+/// aborts a perfectly healthy run, while a genuinely stuck spawn can have its
+/// entry retired by someone else and go unnoticed - both failure directions at
+/// once.
+static SPAWN_INFLIGHT: std::sync::Mutex<
+    std::collections::BTreeMap<u64, (std::time::Instant, String)>,
+> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+/// Functions enqueued ONLY because a function pointer to them appeared inside a
+/// mirrored `.rdata` window. Address -> (function, the function whose window it
+/// came from).
+///
+/// This is the weakest reachability evidence the walk has. The window exists so
+/// switch jump tables get mirrored for devirt (`LEA_MIRROR_WINDOW`, 1024 B), and
+/// mirroring generously is harmless. But a `lea` that materializes a small
+/// constant mirrors 1024 bytes regardless, so the window routinely spills into
+/// NEIGHBOURING .rdata - and every 8-aligned qword there that happens to resolve
+/// to a function entry is enqueued as if it were reachable code.
+static DATA_SWEEP_SEEDS: std::sync::Mutex<Option<BTreeMap<usize, (String, String)>>> =
+    std::sync::Mutex::new(None);
+
+/// Functions reached by real evidence: a direct call, a tail call, or a `lea` of
+/// the function address inside a function BODY (an address-take by code).
+static REACHED_BY_CODE: std::sync::Mutex<Option<BTreeSet<usize>>> =
+    std::sync::Mutex::new(None);
+
+fn note_data_sweep_seed(addr: usize, name: &str, from: &str) {
+    let mut g = DATA_SWEEP_SEEDS.lock().unwrap_or_else(|e| e.into_inner());
+    g.get_or_insert_with(BTreeMap::new)
+        .entry(addr)
+        .or_insert_with(|| (name.to_string(), from.to_string()));
+}
+
+fn note_reached_by_code(addr: usize) {
+    let mut g = REACHED_BY_CODE.lock().unwrap_or_else(|e| e.into_inner());
+    g.get_or_insert_with(BTreeSet::new).insert(addr);
+}
+
+/// Functions that NO code ever reaches: lifted only because a pointer to them
+/// turned up in a mirrored data window, with no call and no address-take
+/// anywhere. Returns (name, seeder) sorted by name.
+///
+/// A non-empty list is not automatically a bug - a genuine vtable slot that is
+/// only ever called indirectly looks the same. It is the signal to check, and it
+/// is how a whole desktop windowing stack got into a wasm build unnoticed.
+pub fn unreached_data_seeds() -> Vec<(String, String)> {
+    let seeds = DATA_SWEEP_SEEDS.lock().unwrap_or_else(|e| e.into_inner());
+    let reached = REACHED_BY_CODE.lock().unwrap_or_else(|e| e.into_inner());
+    let (Some(seeds), reached) = (seeds.as_ref(), reached.as_ref()) else {
+        return Vec::new();
+    };
+    let mut out: Vec<(String, String)> = seeds
+        .iter()
+        .filter(|(a, _)| !reached.map(|r| r.contains(*a)).unwrap_or(false))
+        .map(|(_, (n, f))| (n.clone(), f.clone()))
+        .collect();
+    out.sort();
+    out
+}
+
+static STATE_STORES_REMOVED: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+static SPAWN_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Retires its entry on every exit path, including the `?` on a failed spawn.
+struct SpawnWatch(u64);
+impl Drop for SpawnWatch {
+    fn drop(&mut self) {
+        SPAWN_INFLIGHT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
+    }
+}
+
+/// Abort loudly if a spawn wedges, instead of hanging until CI times out.
+///
+/// Rust serializes `CreateProcess` behind ONE global lock (so a child cannot
+/// inherit a sibling's stdio handles). A single wedged spawn therefore stops
+/// every thread: run 35 froze with 36,545 functions lifted, zero CPU for 43
+/// minutes, ten workers and the walk all parked and no child alive - eight
+/// workers had written their .helper.ll/.patched.ll and were entering spawn,
+/// while 122 objects had completed in the minute before.
+///
+/// The trigger is spawn VOLUME: a full lift shells out ~100k times (remill,
+/// opt, llc per function) and real-time AV scans every one; when a scan stalls
+/// CreateProcess the global lock is held forever.
+///
+/// Nothing can recover that, so the honest response is to name the cause and
+/// die - turning a silent multi-hour hang into an actionable CI failure.
+/// AZ_SPAWN_WATCHDOG_SECS=0 disables it.
+fn start_spawn_watchdog() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let secs: u64 = super::lift_env::lift_env().spawn_watchdog_secs;
+        if secs == 0 {
+            return;
+        }
+        let limit = std::time::Duration::from_secs(secs);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(15));
+            let stuck = {
+                let g = SPAWN_INFLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+                g.values()
+                    .find(|(t, _)| t.elapsed() > limit)
+                    .map(|(t, w)| (t.elapsed(), w.clone()))
+            };
+            if let Some((waited, what)) = stuck {
+                eprintln!("[azul-web] FATAL: subprocess spawn stuck {waited:?} ({what}).");
+                eprintln!("[azul-web] All threads are blocked behind the same global");
+                eprintln!("[azul-web] CreateProcess lock, so the lift cannot progress.");
+                eprintln!("[azul-web] Most likely real-time AV scanning the ~100k tool");
+                eprintln!("[azul-web] spawns a full lift performs: exclude the LLVM/remill");
+                eprintln!("[azul-web] binaries and the scratch dir, or lower AZ_LIFT_JOBS.");
+                eprintln!("[azul-web] Aborting so this fails fast instead of hanging.");
+                std::process::abort();
+            }
+        });
+    });
+}
+
+trait PipeDeadlined {
+    fn pipe_deadlined(&mut self) -> std::io::Result<std::process::Output>;
+}
+
+impl PipeDeadlined for Command {
+    fn pipe_deadlined(&mut self) -> std::io::Result<std::process::Output> {
+        let timeout =
+            std::time::Duration::from_secs(super::lift_env::lift_env().tool_timeout_secs);
+        let cmd = self;
+    use std::io::Read as _;
+    start_spawn_watchdog();
+    // Registered BEFORE spawn: the wait for the global CreateProcess lock is
+    // part of what can wedge, so timing must start here, not after.
+    let _watch = {
+        let id = SPAWN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        SPAWN_INFLIGHT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, (std::time::Instant::now(), format!("{:?}", cmd.get_program())));
+        SpawnWatch(id)
+    };
+    let mut child = cmd
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let mut so = child.stdout.take();
+    let mut se = child.stderr.take();
+    let (tx_o, rx_o) = std::sync::mpsc::channel();
+    let (tx_e, rx_e) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut v = Vec::new();
+        if let Some(s) = so.as_mut() {
+            let _ = s.read_to_end(&mut v);
+        }
+        let _ = tx_o.send(v);
+    });
+    std::thread::spawn(move || {
+        let mut v = Vec::new();
+        if let Some(s) = se.as_mut() {
+            let _ = s.read_to_end(&mut v);
+        }
+        let _ = tx_e.send(v);
+    });
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait()? {
+            Some(s) => break s,
+            None => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "tool exceeded its deadline",
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+        }
+    };
+    let left = deadline.saturating_duration_since(std::time::Instant::now());
+    let stdout = rx_o.recv_timeout(left).unwrap_or_default();
+    let left = deadline.saturating_duration_since(std::time::Instant::now());
+    let stderr = match rx_e.recv_timeout(left) {
+        Ok(v) => v,
+        Err(_) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "tool exited but its output never reached EOF",
+            ))
+        }
+    };
+        Ok(std::process::Output { status, stdout, stderr })
     }
 }
 
@@ -9741,7 +14288,7 @@ fn run_tool_once(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), Transp
             let rsp_arg = format!("@{}", path.display());
             let out = Command::new(prog)
                 .arg(&rsp_arg)
-                .output()
+                .pipe_deadlined()
                 .map_err(|e| TranspileError {
                     fn_name: fn_name.to_string(),
                     reason: format!("spawn {}: {e}", prog.display()),
@@ -9782,29 +14329,36 @@ fn run_tool_once(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), Transp
             let flagfile_arg = format!("--flagfile={}", path.display());
             let out = Command::new(prog)
                 .arg(&flagfile_arg)
-                .output()
+                .pipe_deadlined()
                 .map_err(|e| TranspileError {
                     fn_name: fn_name.to_string(),
                     reason: format!("spawn {}: {e}", prog.display()),
                 })?;
-            let _ = std::fs::remove_file(&path);
             if !out.status.success() {
+                // KEEP the flagfile on failure: it is the EXACT reproducer
+                // (bytes + extra_data) for a lifter crash, and those crashes are
+                // only reachable via the devirt path, so they cannot be
+                // reproduced from the function bytes alone. Deleting it first
+                // (as this did) threw away the one artifact needed to debug it.
                 return Err(TranspileError {
                     fn_name: fn_name.to_string(),
                     reason: format!(
-                        "{} failed (flagfile): {}\nstderr: {}",
+                        "{} failed (flagfile): {}\nrepro: {} --flagfile={}\nstderr: {}",
                         prog.display(),
                         out.status,
+                        prog.display(),
+                        path.display(),
                         String::from_utf8_lossy(&out.stderr).trim()
                     ),
                 });
             }
+            let _ = std::fs::remove_file(&path);
             return Ok(());
         }
     }
     let out = Command::new(prog)
         .args(args)
-        .output()
+        .pipe_deadlined()
         .map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
             reason: format!("spawn {}: {e}", prog.display()),

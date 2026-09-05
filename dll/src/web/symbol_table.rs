@@ -82,7 +82,7 @@ pub fn get() -> Option<&'static SymbolTable> {
 /// flip: default = sharded; `AZ_BUNDLED_LEGACY=1` keeps the old
 /// behavior.
 pub fn shards_enabled() -> bool {
-    std::env::var_os("AZ_ENABLE_SHARDS").is_some()
+    super::lift_env::lift_env().enable_shards
         && std::env::var_os("AZ_BUNDLED_LEGACY").is_none()
 }
 
@@ -125,6 +125,15 @@ pub enum FnClass {
     /// body that bumps `@__az_bump_ptr` by State.X0 and returns the
     /// old value. See `emit_helper_ir` BranchExternKind::RustAlloc.
     BumpAlloc,
+    /// Platform heap wrapper with the `HeapAlloc(heap, flags, dwBytes)`
+    /// argument shape — `std::sys::alloc::windows::process_heap_alloc`,
+    /// which LTO leaves as the surviving allocator call in a statically
+    /// linked binary. Same bump body as [`FnClass::BumpAlloc`] but the
+    /// size is the THIRD argument, not the first: classifying it as
+    /// plain BumpAlloc made the helper read the heap handle as a size,
+    /// so `AzStartup_init` allocated 0 bytes and its EventloopState
+    /// aliased the next allocation.
+    BumpAllocWinHeap,
     /// `__rust_realloc(old_ptr, old_size, align, new_size)`. Helper
     /// IR emits a body that bumps `@__az_bump_ptr` by new_size,
     /// memcpys `min(old_size, new_size)` bytes from old_ptr into the
@@ -164,6 +173,39 @@ pub enum FnClass {
     /// HashMaps hash + probe consistently. The seed needn't be random — only
     /// consistent within the process (no HashDoS threat here).
     HashmapRandomKeys,
+    /// `std::env::var_os(key) -> Option<OsString>` — reads the host process
+    /// environment block, which does NOT exist in wasm. As a plain `Leaf` it
+    /// becomes an env import whose stub returns 0 and, crucially, NEVER WRITES
+    /// THE SRET BUFFER, so the caller reads an uninitialised `Option<OsString>`
+    /// off the guest stack: a garbage `Some(ptr,cap,len)`. The first consumer
+    /// (`OsStr::to_str` → `core::str::from_utf8`) then walks a wild slice and
+    /// traps `memory access out of bounds`. Observed as the REAL
+    /// solveLayoutReal OOB via `ScrollManager::new`'s `AZ_NATURAL_SCROLL`
+    /// override. Helper IR gives it a body that writes `None` (`Option<OsString>`
+    /// uses the null-pointer niche, so all-zero IS `None`) — semantically the
+    /// right answer in a browser: no environment ⇒ variable unset.
+    EnvVarOs,
+    /// MSVC's stack-probe thunk (`__chkstk` / `_alloca_probe` /
+    /// `_chkstk`). EVERY function whose frame is >= one page uses the
+    /// idiom `mov eax, <frame_size>; call __chkstk; sub rsp, rax`. Its
+    /// Win-x64 contract is: RAX in = frame size, and it **returns with
+    /// RAX UNCHANGED** (it only touches guard pages, via
+    /// `mov r11, gs:[0x10]` = TEB StackLimit, and probes downwards).
+    ///
+    /// As a plain `Leaf` its stub RETURNS 0, so `sub rsp, rax` becomes
+    /// `sub rsp, 0` and **the frame is never allocated**: the function's
+    /// locals then overlap every callee's frame, and each call scribbles
+    /// over them. Observed as the real `solveLayoutReal` OOB —
+    /// its `StyledDom` local (0x200(%rsp), frame 0x3698) read back as
+    /// ASCII fragments of font/CSS strings left by `with_memory_fonts` /
+    /// `LayoutWindow::new`, and the FNV loop over `prev_font_hashes` then
+    /// dereferenced `0x2C005B02`. Systemic: it hits EVERY fn with a large
+    /// frame (also pulled in by `LayoutWindow::from_font_manager`).
+    ///
+    /// wasm has no guard pages, so the probing is pointless here; the
+    /// only semantics that matters is "leave RAX alone". Helper IR gives
+    /// it an empty body that does NOT write the return slot.
+    ChkStk,
     /// Known leaf with no real body to lift — typed extern goes to
     /// the WASM as an env import. (System libraries, libc, libdyld,
     /// libpthread, mangled Rust runtime internals like
@@ -220,7 +262,7 @@ impl FnClass {
     /// bump/noop body. The web force-enqueue lifts these so indirect
     /// calls to them (Drop glue) get a dispatcher `switch` case.
     pub fn is_bump_alloc(self) -> bool {
-        matches!(self, FnClass::BumpAlloc)
+        matches!(self, FnClass::BumpAlloc | FnClass::BumpAllocWinHeap)
     }
 
     /// M10-D: whether this symbol ships as its own per-fn wasm shard.
@@ -251,7 +293,7 @@ pub struct SymbolEntry {
     /// image `bl`/`adrp` lifts at `--address=synthetic_addr` produce
     /// correct cross-call / cross-page targets without IR rewriting).
     ///
-    /// **Why it exists (M9-review fix, 2026-05-18)**: passing the
+    /// **Why it exists (M9-review fix)**: passing the
     /// post-ASLR runtime `canonical_addr` to `remill-lift --address=…`
     /// bakes that high value as the PC for every lifted instruction.
     /// ARM64 `adrp x<n>, …` lifts to `(PC & ~0xFFF) | (imm << 12)`,
@@ -315,6 +357,14 @@ pub struct SymbolTable {
     /// (single-threaded wasm ⇒ TLS is just statics). See
     /// `transpiler_remill.rs` `AZ_TLV_MAGIC_PC`.
     tlv_regions: Vec<TlvRegion>,
+    /// Canonical names carried by more than one canonical address
+    /// (duplicate monomorphizations) — see [`Self::name_is_ambiguous`].
+    ambiguous_names: HashSet<String>,
+    /// `synthetic_addr -> canonical_addr`, so [`Self::lookup_by_synth`] is a
+    /// map probe rather than a scan of every entry. Filled by
+    /// [`Self::assign_synthetic_addresses`], which is what assigns the
+    /// synthetic addresses in the first place.
+    by_synth: BTreeMap<usize, usize>,
 }
 
 /// One image's `__DATA.__thread_vars` + TLS-image geometry (live, slid
@@ -415,6 +465,21 @@ impl SymbolTable {
         self.by_addr.get(&addr)
     }
 
+    /// Whether `name` is carried by more than one canonical address
+    /// (duplicate monomorphizations). `by_name` answers arbitrarily for
+    /// these, so name-based identities must not be minted for them.
+    pub fn name_is_ambiguous(&self, name: &str) -> bool {
+        self.ambiguous_names.contains(name)
+    }
+
+    /// Nearest symbol at-or-below `addr`. Used by the relocation-canonical
+    /// cache to identify anonymous data targets as `<neighbor>+offset`
+    /// (verified by a pointee fingerprint at translate time) — callers
+    /// bound the acceptable offset themselves.
+    pub fn nearest_below(&self, addr: usize) -> Option<&SymbolEntry> {
+        self.by_addr.range(..=addr).next_back().map(|(_, e)| e)
+    }
+
     /// Total number of entries (sum of Function + Stub + Data kinds).
     pub fn len(&self) -> usize {
         self.by_addr.len()
@@ -427,6 +492,32 @@ impl SymbolTable {
     /// Iterate entries by ascending address. Useful for diagnostics.
     pub fn iter(&self) -> impl Iterator<Item = (&usize, &SymbolEntry)> {
         self.by_addr.iter()
+    }
+
+    /// Every api.json C-ABI export as a `(name, addr, size)` lift root.
+    ///
+    /// The web base image must pre-lift the WHOLE public surface, not one
+    /// app's reachable subset, so a derived app finds its dependencies warm in
+    /// the cache and only lifts its own callbacks. Those exports are the
+    /// `Az`-prefixed functions codegen emits from api.json; seeding the walk
+    /// with all of them pulls in their entire transitive closure - exactly the
+    /// library surface any app could reach. The walk's classifier still decides
+    /// Leaf / BoundaryImport / Recursable per entry.
+    pub fn api_surface_roots(&self) -> Vec<(String, usize, usize)> {
+        let mut seen = std::collections::HashSet::new();
+        let mut roots = Vec::new();
+        for (_, e) in self.by_addr.iter() {
+            if !matches!(e.kind, SymKind::Function) || e.size == 0 {
+                continue;
+            }
+            if !e.canonical_name.starts_with("Az") {
+                continue;
+            }
+            if seen.insert(e.canonical_addr) {
+                roots.push((e.canonical_name.clone(), e.canonical_addr, e.size));
+            }
+        }
+        roots
     }
 
     /// M9-3b: enumerate every loaded image's `__TEXT.__cstring`,
@@ -628,6 +719,29 @@ impl SymbolTable {
             chain.entry(addr).or_insert(addr);
         }
 
+        // Names carried by MORE THAN ONE canonical address (duplicate
+        // monomorphizations the linker did not ICF). A name-based identity
+        // for such a target is ambiguous: `by_name` can only answer with one
+        // of the copies, and same-source copies share their first hundreds
+        // of bytes, so a short content fingerprint cannot arbitrate either —
+        // the reloc cache uses this set to refuse name identities outright
+        // for these targets.
+        let mut first_addr: HashMap<&str, usize> = HashMap::new();
+        let mut ambiguous_names: HashSet<String> = HashSet::new();
+        for e in by_addr.values() {
+            match first_addr.entry(e.canonical_name.as_str()) {
+                std::collections::hash_map::Entry::Occupied(o) => {
+                    if *o.get() != e.canonical_addr {
+                        ambiguous_names.insert(e.canonical_name.clone());
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert(e.canonical_addr);
+                }
+            }
+        }
+        drop(first_addr);
+
         let mut table = SymbolTable {
             by_addr,
             by_name,
@@ -636,6 +750,8 @@ impl SymbolTable {
             synth_chain: HashMap::new(),
             image_bytes,
             tlv_regions,
+            ambiguous_names,
+            by_synth: BTreeMap::new(),
         };
 
         // Assign per-image synthetic bases so lifted code uses
@@ -648,7 +764,7 @@ impl SymbolTable {
         Ok(table)
     }
 
-    /// M9-review (2026-05-18): walk every loaded image, group
+    /// M9-review : walk every loaded image, group
     /// `SymbolEntry`s by their `canonical_addr`'s containing image,
     /// assign each image a unique `synth_base` in monotonically
     /// increasing order, then fill in `entry.synthetic_addr` =
@@ -715,8 +831,19 @@ impl SymbolTable {
         // ascending order with 1 MiB rounding so different images
         // sit in separate megabyte-aligned bands.
         rebases.sort_by_key(|r| r.native_base);
-        const FIRST_SYNTH_BASE: usize = 0x10000; // 64 KiB
-        const SYNTH_ALIGN: usize = 0x10_0000; // 1 MiB
+        // The first image must start ABOVE the runtime's fixed low region:
+        // the bump cursor (0x40020), its size/count slots, the dispatcher
+        // and missing-block recorders (0x400FC/0x40158/0x40160/0x40900),
+        // the NeverLift recorder (0x40048) and the C stack all
+        // live at hardcoded addresses below 1 MiB. A base of 64 KiB put the
+        // FIRST image's mirrored data straight over them: for a
+        // statically-linked host exe (~18 MiB span starting at 0x10000) the
+        // data segments zeroed the bump cursor, so every allocation
+        // returned null and init died in handle_alloc_error. azul.dll only
+        // escaped because it happened to be the second image, based above
+        // the region.
+        const FIRST_SYNTH_BASE: usize = 0x10_0000; // 1 MiB — past the runtime region
+        const SYNTH_ALIGN: usize = 0x10_0000;       // 1 MiB
         let mut next_synth = FIRST_SYNTH_BASE;
         for r in &mut rebases {
             r.synth_base = next_synth;
@@ -786,6 +913,8 @@ impl SymbolTable {
                     | FnClass::CallIndirectLayout4
                     | FnClass::ResolveCallback
                     | FnClass::HashmapRandomKeys
+                    | FnClass::EnvVarOs
+                    | FnClass::ChkStk
                     | FnClass::NeverLift
                     // LibcMemcpy is *always* out-of-image (it IS a
                     // libsystem symbol) — but it has a synthetic
@@ -842,6 +971,16 @@ impl SymbolTable {
 
         self.image_rebases = rebases;
         self.synth_chain = synth_chain;
+
+        // Build the synth -> canonical index now that every synthetic_addr is
+        // final. FIRST entry wins on a collision: the scan this replaces used
+        // `values().find(..)`, which returns the first match in by_addr order,
+        // and two entries CAN share a synthetic_addr (the reloc cache hit
+        // exactly that case).
+        self.by_synth.clear();
+        for e in self.by_addr.values() {
+            self.by_synth.entry(e.synthetic_addr).or_insert(e.canonical_addr);
+        }
     }
 
     /// M9-review: read accessor for the per-image rebase records.
@@ -866,14 +1005,24 @@ impl SymbolTable {
         Some(cur)
     }
 
-    /// M9-review: look up an entry by its `synthetic_addr` (since
-    /// `by_addr` is keyed by `canonical_addr`). Linear scan; O(n)
-    /// but only called by helper-IR emission per branch extern, not
-    /// on a hot path.
+    /// Look up an entry by its `synthetic_addr` (`by_addr` is keyed by
+    /// `canonical_addr`). This IS a hot path, contrary to what the comment
+    /// here used to claim: helper-IR emission calls it per branch extern, in
+    /// every pool worker and again in the walk, so on a 36k-symbol table it
+    /// was tens of thousands of linear scans over the whole map.
     pub fn lookup_by_synth(&self, synth_addr: usize) -> Option<&SymbolEntry> {
-        self.by_addr
-            .values()
-            .find(|e| e.synthetic_addr == synth_addr)
+        if let Some(canon) = self.by_synth.get(&synth_addr) {
+            return self.by_addr.get(canon);
+        }
+        // Before assign_synthetic_addresses has run the index is empty; fall
+        // back so behaviour is unchanged rather than silently returning None.
+        if self.by_synth.is_empty() {
+            return self
+                .by_addr
+                .values()
+                .find(|e| e.synthetic_addr == synth_addr);
+        }
+        None
     }
 
     /// M9-review: generic native-address → synthetic-offset
@@ -980,7 +1129,7 @@ impl SymbolTable {
         false
     }
 
-    /// [WEB-LIFT 2026-06-11] TLV geometry of every loaded image that has
+    /// [WEB-LIFT] TLV geometry of every loaded image that has
     /// thread-locals (see [`TlvRegion`]). Live addresses.
     pub fn tlv_regions(&self) -> &[TlvRegion] {
         &self.tlv_regions
@@ -1011,6 +1160,62 @@ impl SymbolTable {
     pub fn tlv_tls_base_synth(&self) -> Option<u32> {
         let r = self.tlv_regions.first()?;
         self.native_to_synth(r.tls_base).map(|s| s as u32)
+    }
+
+    /// Synthetic address and byte size of the Windows TLS template.
+    ///
+    /// Windows `thread_local!` reads `gs:[0x58]` — the TEB's
+    /// `ThreadLocalStoragePointer` — and indexes it by the module's
+    /// `__tls_index` to reach that module's block. wasm is single-threaded,
+    /// so exactly as for the macOS TLV path above, a thread-local is just a
+    /// static and the module's own TLS template can BE the one block: writes
+    /// land in it and persist, which is what one thread wants.
+    ///
+    /// The template is described by PE data directory 9 and lives inside the
+    /// image, so the existing per-image rebase maps it to synth.
+    ///
+    /// Iterates `image_rebases` and re-reads each file by path rather than
+    /// zipping `image_bytes`: those two are NOT parallel. `image_rebases` is
+    /// empty until `assign_synthetic_addresses` fills it, and `image_bytes`
+    /// also collects images whose parse failed, so index-pairing them yields a
+    /// plausible but wrong address.
+    pub fn win_tls_template_synth(&self) -> Option<(u32, u32)> {
+        for reb in &self.image_rebases {
+            let Ok(bytes) = std::fs::read(&reb.path) else {
+                continue;
+            };
+            let Ok(pe) = goblin::pe::PE::parse(&bytes) else {
+                continue;
+            };
+            let Some(tls) = pe.tls_data.as_ref() else {
+                continue;
+            };
+            let d = &tls.image_tls_directory;
+            let start = d.start_address_of_raw_data;
+            let end = d.end_address_of_raw_data;
+            if end <= start {
+                continue;
+            }
+            let Some(rva) = start.checked_sub(pe.image_base) else {
+                continue;
+            };
+            // `native_base` is the first SECTION's live address, not the
+            // module base, so recover the module base from the lowest section
+            // RVA rather than assuming the usual 0x1000.
+            let Some(first_rva) = pe.sections.iter().map(|s| s.virtual_address).min() else {
+                continue;
+            };
+            let Some(module_base) = reb.native_base.checked_sub(first_rva as usize) else {
+                continue;
+            };
+            let live = module_base + rva as usize;
+            let Some(synth) = self.native_to_synth(live) else {
+                continue;
+            };
+            let size = (end - start) as u32 + d.size_of_zero_fill;
+            return Some((synth as u32, size));
+        }
+        None
     }
 }
 
@@ -1791,7 +1996,7 @@ fn ingest_macho(
             }
         };
         let mut classification = classify_for_name(&canonical_name, api);
-        // WEB-LIFT FIX (2026-06-03): SP-restoring machine-outliner epilogues
+        // WEB-LIFT FIX : SP-restoring machine-outliner epilogues
         // (`add sp,sp,#N; ret` or `ldp ...,[sp],#N; ret`) are tail-jumped via INDIRECT `br Xn`
         // in the allsorts shaping path. classify_for_name marks the tiny ones Leaf → they lift as
         // a STUB that returns WITHOUT the `add sp` → SP never restored → downstream `unreachable`
@@ -2346,6 +2551,98 @@ fn strip_leading_underscore(name: &str) -> String {
 /// api.json; bump / call_indirect / resolve_callback names hardcode
 /// to the relevant FnClass; everything else gets Leaf or Recursable
 /// based on coarse name patterns.
+/// Native-platform code that CANNOT run in wasm: OS window management, the
+/// Win32/WinRT COM surface, X11/Wayland/Cocoa. Classified `NeverLift` so it
+/// traps loudly if ever reached instead of being lifted.
+///
+/// These are not reachable from the web roots by any call edge - measured on a
+/// full AzWriter lift, all 13 lifted `TypedEventHandlerBox` functions and the
+/// Win32 window procedure had ZERO call sites. They enter through the fn-ptr
+/// scan over `LEA_MIRROR_WINDOW`: a `lea` that materializes a small .rdata
+/// constant mirrors 1024 bytes, and every 8-aligned qword in that window that
+/// resolves to a function entry is enqueued as reachable. In a desktop Windows
+/// binary that window routinely runs into a neighbouring COM vtable. One such
+/// false seed inside `alloc::raw_vec::do_reserve_and_handle` - a Vec growth
+/// helper - pulled in the entire Win32 event loop, 2.5 MB of it in the
+/// truncated run and ~20 MB of `shell2` closure in a complete one.
+///
+/// The window itself is correct and must stay: it exists so switch jump tables
+/// are mirrored for devirt. MIRRORING a generous range is harmless (extra bytes
+/// get copied); treating every function pointer inside it as REACHABLE CODE is
+/// not. Until the seed is narrowed, this rule bounds the damage - and it stays
+/// useful afterwards, because a web target should never lift OS window code
+/// however it got there.
+/// Crates a browser build deliberately never receives, because the browser
+/// already provides the capability or the capability is meaningless there.
+///
+/// Distinct from [`is_platform_native`], which covers code that physically
+/// CANNOT run in wasm. This is a policy list: the code would run, we simply do
+/// not want to pay for it when the host already has an equivalent. We can be
+/// this aggressive because it is our own dependency tree and we know what each
+/// crate is for.
+///
+/// Measured motivation: a full lift reaches ~36,500 functions of which only
+/// ~7.8% is actual engine logic. The lift target is the FULL DESKTOP DLL, so it
+/// drags in an embedded SQL database, a TLS stack, a GPU renderer, a regex
+/// engine - and, absurdly, the lifter own dependencies: its x86 disassembler
+/// and its PE parser were being compiled into the browser payload.
+///
+/// Each entry names the browser capability that replaces it. A `NeverLift`
+/// classification traps loudly if anything actually calls one, and the audit
+/// reports it, so a wrong entry here is noisy rather than silent.
+fn is_browser_excluded_crate(crate_name: &str) -> bool {
+    matches!(
+        crate_name,
+        // Embedded SQL database -> browser storage (localStorage/IndexedDB).
+        "turso_core" | "turso_parser" | "turso_ext" | "turso_macros"
+        // Regex engine -> the browser own RegExp.
+        | "regex" | "regex_automata" | "regex_syntax" | "aho_corasick"
+        // OS accessibility bridge -> the browser exposes the DOM to AT directly.
+        | "accesskit" | "accesskit_windows" | "accesskit_macos" | "accesskit_unix"
+        // TLS: a wasm page has no raw sockets; fetch() is the transport.
+        | "rustls" | "webpki" | "ring" | "der" | "spki" | "pkcs8"
+        // GPU/driver loaders: the browser composites.
+        | "ash" | "gl_context_loader" | "glutin" | "khronos_egl"
+        // Gamepad, native dialogs, native clipboard: browser APIs or nothing.
+        | "gilrs" | "gilrs_core" | "tinyfiledialogs" | "tfd" | "x11_clipboard"
+        // Transport compression is the browser job (Content-Encoding).
+        | "brotli" | "brotli_decompressor"
+        // The LIFTER own dependencies. These exist to produce the wasm; there
+        // is no reason for them to be INSIDE it.
+        | "iced_x86" | "goblin"
+    )
+}
+
+pub fn is_platform_native(name: &str) -> bool {
+    // Platform-specific window types. These appear in the name as the type
+    // argument of a monomorphized generic, so `PlatformWindow::foo<Win32Window>`
+    // matches while `PlatformWindow::foo<HeadlessWindow>` - the one the web
+    // backend actually runs - does not.
+    const PLATFORM_WINDOWS: &[&str] = &[
+        "Win32Window", "X11Window", "XlibWindow", "WaylandWindow", "MacWindow",
+        "NSWindow", "CocoaWindow", "AppKitWindow",
+    ];
+    // Platform backend modules inside the shell.
+    const PLATFORM_MODULES: &[&str] = &[
+        "shell2::windows::", "shell2::x11::", "shell2::wayland::",
+        "shell2::macos::", "shell2::appkit::", "shell2::cocoa::",
+        "shell2..windows..", "shell2..x11..", "shell2..wayland..",
+        "shell2..macos..", "shell2..appkit..", "shell2..cocoa..",
+    ];
+    // WinRT / COM projections and the Obj-C runtime. Deliberately NOT a bare
+    // `windows::` - that would also match `std::sys::alloc::windows::`
+    // (process_heap_alloc, which MUST stay BumpAllocWinHeap) and
+    // `std::sys::pal::windows::`. Match only the WinRT namespace roots.
+    const NATIVE_BINDINGS: &[&str] = &[
+        "windows::Win32::", "windows::UI::", "windows::Media::",
+        "windows::Graphics::", "windows::Foundation::", "windows::ApplicationModel::",
+        "windows_core::", "objc::", "objc2::", "cocoa::", "core_foundation::",
+    ];
+    PLATFORM_WINDOWS.iter().any(|m| name.contains(m))
+        || PLATFORM_MODULES.iter().any(|m| name.contains(m))
+        || NATIVE_BINDINGS.iter().any(|m| name.contains(m))
+}
+
 fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // 1) Special bridge symbols emitted by remill helper IR or the
     //    Rust runtime. The Rust allocator API has three layers of
@@ -2364,15 +2661,24 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     //    macOS-style `___rust_alloc`, Linux-style `__rust_alloc`,
     //    and v0-mangled wrappers.
     let stripped = name.trim_start_matches('_');
-    // Windows x64 stack probe (compendium A2): MSVC emits a `__chkstk`
-    // call in the prologue of every fn with a frame > 4 KiB. On x64
-    // the probe does NOT adjust RSP (RAX carries the size; only guard
-    // pages get touched) — wasm linear memory needs no guard probing,
-    // so a plain no-op Leaf IS "SP as if the probe ran". (The x86-32
-    // `_chkstk` variant DOES move ESP and must never be Leaf'd; this
-    // port targets x64 only.)
-    if stripped == "chkstk" {
-        return FnClass::Leaf;
+    // Windows x64 stack probe (compendium A2): MSVC emits a `__chkstk` /
+    // `_alloca_probe` call in the prologue of every fn with a frame > 4 KiB.
+    //
+    // this used to `return FnClass::Leaf` here, on the reasoning
+    // that "the probe does NOT adjust RSP, and wasm needs no guard probing, so
+    // a no-op Leaf IS 'SP as if the probe ran'". That is HALF RIGHT AND FATAL:
+    // the probe doesn't move RSP, but it DOES return RAX unchanged, and the
+    // caller's very next instruction is `sub rsp, rax`. A Leaf stub RETURNS 0,
+    // so the frame silently collapses to zero bytes and every callee then
+    // overwrites this function's locals. (Observed as the solveLayoutReal OOB:
+    // its `StyledDom` local read back as ASCII fragments of font/CSS strings.)
+    // `FnClass::ChkStk` gets an EMPTY helper body that leaves RAX alone.
+    //
+    // NOTE `stripped` has already had leading underscores trimmed, so the real
+    // symbol `_alloca_probe` arrives here as `alloca_probe` — matching on
+    // `_alloca_probe` would never fire. Variants: `_alloca_probe_16`, `_chkstk`.
+    if stripped == "chkstk" || stripped.starts_with("alloca_probe") {
+        return FnClass::ChkStk;
     }
     // Order matters: `rust_alloc_zeroed` must match BEFORE `rust_alloc`
     // (which is a prefix). Similarly `rust_realloc` is a separate
@@ -2397,6 +2703,46 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     for variant in ["rust_alloc", "rdl_alloc", "rg_alloc"] {
         if stripped == variant || stripped.ends_with(variant) {
             return FnClass::BumpAlloc;
+        }
+    }
+    // Native-platform code (OS windowing / WinRT / Cocoa) can never run in
+    // wasm. Trap instead of lifting - see is_platform_native. Placed AFTER the
+    // allocator rules above so `std::sys::alloc::windows::process_heap_alloc`
+    // keeps its bump class, and before the crate dispatch so it wins over the
+    // `_ => Recursable` default that was lifting all of it.
+    if is_platform_native(name) {
+        return FnClass::NeverLift;
+    }
+
+    // PLATFORM allocator shims. With a statically linked host binary, LTO
+    // inlines the whole __rust_alloc → System.alloc chain down to the raw
+    // OS heap wrapper, so the call target that survives is e.g.
+    // `std::sys::alloc::windows::process_heap_alloc` — which matches none
+    // of the rust_*/rdl_*/rg_* names above and used to land in the
+    // std → Leaf bucket. That stub returns 0, so EVERY allocation in the
+    // lifted binary returned null and init died in handle_alloc_error
+    // (AzWriter's boot). azul.dll escaped it only because the dll build
+    // keeps the __rust_alloc symbol intact. Route the whole family to the
+    // bump helpers, matching the layering of the rules above (free before
+    // realloc before zeroed before alloc, so prefix overlaps can't
+    // mis-bind).
+    {
+        let is_platform_alloc_mod = stripped.contains("sys::alloc::")
+            || stripped.contains("sys..alloc..");
+        if is_platform_alloc_mod || stripped.contains("process_heap") {
+            if stripped.contains("free") || stripped.contains("dealloc") {
+                return FnClass::BumpDealloc;
+            }
+            if stripped.contains("realloc") {
+                return FnClass::BumpRealloc;
+            }
+            if stripped.contains("process_heap_alloc") {
+                // HeapAlloc(heap, flags, dwBytes): size is arg 3.
+                return FnClass::BumpAllocWinHeap;
+            }
+            if stripped.contains("alloc") {
+                return FnClass::BumpAlloc;
+            }
         }
     }
     // libc bulk-copy primitives: `memcpy` / `memmove` (and their
@@ -2441,6 +2787,16 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // dedicated helper that returns a FIXED non-zero seed so all lifted HashMaps
     // are internally consistent. (Matched on the std module path, not a one-off
     // mangled-name fragment — this is a known std primitive needing a real stub.)
+    // `std::env::var_os` reads the host process environment block, which does not
+    // exist in wasm. Left as a Leaf, its stub returns 0 and never writes the sret
+    // `Option<OsString>`, so the caller consumes uninitialised guest stack as a
+    // garbage `Some(ptr,cap,len)` and the first `to_str()`/`from_utf8` walks a wild
+    // slice → `memory access out of bounds`. Give it a real "None" body instead.
+    if stripped.contains("env::var_os") || stripped.contains("env..var_os") {
+        return FnClass::EnvVarOs;
+    }
+    // (The MSVC stack-probe thunks __chkstk / _alloca_probe are classified as
+    // FnClass::ChkStk at the very top of this fn, before any other rule.)
     if stripped.contains("hashmap_random_keys") {
         return FnClass::HashmapRandomKeys;
     }
@@ -2453,11 +2809,23 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // so the transitive lifter stops at the `generate_display_list` entry
     // and never descends into the painters (~300+ fns: glyph emission,
     // gradients, borders, tables, images, …) — a large lift-surface +
-    // lift-time reduction. The mangled Rust module path contains
-    // lowercase `display_list`; the `Az*` C API uses camelCase
-    // `DisplayList`, so framework symbols are unaffected.
-    if name.contains("display_list") {
-        return FnClass::Leaf;
+    // lift-time reduction.
+    //
+    // The match must stay a MODULE-PATH cut (`display_list::`), never a bare
+    // substring: a substring match once stubbed `set_skip_display_list` (the
+    // setter of the very gate that makes this cut sound) and std/alloc/core
+    // generics that merely mention display-list TYPES as parameters
+    // (`Vec<DisplayListItem>` clone/drop, slice sorts on
+    // `(DomId, Arc<DisplayList>)`) — all of which run on LIVE paths and
+    // trapped or corrupted memory when stubbed. Trait impls on display-list
+    // types still match and stay cut — they are painter surface.
+    {
+        let is_std_generic = name.starts_with("alloc::")
+            || name.starts_with("core::")
+            || name.starts_with("std::");
+        if name.contains("display_list::") && !is_std_generic {
+            return FnClass::Leaf;
+        }
     }
     // M12.7: azul_layout/azul_core `probe` is profiling instrumentation
     // (timing `Span`s). `Span::drop` reads a THREAD-LOCAL event buffer; the
@@ -2566,6 +2934,13 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
         if is_panic_path {
             return FnClass::NeverLift;
         }
+        // Deliberately not shipped to a browser - see
+        // is_browser_excluded_crate. Placed after the panic rule and before
+        // the crate dispatch below, which would otherwise route these to
+        // Recursable and lift them.
+        if is_browser_excluded_crate(&crate_name) {
+            return FnClass::NeverLift;
+        }
         match crate_name.as_str() {
             "alloc" | "core" => {
                 // Known-trap carve-out kept from the mangled branch:
@@ -2670,7 +3045,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         {
                             return FnClass::NeverLift;
                         }
-                        // MECH-B ROOT-CAUSE FIX (2026-06-12): `alloc` + `core` default to
+                        // MECH-B ROOT-CAUSE FIX : `alloc` + `core` default to
                         // RECURSABLE, not Leaf. Both are no-syscall crates by construction
                         // (no_std): their only external edges are the allocator shims
                         // (matched to BumpAlloc/BumpRealloc/BumpDealloc by name above) and
@@ -2699,7 +3074,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         if crate_name == "alloc" || crate_name == "core" {
                             return FnClass::Recursable;
                         }
-                        // COLLECT-CHAIN ROOT-CAUSE (2026-06-10): `Vec::from_iter`/`collect()` lowers
+                        // COLLECT-CHAIN ROOT-CAUSE : `Vec::from_iter`/`collect()` lowers
                         // to `alloc::vec::spec_from_iter*::from_iter`, `alloc::vec::in_place_collect::
                         // from_iter_in_place`, and `spec_extend`/`extend_trusted`/`extend_desugared` —
                         // ALL real-work Vec builders that the runtime-crates filter stubbed to Leaf.
@@ -2734,7 +3109,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                             // the node-free + advance logic.
                             return FnClass::Recursable;
                         }
-                        // CSS-apply ROOT-CAUSE (2026-06-01): Vec::resize and the slice
+                        // CSS-apply ROOT-CAUSE : Vec::resize and the slice
                         // sorts do REAL WORK but defaulted to a no-op Leaf stub — same
                         // class as raw_vec/btree above. `Vec::resize` fills/grows per-node
                         // prop Vecs in the cascade (computed_values @prop_cache.rs:5135,
@@ -2750,7 +3125,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                             || (crate_name == "core"
                                 && name.contains("5slice")
                                 && name.contains("4sort"))
-                            // CSS-apply ROOT-CAUSE (2026-06-01, cont.): `core::slice::binary_search*`
+                            // CSS-apply ROOT-CAUSE (cont.): `core::slice::binary_search*`
                             // does REAL WORK (it compares + halves to find an index) but defaulted to a
                             // no-op Leaf stub returning X0=0 = `Ok(0)`. The layout font-size resolver
                             // `resolve_font_size_slow` (getters.rs:233) does
@@ -2767,7 +3142,7 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         {
                             return FnClass::Recursable;
                         }
-                        // WEB-LIFT TEXT ROOT-CAUSE (2026-06-03): UTF-8 conversion/validation
+                        // WEB-LIFT TEXT ROOT-CAUSE : UTF-8 conversion/validation
                         // (`String::from_utf8_lossy`, `str::from_utf8`, `run_utf8_validation`,
                         // `from_utf8_unchecked`) do REAL WORK but defaulted to a no-op Leaf stub
                         // returning garbage. `AzString::copy_from_bytes` (the C-API string ctor,
@@ -2825,37 +3200,14 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                         // lifts to an `unreachable` trap, breaking the cascade (hydrate).
                         return FnClass::Leaf;
                     }
-                    // WEB FONT BOUNDARY (2026-06-01): the web backend NEVER
-                    // parses or shapes fonts in-wasm. Fonts are fetched from
-                    // the browser as resources (the PART 2 RequestResources
-                    // design) and the `FcFontCache` is built natively,
-                    // server-side, then handed to the lifted layout callback.
-                    // `allsorts_azul` (glyph outlines, cmap, GSUB/GPOS shaping,
-                    // woff2 / variable-font table parsing) is therefore DEAD in
-                    // the lifted callback: for a box layout with no text,
-                    // `font_hash_to_families` is empty, so
-                    // `collect_and_resolve_font_chains_with_registration`
-                    // resolves zero chains and never enters allsorts. Lifting it
-                    // anyway dragged 627 transitive deps into the module (1680
-                    // total → bloat + slow lift) AND its large table-parsing
-                    // match/jump-table functions are a runtime-trap surface that
-                    // poisons the whole wasm. Treat the entire font parser as a
-                    // lift boundary (Leaf no-op stub). NOTE: CSS font-SIZE math
-                    // (em/rem/% → px, `compute_all_font_sizes_px`) lives in
-                    // `azul_core`, NOT allsorts, so layout geometry is unaffected.
-                    // PART 2 will swap these stubs for a resource-request emitter.
-                    // 2026-06-02: REMOVED the allsorts Leaf boundary so TEXT can be
-                    // shaped/measured in-wasm (hello-world's label/counter measured to
-                    // height 0 because allsorts was stubbed → no glyphs/metrics). The
-                    // original concern was that allsorts' large table-parsing jump-table
-                    // fns are a runtime-trap surface — but this session's static jump-table
-                    // devirt (azul_remill.cpp exact-decode + extra_data) now resolves those
-                    // jump tables, so lifting allsorts should no longer poison the wasm.
-                    // Cost: ~+627 transitive deps (bigger/slower lift). Re-add the boundary
-                    // (return Leaf) if allsorts traps return.
-                    // if crate_name == "allsorts_azul" {
-                    //     return FnClass::Leaf;
-                    // }
+                    // `allsorts_azul` (glyph outlines, cmap, shaping, font
+                    // table parsing) lifts as Recursable so text can be
+                    // shaped/measured in-wasm. It was once a Leaf boundary —
+                    // its big table-parsing jump tables were a trap surface —
+                    // but the lifter's exact jump-table devirt resolves those
+                    // now. Cost is ~600 extra transitive deps; re-add a
+                    // `crate_name == "allsorts_azul" => Leaf` cut only if
+                    // allsorts traps return.
                     // Our own crates + 3rd party crates we want to lift
                     // into (azul_*, webrender_*, serde_*) → Recursable.
                     return FnClass::Recursable;
@@ -3001,7 +3353,7 @@ pub(crate) fn collect_macho_low32_sections(
     out
 }
 
-/// [WEB-LIFT FIX 2026-06-11] macOS thread-local geometry of one image:
+/// [WEB-LIFT FIX] macOS thread-local geometry of one image:
 /// `__DATA.__thread_vars` (the 24-byte `{thunk, key, offset}` descriptor
 /// array) + `__DATA.__thread_data` (the TLS initial image; descriptor
 /// offsets are relative to its start, with `__thread_bss` contiguous
@@ -3086,7 +3438,7 @@ fn collect_macho_tlv_regions(
     }
 }
 
-/// [WEB-LIFT FIX 2026-06-06] Find hashbrown's `EMPTY_GROUP` static(s) in the
+/// [WEB-LIFT FIX] Find hashbrown's `EMPTY_GROUP` static(s) in the
 /// loaded `libazul` image, returned as NATIVE `(addr, len)` ranges to mirror.
 ///
 /// hashbrown encodes an EMPTY control byte as `0xFF`; an empty `RawTable`'s
@@ -3115,6 +3467,28 @@ pub(crate) fn find_hashbrown_empty_group_ranges() -> &'static [(usize, usize)] {
         .as_slice()
 }
 
+/// Non-Mach-O targets: nothing to compute, and computing it DEADLOCKS.
+///
+/// The Mach-O implementation below only ever matches `goblin::Object::Mach`
+/// - a PE or ELF image falls through its `_ => continue` arm - so on any
+/// other platform this function can only ever return an empty vector. It was
+/// still doing all the work to get there, and on Windows the first step is
+/// `enumerate_loaded_images`, which calls `K32EnumProcessModules`. That takes
+/// the Windows LOADER LOCK, and a full lift wedged there: zero CPU, zero I/O
+/// and zero page faults for ten minutes, with the phase marker naming
+/// "finish mirror set". It survives at startup, when nothing else holds the
+/// lock, and hangs later in the run.
+///
+/// So this is not a workaround for the hang - the work was provably useless
+/// on these targets. The EMPTY_GROUP mirroring it feeds has never been active
+/// off Mach-O; if a PE equivalent is ever needed it has to be written against
+/// PE sections, not obtained by taking the loader lock to parse Mach-O.
+#[cfg(not(target_os = "macos"))]
+fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
+    Vec::new()
+}
+
+#[cfg(target_os = "macos")]
 fn compute_hashbrown_empty_group_ranges() -> Vec<(usize, usize)> {
     use goblin::mach::load_command::{
         CommandVariant, SIZEOF_SECTION_64, SIZEOF_SEGMENT_COMMAND_64,
@@ -3359,6 +3733,111 @@ mod tests {
     }
 
     #[test]
+    fn classify_browser_excluded_crates_as_never_lift() {
+        let api: HashMap<String, ApiFnClass> = HashMap::new();
+        // Capability the browser already provides, or meaningless in a page.
+        for n in [
+            "turso_core::vdbe::execute::op_column",
+            "turso_parser::parser::Parser::parse",
+            "regex_automata::meta::regex::Regex::search",
+            "aho_corasick::packed::api::Searcher::find",
+            "accesskit::node::Node::set_role",
+            "rustls::client::tls13::handle_server_hello",
+            "ash::device::Device::cmd_draw",
+            "gilrs_core::platform::Gamepad::poll",
+            "brotli::enc::encode::BrotliEncoderCompress",
+        ] {
+            assert_eq!(classify_for_name(n, &api), FnClass::NeverLift, "{n}");
+        }
+
+        // The lifter OWN dependencies. These exist to PRODUCE the wasm; a
+        // build that lifts them has put the disassembler inside its own output.
+        assert_eq!(
+            classify_for_name("iced_x86::decoder::Decoder::decode_out", &api),
+            FnClass::NeverLift,
+        );
+        assert_eq!(
+            classify_for_name("goblin::pe::header::Header::parse", &api),
+            FnClass::NeverLift,
+        );
+
+        // The engine itself must be unaffected.
+        for n in [
+            "azul_core::dom::Dom::new",
+            "azul_layout::solver3::layout_document",
+            "azul_css::parser2::new_from_str_inner",
+        ] {
+            assert_eq!(classify_for_name(n, &api), FnClass::Recursable, "{n}");
+        }
+
+        // Prefix accidents: none of these are the excluded crate. The rule
+        // matches a whole leading crate name, not a substring, so a type or
+        // module that merely CONTAINS one of those words must survive.
+        for n in [
+            "azul_css::props::style::StyleFilter::ash_blur",
+            "azul_core::regexish::matcher::run",
+            "azul_layout::text3::cache::derive_style",
+        ] {
+            assert_eq!(classify_for_name(n, &api), FnClass::Recursable, "{n}");
+        }
+    }
+
+    #[test]
+    fn classify_platform_native_as_never_lift() {
+        let api: HashMap<String, ApiFnClass> = HashMap::new();
+        // Win32/WinRT/Cocoa cannot run in wasm - trap instead of lifting.
+        for n in [
+            "azul::desktop::shell2::windows::Win32Window::sync_window_state",
+            "azul::desktop::shell2::common::event::PlatformWindow::process_window_events_inner<azul::desktop::shell2::windows::Win32Window>",
+            "windows::Foundation::TypedEventHandlerBox::Invoke<windows::UI::Input::RadialController>",
+            "windows::Media::SystemMediaTransportControls::SetPlaybackStatus",
+            "windows_core::imp::factory_cache::load_factory<windows::Media::X>",
+            "azul::desktop::shell2::x11::X11Window::flush",
+            "azul::desktop::shell2::macos::MacWindow::set_title",
+        ] {
+            assert_eq!(classify_for_name(n, &api), FnClass::NeverLift, "{n}");
+        }
+
+        // The HEADLESS monomorphization is the one the web backend runs - it
+        // must NOT be caught by the same rule that catches <Win32Window>.
+        assert_eq!(
+            classify_for_name(
+                "azul::desktop::shell2::common::event::PlatformWindow::process_window_events_inner<azul::desktop::shell2::headless::HeadlessWindow>",
+                &api,
+            ),
+            FnClass::Recursable,
+        );
+        // Platform-neutral shell code stays liftable.
+        assert_eq!(
+            classify_for_name(
+                "azul::desktop::shell2::common::layout::regenerate_layout",
+                &api,
+            ),
+            FnClass::Recursable,
+        );
+    }
+
+    #[test]
+    fn platform_native_rule_does_not_steal_the_allocator() {
+        // ORDERING GUARD. `std::sys::alloc::windows::process_heap_alloc` is the
+        // surviving allocator after LTO in a static build, and it contains the
+        // substring `windows::`. If the platform-native rule ever runs before
+        // the allocator rules - or widens to a bare `windows::` marker - every
+        // allocation in the lifted binary becomes a trap and nothing boots.
+        let api: HashMap<String, ApiFnClass> = HashMap::new();
+        assert_eq!(
+            classify_for_name("std::sys::alloc::windows::process_heap_alloc", &api),
+            FnClass::BumpAllocWinHeap,
+        );
+        assert_eq!(
+            classify_for_name("std::sys::alloc::windows::process_heap_free", &api),
+            FnClass::BumpDealloc,
+        );
+        assert!(!is_platform_native("std::sys::alloc::windows::process_heap_alloc"));
+        assert!(!is_platform_native("std::sys::pal::windows::c::CreateFileW"));
+    }
+
+    #[test]
     fn classify_runtime_crates() {
         let api: HashMap<String, ApiFnClass> = HashMap::new();
         // Diverging panic helpers must TRAP, not return (M12.5y).
@@ -3367,7 +3846,7 @@ mod tests {
             FnClass::NeverLift
         );
         // MECH-B regression: out-of-line alloc/core monomorphizations are
-        // real compute and must be lifted, never no-op stubbed (2026-06-12).
+        // real compute and must be lifted, never no-op stubbed .
         assert_eq!(
             classify_for_name("_ZN5alloc3str17join_generic_copy17h9c9d2f7abfe94f50E", &api),
             FnClass::Recursable

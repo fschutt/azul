@@ -48,7 +48,8 @@ pub struct HeadlessApp {
 pub enum ValidationError {
     /// User's root RefAny has no JSON serializer registered. The
     /// web backend can't hydrate state on the wasm client without
-    /// one. See the `AZ_REFLECT_JSON` macro in `dll/azul.h`.
+    /// one. Rust apps register via `RefAny::set_serialize_fn`; C apps use the
+    /// `AZ_REFLECT_JSON` macro in the generated `azul.h`.
     RefAnyNotSerializable,
     /// Layout callback's fn-pointer couldn't be resolved to a real
     /// symbol via dladdr. The fallback `cb_<addr>` name still works

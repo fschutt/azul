@@ -311,6 +311,12 @@ impl App {
             "[azul] App::run starting (AZ_BACKEND={:?})",
             std::env::var("AZ_BACKEND").ok()
         );
+        // Embedded web-e2e executor: AZ_BACKEND=<http url> + AZ_E2E=<specs>
+        // turns THIS binary into the test runner against that URL and exits
+        // with the harness's status (desktop-parity semantics; the
+        // AZ_BACKEND=headless runner below keeps its own path).
+        #[cfg(feature = "web-e2e-runner")]
+        crate::e2e_web_runner::maybe_run_and_exit();
         let data = self.ptr.data.clone();
         let config = self.ptr.config.clone();
         let fc_cache = (*self.ptr.fc_cache).clone();
@@ -474,11 +480,16 @@ impl App {
             // a failed startup looked like the app "just exiting with no error".
             crate::plog_error!("[azul] application exited with error: {:?}", e);
             eprintln!("[azul] application error: {:?}", e);
+            // stdout too: many CI log collectors capture only stdout, and a
+            // startup failure must never be invisible there.
+            println!("[azul] application error: {:?}", e);
             // Best-effort GUI dialog on desktop (only shows if a dialog backend
             // like zenity/kdialog is present; the stderr line above is the
             // guaranteed channel).
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
+            if interactive_session() {
+                crate::desktop::dialogs::msg_box(&format!("Error: {:?}", e));
+            }
             debug_server::log(
                 debug_server::LogLevel::Error,
                 debug_server::LogCategory::EventLoop,
@@ -489,6 +500,18 @@ impl App {
             crate::plog_info!("[azul] App::run returned cleanly (event loop ended)");
         }
     }
+}
+
+/// Whether a modal error dialog could actually be dismissed by someone.
+///
+/// False for CI runners and headless/web backends, where a modal window has
+/// no one to close it and simply blocks until the job times out.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn interactive_session() -> bool {
+    const HEADLESS_MARKERS: &[&str] = &["CI", "GITHUB_ACTIONS", "AZ_NO_DIALOGS", "AZ_BACKEND"];
+    !HEADLESS_MARKERS
+        .iter()
+        .any(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty()))
 }
 
 /// Graphical application that maintains some kind of application state

@@ -48,19 +48,31 @@ WORKDIR /src
 # cloned later in Stage 2) changes. That's what keeps website iteration fast: the
 # remill toolchain layer is reused across every azul rebuild until you bump
 # REMILL_REF (i.e. only when the submodule commit actually moves).
-ARG REMILL_REF=1d5dd7fa4cec8ed8e867b1aedc61c9746f624b13
+# Keep this in step with third_party/remill: a stale ref silently ships an
+# image whose lifter lacks the fixes this repo depends on.
+ARG REMILL_REF=e50721f4c966acfea0db54daba3da63cb5afa3f5
 RUN git clone https://github.com/fschutt/remill.git /src/remill \
     && cd /src/remill \
     && git checkout "${REMILL_REF}" \
     && git submodule update --init --recursive
 
-# KNOWN BLOCKER (experimental): remill's cmake does `find_package(XED CONFIG)`,
-# which needs XEDConfig.cmake — i.e. XED (and LLVM/glog/gflags) from trailofbits
-# **cxx-common**, NOT a standalone XED build. Provision cxx-common for LLVM
-# ${LLVM_VERSION} and pass its toolchain here (VCPKG_ROOT / CMAKE_TOOLCHAIN_FILE)
-# before this succeeds. Until then the image build fails at this step — track
-# https://github.com/lifting-bits/cxx-common. Left as-is so the intended build
-# is documented; the web-base image is experimental and not yet green.
+# remill resolves XED/glog/gflags through Trail of Bits' cxx-common vcpkg
+# bundle: its cmake does `find_package(XED CONFIG)`, and XEDConfig.cmake ships
+# only in that bundle, not in a standalone XED build. So fetch the prebuilt
+# LLVM-17 bundle and hand cmake its toolchain file.
+#
+# The asset name is an ARG because cxx-common's release naming varies per
+# version/distro; override CXX_COMMON_ASSET if the pinned one 404s. Note this
+# bundle is LLVM 17 (what remill-lift-17 links against) and is independent of
+# LLVM_VERSION above, which supplies llc/opt/wasm-ld for the wasm side.
+ARG CXX_COMMON_VERSION=v0.6.6
+ARG CXX_COMMON_ASSET=vcpkg_ubuntu-22.04_llvm-17_amd64.tar.xz
+RUN curl -fsSL -o /tmp/cxx-common.tar.xz \
+      "https://github.com/lifting-bits/cxx-common/releases/download/${CXX_COMMON_VERSION}/${CXX_COMMON_ASSET}" \
+    && mkdir -p /opt/cxx-common \
+    && tar -xJf /tmp/cxx-common.tar.xz -C /opt/cxx-common --strip-components=1 \
+    && rm -f /tmp/cxx-common.tar.xz
+ENV VCPKG_ROOT=/opt/cxx-common
 # Heavy (~45 min); the binary lands in /usr/local/bin so the DLL's subprocess
 # lifter finds it via REMILL_LIFT_BIN (set in Stage 3).
 RUN cd /src/remill \
@@ -68,6 +80,8 @@ RUN cd /src/remill \
          -DCMAKE_BUILD_TYPE=Release \
          -DCMAKE_INSTALL_PREFIX=/opt/remill-install \
          -DREMILL_ENABLE_TESTING=OFF -DREMILL_BUILD_SPARC32=OFF \
+         -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake \
+         -DVCPKG_TARGET_TRIPLET=x64-linux-rel \
     && cmake --build /tmp/remill-build --target remill-lift-17 \
     && cmake --install /tmp/remill-build \
     && cp /opt/remill-install/bin/remill-lift* /usr/local/bin/ 2>/dev/null || true

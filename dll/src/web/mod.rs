@@ -31,6 +31,9 @@ pub mod server;
 pub mod symbol_table;
 pub mod transpiler;
 #[cfg(feature = "web-transpiler")]
+pub mod lift_audit;
+#[cfg(feature = "web-transpiler")]
+pub mod lift_env;
 pub mod transpiler_remill;
 
 /// Whether M10-D per-fn WASM sharding is active. Always `false` when the
@@ -57,68 +60,94 @@ fn shards_enabled() -> bool {
 ///
 /// Keep in sync with the `#[no_mangle] pub extern "C"` exports in
 /// [`eventloop`]. Wired into the lift loop in M8.2.
-pub const EVENTLOOP_SYMBOLS: &[&str] = &[
-    "AzStartup_alloc",
-    "AzStartup_free",
+///
+/// One macro generates BOTH the name list and
+/// [`eventloop_symbol_addr`], the static-link-safe address resolver:
+/// `dlsym_self` needs a PE export table, but a host exe that links
+/// azul-dll statically (azul-writer's `link-static`) exports nothing,
+/// so every `dlsym(AzStartup_*)` returned null and the mini fell back
+/// to the 8-byte stub — the whole eventloop surface vanished while
+/// the layout-callback modules (registered by address at runtime)
+/// lifted fine. These functions are in THIS crate, so `fn as usize`
+/// is exact in every link mode; no export table, no dlsym, no PDB.
+macro_rules! eventloop_symbols {
+    ($($name:ident),* $(,)?) => {
+        pub const EVENTLOOP_SYMBOLS: &[&str] = &[$(stringify!($name)),*];
+
+        /// Resolve an eventloop symbol to its in-process address the
+        /// direct way (same-crate `fn as usize`). Superset-safe: names
+        /// outside the generated list return `None`.
+        fn eventloop_symbol_addr(name: &str) -> Option<usize> {
+            match name {
+                $(stringify!($name) => Some(eventloop::$name as usize),)*
+                _ => None,
+            }
+        }
+    };
+}
+
+eventloop_symbols![
+    AzStartup_alloc,
+    AzStartup_free,
     // WEB-FONT-VIA-JS: JS registers a fallback-font buffer it wrote into wasm memory.
-    "AzStartup_setFallbackFont",
-    "AzStartup_init",
-    "AzStartup_hydrate",
-    "AzStartup_dispatchEvent",
-    "AzStartup_registerStateDeserializer",
+    AzStartup_setFallbackFont,
+    AzStartup_init,
+    AzStartup_hydrate,
+    // Reflection-based hydration for models whose raw bytes are
+    // meaningless in the guest (see doc/web-json-hydrate-plan.md).
+    AzStartup_hydrateJson,
+    AzStartup_dispatchEvent,
+    AzStartup_registerStateDeserializer,
     // M9-2: Layout-cb wasm-side LayoutCallbackInfo builder.
-    "AzStartup_buildLayoutInfo",
+    AzStartup_buildLayoutInfo,
     // M9-3: Layout-cb dispatch infrastructure.
-    "AzStartup_setLayoutCbTableIdx",
-    "AzStartup_setRefAny",
-    "AzStartup_initLayoutCache",
-    "AzStartup_getCurrentDomPtr",
-    "AzStartup_getLastLayoutStatus",
-    "AzStartup_getCascadeProbe",
-    "AzStartup_pokeLastLayout",
+    AzStartup_setLayoutCbTableIdx,
+    AzStartup_setRefAny,
+    AzStartup_initLayoutCache,
+    AzStartup_getCurrentDomPtr,
+    AzStartup_getLastLayoutStatus,
+    AzStartup_getCascadeProbe,
+    AzStartup_pokeLastLayout,
     // M9-4: WASM-side hit-test (stub, returns last registered cb node).
-    "AzStartup_registerCbNode",
-    // 2026-06-10: per-EventFilter dispatch — registerCbNode + the event kind.
-    "AzStartup_registerCbNodeKind",
-    "AzStartup_hitTest",
+    AzStartup_registerCbNode,
+    // per-EventFilter dispatch — registerCbNode + the event kind.
+    AzStartup_registerCbNodeKind,
+    AzStartup_hitTest,
     // M9-5: TLV patch emission.
-    "AzStartup_buildCounterPatch",
+    AzStartup_buildCounterPatch,
     // M9-6: wasm-resident dispatch state setters.
-    "AzStartup_setModelPtr",
-    "AzStartup_setDisplayNode",
+    AzStartup_setModelPtr,
+    AzStartup_setDisplayNode,
     // M11 Sprint 1: StyledDom hydrate — runs the cascade
     // (`StyledDom::create(&mut dom, Css::empty())`) wasm-side via
     // the S1.A transitive lift pipeline. `getStyledDomNodeCount`
     // returns the StyledDom's node count for cross-checking
     // against `getDomNodeCount` (the raw AzDom walker).
-    "AzStartup_hydrateStyledDom",
-    "AzStartup_isStyledDomHydrated",
-    "AzStartup_getDomNodeCount",
-    "AzStartup_getStyledDomNodeCount",
-    "AzStartup_getStyledDomPtr",
+    AzStartup_hydrateStyledDom,
+    AzStartup_isStyledDomHydrated,
+    AzStartup_getDomNodeCount,
+    AzStartup_getStyledDomNodeCount,
+    AzStartup_getStyledDomPtr,
     // M11 Sprint 1.C / Sprint 2: layout solver + positioned-rect
     // cache. AzStartup_hitTest now consumes the cache for real
     // bbox-walk dispatch.
-    "AzStartup_solveLayout",
+    AzStartup_solveLayout,
     // M12.7: real layout solver (LayoutWindow::layout_and_generate_display_list
     // → taffy block/flex/grid). Same signature as solveLayout.
-    "AzStartup_solveLayoutReal",
-    "AzStartup_isLayoutSolved",
-    "AzStartup_getPositionedRectsLen",
-    "AzStartup_getPositionedRectsPtr",
-    // M12.7 debug: peek a u32 from wasm linear memory (reads the diag
-    // markers the layout solver writes via write_volatile).
-    "AzStartup_peekU32",
+    AzStartup_solveLayoutReal,
+    AzStartup_isLayoutSolved,
+    AzStartup_getPositionedRectsLen,
+    AzStartup_getPositionedRectsPtr,
     // M11 Sprint 3: relayout + generalized patch builder for
     // SetText / SetAttr / SetInlineStyle / RemoveNode / InsertNode.
     // The JS decoder switches on kind.
-    "AzStartup_relayout",
-    "AzStartup_buildPatch",
+    AzStartup_relayout,
+    AzStartup_buildPatch,
     // M11 Sprint 5: VirtualView infrastructure (threshold + provider
     // table-idx). Full auto-virtualization pending Box::new init gap.
-    "AzStartup_setAutoVirtualizeThreshold",
-    "AzStartup_getAutoVirtualizeThreshold",
-    "AzStartup_setVirtualViewProvider",
+    AzStartup_setAutoVirtualizeThreshold,
+    AzStartup_getAutoVirtualizeThreshold,
+    AzStartup_setVirtualViewProvider,
 ];
 
 use std::collections::{BTreeMap, HashMap};
@@ -909,7 +938,7 @@ pub fn lift_layout_callbacks(layout_callbacks: &[LayoutCallback]) -> Vec<LayoutW
 /// `(name, addr, size)` tuples to `transpiler.lift_and_link_eventloop`.
 /// On any failure log + fall back to the 8-byte stub so the rest of
 /// run_web can proceed (per the M0-M7 "fail soft" discipline).
-fn lift_eventloop_mini_wasm() -> Vec<u8> {
+fn lift_eventloop_mini_wasm(extra_roots: &[(String, usize, usize)]) -> Vec<u8> {
     let transpiler = transpiler::default_transpiler();
     if !transpiler.is_available() {
         eprintln!(
@@ -920,15 +949,33 @@ fn lift_eventloop_mini_wasm() -> Vec<u8> {
     }
     let mut targets: Vec<(String, usize, usize)> = Vec::with_capacity(EVENTLOOP_SYMBOLS.len());
     for sym_name in EVENTLOOP_SYMBOLS {
-        let Some(addr) = dlsym_self(sym_name) else {
+        // Direct same-crate `fn as usize` first (works for statically
+        // linked host exes, which have no export table); dlsym only as
+        // a belt-and-suspenders fallback for names not in the macro
+        // list (there are none today).
+        let Some(addr) = eventloop_symbol_addr(sym_name).or_else(|| dlsym_self(sym_name)) else {
             eprintln!(
-                "[azul-web] azul-mini: dlsym({}) returned null — falling back to stub",
+                "[azul-web] azul-mini: could not resolve {} (direct + dlsym) — falling back to stub",
                 sym_name,
             );
             return generate_mini_wasm_stub();
         };
         let sym = resolve_fn_ptr(addr);
         targets.push((sym_name.to_string(), sym.addr, sym.size));
+    }
+    // Extra roots reachable ONLY through a function pointer — the byte-scan
+    // walk can never discover them. Today: the app's JSON state
+    // deserializer, which AzStartup_hydrateJson calls through the address
+    // the server ships (doc/web-json-hydrate-plan.md).
+    for (name, addr, size) in extra_roots {
+        if targets.iter().any(|(_, a, _)| a == addr) {
+            continue;
+        }
+        eprintln!(
+            "[azul-web] azul-mini: extra fn-pointer root {} addr=0x{:016x} size={}",
+            name, addr, size,
+        );
+        targets.push((name.clone(), *addr, *size));
     }
     match transpiler.lift_and_link_eventloop(&targets) {
         Ok(module) => {
@@ -963,6 +1010,9 @@ pub fn run_web(
     web_config: config::WebConfig,
 ) -> Result<(), WindowError> {
     eprintln!("[azul-web] Starting web backend...");
+    // Name the non-default knobs once, up front: what a bundle was built
+    // with is otherwise unrecoverable from the log after the fact.
+    eprintln!("[azul-web] lift env: {}", lift_env::lift_env().summary());
 
     // M8.7a: validate the App can be hydrated on the wasm client.
     // RefAny needs a registered JSON serializer (AZ_REFLECT_JSON);
@@ -980,8 +1030,11 @@ pub fn run_web(
                 let msg = "[azul-web] FATAL: web backend requires the root RefAny \
                            to have a JSON serializer registered via AZ_REFLECT_JSON. \
                            Got AzRefAny with no toJson fn-ptr — cannot hydrate \
-                           state on the wasm client. See dll/azul.h's AZ_REFLECT_JSON \
-                           macro for how to register.";
+                           state on the wasm client. Rust apps: derive serde \
+                           Serialize/Deserialize on the root state and register the pair \
+                           via RefAny::set_serialize_fn / set_deserialize_fn (see \
+                           examples/azul-writer). C apps: the AZ_REFLECT_JSON macro in \
+                           the generated azul.h.";
                 eprintln!("{}", msg);
                 return Err(WindowError::PlatformError(msg.to_string()));
             }
@@ -1035,7 +1088,33 @@ pub fn run_web(
     // or dlsym path can't satisfy the request — keeps Phase D/E
     // unblocked even if the eventloop lift fails.
     let _ = &classification; // M8.9 will use this to wire framework-call routing.
-    let mini_wasm = lift_eventloop_mini_wasm();
+    // The app's state deserializer is invoked through a stored fn-pointer,
+    // so nothing in the call-graph walk points at it — seed it explicitly.
+    let mut mini_extra_roots: Vec<(String, usize, usize)> = Vec::new();
+    {
+        let deser = app_data.get_deserialize_fn();
+        if deser != 0 {
+            let sym = resolve_fn_ptr(deser);
+            mini_extra_roots.push((sym.name.clone(), sym.addr, sym.size));
+        }
+    }
+    // Base-image prelift: seed the ENTIRE api.json export surface as roots, not
+    // just this binary's reachable subset, so the baked cache warms the whole
+    // library and a derived app lifts only its own callbacks. Gated on prelift
+    // because a normal serve only needs what the app reaches.
+    let prelift = web_config.prelift
+        || lift_env::lift_env().mode == lift_env::LiftMode::Full;
+    if prelift {
+        if let Some(table) = symbol_table::get() {
+            let surface = table.api_surface_roots();
+            eprintln!(
+                "[azul-web] prelift: seeding {} api.json export(s) as lift roots",
+                surface.len(),
+            );
+            mini_extra_roots.extend(surface);
+        }
+    }
+    let mini_wasm = lift_eventloop_mini_wasm(&mini_extra_roots);
     eprintln!("[azul-web] azul-mini.wasm: {} bytes", mini_wasm.len());
 
     // Phase D: Pre-render all routes. The walk also collects every
@@ -1244,7 +1323,7 @@ pub fn run_web(
         shards_enabled(),
     );
 
-    // Phase D-cache (2026-06-10): turn the cb/layout wasm URL hashes into REAL
+    // Phase D-cache : turn the cb/layout wasm URL hashes into REAL
     // content hashes. The HTML is pre-rendered BEFORE the lifts, so the URLs are
     // emitted with `fnv1a64(name)` placeholders — which are CONSTANT across
     // builds. Served with `Cache-Control: immutable, max-age=1yr`, a browser
@@ -1302,11 +1381,58 @@ pub fn run_web(
     #[cfg(feature = "web-transpiler")]
     transpiler_remill::preflight_report();
 
-    // web-prelift: the startup above lifted the eventloop + route/layout
-    // callbacks into the on-disk cache (AZ_LIFT_CACHE_DIR). Exit now, before
-    // binding the server — used to bake a warm lift cache into the docker base
-    // image so a derived app only pays to lift ITS OWN callbacks.
-    if web_config.prelift {
+    // Startup lift-audit (always on): refuse to serve a build that will
+    // crash at runtime — stub mini, remill-crash stubs, env imports the
+    // loader can't provide, untranslated native pointers, unreviewed
+    // __remill_error functions. AZ_LIFT_STRICT=0 downgrades to warnings.
+    #[cfg(feature = "web-transpiler")]
+    {
+        let mut artifacts: Vec<(&str, &[u8])> = vec![("mini", mini_wasm.as_slice())];
+        for lw in &layout_wasms {
+            artifacts.push(("layout", lw.wasm_bytes.as_slice()));
+        }
+        for cb in &cb_wasms {
+            artifacts.push(("cb", cb.wasm_bytes.as_slice()));
+        }
+        {
+            use std::sync::atomic::Ordering;
+            let hits = transpiler_remill::RELOC_CACHE_HITS.load(Ordering::Relaxed);
+            let lifts = transpiler_remill::RELOC_CACHE_LIFTS.load(Ordering::Relaxed);
+            eprintln!(
+                "[azul-web][lift-audit] reloc-canonical cache: {hits} translated hit(s), {lifts} fresh remill lift(s)",
+            );
+            let snan = transpiler_remill::PREFLIGHT_SNAN_SITES.load(Ordering::Relaxed);
+            let ud2 = transpiler_remill::PREFLIGHT_UD2_SITES.load(Ordering::Relaxed);
+            if snan > 0 || ud2 > 0 {
+                eprintln!(
+                    "[azul-web][lift-audit] ✓ benign __remill_error classes: {snan} guarded fault-semantics site(s) (sNaN/div), {ud2} ud2 site(s) (faithful lifts, not counted toward F5)",
+                );
+            }
+        }
+        let preflight = transpiler_remill::preflight_entries();
+        let fatal = lift_audit::run(
+            &artifacts,
+            transpiler_remill::subprocess_tools_available(),
+            transpiler_remill::lift_failure_count(),
+            &preflight,
+        );
+        let strict = std::env::var("AZ_LIFT_STRICT").map(|v| v != "0").unwrap_or(true);
+        if fatal {
+            if strict {
+                eprintln!(
+                    "[azul-web][lift-audit] FATAL findings — refusing to start the server. \
+                     Debug each finding (or set AZ_LIFT_STRICT=0 to serve anyway at your own risk)."
+                );
+                std::process::exit(1);
+            } else {
+                eprintln!("[azul-web][lift-audit] FATAL findings, but AZ_LIFT_STRICT=0 — serving anyway");
+            }
+        }
+    }
+
+    // web-prelift / mode=full: the startup above warmed the on-disk cache.
+    // Exit now, before binding the server, so `docker build` bakes the cache.
+    if web_config.prelift || lift_env::lift_env().mode == lift_env::LiftMode::Full {
         eprintln!("[azul-web] prelift complete — lift cache warmed; exiting before serve");
         return Ok(());
     }
