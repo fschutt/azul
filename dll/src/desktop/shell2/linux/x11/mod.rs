@@ -6422,6 +6422,17 @@ impl X11Window {
 
                     let mut rendered = false;
 
+                    // WHERE A CPU PRESENT GOES. `note_present` says a present
+                    // took 40 ms; it cannot say which part. A trace-level run
+                    // with every log category on shows NOTHING between two
+                    // caret-blink presents, so the whole cost is inside this
+                    // block and the only way to attribute it is from inside.
+                    let phase_clock = std::time::Instant::now();
+                    let mut t_vview_ms = 0.0f64;
+                    let mut t_prepare_ms = 0.0f64;
+                    let mut t_render_ms = 0.0f64;
+                    let mut t_blit_ms = 0.0f64;
+
                     // Synchronize window state to layout_window before rendering
                     let window_state = self.common.current_window_state().clone();
                     if let Some(ref mut layout_window) = self.common.layout_window {
@@ -6453,14 +6464,18 @@ impl X11Window {
                     // reads layout_results.
                     // One drain for every backend: it re-invokes in place AND rebuilds
                     // the CPU hit-tester (the rebuilt child DOMs carry fresh NodeIds).
+                    let t0 = std::time::Instant::now();
                     self.common.drain_virtual_view_updates();
+                    t_vview_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
                     // Shared per-frame content preparation (journal clock, image
                     // callbacks through the content chokepoint, scrollbar cache).
                     // The logic lives in LayoutWindow so no backend can skip a piece.
+                    let t0 = std::time::Instant::now();
                     if let Some(lw) = self.common.layout_window.as_mut() {
                         lw.prepare_frame_cpu();
                     }
+                    t_prepare_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
                     if let Some(ref layout_window) = self.common.layout_window {
                         let dom_id = DomId { inner: 0 };
@@ -6485,6 +6500,7 @@ impl X11Window {
                                 // ARGB visual carries it); shape from alpha if asked.
                                 self.cpu_backend
                                     .sync_window_flags(&layout_window.current_window_state);
+                                let t0 = std::time::Instant::now();
                                 self.cpu_backend.render_frame(
                                     layout_window,
                                     &layout_window.renderer_resources,
@@ -6492,6 +6508,7 @@ impl X11Window {
                                     height,
                                     dpi,
                                 );
+                                t_render_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
                                 // #27 native backbuffer: X11 stays LEGACY by
                                 // design. XPutImage requires the image in the
@@ -6544,6 +6561,7 @@ impl X11Window {
                                         .last_present_damage
                                         .to_present_rects_physical(dpi, pw, ph, force_full);
 
+                                    let t_blit0 = std::time::Instant::now();
                                     if let Some(rects) = present_rects {
                                         unsafe {
                                             let screen = (self.xlib.XDefaultScreen)(self.display);
@@ -6644,6 +6662,7 @@ impl X11Window {
                                             }
                                         }
                                     }
+                                    t_blit_ms = t_blit0.elapsed().as_secs_f64() * 1000.0;
                                     // None → nothing changed on screen; the
                                     // retained frame stays valid. Still counts
                                     // as rendered (do NOT fall through to the
@@ -6655,6 +6674,19 @@ impl X11Window {
                             }
                         }
                     }
+
+                    let t_total_ms = phase_clock.elapsed().as_secs_f64() * 1000.0;
+                    log_debug!(
+                        LogCategory::Rendering,
+                        "[X11 cpu present] total={:.2}ms | render={:.2}ms blit={:.2}ms \
+                         prepare={:.2}ms vview={:.2}ms other={:.2}ms",
+                        t_total_ms,
+                        t_render_ms,
+                        t_blit_ms,
+                        t_prepare_ms,
+                        t_vview_ms,
+                        t_total_ms - t_render_ms - t_blit_ms - t_prepare_ms - t_vview_ms
+                    );
 
                     if !rendered {
                         // R2: no pixmap was produced this frame (e.g. unchanged

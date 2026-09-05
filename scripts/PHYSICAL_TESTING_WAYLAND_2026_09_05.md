@@ -587,7 +587,7 @@ transaction, so nothing signals `new_frame_ready`; its only self-feeding edge is
 the scrollbar fade re-arm, which terminates by the rule above. Verified on all
 four backends by reading the redraw sources, not assumed from X11.
 
-## X11 CPU idle: one 18-46 ms present per caret blink, and nobody had seen it
+## A blinking caret repainted the whole document - BROKEN -> FIXED
 
 With `note_present` now on BOTH paths, the X11 CPU backend can be measured for
 the first time. Idle, 25 s, default backend, window focused:
@@ -603,16 +603,56 @@ one line earlier (`Created timerfd 13 for timer 1 (interval 1200ms)`, the KDE
     [ 4631328us] render_and_present 1920x1036 took=38.57ms
     [ 4631690us] render_and_present 1920x1036 took=0.24ms
 
-18-46 ms of work, ~1.9 presents/s, to toggle a caret. NOT ATTRIBUTED: a run at
-`trace` with every category enabled produced 71 lines in 10 s and NOTHING
-between the two presents - no `regenerate_layout`, no `[phases]`, no damage
-line. So the cost is entirely inside `render_and_present` and this report cannot
-say which part: the CPU rasterisation, the internal display-list rebuild the
-caret toggle triggers (`display_list_dirty`), or the swizzle+`XPutImage`. The
-blit is already damage-limited and the rasteriser already has an incremental
-display-list-diff path (`cpu_backend.rs:443`), which makes 42 ms for a caret
-suspicious rather than expected. Next step is instrumentation INSIDE the CPU
-render, not a guess.
+18-46 ms of work, ~1.9 presents/s, to toggle a caret. A `trace` run with every
+category enabled showed NOTHING between the two presents, so the cost was
+entirely inside `render_and_present` and could only be attributed from inside
+it. `[X11 cpu present]` now breaks the present into its phases:
+
+    total=45.72ms | render=29.90ms blit=15.65ms prepare=0.15ms vview=0.00ms
+
+Both halves were full-window: a full re-raster AND a full swizzle+`XPutImage`.
+
+**Why.** `AZ_PATCH_DEBUG` names the gate:
+
+    [HLDMG-PRE]  item_diff=Some([]) prev_is_same_arc=true prev_items=462 new_items=462
+    [HLDMG-GATE] needs_resize=false resize_damage=0 has_scroll=false vview=TRUE ...
+
+The parent display list is byte-identical - the caret is not in it. AzWriter's
+document body is a `VirtualView`, and the caret lives in that CHILD DOM. The
+idle-skip arm is guarded on `!has_vview_damage`, and
+`compute_virtual_view_damage` damaged the view's ENTIRE on-screen box whenever
+the child list differed at all: `if changed { damage.push(*bounds.inner()) }`.
+The item diff the parent list has had all along was never run on the child, so a
+2x18 caret damaged 1200x900 of document.
+
+**The fix** (RED test first: `a_caret_blink_inside_a_virtual_view_damages_the_
+caret_not_the_view` failed with "1080000px of 1080000px"): diff the child lists
+with the same `compute_display_list_damage`, translate each rect into parent
+space (`view.origin - content_offset`, per the VirtualView arm in `raster.rs`)
+and clip it to the view. A structural change, an appearing or disappearing
+child, or a diff that disagrees with the visual comparison still falls back to
+the whole view - precision is an optimisation, correctness is not.
+
+**After, same window, same idleness:**
+
+    total=0.46ms | render=0.29ms blit=0.01ms prepare=0.15ms vview=0.00ms
+
+45.7 ms -> 0.46 ms; the raster 30 ms -> 0.29 ms and the blit 15 ms -> 0.01 ms.
+
+**And the caret is still there.** Six `import -window` captures 350 ms apart
+across the blink, diffed pixel-wise:
+
+    c1->c2: bbox=None                    differing_px=0
+    c2->c3: bbox=(660,279,661,298)       differing_px=19
+    c3->c4: bbox=(660,279,661,298)       differing_px=19
+    c4->c5: bbox=None                    differing_px=0
+
+Exactly 19 pixels change, in a 1x19 box, and nothing else in the window does.
+That is the whole rule the user asked for, in both directions: the caret still
+blinks, and it is the only thing that repaints. Guarded by three tests on
+`compute_virtual_view_damage` (precision, clipping, structural fallback) and one
+on the presenter contract (`a_carets_damage_stays_a_caret_when_it_reaches_the_
+presenter`) so the blit half cannot regress independently.
 
 ## Traps found
 
