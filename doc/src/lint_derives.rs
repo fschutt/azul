@@ -712,9 +712,9 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 /// a baseline that is only ever checked as an upper bound goes stale the day
 /// after it is written and then proves nothing.
 ///
-/// A binding absent from this table must have ZERO gaps. Twenty are, today:
-/// the three Rust mirrors, memtest, all six C++ dialects, C, Ruby, Lua,
-/// Pascal, Ada, PHP, Perl, Common Lisp, Algol 68 and COBOL.
+/// A binding absent from this table must have ZERO gaps. Twenty-three are
+/// today: the three Rust mirrors, memtest, all six C++ dialects, C, C#, Java,
+/// Node, Ruby, Lua, Pascal, Ada, PHP, Perl, Common Lisp, Algol 68 and COBOL.
 ///
 /// WHAT EACH REMAINING NUMBER IS, IN ONE LINE (measured 2026-09-05):
 ///   * `python` (150) — every class that HAS a pyclass now honours its whole
@@ -726,9 +726,13 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///   * `zig` / `go` — the wrapper emitters whitelist
 ///     `Constructor | Method | MethodMut | StaticMethod | Default | DeepCopy`,
 ///     so the comparison and debug entry points reach the artifact zero times.
-///   * `~114-134` in a dozen bindings — the `*VecDestructor` types. Their
+///   * `~114-134` in the remaining tail — the `*VecDestructor` types. Their
 ///     `_toDbgString` is exported from libazul and those emitters skip the type
-///     wholesale (C# emits no VecDestructor function at all, not just no debug).
+///     wholesale. Fixed for C#/Java/Node/PowerShell; kotlin, racket, crystal,
+///     d, julia, nim, odin, v, fortran, red, smalltalk, vb6 and freebasic are
+///     the same one-line shape, untouched here.
+///   * `powershell` / `swift` (4 each) — one class, `Xml`, whose four entry
+///     points those two emitters drop for a reason not yet established.
 ///   * `ocaml` — every capability IS generated in `azul.ml` and the `.mli`
 ///     exports only `clone` and `default`, so a consumer can reach nothing else.
 ///
@@ -749,22 +753,22 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     impls are not dunders, so `a == b` silently fell back to identity.
 ///     `generate_derive_dunders` emits them under exactly the condition that
 ///     makes the corresponding mirror impl exist.
+///   * `csharp` / `java` / `node` (114 each) and `powershell` (118) — their
+///     `should_emit_function` excluded the whole `DestructorOrClone` category,
+///     including the one entry point a `derive` actually asks for.
 pub const BASELINE: &[(&str, usize)] = &[
-    ("csharp", 114),
     ("python", 150),
     ("freebasic", 124),
     ("zig", 5168),
-    ("powershell", 118),
+    ("powershell", 4),
     ("php-ext", 134),
     ("ocaml", 272),
     ("haskell", 11),
-    ("java", 114),
     ("kotlin", 114),
     ("fortran", 134),
     ("go", 5648),
     ("smalltalk", 123),
     ("vb6", 123),
-    ("node", 114),
     ("crystal", 134),
     ("d", 134),
     ("julia", 134),
