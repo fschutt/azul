@@ -296,9 +296,33 @@ static BUILTIN_LOGGER_INSTALLED: core::sync::atomic::AtomicBool =
 struct StderrLogger;
 static STDERR_LOGGER: StderrLogger = StderrLogger;
 
+/// `AZ_LOG_DEPS` restores full third-party output. Read once: `enabled` runs per
+/// record, and an environment lookup there would cost more than the filter saves.
+static LOG_DEPS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Binary-parsing crates emit one DEBUG record per import, section and symbol.
+/// Walking a large PE therefore buries azul's own output: a single web-transpiler
+/// run produced a 4.3 GB stderr log in under an hour, of which **every** DEBUG
+/// record was `goblin::*`. That is slow to search and consumes disk for nothing.
+///
+/// Matched on the LEADING CRATE NAME (`goblin::pe::utils` → `goblin`), never as a
+/// substring, so an unrelated target that merely contains the word is unaffected.
+fn is_noisy_dependency(target: &str) -> bool {
+    let crate_name = target.split("::").next().unwrap_or(target);
+    matches!(crate_name, "goblin" | "pdb")
+}
+
 impl log::Log for StderrLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= log::max_level()
+        let mut cap = log::max_level();
+        if *LOG_DEPS.get_or_init(|| std::env::var_os("AZ_LOG_DEPS").is_some()) == false
+            && is_noisy_dependency(metadata.target())
+        {
+            // Never raise above what the caller asked for: an Error- or
+            // Off-level run stays exactly as quiet as it was.
+            cap = cap.min(LevelFilter::Warn);
+        }
+        metadata.level() <= cap
     }
 
     fn log(&self, record: &log::Record) {
