@@ -620,7 +620,14 @@ jobs:
           toolchain: 1.90.0
 
       - name: Install dependencies (Ubuntu)
-        run: sudo apt-get update && sudo apt-get install -y libv4l-dev
+        # `fonts-dejavu-core`: AzWriter's pagination tests MEASURE text - a
+        # 40-paragraph document spans two pages only if the glyphs have real
+        # metrics. On a runner with no fonts installed they all fit on one and
+        # five tests fail with "need multiple pages, got 1". The same package is
+        # already installed for the native-e2e job below, and fonts-noto-core for
+        # another; this job just never got one. Locally (fonts present) all 44
+        # AzWriter tests pass.
+        run: sudo apt-get update && sudo apt-get install -y libv4l-dev fonts-dejavu-core
 
       - name: Download generated bindings (built once by codegen_linux)
         uses: actions/download-artifact@v8

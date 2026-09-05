@@ -721,6 +721,13 @@ this work; none was caused by the #463 / #466 merges:
 | `AZ_E2E rust / c-cpp / scripting-a / -b` | **PRE-EXISTING, NOT FIXED.** `hello_world_counter.json` step 6 (the third click): "could not resolve the click target". Bisected: built libazul + the hello-world example from **pre-merge master `0d3b63eb5`** and got the IDENTICAL failure, so it is not a merge regression. The engine's own in-process `E2E Headless (e2e/*.json)` PASSES the same scenarios - only the shipped-binding lane fails |
 | `Autofix + normalize (api.json drift)` | **PARKED.** Ran CI's exact chain and audited the result: a clean relocation of 14 public classes (`XmlTagName` dom->xml, `NativeGestureEvent` dom->gesture, the font types css->font), 2251 classes in and out, none lost or gained, no `external` key dropped. Reverted rather than committed: it changes public MODULE PATHS, which is what documentation references, and the user is writing documentation |
 
+**Round two: two more jobs surfaced once the lean build was fixed.**
+
+| failure | verdict |
+|---|---|
+| `DLL tests + feature check` (still) | **FIXED (CI env).** Not AzPaint any more - five AzWriter PAGINATION tests: "need multiple pages, got 1". `paginate` MEASURES text, so a 40-paragraph document spans two pages only if the glyphs have real metrics; the job installs `libv4l-dev` and no fonts at all. Locally, with fonts, all 44 AzWriter tests pass. Added `fonts-dejavu-core` - the same package the native-e2e job already installs, and another job installs `fonts-noto-core`. The assertions are untouched; they simply get the environment they always assumed |
+| `Build Binaries (ubuntu, macos)` | **PRE-EXISTING, NOT FIXED - needs a decision.** The release gate "exports only the azul C API + allowed residuals" fails: `libazul.so` and `azul.so` export `Median_init/step/finalize`, `PercentileCont_*`, `PercentileDisc_*`. Those are SQLite AGGREGATE functions from **turso**, pulled in by `db-sqlite` - the same turso 0.7 upgrade (`b26c376d5`, 2026-08-31) that brought the `turso_sdk_kit` windres break. Fixing it means either widening the gate's allowlist for known third-party residuals or hiding the symbols at link time (version script / visibility), and that is a release-artifact policy call, not a CI-plumbing one |
+
 **And the libazul clobber trap reproduced deterministically** while doing this:
 `cargo build -p azul-examples --example hello-world --no-default-features
 --features link-dynamic` truncates `target/release/libazul.so` to **0 bytes**,
