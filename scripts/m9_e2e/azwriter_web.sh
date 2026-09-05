@@ -31,6 +31,15 @@ export PATH="$PWD/third_party/remill/dependencies/install/bin:$PATH"
 export AZ_BACKEND=web://127.0.0.1:8801 AZ_LIFT_CACHE=1 AZ_REMILL_KEEP_SCRATCH=1
 export AZ_MINI_MAX_DEPTH=16384 AZ_CB_MAX_DEPTH=8192
 echo "=== lifting AzWriter (first run is cold; can take a while) $(date +%H:%M:%S) ===" | tee -a "$LOG"
+# ROTATE the previous run's log before truncating it. That file holds the
+# synth->name mapping, the dep edges and the audit output, and synth
+# addresses are assigned PER BUILD - so diagnosing run N from run N+1's log
+# is not possible, and merging several logs gives a wrong answer because the
+# same function sits at a different synth address in each.
+if [ -s /c/rb/azwriter_server.log ]; then
+  PREV_TS=$(date -r /c/rb/azwriter_server.log +%Y%m%d-%H%M%S 2>/dev/null || date +%Y%m%d-%H%M%S)
+  cp /c/rb/azwriter_server.log "/c/rb/azwriter_server.$PREV_TS.log" 2>/dev/null || true
+fi
 nohup "./$BIN" > /c/rb/azwriter_server.log 2>&1 &
 
 # AzWriter's cold lift (mini + layout cb + on_export cb, each ~3000 fns) can
