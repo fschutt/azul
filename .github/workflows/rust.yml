@@ -273,6 +273,41 @@ jobs:
           fi
           ls -la target/release/azul-doc* || true
 
+      - name: Install binding toolchains (best effort)
+        # The derive gate proves a NAME is present in a generated binding; it
+        # cannot prove the binding COMPILES, because it greps text and a broken
+        # method still contains its name. Three non-compiling emissions shipped
+        # before this stage existed, and the V binding turned out never to have
+        # compiled at all while reporting zero unreachable derives.
+        #
+        # Every checker is probed against a known-good sample of its own
+        # language first, so a missing or broken tool SKIPS rather than being
+        # reported as broken generated code. That is why this install is
+        # best-effort: whatever lands gets used, whatever does not is skipped,
+        # and the job never fails because a package name moved.
+        #
+        # node, java and g++ ship on the runner and are exactly the three that
+        # cannot be checked on the maintainer's machine - node has a broken
+        # dylib, javac has no JRE, g++ cannot find <cstdint>. CI is where those
+        # actually get covered.
+        shell: bash
+        run: |
+          sudo apt-get update -qq || true
+          sudo apt-get install -y -qq \
+            gfortran php-cli luajit ruby perl \
+            ocaml libctypes-ocaml-dev golang-go || true
+          for t in gcc g++ gfortran perl ruby luajit php node javac go gofmt ocamlfind; do
+            printf '%-10s %s\n' "$t" "$(command -v $t || echo MISSING)"
+          done
+
+      - name: Compile-check the generated bindings
+        # Fails only on a language whose checker WORKS and whose artifact does
+        # not compile. See stage_binding_syntax in scripts/check.sh for the
+        # probe rule and the KNOWN_BROKEN list.
+        shell: bash
+        run: bash scripts/check.sh --only binding-syntax
+
+
       - name: Upload the azul-doc binary
         uses: actions/upload-artifact@v7
         with:
