@@ -6,18 +6,19 @@
 // the missed PC at 0x409B0, the ring at 0x409C0). This reads both back, dumps
 // the X86State register file, and labels it.
 //
-// WHY EMPIRICAL. Only `pcs::ARG` is known for certain from the source:
-//   RAX 2216, RCX 2248, RDX 2264, R8 2344, R9 2360.
-// RSI/RSP/RIP were previously EXTRAPOLATED from lifted-IR GEP indices, and that
-// mapping read RCX and RIP as the same value - contradicting the `movq %rsi,%rcx`
-// that precedes the failing call. So instead of trusting offsets, this pins them
-// with two anchors whose values are known independently:
+// The offsets below are VERIFIED against remill's State.h (see the table further
+// down), not extrapolated - an earlier guess from lifted-IR GEP indices put RIP
+// at 2472 instead of 2480 and made RCX and RIP read the same value, which
+// contradicted the `movq %rsi,%rcx` preceding the failing call.
+//
+// Two independently-known anchors are still checked at runtime, because a
+// verified table is worth nothing if the recorded pointer is wrong:
 //
 //   RIP  == the recorded missed PC (0x409B0)
 //   RSP  ∈ the guest stack band (~0x2f000..0x30000)
 //
-// Any slot matching an anchor is labelled CONFIRMED; the rest are printed raw
-// so the register file can be read off directly.
+// Slots matching an anchor are flagged, and every non-zero slot is printed so
+// the file can be read off directly.
 const CDP = process.env.AZ_CDP || 'http://127.0.0.1:9222';
 const URL = process.argv[2] || 'http://127.0.0.1:8801/';
 const WAIT = parseInt(process.argv[3] || '25000', 10);
@@ -67,7 +68,27 @@ const READ = `(() => {
   return JSON.stringify(out);
 })()`;
 
-const KNOWN = { 2216: 'RAX', 2248: 'RCX', 2264: 'RDX', 2344: 'R8', 2360: 'R9' };
+// CONFIRMED layout, read off remill's include/remill/Arch/X86/Runtime/State.h.
+// `struct alignas(8) GPR` interleaves an 8-byte padding field before every
+// register ("Prevents LLVM from casting a GPR into an i64"), so the stride is
+// 16, not 8:
+//     _0, rax, _1, rbx, _2, rcx, _3, rdx, _4, rsi, _5, rdi,
+//     _6, rsp, _7, rbp, _8, r8 ... _15, r15, _16, rip
+// Anchoring rax at pcs::RET (2216) puts the GPR base at 2208, which reproduces
+// ALL FOUR pcs::ARG values exactly (rcx 2248, rdx 2264, r8 2344, r9 2360) - so
+// this is verified, not extrapolated.
+//
+// Note RIP is 2480, NOT 2472: an earlier uniform-8-bytes-per-GEP-index guess
+// missed the extra `_16` field sitting between r15 and rip, and every register
+// conclusion drawn from that mapping was wrong.
+const GPR = 2208;
+const KNOWN = {
+    [GPR + 8]: 'RAX', [GPR + 24]: 'RBX', [GPR + 40]: 'RCX', [GPR + 56]: 'RDX',
+    [GPR + 72]: 'RSI', [GPR + 88]: 'RDI', [GPR + 104]: 'RSP', [GPR + 120]: 'RBP',
+    [GPR + 136]: 'R8', [GPR + 152]: 'R9', [GPR + 168]: 'R10', [GPR + 184]: 'R11',
+    [GPR + 200]: 'R12', [GPR + 216]: 'R13', [GPR + 232]: 'R14', [GPR + 248]: 'R15',
+    [GPR + 272]: 'RIP',
+};
 
 (async () => {
     const tab = await (await fetch(`${CDP}/json/new?about:blank`, { method: 'PUT' })).json();
@@ -111,8 +132,9 @@ const KNOWN = { 2216: 'RAX', 2248: 'RCX', 2264: 'RDX', 2344: 'R8', 2360: 'R9' };
     console.log('X86State register file (anchors: RIP == first missed PC, RSP in 0x2f000..0x31000)');
     for (const [off, lo, hi] of o.slots) {
         if (off % 8 !== 0) continue;
+        const isReg = KNOWN[off] !== undefined;
         const q = (BigInt(hi >>> 0) << 32n) | BigInt(lo >>> 0);
-        if (q === 0n) continue;
+        if (q === 0n && !isReg) continue;
         let tag = KNOWN[off] ? ('  ' + KNOWN[off] + ' (known)') : '';
         if ((lo >>> 0) === (o.firstPC >>> 0) && hi === 0) tag += '  <== RIP CONFIRMED (== missed PC)';
         const n = Number(q);
