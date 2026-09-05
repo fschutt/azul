@@ -568,6 +568,19 @@ The structural facts that make it work:
    lazily instantiated chunk violates that invariant by construction. Needs
    disjoint per-chunk mirror bands asserted at build time, or lazy chunks with
    no data segments at all.
+
+   **Measured: this hazard does not apply to chunks split off the mini.**
+   `scripts/m9_e2e/wasm-sections.py` on the real artifact says `azul-mini.wasm`
+   is 28,318,505 of 28,324,938 bytes of CODE and carries **zero data
+   segments** — as does `transitive-lift.wasm`. The multi-MiB lifted-data
+   mirror lives in the layout wasm, not the mini. So chunks carved out of the
+   mini inherit "no data segments" for free and can be instantiated at any
+   point without touching live memory. The invariant still has to be *asserted*
+   at build time (a chunk that later acquires a data section would reintroduce
+   the bug silently), but it is not a design obstacle today.
+
+   It also means the whole 28.32 MB is code, so the code-side partition
+   translates about directly instead of being diluted by an eager data mass.
 2. **The async problem is solved at the JS export boundary, not in the shim.** A
    boundary import is a synchronous wasm to JS to wasm call and cannot await. But
    every path into a lazy chunk starts at a JS-called export, and JS *is* async
