@@ -70,7 +70,10 @@ pub type DiagnosticSink = fn(&str);
 #[cfg(feature = "std")]
 fn write_diagnostic(mut out: impl std::io::Write, message: &str) {
     use std::io::Write as _;
-    let _ = writeln!(out, "{message}");
+    // `drop`, not `let _ =`: this crate denies `let_underscore_drop`, and
+    // `io::Result` owns a boxed error. Discarding it is the POINT here - see
+    // above - so say so explicitly.
+    drop(writeln!(out, "{message}"));
 }
 
 #[cfg(feature = "std")]

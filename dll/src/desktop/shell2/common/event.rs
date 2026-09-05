@@ -826,7 +826,7 @@ pub const CSD_RESIZE_BAND_PX: f32 = 8.0;
 /// get real WM edges).
 #[must_use]
 pub fn csd_resize_edge_at(
-    pos: azul_core::geom::LogicalPosition,
+    pos: LogicalPosition,
     size: azul_core::geom::LogicalSize,
     band: f32,
 ) -> Option<CsdResizeEdge> {
@@ -860,7 +860,7 @@ pub fn csd_resize_edge_at(
 /// A window the WM decorates has no client band at all: the frame is the
 /// compositor's, and its own edges do the resizing.
 pub fn csd_resize_edge_for_press(
-    pos: azul_core::geom::LogicalPosition,
+    pos: LogicalPosition,
     size: azul_core::geom::LogicalSize,
     decorations: azul_core::window::WindowDecorations,
     frame: azul_core::window::WindowFrame,
