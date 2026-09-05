@@ -817,6 +817,18 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     SMALL gap deserves the same scrutiny as a large one. 0 honoured is not
 ///     a good sign, it is the signature of a profile that does not match its
 ///     artifact.
+///   * `php-ext` (129, was 134) - correctly measured, unlike ocaml: the
+///     artifact really does name `AzApp_*` symbols, and the 1744 absent are a
+///     genuinely curated surface of 29 classes. `is_method_kind_eligible`
+///     said the trait helpers were "skipped entirely for now"; admitting them
+///     landed `_partialEq`, `_hash`, `_cmp` and `_clone` for Dom, Button and
+///     WindowCreateOptions, and NOTHING else - because eligibility is only the
+///     precondition. `render_method` still returns None for the rest: the
+///     marshalling table has no `AzString` RETURN (only the argument
+///     direction), no same-type `*const Az{T}` argument for `_partialEq`'s
+///     second operand, and no `Self` return for `_clone`. Not one
+///     `_toDbgString` reaches the artifact, which is the whole Debug column.
+///     Those three mappings are the fix.
 ///   * `haskell` (10) - the recursive-type carve-out moved it 11 -> 10, so its
 ///     `_partialEq` / `_cmp` / `_hash` now reach the artifact. The remaining
 ///     Debug / Clone / Default do NOT, for a different reason: Haskell routes
@@ -870,7 +882,7 @@ fn declared_count(derives: &BTreeSet<String>) -> usize {
 pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
     ("zig", 19),
-    ("php-ext", 134),
+    ("php-ext", 129),
     ("ocaml", 4010),
     ("haskell", 10),
     ("go", 19),
