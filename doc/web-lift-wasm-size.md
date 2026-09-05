@@ -198,6 +198,38 @@ font-fallback chains, rarely-used CSS property parsing.
 - A boundary inside a hot loop costs a real call per iteration.
 - So: cut on paths measured cold, and re-measure both size *and* frame time.
 
+## The swept-in root set is not stable between builds — A/B noise of ~150 fns
+
+Two runs differing only by a transpiler edit produced mini walks of **4040** and
+**4193** unique functions: **+155 added, 2 removed**, worth 33,968 native bytes.
+Every added name is a host-side generic instantiation the app cannot reach —
+`Arc::drop_slow<azul::web::server::WebServerState>`,
+`Vec::drop<azul::web::BoundaryWasm>`, `RawVec::grow_one<iced_x86::info::UsedMemory>`,
+`Vec::fmt<pdb::source::SourceSlice>` — i.e. more of the known "swept-in roots"
+mass, arriving through fn-pointer roots found in mirrored data.
+
+Nothing in the edit targeted discovery. The set moved because **AzWriter lifts
+itself**: relinking the image shifts what the data-window scan reads as a
+plausible function pointer.
+
+Two consequences:
+
+1. **A ±500 KB size delta cannot be attributed to a change** without splitting
+   it. For the run above the mini grew 526,529 bytes; the deliberate change (a
+   TLS seed, 9 stores × 1793 wrappers) accounts for at most ~226 KB, and 33,968
+   native bytes of swept-in drift expands to roughly the same order once lifted.
+   Both terms are material — neither dominates, and quoting either alone is
+   wrong.
+2. **Chunk boundaries will move between builds** for the same reason, so the
+   chunk plan must be regenerated per build rather than pinned.
+
+Measure it with `C:\rb\mini_walk_diff.py` / `swept_in_bytes.py`, which read the
+log's `transitive[N]: lifting <name> addr=… size=…` lines. Use the **log**, not
+the scratch: a scratch directory holds every walk's output, not just the mini's,
+and cache hits may write no `.lifted.ll` at all — comparing scratches reported
+1971 spurious removals. Stop at the first `transitive lift complete`; the mini
+walk is the first of 24 sections.
+
 ## Sequencing
 
 1. State-store DSE (done — 28% on the measured function).
