@@ -71,8 +71,6 @@ zune-jpeg               = { version = "0.5", default-features = false, features 
 rust-fontconfig = { version = ">=4.6, <4.7", default-features = false, optional = true }
 libc                    = { version = "0.2", default-features = false, optional = true }
 serde                   = { version = "1.0", features = ["derive"] }
-short-uuid              = { version = "0.2" }
-uuid                    = { version = "1.7", default-features = false, features = ["v4"] }
 brotli-decompressor     = { version = "5", default-features = false, features = ["std"], optional = true }
 accesskit               = { version = "0.24", default-features = false, optional = true }
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }
@@ -533,15 +531,6 @@ path = "tests/virtualview_hit_matches_render.rs"
 # Dev-only: JSON fixture deserialization for the e2e_json harness. Dev-deps are
 # never shipped and never affect the published dependency graph, so this does
 # NOT rely on the optional `json` crate feature.
-# `short-uuid` pulls `uuid`, which on wasm32-unknown-unknown has no source of
-# randomness and REFUSES TO COMPILE without one being named ("specify a source
-# of randomness using one of the `js`, `rng-getrandom`, or `rng-rand`
-# features"). `js` routes it through the browser's crypto, which is the only
-# one of the three that exists in a browser. Feature-unified into short-uuid's
-# copy; azul-layout does not use `uuid` directly.
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-uuid = { version = "1", default-features = false, features = ["js"] }
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = { version = "3.3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "logging"], optional = true }
