@@ -567,10 +567,52 @@ regeneration. NOT FIXED HERE: there is no iOS device and no compiler coverage
 for `target_os = "ios"` on this machine, so this is a code-read finding with
 its Android precedent, not a blind edit.
 
+**The CPU path does not over-draw either, and now it can say so.** Idle, 25 s,
+default backend (`Cpu` - GPU is opt-in): Wayland ends with
+
+    [Wayland] frame rendered with no visual change - nothing committed, requests retired
+
+and then 24 seconds of silence - 0 frames. X11 logged 0 presents too, but that
+was NOT a measurement: `render_and_present` timed itself only in the GPU tail,
+so the CPU path (which returns early) was invisible while the window was
+demonstrably painting. Worse, the same early return never stamped
+`last_present_at`, so `pace_allows_render` saw `None` forever and returned
+`true` unconditionally: **the X11 frame pacer only ever paced the GPU path**, and
+on CPU every wake carrying a redraw request paid a full damage-diff and render
+instead of coalescing into one frame per refresh interval. Both paths now close
+out through one `note_present`, which stamps the pacing clock and logs the cost.
+
 **The CPU path does not have this loop.** It never builds a WebRender
 transaction, so nothing signals `new_frame_ready`; its only self-feeding edge is
 the scrollbar fade re-arm, which terminates by the rule above. Verified on all
 four backends by reading the redraw sources, not assumed from X11.
+
+## X11 CPU idle: one 18-46 ms present per caret blink, and nobody had seen it
+
+With `note_present` now on BOTH paths, the X11 CPU backend can be measured for
+the first time. Idle, 25 s, default backend, window focused:
+
+    46 presents  (was: 0 lines - the path was never instrumented)
+
+They come in pairs on a 1200 ms cadence - the caret-blink timer the log names
+one line earlier (`Created timerfd 13 for timer 1 (interval 1200ms)`, the KDE
+`caret_blink_ms`):
+
+    [ 3435471us] render_and_present 1920x1036 took=42.51ms
+    [ 3435742us] render_and_present 1920x1036 took=0.19ms
+    [ 4631328us] render_and_present 1920x1036 took=38.57ms
+    [ 4631690us] render_and_present 1920x1036 took=0.24ms
+
+18-46 ms of work, ~1.9 presents/s, to toggle a caret. NOT ATTRIBUTED: a run at
+`trace` with every category enabled produced 71 lines in 10 s and NOTHING
+between the two presents - no `regenerate_layout`, no `[phases]`, no damage
+line. So the cost is entirely inside `render_and_present` and this report cannot
+say which part: the CPU rasterisation, the internal display-list rebuild the
+caret toggle triggers (`display_list_dirty`), or the swizzle+`XPutImage`. The
+blit is already damage-limited and the rasteriser already has an incremental
+display-list-diff path (`cpu_backend.rs:443`), which makes 42 ms for a caret
+suspicious rather than expected. Next step is instrumentation INSIDE the CPU
+render, not a guess.
 
 ## Traps found
 

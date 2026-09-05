@@ -6204,6 +6204,34 @@ impl X11Window {
     /// its wake re-enters the render gate, and every request that arrived
     /// in between coalesces into that single deferred frame - the timerfd
     /// spelling of macOS's "render at the CVDisplayLink tick".
+    /// Close out a present: stamp the pacing clock and report what it cost.
+    ///
+    /// BOTH render paths must call this. The CPU path used to do neither - it
+    /// returned early, so `last_present_at` stayed `None` for the life of the
+    /// process and [`Self::pace_allows_render`] therefore returned `true`
+    /// unconditionally: the frame pacer existed only for the GPU path, and on
+    /// CPU every wake that carried a redraw request paid a full damage-diff and
+    /// render instead of coalescing into one frame per refresh interval. It was
+    /// also invisible - the `took=` line lived in the GPU tail, so an idle CPU
+    /// run logged zero presents while the window was demonstrably painting, and
+    /// a zero is not a measurement.
+    fn note_present(&mut self, present_started: std::time::Instant) {
+        let now = std::time::Instant::now();
+        let took = now.duration_since(present_started);
+        self.last_present_at = Some(now);
+
+        // Only a call that rendered AND presented reaches this, so it measures
+        // the real thing. Behind the Window category like the rest of the X11
+        // frame logging - `AZ_LOG="debug,+window"`.
+        log_debug!(
+            LogCategory::Window,
+            "[X11] render_and_present {}x{} took={:.2}ms",
+            self.common.current_window_state().size.dimensions.width as u32,
+            self.common.current_window_state().size.dimensions.height as u32,
+            took.as_secs_f64() * 1000.0
+        );
+    }
+
     fn pace_allows_render(&mut self) -> bool {
         use std::sync::OnceLock;
         static NO_PACE: OnceLock<bool> = OnceLock::new();
@@ -6708,6 +6736,10 @@ impl X11Window {
             // inside this render survive (mirrors the Wayland CPU tail).
             self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
 
+            // Same close-out as the GPU tail: the pacer only ever saw GPU
+            // presents, so it did not pace this path at all.
+            self.note_present(present_started);
+
             return Ok(());
         }
 
@@ -6951,22 +6983,8 @@ impl X11Window {
         // epoch check means the scrollbar-fade re-arm above survives too.
         self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
 
-        // Frame-pacing stamp (see `pace_allows_render`): only a call that
-        // actually presented reaches this line, same argument as above.
-        let now = std::time::Instant::now();
-        let took = now.duration_since(present_started);
-        self.last_present_at = Some(now);
-
-        // Only a call that rendered AND presented gets here, so this measures
-        // the real thing. Behind the Window category like the rest of the X11
-        // frame logging - `AZ_LOG="debug,+window"`.
-        log_debug!(
-            LogCategory::Window,
-            "[X11] render_and_present {}x{} took={:.2}ms",
-            self.common.current_window_state().size.dimensions.width as u32,
-            self.common.current_window_state().size.dimensions.height as u32,
-            took.as_secs_f64() * 1000.0
-        );
+        // Frame-pacing stamp + the cost of this present (see `note_present`).
+        self.note_present(present_started);
 
         Ok(())
     }
