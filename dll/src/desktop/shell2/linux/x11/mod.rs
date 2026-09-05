@@ -6246,6 +6246,13 @@ impl X11Window {
         // re-schedule them — so a minimise, or one transient GPU error, silently
         // cost a repaint that nobody would ever ask for again. It is now retired
         // at the END, on the paths that actually rendered.
+        // Time the WHOLE present, so X11 can answer "how long does a repaint
+        // take" the way Wayland's `resize_surface ... took=` already does.
+        // Without this the only X11 number available was the gap BETWEEN
+        // ConfigureNotify events, which is the rate resize events arrive at,
+        // not the cost of painting - and quoting it as a frame rate is exactly
+        // the mistake the X11 report had to retract.
+        let present_started = std::time::Instant::now();
         let want_redraw = self.needs_redraw.pending();
         // ... and retired BY EPOCH, because this function raises the request
         // again itself: the scrollbar-fade re-arm below calls request_redraw().
@@ -6942,7 +6949,20 @@ impl X11Window {
 
         // Frame-pacing stamp (see `pace_allows_render`): only a call that
         // actually presented reaches this line, same argument as above.
-        self.last_present_at = Some(std::time::Instant::now());
+        let now = std::time::Instant::now();
+        let took = now.duration_since(present_started);
+        self.last_present_at = Some(now);
+
+        // Only a call that rendered AND presented gets here, so this measures
+        // the real thing. Behind the Window category like the rest of the X11
+        // frame logging - `AZ_LOG="debug,+window"`.
+        log_debug!(
+            LogCategory::Window,
+            "[X11] render_and_present {}x{} took={:.2}ms",
+            self.common.current_window_state().size.dimensions.width as u32,
+            self.common.current_window_state().size.dimensions.height as u32,
+            took.as_secs_f64() * 1000.0
+        );
 
         Ok(())
     }

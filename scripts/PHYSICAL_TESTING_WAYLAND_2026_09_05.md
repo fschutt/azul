@@ -338,6 +338,42 @@ atoms need: HIDDEN outranks FULLSCREEN outranks maximize, and maximize means
 BOTH axes - a vertically-maximized window still has left and right edges, so it
 is Normal.
 
+## X11 repaint, now instrumented — and the "23 fps" claim finally settled
+
+X11 had no equivalent of Wayland's `resize_surface ... took=`, which is exactly
+why #461's resize figure was inferred from the gaps between ConfigureNotify
+events and had to be retracted. `render_and_present` now times itself
+(`AZ_LOG="debug,+window"`).
+
+Driving 12 window resizes on the X11 backend, **1058 samples**:
+
+    present cost              min 0.94   median 16.51   p90 17.19   max 317.41 (cold first)
+    present-to-present gap    median 16.65 ms  ->  60.0 fps
+
+Two things follow, and the second one killed a hypothesis of mine.
+
+**The present loop runs at exactly refresh rate.** 16.65 ms between presents on
+a 60 Hz panel is 60.0 fps. Whatever "resize lags" is, it is not the present
+loop failing to keep up.
+
+**The 16.51 ms is the vsync block, not paint work.** The MINIMUM present is
+0.94 ms, and the median sits a hair under one refresh interval — the shape of a
+swap that waits for vblank. Wayland's number is the same story from the other
+side: `resize_surface` there measures the repaint WITHOUT the wait and reports
+3.20 ms median.
+
+I expected to find double-pacing here — the frame pacer stamps
+`last_present_at` AFTER the present returns, and its own comment says it was
+written when presents were "sub-ms frames", so a present that now blocks a full
+frame looked like it would make the pacer add a second one. The measurement
+says otherwise: 60.0 fps, no doubled interval. The pacer change I had drafted
+would have "fixed" something that is not broken, and measuring before changing
+is the only reason it was not made.
+
+So #461's "~23 fps" is fully retired: the paint costs ~1 ms of work, the swap
+waits for vblank, and the loop delivers 60 fps. Those 44 ms gaps were the rate
+synthetic resize EVENTS were arriving at.
+
 ## Traps found
 
 1. **`build-dll` and `link-dynamic` fight over `target/release/libazul.so`, in
@@ -398,10 +434,9 @@ Ordered by what the next session can actually act on.
 - 20 font families report unresolved while `fc-list` finds most of them
   installed. Belongs with the font-fallback rework in #457; the cross-check is
   recorded above so the next session starts from evidence.
-- `render_and_present` is still not instrumented. `resize_surface` gave the
-  Wayland repaint number (median 3.20 ms), but there is no equivalent span on
-  X11, which is why #461's "~23 fps" was inferred from event gaps and had to be
-  retracted.
+- ~~`render_and_present` is not instrumented~~ DONE - it times itself now, and
+  the X11 loop measures 60.0 fps with a 0.94 ms floor. Both platforms have a
+  repaint number.
 - From the X11 audit, still unfixed: no `_NET_FRAME_EXTENTS` /
   `_GTK_FRAME_EXTENTS` (and xfwm4#603 says the extents must be cleared BEFORE
   a maximize transition, not after); `XI_KeyPress` is selected on
