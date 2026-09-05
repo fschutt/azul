@@ -712,9 +712,10 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 /// a baseline that is only ever checked as an upper bound goes stale the day
 /// after it is written and then proves nothing.
 ///
-/// A binding absent from this table must have ZERO gaps. Twenty-three are
+/// A binding absent from this table must have ZERO gaps. Twenty-five are
 /// today: the three Rust mirrors, memtest, all six C++ dialects, C, C#, Java,
-/// Node, Ruby, Lua, Pascal, Ada, PHP, Perl, Common Lisp, Algol 68 and COBOL.
+/// Node, Kotlin, Racket, Ruby, Lua, Pascal, Ada, PHP, Perl, Common Lisp,
+/// Algol 68 and COBOL.
 ///
 /// WHAT EACH REMAINING NUMBER IS, IN ONE LINE (measured 2026-09-05):
 ///   * `python` (150) — every class that HAS a pyclass now honours its whole
@@ -726,13 +727,10 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///   * `zig` / `go` — the wrapper emitters whitelist
 ///     `Constructor | Method | MethodMut | StaticMethod | Default | DeepCopy`,
 ///     so the comparison and debug entry points reach the artifact zero times.
-///   * `~114-134` in the remaining tail — the `*VecDestructor` types. Their
-///     `_toDbgString` is exported from libazul and those emitters skip the type
-///     wholesale. Fixed for C#/Java/Node/PowerShell; kotlin, racket, crystal,
-///     d, julia, nim, odin, v, fortran, red, smalltalk, vb6 and freebasic are
-///     the same one-line shape, untouched here.
-///   * `powershell` / `swift` (4 each) — one class, `Xml`, whose four entry
-///     points those two emitters drop for a reason not yet established.
+///   * `4-20` in the remaining tail — `Xml`, `XmlNodeChild` and
+///     `ResultXmlXmlError`, three classes whose entry points these emitters
+///     drop for a reason not yet established. Consistent across every binding
+///     that has a residue at all, so it is one cause, not fourteen.
 ///   * `ocaml` — every capability IS generated in `azul.ml` and the `.mli`
 ///     exports only `clone` and `default`, so a consumer can reach nothing else.
 ///
@@ -753,31 +751,34 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     impls are not dunders, so `a == b` silently fell back to identity.
 ///     `generate_derive_dunders` emits them under exactly the condition that
 ///     makes the corresponding mirror impl exist.
-///   * `csharp` / `java` / `node` (114 each) and `powershell` (118) — their
-///     `should_emit_function` excluded the whole `DestructorOrClone` category,
-///     including the one entry point a `derive` actually asks for.
+///   * the `*VecDestructor` tail, in twenty bindings at once (114 each in
+///     csharp/java/node/kotlin/racket, and the bulk of the 118-134 in
+///     powershell, crystal, d, julia, nim, odin, v, fortran, red, smalltalk,
+///     vb6, freebasic, haskell, plus 114 previously-ABSENT classes each in
+///     pascal/ada/lisp/algol68/cobol) — every one of those
+///     `should_emit_function` filters excluded the whole `DestructorOrClone`
+///     category, including the one entry point a `derive` actually asks for.
+///     They now share `FunctionKind::is_declared_capability`.
 pub const BASELINE: &[(&str, usize)] = &[
     ("python", 150),
-    ("freebasic", 124),
+    ("freebasic", 11),
     ("zig", 5168),
     ("powershell", 4),
     ("php-ext", 134),
     ("ocaml", 272),
     ("haskell", 11),
-    ("kotlin", 114),
-    ("fortran", 134),
+    ("fortran", 20),
     ("go", 5648),
-    ("smalltalk", 123),
-    ("vb6", 123),
-    ("crystal", 134),
-    ("d", 134),
-    ("julia", 134),
-    ("nim", 134),
-    ("odin", 134),
-    ("racket", 114),
-    ("red", 126),
+    ("smalltalk", 10),
+    ("vb6", 10),
+    ("crystal", 20),
+    ("d", 20),
+    ("julia", 20),
+    ("nim", 20),
+    ("odin", 20),
+    ("red", 12),
     ("swift", 4),
-    ("v", 134),
+    ("v", 20),
 ];
 
 /// Compare against [`BASELINE`] and render the verdict.

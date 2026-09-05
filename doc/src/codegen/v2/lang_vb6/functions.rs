@@ -64,6 +64,22 @@ pub fn generate_externals(
 }
 
 fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
+    // A trait entry point an api.json `derive` declares is not what the
+    // `DestructorOrClone` exclusion below is for. That category is excluded
+    // because those types' ordinary methods traffic in callback function
+    // pointers this binding cannot marshal; `Az{T}_toDbgString(ptr) ->
+    // AzString` traffics in neither, and is the same shape as the ~2800
+    // `_toDbgString` declarations this binding already emits. Excluding it
+    // wholesale is why every `*VecDestructor` declared `Debug` and named it
+    // nowhere. (`*VecDestructor` is a tagged union, hence `find_enum`.)
+    if func.kind.is_declared_capability()
+        && ir
+            .find_enum(&func.class_name)
+            .is_some_and(|e| e.category == TypeCategory::DestructorOrClone)
+    {
+        return config.should_include_type(&func.class_name);
+    }
+
     if !config.should_include_type(&func.class_name) {
         return false;
     }
