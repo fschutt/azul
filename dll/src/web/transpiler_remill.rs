@@ -8769,50 +8769,61 @@ fn reloc_templateize(
             covered.push((o, o + l));
         }
     }
-    let mut claimed: Vec<usize> = Vec::new();
+    let bytes_ir = ir.as_bytes();
+    let mut claimed: Vec<(usize, usize)> = Vec::new();
     for site in sites {
         let next_ip = lift_addr.wrapping_add(site.next_off as u64);
         let disp = site.old_target.wrapping_sub(next_ip) as i64;
-        if disp == 0 {
-            continue;
-        }
-        let text = disp.to_string();
-        // Token-boundary matches only: "5234" must not be found inside
-        // "15234" or "0x5234", and a leading '-' belongs to the number.
-        let bytes_ir = ir.as_bytes();
-        let mut hits: Vec<usize> = Vec::new();
-        for (p, _) in ir.match_indices(text.as_str()) {
-            let before = if p == 0 { None } else { bytes_ir.get(p - 1).copied() };
-            let after = bytes_ir.get(p + text.len()).copied();
-            let bad_before = matches!(before, Some(c)
-                if c.is_ascii_digit() || c == b'-' || c == b'.' || c == b'x');
-            let bad_after = matches!(after, Some(c) if c.is_ascii_digit());
-            if !bad_before && !bad_after {
-                hits.push(p);
+        // A masked field reaches the IR in one of two shapes, and BOTH are
+        // probe-invariant and therefore frozen: an absolute operand (an
+        // imm64 target) renders as the address itself, a pc-relative one as
+        // the displacement remill decoded. Slot whichever is present.
+        for (text, is_disp) in [(site.old_target.to_string(), false), (disp.to_string(), true)] {
+            // A one-character run is not a token anything can splice
+            // unambiguously, and only reaches inside this function anyway.
+            if text.len() < 2 {
+                continue;
+            }
+            // Token-boundary matches only: "5234" must not be found inside
+            // "15234" or "0x5234", and a leading '-' belongs to the number.
+            let mut hits: Vec<usize> = Vec::new();
+            for (p, _) in ir.match_indices(text.as_str()) {
+                let before = if p == 0 { None } else { bytes_ir.get(p - 1).copied() };
+                let after = bytes_ir.get(p + text.len()).copied();
+                let bad_before = matches!(before, Some(c)
+                    if c.is_ascii_digit() || c == b'-' || c == b'.' || c == b'x');
+                let bad_after = matches!(after, Some(c) if c.is_ascii_digit());
+                if !bad_before && !bad_after {
+                    hits.push(p);
+                }
+            }
+            if hits.is_empty() {
+                continue; // not frozen in this shape
+            }
+            if hits.len() > 1 {
+                return None; // ambiguous — no single safe splice point
+            }
+            let (at, end) = (hits[0], hits[0] + text.len());
+            if covered.iter().any(|(lo, hi)| at < *hi && end > *lo) {
+                continue; // the probe diff already slotted this field
+            }
+            if claimed.iter().any(|(lo, hi)| at < *hi && end > *lo) {
+                return None; // two sites resolving to one token
+            }
+            let ident = ident_for(site.old_target)?;
+            claimed.push((at, end));
+            if is_disp {
+                slots.push_str(&format!(
+                    "{:x} {:x} D @disp:{:x}:{}\n",
+                    at,
+                    text.len(),
+                    site.next_off,
+                    ident,
+                ));
+            } else {
+                slots.push_str(&format!("{:x} {:x} d {}\n", at, text.len(), ident));
             }
         }
-        if hits.is_empty() {
-            continue; // nothing frozen for this site
-        }
-        if hits.len() > 1 {
-            return None; // ambiguous — cannot splice one occurrence safely
-        }
-        let at = hits[0];
-        if covered.iter().any(|(lo, hi)| at < *hi && at + text.len() > *lo) {
-            continue; // the diff already slotted this field
-        }
-        if claimed.contains(&at) {
-            return None; // two sites resolving to one token
-        }
-        let ident = ident_for(site.old_target)?;
-        claimed.push(at);
-        slots.push_str(&format!(
-            "{:x} {:x} D @disp:{:x}:{}\n",
-            at,
-            text.len(),
-            site.next_off,
-            ident,
-        ));
     }
 
     Some(format!("v6 {lift_addr:x} {fn_len:x}\n{slots}"))
@@ -8868,6 +8879,32 @@ mod reloc_disp_tests {
             out.is_none(),
             "a frozen displacement with no verifiable identity must be a cache \
              MISS, not a template that splices a stale branch target",
+        );
+    }
+
+    /// The same defect in its other shape. `reloc_canonicalize` masks absolute
+    /// imm64 targets out of the key as well, and an absolute address is also
+    /// identical in both probes — but it renders as the address itself, not as
+    /// a displacement, so a `@disp` slot would never match it.
+    #[test]
+    fn frozen_absolute_target_without_identity_refuses_the_template() {
+        let lift = 0x10_0000u64;
+        let target = 987_654_321u64;
+        let ir = "  %2 = load i64, ptr inttoptr (i64 987654321 to ptr)\n";
+        let out = reloc_templateize(
+            ir,
+            ir,
+            lift,
+            lift.wrapping_add(0x4000_0000),
+            0x20,
+            in_image_addr(),
+            &[site(5, target)],
+            None,
+        );
+        assert!(
+            out.is_none(),
+            "a frozen absolute target with no verifiable identity must be a \
+             cache MISS, not a template that splices a stale address",
         );
     }
 
