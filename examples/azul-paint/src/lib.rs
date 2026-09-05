@@ -1884,8 +1884,24 @@ mod tests {
             a: 255,
         };
         let (w, h) = (100u32, 60u32);
-        let alone = render_metaballs(&[black_dab(30.0, 30.0)], w, h, bg, None);
-        let pair = render_metaballs(
+        // `render_metaballs` became `metaball_image` in 7ec9b564e (incremental
+        // metaball field): same trailing arguments, plus the `MetaballField`
+        // cache it now paints into. The test was never updated, so this crate's
+        // lib test has not COMPILED since - and the CI job that would have said
+        // so sits behind a `needs: [clippy]` that has been failing, so nobody
+        // saw it. A FRESH field per call is what the old function did
+        // internally, which keeps the two renders independent exactly as the
+        // assertions below assume.
+        let alone = metaball_image(
+            &mut MetaballField::default(),
+            &[black_dab(30.0, 30.0)],
+            w,
+            h,
+            bg,
+            None,
+        );
+        let pair = metaball_image(
+            &mut MetaballField::default(),
             &[black_dab(30.0, 30.0), black_dab(60.0, 30.0)],
             w,
             h,

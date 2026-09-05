@@ -294,13 +294,38 @@ jobs:
         # `libffi-platypus-perl` is not incidental: Azul.pm loads FFI::Platypus
         # at compile time, so `perl -c` cannot parse it without the module and
         # reports a MISSING DEPENDENCY as broken generated code. The probe now
-        # loads the same module, so a runner without it skips perl instead.
+        # loads the same module AT THE SAME VERSION, so a runner that cannot
+        # satisfy it skips perl instead.
+        #
+        # And it CAN be satisfied here: the distro package is FFI::Platypus
+        # 1.56, while the generated `Azul.pm` opens with `use FFI::Platypus
+        # 2.00;` (2.x is where `$ffi->closure` and `record_layout_1` live), so
+        # the apt package alone left the perl binding permanently unchecked.
+        # cpanm installs 2.x into /usr/local/..., which precedes the distro
+        # directories in @INC, so it wins. `--notest` because we want the
+        # module, not its test suite; `libffi-dev` because the XS build needs
+        # it. If the install fails the probe skips perl exactly as before -
+        # this can only turn a skipped check into a real one.
         shell: bash
         run: |
           sudo apt-get update -qq || true
           sudo apt-get install -y -qq \
             gfortran php-cli luajit ruby perl libffi-platypus-perl \
+            cpanminus libffi-dev \
             ocaml libctypes-ocaml-dev golang-go || true
+          sudo cpanm --notest --quiet FFI::Platypus || true
+          perl -e 'eval { require FFI::Platypus; 1 } or do { print "FFI::Platypus: ABSENT\n"; exit };
+                   printf "FFI::Platypus: %s\n", $FFI::Platypus::VERSION' || true
+          # Run the binding-syntax stage's OWN perl probe here and say what it
+          # decided. `check.sh` prints "perl: ok" / "(skip perl: ...)" on
+          # stdout, which the stage runner only surfaces when the stage FAILS -
+          # so on a green run there is no way to tell a real check from a
+          # silent skip, and a skip is exactly what this job used to do wrong.
+          if perl -e 'use FFI::Platypus 2.00; 1' 2>/dev/null; then
+            echo "perl probe: OK - the generated Azul.pm WILL be syntax-checked"
+          else
+            echo "perl probe: FAILS - perl will be SKIPPED (Platypus 2.x missing)"
+          fi
           for t in gcc g++ gfortran perl ruby luajit php node javac go gofmt ocamlfind; do
             printf '%-10s %s\n' "$t" "$(command -v $t || echo MISSING)"
           done
@@ -595,7 +620,14 @@ jobs:
           toolchain: 1.90.0
 
       - name: Install dependencies (Ubuntu)
-        run: sudo apt-get update && sudo apt-get install -y libv4l-dev
+        # `fonts-dejavu-core`: AzWriter's pagination tests MEASURE text - a
+        # 40-paragraph document spans two pages only if the glyphs have real
+        # metrics. On a runner with no fonts installed they all fit on one and
+        # five tests fail with "need multiple pages, got 1". The same package is
+        # already installed for the native-e2e job below, and fonts-noto-core for
+        # another; this job just never got one. Locally (fonts present) all 44
+        # AzWriter tests pass.
+        run: sudo apt-get update && sudo apt-get install -y libv4l-dev fonts-dejavu-core
 
       - name: Download generated bindings (built once by codegen_linux)
         uses: actions/download-artifact@v8
