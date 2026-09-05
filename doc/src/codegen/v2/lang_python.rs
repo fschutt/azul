@@ -1232,6 +1232,116 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         Ok(())
     }
 
+
+    /// The Python-visible forms of the api.json `derive` list.
+    ///
+    /// WHY THIS IS NEEDED AT ALL
+    /// -------------------------
+    /// The embedded mirror in `__dll_api_inner::dll` already carries the real
+    /// `impl PartialEq` / `impl Ord` / `impl core::hash::Hash` for every class
+    /// whose api.json `derive` list asks for them, and this file already emits
+    /// `impl core::fmt::Debug` for the pyclass on top of that. NONE of it was
+    /// reachable from Python: a Rust trait impl is not a dunder, so
+    /// `a == b` fell back to identity comparison (silently wrong, never an
+    /// error), `hash(a)` hashed the address, `sorted(xs)` raised TypeError and
+    /// `copy.copy(a)` could not work. 4671 declared derives, of which 1321
+    /// equalities.
+    ///
+    /// WHAT IS EMITTED, AND UNDER EXACTLY WHICH CONDITION
+    /// -------------------------------------------------
+    /// Each dunder delegates to `self.inner`, so it is emitted under precisely
+    /// the condition that makes the corresponding trait impl exist on the
+    /// mirror -- the same expressions `generate_capi_derived_trait_impls` uses,
+    /// including the two supertrait closures (`PartialEq` also when only
+    /// `PartialOrd` was declared, `PartialOrd` also when only `Ord` was). If
+    /// those two ever disagree this stops compiling, which is the right failure:
+    /// a dunder that names a trait the mirror does not implement is not a
+    /// binding, it is a build break waiting for someone else.
+    ///
+    /// `taken` is the set of Python-visible names already emitted into this
+    /// `#[pymethods]` block from api.json. It matters for exactly one name:
+    /// several classes declare their own `default` method, and pyo3 rejects two
+    /// methods with the same Python name.
+    fn generate_derive_dunders(
+        &self,
+        builder: &mut CodeBuilder,
+        traits: &super::ir::TypeTraits,
+        taken: &BTreeSet<String>,
+    ) {
+        // Mirrors `generate_capi_derived_trait_impls`: `PartialOrd: PartialEq`
+        // and `Ord: Eq + PartialOrd`, so a class declaring only the stronger
+        // trait still has the weaker impl on the mirror.
+        let has_eq = traits.is_partial_eq || traits.is_partial_ord;
+        let has_ord = traits.is_partial_ord || traits.is_ord;
+
+        if has_eq {
+            // `&Self` is pyo3's documented shape for the comparison slots; a
+            // comparison against an unrelated Python object cannot extract and
+            // is answered by pyo3 itself, not by this body.
+            builder.line("fn __eq__(&self, other: &Self) -> bool {");
+            builder.line("    self.inner == other.inner");
+            builder.line("}");
+            builder.blank();
+            builder.line("fn __ne__(&self, other: &Self) -> bool {");
+            builder.line("    !(self.inner == other.inner)");
+            builder.line("}");
+            builder.blank();
+        }
+
+        if has_ord && has_eq {
+            for (dunder, op) in [
+                ("__lt__", "<"),
+                ("__le__", "<="),
+                ("__gt__", ">"),
+                ("__ge__", ">="),
+            ] {
+                builder.line(&format!("fn {}(&self, other: &Self) -> bool {{", dunder));
+                builder.line(&format!("    self.inner {} other.inner", op));
+                builder.line("}");
+                builder.blank();
+            }
+        }
+
+        if traits.is_hash {
+            // Hashes the mirror through the SAME `Hash` impl the mirror
+            // exposes, so `a == b` implies `hash(a) == hash(b)`. The value is
+            // not stable across builds (`DefaultHasher` is unspecified), which
+            // is also true of Python's own `hash` for str/bytes, so nothing may
+            // persist it.
+            builder.line("fn __hash__(&self) -> u64 {");
+            builder.line("    use core::hash::{Hash, Hasher};");
+            builder.line("    let mut h = std::collections::hash_map::DefaultHasher::new();");
+            builder.line("    self.inner.hash(&mut h);");
+            builder.line("    h.finish()");
+            builder.line("}");
+            builder.blank();
+        }
+
+        if traits.is_clone {
+            // `__copy__` and `__deepcopy__` are BOTH real deep copies: the
+            // mirror's `Clone` is `Az{T}_clone`, which deep-copies every owned
+            // buffer. There is no shallow copy to offer -- two mirrors sharing
+            // one heap buffer would double-free -- so `copy.copy` doing what
+            // `copy.deepcopy` does is the honest mapping, not a shortcut.
+            builder.line("fn __copy__(&self) -> Self {");
+            builder.line("    Self { inner: self.inner.clone() }");
+            builder.line("}");
+            builder.blank();
+            builder.line("fn __deepcopy__(&self, _memo: Bound<'_, PyAny>) -> Self {");
+            builder.line("    Self { inner: self.inner.clone() }");
+            builder.line("}");
+            builder.blank();
+        }
+
+        if traits.is_default && !taken.contains("default") {
+            builder.line("#[staticmethod]");
+            builder.line("fn default() -> Self {");
+            builder.line("    Self { inner: Default::default() }");
+            builder.line("}");
+            builder.blank();
+        }
+    }
+
     fn generate_struct_pymethods(
         &self,
         builder: &mut CodeBuilder,
@@ -1257,6 +1367,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         // Check if this struct is a callback wrapper type
         let is_callback_type = is_callback_wrapper_type(&struct_def.name, ir);
 
+        let mut taken: BTreeSet<String> = BTreeSet::new();
         for func in class_functions {
             if self.function_has_unsupported_args(func, ir) {
                 continue;
@@ -1268,8 +1379,13 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
             if is_callback_type && func.kind == FunctionKind::Constructor {
                 continue;
             }
+            // The RAW name: `generate_pymethod` emits `fn {method_name}` verbatim,
+            // so that is both the Rust identifier and the Python name.
+            taken.insert(func.method_name.clone());
             self.generate_pymethod(builder, func, ir, prefix);
         }
+
+        self.generate_derive_dunders(builder, &struct_def.traits, &taken);
 
         builder.line("fn __str__(&self) -> String {");
         builder.line("    format!(\"{:?}\", self)");
@@ -1362,6 +1478,20 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                     // Struct variants not yet supported
                 }
             }
+        }
+
+        {
+            // Variant constructors occupy the Python name space of this class
+            // too. Raw names, not snake_case: a variant is emitted as
+            // `fn Default()`, which does NOT collide with `fn default()` in
+            // either Rust or Python -- lowercasing here would suppress the
+            // `Default` derive on the six enums that have such a variant.
+            let taken: BTreeSet<String> = enum_def
+                .variants
+                .iter()
+                .map(|v| v.name.clone())
+                .collect();
+            self.generate_derive_dunders(builder, &enum_def.traits, &taken);
         }
 
         if !enum_def.is_union {
