@@ -2204,7 +2204,7 @@ version = "0.0.6"
 criteria = "safe-to-run"
 
 [[exemptions.rust-fontconfig]]
-version = "4.6.0"
+version = "5.0.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.rustc-demangle]]
@@ -2361,10 +2361,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.shlex]]
 version = "2.0.1"
-criteria = "safe-to-deploy"
-
-[[exemptions.short-uuid]]
-version = "0.2.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.shuttle]]
