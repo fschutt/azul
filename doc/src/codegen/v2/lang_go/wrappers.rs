@@ -174,10 +174,26 @@ pub(crate) fn should_emit_wrapper(s: &StructDef, ir: &CodegenIR, config: &Codege
         | TypeCategory::Boxed
         | TypeCategory::GenericTemplate
         | TypeCategory::DestructorOrClone
-        | TypeCategory::CallbackTypedef => return false,
+        | TypeCategory::CallbackTypedef => {
+            // ... unless the class declares capabilities. These exclusions are
+            // about ORDINARY methods - a Boxed heap wrapper or a raw callback
+            // typedef cannot be passed by value - and that reasoning does not
+            // reach `Az{T}_partialEq(a, b) -> bool` or
+            // `Az{T}_toDbgString(ptr) -> AzString`, which take pointers and
+            // return scalars. Same carve-out the recursive types needed.
+            if !has_declared_capability(&s.name, ir) {
+                return false;
+            }
+        }
         _ => {}
     }
-    has_destructor(&s.name, ir) || has_useful_method(&s.name, ir)
+    true
+}
+
+/// Does this class declare capabilities the C ABI exports for it?
+fn has_declared_capability(class_name: &str, ir: &CodegenIR) -> bool {
+    ir.functions_for_class(class_name)
+        .any(|f| f.kind.is_declared_capability())
 }
 
 fn has_destructor(class_name: &str, ir: &CodegenIR) -> bool {
