@@ -11290,6 +11290,15 @@ const AZ_HOST_SCOPE_MD_ID: u32 = 90003;
 const AZ_GUEST_LIST_MD_ID: u32 = 90004;
 const AZ_HOST_LIST_MD_ID: u32 = 90005;
 
+/// Records the call-site PC that reached a `NeverLift` stub, alongside the
+/// symbol recorded at `0x40048`. Sits in the free gap above the recorder block's
+/// used slots (`0x40020`–`0x40078`, then `0x400F0`+).
+///
+/// 26 of the 29 NeverLift symbols are panic entry points and the busiest have
+/// over a thousand callers (see `doc/web-neverlift-decode.md`), so knowing which
+/// panic fired does not locate the bug — this does.
+const AZ_NEVERLIFT_CALLER_REC: u64 = 0x4_0080;
+
 /// Linear address of the synthetic TEB stub. Windows `thread_local!` lowers to
 /// `mov r10, gs:[0x58]` — the TEB's `ThreadLocalStoragePointer` — so the lift
 /// needs *something* at `GSBASE + 0x58`. Placed above the recorder block
@@ -12113,14 +12122,27 @@ fn emit_helper_ir(
                     .strip_prefix("sub_")
                     .and_then(|h| u64::from_str_radix(h, 16).ok())
                     .unwrap_or(0xDEAD);
+                // Also record the CALLER's pc. `%pc` is the call-site PC the
+                // caller loads from %PC immediately before the call, so it
+                // names the exact instruction that reached this stub. Without
+                // it 0x40048 says only WHICH panic — and the busiest panics
+                // have hundreds of callers, so that alone cannot locate the
+                // bug. Resolve with `name-synth.py <pc> <that run's log>`.
+                //
+                // `volatile` is what keeps these alive; unlike the TLS seed
+                // they need no guest alias scope, because nothing in the lifted
+                // code reads them — only the JS probes do, so there is no
+                // guest-tagged load for a host tag to be proven disjoint from.
                 branch_stubs.push_str(&format!(
                     "; NeverLift trap for {sym}\n\
                      define linkonce_odr ptr @{sym}(ptr %state, i64 %pc, ptr %memory) {{\n  \
                        store volatile i64 {marker}, ptr inttoptr (i64 262216 to ptr), align 8\n  \
+                       store volatile i64 %pc, ptr inttoptr (i64 {caller_rec} to ptr), align 8\n  \
                        unreachable\n\
                      }}\n",
                     sym = ext.sym_name,
                     marker = nl_marker,
+                    caller_rec = AZ_NEVERLIFT_CALLER_REC,
                 ));
             }
             // No classification: the SymbolTable didn't have this

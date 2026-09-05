@@ -26,21 +26,24 @@
 const CDP = process.env.AZ_CDP || 'http://127.0.0.1:9222';
 const URL = process.argv[2] || 'http://127.0.0.1:8801/';
 const WAIT = parseInt(process.argv[3] || '25000', 10);
-// synth of __tls_index, rva 0x123e0e8.
+// synth of __tls_index. DO NOT TRUST THIS DEFAULT - pass argv[4].
 //
-// Derived EMPIRICALLY, not from `synth_base + rva - 0x1000`: that formula
-// predicts 0x1328de0 for the TLS template, but the lift's own one-shot log line
-// reports synth=0x132a6e0 for template rva 0x1229de0 - a delta of 0x100900, not
-// 0xff000. An image rebase is linear, so the same delta applies here:
+// Both the rva and the synth delta move every build, because AzWriter lifts
+// itself and any dll/src/web edit relinks the image being addressed. Three
+// consecutive builds gave template rva 0x1229de0 / 0x122b760 / 0x122bce0 and
+// deltas 0x100900 / 0xff000 / 0xff000. So neither the address nor the textbook
+// `synth_base + rva - 0x1000` survives a rebuild.
 //
-//     0x123e0e8 + 0x100900 = 0x133e9e8
-//
-// If a future run logs a different template synth, recompute with that delta.
-// Pass argv[4] to override.
-const IDX = parseInt(process.argv[4] || '133e9e8', 16);
+// `tls-index-synth.py` derives it from the run's own win-tls log line and its
+// own exe; run64.sh passes that through. This constant is only a fallback for
+// a manual invocation and is stale the moment anything is rebuilt.
+const IDX = parseInt(process.argv[4] || '133f0e8', 16);
 
 const TEB = 0x42000, TEB_SLOT = TEB + 0x58, ARRAY = 0x42200, SLOTS = 8;
 const REC_NEVERLIFT = 0x40048;
+// Call-site PC that reached the NeverLift stub. The symbol alone is not enough:
+// the busiest panic entry points have over a thousand callers.
+const REC_NEVERLIFT_CALLER = 0x40080;
 
 const HOOK = `(() => {
   window.__azCaptured = [];
@@ -76,6 +79,7 @@ const PROBE = `(() => {
     tebSlot: String(u64(${TEB_SLOT})),
     index: u32(${IDX}),
     neverlift: u32(${REC_NEVERLIFT}),
+    neverliftCaller: String(u64(${REC_NEVERLIFT_CALLER})),
     slots: [],
   };
   for (let i = 0; i < ${SLOTS}; i++) out.slots.push(String(u64(${ARRAY} + i * 8)));
@@ -138,10 +142,22 @@ const PROBE = `(() => {
         if (o.block912) console.log('block+912     : ' + hex(o.block912) +
                                     '   (the field get_system_time_libstd reads)');
         const allZero = (o.blockHead || []).every(x => BigInt(x) === 0n);
-        if (allZero) console.log('  note: block head is all zero - the .rdata template page');
-        if (allZero) console.log('        is probably NOT mirrored; LocalKey still lazy-inits.');
+        if (allZero) {
+            // A zero HEAD proves nothing: the template's first 64 bytes are
+            // legitimately zero, and reading that as "not mirrored" was wrong
+            // once already. tls-block-scan.js reads the whole block and found
+            // the template's real initial values present, so it IS mirrored.
+            console.log('  note: block head is zero, which is expected - the template starts');
+            console.log('        zeroed. Use tls-block-scan.js to check the WHOLE block.');
+        }
     }
     console.log('NeverLift rec : ' + (o.neverlift === 0 ? '0  (no NeverLift stub reached)'
-        : '0x' + (o.neverlift >>> 0).toString(16) + '  <- name it with name-synth.py'));
+        : '0x' + (o.neverlift >>> 0).toString(16) + '  <- the panic; name it with name-synth.py'));
+    if (o.neverliftCaller !== undefined && BigInt(o.neverliftCaller) !== 0n) {
+        console.log('  called from : 0x' + BigInt(o.neverliftCaller).toString(16) +
+                    '  <- THE CALL SITE; name-synth.py this one to locate the bug');
+    } else if (o.neverlift) {
+        console.log('  called from : 0  (build predates the caller recorder)');
+    }
     ws.close();
 })();
