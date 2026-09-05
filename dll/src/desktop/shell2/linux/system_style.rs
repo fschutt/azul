@@ -2169,6 +2169,17 @@ pub(crate) fn discover() -> SystemStyle {
     // App-specific ricing stylesheet
     style.app_specific_stylesheet = load_app_specific_stylesheet().map(Box::new);
 
+    // Remember what full detection concluded, so a session with no
+    // xdg-desktop-portal still has a light/dark answer for the WINDOW theme.
+    // See `effective_system_theme`.
+    DISCOVERED_THEME.store(
+        match style.theme {
+            Theme::Dark => 1,
+            Theme::Light => 2,
+        },
+        core::sync::atomic::Ordering::Relaxed,
+    );
+
     style
 }
 
@@ -2187,6 +2198,34 @@ pub(crate) fn discover() -> SystemStyle {
 static OBSERVED_COLOR_SCHEME: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
 static THEME_WATCHER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+/// What full detection concluded at startup: 0 = not run yet, 1 = dark,
+/// 2 = light. Written by [`discover`], read when the portal says nothing.
+static DISCOVERED_THEME: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+/// The theme detection read from the desktop's own config at startup.
+fn discovered_startup_theme() -> Option<Theme> {
+    match DISCOVERED_THEME.load(core::sync::atomic::Ordering::Relaxed) {
+        1 => Some(Theme::Dark),
+        2 => Some(Theme::Light),
+        _ => None,
+    }
+}
+
+/// Which theme the WINDOW should carry: the portal's answer when it gives one,
+/// otherwise what full detection read at startup.
+///
+/// The portal is a live SIGNAL and detection is a one-shot READ, so the portal
+/// wins when both speak. But when the portal is absent - no xdg-desktop-portal,
+/// a bare WM, a session where it simply does not answer - the startup read is
+/// the only thing that knows, and it is usually right: it came from kdeglobals,
+/// xfconf or the GTK theme name. Without this the window kept
+/// `WindowTheme::default()` (LightMode) on every portal-less desktop, so a
+/// Breeze Dark KDE session rendered a LIGHT application chrome while
+/// `SystemStyle` sitting right beside it correctly said `Theme::Dark`.
+fn effective_system_theme(observed: Option<Theme>, discovered: Option<Theme>) -> Option<Theme> {
+    observed.or(discovered)
+}
 
 /// Map the XDG `color-scheme` setting onto a [`Theme`].
 ///
@@ -2261,7 +2300,7 @@ pub(crate) fn adopt_observed_theme(
 ) -> Option<alloc::sync::Arc<SystemStyle>> {
     use azul_core::window::WindowTheme;
 
-    let theme = observed_system_theme()?;
+    let theme = effective_system_theme(observed_system_theme(), discovered_startup_theme())?;
     let theme = match theme {
         Theme::Dark => WindowTheme::DarkMode,
         Theme::Light => WindowTheme::LightMode,
@@ -2697,6 +2736,49 @@ mod kde_ini_tests {
         // A layout that drops maximize must not draw one.
         let (_, buttons) = titlebar_from_xfwm_layout("O|HC");
         assert!(buttons.has_close && buttons.has_minimize && !buttons.has_maximize);
+    }
+
+    /// Observed on KDE Plasma **Wayland** (Breeze Dark), 2026-09-05: the
+    /// window rendered its LIGHT chrome on a dark desktop. Detection was not
+    /// the problem - `AZ_DUMP_SYSTEM_STYLE=1` correctly read `theme Dark` and
+    /// the whole Breeze Dark palette out of kdeglobals. The problem is that
+    /// the WINDOW theme (`WindowState::theme`, which is what an app reads
+    /// through `CallbackInfo::get_theme()`) is fed by ONE source: the
+    /// xdg-desktop-portal watcher. This session logs
+    /// `xdg-desktop-portal unavailable`, so the watcher never stores anything,
+    /// `adopt_observed_theme` returns `None`, and the window keeps
+    /// `WindowTheme::default()` - which is `LightMode` - forever.
+    ///
+    /// `observed_system_theme`'s own doc already states the rule this restores:
+    /// when the portal expresses no preference, "whatever full detection chose
+    /// at startup (GTK theme name, kdeglobals, pywal, ...) remains the better
+    /// answer". It was never actually applied to the window.
+    #[test]
+    fn a_silent_portal_falls_back_to_what_detection_read_at_startup() {
+        // The portal answers: it wins, even against a different startup read.
+        assert_eq!(
+            effective_system_theme(Some(Theme::Dark), Some(Theme::Light)),
+            Some(Theme::Dark)
+        );
+        assert_eq!(
+            effective_system_theme(Some(Theme::Light), Some(Theme::Dark)),
+            Some(Theme::Light)
+        );
+
+        // THE DEFECT: no portal, but startup detection read a dark desktop out
+        // of kdeglobals. Today this is `None` and the window stays LightMode.
+        assert_eq!(
+            effective_system_theme(None, Some(Theme::Dark)),
+            Some(Theme::Dark),
+            "a dark desktop with no portal must still produce a dark window"
+        );
+        assert_eq!(
+            effective_system_theme(None, Some(Theme::Light)),
+            Some(Theme::Light)
+        );
+
+        // Nothing known anywhere: stay quiet rather than guess.
+        assert_eq!(effective_system_theme(None, None), None);
     }
 
     #[test]
