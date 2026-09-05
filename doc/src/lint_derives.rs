@@ -203,7 +203,10 @@ const OCAML_PROFILE: &[(&str, Expect)] = &[
     ("Copy", COPY_NA),
     ("PartialEq", Expect::Block { start: OCAML_BLOCK, markers: &["val equal"] }),
     ("Eq", EQ_NA),
-    ("PartialOrd", Expect::Block { start: OCAML_BLOCK, markers: &["val compare"] }),
+    // A PartialOrd-only type gets `partial_compare : t -> t -> int option`,
+    // not `compare`: the ABI answers 255 for "incomparable" and a total
+    // `compare` has no honest value for it. Either spelling satisfies it.
+    ("PartialOrd", Expect::Block { start: OCAML_BLOCK, markers: &["val compare", "val partial_compare"] }),
     ("Ord", Expect::Block { start: OCAML_BLOCK, markers: &["val compare"] }),
     ("Hash", Expect::Block { start: OCAML_BLOCK, markers: &["val hash"] }),
     ("Default", Expect::Block { start: OCAML_BLOCK, markers: &["val default"] }),
@@ -798,22 +801,17 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `ResultXmlXmlError`, three classes whose entry points these emitters
 ///     drop for a reason not yet established. Consistent across every binding
 ///     that has a residue at all, so it is one cause, not fourteen.
-///   * `ocaml` (619, was 4010 once measured properly) - four fixes, one fault:
-///     the `.mli` SEALS the module, so a value the interface does not list is
-///     unreachable however complete `azul.ml` is. The implementation defined
-///     `equal`/`hash`/`to_string` that the interface never declared; nothing
-///     emitted `compare` at all (2 in the file against 704 `equal`); tagged
-///     unions got no module; and unit-only enums needed their capabilities on
-///     the module `types.rs` ALREADY emits - adding a second one produced a
-///     duplicate `module X`, which is an OCaml compile error AND invisible to
-///     a name-presence lint that stops at the first block.
-///     A unit enum is `type az_x = int` with an int view, so the helpers
-///     allocate a cell rather than using `Ctypes.addr`; an int is not
-///     addressable.
+///   * `ocaml` (100, was 4010 once measured properly) - the `.mli` SEALS the
+///     module, so anything the interface omits is unreachable however complete
+///     `azul.ml` is. Fixed: equal/hash/to_string were defined and never
+///     declared; `compare` was emitted nowhere (2 in the file against 704
+///     `equal`); tagged unions had no module; unit-only enums needed their
+///     capabilities on the module `types.rs` already emits, allocating a cell
+///     because an int view is not addressable.
+///     `PartialOrd` gets `partial_compare : t -> t -> int option`, NOT
+///     `compare`: the ABI answers 255 for "incomparable" and a total `compare`
+///     has no honest value for that. The profile accepts either spelling.
 ///     Every capability is decided by ONE predicate both emitters call.
-///     The residue is ordering on unit enums (187 Ord + 275 PartialOrd) and
-///     121 Default: `unit_enum_caps` covers equality, hash and debug only, and
-///     `_cmp` / `_default` want the same allocate-a-cell treatment.
 ///   * `php-ext` (129, was 134) - correctly measured, unlike ocaml: the
 ///     artifact really does name `AzApp_*` symbols, and the 1744 absent are a
 ///     genuinely curated surface of 29 classes. `is_method_kind_eligible`
@@ -880,7 +878,7 @@ pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
     ("zig", 19),
     ("php-ext", 129),
-    ("ocaml", 619),
+    ("ocaml", 100),
     ("haskell", 10),
     ("go", 19),
 ];

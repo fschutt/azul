@@ -1088,7 +1088,12 @@ fn unit_enum_caps(e: &EnumDef, ir: &CodegenIR) -> Vec<(FunctionKind, String)> {
     for f in ir.functions_for_class(&e.name) {
         if matches!(
             f.kind,
-            FunctionKind::PartialEq | FunctionKind::Hash | FunctionKind::DebugToString
+            FunctionKind::PartialEq
+                | FunctionKind::Hash
+                | FunctionKind::DebugToString
+                | FunctionKind::Cmp
+                | FunctionKind::PartialCmp
+                | FunctionKind::Default
         ) && !out.iter().any(|(k, _): &(FunctionKind, String)| *k == f.kind)
         {
             out.push((f.kind, super::functions::ocaml_binding_name(&f.c_name)));
@@ -1111,6 +1116,21 @@ fn emit_unit_enum_trait_decls(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codeg
             FunctionKind::DebugToString => {
                 builder.line("(* Debug rendering routed through the C ABI. *)");
                 builder.line("val to_string : int -> string");
+            }
+            FunctionKind::Cmp => {
+                builder.line("(* Total order routed through the C ABI; OCaml convention. *)");
+                builder.line("val compare : int -> int -> int");
+            }
+            FunctionKind::PartialCmp => {
+                // NOT `compare`: the ABI answers 255 for "incomparable", and a
+                // total `compare : int -> int -> int` has no honest value for
+                // that. An option says exactly what PartialOrd means.
+                builder.line("(* Partial order routed through the C ABI; None = incomparable. *)");
+                builder.line("val partial_compare : int -> int -> int option");
+            }
+            FunctionKind::Default => {
+                builder.line("(* The Rust Default. *)");
+                builder.line("val default : unit -> int");
             }
             _ => {}
         }
@@ -1154,6 +1174,38 @@ fn emit_unit_enum_trait_impls(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codeg
                 builder.line(&format!("{} (Ctypes.addr __s);", del));
                 builder.line("__out");
                 builder.dedent();
+            }
+            FunctionKind::Cmp => {
+                // 0 = Less, 1 = Equal, 2 = Greater on the C side; OCaml's
+                // `compare` wants negative / zero / positive. Exact
+                // correspondence over the same three outcomes.
+                builder.line("let compare (a : int) (b : int) : int =");
+                builder.indent();
+                builder.line(&format!(
+                    "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} b)) with",
+                    raw, ffi, ffi
+                ));
+                builder.line("| 0 -> -1");
+                builder.line("| 1 -> 0");
+                builder.line("| _ -> 1");
+                builder.dedent();
+            }
+            FunctionKind::PartialCmp => {
+                builder.line("let partial_compare (a : int) (b : int) : int option =");
+                builder.indent();
+                builder.line(&format!(
+                    "match Unsigned.UInt8.to_int ({} (Ctypes.allocate {} a) (Ctypes.allocate {} b)) with",
+                    raw, ffi, ffi
+                ));
+                builder.line("| 0 -> Some (-1)");
+                builder.line("| 1 -> Some 0");
+                builder.line("| 2 -> Some 1");
+                builder.line("| _ -> None");
+                builder.dedent();
+            }
+            FunctionKind::Default => {
+                // No receiver, so nothing to allocate.
+                builder.line(&format!("let default () : int = {} ()", raw));
             }
             _ => {}
         }
