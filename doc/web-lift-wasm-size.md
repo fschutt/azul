@@ -223,6 +223,32 @@ Two consequences:
 2. **Chunk boundaries will move between builds** for the same reason, so the
    chunk plan must be regenerated per build rather than pinned.
 
+### Solving for the two terms, with three runs
+
+One more build makes the split measurable instead of estimated. Three mini
+links, identical except for the TLS seed (absent in the first) and whatever the
+walk swept in:
+
+| run | mini fns | mini linked | Δ vs first |
+|---|---|---|---|
+| no seed | 4528 | 30,129,739 | — |
+| seed | 4721 (+193) | 30,656,268 | +526,529 |
+| seed | 4629 (+101) | 30,406,063 | +276,324 |
+
+Two equations in two unknowns give **2,719 B per swept-in function** and a
+constant term of **≈1.7 KB** — the seed's whole cost.
+
+That corrects an estimate made here earlier. The seed is 9 stores per export
+wrapper, and multiplying by the 1793 wrappers found across the corpus gave
+~226 KB — but that count spans all 24 modules. The **release mini exports ~41
+symbols**, so it carries ~41 wrappers: 41 × 9 stores ≈ 5 KB, the same order as
+the solved 1.7 KB. Hoisting the seed into a shared init would save single-digit
+KB of a 30 MB artifact and is **not worth doing**.
+
+The general lesson is the one the swept-in drift already implies: per-wrapper
+costs must be multiplied by *that module's* wrapper count, and a corpus-wide
+file count is not it.
+
 Measure it with `C:\rb\mini_walk_diff.py` / `swept_in_bytes.py`, which read the
 log's `transitive[N]: lifting <name> addr=… size=…` lines. Use the **log**, not
 the scratch: a scratch directory holds every walk's output, not just the mini's,
