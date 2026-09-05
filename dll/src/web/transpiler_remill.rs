@@ -9629,7 +9629,7 @@ fn privatize_flag_storage(ir: &str) -> (String, u32) {
                     out.push_str("  %az_flags = alloca [8 x i8], align 8\n");
                     out.push_str("  store i64 0, ptr %az_flags, align 8\n");
                 }
-                if fn_has_pc[i] {
+                if fn_has_pc[i] && false {
                     out.push_str("  %az_pc = alloca i64, align 8\n");
                     match fn_pc_arg[i].as_deref() {
                         // seed from the function's own PC argument: lifted x86
@@ -9654,7 +9654,23 @@ fn privatize_flag_storage(ir: &str) -> (String, u32) {
                 rewritten += 1;
                 continue;
             }
-            if cur >= 0
+            // PC PRIVATIZATION IS DISABLED pending a bisect. Run 46 shipped it
+            // with the fn-ptr bound also removed and still failed to boot, with
+            // three UNALIGNED unmatched dispatch targets clustered just above
+            // the web eventloop's own callback helpers. Real function entries
+            // are aligned; unaligned targets are what a PC-relative computation
+            // produces from a wrong base, and %PC is the only thing in flight
+            // that feeds PC-relative addressing (lifted x86 reads it for switch
+            // jump tables). Seeding the private slot from the program-counter
+            // argument is necessary but may not be sufficient: if any path
+            // expects %PC to have been updated through the SHARED State rather
+            // than by this function's own stores, a local slot diverges.
+            //
+            // Flags stay private - they cannot affect addressing at all - and
+            // they are the larger share of the win (-43% of the -54.8%).
+            const PRIVATIZE_PC: bool = false;
+            if PRIVATIZE_PC
+                && cur >= 0
                 && fn_has_pc[cur as usize]
                 && name.split('.').next().unwrap_or(name).eq_ignore_ascii_case("pc")
             {
@@ -9700,20 +9716,29 @@ mod flag_privatize_tests {
         assert!(!out.contains("az_flags"), "a function with no flag use needs no buffer");
     }
 
-    /// %PC moves to a private slot too, but SEEDED FROM THE ARGUMENT, not zeroed:
-    /// lifted x86 reads %PC for PC-relative data (switch jump tables index off
-    /// it), so unlike the flags the entry value is load-bearing.
+    /// %PC is currently NOT privatised, and this test pins that so re-enabling
+    /// it has to be a deliberate act rather than a silent regression.
+    ///
+    /// It was enabled and then backed out: run 46 shipped it and failed to boot
+    /// with three UNALIGNED unmatched dispatch targets clustered just above the
+    /// web eventloop's callback helpers. Real function entries are aligned, and
+    /// unaligned targets are what a PC-relative computation yields from a wrong
+    /// base - %PC being the only thing in flight that feeds PC-relative
+    /// addressing, since lifted x86 reads it for switch jump tables.
+    ///
+    /// Seeding the private slot from the program-counter argument is necessary
+    /// but evidently not sufficient. Before turning `PRIVATIZE_PC` back on,
+    /// establish where %PC is expected to be updated through the SHARED State
+    /// rather than by the function's own stores - a local slot diverges there.
     #[test]
-    fn pc_is_privatised_and_seeded_from_the_argument() {
+    fn pc_stays_in_the_shared_state_for_now() {
         let ir = "define ptr @sub_4(ptr %state, i64 %program_counter, ptr %memory) {\nentry:\n  \
                   %PC = getelementptr inbounds %struct.State, ptr %state, i32 0, i32 0, i32 6, i32 33\n  \
                   store i64 5, ptr %PC, align 8\n  ret ptr %memory\n}\n";
         let (out, n) = privatize_flag_storage(ir);
-        assert_eq!(n, 1, "got:\n{out}");
-        assert!(out.contains("%az_pc = alloca i64"), "got:\n{out}");
-        assert!(out.contains("store i64 %program_counter, ptr %az_pc"),
-                "PC must be seeded from the argument, not zeroed:\n{out}");
-        assert!(out.contains("ptr %az_pc, i64 0"), "got:\n{out}");
+        assert_eq!(n, 0, "PC must not be rewritten while PRIVATIZE_PC is off:\n{out}");
+        assert!(out.contains("%struct.State"), "got:\n{out}");
+        assert!(!out.contains("az_pc"), "no PC buffer should be emitted:\n{out}");
     }
 
     /// A function with neither flags nor PC gets no buffers at all.
