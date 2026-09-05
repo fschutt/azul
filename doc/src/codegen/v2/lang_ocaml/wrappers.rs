@@ -741,6 +741,26 @@ fn detect_vec_to_list_shape(s: &StructDef, ir: &CodegenIR) -> Option<VecToListSp
         return None;
     }
 
+    // A RECURSIVE element is emitted as an opaque pointer
+    // (`type az_xml_node_child = (unit, [ `C ]) Ctypes_static.pointer`), not a
+    // `Ctypes.structure`, so this helper's `structure list` shape does not
+    // type-check against it. `ocamlfind ocamlc` catches it:
+    //   This expression has type az_xml_node_child list
+    //   but an expression was expected of type
+    //     az_xml_node_child Ctypes.structure list
+    // These Vecs became eligible only once the recursive-type carve-out let
+    // their element export `_clone`; the carve-out is right, this helper just
+    // does not apply to a pointer-shaped element.
+    if ir
+        .find_struct(&elem_rust)
+        .is_some_and(|e| e.category == TypeCategory::Recursive)
+        || ir
+            .find_enum(&elem_rust)
+            .is_some_and(|e| e.category == TypeCategory::Recursive)
+    {
+        return None;
+    }
+
     // Wrapper-class element: call `Az<Elem>_clone` so the yielded
     // element owns independent heap allocations. Without `_clone` we
     // skip — handing the user a `Ctypes.structure` over the Vec's

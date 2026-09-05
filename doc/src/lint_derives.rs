@@ -823,21 +823,22 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `ResultXmlXmlError`, three classes whose entry points these emitters
 ///     drop for a reason not yet established. Consistent across every binding
 ///     that has a residue at all, so it is one cause, not fourteen.
-///   * `ocaml` (11, was 4010 once measured properly) - the `.mli` SEALS the
-///     module, so anything the interface omits is unreachable however complete
-///     `azul.ml` is. equal/hash/to_string were defined and never declared;
-///     `compare` was emitted nowhere; tagged unions and unit enums had no
-///     capabilities at all; and trait-only classes got no module.
-///     That last one FAILED the first time (272 -> 1321) and succeeded later,
-///     which is the useful lesson: a module carrying three of a class's seven
-///     derives makes the other four flip from `absent` to `missing`, so the
-///     change was not wrong, only premature. Once the module carried the whole
-///     list the same edit was a clean win. Record WHY a revert happened, not
-///     just that it did.
-///     `PartialOrd` gets `partial_compare : t -> t -> int option`, never
-///     `compare`: the ABI answers 255 for "incomparable" and a total compare
-///     has no honest value for it. Needed in all three emitters - struct,
-///     tagged union, unit enum.
+///   * `ocaml` (1100) - BACK UP from 11, because two of the emissions that
+///     lowered it DID NOT TYPE-CHECK. `ocamlfind ocamlc` says so:
+///       1. Unit-enum capabilities were emitted in the TYPES section, ~42k
+///          lines before the `foreign` bindings they call. OCaml is
+///          order-sensitive: "Unbound value ffi_az_style_cursor_partial_eq".
+///          A unit enum's capabilities need a LATE pass, after the bindings -
+///          and it cannot simply reuse the late enum-module loop, because
+///          `types.rs` already emits `module X` and a second one is a
+///          duplicate. That is the open design question here.
+///       2. The recursive carve-out let `XmlNodeChildVec` reach the Vec
+///          `to_list` helper, whose `structure list` shape does not fit an
+///          element emitted as an opaque pointer. Fixed by skipping recursive
+///          elements - the carve-out is right, the helper just does not apply.
+///     Both were invisible to this lint, which greps for names. `azul.mli`
+///     and `azul.ml` now type-check clean, and `scripts/check.sh
+///     --only binding-syntax` keeps them that way.
 ///   * `php-ext` (134) - BACK UP from 125, because the change that lowered it
 ///     emitted code that does not compile. `is_method_kind_eligible` and
 ///     `takes_self` were widened to the trait kinds; the result was methods
@@ -911,7 +912,7 @@ pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
     ("zig", 13),
     ("php-ext", 134),
-    ("ocaml", 11),
+    ("ocaml", 1100),
     ("haskell", 10),
     ("go", 13),
 ];

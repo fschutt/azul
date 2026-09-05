@@ -331,6 +331,30 @@ stage_binding_syntax() {
     echo "  (skip zig: not installed)"
   fi
 
+  # OCaml gets a full TYPE check, not just a parse: `ocamlc -stop-after parsing`
+  # accepted a file that referenced `ffi_az_style_cursor_partial_eq` 42k lines
+  # before it was defined, and OCaml is order-sensitive. Only the type checker
+  # caught that, and a second error where a recursive element is an opaque
+  # pointer rather than a `Ctypes.structure`.
+  if command -v ocamlfind >/dev/null 2>&1 && ocamlfind query ctypes >/dev/null 2>&1; then
+    local omldir
+    omldir="$(mktemp -d)"
+    cp "$gen/azul.mli" "$gen/azul.ml" "$omldir/" 2>/dev/null
+    if (cd "$omldir" \
+          && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.mli \
+          && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.ml) >/dev/null 2>&1; then
+      echo "  ocaml typecheck: ok"
+    else
+      echo "  ocaml typecheck: FAILED" >&2
+      (cd "$omldir" && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.mli \
+        && ocamlfind ocamlc -package ctypes,ctypes.foreign -c azul.ml) 2>&1 | head -20 >&2
+      rc=1
+    fi
+    rm -rf "$omldir"
+  else
+    echo "  (skip ocaml: ocamlfind or ctypes not installed)"
+  fi
+
   if command -v gofmt >/dev/null 2>&1; then
     # `gofmt -e` prints syntax errors; formatting differences go to stdout as
     # filenames, which is why the error stream is what decides the verdict.
