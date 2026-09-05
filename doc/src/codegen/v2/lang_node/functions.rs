@@ -47,6 +47,18 @@ pub fn generate_function_bindings(b: &mut CodeBuilder, ir: &CodegenIR) {
 // ============================================================================
 
 fn should_emit_function(f: &FunctionDef, ir: &CodegenIR) -> bool {
+    // A trait entry point declared by an api.json `derive` is NOT part of what
+    // this category exclusion is for. `DestructorOrClone` is excluded because
+    // those types' ordinary methods traffic in callback function pointers this
+    // binding cannot marshal; `Az{T}_toDbgString(ptr) -> AzString` traffics in
+    // neither. Excluding it wholesale is why all 114 `*VecDestructor` types
+    // declared `Debug` and exposed it nowhere. `Delete` stays excluded: no
+    // `derive` asks for it, and a destructor on a value type is a footgun.
+    let is_declared_capability = (f.kind.is_trait_function()
+        || f.kind.is_clone_method()
+        || f.kind.is_default_constructor())
+        && !matches!(f.kind, super::super::ir::FunctionKind::Delete);
+
     if let Some(s) = ir.find_struct(&f.class_name) {
         if !s.generic_params.is_empty() {
             return false;
@@ -55,9 +67,9 @@ fn should_emit_function(f: &FunctionDef, ir: &CodegenIR) -> bool {
             s.category,
             TypeCategory::Recursive
                 | TypeCategory::VecRef
-                | TypeCategory::DestructorOrClone
                 | TypeCategory::GenericTemplate
-        ) {
+        ) && !(is_declared_capability && s.category == TypeCategory::DestructorOrClone)
+        {
             return false;
         }
     }
@@ -68,9 +80,9 @@ fn should_emit_function(f: &FunctionDef, ir: &CodegenIR) -> bool {
         if matches!(
             e.category,
             TypeCategory::Recursive
-                | TypeCategory::DestructorOrClone
                 | TypeCategory::GenericTemplate
-        ) {
+        ) && !(is_declared_capability && e.category == TypeCategory::DestructorOrClone)
+        {
             return false;
         }
     }
