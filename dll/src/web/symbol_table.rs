@@ -2516,6 +2516,47 @@ fn strip_leading_underscore(name: &str) -> String {
 /// not. Until the seed is narrowed, this rule bounds the damage - and it stays
 /// useful afterwards, because a web target should never lift OS window code
 /// however it got there.
+/// Crates a browser build deliberately never receives, because the browser
+/// already provides the capability or the capability is meaningless there.
+///
+/// Distinct from [`is_platform_native`], which covers code that physically
+/// CANNOT run in wasm. This is a policy list: the code would run, we simply do
+/// not want to pay for it when the host already has an equivalent. We can be
+/// this aggressive because it is our own dependency tree and we know what each
+/// crate is for.
+///
+/// Measured motivation: a full lift reaches ~36,500 functions of which only
+/// ~7.8% is actual engine logic. The lift target is the FULL DESKTOP DLL, so it
+/// drags in an embedded SQL database, a TLS stack, a GPU renderer, a regex
+/// engine - and, absurdly, the lifter own dependencies: its x86 disassembler
+/// and its PE parser were being compiled into the browser payload.
+///
+/// Each entry names the browser capability that replaces it. A `NeverLift`
+/// classification traps loudly if anything actually calls one, and the audit
+/// reports it, so a wrong entry here is noisy rather than silent.
+fn is_browser_excluded_crate(crate_name: &str) -> bool {
+    matches!(
+        crate_name,
+        // Embedded SQL database -> browser storage (localStorage/IndexedDB).
+        "turso_core" | "turso_parser" | "turso_ext" | "turso_macros"
+        // Regex engine -> the browser own RegExp.
+        | "regex" | "regex_automata" | "regex_syntax" | "aho_corasick"
+        // OS accessibility bridge -> the browser exposes the DOM to AT directly.
+        | "accesskit" | "accesskit_windows" | "accesskit_macos" | "accesskit_unix"
+        // TLS: a wasm page has no raw sockets; fetch() is the transport.
+        | "rustls" | "webpki" | "ring" | "der" | "spki" | "pkcs8"
+        // GPU/driver loaders: the browser composites.
+        | "ash" | "gl_context_loader" | "glutin" | "khronos_egl"
+        // Gamepad, native dialogs, native clipboard: browser APIs or nothing.
+        | "gilrs" | "gilrs_core" | "tinyfiledialogs" | "tfd" | "x11_clipboard"
+        // Transport compression is the browser job (Content-Encoding).
+        | "brotli" | "brotli_decompressor"
+        // The LIFTER own dependencies. These exist to produce the wasm; there
+        // is no reason for them to be INSIDE it.
+        | "iced_x86" | "goblin"
+    )
+}
+
 pub fn is_platform_native(name: &str) -> bool {
     // Platform-specific window types. These appear in the name as the type
     // argument of a monomorphized generic, so `PlatformWindow::foo<Win32Window>`
@@ -2835,6 +2876,13 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
             || name.contains("panic_bounds_check")
             || name.contains("panic_fmt");
         if is_panic_path {
+            return FnClass::NeverLift;
+        }
+        // Deliberately not shipped to a browser - see
+        // is_browser_excluded_crate. Placed after the panic rule and before
+        // the crate dispatch below, which would otherwise route these to
+        // Recursable and lift them.
+        if is_browser_excluded_crate(&crate_name) {
             return FnClass::NeverLift;
         }
         match crate_name.as_str() {
@@ -3604,6 +3652,56 @@ mod tests {
         // Bare Az* not in api.json → Recursable (transitively reachable
         // user-bound cb names land here).
         assert_eq!(classify_for_name("AzMyHelper", &api), FnClass::Recursable);
+    }
+
+    #[test]
+    fn classify_browser_excluded_crates_as_never_lift() {
+        let api: HashMap<String, ApiFnClass> = HashMap::new();
+        // Capability the browser already provides, or meaningless in a page.
+        for n in [
+            "turso_core::vdbe::execute::op_column",
+            "turso_parser::parser::Parser::parse",
+            "regex_automata::meta::regex::Regex::search",
+            "aho_corasick::packed::api::Searcher::find",
+            "accesskit::node::Node::set_role",
+            "rustls::client::tls13::handle_server_hello",
+            "ash::device::Device::cmd_draw",
+            "gilrs_core::platform::Gamepad::poll",
+            "brotli::enc::encode::BrotliEncoderCompress",
+        ] {
+            assert_eq!(classify_for_name(n, &api), FnClass::NeverLift, "{n}");
+        }
+
+        // The lifter OWN dependencies. These exist to PRODUCE the wasm; a
+        // build that lifts them has put the disassembler inside its own output.
+        assert_eq!(
+            classify_for_name("iced_x86::decoder::Decoder::decode_out", &api),
+            FnClass::NeverLift,
+        );
+        assert_eq!(
+            classify_for_name("goblin::pe::header::Header::parse", &api),
+            FnClass::NeverLift,
+        );
+
+        // The engine itself must be unaffected.
+        for n in [
+            "azul_core::dom::Dom::new",
+            "azul_layout::solver3::layout_document",
+            "azul_css::parser2::new_from_str_inner",
+        ] {
+            assert_eq!(classify_for_name(n, &api), FnClass::Recursable, "{n}");
+        }
+
+        // Prefix accidents: none of these are the excluded crate. The rule
+        // matches a whole leading crate name, not a substring, so a type or
+        // module that merely CONTAINS one of those words must survive.
+        for n in [
+            "azul_css::props::style::StyleFilter::ash_blur",
+            "azul_core::regexish::matcher::run",
+            "azul_layout::text3::cache::derive_style",
+        ] {
+            assert_eq!(classify_for_name(n, &api), FnClass::Recursable, "{n}");
+        }
     }
 
     #[test]

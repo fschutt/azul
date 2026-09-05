@@ -2410,9 +2410,11 @@ impl RemillTranspiler {
                         .scratch_dir
                         .join(format!("{}.pre-opt.wasm", output_stem));
                     let _ = std::fs::write(&pre_opt_path, &linked);
+                    set_lift_phase("wasm-opt postprocess");
                     postprocess_wasm_opt(&pre_opt_path, output_stem).unwrap_or(linked)
                 };
                 relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
+                set_lift_phase("inject data segments");
                 inject_user_binary_data_segments(
                     &mut final_wasm,
                     accessed_pages,
@@ -2422,6 +2424,7 @@ impl RemillTranspiler {
                 return Ok(final_wasm);
             }
         }
+        set_lift_phase("build wasm-ld argv");
         let tools = self.tools(output_stem)?;
         let wasm_path = self.scratch_dir.join(format!("{}.wasm", output_stem));
         // Set `AZ_WASM_DEBUG=1` to keep the names section + dwarf and
@@ -2503,6 +2506,7 @@ impl RemillTranspiler {
             args.push(p.to_string_lossy().into_owned());
         }
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        set_lift_phase("wasm-ld link (subprocess)");
         run_tool(tools.wasm_ld, &arg_refs, output_stem)?;
         // Post-process with binaryen wasm-opt -Oz when available.
         // wasm-ld already runs --gc-sections + --strip-all + --lto-O2,
@@ -2523,6 +2527,7 @@ impl RemillTranspiler {
             })?,
         };
         relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
+        set_lift_phase("inject data segments");
         inject_user_binary_data_segments(
             &mut final_wasm,
             accessed_pages,
@@ -3498,6 +3503,7 @@ impl RemillTranspiler {
             visited.len(),
             exports.len()
         );
+            set_lift_phase("collect data pages + mirror set");
         if !stubbed_fns.is_empty() {
             eprintln!(
                 "[azul-web] ⚠ {} function(s) Leaf-stubbed (remill could not lift them): {}",
@@ -4602,6 +4608,7 @@ fn inject_user_binary_data_segments(
                  synth(first)={:?} synth(p22)={:?}",
                 added, font_ptr, font_len, output_stem, syn_first, syn_p22,
             );
+                set_lift_phase("finish mirror set");
         }
     }
     // [g93] speculative force-mirror of hashbrown EMPTY_GROUP candidate const pages: the lifted
@@ -8988,6 +8995,71 @@ fn record_coverage_index(scratch: &std::path::Path, name: &str, export_as: &str)
         let _ = fh.write_all(line.as_bytes());
     }
     idx
+}
+
+/// Coarse progress marker, so a hang NAMES ITSELF instead of needing a
+/// debugger.
+///
+/// The spawn watchdog only sees subprocess spawns. A run wedged anywhere else
+/// - and one was: zero CPU, zero I/O and zero page faults for ten minutes,
+/// two threads, no children, with the last log line being an unrelated
+/// mirroring message - is invisible to it. There is no cdb/procdump on this
+/// box, so the process could not be introspected after the fact and the phase
+/// had to be inferred from which log line came last. That is guesswork; this
+/// removes it.
+///
+/// `phase_watchdog` reports any phase still running after a threshold, and
+/// keeps reporting, so the log names the stuck phase even when the run is
+/// eventually killed from outside.
+static LIFT_PHASE: std::sync::Mutex<Option<(std::time::Instant, String)>> =
+    std::sync::Mutex::new(None);
+
+fn set_lift_phase(what: &str) {
+    start_phase_watchdog();
+    let mut g = LIFT_PHASE.lock().unwrap_or_else(|e| e.into_inner());
+    *g = Some((std::time::Instant::now(), what.to_string()));
+    eprintln!("[azul-web] phase: {what}");
+}
+
+fn clear_lift_phase() {
+    let mut g = LIFT_PHASE.lock().unwrap_or_else(|e| e.into_inner());
+    *g = None;
+}
+
+fn start_phase_watchdog() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        std::thread::spawn(move || {
+            let mut last_reported = String::new();
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                let cur = {
+                    let g = LIFT_PHASE.lock().unwrap_or_else(|e| e.into_inner());
+                    g.as_ref().map(|(t, w)| (t.elapsed(), w.clone()))
+                };
+                let Some((waited, what)) = cur else {
+                    last_reported.clear();
+                    continue;
+                };
+                if waited < std::time::Duration::from_secs(90) {
+                    continue;
+                }
+                // Re-report the same phase periodically: a wedged run is often
+                // killed from outside, and the LAST line in the log is what
+                // gets read afterwards.
+                let tag = format!("{what}|{}", waited.as_secs() / 60);
+                if tag == last_reported {
+                    continue;
+                }
+                last_reported = tag;
+                eprintln!(
+                    "[azul-web] STILL IN PHASE \"{what}\" after {}s - if the run is \
+                     wedged, THIS is where.",
+                    waited.as_secs(),
+                );
+            }
+        });
+    });
 }
 
 fn plausible_object_extent(data: &[u8], start: usize, is_fn_entry: &mut dyn FnMut(usize) -> bool) -> usize {
