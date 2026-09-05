@@ -667,6 +667,41 @@ blinks, and it is the only thing that repaints. Guarded by three tests on
 on the presenter contract (`a_carets_damage_stays_a_caret_when_it_reaches_the_
 presenter`) so the blit half cannot regress independently.
 
+## Integrated with master (rust-fontconfig 5.0 chain) - no regressions
+
+#461 merged into master at 12:29 on 2026-09-05, so this branch's base went into
+master and the branch was 77 commits behind. Merged (not rebased: 41 commits
+replayed would hit the same conflicts repeatedly and rewrite history that has
+been verified against the device all night). Seven files conflicted, and each
+was decided by asking WHICH SIDE IS NEWER:
+
+| file | resolution | why |
+|---|---|---|
+| `solver3/getters.rs` | **master** | its rust-fontconfig 5.0 migration (`f150859ab`) DELETED `should_prune_family` + `alias_prune_tests`; 5.0 replaces flat alias pruning with `prune_script_groups` / `prune_chain_to_used_chars`. Ours carried the pre-5.0 copy from the merge base |
+| `managers/changeset.rs` | **master** | BOTH sides added `DocumentChangeset::apply_to_dom`; keeping ours would have duplicated the impl |
+| `layout/src/lib.rs`, `solver3/display_list.rs` | **master** | doc comments only, master's wording is newer |
+| `dll/tests/headless_window_features.rs` | **master** | it imports `PRIMARY_POINTER_SEAT`; short form over our qualified path |
+| `x11/events.rs` | **ours** | the frame/decorations rule moved INTO `csd_resize_edge_for_press`, which enforces both (`event.rs:869-877`) and is tested there; master's inline copy is the pre-refactor duplicate |
+| `linux/system_style.rs` (4 hunks) | **ours** | the KDE reader and the `discover_gsettings_appearance` / `discover_shared_behaviour` split; master's side is the older XFCE-only early return whose `return` swallowed the shared tail |
+
+**One thing was rescued by hand.** The deleted `alias_prune_tests` block also
+contained `a_missing_family_is_reported_through_the_diagnostics_ring` - which is
+OURS and is about `report_unresolved_families` going through the diagnostics
+sink instead of an `eprintln!` that panics on a closed stderr, not about
+pruning. Dropping the block wholesale would have silently removed the guard on a
+fix we keep. It is restored on its own and passes.
+
+**Verified after the merge:** `rust-fontconfig 5.0.0` in `Cargo.lock` and all
+three manifests, the 5.0 API (`FontFallbackChain`, `prune_script_groups`) intact
+in `getters.rs`, both crates type-check, codegen regenerated for master's
+`api.json`, and the targeted suites green - 54 damage, 6 redundant-frame, 10
+present-rects, 263 font, 2 csd-resize, 2 moveresize, 1 restored diagnostics.
+On the device: 0 errors, caret presents still `total=0.44ms` (not 45 ms), and
+the blink still moves exactly 19 px in a 1x19 box and nothing else.
+
+Branch is now 41 ahead / **0 behind** master; PR #463 retargeted from the
+merged `fix/x11-desktop-integration` to `master` and reports MERGEABLE.
+
 ## Traps found
 
 1. **`build-dll` and `link-dynamic` fight over `target/release/libazul.so`, in
