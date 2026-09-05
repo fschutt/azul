@@ -73,6 +73,13 @@ pub enum Expect {
         start: &'static [&'static str],
         markers: &'static [&'static str],
     },
+    /// Honoured iff ANY alternative is. Needed where one binding gives the same
+    /// capability two different shapes for two different kinds of class - C++
+    /// puts `toDbgString()` inside a wrapper class for a struct, and offers
+    /// `azul::toDbgString(const AzAlertKind&)` as a free function for an enum,
+    /// which has no class to put it in.
+    Either(&'static [Expect]),
+
     /// The language has no equivalent AND forwarding the ABI function would be
     /// meaningless. Reported as N/A, never as a gap.
     NotApplicable(&'static str),
@@ -186,34 +193,58 @@ const PY_BLOCK: &[&str] = &["#[pymethods]\nimpl {T} {"];
 /// comparisons, and not at all for `toDbgString`/`hash`, so the latter two are
 /// matched inside the wrapper class block.
 const CPP_BLOCK: &[&str] = &["class {C} {"];
+
+/// The two shapes a C++ capability can take.
+///
+/// A struct becomes `class Foo { .. String toDbgString() const; .. }`, so the
+/// evidence is a method inside that class's own block. An ENUM or tagged union
+/// becomes `using Foo = AzFoo;` or `namespace Foo { constants }` over the raw C
+/// type - there is no class to put a method in, so the same capability is a
+/// free function overloaded on the argument type,
+/// `azul::toDbgString(const AzFoo&)`. Both spell the class out, so both are
+/// attributable; neither is the raw-C escape hatch (`AzFoo_toDbgString` from
+/// the `#include`d header still does not count).
 const CPP_PROFILE: &[(&str, Expect)] = &[
     (
         "Debug",
-        Expect::Block { start: CPP_BLOCK, markers: &["toDbgString() const", "operator<<"] },
+        Expect::Either(&[
+            Expect::Block { start: CPP_BLOCK, markers: &["toDbgString() const", "operator<<"] },
+            Expect::Marker(&["toDbgString(const {T}&"]),
+        ]),
     ),
     (
         "Clone",
-        Expect::Block { start: CPP_BLOCK, markers: &["clone() const"] },
+        Expect::Either(&[
+            Expect::Block { start: CPP_BLOCK, markers: &["clone() const"] },
+            Expect::Marker(&["clone(const {T}&"]),
+        ]),
     ),
     ("Copy", COPY_NA),
     (
         "PartialEq",
-        Expect::Marker(&["partialEq(const {C}&", "operator==(const {C}&"]),
+        Expect::Marker(&["partialEq(const {C}&", "operator==(const {C}&", "partialEq(const {T}&"]),
     ),
     ("Eq", EQ_NA),
     (
         "PartialOrd",
-        Expect::Marker(&["partialCmp(const {C}&", "operator<(const {C}&"]),
+        Expect::Marker(&[
+            "partialCmp(const {C}&",
+            "operator<(const {C}&",
+            "partialCmp(const {T}&",
+        ]),
     ),
     (
         "Ord",
-        Expect::Marker(&["cmp(const {C}&", "operator<=>(const {C}&"]),
+        Expect::Marker(&["cmp(const {C}&", "operator<=>(const {C}&", "cmp(const {T}&"]),
     ),
     (
         "Hash",
-        Expect::Block { start: CPP_BLOCK, markers: &["hash() const", "struct hash<"] },
+        Expect::Either(&[
+            Expect::Block { start: CPP_BLOCK, markers: &["hash() const", "struct hash<"] },
+            Expect::Marker(&["hash(const {T}&"]),
+        ]),
     ),
-    ("Default", Expect::Marker(&["static {C} default_()"])),
+    ("Default", Expect::Marker(&["static {C} default_()", "defaultOf<{T}>()"])),
 ];
 
 /// Go. cgo makes `C.Az{T}_partialEq` reachable, which does not count under this
@@ -541,6 +572,42 @@ pub fn declared_derives(api: &ApiData) -> BTreeMap<String, BTreeSet<String>> {
     out
 }
 
+/// Does this binding's text carry the evidence one [`Expect`] asks for?
+///
+/// Recursive only through [`Expect::Either`]; `NotApplicable` and `Unmapped`
+/// are verdicts, not searches, and are handled by the caller (they return
+/// `false` here so a mis-nested one can never be read as a pass).
+fn evidence_found(
+    expect: &Expect,
+    text: &str,
+    abi_index: &BTreeSet<(String, String)>,
+    block_end: &str,
+    spelled: &str,
+    class: &str,
+) -> bool {
+    match expect {
+        Expect::NotApplicable(_) | Expect::Unmapped(_) => false,
+        Expect::Either(alts) => alts
+            .iter()
+            .any(|e| evidence_found(e, text, abi_index, block_end, spelled, class)),
+        Expect::Marker(pats) => pats.iter().any(|p| {
+            let needle = p.replace("{T}", spelled).replace("{C}", class);
+            // The ABI-symbol case goes through the prebuilt index; anything
+            // else is a plain token search.
+            if let Some(suffix) = needle.strip_prefix(spelled) {
+                if suffix.starts_with('_')
+                    && suffix.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
+                {
+                    return abi_index.contains(&(class.to_string(), suffix.to_string()));
+                }
+            }
+            contains_token(text, &needle)
+        }),
+        Expect::Block { start, markers } => class_block(text, start, block_end, spelled, class)
+            .is_some_and(|b| markers.iter().any(|m| b.contains(*m))),
+    }
+}
+
 /// Run the lint over every binding.
 pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingReport>> {
     let declared = declared_derives(api);
@@ -597,56 +664,38 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
                     .map(|(_, e)| e)
                     .unwrap_or(&Expect::Unmapped("no entry in this binding's profile"));
 
+                // `NotApplicable` and `Unmapped` are verdicts in themselves and
+                // never reach the evidence search; everything else does.
                 match expect {
-                    Expect::NotApplicable(_) => rep.not_applicable += 1,
-                    Expect::Unmapped(_) => rep.unmapped += 1,
-                    Expect::Marker(pats) => {
-                        let hit = pats.iter().any(|p| {
-                            let needle = p.replace("{T}", &spelled).replace("{C}", class);
-                            // The ABI-symbol case goes through the prebuilt
-                            // index; anything else is a plain token search.
-                            if let Some(suffix) = needle.strip_prefix(spelled.as_str()) {
-                                if suffix.starts_with('_')
-                                    && suffix.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
-                                {
-                                    return abi_index
-                                        .contains(&(class.clone(), suffix.to_string()));
-                                }
-                            }
-                            contains_token(&text, &needle)
-                        });
-                        if hit {
-                            rep.honoured += 1;
-                        } else {
-                            rep.missing += 1;
-                            *rep.missing_by_derive.entry((*derive).to_string()).or_insert(0) += 1;
-                            if rep.examples.len() < 40 {
-                                rep.examples.push(Gap {
-                                    binding: binding.name.to_string(),
-                                    class: class.clone(),
-                                    derive: (*derive).to_string(),
-                                });
-                            }
-                        }
+                    Expect::NotApplicable(_) => {
+                        rep.not_applicable += 1;
+                        continue;
                     }
-                    Expect::Block { start, markers } => {
-                        let block =
-                            class_block(&text, start, binding.block_end, &spelled, class);
-                        let hit =
-                            block.is_some_and(|b| markers.iter().any(|m| b.contains(*m)));
-                        if hit {
-                            rep.honoured += 1;
-                        } else {
-                            rep.missing += 1;
-                            *rep.missing_by_derive.entry((*derive).to_string()).or_insert(0) += 1;
-                            if rep.examples.len() < 40 {
-                                rep.examples.push(Gap {
-                                    binding: binding.name.to_string(),
-                                    class: class.clone(),
-                                    derive: (*derive).to_string(),
-                                });
-                            }
-                        }
+                    Expect::Unmapped(_) => {
+                        rep.unmapped += 1;
+                        continue;
+                    }
+                    _ => {}
+                }
+                let hit = evidence_found(
+                    expect,
+                    &text,
+                    &abi_index,
+                    binding.block_end,
+                    &spelled,
+                    class,
+                );
+                if hit {
+                    rep.honoured += 1;
+                } else {
+                    rep.missing += 1;
+                    *rep.missing_by_derive.entry((*derive).to_string()).or_insert(0) += 1;
+                    if rep.examples.len() < 40 {
+                        rep.examples.push(Gap {
+                            binding: binding.name.to_string(),
+                            class: class.clone(),
+                            derive: (*derive).to_string(),
+                        });
                     }
                 }
             }
@@ -663,20 +712,11 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 /// a baseline that is only ever checked as an upper bound goes stale the day
 /// after it is written and then proves nothing.
 ///
-/// A binding absent from this table must have ZERO gaps. Fourteen are, today:
-/// the three Rust mirrors, memtest, C, Ruby, Lua, Pascal, Ada, PHP, Perl,
-/// Common Lisp, Algol 68, COBOL and the public Rust API.
+/// A binding absent from this table must have ZERO gaps. Twenty are, today:
+/// the three Rust mirrors, memtest, all six C++ dialects, C, Ruby, Lua,
+/// Pascal, Ada, PHP, Perl, Common Lisp, Algol 68 and COBOL.
 ///
-/// WHAT EACH NUMBER IS, IN ONE LINE (measured 2026-09-04):
-///   * `rust-public` (was 7122) — `azul.rs` was `UsingDerive` with no `extern`
-///     block, a combination that could not compile in either direction. It is
-///     now `UsingCAPI` + `ExternalBindings`, the same shape as
-///     `dll_api_external.rs`; see `CodegenConfig::rust_public_api`.
-///   * `cpp11` / `cpp14` — those two emitters alone apply
-///     `should_skip_method`, which drops every `is_trait_function()` kind;
-///     cpp03/17/20/23 do not, which is why they sit at 2133 instead of ~5600.
-///   * every `cpp*` — enums and tagged unions get no wrapper class, so a
-///     declaring enum gets no method however the filter is set.
+/// WHAT EACH REMAINING NUMBER IS, IN ONE LINE (measured 2026-09-05):
 ///   * `python` — `lang_python.rs` drops trait kinds, then `generate_pymethod`
 ///     bails on `fn_body: None`, which every synthesised trait fn has. Only
 ///     `__str__`/`__repr__` survive; there is no `__eq__`, `__hash__` or
@@ -689,13 +729,20 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     wholesale (C# emits no VecDestructor function at all, not just no debug).
 ///   * `ocaml` — every capability IS generated in `azul.ml` and the `.mli`
 ///     exports only `clone` and `default`, so a consumer can reach nothing else.
+///
+/// WHAT CAME OFF THIS TABLE, AND HOW:
+///   * `rust-public` (was 7122) — `azul.rs` was `UsingDerive` with no `extern`
+///     block, a combination that could not compile in either direction. It is
+///     now `UsingCAPI` + `ExternalBindings`, the same shape as
+///     `dll_api_external.rs`; see `CodegenConfig::rust_public_api`.
+///   * `cpp11` / `cpp14` (were 5682 / 5568) — those two emitters alone applied
+///     `should_skip_method`, which drops every `is_trait_function()` kind. They
+///     now filter on `is_constructor_or_default` like the other four.
+///   * every `cpp*` (2133 each) — enums and tagged unions get no wrapper class
+///     to hang a method on, so their capabilities are now free functions
+///     overloaded on the argument type; see
+///     `lang_cpp::common::generate_freefn_trait_helpers`.
 pub const BASELINE: &[(&str, usize)] = &[
-    ("cpp03", 2133),
-    ("cpp11", 5682),
-    ("cpp14", 5568),
-    ("cpp17", 2133),
-    ("cpp20", 2133),
-    ("cpp23", 2133),
     ("csharp", 114),
     ("python", 4671),
     ("freebasic", 124),

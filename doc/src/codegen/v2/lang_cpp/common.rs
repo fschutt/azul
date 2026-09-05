@@ -147,15 +147,6 @@ pub fn is_constructor_or_default(func: &FunctionDef) -> bool {
     matches!(func.kind, FunctionKind::Constructor) || func.kind.is_default_constructor()
 }
 
-/// Check if a function is a method that should be skipped (delete, partialEq, etc.)
-/// Note: DeepCopy is NOT skipped - it becomes clone()
-/// Note: Default is NOT skipped - it becomes default_()
-pub fn should_skip_method(func: &FunctionDef) -> bool {
-    matches!(func.kind, FunctionKind::Constructor) ||
-    func.kind.is_trait_function() ||  // delete, partialEq, etc. - but NOT deepCopy or default
-    func.kind.is_default_constructor() // handled separately as static constructor
-}
-
 /// Check if callback substitution should be applied for a function
 /// True for any "user-facing" function (constructors, instance methods both
 /// const and mut, static methods); skipped for trait-generated functions and
@@ -1698,5 +1689,194 @@ pub fn generate_refany_freefn_downcasts(standard: CppStandard) -> String {
     code.push_str("    if (!AzRefAny_isType(&data, tag)) return nullptr;\r\n");
     code.push_str("    return static_cast<T*>(const_cast<void*>(AzRefAny_getDataPtr(&data)));\r\n");
     code.push_str("}\r\n");
+    code
+}
+
+// ============================================================================
+// Trait entry points for classes that get NO wrapper class
+// ============================================================================
+
+/// Free-function forms of the trait entry points, for the classes that never
+/// get a wrapper class.
+///
+/// WHY THIS EXISTS
+/// ---------------
+/// The wrapper classes carry `partialEq` / `partialCmp` / `cmp` / `hash` /
+/// `toDbgString` / `clone` / `default_` as member functions, so an api.json
+/// `derive` on a struct is reachable. Enums are not wrapped: a fieldless enum
+/// becomes `namespace AlertKind { inline constexpr AzAlertKind Info = ...; }`
+/// over the raw C enum, and a tagged union becomes `using X = AzX;`. Neither
+/// has anywhere to hang a method, so every derive declared by an enum — 2133
+/// of them, a third of the C++ surface — was unreachable from C++ in EVERY
+/// dialect, while libazul exported all of them.
+///
+/// THE SHAPE, AND WHY NOT `operator==`
+/// -----------------------------------
+/// These are named free functions in `namespace azul`, overloaded on the
+/// argument type, and NOT operator overloads. Two reasons, both about the fact
+/// that the types here are aliases of C types declared at GLOBAL scope:
+///
+///   * ADL for `a == b` where both operands are `::AzAlertKind` searches the
+///     global namespace, not `azul`, so an `azul::operator==` would be found
+///     only by callers who wrote `using namespace azul;`. A named call
+///     `azul::partialEq(a, b)` always resolves.
+///   * For a FIELDLESS enum the built-in `==` / `<` already exist and mean the
+///     right thing (Rust derives them on the discriminant too), so an overload
+///     would compete with the built-in candidates for no gain. What is genuinely
+///     missing there is `toDbgString` (no way to get a variant NAME without the
+///     ABI) and `default_`.
+///
+/// `defaultOf<T>()` is a template because `Default` takes no argument: plain
+/// overloading cannot distinguish `default_()` for two different types.
+///
+/// Only entry points that EXIST are emitted — the walk is over `ir.functions`,
+/// which `IrBuilder::build_trait_functions` populates from the api.json
+/// `derive` list, so a class that does not declare `Hash` gets no `hash`
+/// overload rather than one that calls a symbol libazul does not export.
+pub fn generate_freefn_trait_helpers(
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    standard: CppStandard,
+) -> String {
+    use std::collections::BTreeSet;
+
+    // Every class that DOES get a wrapper class, computed with the same
+    // predicates the class-declaration loops use. The complement is what needs
+    // free functions, so the two can never both fire for one class.
+    let synthesized = synthesize_option_result_structs(ir);
+    let mut wrapped: BTreeSet<&str> = BTreeSet::new();
+    for s in ir.structs.iter().chain(synthesized.iter()) {
+        if should_skip_class(s) || renders_as_type_alias(s) {
+            continue;
+        }
+        wrapped.insert(s.name.as_str());
+    }
+
+    // Group the trait entry points by class, in emission order.
+    let mut by_class: Vec<(&str, Vec<&FunctionDef>)> = Vec::new();
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    for f in &ir.functions {
+        // `is_trait_function()` covers Delete/PartialEq/PartialCmp/Cmp/Hash/
+        // DebugToString but NOT DeepCopy or Default, which have their own
+        // predicates because the class emitters turn them into ordinary static
+        // methods (`clone()`, `default_()`). All three groups are asked for by
+        // an api.json `derive`, so all three belong here.
+        let is_capability = f.kind.is_trait_function()
+            || f.kind.is_clone_method()
+            || f.kind.is_default_constructor();
+        if !is_capability {
+            continue;
+        }
+        // `_delete` is not a capability any `derive` declares, and handing a
+        // caller a free `delete` for a type they hold by value is a
+        // double-free waiting to happen.
+        if matches!(f.kind, FunctionKind::Delete) {
+            continue;
+        }
+        let class = f.class_name.as_str();
+        if wrapped.contains(class) || !config.should_include_type(class) {
+            continue;
+        }
+        if seen.insert(class) {
+            by_class.push((class, Vec::new()));
+        }
+        if let Some(entry) = by_class.iter_mut().find(|(c, _)| *c == class) {
+            entry.1.push(f);
+        }
+    }
+    if by_class.is_empty() {
+        return String::new();
+    }
+
+    let mut code = String::new();
+    code.push_str("// ---------------------------------------------------------------------------\r\n");
+    code.push_str("// Trait entry points for enums and tagged unions\r\n");
+    code.push_str("//\r\n");
+    code.push_str("// These types alias the raw C type and have no wrapper class to carry the\r\n");
+    code.push_str("// methods, so the capabilities their api.json `derive` list declares are\r\n");
+    code.push_str("// exposed as free functions overloaded on the argument type:\r\n");
+    code.push_str("//\r\n");
+    code.push_str("//     azul::partialEq(a, b)      azul::toDbgString(a)\r\n");
+    code.push_str("//     azul::partialCmp(a, b)     azul::hash(a)\r\n");
+    code.push_str("//     azul::cmp(a, b)            azul::clone(a)\r\n");
+    code.push_str("//     azul::defaultOf<AzAlertKind>()\r\n");
+    code.push_str("//\r\n");
+    code.push_str("// partialCmp/cmp return the ABI ordering byte: 0 = Less, 1 = Equal,\r\n");
+    code.push_str("// 2 = Greater (and 3 = unordered, from partialCmp only).\r\n");
+    code.push_str("// ---------------------------------------------------------------------------\r\n\r\n");
+
+    // Primary template for the argument-less `Default`.
+    let mut needs_default_template = false;
+    for (_, fns) in &by_class {
+        if fns.iter().any(|f| matches!(f.kind, FunctionKind::Default)) {
+            needs_default_template = true;
+        }
+    }
+    if needs_default_template {
+        code.push_str("// Declared, never defined: only the explicit specializations below exist,\r\n");
+        code.push_str("// so `defaultOf<T>()` for a type with no `Default` derive is a link-time\r\n");
+        code.push_str("// error rather than a silently wrong value.\r\n");
+        code.push_str("template <typename T> T defaultOf();\r\n\r\n");
+    }
+
+    for (class, fns) in &by_class {
+        let c_type = config.apply_prefix(class);
+        code.push_str(&format!("// {}\r\n", class));
+        for f in fns {
+            let c_fn = &f.c_name;
+            match f.kind {
+                FunctionKind::PartialEq => code.push_str(&format!(
+                    "inline bool partialEq(const {t}& a, const {t}& b) {{ return {f}(&a, &b); }}\r\n",
+                    t = c_type,
+                    f = c_fn
+                )),
+                FunctionKind::PartialCmp => code.push_str(&format!(
+                    "inline uint8_t partialCmp(const {t}& a, const {t}& b) {{ return {f}(&a, &b); }}\r\n",
+                    t = c_type,
+                    f = c_fn
+                )),
+                FunctionKind::Cmp => code.push_str(&format!(
+                    "inline uint8_t cmp(const {t}& a, const {t}& b) {{ return {f}(&a, &b); }}\r\n",
+                    t = c_type,
+                    f = c_fn
+                )),
+                FunctionKind::Hash => code.push_str(&format!(
+                    "inline uint64_t hash(const {t}& a) {{ return {f}(&a); }}\r\n",
+                    t = c_type,
+                    f = c_fn
+                )),
+                FunctionKind::DeepCopy => code.push_str(&format!(
+                    "inline {t} clone(const {t}& a) {{ return {f}(&a); }}\r\n",
+                    t = c_type,
+                    f = c_fn
+                )),
+                FunctionKind::DebugToString => {
+                    // C++03's `String` is copy-with-ownership-transfer via the
+                    // Colvin-Gibbons `Proxy`; C++11+ moves. Mirrors exactly what
+                    // the wrapper classes' own `toDbgString` emits.
+                    if standard.has_move_semantics() {
+                        code.push_str(&format!(
+                            "inline String toDbgString(const {t}& a) {{ return String({f}(&a)); }}\r\n",
+                            t = c_type,
+                            f = c_fn
+                        ));
+                    } else {
+                        code.push_str(&format!(
+                            "inline String toDbgString(const {t}& a) {{ String::Proxy _p({f}(&a)); return _p; }}\r\n",
+                            t = c_type,
+                            f = c_fn
+                        ));
+                    }
+                }
+                FunctionKind::Default => code.push_str(&format!(
+                    "template <> inline {t} defaultOf<{t}>() {{ return {f}(); }}\r\n",
+                    t = c_type,
+                    f = c_fn
+                )),
+                _ => {}
+            }
+        }
+        code.push_str("\r\n");
+    }
     code
 }
