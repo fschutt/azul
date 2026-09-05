@@ -5224,16 +5224,6 @@ fn seed_tlv_mirror_ranges(
     }
 }
 
-#[cfg(feature = "web-transpiler")]
-/// Whether to log pointer-like values that belong to no tracked image.
-///
-/// Read ONCE: the check sits inside the per-8-byte-slot mirror loop, so a
-/// `var_os` call there is performed millions of times per run.
-fn trace_stale_ptr() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| trace_stale_ptr())
-}
-
 fn collect_synth_data_pages(
     table: &super::symbol_table::SymbolTable,
     accessed_pages: &std::collections::HashSet<usize>,
@@ -5381,7 +5371,7 @@ fn collect_synth_data_pages(
                         run[chunk_start..chunk_start + 8].copy_from_slice(&synth_bytes);
                         translated_in_run += 1;
                         pending_targets.push(value as usize & !0xFFF);
-                    } else if trace_stale_ptr()
+                    } else if super::lift_env::lift_env().trace_stale_ptr
                         && value >= 0x1_0000_0000
                         && value < 0x2_0000_0000_0000
                     {
