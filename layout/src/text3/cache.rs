@@ -1418,11 +1418,18 @@ impl<T: ParsedFontTrait> FontManager<T> {
         // glyph decode, or PDF embedding — each baked instance is an ordinary
         // static font. Falls through to the static path below if the font is not a
         // bakeable variable font (baking failed / no glyf variations).
-        if let Some((min, def, max)) = crate::font::parsed::read_wght_axis(bytes, 0) {
-            if let Some(id) = self
-                .register_variable_instances(&norm, family, bytes, &coverage, min, def, max, tier)
-            {
-                return id;
+        // [az-web-lift] Skipped on the web build: no face registered here can be variable
+        // (the two built-in mock TTFs have no `fvar`, and the JS-supplied fallback font is
+        // installed directly into the `FcFontCache`, bypassing this function), so the bake
+        // never fires at runtime — it only costs lift size. Static path below is unchanged.
+        #[cfg(not(feature = "web_lift"))]
+        {
+            if let Some((min, def, max)) = crate::font::parsed::read_wght_axis(bytes, 0) {
+                if let Some(id) = self.register_variable_instances(
+                    &norm, family, bytes, &coverage, min, def, max, tier,
+                ) {
+                    return id;
+                }
             }
         }
 
@@ -1540,6 +1547,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
     // Weight axis values are clamped to [1, 1000] and rounded before the cast, so
     // the f32 -> u16 conversion is bounded and sign-safe.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // [az-web-lift] end skip variable-font instancing on web — see the call site above.
+    #[cfg(not(feature = "web_lift"))]
     fn register_variable_instances(
         &mut self,
         norm: &str,
