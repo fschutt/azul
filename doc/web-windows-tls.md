@@ -107,6 +107,30 @@ zeroed block would silently hand it 0. Pointing at the template is correct
 whether or not that `.rdata` window turns out to be mirrored; if it is not, the
 behaviour degrades to exactly the zeroed-block case rather than breaking.
 
+## Is there a second blocker of the same kind?
+
+No — GSBASE was the only one. Scanning every lifted body for `%struct.State`
+field pointers that are `load`ed with no `store` anywhere in the same body:
+
+| field | bodies reading | never set | verdict |
+|---|---|---|---|
+| `GSBASE` | 92 | **92** | the bug fixed here |
+| `BP` / `SI` / `DI` | 823 / 578 / 410 | 465 / 360 / 261 | false positive: 16-bit aliases of RBP/RSI/RDI, which *are* stored under their full names |
+| `ST4` / `ST5` | 4 | 4 | x87 stack reads in 4 bodies; real but not a base address |
+| `MM0` / `ST0` | 8 / 4 | 0 | stored before use |
+
+So the wrapper's seed list — SP, the ABI arg slots, GSBASE — is complete for
+every field used as a base address. The x87 reads are worth a look if long
+double math ever misbehaves, but they cannot produce a wild pointer.
+
+## Careful with synth addresses here
+
+`synth = synth_base + rva - 0x1000` does **not** hold for this image. It predicts
+`0x1328de0` for the TLS template; the lift's own log reports `0x132a6e0` — a
+delta of `0x100900`, not `0xff000`. Take the delta from the logged template
+synth and apply it, rather than recomputing from the formula. `__tls_index`
+(rva `0x123e0e8`) is therefore at synth `0x133e9e8`.
+
 ## Verifying it
 
 The wrapper emitter logs its decision once per lift:

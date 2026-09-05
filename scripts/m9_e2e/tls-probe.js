@@ -26,10 +26,18 @@
 const CDP = process.env.AZ_CDP || 'http://127.0.0.1:9222';
 const URL = process.argv[2] || 'http://127.0.0.1:8801/';
 const WAIT = parseInt(process.argv[3] || '25000', 10);
-// synth of __tls_index = synth_base + rva - 0x1000 = 0x100000 + 0x123e0e8 - 0x1000.
-// Cross-checked against the lifted IR: the rip-relative read computes
-// insn_synth + 6 + 7234838, which lands on the same address.
-const IDX = parseInt(process.argv[4] || '133d0e8', 16);
+// synth of __tls_index, rva 0x123e0e8.
+//
+// Derived EMPIRICALLY, not from `synth_base + rva - 0x1000`: that formula
+// predicts 0x1328de0 for the TLS template, but the lift's own one-shot log line
+// reports synth=0x132a6e0 for template rva 0x1229de0 - a delta of 0x100900, not
+// 0xff000. An image rebase is linear, so the same delta applies here:
+//
+//     0x123e0e8 + 0x100900 = 0x133e9e8
+//
+// If a future run logs a different template synth, recompute with that delta.
+// Pass argv[4] to override.
+const IDX = parseInt(process.argv[4] || '133e9e8', 16);
 
 const TEB = 0x42000, TEB_SLOT = TEB + 0x58, ARRAY = 0x42200, SLOTS = 8;
 const REC_NEVERLIFT = 0x40048;
