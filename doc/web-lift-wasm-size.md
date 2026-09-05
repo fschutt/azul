@@ -491,6 +491,52 @@ the same second the log went silent, so wasm-ld completed and the deadlock is in
 blocking primitive, and the process showed zero CPU, so a loop cannot explain
 it. The phase markers now bracket exactly this window.
 
+# Target: where this can land
+
+The delivered-size targets, estimated from the measured partition and a measured
+compression ratio. `<1 MB brotli` corresponds to about **10 MB raw**, and
+`<500 KB` to about **5 MB raw**.
+
+| | raw | brotli | basis |
+|---|---|---|---|
+| today, AzWriter mini | 28.3 MB | 2.95 MB | measured |
+| AzWriter, chunked (p0 only) | ~20 MB | ~2.0 MB | measured partition |
+| AzWriter, chunked + dead weight + escape work | ~12 MB | ~1.2 MB | estimate |
+| **hello-world mini, today** | **~9 MB** | **~0.9 MB** | **extrapolated, unmeasured** |
+| **hello-world, chunked** | **~6 MB** | **~0.6 MB** | estimate |
+
+**The goal is met for a hello-world first boot (~0.6–0.9 MB) and lands near
+~1.2 MB for AzWriter.** The 500 KB stretch is reachable only for hello-world,
+and only with chunking *plus* the escape work.
+
+The least trustworthy row is hello-world's: it is extrapolated from a function
+count, not measured, and it is the row that decides whether the goal is already
+nearly met or still 2x away.
+
+## The compression ratio is flat, so raw savings translate
+
+Earlier reasoning assumed splitting would cost a lot of brotli ratio, because
+the ~9.6x on the full mini comes from cross-function redundancy across a very
+large module. Measured on contiguous slices of one real mini — same content,
+varying size:
+
+| slice | brotli | ratio |
+|---|---|---|
+| 2 MB | 0.202 MB | 9.88x |
+| 4 MB | 0.388 MB | 10.32x |
+| 8 MB | 0.803 MB | 9.96x |
+| 14 MB | 1.415 MB | 9.89x |
+| 20 MB | 1.977 MB | 10.11x |
+
+Flat at ~9.9x down to at least 2 MB. A 3.08x ratio measured on a 323 KB
+`fmtdbg-mini.wasm` is different *content*, not a size effect. So raw savings
+translate to delivered savings about proportionally, and chunking costs far less
+ratio than this document previously assumed.
+
+Caveat: contiguous slices are a good proxy for a chunk but not identical to
+independently linked chunks, which each carry their own type/import sections and
+boundary stubs. Small, but measure the real per-chunk wasm before quoting.
+
 # The goal metric has never been measured
 
 Every number in this document is AzWriter's. AzWriter is a full document editor
