@@ -294,13 +294,28 @@ jobs:
         # `libffi-platypus-perl` is not incidental: Azul.pm loads FFI::Platypus
         # at compile time, so `perl -c` cannot parse it without the module and
         # reports a MISSING DEPENDENCY as broken generated code. The probe now
-        # loads the same module, so a runner without it skips perl instead.
+        # loads the same module AT THE SAME VERSION, so a runner that cannot
+        # satisfy it skips perl instead.
+        #
+        # And it CAN be satisfied here: the distro package is FFI::Platypus
+        # 1.56, while the generated `Azul.pm` opens with `use FFI::Platypus
+        # 2.00;` (2.x is where `$ffi->closure` and `record_layout_1` live), so
+        # the apt package alone left the perl binding permanently unchecked.
+        # cpanm installs 2.x into /usr/local/..., which precedes the distro
+        # directories in @INC, so it wins. `--notest` because we want the
+        # module, not its test suite; `libffi-dev` because the XS build needs
+        # it. If the install fails the probe skips perl exactly as before -
+        # this can only turn a skipped check into a real one.
         shell: bash
         run: |
           sudo apt-get update -qq || true
           sudo apt-get install -y -qq \
             gfortran php-cli luajit ruby perl libffi-platypus-perl \
+            cpanminus libffi-dev \
             ocaml libctypes-ocaml-dev golang-go || true
+          sudo cpanm --notest --quiet FFI::Platypus || true
+          perl -e 'eval { require FFI::Platypus; 1 } or do { print "FFI::Platypus: ABSENT\n"; exit };
+                   printf "FFI::Platypus: %s\n", $FFI::Platypus::VERSION' || true
           for t in gcc g++ gfortran perl ruby luajit php node javac go gofmt ocamlfind; do
             printf '%-10s %s\n' "$t" "$(command -v $t || echo MISSING)"
           done
