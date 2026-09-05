@@ -3052,7 +3052,31 @@ impl RemillTranspiler {
                         // [addr,addr+size) because symbol `size`s are often over-estimated
                         // (spanning adjacent tiny outlined fns) — that made real tail-calls
                         // look intra-fn and get dropped (the leftover OUTLINED epilogue trap).
-                        if let Some(e) = table.lookup(target) {
+                        // An exact symbol means a clean cross-fn tail call.
+                        let entry = table.lookup(target).cloned().or_else(|| {
+                            // No symbol AT the target. That is not "not a tail
+                            // call": tail-merged code makes a thunk jump into the
+                            // MIDDLE of another function, where no symbol exists.
+                            // `<&T as Display>::fmt` does exactly this - it jumps
+                            // into `RawVecInner::grow_amortized` - and dropping it
+                            // left the target unlifted with no dispatcher case, so
+                            // remill's missing-block handler fired at runtime with
+                            // the address baked in as a constant.
+                            //
+                            // Synthesize an entry and lift it, exactly as the CALL
+                            // path already does for an unsymboled in-image target.
+                            // Only in-image addresses synthesize, so a genuinely
+                            // external jump still yields None and is skipped.
+                            let synth = table.native_to_synth(target)?;
+                            let e = table.synthesize_text_entry(synth)?;
+                            eprintln!(
+                                "[azul-web]   tail-call target 0x{:x} has NO symbol \
+                                 (tail-merged mid-fn) — SYNTHESIZED {} bytes",
+                                target, e.size,
+                            );
+                            Some(e)
+                        });
+                        if let Some(e) = entry {
                             if e.canonical_addr != addr
                                 && e.classification.is_recursable()
                                 && !visited.contains(&e.canonical_addr)
