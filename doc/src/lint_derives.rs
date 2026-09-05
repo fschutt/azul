@@ -829,24 +829,11 @@ fn declared_count(derives: &BTreeSet<String>) -> usize {
 
 pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
-    ("freebasic", 11),
     ("zig", 19),
-    ("powershell", 4),
     ("php-ext", 134),
     ("ocaml", 272),
-    ("haskell", 11),
-    ("fortran", 20),
+    ("haskell", 10),
     ("go", 2246),
-    ("smalltalk", 10),
-    ("vb6", 10),
-    ("crystal", 20),
-    ("d", 20),
-    ("julia", 20),
-    ("nim", 20),
-    ("odin", 20),
-    ("red", 12),
-    ("swift", 4),
-    ("v", 20),
 ];
 
 /// Compare against [`BASELINE`] and render the verdict.
