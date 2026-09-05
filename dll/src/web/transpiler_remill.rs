@@ -8783,11 +8783,20 @@ fn reloc_templateize(
     for site in sites {
         let next_ip = lift_addr.wrapping_add(site.next_off as u64);
         let disp = site.old_target.wrapping_sub(next_ip) as i64;
-        // A masked field reaches the IR in one of two shapes, and BOTH are
+        // A masked field reaches the IR in one of three shapes, all of them
         // probe-invariant and therefore frozen: an absolute operand (an
-        // imm64 target) renders as the address itself, a pc-relative one as
-        // the displacement remill decoded. Slot whichever is present.
-        for (text, is_disp) in [(site.old_target.to_string(), false), (disp.to_string(), true)] {
+        // imm64 target) renders as the address itself; a pc-relative one as
+        // the displacement remill decoded, which it emits as `add pc, d` for
+        // a forward reference and as `sub pc, -d` — a POSITIVE magnitude —
+        // for a backward one. Searching only the signed displacement misses
+        // every `sub` site, which is the shape the verifier caught in
+        // core::fmt::impl$75::fmt<str$>. Slot whichever is present.
+        let ndisp = next_ip.wrapping_sub(site.old_target) as i64;
+        for (text, shape) in [
+            (site.old_target.to_string(), b'd'),
+            (disp.to_string(), b'D'),
+            (ndisp.to_string(), b'N'),
+        ] {
             // A one-character run is not a token anything can splice
             // unambiguously, and only reaches inside this function anyway.
             if text.len() < 2 {
@@ -8821,16 +8830,22 @@ fn reloc_templateize(
             }
             let ident = ident_for(site.old_target)?;
             claimed.push((at, end));
-            if is_disp {
-                slots.push_str(&format!(
+            match shape {
+                b'D' => slots.push_str(&format!(
                     "{:x} {:x} D @disp:{:x}:{}\n",
                     at,
                     text.len(),
                     site.next_off,
                     ident,
-                ));
-            } else {
-                slots.push_str(&format!("{:x} {:x} d {}\n", at, text.len(), ident));
+                )),
+                b'N' => slots.push_str(&format!(
+                    "{:x} {:x} N @ndisp:{:x}:{}\n",
+                    at,
+                    text.len(),
+                    site.next_off,
+                    ident,
+                )),
+                _ => slots.push_str(&format!("{:x} {:x} d {}\n", at, text.len(), ident)),
             }
         }
     }
@@ -8888,6 +8903,35 @@ mod reloc_disp_tests {
             out.is_none(),
             "a frozen displacement with no verifiable identity must be a cache \
              MISS, not a template that splices a stale branch target",
+        );
+    }
+
+    /// The shape the verifier actually caught in the boot-trap thunk. remill
+    /// emits a backward reference as `sub pc, <positive magnitude>`, so a
+    /// search for the signed displacement (`-N`) finds nothing and the field
+    /// stays frozen. The negated form has to be searched too.
+    #[test]
+    fn frozen_backward_displacement_is_seen_in_its_sub_form() {
+        // High enough that a backward reference stays in range.
+        let lift = 0x100_0000u64;
+        // target sits BELOW the reference point, so the displacement is
+        // negative and the IR carries its magnitude under a `sub`.
+        let target = lift + 5 - 7_860_144;
+        let ir = "  %73 = sub i64 %72, 7860144\n";
+        let out = reloc_templateize(
+            ir,
+            ir,
+            lift,
+            lift.wrapping_add(0x4000_0000),
+            0x20,
+            in_image_addr(),
+            &[site(5, target)],
+            None,
+        );
+        assert!(
+            out.is_none(),
+            "a `sub`-shaped frozen displacement must be seen; searching only \
+             the signed form silently leaves every backward reference stale",
         );
     }
 
@@ -9030,6 +9074,13 @@ fn reloc_translate(
             let next_off = u64::from_str_radix(off_hex, 16).ok()?;
             let target = resolve_near(inner.strip_prefix("near:")?)?;
             target.wrapping_sub(new_lift_addr.wrapping_add(next_off))
+        } else if let Some(rest) = ident.strip_prefix("@ndisp:") {
+            // The same field as `@disp`, in the shape remill uses for a
+            // backward reference: `sub pc, <positive magnitude>`.
+            let (off_hex, inner) = rest.split_once(':')?;
+            let next_off = u64::from_str_radix(off_hex, 16).ok()?;
+            let target = resolve_near(inner.strip_prefix("near:")?)?;
+            new_lift_addr.wrapping_add(next_off).wrapping_sub(target)
         } else {
             // Only fingerprinted identities are translatable; anything else
             // (including manifests from before the fingerprint upgrade) is
@@ -9049,7 +9100,8 @@ fn reloc_translate(
         let repl = match s.kind {
             b's' => format!("sub_{:x}", s.val),
             // A displacement is signed: a backward branch splices as `-N`.
-            b'D' => (s.val as i64).to_string(),
+            // An `N` slot is its negation, already positive at a `sub` site.
+            b'D' | b'N' => (s.val as i64).to_string(),
             _ => s.val.to_string(),
         };
         out.splice(s.off..s.off + s.len, repl.bytes());
