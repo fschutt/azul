@@ -37,6 +37,31 @@ fn generate_m8_loader() -> String {
 'use strict';
 
 // =====================================================================
+// Settle protocol (scripts/web-e2e-harness-plan.md): the browser has no
+// frame-complete signal, so harnesses poll `window.__az_pending` — a
+// count of in-flight async work (bootstrap, wasm/font fetches,
+// navigation). "Settled" = __az_pending === 0 sustained across two
+// requestAnimationFrame ticks; `window.__az_settled(cb)` encapsulates
+// that wait. Dispatches are synchronous and never touch the counter.
+// =====================================================================
+window.__az_pending = (window.__az_pending || 0) + 1; // this script's own bootstrap
+window.__az_settled = function(cb) {
+    function check() {
+        if (window.__az_pending === 0) {
+            requestAnimationFrame(function() {
+                if (window.__az_pending === 0) {
+                    requestAnimationFrame(function() {
+                        if (window.__az_pending === 0) cb();
+                        else check();
+                    });
+                } else check();
+            });
+        } else setTimeout(check, 16);
+    }
+    check();
+};
+
+// =====================================================================
 // Event-kind constants — must match `event_kind` module in
 // dll/src/web/eventloop.rs.
 // =====================================================================
@@ -52,7 +77,7 @@ var EVT_FOCUSIN   = 8;
 var EVT_FOCUSOUT  = 9;
 var EVT_RESIZE    = 10;
 var EVT_SCROLL    = 11;
-// S1 (2026-06-11): non-bubbling target events + right-click.
+// S1 : non-bubbling target events + right-click.
 var EVT_MOUSEENTER  = 12;
 var EVT_MOUSELEAVE  = 13;
 var EVT_CONTEXTMENU = 14;
@@ -113,7 +138,7 @@ function azMulti3(sret, aLo, aHi, bLo, bHi) {
 // freshly-allocated memory stays garbage (e.g. a Vec::clone's memcpy'd dest,
 // hashbrown ctrl bytes, Box::new struct moves) → the consumer derefs garbage
 // → `memory access out of bounds` (the browser text-shaping/Css::from OOB,
-// root-caused 2026-06-23 — full-cycle.js worked ONLY because it supplied real
+// root-caused — full-cycle.js worked ONLY because it supplied real
 // impls). C ABI: all three return `dest`. `copyWithin` is overlap-safe, so it
 // is correct for memcpy AND memmove. A fresh Uint8Array per call avoids a
 // detached-buffer hazard after `memory.grow`.
@@ -132,6 +157,57 @@ function azUdivti3(sret, aLo, aHi, bLo, bHi) {
     var q = b === 0n ? 0n : (a / b);
     dv.setBigUint64(Number(sret), q & mask, true);
     dv.setBigUint64(Number(sret) + 8, (q >> 64n) & mask, true);
+}
+
+// remill memory/atomic intrinsics. EVERY lifted wasm (mini AND the per-cb /
+// per-layout ones) imports these; the generic `stubFor` Proxy below is WRONG for
+// them in two ways:
+//   1. correctness — reads return 0, writes are DROPPED, and CAS never succeeds
+//      (a CAS-retry loop would spin forever);
+//   2. TYPE — `stubFor` returns `0n` for any name matching /_64\b/, but
+//      `__remill_compare_exchange_memory_64` is `(i32,i64,i32,i64) -> i32` (it
+//      returns the Memory TOKEN, not a value). Handing wasm a BigInt where i32 is
+//      declared throws `TypeError: Cannot convert a BigInt value to a number` at
+//      the JS→wasm boundary, which aborted azBootstrap before the click listeners
+// were installed.
+// `mem` is remill's opaque Memory token: return it unchanged to keep the
+// memory-ordering chain intact. Addresses are guest = wasm linear offsets.
+// (full-cycle.js always supplied these to BOTH its mini and cb envs — which is
+// exactly why the Node harness passed while the browser did not.)
+function azRemillIntrinsics() {
+    return {
+        __remill_read_memory_8:  function(mem, a) { return new DataView(azMemory.buffer).getUint8(Number(a)); },
+        __remill_read_memory_16: function(mem, a) { return new DataView(azMemory.buffer).getUint16(Number(a), true); },
+        __remill_read_memory_32: function(mem, a) { return new DataView(azMemory.buffer).getUint32(Number(a), true); },
+        __remill_read_memory_64: function(mem, a) { return new DataView(azMemory.buffer).getBigUint64(Number(a), true); },
+        __remill_write_memory_8:  function(mem, a, v) { new DataView(azMemory.buffer).setUint8(Number(a), Number(v) & 0xFF); return mem; },
+        __remill_write_memory_16: function(mem, a, v) { new DataView(azMemory.buffer).setUint16(Number(a), Number(v) & 0xFFFF, true); return mem; },
+        __remill_write_memory_32: function(mem, a, v) { new DataView(azMemory.buffer).setUint32(Number(a), Number(v) >>> 0, true); return mem; },
+        __remill_write_memory_64: function(mem, a, v) { new DataView(azMemory.buffer).setBigUint64(Number(a), BigInt.asUintN(64, BigInt(v)), true); return mem; },
+        __remill_atomic_begin: function(mem) { return mem; },
+        __remill_atomic_end:   function(mem) { return mem; },
+        __remill_compare_exchange_memory_8: function(mem, addr, expPtr, desired) {
+            var u8 = new Uint8Array(azMemory.buffer), a = Number(addr), e = Number(expPtr);
+            var actual = u8[a];
+            if (actual === u8[e]) { u8[a] = Number(desired) & 0xFF; }
+            u8[e] = actual;
+            return mem;
+        },
+        __remill_compare_exchange_memory_32: function(mem, addr, expPtr, desired) {
+            var dv = new DataView(azMemory.buffer), a = Number(addr), e = Number(expPtr);
+            var actual = dv.getUint32(a, true);
+            if (actual === dv.getUint32(e, true)) { dv.setUint32(a, Number(desired) >>> 0, true); }
+            dv.setUint32(e, actual, true);
+            return mem;
+        },
+        __remill_compare_exchange_memory_64: function(mem, addr, expPtr, desired) {
+            var dv = new DataView(azMemory.buffer), a = Number(addr), e = Number(expPtr);
+            var actual = dv.getBigUint64(a, true);
+            if (actual === dv.getBigUint64(e, true)) { dv.setBigUint64(a, BigInt.asUintN(64, BigInt(desired)), true); }
+            dv.setBigUint64(e, actual, true);
+            return mem;
+        },
+    };
 }
 
 // node_idx → table_idx (M8.6 stub: identity since dispatchEvent uses
@@ -190,6 +266,10 @@ function azMakeMiniImports() {
         __multi3: azMulti3,
         memset: azMemset, memcpy: azMemcpy, memmove: azMemcpy, __udivti3: azUdivti3,
     };
+    // Real remill memory/atomic intrinsics for EVERY lifted wasm (see
+    // azRemillIntrinsics): the stub Proxy both corrupts memory semantics and
+    // returns a BigInt where i32 is declared, which aborts bootstrap.
+    Object.assign(realEnv, azRemillIntrinsics());
     function stubFor(name) {
         if (name.indexOf('write_memory') !== -1 ||
             name.indexOf('barrier') !== -1 ||
@@ -247,6 +327,10 @@ function azCallbackImports() {
         __multi3: azMulti3,
         memset: azMemset, memcpy: azMemcpy, memmove: azMemcpy, __udivti3: azUdivti3,
     };
+    // Real remill memory/atomic intrinsics for EVERY lifted wasm (see
+    // azRemillIntrinsics): the stub Proxy both corrupts memory semantics and
+    // returns a BigInt where i32 is declared, which aborts bootstrap.
+    Object.assign(realEnv, azRemillIntrinsics());
     var handler = {
         get: function(_target, prop) {
             if (typeof prop !== 'string') return undefined;
@@ -374,7 +458,7 @@ async function azBootstrap() {
     //      boundaries array).
     await azLoadBoundaryShards();
 
-    // 2./3. (2026-06-10 BOOTSTRAP-ORDER FIX) init + hydrate MOVED BELOW the cb/layout wasm
+    // 2./3. ( BOOTSTRAP-ORDER FIX) init + hydrate MOVED BELOW the cb/layout wasm
     //    instantiations. Every module instantiation re-runs its DATA SEGMENTS over the
     //    shared memory; the layout wasm carries the multi-MiB lifted-data mirror whose
     //    segments span the same band the bump heap allocates from (0x110000..~0x8664000 ∋
@@ -450,12 +534,12 @@ async function azBootstrap() {
         }
     }
 
-    // 4.6. (2026-06-10 BOOTSTRAP-ORDER FIX) Every wasm is instantiated — the shared
+    // 4.6. ( BOOTSTRAP-ORDER FIX) Every wasm is instantiated — the shared
     //      memory's data segments are final. NOW seed the bump heap (each module's
     //      segments can clobber @__az_bump_ptr's linear-memory copy), build the state,
     //      hydrate the RefAny/model, and only then run the layout pipeline.
     if (typeof azMini.AzStartup_resetBumpHeap === 'function') {
-        // [2026-06-11] 96 MiB → 160 MiB: libazul's synth band GREW past
+        // [] 96 MiB → 160 MiB: libazul's synth band GREW past
         // 96 MiB (the rebased dylib's __DATA tail — incl. the TLV
         // descriptor mirror at ~0x6043xxxx — now ends ~101 MiB), so a
         // 96 MiB bump base let allocations STOMP the mirrored data
@@ -517,7 +601,7 @@ async function azBootstrap() {
             // M11 Sprint 1: hydrate the wasm-side StyledDom + run the layout
             // solver. Failures log but don't abort — hit-test falls back to
             // the last registered cb node when the rects cache is empty.
-            // [RE-ENABLED 2026-06-24 — the func698 hydrate OOB is FIXED]
+            // [RE-ENABLED — the func698 hydrate OOB is FIXED]
             // The trap was NOT an internal-sret field drop. Root cause: the
             // recursive-bl forwarder (transpiler_remill.rs `is_recursive_marker`)
             // passed the incoming %pc straight through to the recursive fn. But
@@ -536,13 +620,13 @@ async function azBootstrap() {
             // latent until the REC_MARKER fix let the text-shaping recursion lift at
             // all. Re-enable (drop the `false &&`) once the solver no longer traps →
             // then real geometric hit-test over solved rects. try/catch = defence.
-            if (false && initRc === 0 && domPtr &&
+            if (initRc === 0 && domPtr &&
                 typeof azMini.AzStartup_hydrateStyledDom === 'function') {
                 // A wasm trap in hydrateStyledDom MUST NOT abort bootstrap (the
                 // stated policy above) — the StyledDom cascade walks the AzDom
                 // the layout cb wrote via hidden-ptr/sret return, and the x86
                 // internal-sret lift leaves a garbage field that the recursive
-                // node walk derefs → OOB (the func698 trap, 2026-06-23). The
+                // node walk derefs → OOB (the func698 trap). The
                 // solver below was already guarded; the hydrate call was not, so
                 // its trap escaped uncaught and killed the page. Catch it: the
                 // click still works because azDispatch routes the button's
@@ -568,8 +652,7 @@ async function azBootstrap() {
                 if (hydrateRc === 0 && typeof solveFn === 'function') {
                     // A wasm trap here must not abort bootstrap (the stated
                     // policy above): listeners + the __azProbe diagnostics
-                    // hook below still need to install so the failure can be
-                    // probed (peekU32 markers) instead of leaving a dead page.
+                    // hook below still need to install.
                     try {
                         var solveRc = solveFn(azState, viewportW, viewportH);
                         var solved = (typeof azMini.AzStartup_isLayoutSolved === 'function')
@@ -578,6 +661,9 @@ async function azBootstrap() {
                             ? azMini.AzStartup_getPositionedRectsLen(azState) : 0;
                         console.info('[azul-web] solveLayout rc=' + solveRc +
                                      ' solved=' + solved + ' rects_len=' + rectsLen);
+                        var appliedRects = azApplySolvedRects();
+                        console.info('[azul-web] applied ' + appliedRects +
+                                     ' solved rects to the DOM');
                     } catch (e) {
                         console.error('[azul-web] solveLayout TRAPPED:', e && e.message);
                     }
@@ -629,6 +715,25 @@ async function azBootstrap() {
 // the lifted user `_fromJson` would take over (lifting that adds a
 // hidden-return wrapper variant — out of scope today).
 // =====================================================================
+// An unmatched indirect dispatch returns as if the call had succeeded, so the
+// damage surfaces far from its cause. Print the FIRST unmatched PC and the
+// ordered ring rather than the last one, which is usually downstream noise
+// produced by a caller already running on a garbage return value.
+function azUnmatchedDispatches() {
+    try {
+        var dv = new DataView(azMemory.buffer);
+        var n = dv.getUint32(0x40158, true);
+        if (!n) { return; }
+        var ring = [];
+        for (var i = 0; i < 16 && i < n; i++) {
+            ring.push('0x' + dv.getUint32(0x409C0 + 4 * i, true).toString(16));
+        }
+        console.error('[azul-web] unmatched indirect dispatches: ' + n
+            + '  first=0x' + dv.getUint32(0x409B0, true).toString(16)
+            + '  last=0x' + dv.getUint32(0x40900, true).toString(16)
+            + '  ring=[' + ring.join(' ') + ']');
+    } catch (e) { /* memory detached */ }
+}
 function azHydrate() {
     var script = document.getElementById('az-hydrate');
     if (!script) {
@@ -647,7 +752,7 @@ function azHydrate() {
     var typeIdHi = Number((typeIdBigInt >> 32n) & 0xFFFFFFFFn);
     var counter = (typeof payload.json === 'number') ? payload.json : 0;
 
-    // S1 (2026-06-11) generic hydration: the server embeds the model's
+    // S1 generic hydration: the server embeds the model's
     // exact byte image ("size" + "bytes" hex). Allocate the REAL model
     // size and restore every byte — any plain-old-data model now
     // round-trips (the legacy path alloc'd 4 bytes and only restored
@@ -658,7 +763,41 @@ function azHydrate() {
         console.error('[azul-web] hydrate alloc(' + modelSize + ') failed');
         return;
     }
-    if (typeof payload.bytes === 'string' && payload.bytes.length === modelSize * 2) {
+    // Reflection path FIRST: a model whose fields hold pointers (String,
+    // Vec, …) cannot be restored from its native byte image — those
+    // addresses belong to the server process and the first deref in the
+    // guest leaves linear memory (AzWriter's DocState.export_path). When
+    // the app registered a deserializer, the server ships its synth
+    // address and the state travels as JSON instead.
+    // See doc/web-json-hydrate-plan.md.
+    var deserFn = (typeof payload.deserialize_fn === 'number') ? payload.deserialize_fn : 0;
+    var usedJsonHydrate = false;
+    if (deserFn !== 0 && payload.json !== null && typeof payload.json === 'object'
+        && typeof azMini.AzStartup_hydrateJson === 'function') {
+        var jsonText = JSON.stringify(payload.json);
+        var jsonBytes = new TextEncoder().encode(jsonText);
+        var jsonPtr = azMini.AzStartup_alloc(jsonBytes.length);
+        if (jsonPtr) {
+            new Uint8Array(azMemory.buffer, jsonPtr, jsonBytes.length).set(jsonBytes);
+            azMini.AzStartup_registerStateDeserializer(azState, BigInt(deserFn));
+            var jr = azMini.AzStartup_hydrateJson(azState, jsonPtr, jsonBytes.length);
+            if (jr) {
+                azRefAnyPtr = jr;
+                usedJsonHydrate = true;
+                console.info('[azul-web] hydrate via JSON reflection: refany=' + jr
+                    + ' (' + jsonBytes.length + ' bytes of state)');
+            } else {
+                // Loud, and NOT silently downgraded to the raw-byte path —
+                // that is exactly the corruption this exists to avoid.
+                console.error('[azul-web] AzStartup_hydrateJson failed (deserializer 0x'
+                    + deserFn.toString(16) + ') — app state will be missing');
+                azUnmatchedDispatches();
+            }
+        }
+    }
+    if (usedJsonHydrate) {
+        // refany already built guest-side; skip the byte-image path below.
+    } else if (typeof payload.bytes === 'string' && payload.bytes.length === modelSize * 2) {
         var mem = new Uint8Array(azMemory.buffer, azModelPtr, modelSize);
         for (var bi = 0; bi < modelSize; bi++) {
             mem[bi] = parseInt(payload.bytes.substr(bi * 2, 2), 16);
@@ -671,7 +810,9 @@ function azHydrate() {
     // Hand to AzStartup_hydrate — the mini-side fn does the
     // RefCountInner + RefAny construction in lifted Rust code, no
     // hand-laid-out JS bytes.
-    azRefAnyPtr = azMini.AzStartup_hydrate(typeIdLo, typeIdHi, azModelPtr, modelSize);
+    if (!usedJsonHydrate) {
+        azRefAnyPtr = azMini.AzStartup_hydrate(typeIdLo, typeIdHi, azModelPtr, modelSize);
+    }
     if (!azRefAnyPtr) {
         console.error('[azul-web] AzStartup_hydrate returned 0');
         return;
@@ -714,7 +855,7 @@ function azModifierBits(e) {
     return bits;
 }
 
-// (2026-06-10) data-az-ev attribute value → EVT_* kind int, for
+// data-az-ev attribute value → EVT_* kind int, for
 // AzStartup_registerCbNodeKind. Unknown names register as EVT_CLICK.
 function azEvNameToKind(name) {
     switch (name) {
@@ -728,7 +869,7 @@ function azEvNameToKind(name) {
         case 'focus':       return EVT_FOCUSIN;
         case 'blur':        return EVT_FOCUSOUT;
         case 'scroll':      return EVT_SCROLL;
-        // S1 (2026-06-11): the rest of the html_render.rs vocabulary.
+        // S1 : the rest of the html_render.rs vocabulary.
         case 'mousemove':   return EVT_MOUSEMOVE;
         case 'mouseover':   return EVT_MOUSEOVER;
         case 'mouseenter':  return EVT_MOUSEENTER;
@@ -744,7 +885,7 @@ function azEvNameToKind(name) {
     }
 }
 
-// S1 (2026-06-11): derive the az_N node_idx from a DOM event's target.
+// S1 : derive the az_N node_idx from a DOM event's target.
 // Needed for events whose semantics are target-based, not position-based:
 // focusin/out, mouseenter, and especially mouseleave (whose coordinates lie
 // OUTSIDE the node — bbox hit-testing them would resolve the wrong node).
@@ -883,6 +1024,47 @@ function azDecodeCstr(view, payloadOff, payloadEnd) {
     var bytes = new Uint8Array(azMemory.buffer, payloadOff, end - payloadOff);
     var s = new TextDecoder().decode(bytes);
     return [s, (end < payloadEnd ? (end - payloadOff + 1) : (end - payloadOff))];
+}
+
+// =====================================================================
+// M11.5: render the wasm-computed geometry. The positioned-rect cache is
+// the layout source of truth (AzStartup_hitTest already tests against
+// it); leaving the server's CSS approximation on screen meant what the
+// user SAW diverged from what clicks HIT. Absolutely position every
+// az_N element from its solved rect. Sentinel entries (0xFFFFFFFF or
+// bit-31-flagged values: text runs / anonymous / unpositioned nodes)
+// keep their in-flow position inside their positioned parent.
+// =====================================================================
+function azApplySolvedRects() {
+    if (!azMini || !azState || !azMemory) return 0;
+    if (typeof azMini.AzStartup_getPositionedRectsLen !== 'function' ||
+        typeof azMini.AzStartup_getPositionedRectsPtr !== 'function') return 0;
+    var n = azMini.AzStartup_getPositionedRectsLen(azState) >>> 0;
+    var p = azMini.AzStartup_getPositionedRectsPtr(azState) >>> 0;
+    if (!n || !p) return 0;
+    var dv = new DataView(azMemory.buffer);
+    var applied = 0;
+    // The rects are viewport-absolute (they already include azul's own
+    // root padding), so the positioning context must sit at the origin.
+    document.body.style.margin = '0';
+    document.body.style.position = 'relative';
+    for (var i = 0; i < n; i++) {
+        var o = p + i * 16;
+        var x = dv.getUint32(o, true),      y = dv.getUint32(o + 4, true);
+        var w = dv.getUint32(o + 8, true),  h = dv.getUint32(o + 12, true);
+        if (((x | y | w | h) >>> 31) !== 0) continue;
+        var el = document.getElementById('az_' + i);
+        if (!el) continue;
+        el.style.position = 'absolute';
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        el.style.width = w + 'px';
+        el.style.height = h + 'px';
+        el.style.boxSizing = 'border-box';
+        el.style.margin = '0';
+        applied++;
+    }
+    return applied;
 }
 
 function azApplyPatches(ptr, len) {
@@ -1042,7 +1224,7 @@ function azWireListeners() {
         azCollectSamples(e);
         azDispatch(EVT_MOUSEUP, e, undefined, azTakeSamples());
     });
-    // S1 (2026-06-11): keyboard routes wasm-side to the focused node (or
+    // S1: keyboard routes wasm-side to the focused node (or
     // broadcasts to kind-registered nodes); pass the DOM target as a hint
     // when the browser knows it (input fields).
     document.body.addEventListener('keydown',   function(e) { azDispatchTargeted(EVT_KEYDOWN,   e); });
@@ -1284,9 +1466,16 @@ function azDispatchResize(w, h) {
     if (patchesPtr && patchesLen) azApplyPatches(patchesPtr, patchesLen);
     azMini.AzStartup_free(evtPtr, EVENT_BUFFER_SIZE);
     azMini.AzStartup_free(outLenPtr, OUT_LEN_SIZE);
-    // Re-run layout against the new viewport.
-    if (typeof azMini.AzStartup_solveLayout === 'function') {
-        azMini.AzStartup_solveLayout(azState, Math.floor(w), Math.floor(h));
+    // Re-run layout against the new viewport (prefer the real solver, as
+    // bootstrap does) and re-apply the solved geometry to the DOM.
+    var reSolve = azMini.AzStartup_solveLayoutReal || azMini.AzStartup_solveLayout;
+    if (typeof reSolve === 'function') {
+        try {
+            reSolve(azState, Math.floor(w), Math.floor(h));
+            azApplySolvedRects();
+        } catch (e) {
+            console.error('[azul-web] resize re-solve TRAPPED:', e && e.message);
+        }
     }
 }
 
@@ -1328,10 +1517,26 @@ window.addEventListener('popstate', function() {
     });
 });
 
+// Settle accounting: the pending count taken at script start drops when
+// azBootstrap resolves OR rejects — a wedged count would make
+// __az_settled wait forever, so failure must also settle.
+function azBootstrapTracked() {
+    Promise.resolve()
+        .then(azBootstrap)
+        .catch(function(e) {
+            // The stack is the diagnosis: wasm frames name the trapping
+            // function (wasm-function[N]:0x... → wfunc.mjs → symbol).
+            console.error('[azul-web] bootstrap FAILED:', (e && (e.stack || e.message)) || e);
+            try {
+                azUnmatchedDispatches();
+            } catch (e2) { /* no memory yet */ }
+        })
+        .then(function() { window.__az_pending--; });
+}
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', azBootstrap);
+    document.addEventListener('DOMContentLoaded', azBootstrapTracked);
 } else {
-    azBootstrap();
+    azBootstrapTracked();
 }
 })();
 "#.to_string()

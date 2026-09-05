@@ -178,6 +178,8 @@ extern crate azul_layout;
 // Compiled when internal bindings are available (not for link-dynamic)
 #[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
 pub mod desktop;
+#[cfg(feature = "web-e2e-runner")]
+pub mod e2e_web_runner;
 
 // Target-stable home for the `extra::*` feature handles (audio, video_codec,
 // sqlite, pdf, udp). Off-wasm it re-exports the real `desktop::extra::*` types;
