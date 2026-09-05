@@ -68,6 +68,24 @@ These are the only entries where hitting the stub means "this genuinely cannot
 run here" rather than "the guest panicked". Three more (`0x87fc10`, `0xaec100`,
 `0xd50fd0`) had no `resolved=` line in the log sampled.
 
+## Finding the CALLER — and why `%pc` is not it
+
+The symbol alone rarely locates the bug: `unwrap_failed` has 1815 callers. So
+the stub also records who reached it, at **`0x40080`**.
+
+The first attempt recorded the stub's `%pc` argument and was **wrong** — a run
+measured `0x40048` and `0x40080` as the *same* value, `0xf05880`. The reason is
+remill's own contract: a lifted body's `pc` argument **is its own lift address**
+(the invariant the direct-call pc seeding depends on), and the caller sets `%PC`
+to the call *target* immediately before calling. `%pc` inside a stub therefore
+names the stub, never the caller.
+
+The caller's identity is the **return address at `[RSP]`**, which the lifted
+caller pushes before the call. The stub reads `State.RSP` and loads from it.
+That load carries the guest alias scope — it reads guest memory a lifted caller
+wrote — while the recorder *stores* stay untagged-volatile, since no lifted code
+reads them.
+
 ## How to use it
 
 1. Boot traps. Read `0x40048` — `scripts/m9_e2e/tls-probe.js` prints it, and

@@ -29,10 +29,23 @@ overstated one log by 280×.
 |---|---|---|---|---|
 | 61 | 4528 | 28,341,706 | 2,948,275 | 9.61× |
 | 64 | 4629 | 28,559,776 | 2,961,422 | 9.64× |
+| 65 | 4629 | 28,597,541 | 2,962,946 | 9.65× |
 
-+0.77% raw between them, which the swept-in drift alone accounts for (see
++0.77% raw from 61 to 64, which the swept-in drift alone accounts for (see
 below). The brotli ratio stays flat at ~9.6×, consistent with the measured
 9.9× across 2–20 MB, so raw savings translate.
+
+Runs 64 and 65 have **identical** mini function counts (4629), so their
+difference isolates one change — the NeverLift caller recorder — at **+37,765
+raw bytes**. Note the linked figures for the same pair differ by only 12,253:
+**a delta measured on the pre-strip `lifted + linked` number does not predict
+the delta on the stripped artifact**, so A/B both on the artifact.
+
+That pair also refines the drift claim below: the swept-in set moved 4721 → 4629
+between runs 63 and 64 but held at 4629 → 4629 between 64 and 65, both across
+transpiler edits. The drift is **occasional and layout-sensitive, not
+per-rebuild** — so it cannot be assumed either way, and a count has to be read
+from each run rather than carried forward.
 
 ## What it is NOT
 
