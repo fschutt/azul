@@ -3063,8 +3063,22 @@ impl RemillTranspiler {
                             // remill's missing-block handler fired at runtime with
                             // the address baked in as a constant.
                             //
-                            // Synthesize an entry and lift it, exactly as the CALL
-                            // path already does for an unsymboled in-image target.
+                            // ONLY when the jump LEAVES this function. The exact
+                            // symbol lookup had been doing double duty: it also
+                            // filtered out intra-function branches, since a loop
+                            // back-edge or if/else label has no symbol either.
+                            // Without this guard the fallback fired 52,591 times in
+                            // one run, synthesizing a "function" for every branch
+                            // label - some sized 29 KB by the gap to the next symbol.
+                            //
+                            // The range test belongs HERE and not on the exact-symbol
+                            // path, where symbol sizes are often over-estimated across
+                            // adjacent tiny outlined functions and testing would hide
+                            // real tail calls.
+                            let fn_end = addr.saturating_add(fn_bytes_slice.len());
+                            if target >= addr && target < fn_end {
+                                return None;
+                            }
                             // Only in-image addresses synthesize, so a genuinely
                             // external jump still yields None and is skipped.
                             let synth = table.native_to_synth(target)?;
