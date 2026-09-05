@@ -43,8 +43,10 @@ to exercise the configure path, but not the click path.
 | 4c — compositor-driven resize | a configure relayouts | **VERIFIED** | KWin script set `frameGeometry` to 1000x700: ribbon reflowed (gallery dropped to 2 cells, Editing group moved), status bar spans the new width. Screenshot `wl1-crop.png` |
 | externally-triggered maximize | the app observes WM-driven state | **VERIFIED (by code) / PARTIAL (device)** | unlike X11 — which never reads `_NET_WM_STATE` back — `xdg_toplevel_configure_handler` parses the states array (1=maximized, 2=fullscreen) and applies it with `WindowStateSource::Os`. On the device, `setMaximize(false,false)` from KWin was a no-op because the window was not maximized in the compositor's view to begin with |
 | diagnostics on closed stderr | a warning never kills the app | **BROKEN → FIXED** | `AzWriter 2>&1 \| head -4` aborted with `failed printing to stderr: Broken pipe`. After the fix the same command exits **124** (killed by its own `timeout`, i.e. still alive) instead of **101** (panic) |
-| titlebar drag | dragging the client titlebar moves the window | **UNTESTABLE** | no pointer injection (see above). The shared gesture-session fix from #461 applies to this path but cannot be exercised here |
-| double-click maximize | double-click toggles maximize/restore | **UNTESTABLE** | same |
+| titlebar drag | dragging the client titlebar moves the window | **VERIFIED (X11 via XWayland)** | every press from y=10 to y=27 enters the interactive-move path — no alternation, so #461's gesture-session fix holds. Not testable on the Wayland backend |
+| double-click maximize | double-click toggles maximize/restore | **VERIFIED (X11 via XWayland)** | `0,0 1920x1036` -> `200,218 1200x800` on a double-click at the title bar |
+| CSD band gate | the band is off while maximized | **VERIFIED (X11 via XWayland)** | band ON (move-path=0) when the app knows it is Normal, OFF (move-path=1) when its `flags.frame` is stale — see below |
+| WM-initiated un-maximize | the client notices | **BROKEN, not fixed here** | X11 never reads `_NET_WM_STATE` back, so after `wmctrl` un-maximizes, the client still believes it is maximized and its resize edges stay disabled |
 | portal short-circuit (#461) | the portal must not replace desktop discovery | **UNEXERCISED** | this session logs `xdg-desktop-portal unavailable`, so the portal path never runs. Needs a session where the portal answers |
 | resize repaint rate | resize repaints at refresh rate | **NOT MEASURED** | see below |
 
@@ -285,19 +287,39 @@ OTHER attempt (`y=4 drag, y=10 dead, y=14 drag, y=18 dead ...`). Alternation is
 a property of stale SESSION state, not of position, so this result survives the
 coordinate caveat below.
 
-**What could NOT be isolated: the 8 px band gate.** `xdotool windowmove` to
-`(200,200)` is read back as `(200,216)` by `xdotool getwindowgeometry`, while
-`_MOTIF_WM_HINTS = 0x2,0x0,...` and KWin's own `noBorder=true` both say the
-window is undecorated and therefore has no frame to account for those 16 px. A
-press aimed at window-relative y=4 is therefore landing somewhere else, and an
-8 px band cannot be tested with a 16 px addressing error. The maximized case
-does enter the move path as the fix intends, but with the offset unexplained
-that is not proof on its own.
+**The band gate IS verifiable here — and it exposed a second defect.**
 
-So the band gate stays as it was: device-verified on the REAL X11 session
-(where the sweep showed the top band claiming presses), and code-verified on
-Wayland. XWayland is good enough to prove the session fix and to smoke-test the
-backend, not to measure 8 px.
+The first attempt looked like a 16 px addressing error (`windowmove` to
+(200,200) read back as (200,216)). It was not: repeating the move on a settled
+window lands at exactly (200,200) every time, so the 216 was the window still
+settling out of a maximize. With that ruled out, the real result appears.
+
+Undecorated (`_MOTIF_WM_HINTS = 0x2,0x0,...`, KWin `noBorder=true`), window at
+a verified (200,200), pressing at window-relative y and counting entries into
+the interactive-move path:
+
+| how the window was un-maximized | app's `flags.frame` | press at rel_y=2 |
+|---|---|---|
+| `wmctrl` (the WM did it) | still **Maximized** — stale | move-path=**1** (band OFF) |
+| double-click on the title bar (the APP did it) | **Normal** — known | move-path=**0** (band ON) |
+
+Both rows are `csd_resize_edge_for_press` behaving exactly as written: the band
+is live on a Normal window and disabled on a Maximized one. So the band gate is
+**VERIFIED on the X11 backend**, and so is **double-click maximize/restore** —
+the double-click took the window from `0,0 1920x1036` to `200,218 1200x800`.
+
+The first row is the interesting one. X11 never reads `_NET_WM_STATE` back
+(there is no `PropertyNotify` handler at all — the X11 audit's item b2), so
+after the WINDOW MANAGER un-maximizes a window the client keeps believing it is
+maximized. That abstract gap now has a concrete, user-visible symptom:
+
+> Un-maximize an azul window from outside the app — Alt+F10, the window menu,
+> dragging it off the top edge — and its resize edges stop working, because the
+> client still thinks it is maximized and a maximized window has no edges.
+
+That is a real bug, it is NOT fixed here (the readback belongs with the
+`PropertyChangeMask` work the X11 audit specifies), and it is now reproducible
+in three commands.
 
 ## Traps found
 
