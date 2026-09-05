@@ -60,38 +60,39 @@ The right instrument for both platforms is a span around `render_and_present`,
 reporting the paint itself. Until that exists, neither platform has a
 trustworthy resize-repaint number.
 
-## Measured, narrowed, NOT fixed: the caret blinks at azul's default, not the desktop's
+## Idle repaint is the caret, at the configured rate — and a regression I caused and caught
 
-Idle, with a caret in the document and nothing else happening, the app
-generates **67 WebRender frames in 33.9 s — 1.97 frames/s — at a metronomic
-530 ms** (min 10, median 530, max 530; from `generated frame for document` in
-a `AZ_LOG=debug` capture).
+Idle, with a caret in the document, the app generates a WebRender frame per
+caret blink and nothing else. Measured:
 
-530 ms is not a coincidence: it is
-`text_edit::CURSOR_BLINK_INTERVAL_MS`, azul's built-in default. This KDE
-session is configured for **1200 ms**, and detection read it correctly -
-`AZ_DUMP_SYSTEM_STYLE=1` prints `caret_blink_ms 1200`. So the caret is
-blinking at the framework default while the detected desktop value sits
-unused, and the app repaints twice a second for it.
+| | frames | over | rate | gap (median) |
+|---|---|---|---|---|
+| with the bug | 67 | 33.9 s | 1.97 /s | **530 ms** |
+| fixed | 34 | 38.4 s | 0.88 /s | **1200 ms** |
 
-What has been ruled out, to save the next person the search:
+530 ms is `text_edit::CURSOR_BLINK_INTERVAL_MS`, azul's built-in default;
+1200 ms is what this session actually configures and what
+`AZ_DUMP_SYSTEM_STYLE=1` reports. So the caret plumbing works end to end —
+`caret_blink_interval_for` reads `SystemStyle::input::caret_blink_rate_ms`
+correctly, and the earlier suspicion that it was an ordering problem around
+`set_system_style` was wrong.
 
-- **Not the CSS override.** `caret_blink_interval_for` lets a declared
-  `caret-animation-duration` win over the system value, which is correct
-  cascade behaviour - but nothing outside `#[cfg(test)]` declares that
-  property. Neither AzWriter nor any UA sheet sets it, so `css_interval` is
-  `None` and the system branch is the one that runs.
-- **Not a missing `set_system_style`.** The shell does attach the style
-  (`dll/src/desktop/shell2/common/layout.rs:275`).
+The 530 ms was **caused by the `kde_extras` commit in this PR**. That commit
+returned early from `discover_linux_extras` once KDE's own reader had
+answered — and the tail of that function is not desktop-specific at all: the
+animation, sound, menu/toolbar and caret-blink blocks are asked of gsettings on
+every desktop. Returning early took `caret_blink_ms` from 1200 to the built-in
+530, and the app quietly repainted twice a second at a rate nobody configured.
 
-What remains, and is the thing to test first: an **ordering** problem. The
-interval is adopted when the caret timer is ARMED, on focus change
-(`adopt_blink_interval`, whose own doc notes it is meant for "a RUNNING
-timer"), so a timer armed before the style reached the `LayoutWindow` keeps
-`CURSOR_BLINK_INTERVAL` and never re-adopts.
+Fixed by splitting the function honestly: `discover_gsettings_appearance` is
+the icon/cursor/theme/button block that a desktop-specific reader REPLACES, and
+`discover_shared_behaviour` is the tail that always runs. The idle cadence
+returning to exactly 1200 ms is the proof.
 
-This is deliberately left unfixed rather than guessed at, and it is cheaply
-self-verifying: the fix is right when this idle cadence becomes 1200 ms.
+The lesson, which is the general one from this whole arc: an early `return`
+added to serve one desktop silently deleted work that belonged to all of them,
+and no test covered the tail. The device measurement caught it, which is the
+argument for running the thing rather than only compiling it.
 
 ## Traps found
 

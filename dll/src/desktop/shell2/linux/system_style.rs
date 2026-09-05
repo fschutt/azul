@@ -459,17 +459,33 @@ fn discover_linux_extras(style: &mut SystemStyle) {
     // schemas populated - reading those is how an XFCE desktop themed
     // Mint-Y-Aqua ended up rendering as Breeze dark with breeze-dark icons.
     let source = linux_settings_source(&azul_css::system::detect_linux_desktop_env());
-    if source == LinuxSettingsSource::Xfconf && xfce_extras(style) {
-        apply_env_cursor_fallbacks(style);
-        gtk_ini_extras(style);
-        return;
-    }
-    if source == LinuxSettingsSource::KdeConfig && kde_extras(style) {
-        apply_env_cursor_fallbacks(style);
-        gtk_ini_extras(style);
-        return;
+    let de_answered = match source {
+        LinuxSettingsSource::Xfconf => xfce_extras(style),
+        LinuxSettingsSource::KdeConfig => kde_extras(style),
+        _ => false,
+    };
+
+    // ONLY the theme/icon/cursor/button block belongs to the desktop-specific
+    // reader. Everything after it - animations, sounds, menu and toolbar
+    // hints, the caret blink - is asked of gsettings on every desktop and must
+    // keep running, or a desktop with its own reader silently loses all of it.
+    // An early `return` here did exactly that: on KDE it took
+    // `caret_blink_ms` from 1200 back to the built-in 530, which then showed
+    // up as the app repainting twice a second at a rate nobody configured.
+    if !de_answered {
+        discover_gsettings_appearance(style);
     }
 
+    apply_env_cursor_fallbacks(style);
+    // The GTK config file is the floor under every desktop and every bare WM.
+    gtk_ini_extras(style);
+
+    discover_shared_behaviour(style);
+}
+
+/// The icon / cursor / widget-theme / titlebar-button block, from the GNOME
+/// schemas. Used by the desktops that have no reader of their own.
+fn discover_gsettings_appearance(style: &mut SystemStyle) {
     // Icon theme
     if let Some(icon) = gsettings_get("org.gnome.desktop.interface", "icon-theme") {
         style.linux.icon_theme = OptionString::Some(icon.into());
@@ -504,11 +520,12 @@ fn discover_linux_extras(style: &mut SystemStyle) {
         style.metrics.titlebar.buttons.has_maximize = layout.contains("maximize");
         style.linux.titlebar_button_layout = OptionString::Some(layout.into());
     }
-    // Env-var fallbacks (work on ALL Linux WMs)
-    apply_env_cursor_fallbacks(style);
-    // The GTK config file is the floor under every desktop and every bare WM.
-    gtk_ini_extras(style);
+}
 
+/// The desktop-INDEPENDENT tail: animation, sound, menu/toolbar hints and the
+/// caret blink. Asked of gsettings on every desktop, so it must run whether or
+/// not a desktop-specific reader answered the appearance block above.
+fn discover_shared_behaviour(style: &mut SystemStyle) {
     // ── Animation metrics ────────────────────────────────────────────
     if let Some(anim_s) = gsettings_get("org.gnome.desktop.interface", "enable-animations") {
         let enabled = anim_s.trim() != "false";
