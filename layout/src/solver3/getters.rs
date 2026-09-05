@@ -5446,12 +5446,16 @@ fn report_unresolved_families(resolved: &ResolvedFontChains) {
     let Ok(mut seen) = seen.lock() else { return };
     for family in &resolved.unresolved_families {
         if seen.insert(family.clone()) {
-            eprintln!(
+            // Through the diagnostics sink, like every other azul warning:
+            // `eprintln!` PANICS when stderr has gone away (piping a running
+            // app into `head` is enough), and a bare print is invisible to the
+            // ring, so nothing could assert that a missing family was reported.
+            azul_core::diagnostics::emit(alloc::format!(
                 "[azul][font] UNRESOLVED font-family {family:?}: no font file and no \
                  registered in-memory font matches this family. Text that asks for it \
                  renders in a FALLBACK font. Register it with \
                  FontManager::register_named_font(), or install it."
-            );
+            ));
         }
     }
 }
@@ -9897,5 +9901,37 @@ mod alias_prune_tests {
                 "{g} must survive even if it appears in an alias list"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod unresolved_family_reporting_tests {
+    use super::*;
+
+    /// The unresolved-family warning must go through the DIAGNOSTICS SINK like
+    /// every other azul warning, not through a bare `eprintln!`.
+    ///
+    /// Two things were wrong with printing directly. It panics: `eprintln!`
+    /// aborts the process when the write fails, and a closed stderr is
+    /// ordinary - piping a running app into `head` killed it exactly that way
+    /// (see `azul_core::diagnostics::write_diagnostic`). And it is invisible
+    /// to the ring, so no test can assert that a missing family was reported,
+    /// which is the whole reason the diagnostic was added.
+    #[test]
+    fn a_missing_family_is_reported_through_the_diagnostics_ring() {
+        let _g = azul_core::diagnostics::test_lock().lock();
+        azul_core::diagnostics::clear();
+
+        let mut resolved = ResolvedFontChains::default();
+        resolved
+            .unresolved_families
+            .insert("Totally Not Installed Sans".to_string());
+        report_unresolved_families(&resolved);
+
+        assert!(
+            azul_core::diagnostics::any_contains("Totally Not Installed Sans"),
+            "the warning must be recorded, not just printed: {:?}",
+            azul_core::diagnostics::recorded()
+        );
     }
 }

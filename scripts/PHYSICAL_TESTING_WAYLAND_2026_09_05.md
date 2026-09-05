@@ -197,6 +197,44 @@ The one startup fallback is unavoidable (nothing has described an output yet);
 a second later the app's memoised list is the compositor's own, instead of
 keeping the 1920x1080 guess until someone plugs a monitor in.
 
+## Open, measured, NOT fixed: 20 installed font families report as unresolved
+
+Running AzWriter on this session prints, once per family:
+
+    [azul][font] UNRESOLVED font-family "DejaVu Sans": no font file and no
+    registered in-memory font matches this family.
+
+for **20 families**: C059, Cantarell, DejaVu Sans, DejaVu Sans Mono, DejaVu
+Serif, Droid Sans Fallback, Liberation Sans, Nimbus Mono PS, Nimbus Roman,
+Nimbus Sans, Nimbus Sans Narrow, Noto Mono, Noto Sans Mono, Noto Serif, P052,
+Sans, Standard Symbols PS, URW Bookman, URW Gothic, Ubuntu.
+
+Cross-checked against the system, and most of them ARE installed:
+
+    DejaVu Sans        1 match   (fc-list : family)
+    Noto Serif         1 match
+    Liberation Sans    1 match
+    Nimbus Roman       1 match
+    Cantarell          0 matches  <- the only genuinely absent one
+
+The mechanism is documented in `prune_absent_alias_candidates`: every CSS
+generic is expanded to the system's fontconfig `<alias><prefer>` families
+ahead of the generic itself, so a stack of three generics reaches the resolver
+as ~150 concrete names, and the ones the cache cannot serve are pruned. These
+20 survived pruning and then failed to resolve anyway.
+
+This is NOT diagnosed here, deliberately: it sits squarely in the font-fallback
+area that the rust-fontconfig 5 migration (PR #457) exists to rework, this
+branch is master-based and does not contain that migration, and evaluating one
+against the other needs both trees built and compared rather than a guess at
+07:00. Recorded with the cross-check so the next session starts from evidence.
+
+What WAS fixed is how the warning is delivered: it used a bare `eprintln!`,
+which panics when stderr has gone away (the crash class fixed earlier in this
+PR) and is invisible to the diagnostics ring, so no test could assert that a
+missing family was reported at all. It now goes through
+`azul_core::diagnostics::emit` like every other azul warning.
+
 ## Traps found
 
 1. **`build-dll` and `link-dynamic` fight over `target/release/libazul.so`, in
