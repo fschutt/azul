@@ -742,9 +742,20 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `#[pyclass]` at all. Closing them means DECIDING which of them belong
 ///     in the Python surface and giving them one - a product call, not a
 ///     routing change - so it is logged rather than guessed.
-///   * `zig` / `go` — the wrapper emitters whitelist
-///     `Constructor | Method | MethodMut | StaticMethod | Default | DeepCopy`,
-///     so the comparison and debug entry points reach the artifact zero times.
+///   * `zig` (603, was 5168) - two of three causes closed. The wrapper gate
+///     excluded every trait kind, so a class whose only exports were
+///     `_partialEq`/`_cmp`/`_hash`/`_toDbgString` got no wrapper at all - and
+///     `azul.zig` redeclares nothing (`@cImport` parses `azul.h`), so a C
+///     symbol no wrapper calls cannot be spelled from Zig. Enums then needed
+///     their own emitter, because an enum wrapper holds a raw tagged union
+///     rather than an `inner` field. What is LEFT is the third case: a
+///     FIELDLESS C enum (`AccessibilityRole`) gets no wrapper of any kind - it
+///     appears only as a `C.Az*` parameter type - so its derives have nowhere
+///     to hang. Closing it means emitting a wrapper for plain enums.
+///   * `go` (5648) - the same whitelist defect zig had, untouched. The fix is
+///     the pair that worked here: admit the trait kinds to `has_useful_method`
+///     AND emit the methods. Doing only the first makes the number WORSE,
+///     because the class then exists as a wrapper with nothing on it.
 ///   * `4-20` in the remaining tail — `Xml`, `XmlNodeChild` and
 ///     `ResultXmlXmlError`, three classes whose entry points these emitters
 ///     drop for a reason not yet established. Consistent across every binding
@@ -792,7 +803,7 @@ fn declared_count(derives: &BTreeSet<String>) -> usize {
 pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
     ("freebasic", 11),
-    ("zig", 5168),
+    ("zig", 603),
     ("powershell", 4),
     ("php-ext", 134),
     ("ocaml", 272),
