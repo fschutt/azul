@@ -717,10 +717,12 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 /// Pascal, Ada, PHP, Perl, Common Lisp, Algol 68 and COBOL.
 ///
 /// WHAT EACH REMAINING NUMBER IS, IN ONE LINE (measured 2026-09-05):
-///   * `python` — `lang_python.rs` drops trait kinds, then `generate_pymethod`
-///     bails on `fn_body: None`, which every synthesised trait fn has. Only
-///     `__str__`/`__repr__` survive; there is no `__eq__`, `__hash__` or
-///     `__lt__` in the whole extension.
+///   * `python` (150) — every class that HAS a pyclass now honours its whole
+///     derive list. What is left is 185 classes that have no pyclass at all:
+///     the 114 `*VecDestructor`s (`DestructorOrClone`, excluded wholesale) and
+///     the monomorphised `*Value` aliases (`pub type LayoutWidthValue =
+///     AzCssPropertyValue<..>`, which cannot BE a pyclass). Closing it means
+///     giving those types a pyclass, not routing a capability differently.
 ///   * `zig` / `go` — the wrapper emitters whitelist
 ///     `Constructor | Method | MethodMut | StaticMethod | Default | DeepCopy`,
 ///     so the comparison and debug entry points reach the artifact zero times.
@@ -742,9 +744,14 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     to hang a method on, so their capabilities are now free functions
 ///     overloaded on the argument type; see
 ///     `lang_cpp::common::generate_freefn_trait_helpers`.
+///   * `python` (was 4671) — the PyO3 extension had no `__eq__`, `__lt__`,
+///     `__hash__`, `__copy__` or `default` anywhere: the mirror's Rust trait
+///     impls are not dunders, so `a == b` silently fell back to identity.
+///     `generate_derive_dunders` emits them under exactly the condition that
+///     makes the corresponding mirror impl exist.
 pub const BASELINE: &[(&str, usize)] = &[
     ("csharp", 114),
-    ("python", 4671),
+    ("python", 150),
     ("freebasic", 124),
     ("zig", 5168),
     ("powershell", 118),

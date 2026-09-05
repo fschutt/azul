@@ -3151,6 +3151,50 @@ impl RustGenerator {
         builder.line("}");
         builder.blank();
 
+        // Default impl.
+        //
+        // The struct arm of this same emitter has always had one; the enum arm
+        // did not, so an ENUM declaring `Default` got no `impl Default` in the
+        // transmute mirror -- the mirror the Python extension embeds. 164 of
+        // them. The two arms now agree.
+        //
+        // An Option mirror can already have an `impl Default` returning `None`
+        // from `generate_option_convenience_methods`, and a second one is E0119
+        // (this is exactly what `AzOptionWtEvent` broke once before). But that
+        // emitter lives inside `generate_rust_only_impls`, which the caller
+        // SKIPS when there are no C-ABI functions -- `dll_types_only`, the
+        // config the Python extension embeds. So the suppression has to test
+        // both halves: the structural Option shape (the same Some+None,
+        // one-field test that emitter uses), AND whether that emitter runs at
+        // all here. Testing only the shape leaves the Python mirror with no
+        // `Default` for any Option; testing neither is E0119 everywhere else.
+        let option_default_emitted_elsewhere = {
+            let emits_rust_only = !matches!(config.cabi_functions, CAbiFunctionMode::None);
+            let some = enum_def.variants.iter().find(|v| v.name == "Some");
+            let has_none = enum_def.variants.iter().any(|v| v.name == "None");
+            let is_option_mirror = has_none
+                && matches!(
+                    some.map(|v| &v.kind),
+                    Some(EnumVariantKind::Tuple(types)) if types.len() == 1
+                );
+            emits_rust_only && is_option_mirror
+        };
+        if enum_def.traits.is_default && !is_generic && !option_default_emitted_elsewhere {
+            builder.line(&format!("impl Default for {} {{", full_name));
+            builder.indent();
+            builder.line("fn default() -> Self {");
+            builder.indent();
+            builder.line(&format!(
+                "unsafe {{ core::mem::transmute::<{}, {}>({}::default()) }}",
+                external_path, full_name, external_path
+            ));
+            builder.dedent();
+            builder.line("}");
+            builder.dedent();
+            builder.line("}");
+            builder.blank();
+        }
+
         // PartialEq impl
         if enum_def.traits.is_partial_eq {
             if is_generic {
