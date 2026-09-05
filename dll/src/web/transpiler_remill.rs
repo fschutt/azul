@@ -9501,6 +9501,27 @@ fn strip_dead_flag_stores_cfg(ir: &str) -> (String, u32) {
 /// inconsistently at different uses - and zero is deterministic. It costs
 /// nothing: the store folds away, and the measured size is byte-identical with
 /// and without it.
+///
+/// `%PC` moves too, for a different reason and with a different seed. A lifted
+/// callee receives its program counter as an EXPLICIT argument -
+/// `sub_Y(ptr %state, i64 %pc, ptr %memory)` - and overwrites `%PC` at its own
+/// entry, so it never reads the caller's stored PC. But unlike the flags the
+/// ENTRY value is load-bearing: lifted x86 uses `%PC` for PC-relative data
+/// addressing, and switch jump tables index off it. So the private PC slot is
+/// seeded from the function's own `i64` program-counter argument rather than
+/// zeroed.
+///
+/// Sub-register aliases (AL/AX/ECX...) are deliberately left alone: they alias
+/// the parent GP registers, which really are shared with callees through the
+/// State, so moving them would break argument passing.
+///
+/// Verified structurally, not just by size: across baseline, flags-private and
+/// flags+PC-private the module keeps all 84 switches, all 182 case arms, the
+/// same returns and unreachables, and loses ZERO calls to lifted `sub_*`
+/// functions. The 2,891 calls that do vanish are all `llvm.ctpop.i8` - x86's
+/// parity-flag computation, dead once the flag it feeds is promoted and unused.
+/// Measured: 575,339 -> 328,202 B with flags alone, -> 260,024 B with PC too,
+/// i.e. -43.0% and -54.8%.
 fn privatize_flag_storage(ir: &str) -> (String, u32) {
     const FLAGS: &[&str] = &["af", "pf", "cf", "sf", "of", "zf"];
 
@@ -9531,18 +9552,41 @@ fn privatize_flag_storage(ir: &str) -> (String, u32) {
 
     let lines: Vec<&str> = ir.lines().collect();
 
-    // Which functions touch a flag at all? Only those get a buffer.
+    // `i64 %<name>` in the signature is the program-counter argument; the
+    // private PC slot is seeded from it.
+    fn pc_arg_of(define_line: &str) -> Option<String> {
+        let open = define_line.find('(')?;
+        let close = define_line[open..].find(')')? + open;
+        for part in define_line[open + 1..close].split(',') {
+            let p = part.trim();
+            if let Some(rest) = p.strip_prefix("i64 %") {
+                let end = rest
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+                    .unwrap_or(rest.len());
+                return Some(rest[..end].to_string());
+            }
+        }
+        None
+    }
+
+    // Which functions touch a flag or PC at all? Only those get a buffer.
     let mut fn_has_flag: Vec<bool> = Vec::new();
+    let mut fn_has_pc: Vec<bool> = Vec::new();
+    let mut fn_pc_arg: Vec<Option<String>> = Vec::new();
     let mut cur: isize = -1;
     for l in &lines {
         if l.starts_with("define ") {
             fn_has_flag.push(false);
+            fn_has_pc.push(false);
+            fn_pc_arg.push(pc_arg_of(l));
             cur = fn_has_flag.len() as isize - 1;
         }
         if cur >= 0 {
             if let Some(n) = gep_target(l) {
                 if flag_slot(n).is_some() {
                     fn_has_flag[cur as usize] = true;
+                } else if n.split('.').next().unwrap_or(n).eq_ignore_ascii_case("pc") {
+                    fn_has_pc[cur as usize] = true;
                 }
             }
         }
@@ -9555,7 +9599,8 @@ fn privatize_flag_storage(ir: &str) -> (String, u32) {
     for l in &lines {
         if l.starts_with("define ") {
             cur += 1;
-            pending = (cur as usize) < fn_has_flag.len() && fn_has_flag[cur as usize];
+            let i = cur as usize;
+            pending = i < fn_has_flag.len() && (fn_has_flag[i] || fn_has_pc[i]);
             out.push_str(l);
             out.push('\n');
             continue;
@@ -9565,8 +9610,23 @@ fn privatize_flag_storage(ir: &str) -> (String, u32) {
             let s = l.trim();
             // first real instruction of the entry block
             if !s.is_empty() && !s.ends_with(':') && !s.starts_with(';') {
-                out.push_str("  %az_flags = alloca [8 x i8], align 8\n");
-                out.push_str("  store i64 0, ptr %az_flags, align 8\n");
+                let i = cur as usize;
+                if fn_has_flag[i] {
+                    out.push_str("  %az_flags = alloca [8 x i8], align 8\n");
+                    out.push_str("  store i64 0, ptr %az_flags, align 8\n");
+                }
+                if fn_has_pc[i] {
+                    out.push_str("  %az_pc = alloca i64, align 8\n");
+                    match fn_pc_arg[i].as_deref() {
+                        // seed from the function's own PC argument: lifted x86
+                        // reads %PC for PC-relative data, so the entry value is
+                        // load-bearing, unlike the flags.
+                        Some(a) => out.push_str(&format!(
+                            "  store i64 %{a}, ptr %az_pc, align 8\n"
+                        )),
+                        None => out.push_str("  store i64 0, ptr %az_pc, align 8\n"),
+                    }
+                }
                 pending = false;
             }
         }
@@ -9576,6 +9636,16 @@ fn privatize_flag_storage(ir: &str) -> (String, u32) {
                 out.push_str(&format!(
                     "  %{name} = getelementptr inbounds [8 x i8], ptr %az_flags, \
                      i64 0, i64 {slot}\n"
+                ));
+                rewritten += 1;
+                continue;
+            }
+            if cur >= 0
+                && fn_has_pc[cur as usize]
+                && name.split('.').next().unwrap_or(name).eq_ignore_ascii_case("pc")
+            {
+                out.push_str(&format!(
+                    "  %{name} = getelementptr inbounds i64, ptr %az_pc, i64 0\n"
                 ));
                 rewritten += 1;
                 continue;
@@ -9614,6 +9684,32 @@ mod flag_privatize_tests {
         assert_eq!(n, 0, "got:\n{out}");
         assert!(out.contains("%struct.State"), "got:\n{out}");
         assert!(!out.contains("az_flags"), "a function with no flag use needs no buffer");
+    }
+
+    /// %PC moves to a private slot too, but SEEDED FROM THE ARGUMENT, not zeroed:
+    /// lifted x86 reads %PC for PC-relative data (switch jump tables index off
+    /// it), so unlike the flags the entry value is load-bearing.
+    #[test]
+    fn pc_is_privatised_and_seeded_from_the_argument() {
+        let ir = "define ptr @sub_4(ptr %state, i64 %program_counter, ptr %memory) {\nentry:\n  \
+                  %PC = getelementptr inbounds %struct.State, ptr %state, i32 0, i32 0, i32 6, i32 33\n  \
+                  store i64 5, ptr %PC, align 8\n  ret ptr %memory\n}\n";
+        let (out, n) = privatize_flag_storage(ir);
+        assert_eq!(n, 1, "got:\n{out}");
+        assert!(out.contains("%az_pc = alloca i64"), "got:\n{out}");
+        assert!(out.contains("store i64 %program_counter, ptr %az_pc"),
+                "PC must be seeded from the argument, not zeroed:\n{out}");
+        assert!(out.contains("ptr %az_pc, i64 0"), "got:\n{out}");
+    }
+
+    /// A function with neither flags nor PC gets no buffers at all.
+    #[test]
+    fn untouched_function_gets_no_buffer() {
+        let ir = "define i32 @sub_5(ptr %state) {\nentry:\n  ret i32 0\n}\n";
+        let (out, n) = privatize_flag_storage(ir);
+        assert_eq!(n, 0);
+        assert!(!out.contains("az_flags"), "got:\n{out}");
+        assert!(!out.contains("az_pc"), "got:\n{out}");
     }
 
     /// The buffer is zero-initialised: entry flags are undefined per the ABI, so
