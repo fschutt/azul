@@ -491,6 +491,62 @@ the same second the log went silent, so wasm-ld completed and the deadlock is in
 blocking primitive, and the process showed zero CPU, so a loop cannot explain
 it. The phase markers now bracket exactly this window.
 
+# The state escape, measured — and what privatizing the register file is worth
+
+`%state` arrives as a pointer PARAMETER, so mem2reg/SROA cannot promote it and
+every guest register access stays a real load or store. `privatize_flag_storage`
+already proves the remedy on one slice of the struct: moving the flag GEPs to a
+function-local alloca made them promotable and cut 43%.
+
+Measured over 300 sampled lifted functions, 370,365 instructions
+(`C:\rb\escape_cost.py`):
+
+| category | count | % of instructions |
+|---|---|---|
+| loads through `%state` | 78,063 | 21.1% |
+| stores through `%state` | 59,622 | 16.1% |
+| getelementptr | 37,290 | 10.1% |
+| **state traffic total** | **174,975** | **47.2%** |
+| calls | 8,298 | **2.2%** |
+
+Calls per function: median 11, mean 27.7, p90 85.
+
+**Nearly half of all lifted code is state-struct traffic, and the only thing
+that forces the state to be coherent in memory — a call — is 2.2% of
+instructions.** That asymmetry is the whole argument for privatizing the
+register file into a local alloca, exactly as the flags already are.
+
+## The trade, and why the ABI decides it
+
+Privatizing removes 137,685 state load/stores but adds a write-back and reload
+around every call. Done naively — spilling all 16 GPRs at each of the 8,298
+calls — that is 265,536 added memory ops against 137,685 removed, i.e. a net
+LOSS. The naive version does not pay, and this is the arithmetic that has to be
+checked before writing the pass.
+
+It pays only by using the calling convention, the same way the flag work used
+"EFLAGS is undefined across calls":
+
+- Win-x64 passes arguments in RCX/RDX/R8/R9 and returns in RAX. Only those, plus
+  RSP, must be written back before a call.
+- RBX/RBP/RSI/RDI/R12–R15 are callee-saved. The callee preserves them *in the
+  same state struct*, so a caller's privatized copy stays valid across the call
+  and needs neither write-back nor reload.
+- The volatile registers are clobbered by definition, so nothing needs reloading
+  except the return value.
+
+That is roughly 7 memory ops per call rather than 32: 8,298 x 7 = 58,086 added
+against 137,685 removed, a net **-79,599 instructions, about -21% of all
+lifted instructions**, before counting the getelementptrs that disappear with
+them. Estimate, not a measurement — but it is the same shape that made flag
+privatization win 43%, and it is the difference between the ~2.0 MB and ~1.2 MB
+rows below.
+
+Note `%PC` is the single largest slice (it is written at nearly every guest
+instruction) and privatizing it was measured at a further -11.8pp, but it was
+backed out because of an interaction with the shared State that was never
+root-caused. Understanding that interaction is a prerequisite, not a detail.
+
 # Target: where this can land
 
 The delivered-size targets, estimated from the measured partition and a measured
