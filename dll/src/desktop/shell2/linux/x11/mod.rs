@@ -2691,6 +2691,15 @@ pub struct X11Window {
     /// rendered per request: a wheel flood measured ~90 presents/s of
     /// sub-ms frames on a 60Hz display (app_frame_seconds, 2026-08-29).
     /// `AZ_NO_PACE=1` disables the gate.
+    /// `_NET_WM_STATE` and the four state atoms the frame readback compares
+    /// against, interned ONCE.
+    ///
+    /// `PropertyNotify` arrives for every property the WM or the app touches -
+    /// title, icon, workspace bookkeeping - and `XInternAtom` is a round trip
+    /// to the server. Interning five of them per event, just to discover the
+    /// event was about the title, would put five round trips on a path that
+    /// should cost one integer compare.
+    net_wm_state_atoms: Option<[Atom; 5]>,
     last_present_at: Option<std::time::Instant>,
     pace_fd: i32,
     frame_interval: std::time::Duration,
@@ -3910,6 +3919,7 @@ impl X11Window {
             new_frame_ready: new_frame_ready_shared,
             xrandr_event_base: None,
             timer_fds: std::collections::BTreeMap::new(),
+            net_wm_state_atoms: None,
             last_present_at: None,
             pace_fd: -1,
             frame_interval: detect_frame_interval(),
@@ -7160,22 +7170,27 @@ impl X11Window {
         &mut self,
         ev: &defines::XPropertyEvent,
     ) -> ProcessEventResult {
-        let intern = |name: &[u8]| -> Atom {
-            unsafe { (self.xlib.XInternAtom)(self.display, name.as_ptr().cast(), 0) }
-        };
-        let wm_state = intern(b"_NET_WM_STATE\0");
+        let atoms = *self.net_wm_state_atoms.get_or_insert_with(|| {
+            let intern = |name: &[u8]| -> Atom {
+                unsafe { (self.xlib.XInternAtom)(self.display, name.as_ptr().cast(), 0) }
+            };
+            [
+                intern(b"_NET_WM_STATE\0"),
+                intern(b"_NET_WM_STATE_MAXIMIZED_VERT\0"),
+                intern(b"_NET_WM_STATE_MAXIMIZED_HORZ\0"),
+                intern(b"_NET_WM_STATE_FULLSCREEN\0"),
+                intern(b"_NET_WM_STATE_HIDDEN\0"),
+            ]
+        });
+        let wm_state = atoms[0];
+        // The cheap rejection, and the reason the atoms are cached: almost
+        // every PropertyNotify is about something else.
         if wm_state == 0 || ev.atom != wm_state {
             return ProcessEventResult::DoNothing;
         }
 
         let (max_v, max_h, full, hidden) = {
-            let names: [&[u8]; 4] = [
-                b"_NET_WM_STATE_MAXIMIZED_VERT\0",
-                b"_NET_WM_STATE_MAXIMIZED_HORZ\0",
-                b"_NET_WM_STATE_FULLSCREEN\0",
-                b"_NET_WM_STATE_HIDDEN\0",
-            ];
-            let wanted: Vec<Atom> = names.iter().map(|n| intern(n)).collect();
+            let wanted: [Atom; 4] = [atoms[1], atoms[2], atoms[3], atoms[4]];
             let mut found = [false; 4];
             unsafe {
                 let mut actual_type: Atom = 0;
