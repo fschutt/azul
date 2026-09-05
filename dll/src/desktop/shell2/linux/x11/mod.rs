@@ -6806,28 +6806,17 @@ impl X11Window {
                         );
                         render_api.flush_scene_builder();
                     }
-                } else {
-                    let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
-                    if let Err(e) = crate::desktop::wr_translate2::build_image_only_transaction(
-                        &mut txn,
+                } else if let Some(document_id) = self.common.document_id {
+                    // Sends nothing when nothing changed - see
+                    // common::layout::submit_lightweight_frame.
+                    let _sent = crate::desktop::shell2::common::layout::submit_lightweight_frame(
                         layout_window,
                         render_api,
+                        document_id,
                         &self.common.gl_context_ptr,
-                    ) {
-                        log_error!(
-                            LogCategory::Rendering,
-                            "[X11] Failed to build lightweight transaction: {}",
-                            e
-                        );
-                    }
-
-                    if let Some(document_id) = self.common.document_id {
-                        render_api.send_transaction(
-                            crate::desktop::wr_translate2::wr_translate_document_id(document_id),
-                            txn,
-                        );
-                        render_api.flush_scene_builder();
-                    }
+                        true,
+                        "X11",
+                    );
                 }
             }
         }

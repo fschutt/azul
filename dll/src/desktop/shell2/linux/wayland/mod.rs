@@ -7079,23 +7079,17 @@ impl WaylandWindow {
                         &self.common.gl_context_ptr,
                     );
                 } else {
-                    let mut txn = crate::desktop::wr_translate2::WrTransaction::new();
-                    if let Err(e) = crate::desktop::wr_translate2::build_image_only_transaction(
-                        &mut txn,
+                    // Sends nothing when nothing changed - see
+                    // common::layout::submit_lightweight_frame. The scene-builder
+                    // flush is done unconditionally further down, so it is not
+                    // requested here.
+                    let _sent = crate::desktop::shell2::common::layout::submit_lightweight_frame(
                         layout_window,
                         render_api,
+                        document_id,
                         &self.common.gl_context_ptr,
-                    ) {
-                        log_error!(
-                            LogCategory::Rendering,
-                            "[Wayland] Failed to build lightweight transaction: {}",
-                            e
-                        );
-                    }
-
-                    render_api.send_transaction(
-                        crate::desktop::wr_translate2::wr_translate_document_id(document_id),
-                        txn,
+                        false,
+                        "Wayland",
                     );
                 }
             }

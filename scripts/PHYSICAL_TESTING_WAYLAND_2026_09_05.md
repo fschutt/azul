@@ -442,6 +442,91 @@ That last row is not cosmetic. On #458 `dialogs::report` is
 `widgets` build without `cpurender` still fails there, and **#458's feature
 matrix is not yet 8/8** — the fourth gate exists only on this branch.
 
+## The idle window that repainted 59 times a second — root cause and fix
+
+X11, GPU mode, window idle, nothing hovered, nothing scrolling. One
+`AZ_LOG_FILE` run, counted:
+
+    1087  [synchronize_gpu_values] Updated 2 float properties, 2 transforms, 0 colors
+    1087  [Notifier] new_frame_ready
+    1086  [X11] render_and_present ... took=...
+      18  generate_frame   (the FULL path — i.e. 18 real reasons to draw)
+
+Every one of the 1087 carried the same payload. The window was drawing itself
+58.6 times a second to show a picture that had not changed.
+
+**The loop.** `build_image_only_transaction` is the LIGHTWEIGHT path — a backend
+takes it precisely because nothing needed rebuilding. Its tail was:
+
+    synchronize_gpu_values(layout_window, txn);                       // unconditional
+    txn.generate_frame(0, RenderReasons::empty());                    // unconditional
+
+so: present → lightweight transaction → `generate_frame` → WebRender builds →
+`new_frame_ready` → the notifier's wake hook writes X11's eventfd → the loop
+wakes, `want_redraw` is set → present. At vsync. Forever. The only guard was
+`!properties.floats.is_empty()`, which asks whether there are any values, not
+whether they CHANGED — and there always are: two scrollbar opacities and two
+scrollbar transforms exist whether or not a scrollbar is visible.
+
+**Confirmed in WebRender's own source**, not inferred from the logs.
+`render_backend.rs:1552` ends `update_document` with
+
+    if requested_frame {
+        ...
+        self.notifier.new_frame_ready(document_id, scroll, render_frame, ...);
+    }
+
+`requested_frame` is set by `generate_frame`, and the notify is OUTSIDE the
+`if build_frame` block just above it: WebRender signals frame-ready for every
+requested frame even when it decided to build nothing. It even has its own
+change detection (`SceneProperties::flush_pending_updates` returns whether the
+pending set differs from the current one, and only then invalidates the frame) —
+so WR was skipping the build and still waking us, 1087 times. The unconditional
+`generate_frame` was the whole loop; asking for no frame is the whole fix.
+
+**Not an X11 bug.** All four backends call that function
+(`x11:6811`, `wayland:7083`, `macos:8160`, `windows:1682`), and three of them
+turn `new_frame_ready` back into a redraw request: X11 through the eventfd wake,
+Win32 through `needs_gpu_present` + `InvalidateRect` (`windows/mod.rs:6586`),
+macOS through `drain_loop_work` → `request_redraw`. X11 merely spins fastest
+because nothing paces it; Wayland is held to the compositor's frame callbacks
+and macOS to CVDisplayLink, so the same loop shows up there as a quieter,
+steady burn rather than a runaway one.
+
+**The fix**, RED test first (`layout/src/managers/gpu_state.rs`,
+`mod redundant_frame_tests`, 5 tests):
+
+- `GpuStateManager::gpu_values_changed` — bitwise (`to_bits`) digest of the
+  float/transform key-value set against the one last submitted. Bitwise because
+  a NaN opacity compares unequal to itself and would reinstate the loop.
+- The same remembering for the other two things the lightweight transaction
+  carries: image registrations (`ImageRefHash` is a never-reused id, so an
+  unchanged callback result keeps its hash) and scroll offsets.
+- `build_image_only_transaction` now asks for a frame ONLY if images, scroll
+  offsets or GPU values actually differ, and returns that verdict.
+- A full frame calls `invalidate_submitted_digests()` first: a scene rebuild
+  restarts the property bindings, so unchanged values still have to be re-sent.
+  That case has its own test.
+
+**And the callers are one caller now.** X11, Wayland and Win32 each had their
+own copy of "build the image-only transaction, send it, flush the scene
+builder"; they now share
+`common::layout::submit_lightweight_frame`, which additionally DROPS a
+transaction that changes nothing instead of sending it. macOS builds into a
+shared transaction so it keeps its own call, but honours the same verdict — and
+re-arms the scrollbar fade before it returns, because the fade has a delay
+phase in which the opacity does not move yet and the re-arm is what wakes it.
+
+**A prior fix of the same shape, already in the tree:**
+`synchronize_scrollbar_opacity` counts a scrollbar as fading only at
+`0 < opacity < 1`, with the comment "opacity == 1.0 here causes an infinite
+repaint loop". Someone met this class of bug before, one layer up.
+
+**The CPU path does not have this loop.** It never builds a WebRender
+transaction, so nothing signals `new_frame_ready`; its only self-feeding edge is
+the scrollbar fade re-arm, which terminates by the rule above. Verified on all
+four backends by reading the redraw sources, not assumed from X11.
+
 ## Traps found
 
 1. **`build-dll` and `link-dynamic` fight over `target/release/libazul.so`, in

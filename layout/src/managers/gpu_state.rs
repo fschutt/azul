@@ -44,6 +44,52 @@ pub const DEFAULT_FADE_DURATION_MS: u64 = 200;
 /// - Scrollbar thumb position transforms (updated on scroll)
 /// - Opacity fading for scrollbars (fade in on activity, fade out after delay)
 /// - Per-DOM GPU value caches for efficient rendering
+/// A tiny FNV-1a accumulator for "is this the same payload I sent last frame?".
+///
+/// Floats go in BITWISE (`to_bits`): a NaN opacity compares unequal to itself
+/// and would reinstate the very redraw loop this exists to break.
+#[derive(Debug, Clone)]
+pub struct FrameDigest(u64);
+
+impl Default for FrameDigest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FrameDigest {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self(0xcbf2_9ce4_8422_2325)
+    }
+
+    pub fn push_u64(&mut self, v: u64) {
+        for b in v.to_le_bytes() {
+            self.0 ^= u64::from(b);
+            self.0 = self.0.wrapping_mul(0x0000_0100_0000_01B3);
+        }
+    }
+
+    pub fn push_f32(&mut self, v: f32) {
+        self.push_u64(u64::from(v.to_bits()));
+    }
+
+    #[must_use]
+    pub const fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+/// Which of the renderer submissions [`GpuStateManager::submitted_digest_changed`]
+/// is being asked about.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum SubmittedDigest {
+    /// Image keys registered / updated on the transaction.
+    Images,
+    /// Scroll offsets pushed to WebRender's scroll frames.
+    ScrollOffsets,
+}
+
 #[derive(Debug, Clone)]
 pub struct GpuStateManager {
     /// GPU value caches indexed by DOM ID
@@ -57,6 +103,16 @@ pub struct GpuStateManager {
     /// and the active fade-out phase (0 < opacity < 1).
     /// Set by `LayoutWindow::synchronize_scrollbar_opacity`, read by the platform render loop.
     pub scrollbar_fade_active: bool,
+    /// Digest of the dynamic properties (scrollbar opacities + transforms)
+    /// last handed to the renderer, so an IDENTICAL set can be recognised and
+    /// skipped. See [`GpuStateManager::gpu_values_changed`].
+    pub last_gpu_value_digest: Option<u64>,
+    /// Digest of the image registrations last handed to the renderer.
+    /// See [`GpuStateManager::submitted_digest_changed`].
+    pub last_image_digest: Option<u64>,
+    /// Digest of the scroll offsets last handed to the renderer.
+    /// See [`GpuStateManager::submitted_digest_changed`].
+    pub last_scroll_digest: Option<u64>,
     /// GPU events produced during layout (CSS transform / opacity synchronization,
     /// scrollbar transform / opacity updates) that have not yet been pushed to
     /// the renderer. Drained by the platform render path when a transaction is
@@ -74,6 +130,87 @@ impl Default for GpuStateManager {
 }
 
 impl GpuStateManager {
+    /// Have the dynamic GPU properties changed since they were last submitted?
+    ///
+    /// THE IDLE REDRAW LOOP THIS EXISTS TO BREAK. The lightweight transaction
+    /// path — taken precisely because nothing needs rebuilding — pushed these
+    /// values and then asked WebRender for a frame unconditionally. WebRender
+    /// built one, signalled `new_frame_ready`, the backend woke and presented,
+    /// and the present ran the lightweight path again. Measured idle on
+    /// X11/GPU: 1087 submissions, 1087 frame-ready signals, 1086 presents, all
+    /// carrying the same two floats and two transforms — ~59 fps of full
+    /// render+present for a window nobody was touching.
+    ///
+    /// Floats are compared BITWISE (`to_bits`), not by value: a NaN opacity
+    /// compares unequal to itself and would reinstate the loop it is meant to
+    /// prevent.
+    ///
+    /// Returns `true` the first time (nothing to compare against) and whenever
+    /// the set genuinely differs — a changed value, a new key, or a lost one.
+    pub fn gpu_values_changed(&mut self, floats: &[(u64, f32)], transforms: &[(u64, [f32; 16])]) -> bool {
+        // Sorted by key before digesting. The caller collects these out of
+        // `HashMap`s, whose iteration order is not a promise; an order that
+        // flapped while the values stayed the same would report a change on a
+        // frame that changed nothing, and the loop would be back.
+        let mut sorted_floats = floats.iter().collect::<alloc::vec::Vec<_>>();
+        sorted_floats.sort_unstable_by_key(|(k, _)| *k);
+        let mut sorted_transforms = transforms.iter().collect::<alloc::vec::Vec<_>>();
+        sorted_transforms.sort_unstable_by_key(|(k, _)| *k);
+
+        let mut h = FrameDigest::new();
+        h.push_u64(floats.len() as u64);
+        for (k, v) in sorted_floats {
+            h.push_u64(*k);
+            h.push_f32(*v);
+        }
+        h.push_u64(transforms.len() as u64);
+        for (k, m) in sorted_transforms {
+            h.push_u64(*k);
+            for f in m {
+                h.push_f32(*f);
+            }
+        }
+        let digest = h.finish();
+
+        if self.last_gpu_value_digest == Some(digest) {
+            return false;
+        }
+        self.last_gpu_value_digest = Some(digest);
+        true
+    }
+
+    /// Same idea as [`Self::gpu_values_changed`] for the other two things a
+    /// "nothing was rebuilt" transaction carries: image registrations and
+    /// scroll offsets. The caller digests its own payload (the types live in
+    /// the renderer crate); this only owns the remembering.
+    ///
+    /// `slot` picks which of the two is meant.
+    pub fn submitted_digest_changed(&mut self, slot: SubmittedDigest, digest: u64) -> bool {
+        let stored = match slot {
+            SubmittedDigest::Images => &mut self.last_image_digest,
+            SubmittedDigest::ScrollOffsets => &mut self.last_scroll_digest,
+        };
+        if *stored == Some(digest) {
+            return false;
+        }
+        *stored = Some(digest);
+        true
+    }
+
+    /// Forget what was last submitted, so the next submission pushes
+    /// everything again.
+    ///
+    /// The full-frame path MUST call this before it builds: a scene rebuild
+    /// gives WebRender a new display list whose property bindings start from
+    /// the values baked into the list, and "identical to what I sent last
+    /// time" is then the wrong question — the values have to be re-pushed even
+    /// though they did not change.
+    pub fn invalidate_submitted_digests(&mut self) {
+        self.last_gpu_value_digest = None;
+        self.last_image_digest = None;
+        self.last_scroll_digest = None;
+    }
+
     /// Creates a new GPU state manager with specified fade timing.
     #[must_use]
     pub fn new(fade_delay: Duration, fade_duration: Duration) -> Self {
@@ -82,6 +219,9 @@ impl GpuStateManager {
             fade_delay,
             fade_duration,
             scrollbar_fade_active: false,
+            last_gpu_value_digest: None,
+            last_image_digest: None,
+            last_scroll_digest: None,
             pending_changes: GpuEventChanges::empty(),
         }
     }
@@ -353,6 +493,144 @@ fn remap_dom_hashmap<V>(
         } else if let Some(new_id) = node_map.resolve(old_id) {
             map.insert((d, new_id), v);
         }
+    }
+}
+
+#[cfg(test)]
+mod redundant_frame_tests {
+    use super::GpuStateManager;
+
+    /// The idle redraw loop, in one invariant.
+    ///
+    /// `build_image_only_transaction` — the LIGHTWEIGHT path a backend takes
+    /// precisely because nothing needs rebuilding — pushed the scrollbar
+    /// opacities and transforms and then called `txn.generate_frame()`
+    /// unconditionally. WebRender built a frame, signalled `new_frame_ready`,
+    /// the backend woke and presented, and presenting ran the lightweight path
+    /// again. Measured on X11/GPU, 2026-09-05, with the window completely idle:
+    ///
+    ///     1087 synchronize_gpu_values  ->  1087 new_frame_ready  ->  1086 presents
+    ///     every one reporting the SAME payload: floats=2 transforms=2 colors=0
+    ///
+    /// ~59 fps of full render+present for a static window. All four backends
+    /// (X11, Wayland, macOS, Windows) call that path, so this is shared, not
+    /// X11-specific; X11 merely spins fastest because its present is driven by
+    /// the frame-ready wake rather than a frame callback or CVDisplayLink.
+    ///
+    /// The rule: pushing the SAME values again is not a reason to draw.
+    #[test]
+    fn resubmitting_identical_gpu_values_is_not_a_reason_to_draw() {
+        let mut m = GpuStateManager::default();
+
+        // First push of a value set: genuinely new, so it must be sent.
+        assert!(
+            m.gpu_values_changed(&[(1, 1.0), (2, 0.0)], &[]),
+            "the first submission has nothing to compare against and must go"
+        );
+
+        // The idle case: byte-identical values, over and over. None of these
+        // may request a frame.
+        assert!(!m.gpu_values_changed(&[(1, 1.0), (2, 0.0)], &[]));
+        assert!(!m.gpu_values_changed(&[(1, 1.0), (2, 0.0)], &[]));
+
+        // A real change (a scrollbar fading) must still get through.
+        assert!(m.gpu_values_changed(&[(1, 0.5), (2, 0.0)], &[]));
+        assert!(!m.gpu_values_changed(&[(1, 0.5), (2, 0.0)], &[]));
+
+        // So must a transform change on its own.
+        assert!(m.gpu_values_changed(&[(1, 0.5), (2, 0.0)], &[(7, [1.0; 16])]));
+        assert!(!m.gpu_values_changed(&[(1, 0.5), (2, 0.0)], &[(7, [1.0; 16])]));
+
+        // And losing a property is a change too - the set shrank.
+        assert!(m.gpu_values_changed(&[(1, 0.5)], &[(7, [1.0; 16])]));
+    }
+
+    /// NaN must not make every frame look different from itself. Opacity is an
+    /// f32 and a NaN compares unequal to itself, so a bitwise digest is what
+    /// keeps a degenerate value from reinstating the very loop this prevents.
+    #[test]
+    fn a_nan_value_still_compares_equal_to_itself() {
+        let mut m = GpuStateManager::default();
+        assert!(m.gpu_values_changed(&[(1, f32::NAN)], &[]));
+        assert!(
+            !m.gpu_values_changed(&[(1, f32::NAN)], &[]),
+            "NaN == NaN bitwise, or a NaN opacity spins the redraw loop forever"
+        );
+    }
+
+    /// The other two payloads a lightweight transaction carries - image
+    /// registrations and scroll offsets - answer the same question, through the
+    /// same remembering.
+    #[test]
+    fn image_and_scroll_digests_are_independent() {
+        use super::SubmittedDigest;
+
+        let mut m = GpuStateManager::default();
+
+        assert!(m.submitted_digest_changed(SubmittedDigest::Images, 42));
+        assert!(!m.submitted_digest_changed(SubmittedDigest::Images, 42));
+
+        // A scroll offset that happens to digest to the same number is still a
+        // first submission for ITS slot: the two must not share a memory.
+        assert!(m.submitted_digest_changed(SubmittedDigest::ScrollOffsets, 42));
+        assert!(!m.submitted_digest_changed(SubmittedDigest::ScrollOffsets, 42));
+
+        assert!(m.submitted_digest_changed(SubmittedDigest::Images, 43));
+        assert!(!m.submitted_digest_changed(SubmittedDigest::ScrollOffsets, 42));
+    }
+
+    /// A full frame rebuilds the scene. The values then have to be pushed again
+    /// even though they did not change, so the full path invalidates first.
+    #[test]
+    fn a_scene_rebuild_forgets_what_was_submitted() {
+        use super::SubmittedDigest;
+
+        let mut m = GpuStateManager::default();
+        assert!(m.gpu_values_changed(&[(1, 1.0)], &[]));
+        assert!(m.submitted_digest_changed(SubmittedDigest::Images, 7));
+        assert!(m.submitted_digest_changed(SubmittedDigest::ScrollOffsets, 9));
+
+        assert!(!m.gpu_values_changed(&[(1, 1.0)], &[]));
+
+        m.invalidate_submitted_digests();
+
+        assert!(
+            m.gpu_values_changed(&[(1, 1.0)], &[]),
+            "after a scene rebuild the property bindings start over - unchanged \
+             values still have to reach the renderer"
+        );
+        assert!(m.submitted_digest_changed(SubmittedDigest::Images, 7));
+        assert!(m.submitted_digest_changed(SubmittedDigest::ScrollOffsets, 9));
+    }
+
+    /// The digest must be sensitive to WHICH key holds a value, not just to the
+    /// multiset of values: swapping two scrollbars' opacities is a change.
+    #[test]
+    fn swapping_two_keys_values_is_a_change() {
+        let mut m = GpuStateManager::default();
+        assert!(m.gpu_values_changed(&[(1, 1.0), (2, 0.0)], &[]));
+        assert!(m.gpu_values_changed(&[(1, 0.0), (2, 1.0)], &[]));
+    }
+
+    /// ...but the ORDER the caller happens to collect them in is not a change.
+    /// The values come out of `HashMap`s (`GpuValueCache` is keyed by
+    /// `(DomId, NodeId)`), whose iteration order is not a promise; if a
+    /// reordering read as a change, an idle window would draw whenever the map
+    /// felt like handing them over differently.
+    #[test]
+    fn the_order_the_values_arrive_in_is_not_a_change() {
+        let mut m = GpuStateManager::default();
+        assert!(m.gpu_values_changed(
+            &[(1, 1.0), (2, 0.25)],
+            &[(7, [1.0; 16]), (8, [2.0; 16])]
+        ));
+        assert!(
+            !m.gpu_values_changed(
+                &[(2, 0.25), (1, 1.0)],
+                &[(8, [2.0; 16]), (7, [1.0; 16])]
+            ),
+            "the same set in a different order is the same set"
+        );
     }
 }
 
