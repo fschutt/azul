@@ -3226,12 +3226,26 @@ impl RemillTranspiler {
                     // `rlen` for a `lea` is LEA_MIRROR_WINDOW - a guess sized for
                     // jump tables - so without this the scan walks into whatever
                     // unrelated .rdata follows. See plausible_object_extent.
-                    let extent = {
-                        let mut is_fn_entry = |v: usize| {
-                            table.resolve(v).map(|e| e.canonical_addr == v).unwrap_or(false)
-                        };
-                        plausible_object_extent(data, start, &mut is_fn_entry)
-                    };
+                    // DISABLED: bounding this scan cost a dispatcher case and
+                    // the module trapped at boot with "unmatched indirect
+                    // dispatch 0xec5450". Two rules were tried and both made it
+                    // worse - the run-length rule suppressed 72,700 pointers,
+                    // and the supposedly-more-permissive first-word gate
+                    // suppressed 79,109, because a region whose first word is
+                    // data but whose later words are function pointers is
+                    // rejected outright by the gate where the run-length rule
+                    // still scanned part of it.
+                    //
+                    // The Win32 pull-in this was meant to prevent is a SIZE
+                    // problem; a missing dispatcher case is a CORRECTNESS
+                    // problem that fails silently at runtime. Correctness wins
+                    // until the bound can be derived from real data-object
+                    // extents rather than guessed from the contents.
+                    //
+                    // The counter below still reports what a bound WOULD have
+                    // suppressed, so the next attempt can be judged against a
+                    // build that boots.
+                    let extent = data.len();
                     if extent < data.len() {
                         let mut past = 0u64;
                         let mut j = extent;
