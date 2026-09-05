@@ -110,7 +110,11 @@ pub fn emit_interface_types(
                 let lit = sanitize_identifier(&super::to_snake_case(&v.name));
                 builder.line(&format!("val {} : int", lit));
             }
-            emit_unit_enum_trait_decls(builder, e, ir);
+            // NO trait decls here. OCaml is ORDER-SENSITIVE and this module is
+            // emitted in the types section, ~42k lines before the `foreign`
+            // bindings it would have to call - `ocamlfind ocamlc` rejects it
+            // with "Unbound value ffi_az_style_cursor_partial_eq". A unit
+            // enum's capabilities need a LATE pass, after the raw bindings.
             builder.dedent();
             builder.line("end");
         }
@@ -1017,7 +1021,8 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
         let lit = sanitize_identifier(&super::to_snake_case(&v.name));
         builder.line(&format!("let {} : int = {}", lit, idx));
     }
-    emit_unit_enum_trait_impls(builder, e, ir);
+    // See the interface side: the raw bindings do not exist yet at this point
+    // in the file, so nothing here may call them.
     builder.dedent();
     builder.line("end");
     builder.blank();
