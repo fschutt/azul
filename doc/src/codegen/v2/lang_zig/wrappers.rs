@@ -103,7 +103,11 @@ pub fn generate_wrappers(ir: &CodegenIR) -> String {
             continue;
         }
         if !e.is_union {
-            // Unit-only enums are already directly usable through `C.*`.
+            // The VALUE of a unit-only enum is usable straight from `C.*`, so
+            // it needs no constructors - but its trait entry points still had
+            // nowhere to hang, which is the whole of zig's remaining gap.
+            // Emit a namespace carrying just those.
+            emit_unit_enum_helper(&mut out, ir, e);
             continue;
         }
         emit_union_helper(&mut out, ir, e);
@@ -305,6 +309,63 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
         out.push_str("    }\n");
     }
 
+    out.push_str("};\n\n");
+}
+
+// ============================================================================
+// Unit-only enum namespace
+// ============================================================================
+
+/// A namespace for a unit-only enum, carrying only its trait entry points.
+///
+/// `@cImport` already gives the value itself (`C.AzAccessibilityRole_Alert`),
+/// so this deliberately emits no constructors and no `Tag` block - it exists
+/// so `_partialEq` / `_cmp` / `_hash` / `_toDbgString`, which libazul exports
+/// for these types, can be named from Zig at all. A type that declares none of
+/// them gets no namespace rather than an empty one.
+fn emit_unit_enum_helper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
+    let has_traits = ir.functions_for_class(&e.name).any(|f| {
+        matches!(
+            f.kind,
+            FunctionKind::PartialEq
+                | FunctionKind::PartialCmp
+                | FunctionKind::Cmp
+                | FunctionKind::Hash
+                | FunctionKind::DebugToString
+                | FunctionKind::DeepCopy
+                | FunctionKind::Default
+        )
+    });
+    if !has_traits {
+        return;
+    }
+
+    let zig_name = sanitize_identifier(&e.name);
+    let ffi_name = ffi_type_name(&e.name);
+
+    if !e.doc.is_empty() {
+        for d in &e.doc {
+            out.push_str(&format!("/// {}\n", d));
+        }
+    }
+    out.push_str(&format!("pub const {} = struct {{\n", zig_name));
+    out.push_str("    /// The raw FFI enum, as exposed by `@cImport`.\n");
+    out.push_str(&format!("    pub const Raw = C.{};\n\n", ffi_name));
+    emit_trait_methods_raw(out, &e.name, &ffi_name, ir);
+
+    // `Default` is a STATIC factory, not an instance method, so it is not part
+    // of `emit_trait_methods_raw` - the union helper already emits it through
+    // its constructor loop and would duplicate. For a unit enum this namespace
+    // is the only place it can live.
+    if ir
+        .functions_for_class(&e.name)
+        .any(|f| f.kind == FunctionKind::Default)
+    {
+        out.push_str("\n    /// The Rust `Default`.\n");
+        out.push_str("    pub fn default() Raw {\n");
+        out.push_str(&format!("        return C.{}_default();\n", ffi_name));
+        out.push_str("    }\n");
+    }
     out.push_str("};\n\n");
 }
 
