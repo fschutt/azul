@@ -316,6 +316,16 @@ jobs:
           sudo cpanm --notest --quiet FFI::Platypus || true
           perl -e 'eval { require FFI::Platypus; 1 } or do { print "FFI::Platypus: ABSENT\n"; exit };
                    printf "FFI::Platypus: %s\n", $FFI::Platypus::VERSION' || true
+          # Run the binding-syntax stage's OWN perl probe here and say what it
+          # decided. `check.sh` prints "perl: ok" / "(skip perl: ...)" on
+          # stdout, which the stage runner only surfaces when the stage FAILS -
+          # so on a green run there is no way to tell a real check from a
+          # silent skip, and a skip is exactly what this job used to do wrong.
+          if perl -e 'use FFI::Platypus 2.00; 1' 2>/dev/null; then
+            echo "perl probe: OK - the generated Azul.pm WILL be syntax-checked"
+          else
+            echo "perl probe: FAILS - perl will be SKIPPED (Platypus 2.x missing)"
+          fi
           for t in gcc g++ gfortran perl ruby luajit php node javac go gofmt ocamlfind; do
             printf '%-10s %s\n' "$t" "$(command -v $t || echo MISSING)"
           done
