@@ -82,6 +82,11 @@ pub struct LiftEnv {
     /// be separated into what actually executes and what is only reachable.
     /// Writes one byte per function into the store-log ring region, so it is
     /// MUTUALLY EXCLUSIVE with AZ_LOG_STORES. See inject_fn_coverage.
+    /// Run `wasm-opt -Oz` on the linked wasm. OFF by default: it shrinks the
+    /// RAW module ~11% but grows the BROTLI-compressed transfer ~3%, because
+    /// it removes the redundancy the compressor was exploiting. Turn it on
+    /// when browser compile time matters more than bytes on the wire.
+    pub wasm_opt_enable: bool,
     pub fn_coverage: bool,
     /// Seconds before a wedged `CreateProcess` aborts the run; 0 disables.
     pub spawn_watchdog_secs: u64,
@@ -171,6 +176,7 @@ impl LiftEnv {
             lift_cache_dir: std::env::var_os("AZ_LIFT_CACHE_DIR").map(PathBuf::from),
 
             lift_jobs: num("AZ_LIFT_JOBS").filter(|n: &usize| *n >= 1),
+            wasm_opt_enable: flag("AZ_WASM_OPT"),
             fn_coverage: flag("AZ_FN_COVERAGE"),
             lift_batch: num("AZ_LIFT_BATCH").filter(|n: &usize| *n >= 1).unwrap_or(64),
             spawn_watchdog_secs: num("AZ_SPAWN_WATCHDOG_SECS").unwrap_or(300),

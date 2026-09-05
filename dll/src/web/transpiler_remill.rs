@@ -7592,14 +7592,26 @@ fn discover_wasm_opt() -> Option<PathBuf> {
             return Some(pb);
         }
     }
-    let candidates = [
-        "/opt/homebrew/bin/wasm-opt",
-        "/opt/homebrew/opt/binaryen/bin/wasm-opt",
-        "/usr/local/bin/wasm-opt",
-        "/usr/bin/wasm-opt",
+    // Unix-only paths meant this was NEVER found on Windows, so the same
+    // source produced a different artifact per platform and nobody was told.
+    // Search the workspace toolchain and PATH too, so discovery is uniform
+    // and "wasm-opt did not run" is a decision rather than an accident.
+    let ws = workspace_root();
+    let mut candidates: Vec<PathBuf> = vec![
+        ws.join("third_party/remill/dependencies/install/bin/wasm-opt.exe"),
+        ws.join("third_party/remill/dependencies/install/bin/wasm-opt"),
+        PathBuf::from("/opt/homebrew/bin/wasm-opt"),
+        PathBuf::from("/opt/homebrew/opt/binaryen/bin/wasm-opt"),
+        PathBuf::from("/usr/local/bin/wasm-opt"),
+        PathBuf::from("/usr/bin/wasm-opt"),
     ];
-    for c in candidates {
-        let pb = PathBuf::from(c);
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            candidates.push(dir.join("wasm-opt.exe"));
+            candidates.push(dir.join("wasm-opt"));
+        }
+    }
+    for pb in candidates {
         if pb.is_file() {
             return Some(pb);
         }
@@ -7616,7 +7628,26 @@ fn discover_wasm_opt() -> Option<PathBuf> {
 /// debugging codegen and you don't want wasm-opt's rewrites in
 /// the way.
 fn postprocess_wasm_opt(input_path: &Path, fn_name: &str) -> Option<Vec<u8>> {
-    if super::lift_env::lift_env().skip_wasm_opt {
+    // OFF unless asked for, because -Oz makes the DELIVERED artifact BIGGER.
+    //
+    // Measured on a 30.51 MB mini: -Oz gives 27.18 MB, -10.9% raw - and
+    // 3.23 -> 3.33 MB brotli, +2.9%. The compression ratio falls from 9.4x to
+    // 8.2x because -Oz removes exactly the redundancy brotli was collapsing
+    // for free. Lifted code is enormously repetitive, so re-encoding it more
+    // densely trades a large free win for a small paid one.
+    //
+    // The distinction that matters: passes which DELETE semantically dead work
+    // (the state-store DSE) survive compression almost proportionally, because
+    // they remove information. Passes which merely RE-ENCODE do not, because
+    // the compressor had already handled that.
+    //
+    // Still worth running when browser COMPILE time or memory matters more
+    // than transfer - 27 MB compiles faster than 30 MB however it arrived.
+    // AZ_WASM_OPT=1 opts in; AZ_REMILL_SKIP_WASM_OPT is kept for scripts that
+    // already set it.
+    if !super::lift_env::lift_env().wasm_opt_enable
+        || super::lift_env::lift_env().skip_wasm_opt
+    {
         return None;
     }
     let wasm_opt = discover_wasm_opt()?;
@@ -8901,14 +8932,20 @@ fn inject_selfloop_value_log(opt_ir: &str) -> (String, u32) {
 /// function pointers, among them a WinRT delegate vtable, and the entire Win32
 /// event loop became "reachable" from a Vec resize. None of it had a call site.
 ///
-/// The bound is structural, not name-based: a function-pointer table is a DENSE
-/// run of function entries. Walk 8-aligned words from the start and stop once
-/// more than `MAX_NON_PTR_RUN` consecutive words fail to resolve to a function
-/// entry. A Rust vtable is `[drop_in_place, size, align, methods...]`, so a run
-/// of 2 non-pointers occurs INSIDE a legitimate table and the tolerance must
-/// exceed it. A panic `Location` is `{&str, len, line, col}` - its very first
-/// word is a data pointer, so the walk stops immediately and contributes
-/// nothing.
+/// The bound is structural, not name-based, and it tests only the object's
+/// FIRST word: a function-pointer table begins with a function pointer, while
+/// a panic `Location` is `{&str, len, line, col}` and begins with a pointer to
+/// string DATA. If the first word is not a function entry this is not a table
+/// and nothing in the window is reachable through it; if it is, scan the whole
+/// window.
+///
+/// An earlier version instead bounded the scan by a RUN of consecutive
+/// non-pointers, tolerating a Rust vtable's size/align pair. That was wrong:
+/// interior gaps in real tables are both common and larger than any tolerance
+/// worth setting, so it suppressed 72,700 pointers across a full lift, dropped
+/// a dispatcher case, and the module trapped at boot with "unmatched indirect
+/// dispatch" - the exact silent failure the note below warns about. The first
+/// word is the part that reliably distinguishes a table from a struct.
 ///
 /// Conservative direction matters here: under-scanning drops a dispatcher case,
 /// which fails SILENTLY (indirect call finds no case, returns garbage). Over-
@@ -9064,24 +9101,21 @@ fn start_phase_watchdog() {
 }
 
 fn plausible_object_extent(data: &[u8], start: usize, is_fn_entry: &mut dyn FnMut(usize) -> bool) -> usize {
-    const MAX_NON_PTR_RUN: usize = 4;
-    let mut i = start;
-    let mut last_ptr_end = start;
-    let mut run = 0usize;
-    while i + 8 <= data.len() {
-        let v = u64::from_le_bytes(data[i..i + 8].try_into().unwrap()) as usize;
-        if v >= 0x1000 && is_fn_entry(v) {
-            run = 0;
-            last_ptr_end = i + 8;
-        } else {
-            run += 1;
-            if run > MAX_NON_PTR_RUN {
-                break;
-            }
-        }
-        i += 8;
+    // A function-pointer TABLE begins with a function pointer. Test only the
+    // first word: interior gaps are common in real tables (a Rust vtable is
+    // [drop_in_place, size, align, methods...]), so a run-length rule
+    // mis-truncates them, but a panic `Location` - {&str, len, line, col} -
+    // begins with a pointer to string DATA and is rejected outright. That is
+    // the case that dragged in the Win32 event loop.
+    if start + 8 > data.len() {
+        return start;
     }
-    last_ptr_end
+    let first = u64::from_le_bytes(data[start..start + 8].try_into().unwrap()) as usize;
+    if first >= 0x1000 && is_fn_entry(first) {
+        data.len()
+    } else {
+        start
+    }
 }
 
 /// Function pointers dropped by [`plausible_object_extent`] - i.e. pointers
