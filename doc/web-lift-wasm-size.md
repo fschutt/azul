@@ -618,3 +618,68 @@ what "azul-mini = the engine half" actually means.
 > and every rebuild shifts the image base, so a mismatched pair resolves no
 > sizes at all and reads as "nothing there" rather than as an error. This bit me
 > once in this very analysis.
+
+---
+
+# Can the 1 MB target be hit? An honest accounting
+
+Every number below is measured on a real artifact unless marked otherwise.
+
+**Where it stands.** The last boot-*verified* size is run 41's 34.13 MB raw /
+3.56 MB brotli. Runs 42 and 44 measured lower (3.23 and 2.95 MB) but both
+included a fn-pointer seed bound that dropped a real dispatch target, so the
+page trapped at boot - those numbers were partly won by deleting code that was
+needed and must not be quoted until a booting build reproduces them.
+
+**What the remaining backlog is worth**, at measured values:
+
+| lever | measured effect | status |
+|---|---|---|
+| CFG-liveness flag DSE | -13% on the largest function | shipped |
+| `%PC` liveness, calls transparent | a further ~4% | measured, unshipped |
+| app payload out of the engine mini | 6.62 MB of 51.27 MB reachable = ~13% | designed |
+| browser-excluded crates | 0.43% in app mode | shipped |
+| pathological-expansion outliers | 1.19% of objects | not worth it |
+| `wasm-opt -Oz` | **+2.9% delivered** (worse) | opt-in only |
+
+Compounding the unshipped ones onto a ~3.5 MB honest baseline lands near
+**2.9-3.0 MB**. That is not 1 MB, and no combination of the remaining backlog
+gets there.
+
+**The gap is expansion, and it is architectural.** The linked mini is ~9x its
+native `.text`; rustc's own x86-to-wasm ratio is ~3x. Matching rustc would put
+the mini at ~10 MB raw / ~1.1 MB brotli - which is the target, almost exactly.
+So the target is reachable if and only if the expansion is closed, and closing
+it is not a matter of more IR peepholes.
+
+The cause is visible in what the wasm is made of. In a median lifted function:
+
+| | share of instructions |
+|---|---|
+| `local.get` / `local.set` / `local.tee` | **48.8%** |
+| loads | 11.7% |
+| stores | 11.6% |
+| arithmetic | 7.0% |
+| calls | 0.3% |
+
+Half of it is SSA shuffling, and 86% of the surviving stores target `%state` or
+`%state_buf`. `%state_buf` is an `alloca` in the export wrapper - the lifted
+body is deliberately `alwaysinline`d into it precisely so SROA could promote
+that alloca - and SROA does not fire, because the body passes the same pointer
+to ~200 lifted callees. The State escapes, so every register lives in memory,
+so every access is a GEP plus a load or store plus the locals to carry them.
+
+The passes in this document work *around* that escape one field at a time
+(flags via ABI liveness, PC via its argument). Each is worth low double digits.
+Closing it properly means changing the lifted ABI so callees take the live
+registers as scalar arguments and return them, instead of sharing one State
+buffer - at which point SROA promotes the whole thing and the shuffling
+collapses. That is the change that buys 3x; nothing smaller does.
+
+**Recommendation.** Treat ~2.9 MB as the floor for the current architecture,
+bank the remaining backlog to reach it, and scope the ABI change separately
+rather than expecting the incremental passes to close a 3x gap. Also worth
+noting: the delivered size is already *below* rustc's own output for comparable
+code (2.95 vs 4.23 MB brotli for printpdf), so the 1 MB target is not "catch up
+with native" - it is "beat native by 4x", which is a different and much harder
+statement.
