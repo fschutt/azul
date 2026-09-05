@@ -1377,6 +1377,31 @@ fn x11_event_name(t: i32) -> &'static str {
 /// while another window held focus. Without it the client keeps believing a
 /// modifier is held — the stuck-Alt-after-Alt-Tab class of bug — because the
 /// release event was delivered to whoever had focus at the time.
+/// What a set of `_NET_WM_STATE` atoms means for [`WindowFrame`].
+///
+/// Ranked, because the atoms are not exclusive and a window can carry several
+/// at once: HIDDEN (iconified) outranks everything, then FULLSCREEN - the
+/// state with no edges at all - then maximize, which per EWMH means BOTH axes.
+/// A window maximized on one axis still has two draggable edges and is
+/// therefore Normal.
+fn window_frame_from_net_wm_state(
+    max_vert: bool,
+    max_horz: bool,
+    fullscreen: bool,
+    hidden: bool,
+) -> azul_core::window::WindowFrame {
+    use azul_core::window::WindowFrame;
+    if hidden {
+        WindowFrame::Minimized
+    } else if fullscreen {
+        WindowFrame::Fullscreen
+    } else if max_vert && max_horz {
+        WindowFrame::Maximized
+    } else {
+        WindowFrame::Normal
+    }
+}
+
 const X11_WINDOW_EVENT_MASK: c_long = ExposureMask
     | KeyPressMask
     | KeyReleaseMask
@@ -1387,7 +1412,12 @@ const X11_WINDOW_EVENT_MASK: c_long = ExposureMask
     | EnterWindowMask
     | LeaveWindowMask
     | FocusChangeMask
-    | KeymapStateMask;
+    | KeymapStateMask
+    // Without this the client never hears that the WM maximized, restored or
+    // iconified the window - `flags.frame` then stays whatever the app last
+    // believed, and everything keyed off it (the CSD resize band, the
+    // maximize toggle) acts on a stale answer.
+    | PropertyChangeMask;
 
 /// Is this FocusIn/FocusOut a side effect of a GRAB rather than a real change
 /// of keyboard focus?
@@ -4849,6 +4879,16 @@ impl X11Window {
             defines::SelectionNotify => {
                 self.handle_xdnd_selection_notify(unsafe { &event.selection })
             }
+            defines::PropertyNotify => {
+                // The ONLY way a client hears that the WM changed the window's
+                // state. Without it `flags.frame` is whatever the app last
+                // believed: after an Alt+F10 / window-menu / edge-drag
+                // un-maximize the client still thought it was maximized, and
+                // its CSD resize band - which is disabled while maximized -
+                // stayed off, so the window could no longer be resized by its
+                // edges.
+                self.handle_property_notify(unsafe { &event.property })
+            }
             defines::ButtonPress | defines::ButtonRelease => {
                 self.handle_mouse_button(unsafe { &event.button })
             }
@@ -7111,6 +7151,93 @@ impl X11Window {
         });
     }
 
+    /// Adopt a WM-driven `_NET_WM_STATE` change.
+    ///
+    /// Reads the property back and applies it with `WindowStateSource::Os`, so
+    /// the OS-sync baseline advances with it and `sync_window_state` does not
+    /// echo the state straight back to the window manager.
+    fn handle_property_notify(
+        &mut self,
+        ev: &defines::XPropertyEvent,
+    ) -> ProcessEventResult {
+        let intern = |name: &[u8]| -> Atom {
+            unsafe { (self.xlib.XInternAtom)(self.display, name.as_ptr().cast(), 0) }
+        };
+        let wm_state = intern(b"_NET_WM_STATE\0");
+        if wm_state == 0 || ev.atom != wm_state {
+            return ProcessEventResult::DoNothing;
+        }
+
+        let (max_v, max_h, full, hidden) = {
+            let names: [&[u8]; 4] = [
+                b"_NET_WM_STATE_MAXIMIZED_VERT\0",
+                b"_NET_WM_STATE_MAXIMIZED_HORZ\0",
+                b"_NET_WM_STATE_FULLSCREEN\0",
+                b"_NET_WM_STATE_HIDDEN\0",
+            ];
+            let wanted: Vec<Atom> = names.iter().map(|n| intern(n)).collect();
+            let mut found = [false; 4];
+            unsafe {
+                let mut actual_type: Atom = 0;
+                let mut actual_format: c_int = 0;
+                let mut nitems: c_ulong = 0;
+                let mut bytes_after: c_ulong = 0;
+                let mut data: *mut u8 = std::ptr::null_mut();
+                let status = (self.xlib.XGetWindowProperty)(
+                    self.display,
+                    self.window,
+                    wm_state,
+                    0,
+                    1024,
+                    0,
+                    defines::AnyPropertyType,
+                    &mut actual_type,
+                    &mut actual_format,
+                    &mut nitems,
+                    &mut bytes_after,
+                    &mut data,
+                );
+                if status == 0 && !data.is_null() {
+                    // format 32 comes back as an array of C `long`, upper bytes
+                    // padded — reading it as u32 is the classic 64-bit trap.
+                    if actual_format == 32 {
+                        let atoms = std::slice::from_raw_parts(
+                            data.cast::<std::os::raw::c_long>(),
+                            nitems as usize,
+                        );
+                        for a in atoms {
+                            for (i, w) in wanted.iter().enumerate() {
+                                if *w != 0 && *a as Atom == *w {
+                                    found[i] = true;
+                                }
+                            }
+                        }
+                    }
+                    (self.xlib.XFree)(data.cast());
+                }
+            }
+            (found[0], found[1], found[2], found[3])
+        };
+
+        let frame = window_frame_from_net_wm_state(max_v, max_h, full, hidden);
+        if self.common.current_window_state().flags.frame == frame {
+            return ProcessEventResult::DoNothing;
+        }
+
+        log_debug!(
+            LogCategory::Window,
+            "[X11] _NET_WM_STATE -> {:?} (was {:?}) — WM-driven, adopting",
+            frame,
+            self.common.current_window_state().flags.frame
+        );
+        self.common.snapshot_window_state_baseline("x11.property_notify");
+        self.common.update_window_state(
+            crate::desktop::shell2::common::event::WindowStateSource::Os,
+            |ws| ws.flags.frame = frame,
+        );
+        ProcessEventResult::DoNothing
+    }
+
     fn sync_window_state(&mut self) {
         use std::ffi::CString;
 
@@ -8416,6 +8543,64 @@ impl X11Window {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod net_wm_state_readback_tests {
+    use azul_core::window::WindowFrame;
+
+    use super::window_frame_from_net_wm_state;
+
+    /// X11 never reads `_NET_WM_STATE` back - there is no `PropertyNotify`
+    /// handler at all - so after the WINDOW MANAGER changes a window's state
+    /// the client keeps its old belief. Measured on this machine, KDE Plasma,
+    /// 2026-09-05: with the window un-maximized by `wmctrl`, a press in the
+    /// top 8 px still entered the interactive-move path (move-path=1), i.e.
+    /// the CSD resize band stayed disabled, because `flags.frame` was still
+    /// `Maximized`. Un-maximizing through the app's own double-click instead
+    /// gave move-path=0 - the band came back. The user-visible symptom is
+    /// "Alt+F10 the window and its resize edges stop working".
+    ///
+    /// This is the pure half: what a set of state atoms MEANS.
+    #[test]
+    fn the_state_atoms_decide_the_frame() {
+        // Both maximize axes = maximized. EWMH sets them as a pair.
+        assert_eq!(
+            window_frame_from_net_wm_state(true, true, false, false),
+            WindowFrame::Maximized
+        );
+        // ONE axis is not "maximized" - a vertically-maximized window still
+        // has left and right edges to drag.
+        assert_eq!(
+            window_frame_from_net_wm_state(true, false, false, false),
+            WindowFrame::Normal
+        );
+        assert_eq!(
+            window_frame_from_net_wm_state(false, true, false, false),
+            WindowFrame::Normal
+        );
+        // Fullscreen outranks maximize: it is the more specific state and the
+        // one with no edges at all.
+        assert_eq!(
+            window_frame_from_net_wm_state(true, true, true, false),
+            WindowFrame::Fullscreen
+        );
+        // HIDDEN is EWMH's spelling of iconified.
+        assert_eq!(
+            window_frame_from_net_wm_state(false, false, false, true),
+            WindowFrame::Minimized
+        );
+        // Minimized outranks maximized: a maximized window that is then
+        // iconified is minimized, and both atoms are present.
+        assert_eq!(
+            window_frame_from_net_wm_state(true, true, false, true),
+            WindowFrame::Minimized
+        );
+        assert_eq!(
+            window_frame_from_net_wm_state(false, false, false, false),
+            WindowFrame::Normal
+        );
     }
 }
 

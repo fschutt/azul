@@ -46,7 +46,7 @@ to exercise the configure path, but not the click path.
 | titlebar drag | dragging the client titlebar moves the window | **VERIFIED (X11 via XWayland)** | every press from y=10 to y=27 enters the interactive-move path — no alternation, so #461's gesture-session fix holds. Not testable on the Wayland backend |
 | double-click maximize | double-click toggles maximize/restore | **VERIFIED (X11 via XWayland)** | `0,0 1920x1036` -> `200,218 1200x800` on a double-click at the title bar |
 | CSD band gate | the band is off while maximized | **VERIFIED (X11 via XWayland)** | band ON (move-path=0) when the app knows it is Normal, OFF (move-path=1) when its `flags.frame` is stale — see below |
-| WM-initiated un-maximize | the client notices | **BROKEN, not fixed here** | X11 never reads `_NET_WM_STATE` back, so after `wmctrl` un-maximizes, the client still believes it is maximized and its resize edges stay disabled |
+| WM-initiated un-maximize | the client notices | **BROKEN -> FIXED** | X11 never read `_NET_WM_STATE` back. Same probe before/after: `move-path=1` (band dead) -> `move-path=0` (band alive), with `_NET_WM_STATE -> Normal (was Maximized) — WM-driven, adopting` in the log |
 | portal short-circuit (#461) | the portal must not replace desktop discovery | **UNEXERCISED** | this session logs `xdg-desktop-portal unavailable`, so the portal path never runs. Needs a session where the portal answers |
 | resize repaint rate | resize repaints at refresh rate | **NOT MEASURED** | see below |
 
@@ -317,9 +317,26 @@ maximized. That abstract gap now has a concrete, user-visible symptom:
 > dragging it off the top edge — and its resize edges stop working, because the
 > client still thinks it is maximized and a maximized window has no edges.
 
-That is a real bug, it is NOT fixed here (the readback belongs with the
-`PropertyChangeMask` work the X11 audit specifies), and it is now reproducible
-in three commands.
+That is a real bug, and it IS fixed now - the reproducibility is what made it
+worth doing. X11 selects `PropertyChangeMask` and handles `PropertyNotify` for
+`_NET_WM_STATE`, reading the property back and applying the frame with
+`WindowStateSource::Os` so the baseline advances and `sync_window_state` does
+not echo it to the WM.
+
+Same probe, same three commands, before and after:
+
+    un-maximize with wmctrl, press rel_y=2:
+      before   move-path=1   band OFF - client still believed Maximized
+      after    move-path=0   band ON  - resize edges work again
+
+and the handler says so:
+
+    [X11] _NET_WM_STATE -> Normal (was Maximized) — WM-driven, adopting
+
+`window_frame_from_net_wm_state` is the pure half and carries the ranking the
+atoms need: HIDDEN outranks FULLSCREEN outranks maximize, and maximize means
+BOTH axes - a vertically-maximized window still has left and right edges, so it
+is Normal.
 
 ## Traps found
 

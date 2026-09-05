@@ -35,10 +35,26 @@ pub union XEvent {
     pub configure: XConfigureEvent,
     pub client_message: XClientMessageEvent,
     pub selection: XSelectionEvent,
+    pub property: XPropertyEvent,
     pub keymap: XKeymapEvent,
     pub mapping: XMappingEvent,
     pub xcookie: XGenericEventCookie,
     pad: [c_long; 24],
+}
+
+/// `PropertyNotify` — how a client learns the WM changed `_NET_WM_STATE`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct XPropertyEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: c_int,
+    pub display: *mut Display,
+    pub window: Window,
+    pub atom: Atom,
+    pub time: Time,
+    /// `PropertyNewValue` (0) or `PropertyDelete` (1).
+    pub state: c_int,
 }
 
 #[repr(C)]
@@ -286,6 +302,10 @@ pub const PointerMotionMask: c_long = 1 << 6;
 /// Ask for `KeymapNotify` after every `FocusIn` — without it the client has no
 /// way to learn which keys were released while another window had focus.
 pub const KeymapStateMask: c_long = 1 << 14;
+/// Needed to receive `PropertyNotify`, which is the ONLY way a client learns
+/// that the window manager changed `_NET_WM_STATE` (maximize, fullscreen,
+/// iconify) behind its back.
+pub const PropertyChangeMask: c_long = 1 << 22;
 pub const ExposureMask: c_long = 1 << 15;
 pub const StructureNotifyMask: c_long = 1 << 17;
 pub const FocusChangeMask: c_long = 1 << 21;
@@ -316,6 +336,7 @@ pub const Expose: c_int = 12;
 pub const UnmapNotify: c_int = 18;
 pub const MapNotify: c_int = 19;
 pub const ConfigureNotify: c_int = 22;
+pub const PropertyNotify: c_int = 28;
 pub const SelectionNotify: c_int = 31;
 pub const ClientMessage: c_int = 33;
 pub const MappingNotify: c_int = 34;
