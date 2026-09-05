@@ -744,10 +744,31 @@ Ordered by what the next session can actually act on.
   `mod.rs:1483-1486`, not a broken path; pointer lock uses `XGrabPointer` while XI2 is
   selected, so during a lock the pointer path silently switches to the core
   fallback while `XI_RawMotion` keeps arriving.
-- `_NET_WM_MOVERESIZE` hardening the audit lists: no `_NET_SUPPORTED` probe, no
-  `_NET_WM_MOVERESIZE_CANCEL` on a post-handoff `ButtonRelease`, and
-  `XUngrabPointer` releases only the core pointer where XI2 wants
-  `XIUngrabDevice`.
+- ~~`_NET_WM_MOVERESIZE` without a `_NET_SUPPORTED` probe~~ **FIXED**. The
+  handoff did three irreversible things before asking whether the WM
+  understands the atom: released the implicit pointer grab, sent the
+  ClientMessage, and cleared `left_down`/`right_down`/`middle_down` ("the
+  pointer is the WM's from here"). On a WM that does not advertise it - EWMH is
+  optional - all three are wrong at once: the window does not move, the grab is
+  gone, and the app believes no button is down WHILE THE USER IS STILL HOLDING
+  ONE, so the drag is dead until the next press. `moveresize_handoff` (pure,
+  RED-tested, and it treats the `None` atom 0 as unsupported because a
+  format-32 property can carry a stray 0 word) now decides, and
+  `begin_net_wm_moveresize` returns whether the handoff happened so the caller
+  keeps the button state when it did not. On this machine the probe reads
+  `_NET_SUPPORTED: 73 atoms advertised by the WM` and the handoff still runs
+  (`begin_interactive_move clears buttons` fires exactly once per drag), so the
+  supported path is unchanged. WM-DRIVEN MOVEMENT ITSELF STAYS UNVERIFIED: a
+  synthetic press-move-release on the unmaximized window (320,140 1280x800)
+  leaves it at 320,140, the same as before this change - the WM takes its own
+  pointer grab and does not follow XTEST motion here. The double-click
+  un-maximize in the same run DID move it (0,0 1920x1036 -> 320,140), so the
+  input path itself is live.
+- Still open from the same audit: no `_NET_WM_MOVERESIZE_CANCEL` on a
+  post-handoff `ButtonRelease` (narrower now - the app only hands over when the
+  WM advertises support, and then the WM's grab swallows the release), and
+  `XUngrabPointer` vs `XIUngrabDevice` in the POINTER-LOCK path (the moveresize
+  ungrab is releasing an implicit CORE grab, which is the matching call).
 
 **Closed during this round** (kept so the next session does not re-open them):
 the window theme on a portal-less desktop, KDE reading GNOME's schemas, the

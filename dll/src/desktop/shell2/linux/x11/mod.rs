@@ -1377,6 +1377,36 @@ fn x11_event_name(t: i32) -> &'static str {
 /// while another window held focus. Without it the client keeps believing a
 /// modifier is held — the stuck-Alt-after-Alt-Tab class of bug — because the
 /// release event was delivered to whoever had focus at the time.
+/// Whether the window manager can be handed an interactive move/resize.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub(super) enum MoveResizeHandoff {
+    /// The WM advertises `_NET_WM_MOVERESIZE`: release the implicit grab, send
+    /// the ClientMessage, and treat the pointer as the WM's from here.
+    HandToWm,
+    /// It does not. Keep the grab and the button state: the press the user is
+    /// still holding is the only thing left to drag with.
+    Unsupported,
+}
+
+/// Does `_NET_SUPPORTED` advertise `_NET_WM_MOVERESIZE`?
+///
+/// EWMH is optional and this was never asked. See `moveresize_handoff_tests`
+/// for what going ahead anyway costs on a WM that cannot answer.
+///
+/// `atom == 0` is `None` - what `XInternAtom` returns when it cannot intern -
+/// and never matches. Format-32 properties come back as C `long`s padded in
+/// the upper bytes, so a stray 0 word in the list is entirely possible.
+pub(super) fn moveresize_handoff(
+    supported: &[std::os::raw::c_ulong],
+    moveresize_atom: std::os::raw::c_ulong,
+) -> MoveResizeHandoff {
+    if moveresize_atom != 0 && supported.contains(&moveresize_atom) {
+        MoveResizeHandoff::HandToWm
+    } else {
+        MoveResizeHandoff::Unsupported
+    }
+}
+
 /// What a set of `_NET_WM_STATE` atoms means for [`WindowFrame`].
 ///
 /// Ranked, because the atoms are not exclusive and a window can carry several
@@ -2758,6 +2788,9 @@ pub struct X11Window {
 
     /// Damage rects for incremental rendering (CPU and GPU)
     gpu_damage_rects: Vec<azul_core::geom::LogicalRect>,
+    /// The WM's `_NET_SUPPORTED` list, read once (it changes only when the
+    /// window manager is replaced) and consulted before handing it a drag.
+    net_supported_cache: Option<Vec<std::os::raw::c_ulong>>,
 
     /// Render-intent request: the authoritative "a repaint is needed" signal.
     /// Raised by request_redraw()/Expose/events/timers; retired by
@@ -3961,6 +3994,7 @@ impl X11Window {
             os_present_requested: true, // first present must be full
             frame_ready_wake_fd,
             gpu_damage_rects: Vec::new(),
+            net_supported_cache: None,
             needs_redraw: crate::desktop::shell2::common::event::LatchedRequest::raised(),
             size_to_content_pending: options.size_to_content,
             #[cfg(feature = "a11y")]
@@ -7212,11 +7246,17 @@ impl X11Window {
         // KWin/xfwm4 jumped the window by that much on the first motion.
         let s = self.hidpi();
         let (ox, oy) = self.root_origin_physical();
-        self.begin_net_wm_moveresize(
+        let handed_over = self.begin_net_wm_moveresize(
             (x * s + ox) as std::os::raw::c_long,
             (y * s + oy) as std::os::raw::c_long,
             8, // _NET_WM_MOVERESIZE_MOVE
         );
+        if !handed_over {
+            // The WM never took the pointer, so it is still ours and the user
+            // is still holding the button. Clearing the state here is what
+            // made the drag die until the next press.
+            return;
+        }
         // The WM takes its own pointer grab now (owner_events = False in
         // mutter, KWin and xfwm4), so the ButtonRelease that ends the drag
         // goes to the WM and never arrives here — and the EnterNotify /
@@ -8297,12 +8337,99 @@ impl X11Window {
     /// via _NET_WM_MOVERESIZE. Mirrors the _NET_WM_STATE ClientMessage
     /// sender above; the implicit pointer grab from the triggering button
     /// press MUST be released first, or the WM cannot take the pointer.
+    /// Read the window manager's `_NET_SUPPORTED` list off the root window.
+    ///
+    /// Cached: the list changes only when the WM is replaced, and this is on
+    /// the press path of every titlebar drag.
+    fn net_supported(&mut self) -> &[std::os::raw::c_ulong] {
+        if self.net_supported_cache.is_none() {
+            let mut list: Vec<std::os::raw::c_ulong> = Vec::new();
+            unsafe {
+                let screen = (self.xlib.XDefaultScreen)(self.display);
+                let root = (self.xlib.XRootWindow)(self.display, screen);
+                let net_supported = (self.xlib.XInternAtom)(
+                    self.display,
+                    b"_NET_SUPPORTED\0".as_ptr() as *const c_char,
+                    0,
+                );
+                if net_supported != 0 {
+                    let mut actual_type: Atom = 0;
+                    let mut actual_format: c_int = 0;
+                    let mut nitems: c_ulong = 0;
+                    let mut bytes_after: c_ulong = 0;
+                    let mut data: *mut u8 = std::ptr::null_mut();
+                    let status = (self.xlib.XGetWindowProperty)(
+                        self.display,
+                        root,
+                        net_supported,
+                        0,
+                        4096,
+                        0,
+                        defines::AnyPropertyType,
+                        &mut actual_type,
+                        &mut actual_format,
+                        &mut nitems,
+                        &mut bytes_after,
+                        &mut data,
+                    );
+                    if status == 0 && !data.is_null() {
+                        // format 32 comes back as an array of C `long`, upper
+                        // bytes padded - reading it as u32 is the classic
+                        // 64-bit trap (same note as the _NET_WM_STATE reader).
+                        if actual_format == 32 {
+                            let atoms = std::slice::from_raw_parts(
+                                data.cast::<std::os::raw::c_long>(),
+                                nitems as usize,
+                            );
+                            list.extend(atoms.iter().map(|a| *a as std::os::raw::c_ulong));
+                        }
+                        (self.xlib.XFree)(data.cast());
+                    }
+                }
+            }
+            log_debug!(
+                LogCategory::Window,
+                "[X11] _NET_SUPPORTED: {} atoms advertised by the WM",
+                list.len()
+            );
+            self.net_supported_cache = Some(list);
+        }
+        self.net_supported_cache.as_deref().unwrap_or(&[])
+    }
+
+    /// Returns whether the drag was actually handed to the WM.
+    ///
+    /// `false` means the WM does not advertise `_NET_WM_MOVERESIZE`: nothing
+    /// was sent, the implicit pointer grab from the triggering press is STILL
+    /// OURS, and the caller must not pretend the pointer left.
     pub(super) fn begin_net_wm_moveresize(
         &mut self,
         x_root: std::os::raw::c_long,
         y_root: std::os::raw::c_long,
         direction: std::os::raw::c_long,
-    ) {
+    ) -> bool {
+        let moveresize_atom = unsafe {
+            (self.xlib.XInternAtom)(
+                self.display,
+                b"_NET_WM_MOVERESIZE\0".as_ptr() as *const c_char,
+                0,
+            )
+        };
+        // ASK BEFORE GIVING ANYTHING AWAY. Releasing the grab, sending the
+        // message and clearing the button state are all irreversible, and on a
+        // WM without EWMH move/resize all three are wrong at once - the window
+        // does not move and the drag is dead until the next press.
+        if moveresize_handoff(self.net_supported(), moveresize_atom)
+            == MoveResizeHandoff::Unsupported
+        {
+            log_warn!(
+                LogCategory::Window,
+                "[X11] the WM does not advertise _NET_WM_MOVERESIZE - keeping the pointer grab \
+                 instead of handing over a drag nobody will take"
+            );
+            return false;
+        }
+
         unsafe {
             (self.xlib.XUngrabPointer)(self.display, 0 /* CurrentTime */);
 
@@ -8312,11 +8439,7 @@ impl X11Window {
             let mut event: defines::XClientMessageEvent = std::mem::zeroed();
             event.type_ = defines::ClientMessage;
             event.window = self.window;
-            event.message_type = (self.xlib.XInternAtom)(
-                self.display,
-                b"_NET_WM_MOVERESIZE\0".as_ptr() as *const c_char,
-                0,
-            );
+            event.message_type = moveresize_atom;
             event.format = 32;
             event.data.l[0] = x_root;
             event.data.l[1] = y_root;
@@ -8333,6 +8456,7 @@ impl X11Window {
             );
             (self.xlib.XFlush)(self.display);
         }
+        true
     }
 
     /// Check timers and threads, trigger callbacks if needed.
@@ -8632,6 +8756,65 @@ impl X11Window {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod moveresize_handoff_tests {
+    use super::{moveresize_handoff, MoveResizeHandoff};
+
+    /// HANDING A DRAG TO A WM THAT CANNOT TAKE IT.
+    ///
+    /// `begin_net_wm_moveresize` did three irreversible things before finding
+    /// out whether the WM understands `_NET_WM_MOVERESIZE`: it released the
+    /// implicit pointer grab from the triggering press, sent a ClientMessage
+    /// to the root window, and - in `handle_begin_interactive_move` - cleared
+    /// `left_down`/`right_down`/`middle_down` on the grounds that "the pointer
+    /// is the WM's from here".
+    ///
+    /// On a WM that does not advertise the atom (EWMH is optional; the X11
+    /// audit flagged the missing `_NET_SUPPORTED` probe) all three are wrong at
+    /// once: the window does not move, the grab is gone, and the app now
+    /// believes no button is down WHILE THE USER IS STILL HOLDING ONE - so the
+    /// drag is dead until the next press.
+    ///
+    /// The probe has to come first, and its answer decides all three.
+    #[test]
+    fn a_wm_that_does_not_advertise_moveresize_keeps_its_grab() {
+        const MOVERESIZE: u64 = 412;
+
+        // Advertised: hand it over.
+        assert_eq!(
+            moveresize_handoff(&[300, MOVERESIZE, 500], MOVERESIZE),
+            MoveResizeHandoff::HandToWm
+        );
+
+        // Not advertised: keep the grab, keep the buttons, do not send.
+        assert_eq!(
+            moveresize_handoff(&[300, 500], MOVERESIZE),
+            MoveResizeHandoff::Unsupported
+        );
+
+        // `_NET_SUPPORTED` absent or unreadable (a bare WM, or the read
+        // failed): an empty list is NOT permission.
+        assert_eq!(
+            moveresize_handoff(&[], MOVERESIZE),
+            MoveResizeHandoff::Unsupported
+        );
+    }
+
+    /// `XInternAtom` returns `None` - the atom 0 - when it cannot intern.
+    /// Zero is not an atom, and must never match, or a failed intern would
+    /// read as "supported" against any list that happens to contain a 0 word.
+    /// Format-32 properties come back as C `long`s padded in the upper bytes,
+    /// which is exactly how a stray 0 gets into such a list.
+    #[test]
+    fn the_none_atom_is_never_supported() {
+        assert_eq!(
+            moveresize_handoff(&[0, 300], 0),
+            MoveResizeHandoff::Unsupported
+        );
+        assert_eq!(moveresize_handoff(&[], 0), MoveResizeHandoff::Unsupported);
     }
 }
 
