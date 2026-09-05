@@ -356,6 +356,8 @@ pub struct MonitorState {
     pub height: i32,
     pub make: String,  // Manufacturer (from wl_output.geometry)
     pub model: String, // Model (from wl_output.geometry)
+    /// Refresh in mHz as `wl_output.mode` reports it (60000 = 60 Hz).
+    pub refresh_mhz: i32,
 }
 
 impl MonitorState {

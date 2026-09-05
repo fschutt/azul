@@ -273,7 +273,7 @@ extern "C" fn wl_output_mode_handler(
     _flags: u32,
     width: i32,
     height: i32,
-    _refresh: i32,
+    refresh: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
 
@@ -281,12 +281,38 @@ extern "C" fn wl_output_mode_handler(
     if let Some(monitor) = window.known_outputs.iter_mut().find(|m| m.proxy == output) {
         monitor.width = width;
         monitor.height = height;
+        // The refresh rate was DISCARDED here, and it is the one number the
+        // frame pacer needs: without it every Wayland session paced to the
+        // 60 Hz default, which is a frame and a half late on a 144 Hz panel.
+        monitor.refresh_mhz = refresh;
     }
 }
 
-extern "C" fn wl_output_done_handler(_data: *mut c_void, _output: *mut wl_output) {
-    // This event marks the end of a set of events for this output.
-    // In our implementation, we update fields incrementally, so no action needed here.
+extern "C" fn wl_output_done_handler(data: *mut c_void, _output: *mut wl_output) {
+    // `done` is the protocol's ATOMIC COMMIT for an output: geometry, mode and
+    // scale have all arrived and the set is now consistent. That makes it the
+    // one correct moment to hand the display layer what the compositor said,
+    // so `get_monitors()` can stop shelling out to swaymsg / hyprctl /
+    // kscreen-doctor / wlr-randr - none of which answers on KWin, which is why
+    // every monitor query on this session fell back to a hardcoded 1920x1080.
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let outputs = window
+        .known_outputs
+        .iter()
+        .filter(|m| m.width > 0 && m.height > 0)
+        .map(|m| crate::desktop::display::WaylandOutput {
+            name: m.name.clone(),
+            x: m.x,
+            y: m.y,
+            width: m.width,
+            height: m.height,
+            scale: m.scale,
+            refresh_mhz: m.refresh_mhz,
+            make: m.make.clone(),
+            model: m.model.clone(),
+        })
+        .collect();
+    crate::desktop::display::publish_wayland_outputs(outputs);
 }
 
 extern "C" fn wl_output_scale_handler(data: *mut c_void, output: *mut wl_output, factor: i32) {
@@ -707,6 +733,7 @@ pub(super) extern "C" fn registry_global_handler(
                 height: 0,
                 make: String::new(),
                 model: String::new(),
+                refresh_mhz: 0,
             });
 
             // A wl_output global appearing IS a monitor arriving — same

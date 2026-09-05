@@ -150,6 +150,42 @@ needed:
 so 3d's Wayland producer is live; what is untested is `preedit_string` /
 `commit_string` delivery, which needs an IME actually composing.
 
+## Monitor enumeration never asked the compositor
+
+Buried in the platform trace:
+
+    [display] All Wayland detection methods failed. Falling back to default display.
+
+`DETECTION_CHAIN` on Wayland is `swaymsg`, `hyprctl`, `kscreen-doctor`,
+`wlr-randr` — four EXTERNAL PROCESS SPAWNS, tried in order, **on the UI
+thread**. On KDE Plasma Wayland not one of them answers (this box also has
+`kscreen-doctor` SEGFAULTING twice in `dmesg`), so every monitor query returned
+a hardcoded 1920x1080 guess with a guessed panel height and a default refresh.
+The chain's own comment records the hazard: a 2-second per-tool deadline added
+after "the fourth per-tick detection call on KDE Wayland never returned" froze
+the app so the window could not even close.
+
+Meanwhile the compositor had already told us everything. The backend binds
+`wl_output` and its handlers fill a `MonitorState` with position, mode, scale,
+make and model — and `wl_output_mode_handler` then **discarded the refresh
+rate**, which is the one number the frame pacer divides by.
+
+Fixed: `MonitorState` keeps `refresh_mhz`, `wl_output.done` (the protocol's
+atomic commit for an output) publishes the set to the display layer, and
+`get_displays()` consults that before anything else. Measured on the device:
+
+    [display] compositor described 1 output(s): output-48 1920x1080@60000mHz scale=1
+
+Correct mode, correct refresh, correct scale — from the protocol, with no
+process spawned.
+
+**Residual, stated honestly:** the FIRST `get_displays()` runs before the
+registry roundtrip has delivered a single `wl_output.done`, so it still falls
+back once at startup. Anything computed once from that first call keeps the
+fallback value; every query afterwards uses the compositor. Closing that gap
+means making startup wait for the roundtrip, which is a larger change than this
+PR should carry.
+
 ## Traps found
 
 1. **`build-dll` and `link-dynamic` fight over `target/release/libazul.so`, in
