@@ -995,6 +995,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // the document.
         resize_watch: _,
         resize_watch_dpi: _,
+        unarmed_blink_timer: _,
         #[cfg(feature = "icu")]
             icu_localizer: _,
     } = w;
@@ -1478,6 +1479,18 @@ pub struct LayoutWindow {
     laid_out_safe_area_insets: azul_css::system::SafeAreaInsets,
     /// Timers associated with this window
     pub timers: BTreeMap<TimerId, Timer>,
+    /// A cursor-blink [`Timer`] the ENGINE installed into [`Self::timers`]
+    /// itself, which no shell has armed an OS timer for yet.
+    ///
+    /// The shell is the only thing that can create a real OS timer
+    /// (`timerfd_create` / `SetTimer` / `NSTimer`), and it learns about the
+    /// blink from `drain_deferred_focus_target()` returning `Some`. That drain
+    /// is DESTRUCTIVE and the layout tail runs it first, so on any startup
+    /// where focus was deferred until the first layout the shell's arm saw
+    /// `None` and no blink timer was ever armed. This is the second,
+    /// non-destructive signal; see
+    /// `a_focus_deferred_until_first_layout_still_tells_the_shell_to_arm_the_blink`.
+    unarmed_blink_timer: Option<Timer>,
     /// Threads running in the background for this window
     pub threads: BTreeMap<ThreadId, Thread>,
     /// Currently loaded fonts and images present in this renderer (window)
@@ -2043,6 +2056,7 @@ impl LayoutWindow {
             safe_area_insets: azul_css::system::SafeAreaInsets::default(),
             laid_out_safe_area_insets: azul_css::system::SafeAreaInsets::default(),
             timers: BTreeMap::new(),
+            unarmed_blink_timer: None,
             system_animations_override: None,
             threads: BTreeMap::new(),
             renderer_resources: RendererResources::default(),
@@ -9542,13 +9556,25 @@ impl LayoutWindow {
     /// # Returns
     ///
     /// `true` if cursor was initialized, `false` if no pending focus or initialization failed.
+    /// Take the cursor-blink timer the engine installed but nobody armed.
+    ///
+    /// Returns `Some` exactly once per installation: the shell arms an OS
+    /// timer from it, and a second arm would leak one timerfd per frame.
+    pub const fn take_unarmed_blink_timer(&mut self) -> Option<Timer> {
+        self.unarmed_blink_timer.take()
+    }
+
     pub fn finalize_pending_focus_changes(&mut self) -> bool {
         // A focus request that arrived before the first layout waited here for
         // one. Applying it BEFORE taking the pending contenteditable focus lets
         // the caret it flags be seeded in this very call.
         if let Some(blink_timer) = self.drain_deferred_focus_target() {
             self.timers
-                .insert(azul_core::task::CURSOR_BLINK_TIMER_ID, blink_timer);
+                .insert(azul_core::task::CURSOR_BLINK_TIMER_ID, blink_timer.clone());
+            // The drain is destructive and the shell's arm runs AFTER this, so
+            // it would find nothing and never create the OS timer. Offer it
+            // here instead - see `take_unarmed_blink_timer`.
+            self.unarmed_blink_timer = Some(blink_timer);
         }
 
         // Take the pending focus info (this clears the flag)
@@ -14563,6 +14589,113 @@ mod tests {
         window.apply_animation_momentum(node, -400.0, 120.0);
         let anim = window.animations.get(key).expect("same key");
         assert_eq!(anim.translate_x.velocity, -400.0);
+    }
+
+    /// A CARET THAT NEVER BLINKS BECAUSE THE ENGINE ATE ITS OWN SIGNAL.
+    ///
+    /// A `set_focus` issued before the first layout is parked on the focus
+    /// manager. Two different places later recover it, and they use the SAME
+    /// destructive drain:
+    ///
+    ///   1. `common::layout::regenerate_layout`'s tail calls
+    ///      `finalize_pending_focus_changes()`, which calls
+    ///      `drain_deferred_focus_target()` and puts the returned blink `Timer`
+    ///      in the ENGINE's timer map.
+    ///   2. the shell's `SystemChange::FinalizePendingFocusChanges` arm calls
+    ///      `drain_deferred_focus_target()` again and, on `Some`, arms the OS
+    ///      timer (`start_timer` -> `timerfd_create`). Only the shell can do
+    ///      that; the engine map alone drives nothing on a desktop backend.
+    ///
+    /// Step 1 always runs first, and it TAKES the target - so step 2 sees
+    /// `None` and no OS timer is ever armed. Measured on KDE Plasma Wayland,
+    /// 2026-09-05: X11 resolved its focus target immediately (layout existed)
+    /// and logged `Created timerfd 13 for timer 1 (interval 1200ms)`; Wayland
+    /// deferred it (`focus target queued until first layout`) and created NO
+    /// blink timer at all, so the caret never blinked and an idle window
+    /// reported `frame rendered with no visual change` for its whole life.
+    ///
+    /// The engine must therefore hand the shell a second, non-destructive
+    /// signal: a blink timer it installed itself and that nobody has armed.
+    #[test]
+    fn a_focus_deferred_until_first_layout_still_tells_the_shell_to_arm_the_blink() {
+        use azul_core::{
+            callbacks::FocusTarget,
+            dom::DomNodeId,
+            dom::{AttributeType, Dom, IdOrClass},
+            geom::LogicalSize,
+            resources::RendererResources,
+            styled_dom::StyledDom,
+        };
+        use rust_fontconfig::FcFontCache;
+
+        let Ok(mut window) = LayoutWindow::new(FcFontCache::build()) else {
+            return;
+        };
+
+        // A focus request BEFORE any layout: exactly what a create callback
+        // does, and what the Wayland startup order produces.
+        window
+            .focus_manager
+            .defer_focus_target(FocusTarget::Id(DomNodeId {
+                dom: azul_core::dom::DomId { inner: 0 },
+                // body > div(editable) > p > text: the editing host is node 1.
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+            }));
+        assert!(window.focus_manager.has_deferred_focus_target());
+
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_ids_and_classes(vec![IdOrClass::Class("ed".into())].into())
+                .with_attribute(AttributeType::ContentEditable(true))
+                // Focusable, or `resolve_focus_target` finds nothing to focus.
+                .with_attribute(AttributeType::TabIndex(0))
+                .with_child(
+                    // The P-wrap convention: a caret needs a block-level line
+                    // to stand on (see the widget-label rule).
+                    Dom::create_p().with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("Text"),
+                    ),
+                ),
+        );
+        let (css, _) = azul_css::parser2::new_from_str("");
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(600.0, 400.0);
+        window.current_window_state = ws.clone();
+        let rr = RendererResources::default();
+        let sc = ExternalSystemCallbacks::rust_internal();
+        let mut dbg = None;
+        window
+            .layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
+            .unwrap();
+
+        // What `regenerate_layout`'s tail does once layout exists.
+        let _ = window.finalize_pending_focus_changes();
+
+        // The engine has the timer...
+        assert!(
+            window
+                .timers
+                .contains_key(&azul_core::task::CURSOR_BLINK_TIMER_ID),
+            "the layout tail must seed the blink timer in the engine map"
+        );
+        // ...and the destructive drain the shell relies on is now empty.
+        assert!(
+            window.drain_deferred_focus_target().is_none(),
+            "the layout tail already took the deferred target - this is why the \
+             shell's arm sees nothing"
+        );
+        // So the shell needs THIS, or the OS timer is never armed.
+        assert!(
+            window.take_unarmed_blink_timer().is_some(),
+            "a blink timer the engine installed itself must be offered to the \
+             shell exactly once, or the caret never blinks"
+        );
+        assert!(
+            window.take_unarmed_blink_timer().is_none(),
+            "and only once - a second arm would leak a timerfd per frame"
+        );
     }
 
     /// covers the pagination entry point.
@@ -20292,6 +20425,8 @@ impl LayoutWindow {
             // App-level animation CONFIG (durations + fn pointers), no node ids.
             system_animations_override: _,
             timers: _,
+            // One `Timer` handed to the shell to arm; carries no node id.
+            unarmed_blink_timer: _,
             threads: _,
             renderer_type: _,
             previous_window_state: _,
