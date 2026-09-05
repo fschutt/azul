@@ -4343,16 +4343,22 @@ impl WaylandWindow {
         // MWA-B11: CSD resize edges — frameless windows previously had NO
         // way to resize. A press in the border band hands the resize to the
         // compositor (xdg_toplevel.resize); edge codes per xdg-shell.
-        if is_down
-            && button == 0x110 // BTN_LEFT
-            && self.common.current_window_state().flags.decorations
-                == azul_core::window::WindowDecorations::None
+        if is_down && button == 0x110
+        // BTN_LEFT
         {
             use crate::desktop::shell2::common::event::{
-                csd_resize_edge_at, CsdResizeEdge, CSD_RESIZE_BAND_PX,
+                csd_resize_edge_for_press, CsdResizeEdge, CSD_RESIZE_BAND_PX,
             };
-            let size = self.common.current_window_state().size.dimensions;
-            if let Some(edge) = csd_resize_edge_at(position, size, CSD_RESIZE_BAND_PX) {
+            let ws = self.common.current_window_state();
+            let size = ws.size.dimensions;
+            let (decorations, frame) = (ws.flags.decorations, ws.flags.frame);
+            // The frame check is the shared rule now: a maximized or
+            // fullscreen window has no resizable edge, and the `return` below
+            // precedes `record_input_sample`, so eating the press here costs
+            // the DragStart and the DoubleClick the title bar needs.
+            if let Some(edge) =
+                csd_resize_edge_for_press(position, size, decorations, frame, CSD_RESIZE_BAND_PX)
+            {
                 let edges: u32 = match edge {
                     CsdResizeEdge::Top => 1,
                     CsdResizeEdge::Bottom => 2,
