@@ -1245,6 +1245,12 @@ mod autotest_generated {
     }
 }
 
+/// Gated exactly like [`crate::document_edit`] itself (`text_layout` + `xml`):
+/// this is that module's helper wearing a method, and without the gate a
+/// build with `text_layout` but no `xml` referenced a module that had been
+/// configured out - `cargo check -p azul-layout --no-default-features
+/// --features std,text_layout` failed on the return type alone.
+#[cfg(all(feature = "text_layout", feature = "xml"))]
 impl DocumentChangeset {
     /// Apply this changeset to an app-model [`Dom`](azul_core::dom::Dom) -
     /// the Path-2 helper [`crate::document_edit::apply_document_operation`]
