@@ -824,6 +824,16 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     second operand, and no `Self` return for `_clone`. Not one
 ///     `_toDbgString` reaches the artifact, which is the whole Debug column.
 ///     Those three mappings are the fix.
+///     BLOCKED, 2026-09-05, and deliberately not guessed: of the three
+///     missing shapes only the `AzString` RETURN still matters (the
+///     same-class ref arg and the `Self` return are already handled -
+///     `marshal_arg` case 2 and `marshal_return`'s receiver arm). There is
+///     no `as_str` or `From<AzString> for String` on the generated
+///     surface, so emitting it means hand-written unsafe slice code over
+///     `.vec.ptr` / `.vec.len` plus an `AzString_delete` - and NOTHING in
+///     our gates compiles this crate, so a mistake would ship silently.
+///     That is the one combination where guessing is worst: unverifiable
+///     AND unsafe. Needs a conversion helper on the dll surface first.
 ///   * `haskell` (10) - the recursive-type carve-out moved it 11 -> 10, so its
 ///     `_partialEq` / `_cmp` / `_hash` now reach the artifact. The remaining
 ///     Debug / Clone / Default do NOT, for a different reason: Haskell routes
@@ -876,11 +886,11 @@ fn declared_count(derives: &BTreeSet<String>) -> usize {
 
 pub const BASELINE: &[(&str, usize)] = &[
     ("python", 36),
-    ("zig", 19),
+    ("zig", 13),
     ("php-ext", 129),
     ("ocaml", 100),
     ("haskell", 10),
-    ("go", 19),
+    ("go", 13),
 ];
 
 /// Compare against [`BASELINE`] and render the verdict.
