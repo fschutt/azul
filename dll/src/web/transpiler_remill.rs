@@ -3183,8 +3183,35 @@ impl RemillTranspiler {
                         core::slice::from_raw_parts(raddr as *const u8, rlen)
                     };
                     let start = (8 - (raddr % 8)) % 8;
+                    // Bound the scan to the object the code actually referenced.
+                    // `rlen` for a `lea` is LEA_MIRROR_WINDOW - a guess sized for
+                    // jump tables - so without this the scan walks into whatever
+                    // unrelated .rdata follows. See plausible_object_extent.
+                    let extent = {
+                        let mut is_fn_entry = |v: usize| {
+                            table.resolve(v).map(|e| e.canonical_addr == v).unwrap_or(false)
+                        };
+                        plausible_object_extent(data, start, &mut is_fn_entry)
+                    };
+                    if extent < data.len() {
+                        let mut past = 0u64;
+                        let mut j = extent;
+                        while j + 8 <= data.len() {
+                            let v = u64::from_le_bytes(data[j..j + 8].try_into().unwrap()) as usize;
+                            if v >= 0x1000
+                                && table.resolve(v).map(|e| e.canonical_addr == v).unwrap_or(false)
+                            {
+                                past += 1;
+                            }
+                            j += 8;
+                        }
+                        if past > 0 {
+                            FNPTR_SEEDS_BOUNDED
+                                .fetch_add(past, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
                     let mut i = start;
-                    while i + 8 <= data.len() {
+                    while i + 8 <= extent {
                         let v = u64::from_le_bytes(data[i..i + 8].try_into().unwrap()) as usize;
                         i += 8;
                         if v < 0x1000 {
@@ -8840,6 +8867,65 @@ fn inject_selfloop_value_log(opt_ir: &str) -> (String, u32) {
 /// Both are conservative here: a field is only cleared when the module
 /// contains no load of it at all, and a `%PC` store survives if any load OR
 /// call appears before the next store to `%PC`. Returns (ir, removed_count).
+/// How far, from the start of a mirrored region, is the data still plausibly
+/// part of the OBJECT the code referenced?
+///
+/// The fn-ptr scan used to run over the whole mirrored region, and for a `lea`
+/// that region is `LEA_MIRROR_WINDOW` (1024 B) regardless of how big the real
+/// object is. Mirroring generously is required - switch jump tables must be
+/// complete for devirt - but SCANNING generously is not: every 8-aligned qword
+/// in the window that happens to resolve to a function entry was enqueued as
+/// reachable code, including whatever unrelated object sits next in `.rdata`.
+///
+/// That is not a hypothetical. `alloc::raw_vec::do_reserve_and_handle` - a Vec
+/// growth helper whose `lea` materializes a panic `Location` - enqueued 18
+/// function pointers, among them a WinRT delegate vtable, and the entire Win32
+/// event loop became "reachable" from a Vec resize. None of it had a call site.
+///
+/// The bound is structural, not name-based: a function-pointer table is a DENSE
+/// run of function entries. Walk 8-aligned words from the start and stop once
+/// more than `MAX_NON_PTR_RUN` consecutive words fail to resolve to a function
+/// entry. A Rust vtable is `[drop_in_place, size, align, methods...]`, so a run
+/// of 2 non-pointers occurs INSIDE a legitimate table and the tolerance must
+/// exceed it. A panic `Location` is `{&str, len, line, col}` - its very first
+/// word is a data pointer, so the walk stops immediately and contributes
+/// nothing.
+///
+/// Conservative direction matters here: under-scanning drops a dispatcher case,
+/// which fails SILENTLY (indirect call finds no case, returns garbage). Over-
+/// scanning only wastes size. So the tolerance is deliberately generous, and
+/// this only ever shrinks a window that was a guess to begin with.
+fn plausible_object_extent(data: &[u8], start: usize, is_fn_entry: &mut dyn FnMut(usize) -> bool) -> usize {
+    const MAX_NON_PTR_RUN: usize = 4;
+    let mut i = start;
+    let mut last_ptr_end = start;
+    let mut run = 0usize;
+    while i + 8 <= data.len() {
+        let v = u64::from_le_bytes(data[i..i + 8].try_into().unwrap()) as usize;
+        if v >= 0x1000 && is_fn_entry(v) {
+            run = 0;
+            last_ptr_end = i + 8;
+        } else {
+            run += 1;
+            if run > MAX_NON_PTR_RUN {
+                break;
+            }
+        }
+        i += 8;
+    }
+    last_ptr_end
+}
+
+/// Function pointers dropped by [`plausible_object_extent`] - i.e. pointers
+/// that were inside a mirrored window but past the end of the object the code
+/// actually referenced. Reported by the audit so a suppression that turns out
+/// to be wrong is visible rather than silent.
+static FNPTR_SEEDS_BOUNDED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn fnptr_seeds_bounded() -> u64 {
+    FNPTR_SEEDS_BOUNDED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn strip_dead_state_stores(ir: &str) -> (String, u32) {
     // Flag fields remill writes eagerly. `zf` is deliberately absent: it has
     // hundreds of genuine readers, so it needs real liveness, not this.

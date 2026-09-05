@@ -521,6 +521,12 @@ pub fn run(
     // but it is how an entire Win32 event loop once entered a wasm build: a
     // 1024-byte window over a Vec-growth helper's constant spilled into a
     // neighbouring COM vtable, and ~20 MB of desktop shell followed.
+    let bounded = super::transpiler_remill::fnptr_seeds_bounded();
+    if bounded > 0 {
+        eprintln!(
+            "[azul-web][lift-audit] i {bounded} function pointer(s) were found INSIDE a mirrored window but PAST the end of the object the code referenced, and were not enqueued. If a dispatcher case turns out to be missing, raise MAX_NON_PTR_RUN in plausible_object_extent - that is the knob."
+        );
+    }
     let orphans = super::transpiler_remill::unreached_data_seeds();
     if !orphans.is_empty() {
         eprintln!(
