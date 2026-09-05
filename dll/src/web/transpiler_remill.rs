@@ -11330,11 +11330,19 @@ fn emit_win_tls_init() -> String {
 
 #[cfg(target_arch = "x86_64")]
 fn emit_win_tls_init() -> String {
-    // Called once per exported wrapper; report the decision once, because
-    // "no TLS directory" and "TLS seeded" are indistinguishable in a boot log
-    // otherwise — an empty return is silent by design.
+    // Memoized because this runs once per exported wrapper — ~1800 times — and
+    // `win_tls_template_synth` re-reads the whole image from disk and re-parses
+    // it with goblin on every call. Unmemoized that was ~36 GB of file reads and
+    // 180k goblin DEBUG records (a 5.9 GB log, up from 25 MB), and it stretched
+    // a 29-minute lift to over 70. The answer cannot change within a run.
+    static TLS_TEMPLATE: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();
+    let found =
+        *TLS_TEMPLATE.get_or_init(|| symbol_table::get().and_then(|t| t.win_tls_template_synth()));
+
+    // Report the decision once: "no TLS directory" and "TLS seeded" are
+    // indistinguishable in a boot log otherwise — an empty return is silent by
+    // design.
     static LOG_ONCE: std::sync::Once = std::sync::Once::new();
-    let found = symbol_table::get().and_then(|t| t.win_tls_template_synth());
     LOG_ONCE.call_once(|| match found {
         Some((synth, len)) => eprintln!(
             "[azul-web] win-tls: template synth={synth:#x} len={len} \
