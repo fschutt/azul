@@ -206,3 +206,112 @@ font-fallback chains, rarely-used CSS property parsing.
    runtime machinery, only a boundary the walk does not reach.
 4. Lazy split via `BoundaryImport` + a JS module loader.
 5. Browser substitution, each with an equivalence test.
+
+---
+
+# Measured: the state-store pass, end to end
+
+Run 39 (no pass) vs run 40 (pass), joined **by function name** — a rebuild
+shifts every address, so the `__az_dep_<hex>` object names do not match across
+runs and joining on them silently compares nothing.
+
+Over the 859 functions both runs completed:
+
+| | wasm |
+|---|---|
+| without the pass | 11.485 MB |
+| with the pass | 8.797 MB |
+| **reduction** | **2.688 MB — 23.4%** |
+
+813 shrank, 39 unchanged, 7 grew (all under 1 KB — removing stores shifts
+register allocation slightly). Consistent with the 28% measured offline on the
+single largest function.
+
+> Objects still being written when a run aborts read as 0 bytes and look like a
+> 100% reduction. Filter empty objects before believing any total.
+
+## Why not more — the `noalias` question
+
+Reasonable theory: `opt` is blind because the pipeline strips every alias
+annotation (`strip_alias_scope_metadata`, `strip_noalias_from_sub_args`). The
+strip is real and deliberate — remill marks State registers and guest memory
+mutually non-aliasing, which is true on hardware (separate address spaces) and
+**false in wasm**, where both live in one linear memory and a guest pointer
+truncated to 32 bits can land on the State struct. EarlyCSE trusted it and
+forwarded a register load across a volatile guest store, producing garbage
+`Vec`/`String` lengths.
+
+But restoring it is worth **nothing**. Same module, one copy with its 10,180
+`!alias.scope`/`!noalias` annotations intact and one stripped, both through
+`opt -O2` + `llc`:
+
+| | wasm `.o` | surviving stores |
+|---|---|---|
+| with alias metadata | 89,007 B | 2,865 |
+| stripped | 89,007 B | 2,865 |
+
+Byte-identical. Two reasons:
+
+1. **Rust's `noalias` was never available to us.** It exists in rustc's IR
+   before codegen. We lift *machine code* — by then there are no `&mut`
+   references, and no backend records which pointers were unique. Every alias
+   annotation in the lifted IR is remill's own synthesis, not Rust's.
+2. **The State problem is escape, not aliasing.** `noalias` says "this pointer
+   does not alias others". It does not say "the callee does not read this
+   field". The State pointer is passed to every lifted callee, so DSE must
+   assume some callee loads `%af` no matter what the alias metadata claims.
+
+That is exactly why the ABI argument works where metadata cannot: "rustc never
+emits a function that reads its caller's flags" is a fact about the *callee's
+behaviour*, which no aliasing annotation can express.
+
+Re-running `opt` after the pass — on the theory that the arithmetic feeding the
+deleted stores is left behind as garbage — recovers a further 0.4% (391,808 vs
+394,059 B). `llc` already collects it during instruction selection. Not worth a
+second subprocess per function.
+
+---
+
+# How an entire desktop windowing stack got into a wasm build
+
+Worth recording as its own failure mode, because no amount of per-function
+optimization would have found it.
+
+`azul::desktop::shell2` was ~20 MB of the reachable closure, and the single
+biggest lifted function in the build was
+`PlatformWindow::process_window_events_inner<Win32Window>` at 906 KB. None of
+it is reachable: all 13 lifted `TypedEventHandlerBox` functions and the Win32
+window procedure have **zero call sites** in the run's own dependency log.
+
+They arrive through the fn-ptr discovery seed. `riprel_accesses` mirrors
+`LEA_MIRROR_WINDOW` = 1024 bytes at every `lea rip+X`, so switch jump tables
+are complete for devirtualization — correct, and it must stay. The same regions
+are then scanned for 8-aligned qwords resolving to a function entry, and each
+is enqueued as reachable. But a `lea` that materializes a *small* constant
+still mirrors 1024 bytes, so the window runs into whatever sits next in
+`.rdata`. In a desktop Windows binary, that is a COM vtable:
+`alloc::raw_vec::do_reserve_and_handle` — a `Vec` growth helper — enqueued 18
+fn-ptr targets, one of them a WinRT delegate vtable, and the Win32 event loop
+followed from there.
+
+**Mirroring a generous range is harmless. Treating every function pointer
+inside it as reachable code is not.** One over-approximate byte range became a
+whole subsystem.
+
+Two checks now guard it:
+
+- **F6 (fatal)** — native-platform code was lifted. `is_platform_native` routes
+  OS windowing, WinRT/COM and Cocoa to `NeverLift`, so they trap loudly instead
+  of being lifted. F6 firing means the classifier has a gap.
+- **W5 (warning)** — a function reached *only* through a mirrored data window:
+  no call, no address-take anywhere. Not automatically wrong, since a genuine
+  indirect-only vtable slot looks identical — it is the signal to check.
+
+The ordering matters and is pinned by a test:
+`std::sys::alloc::windows::process_heap_alloc` contains `windows::` and is the
+surviving allocator after LTO. If the platform rule ran before the allocator
+rules, every allocation would become a trap and nothing would boot.
+
+The narrower fix — seeding only from a *run* of consecutive function pointers,
+which is what a real vtable looks like — is still open. The classifier bounds
+the damage; it does not fix the seed.
