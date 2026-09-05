@@ -519,6 +519,10 @@ fn emit_module_interface_for_class(
         builder.line("(* Total order routed through the C ABI; OCaml convention. *)");
         builder.line("val compare : t -> t -> int");
     }
+    if ocaml_has_partial_compare(s, ir) {
+        builder.line("(* Partial order routed through the C ABI; None = incomparable. *)");
+        builder.line("val partial_compare : t -> t -> int option");
+    }
     // V7 (OCaml): Vec wrappers get `to_list : t -> <elem_ffi> Ctypes.structure list`
     // with per-element clone via `Az<Elem>_clone`. Returns raw FFI
     // structs (not wrapper `t`s) so the .mli compiles regardless of
@@ -591,6 +595,7 @@ fn emit_module_impl_for_class(
     // the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash` exports.
     emit_ocaml_eq_hash_if_supported(builder, s, ir, has_wrapper);
     emit_ocaml_compare_if_supported(builder, s, ir, has_wrapper);
+    emit_ocaml_partial_compare_if_supported(builder, s, ir, has_wrapper);
 
     // Phase I.3.6 (OCaml): `to_string` per module routed through
     // Az<X>_toDbgString.
@@ -1664,4 +1669,49 @@ fn ocaml_has_to_string(s: &StructDef, ir: &CodegenIR) -> bool {
     !ir.functions
         .iter()
         .any(|f| f.class_name == s.name && idiomatic_method_name(&f.method_name) == "to_string")
+}
+
+/// Does this class get `partial_compare`? Only when it exports `_partialCmp`
+/// and NOT `_cmp` - a type with a total order already has `compare`, which is
+/// the stronger and more idiomatic surface.
+fn ocaml_has_partial_compare(s: &StructDef, ir: &CodegenIR) -> bool {
+    if ocaml_has_compare(s, ir) {
+        return false;
+    }
+    let sym = format!("Az{}_partialCmp", s.name);
+    s.traits.is_partial_ord && ir.functions.iter().any(|f| f.c_name == sym)
+}
+
+/// `partial_compare` routed through `Az<X>_partialCmp`.
+///
+/// Deliberately NOT spelled `compare`. The ABI answers 255 for "incomparable"
+/// (`None` on the Rust side) and OCaml's `compare : t -> t -> int` has no
+/// honest value for that - any int it returned would assert an ordering the
+/// type does not have. `int option` says exactly what PartialOrd means.
+fn emit_ocaml_partial_compare_if_supported(
+    builder: &mut CodeBuilder,
+    s: &StructDef,
+    ir: &CodegenIR,
+    has_wrapper: bool,
+) {
+    if !ocaml_has_partial_compare(s, ir) {
+        return;
+    }
+    let sym = format!("Az{}_partialCmp", s.name);
+    let raw = ocaml_binding_name(&sym);
+    let a = if has_wrapper { "a.raw" } else { "a" };
+    let b = if has_wrapper { "b.raw" } else { "b" };
+    builder.line(&format!("(* Partial order routed through {}. *)", sym));
+    builder.line("let partial_compare (a : t) (b : t) : int option =");
+    builder.indent();
+    builder.line(&format!(
+        "match Unsigned.UInt8.to_int ({} (Ctypes.addr {}) (Ctypes.addr {})) with",
+        raw, a, b
+    ));
+    builder.line("| 0 -> Some (-1)");
+    builder.line("| 1 -> Some 0");
+    builder.line("| 2 -> Some 1");
+    builder.line("| _ -> None");
+    builder.dedent();
+    builder.blank();
 }
