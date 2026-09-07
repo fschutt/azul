@@ -56,7 +56,7 @@ jobs:
       deployed: ${{ steps.gate.outputs.deployed }}
       releases_url: ${{ steps.v.outputs.releases_url }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Filter out regular CI runs that did not deploy to GitHub Pages.
       - id: gate
@@ -141,18 +141,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { channel: pypi,     image: "python:3.12-bookworm",           prep: "" }
-          - { channel: npm,      image: "node:22-bookworm",               prep: "" }
-          - { channel: gems,     image: "ruby:3.3-bookworm",              prep: "" }
-          - { channel: nuget,    image: "mcr.microsoft.com/dotnet/sdk:10.0", prep: "" }
-          - { channel: apt,      image: "debian:bookworm",                prep: "apt-get update -qq && apt-get install -y -qq curl ca-certificates gnupg gcc g++ >/dev/null" }
-          - { channel: maven,    image: "maven:3.9-eclipse-temurin-17",   prep: "apt-get update -qq && apt-get install -y -qq curl unzip >/dev/null" }
-          - { channel: pacman,   image: "archlinux:base",                 prep: "pacman -Sy --noconfirm curl" }
-          - { channel: apk,      image: "alpine:3.20",                    prep: "apk add -q bash curl coreutils" }
-          - { channel: bindings, image: "python:3.12-bookworm",           prep: "" }
-          - { channel: rust,     image: "rust:1.90-bookworm",             prep: "" }
-          - { channel: cargo,    image: "rust:1.90-bookworm",             prep: "" }
-          - { channel: doclinks, image: "python:3.12-bookworm",           prep: "" }
+          - { channel: pypi,     image: "python:3.12-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970",           prep: "" }
+          - { channel: npm,      image: "node:22-bookworm@sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d",               prep: "" }
+          - { channel: gems,     image: "ruby:3.3-bookworm@sha256:daf7fa54695b1fcb24fadd7b8cd18ff847e20ce76fe5a908e3cfe9af9147bc46",              prep: "" }
+          - { channel: nuget,    image: "mcr.microsoft.com/dotnet/sdk:8.0@sha256:bb32ba3ba3ea36e38572d9d8db76fa15f7cbf722f3f886e06bca6d528bd4fba8", prep: "" }
+          - { channel: apt,      image: "debian:bookworm@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443",                prep: "apt-get update -qq && apt-get install -y -qq curl ca-certificates gnupg gcc g++ >/dev/null" }
+          - { channel: maven,    image: "maven:3.9-eclipse-temurin-17@sha256:a8746f15d5bb26b5b8bacb056cc76211553850f4c71d16aff845cfa004cbc197",   prep: "apt-get update -qq && apt-get install -y -qq curl unzip >/dev/null" }
+          - { channel: pacman,   image: "archlinux:base@sha256:82b1b08faae9d61e3e7e13d562f4d09114d939105b0d59ff34140f3bd418593a",                 prep: "pacman -Sy --noconfirm curl" }
+          - { channel: apk,      image: "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",                    prep: "apk add -q bash curl coreutils" }
+          - { channel: bindings, image: "python:3.12-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970",           prep: "" }
+          - { channel: rust,     image: "rust:1.90-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f",             prep: "" }
+          - { channel: cargo,    image: "rust:1.90-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f",             prep: "" }
+          - { channel: doclinks, image: "python:3.12-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970",           prep: "" }
     container:
       image: ${{ matrix.image }}
     steps:
@@ -161,7 +161,7 @@ jobs:
         shell: sh
         run: ${{ matrix.prep }}
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: "Run the documented command for ${{ matrix.channel }}"
         shell: bash
@@ -188,8 +188,8 @@ jobs:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_ANALYTICS: "1"
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: matrix.channel == 'pypi'
         with:
           python-version: "3.12"
@@ -214,8 +214,8 @@ jobs:
       matrix:
         channel: [choco, scoop, pypi]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: matrix.channel == 'pypi'
         with:
           python-version: "3.12"
@@ -255,7 +255,7 @@ jobs:
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # ---- toolchains (the same actions the AZ_E2E matrix uses) ----
       - name: Linux packages
@@ -273,6 +273,8 @@ jobs:
         run: |
           set -e
           case "${{ matrix.lang }}" in
+            # brew cannot pin versions (a formula is its current version); these
+            # macOS-only extras therefore track Homebrew. Everything else is pinned.
             fortran) brew install gcc make >/dev/null ;;
             pascal)  brew install fpc >/dev/null ;;
             lua)     brew install luajit >/dev/null ;;
@@ -282,7 +284,7 @@ jobs:
         run: sudo apt-get install -y -qq luajit >/dev/null
       - name: MSVC (LuaJIT build on Windows)
         if: runner.os == 'Windows' && matrix.lang == 'lua'
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       - name: LuaJIT (Windows; no choco package exists - built from source, ~1 min)
         if: runner.os == 'Windows' && matrix.lang == 'lua'
         shell: cmd
@@ -292,63 +294,65 @@ jobs:
           echo %RUNNER_TEMP%\LuaJIT\src>> %GITHUB_PATH%
       - name: MSVC (C / C++ on Windows)
         if: runner.os == 'Windows' && (matrix.lang == 'c' || matrix.lang == 'cpp')
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       - name: Windows packages
         if: runner.os == 'Windows'
         shell: bash
         run: |
           set -e
           case "${{ matrix.lang }}" in
-            pascal)  choco install freepascal -y --no-progress ;;
+            pascal)  choco install freepascal --version 3.2.2 -y --no-progress ;;
             fortran) echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"; C:/msys64/usr/bin/pacman -S --noconfirm mingw-w64-x86_64-gcc-fortran make ;;
           esac
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         if: matrix.lang == 'rust'
         with:
           toolchain: 1.90.0
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: matrix.lang == 'python'
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         if: matrix.lang == 'node'
         with:
           node-version: "22"
-      - uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1 branch, 2026-09-07
         if: matrix.lang == 'ruby'
         with:
           ruby-version: "3.3"
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         if: matrix.lang == 'csharp'
         with:
-          dotnet-version: "10.0.x"
-      - uses: actions/setup-java@v5
+          dotnet-version: "8.0.x"
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         if: matrix.lang == 'java' || matrix.lang == 'kotlin' || matrix.lang == 'scala'
         with:
           distribution: temurin
           java-version: "17"
-      - uses: fwilhe2/setup-kotlin@v1
+      - uses: fwilhe2/setup-kotlin@c061b2b2664e466684327ec98bd4e6f9aa9c2048 # v1 branch, 2026-09-07
         if: matrix.lang == 'kotlin'
-      - uses: coursier/setup-action@v1
+        with:
+          version: '2.3.10'
+      - uses: coursier/setup-action@039f736548afa5411c1382f40a5bd9c2d30e0383 # v1.3.9
         if: matrix.lang == 'scala'
         with:
-          apps: scala
-      - uses: actions/setup-go@v7
+          apps: scala:3.9.0 scalac:3.9.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         if: matrix.lang == 'go'
         with:
           go-version: "1.22"
-      - uses: mlugg/setup-zig@v1
+      - uses: mlugg/setup-zig@53fc45b17fe98b52f92ee5ea08ff48a85a3e7eb7 # v1.2.2
         if: matrix.lang == 'zig'
         with:
           version: "0.14.1"
-      - uses: ocaml/setup-ocaml@v3
+      - uses: ocaml/setup-ocaml@e89b2ded52a6e13f50162220cf5fe47290162032 # v3.8.0
         if: matrix.lang == 'ocaml'
         with:
           ocaml-compiler: "5.2"
       - name: OCaml FFI packages
         if: matrix.lang == 'ocaml'
-        run: opam install -y dune ctypes ctypes-foreign
-      - uses: haskell-actions/setup@v2
+        run: opam install -y dune.3.24.2 ctypes.0.24.0 ctypes-foreign.0.24.0
+      - uses: haskell-actions/setup@6037f33647c3f17758a2356c80fc4a53d7e0685d # v2.12.0
         if: matrix.lang == 'haskell'
         with:
           ghc-version: "9.6"
@@ -432,7 +436,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     container:
-      image: "python:3.12-bookworm"
+      image: "python:3.12-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970"
     steps:
       - name: Install from the live index and exercise the object lifecycle
         shell: bash
@@ -464,7 +468,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: The expected artifacts are named on the page
         shell: bash
         run: |
@@ -541,8 +545,8 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: "17"
@@ -594,7 +598,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Install on an emulator and start the launcher activity
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 30
           arch: x86_64
