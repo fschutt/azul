@@ -18,9 +18,8 @@ pub fn verify_examples(api_data: &ApiData, examples_dir: &Path, strict: bool) ->
     let mut missing_files: Vec<String> = Vec::new();
 
     // Demo filler that crept into the hello-worlds (2026-09-07 audit): a
-    // std::expected/Url::parse detour in C++23, a JSON reflection round-trip
-    // in C (+ a "not implemented" fromJson stub in FreeBASIC), a type_id_v
-    // probe in C++14, and window decoration/material flags in 17 languages
+    // std::expected/Url::parse detour in C++23, a type_id_v probe in C++14,
+    // and window decoration/material flags in 17 languages
     // that the reference (Rust) example never set. A hello-world is one
     // canonical shape — model, layout, on_click, main — and these tokens
     // are the shapes it must not grow back.

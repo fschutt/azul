@@ -63,6 +63,15 @@ impl App {
         }
     }
     pub fn add_window(&mut self, _create_options: WindowCreateOptions) {}
+    // The tray API has no web equivalent (a browser tab has no system tray);
+    // the C-ABI wrappers are generated for every target, so the wasm App
+    // carries the same surface as no-ops — `is_tray_available` says so.
+    pub fn set_tray(&mut self, _tray: azul_core::tray::TrayIconData) {}
+    pub fn set_app_icon(&mut self, _spec: azul_css::AzString) {}
+    pub fn is_tray_available(&self) -> bool {
+        false
+    }
+    pub fn run_tray_only(&self) {}
     pub fn get_monitors(&self) -> MonitorVec {
         MonitorVec::from_const_slice(&[])
     }

@@ -125261,7 +125261,7 @@
                                     "An empty archive."
                                 ],
                                 "fn_args": [],
-                                "fn_body": "azul_dll::desktop::extra::zip::Zip::new()"
+                                "fn_body": "azul_dll::unified::zip::Zip::new()"
                             },
                             "from_bytes": {
                                 "doc": [
@@ -125277,7 +125277,7 @@
                                         "bytes": "U8Vec"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::zip::Zip::from_bytes(bytes)"
+                                "fn_body": "azul_dll::unified::zip::Zip::from_bytes(bytes)"
                             },
                             "from_file": {
                                 "doc": [
@@ -125288,7 +125288,7 @@
                                         "path": "String"
                                     }
                                 ],
-                                "fn_body": "azul_dll::desktop::extra::zip::Zip::from_file(path)"
+                                "fn_body": "azul_dll::unified::zip::Zip::from_file(path)"
                             }
                         },
                         "functions": {

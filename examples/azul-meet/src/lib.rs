@@ -17,13 +17,14 @@ use azul::audio::AudioConfig;
 use azul::audio::AudioDeviceList;
 use azul::camera::CameraConfig;
 use azul::css::{CssProperty, LayoutWidth, LogicalSize, PixelValue};
+use azul::audio::AudioFrame;
 use azul::dom::{DomNodeId, OnAudioFrameCallback, OnConsumerFrameCallback};
 use azul::option::OptionRefAny;
 use azul::prelude::*;
 use azul::screen::ScreenCaptureConfig;
 use azul::str::String as AzString;
 use azul::widgets::{
-    AudioFrame, CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget, ProgressBar,
+    CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget, ProgressBar,
     ScreenCaptureWidget,
 };
 
