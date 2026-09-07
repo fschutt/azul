@@ -141,7 +141,9 @@ pub fn emit_azul_class_members(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("\"  - The non-callback API (POD wrappers, RefAny, raw FFI) works as-is.\\n\" .");
     builder.line("\"  - For full callback support, install the planned `azul.so` PHP \" .");
     builder.line("\"native extension (built via the `php-extension` Cargo feature; see\\n\" .");
-    builder.line("\"    https://azul.rs/guide/hello-world/php\\n\" .");
+    // php is a frontpage tab, not a guide page — its install steps are not
+    // stable enough to document, so point at the tab rather than a 404.
+    builder.line("\"    https://azul.rs/#php\\n\" .");
     builder.line("\"  Underlying error: \" . $e->getMessage()");
     builder.dedent();
     builder.line(");");

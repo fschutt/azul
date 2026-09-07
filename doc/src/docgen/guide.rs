@@ -641,7 +641,7 @@ fn render_sub_li(g: &Guide, _children: &std::collections::BTreeMap<String, Vec<&
 
 /// The label a sub-article carries INSIDE its card.
 ///
-/// One case, `hello-world/*`: 28 buttons that each repeat "Hello World" fill
+/// One case, `hello-world/*`: 17 buttons that each repeat "Hello World" fill
 /// the widest card on the page with the two words the card heading already
 /// says. Under that heading the language alone is the whole label. The page's
 /// own title is untouched - this is the index view only.
