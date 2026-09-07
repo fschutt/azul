@@ -1712,3 +1712,69 @@ in a first paint. Two methods, one answer.
 **The instrumentation works.** 60,112 slots, a 7,297-entry manifest, and a clean
 boot (`bootstrap complete`, EXCEPTIONS 0, 318 DOM nodes, unmatched dispatches 0).
 Re-running it after the trap is fixed costs one run and needs no new machinery.
+
+
+# THE MIRROR IS MOSTLY A SECOND COPY (run 81, in flight)
+
+Every cb/layout module is linked with `MemoryMode::ImportMemory`: they import
+`env.memory` from the mini, so **all of them share ONE linear memory**. Each still
+ships its own data mirror, replayed into that shared memory at instantiate, over
+addresses an earlier module's segments already filled.
+
+`MIRROR-DUP` measures it per module, in lift order:
+
+| module | segments already mirrored | bytes | share |
+|---|---|---|---|
+| azul-mini | 0 of 1176 | 0 | 0.0% (it is first) |
+| azul-p0 | 1176 of 1176 | 1,683,059 | 100.0% |
+| a callback | 313 of 376 | 391,778 | **76.5%** |
+| a callback | 457 of 586 | 849,417 | **86.6%** |
+| a callback | 375 of 376 | 510,236 | **99.7%** |
+
+Across the nine first-paint modules that is roughly **5.6 MB raw, about 2.1 MB
+compressed** — larger than either chunking lever, and it is pure duplication:
+the same const pages written into the same shared memory more than once.
+
+⚠ **NOT yet actionable, and the missing check is the important one.** Those
+numbers compare offset and length only. Dropping a duplicate is sound only if the
+earlier module wrote the SAME BYTES, and the mirror's pointer rewriting is
+per-module — it translates native→synth, which *should* be stable across modules,
+but that is exactly the assumption that has to be measured rather than assumed.
+`MIRROR-DUP` now hashes content and reports `CONFLICT` (same address, different
+content) separately. **A non-zero conflict count kills the idea.** The ordering
+requirement is already satisfied for the mini's pages: everything that imports
+`env.memory` is instantiated after it.
+
+## The font A/B, pending its gate
+
+`FONT-MIRROR: NOT forcing the 226812 B fallback font` fires for every module.
+
+| | run 79 (font mirrored) | run 81 (font off) | delta |
+|---|---|---|---|
+| mini mirror bytes | 2,049,750 | 1,683,059 | −366,691 |
+| p0 raw | 21,707,906 | 20,813,323 | −894,583 |
+| **p0 brotli q9** | **3,332,571** | **3,110,919** | **−221,652** |
+
+⚠⚠ **These are void until the boot gate passes** — the failure mode is silent
+(allsorts parses a zero-filled font, text measures height 0), so the gate is
+`body text length: 585` and `DOM nodes: 318`, not the size.
+
+Two things in that table need explaining rather than celebrating:
+
+* the mirror fell by **366,691**, not the font's 226,812. The forced pages were
+  57 whole 4 KiB pages (233,472 B) plus whole-page fallbacks around them.
+* p0's raw fell by 894,583, far more than the mirror did, and the mini walk
+  lifted **4,822 functions against run 79's 4,953**. Some of that is ordinary
+  per-build drift (the mini moves 30-100 functions a build), but −131 is at the
+  top of that range. The hypothesis worth testing with `mini_walk_diff.py` is
+  that mirroring the font's pages fed `collect_synth_data_pages`' pointer
+  translation with TTF bytes that happened to resolve inside the image, seeding
+  phantom fn-pointer roots. **Unverified — do not record it as fact.**
+
+## Chunking the small callbacks is not worth it, confirmed
+
+The per-module report now runs everywhere, and the small modules answer for
+themselves: `on_save_clicked` eager core −2.6%, `on_undo` −3.4%, `on_redo` −3.4%,
+with lazy ceilings of −26.6%, −11.2% and −11.2% spread over 600+ roots at ~0.10 MB
+each. That is a fetch per chunk for nothing, and it confirms the
+`AZ_CHUNK_LINK_MIN_MB` gate rather than merely assuming it.
