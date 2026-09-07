@@ -72,7 +72,11 @@ library
     default-language:   Haskell2010
     extra-libraries:    azul
     -- extra-lib-dirs:  /path/to/libazul
-    ghc-options:        -Wall -Wno-unused-imports -Wno-unused-matches
+    -- -O0: the binding is a thin FFI layer (every function is a C call) and
+    -- gains nothing from optimisation, while GHC needs more than twenty
+    -- minutes for the multi-megabyte Azul.Types at -O1 against three and a
+    -- half for the whole package at -O0. Your own modules keep their flags.
+    ghc-options:        -O0 -Wall -Wno-unused-imports -Wno-unused-matches
 "#
     );
     s.to_string()
