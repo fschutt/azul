@@ -159,6 +159,42 @@ function azUdivti3(sret, aLo, aHi, bLo, bHi) {
     dv.setBigUint64(Number(sret) + 8, (q >> 64n) & mask, true);
 }
 
+// __divti3 / __modti3 / __umodti3 = the signed divide and both remainders,
+// same LEAKED-import class and sret shape as __udivti3. The lift audit listed
+// all three as provided while nothing implemented them, so a module importing
+// one got a Proxy stub that returns 0 and writes NOTHING through sret - the
+// caller then reads whatever was already in that memory. transitive-lift.wasm
+// imports __divti3, so this was live.
+//
+// BigInt / and % truncate toward zero and % takes the dividend's sign, which is
+// exactly C's rule for signed integers, so these are exact rather than close.
+// A zero divisor returns 0 to match azUdivti3: real compiler-rt is UB there and
+// killing the page is worse than a defined wrong answer.
+function azI128(lo, hi) {
+    return (BigInt.asUintN(64, BigInt(hi)) << 64n) | BigInt.asUintN(64, BigInt(lo));
+}
+function azStore128(sret, v) {
+    var dv = new DataView(azMemory.buffer);
+    var mask = 0xFFFFFFFFFFFFFFFFn;
+    dv.setBigUint64(Number(sret), v & mask, true);
+    dv.setBigUint64(Number(sret) + 8, (v >> 64n) & mask, true);
+}
+function azDivti3(sret, aLo, aHi, bLo, bHi) {
+    var a = BigInt.asIntN(128, azI128(aLo, aHi));
+    var b = BigInt.asIntN(128, azI128(bLo, bHi));
+    azStore128(sret, b === 0n ? 0n : (a / b));
+}
+function azModti3(sret, aLo, aHi, bLo, bHi) {
+    var a = BigInt.asIntN(128, azI128(aLo, aHi));
+    var b = BigInt.asIntN(128, azI128(bLo, bHi));
+    azStore128(sret, b === 0n ? 0n : (a % b));
+}
+function azUmodti3(sret, aLo, aHi, bLo, bHi) {
+    var a = azI128(aLo, aHi);
+    var b = azI128(bLo, bHi);
+    azStore128(sret, b === 0n ? 0n : (a % b));
+}
+
 // remill memory/atomic intrinsics. EVERY lifted wasm (mini AND the per-cb /
 // per-layout ones) imports these; the generic `stubFor` Proxy below is WRONG for
 // them in two ways:
@@ -276,6 +312,14 @@ function azMathEnv() {
     tanf: Math.tan, tan: Math.tan,
     log2f: Math.log2, log2: Math.log2,
     log10f: Math.log10, log10: Math.log10,
+    // Inverse trig: the audit listed these as provided while nothing
+    // implemented them. JS Math is IEEE double math, so routing them is exact -
+    // the same reasoning that made routing the transcendentals a choice between
+    // an exact value and a hard trap, not between exact and approximate.
+    atan2f: Math.atan2, atan2: Math.atan2,
+    atanf: Math.atan, atan: Math.atan,
+    asinf: Math.asin, asin: Math.asin,
+    acosf: Math.acos, acos: Math.acos,
     // C fmod truncates toward zero and keeps the dividend's sign, which is
     // exactly JS `%` on doubles.
     fmodf: function(a, b) { return a % b; },
@@ -298,6 +342,7 @@ function azMakeMiniImports() {
         // libc math libcalls: see azMathEnv, assigned below.
         __multi3: azMulti3,
         memset: azMemset, memcpy: azMemcpy, memmove: azMemcpy, __udivti3: azUdivti3,
+        __divti3: azDivti3, __modti3: azModti3, __umodti3: azUmodti3,
     };
     Object.assign(realEnv, azMathEnv());
     // Real remill memory/atomic intrinsics for EVERY lifted wasm (see
@@ -360,6 +405,7 @@ function azCallbackImports() {
         __indirect_function_table: azTable,
         __multi3: azMulti3,
         memset: azMemset, memcpy: azMemcpy, memmove: azMemcpy, __udivti3: azUdivti3,
+        __divti3: azDivti3, __modti3: azModti3, __umodti3: azUmodti3,
     };
     // The layout wasm instantiates through here too, so it needs the math
     // table as much as the mini does.

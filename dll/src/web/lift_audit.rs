@@ -46,6 +46,11 @@ pub struct WasmAudit {
     pub export_count: usize,
     pub import_count: usize,
     pub unknown_imports: Vec<String>,
+    /// `__remill_*` imports the loader does NOT bind, so they run on the
+    /// generic Proxy stub. Separate from `unknown_imports` because these
+    /// are a warning, not a refusal: the six observed so far are IN/OUT and
+    /// hypercall semantics that userland Rust never reaches.
+    pub stubbed_remill: Vec<String>,
     /// (count of native-range qwords, total data bytes scanned)
     pub natptr_hits: usize,
     pub data_bytes: usize,
@@ -133,38 +138,82 @@ fn import_is_provided(module: &str, name: &str) -> bool {
         let plausible_synth = (0x1000..0x4000_0000).contains(&val);
         return super::symbol_table::shards_enabled() && plausible_synth;
     }
-    if name.starts_with("__remill_")       // intrinsics (read/write/atomic/cas/undef)
-        || name.starts_with("__az")        // resolver/dispatch/probe hooks
-    {
+    // `__az` hooks are bound by name in the loader's own object literals.
+    // `__remill_` used to be blanket-approved here, which hid six intrinsics
+    // the loader does not bind — see REMILL_BOUND and the W6 warning.
+    if name.starts_with("__az") {
         return true;
     }
-    matches!(
-        name,
-        "memory"
-            | "__indirect_function_table"
-            | "memset"
-            | "memcpy"
-            | "memmove"
-            | "__multi3"
-            | "__udivti3"
-            | "__divti3"
-            | "__umodti3"
-            | "__modti3"
-            | "sqrtf" | "sqrt"
-            | "fmaxf" | "fminf" | "fmax" | "fmin"
-            | "roundf" | "round"
-            | "fabsf" | "fabs"
-            | "floorf" | "floor"
-            | "ceilf" | "ceil"
-            | "truncf" | "trunc"
-            | "powf" | "pow"
-            | "fmodf" | "fmod"
-            | "expf" | "exp" | "logf" | "log"
-            | "sinf" | "sin" | "cosf" | "cos" | "tanf" | "tan"
-            | "log2f" | "log2" | "log10f" | "log10"
-            | "atan2f" | "atan2" | "atanf" | "atan"
-            | "asinf" | "asin" | "acosf" | "acos"
-    )
+    if name.starts_with("__remill_") {
+        return REMILL_BOUND.contains(&name);
+    }
+    PROVIDED_ENV.contains(&name)
+}
+
+/// remill intrinsics `azRemillIntrinsics` binds for real.
+///
+/// Everything else matching `__remill_*` falls to the loader's generic Proxy
+/// stub, which returns a shape-appropriate zero — right for a value-returning
+/// intrinsic, wrong for one that threads remill's Memory token through. Naming
+/// them in W6 is what keeps that a decision rather than an assumption.
+const REMILL_BOUND: &[&str] = &[
+    "__remill_read_memory_8", "__remill_read_memory_16",
+    "__remill_read_memory_32", "__remill_read_memory_64",
+    "__remill_write_memory_8", "__remill_write_memory_16",
+    "__remill_write_memory_32", "__remill_write_memory_64",
+    // No _16 form: the loader binds 8/32/64 only, and listing one it does
+    // not bind is the exact drift this list is meant to prevent.
+    "__remill_compare_exchange_memory_8",
+    "__remill_compare_exchange_memory_32", "__remill_compare_exchange_memory_64",
+    "__remill_atomic_begin", "__remill_atomic_end",
+];
+
+/// Env imports the loader binds for real, by name.
+///
+/// This list was aspirational once: it claimed `__divti3`, both remainders and
+/// the inverse trig while the loader implemented none of them, so a module
+/// importing one got a Proxy zero-stub and the audit stayed silent — the exact
+/// failure it exists to catch. A name listed here but unbound is WORSE than an
+/// unlisted one: unlisted surfaces as a loud F3, listed-but-unbound is silent.
+///
+/// Two hand-maintained lists drifting apart is the defect;
+/// `provided_env_matches_loader` is what stops it recurring.
+const PROVIDED_ENV: &[&str] = &[
+    "memory", "__indirect_function_table", "memset", "memcpy",
+    "memmove", "__multi3", "__udivti3", "__divti3",
+    "__umodti3", "__modti3", "sqrtf", "sqrt",
+    "fmaxf", "fminf", "fmax", "fmin",
+    "roundf", "round", "fabsf", "fabs",
+    "floorf", "floor", "ceilf", "ceil",
+    "truncf", "trunc", "powf", "pow",
+    "fmodf", "fmod", "expf", "exp",
+    "logf", "log", "sinf", "sin",
+    "cosf", "cos", "tanf", "tan",
+    "log2f", "log2", "log10f", "log10",
+    "atan2f", "atan2", "atanf", "atan",
+    "asinf", "asin", "acosf", "acos",
+];
+
+#[cfg(test)]
+mod tests {
+    use super::PROVIDED_ENV;
+
+    #[test]
+    fn provided_env_matches_loader() {
+        let js = crate::web::loader_js::generate_loader_js();
+        let missing: Vec<&str> = PROVIDED_ENV
+            .iter()
+            .chain(super::REMILL_BOUND.iter())
+            .copied()
+            // A leading space pins it to a property KEY: a bare "log:"
+            // would also match "blog:" or any word ending in it.
+            .filter(|n| !js.contains(&format!(" {n}:")))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "audit claims these env imports are provided, but the loader binds none of them: {missing:?}"
+        );
+    }
 }
 
 /// Parse one wasm binary: imports (section 2), export count (section 7),
@@ -175,6 +224,7 @@ pub fn audit_wasm(bytes: &[u8], img: Option<(u64, u64)>) -> WasmAudit {
         export_count: 0,
         import_count: 0,
         unknown_imports: Vec::new(),
+        stubbed_remill: Vec::new(),
         natptr_hits: 0,
         data_bytes: 0,
         xmodule_hits: 0,
@@ -208,7 +258,11 @@ pub fn audit_wasm(bytes: &[u8], img: Option<(u64, u64)>) -> WasmAudit {
                         q += nl;
                         out.import_count += 1;
                         if !import_is_provided(module, name) {
-                            out.unknown_imports.push(format!("{module}.{name}"));
+                            if name.starts_with("__remill_") {
+                                out.stubbed_remill.push(name.to_string());
+                            } else {
+                                out.unknown_imports.push(format!("{module}.{name}"));
+                            }
                         }
                         match *b.get(q)? {
                             0x00 => {
@@ -451,6 +505,23 @@ pub fn run(
                 a.xmodule_hits,
                 vals.join(", "),
                 if a.xmodule_values.len() > 8 { ", …" } else { "" },
+            );
+        }
+
+        if !a.stubbed_remill.is_empty() {
+            // Not fatal: the loader's Proxy answers these with a
+            // shape-appropriate zero, which is right for a value-returning
+            // intrinsic and wrong only for one that threads remill's Memory
+            // token through. Naming them keeps that a decision rather than an
+            // assumption built into a prefix test.
+            let mut names = a.stubbed_remill.clone();
+            names.sort();
+            names.dedup();
+            eprintln!(
+                "[azul-web][lift-audit] ⚠ W6 {label}: {} remill intrinsic(s) the loader does not bind \
+                 (generic Proxy stub — a zero, and for the Memory-token shapes a WRONG zero): {}",
+                names.len(),
+                names.join(", "),
             );
         }
     }
