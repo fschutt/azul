@@ -233,6 +233,56 @@ var azBoundarySymbols = new Map();   // sub_<synth_hex> → exported wasm fn
 // that returns shape-appropriate no-ops. Without the Proxy, any
 // new import added by a future eventloop lift fails instantiation.
 // =====================================================================
+// =====================================================================
+// libc math, shared by EVERY lifted module.
+//
+// This is one function because it used to be one COPY: the mini had the
+// table and azCallbackImports had nothing, so every math libcall in the
+// layout and callback wasms fell through to the Proxy and returned 0 —
+// silently, and the fmaxf/fminf note below says exactly what that costs.
+// A single definition is what makes "some module is missing the table"
+// unrepresentable rather than merely unlikely.
+// =====================================================================
+function azMathEnv() {
+    return {
+    // M12.7: libc math libcalls. LLVM's wasm backend lowers Rust f32::max/min
+    // (`@llvm.maxnum/minnum.f32`) and .round() to `fmaxf`/`fminf`/`roundf` calls
+    // (their NaN/sign-of-zero semantics differ from wasm's native f32.max/min).
+    // These MUST be real — the layout solver floors every used size with
+    // `.max(0.0)`, so a 0-returning stub zeroes ALL widths/heights. fmaxf/fminf
+    // follow IEEE maxNum/minNum (a NaN operand yields the other).
+    fmaxf: function(a, b) { return a !== a ? b : (b !== b ? a : Math.max(a, b)); },
+    fminf: function(a, b) { return a !== a ? b : (b !== b ? a : Math.min(a, b)); },
+    fmax:  function(a, b) { return a !== a ? b : (b !== b ? a : Math.max(a, b)); },
+    fmin:  function(a, b) { return a !== a ? b : (b !== b ? a : Math.min(a, b)); },
+    roundf: function(x) { return Math.sign(x) * Math.round(Math.abs(x)); },
+    round:  function(x) { return Math.sign(x) * Math.round(Math.abs(x)); },
+    fabsf: Math.abs, fabs: Math.abs,
+    sqrtf: Math.sqrt, sqrt: Math.sqrt,
+    floorf: Math.floor, floor: Math.floor,
+    ceilf: Math.ceil, ceil: Math.ceil,
+    truncf: Math.trunc, trunc: Math.trunc,
+    powf: Math.pow, pow: Math.pow,
+    // The transcendentals the lift routes from the CRT import table. These
+    // were previously left unrouted on the grounds that anything needing a
+    // real libm should not be approximated - but JS Math is not an
+    // approximation, it is IEEE double math, so the choice is between an
+    // exact value here and a hard trap on an unmatched dispatch. `log` was
+    // reached for real by the boot.
+    logf: Math.log, log: Math.log,
+    expf: Math.exp, exp: Math.exp,
+    sinf: Math.sin, sin: Math.sin,
+    cosf: Math.cos, cos: Math.cos,
+    tanf: Math.tan, tan: Math.tan,
+    log2f: Math.log2, log2: Math.log2,
+    log10f: Math.log10, log10: Math.log10,
+    // C fmod truncates toward zero and keeps the dividend's sign, which is
+    // exactly JS `%` on doubles.
+    fmodf: function(a, b) { return a % b; },
+    fmod:  function(a, b) { return a % b; },
+    };
+}
+
 function azMakeMiniImports() {
     azTable = new WebAssembly.Table({ initial: 64, element: 'anyfunc' });
     var i64_noop  = function() { return 0n; };
@@ -245,44 +295,11 @@ function azMakeMiniImports() {
             var idx = azFnAddrToTableIdx.get(n);
             return idx === undefined ? SENTINEL_NO_NODE : idx;
         },
-        // M12.7: libc math libcalls. LLVM's wasm backend lowers Rust f32::max/min
-        // (`@llvm.maxnum/minnum.f32`) and .round() to `fmaxf`/`fminf`/`roundf` calls
-        // (their NaN/sign-of-zero semantics differ from wasm's native f32.max/min).
-        // These MUST be real — the layout solver floors every used size with
-        // `.max(0.0)`, so a 0-returning stub zeroes ALL widths/heights. fmaxf/fminf
-        // follow IEEE maxNum/minNum (a NaN operand yields the other).
-        fmaxf: function(a, b) { return a !== a ? b : (b !== b ? a : Math.max(a, b)); },
-        fminf: function(a, b) { return a !== a ? b : (b !== b ? a : Math.min(a, b)); },
-        fmax:  function(a, b) { return a !== a ? b : (b !== b ? a : Math.max(a, b)); },
-        fmin:  function(a, b) { return a !== a ? b : (b !== b ? a : Math.min(a, b)); },
-        roundf: function(x) { return Math.sign(x) * Math.round(Math.abs(x)); },
-        round:  function(x) { return Math.sign(x) * Math.round(Math.abs(x)); },
-        fabsf: Math.abs, fabs: Math.abs,
-        sqrtf: Math.sqrt, sqrt: Math.sqrt,
-        floorf: Math.floor, floor: Math.floor,
-        ceilf: Math.ceil, ceil: Math.ceil,
-        truncf: Math.trunc, trunc: Math.trunc,
-        powf: Math.pow, pow: Math.pow,
-        // The transcendentals the lift routes from the CRT import table. These
-        // were previously left unrouted on the grounds that anything needing a
-        // real libm should not be approximated - but JS Math is not an
-        // approximation, it is IEEE double math, so the choice is between an
-        // exact value here and a hard trap on an unmatched dispatch. `log` was
-        // reached for real by the boot.
-        logf: Math.log, log: Math.log,
-        expf: Math.exp, exp: Math.exp,
-        sinf: Math.sin, sin: Math.sin,
-        cosf: Math.cos, cos: Math.cos,
-        tanf: Math.tan, tan: Math.tan,
-        log2f: Math.log2, log2: Math.log2,
-        log10f: Math.log10, log10: Math.log10,
-        // C fmod truncates toward zero and keeps the dividend's sign, which is
-        // exactly JS `%` on doubles.
-        fmodf: function(a, b) { return a % b; },
-        fmod:  function(a, b) { return a % b; },
+        // libc math libcalls: see azMathEnv, assigned below.
         __multi3: azMulti3,
         memset: azMemset, memcpy: azMemcpy, memmove: azMemcpy, __udivti3: azUdivti3,
     };
+    Object.assign(realEnv, azMathEnv());
     // Real remill memory/atomic intrinsics for EVERY lifted wasm (see
     // azRemillIntrinsics): the stub Proxy both corrupts memory semantics and
     // returns a BigInt where i32 is declared, which aborts bootstrap.
@@ -344,6 +361,9 @@ function azCallbackImports() {
         __multi3: azMulti3,
         memset: azMemset, memcpy: azMemcpy, memmove: azMemcpy, __udivti3: azUdivti3,
     };
+    // The layout wasm instantiates through here too, so it needs the math
+    // table as much as the mini does.
+    Object.assign(realEnv, azMathEnv());
     // Real remill memory/atomic intrinsics for EVERY lifted wasm (see
     // azRemillIntrinsics): the stub Proxy both corrupts memory semantics and
     // returns a BigInt where i32 is declared, which aborts bootstrap.

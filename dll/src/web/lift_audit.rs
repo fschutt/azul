@@ -161,6 +161,7 @@ fn import_is_provided(module: &str, name: &str) -> bool {
             | "fmodf" | "fmod"
             | "expf" | "exp" | "logf" | "log"
             | "sinf" | "sin" | "cosf" | "cos" | "tanf" | "tan"
+            | "log2f" | "log2" | "log10f" | "log10"
             | "atan2f" | "atan2" | "atanf" | "atan"
             | "asinf" | "asin" | "acosf" | "acos"
     )
