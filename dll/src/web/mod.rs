@@ -1462,7 +1462,11 @@ pub fn run_web(
         br
     };
 
-    // WHAT FIRST PAINT ACTUALLY COSTS. Every size number in this effort has been
+    // THE WHOLE SERVED CORPUS -- the ceiling, not the first-paint download.
+    // The server cannot know which modules a boot will fetch: that depends on
+    // which interactive nodes the rendered DOM contains. Count the /az/cb and
+    // /az/layout URLs in the boot log for the actual subset (nine, measured).
+    // Every size number in this effort has been
     // about the mini alone, but a boot fetches the layout module and a callback
     // module per interactive node too, and each of those carries its own data
     // mirror — including a forced copy of the 226 KiB fallback font. Nobody has
@@ -1485,7 +1489,7 @@ pub fn run_web(
         let other: usize = mods.iter().map(|(n, _)| *n).sum();
         mods.sort_unstable_by(|a, b| b.0.cmp(&a.0));
         eprintln!(
-            "[azul-web] FIRST-PAINT SET: mini {} B + {} other module(s) {} B = {} B raw \
+            "[azul-web] SERVED SET (a boot fetches a SUBSET): mini {} B + {} other module(s) {} B = {} B raw \
              ({:.2} MB); the mini is {:.1}% of it",
             mini_wasm.len(),
             mods.len(),
@@ -1495,7 +1499,7 @@ pub fn run_web(
             100.0 * mini_wasm.len() as f64 / (mini_wasm.len() + other).max(1) as f64,
         );
         for (n, name) in mods.iter().take(10) {
-            eprintln!("[azul-web]   FIRST-PAINT {:>10} B  {}", n, name);
+            eprintln!("[azul-web]   SERVED {:>10} B  {}", n, name);
         }
     }
 
