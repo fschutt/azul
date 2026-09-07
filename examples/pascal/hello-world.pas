@@ -13,8 +13,6 @@ type
     constructor Create(c: Integer);
   end;
 
-  { Button.onClick is TYPED: derive from TAzButtonOnClickCallbackInvoker,
-    not the generic TAzCallbackInvoker. }
   TMyClickHandler = class(TAzButtonOnClickCallbackInvoker)
     procedure Invoke(id: cuint64; arg0: Pointer; arg1: Pointer; out_ptr: Pointer); override;
   end;
@@ -66,9 +64,6 @@ begin
     Exit;
   end;
 
-  { Builder methods return fresh TDom wrappers and consume their by-value
-    inputs (ownership flips off, so .Free on a consumed wrapper only
-    releases the object shell, never the DOM). }
   counter_text := TDom.CreateSpanWithText(MakeAzString(IntToStr(TMyModel(m).Counter)));
   label_wrap := TDom.CreateDiv.WithCss(MakeAzString('font-size: 32px;'))
                               .WithChild(counter_text);
@@ -83,13 +78,9 @@ begin
 
   body := TDom.CreateBody.WithChild(label_wrap).WithChild(btn.Dom);
 
-  { Release detaches the raw record: ownership passes to libazul via out_ptr. }
   if out_ptr <> nil then
     PAzDom(out_ptr)^ := body.Release;
 
-  { Free the wrapper shells (records were consumed / released above).
-    Anonymous chain intermediates leak their small TObject shells - fine
-    for a demo; keep references and Free them in production code. }
   counter_text.Free;
   label_wrap.Free;
   btn.Free;

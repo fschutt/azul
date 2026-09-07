@@ -18,7 +18,7 @@ contains
     do i = 1, len(s)
       buf(i) = s(i:i)
     end do
-    ! AzString_fromUtf8 copies the bytes, so the automatic buffer is fine.
+
     r = az_string_from_utf8(c_loc(buf(1)), int(len(s), c_size_t))
   end function mk_str
 
@@ -84,8 +84,6 @@ program hello_world
   use hello_impl
   implicit none
 
-  ! NB: Fortran is case-insensitive — `app` would collide with the
-  ! wrapper type `App` exported by the azul module.
   type(AzRefAny) :: app_data
   type(AzLayoutCallback) :: layout_cb
   type(AzWindowCreateOptions) :: wco

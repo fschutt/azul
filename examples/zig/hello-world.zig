@@ -14,8 +14,7 @@ fn myDataTypeId() u64 {
 fn myDataDestructor(_: ?*anyopaque) callconv(.c) void {}
 
 fn myDataUpcast(model: MyDataModel) C.AzRefAny {
-    // AzRefAny_newC copies the bytes into its own heap allocation, so a
-    // stack pointer is fine; run_destructor=false ⇒ libazul won't free ours.
+
     var local = model;
     const type_name_bytes = "MyDataModel";
     const type_name = C.AzString_fromUtf8(type_name_bytes.ptr, type_name_bytes.len);
@@ -26,8 +25,8 @@ fn myDataUpcast(model: MyDataModel) C.AzRefAny {
         myDataTypeId(),
         type_name,
         myDataDestructor,
-        0, // no serialize_fn
-        0, // no deserialize_fn
+        0,
+        0,
     );
 }
 
@@ -83,7 +82,6 @@ pub fn main() !void {
     window.window_state.title = C.AzString_fromUtf8(title_bytes.ptr, title_bytes.len);
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;
-
 
     var app = C.AzApp_create(data, C.AzAppConfig_create());
     C.AzApp_run(&app, window);

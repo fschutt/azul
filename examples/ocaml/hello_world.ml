@@ -4,10 +4,10 @@ let model = { counter = 5 }
 let on_click (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr) : int =
   let ref_ptr = Ctypes.from_voidp Azul.az_ref_any data_ptr in
   match Azul.azul_refany_get ref_ptr with
-  | None -> 0 (* Update.DoNothing *)
+  | None -> 0
   | Some (m : my_data_model) ->
       m.counter <- m.counter + 1;
-      1 (* Update.RefreshDom *)
+      1
 
 let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
   : Azul.az_dom Ctypes.structure =
@@ -30,7 +30,7 @@ let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
       in
       let button_dom =
         Azul.Button.create "Increase counter"
-        |> as_btn_type 1 (* ButtonType.Primary *)
+        |> as_btn_type 1
         |> on_click_ click_data click_cb
         |> Azul.Button.dom
       in
@@ -44,7 +44,6 @@ let () =
   let wco = Azul.azul_window_create_options_with_layout layout in
   let app_config = Azul.AppConfig.create () in
   let app = Azul.App.create data (Azul.raw_app_config app_config) in
-  (* consume: the raw bytes are moved into libazul by App.run; without this
-     the GC finaliser would later call _delete on moved memory (SIGABRT). *)
+
   Azul.azul_consume app_config;
   Azul.App.run app wco

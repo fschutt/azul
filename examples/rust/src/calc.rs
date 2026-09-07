@@ -188,7 +188,7 @@ impl Calculator {
         if self.display == "0" && digit != '.' {
             self.display = digit.to_string();
         } else if digit == '.' && self.display.contains('.') {
-            // Don't add another decimal point
+
         } else {
             self.display.push(digit);
         }

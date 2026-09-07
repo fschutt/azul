@@ -4,7 +4,6 @@ from azul import *
 
 DOC_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "spreadsheet.xhtml")
 
-
 def error_dom(message):
     heading = (Dom.create_div()
                .with_css("font-size:20px;font-weight:bold;color:#a61b1b;margin-bottom:8px;")
@@ -17,7 +16,6 @@ def error_dom(message):
             .with_child(heading)
             .with_child(detail))
 
-
 def layout(data, info):
     try:
         with open(DOC_PATH, encoding="utf-8") as handle:
@@ -29,7 +27,6 @@ def layout(data, info):
     if parsed.is_ok():
         return Dom.create_from_parsed_xml(parsed.unwrap())
     return error_dom("the document is not well-formed XML")
-
 
 app = App.create(None, AppConfig.create())
 window = WindowCreateOptions.create(layout)

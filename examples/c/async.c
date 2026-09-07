@@ -1,4 +1,3 @@
-/* nanosleep() needs a POSIX feature macro under strict -std=c11 */
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
 #endif
@@ -8,9 +7,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The framework exports no blocking sleep any more (blocking is wrong on the
- * UI thread and the browser has no such primitive); a worker thread that
- * really wants to pace itself uses the platform primitive directly. */
 #ifdef _WIN32
 #include <windows.h>
 static void example_sleep_ms(unsigned ms) { Sleep(ms); }
@@ -24,7 +20,6 @@ static void example_sleep_ms(unsigned ms) {
 }
 #endif
 
-
 #define TILE_PX      256.0f
 #define CELLS        8
 #define CELL_PX      (TILE_PX / (float)CELLS)
@@ -32,7 +27,7 @@ static void example_sleep_ms(unsigned ms) {
 #define HEADER_PX    44.0f
 #define FOOTER_PX    22.0f
 #define FETCH_MS     140
-// Slice the simulated latency so a terminate request is noticed promptly.
+
 #define TERMINATE_POLL_MS 20
 
 typedef struct {
@@ -257,11 +252,6 @@ void tile_worker(AzRefAny initial_data, AzThreadSender sender, AzThreadReceiver 
     int tile_y = req.ptr->tile_y;
     TileRequestRef_delete(&req);
 
-    // Sleep in slices, checking for TerminateThread between them. A single
-    // sleep is uninterruptible: at shutdown the worker cannot acknowledge
-    // within the join grace period, so the framework detaches it instead of
-    // joining, and ThreadSanitizer reports a thread leak in pthread_create.
-    // One tile is cheap; sixteen sleeping at once is what makes it visible.
     for (int waited = 0; waited < FETCH_MS; waited += TERMINATE_POLL_MS) {
         example_sleep_ms(TERMINATE_POLL_MS);
         AzOptionThreadSendMsg early = AzThreadReceiver_recv(&recv);

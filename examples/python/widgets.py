@@ -1,6 +1,5 @@
 from azul import *
 
-
 class WidgetShowcase:
     def __init__(self):
         self.enable_padding = True
@@ -9,27 +8,21 @@ class WidgetShowcase:
         self.checkbox_checked = False
         self.text_input = ""
 
-
 CLICK = EventFilter.Hover(HoverEventFilter.MouseUp)
-
 
 def small(icon, label):
     return RibbonItem.SmallButton(RibbonButton.new(icon, label))
 
-
 def menu(icon, label):
     return RibbonItem.SmallButton(RibbonButton.new(icon, label).with_arrow(RibbonArrow.Menu))
 
-
 def large(icon, label, arrow):
     return RibbonItem.LargeButton(RibbonButton.new(icon, label).with_arrow(arrow))
-
 
 def stack(items, container):
     for item in items:
         container = container.with_item(item)
     return container
-
 
 def home_tab():
     clipboard = (RibbonGroup.new("Clipboard")
@@ -86,13 +79,11 @@ def home_tab():
             .with_group(paragraph)
             .with_group(editing))
 
-
 def ribbon(data):
     return (Ribbon.new(RibbonTabVec.from_item(home_tab()))
             .with_app_button(RibbonAppButton.new("FILE"))
             .with_active_tab(data.active_tab)
             .dom())
-
 
 def layout(data, info):
     button = (Dom.create_div()
@@ -138,18 +129,15 @@ def layout(data, info):
             .with_child(ribbon(data))
             .with_child(content))
 
-
 def on_button_click(data, info):
     data.progress_value += 10.0
     if data.progress_value > 100.0:
         data.progress_value = 0.0
     return Update.RefreshDom
 
-
 def on_checkbox_toggle(data, info, state):
     data.checkbox_checked = state.checked
     return Update.RefreshDom
-
 
 model = WidgetShowcase()
 window = WindowCreateOptions.create(layout)

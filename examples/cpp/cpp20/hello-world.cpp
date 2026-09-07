@@ -28,8 +28,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
             .dom());
 }
 
-// The signature is fixed by the C fn-ptr typedef (azul::CallbackType), so the
-// parameters/return stay raw C types — the enum CONSTANTS are namespaced.
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
     auto* d = data_wrapper.downcast_mut<MyDataModel>();

@@ -1,13 +1,9 @@
-/* nanosleep() needs a POSIX feature macro under strict -std=c11 */
 #ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
 #endif
 #include "azul03.hpp"
 #include <cstdio>
 
-/* The framework exports no blocking sleep any more (blocking is wrong on the
- * UI thread and the browser has no such primitive); a worker thread that
- * really wants to pace itself uses the platform primitive directly. */
 #ifdef _WIN32
 #include <windows.h>
 static void example_sleep_ms(unsigned ms) { Sleep(ms); }
@@ -20,7 +16,6 @@ static void example_sleep_ms(unsigned ms) {
     nanosleep(&ts, NULL);
 }
 #endif
-
 
 using namespace azul;
 

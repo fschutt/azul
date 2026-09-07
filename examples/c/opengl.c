@@ -1,11 +1,3 @@
-// OpenGL integration demo: tessellated polygons drawn into a GL texture.
-//
-// Reading testdata.json is asynchronous: AzFilePath_readBytes only REQUESTS
-// the read and delivers the bytes later, through the event loop, to a resume
-// callback. The chain therefore runs from the window-create callback:
-//   startup_window (request the read) -> on_testdata_read (parse + tessellate)
-//   -> upload_to_gpu (GL upload + animation timer)
-
 #include "azul.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,7 +19,7 @@ typedef struct {
 } OpenGlState;
 
 void OpenGlState_destructor(void* s) {
-    // GPU nodes cleaned up when GL context destroyed
+
 }
 AZ_REFLECT(OpenGlState, OpenGlState_destructor);
 
@@ -80,7 +72,6 @@ static void tess_push(TessNodeArray* arr, AzTessellatedSvgNode node) {
     arr->items[arr->len++] = node;
 }
 
-// Parse the (already read) testdata.json bytes and tessellate the polygons
 bool parse_and_tessellate(OpenGlState* state, AzU8Vec bytes) {
     printf("Read %zu bytes\n", bytes.len);
 
@@ -368,8 +359,6 @@ AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info) {
     return AzImageRef_glTexture(texture);
 }
 
-// Window-create callback: request testdata.json. The bytes arrive in
-// on_testdata_read, which tessellates and uploads them.
 AzUpdate startup_window(AzRefAny data, AzCallbackInfo info) {
     (void)info;
     printf("Reading testdata.json...\n");
@@ -381,7 +370,6 @@ AzUpdate startup_window(AzRefAny data, AzCallbackInfo info) {
     return AzUpdate_DoNothing;
 }
 
-// Resume of the read: tessellate the polygons, then upload them to the GPU
 AzUpdate on_testdata_read(AzRefAny data, AzCallbackInfo info, AzRefAny result) {
     AzOptionFileReadBytesResult r = AzFileReadBytesResult_downcast(result);
     if (r.Some.tag != AzOptionFileReadBytesResult_Tag_Some
@@ -411,7 +399,6 @@ AzUpdate on_testdata_read(AzRefAny data, AzCallbackInfo info, AzRefAny result) {
     return upload_to_gpu(data, &info);
 }
 
-// Upload the tessellated vertices to the GPU and start the animation timer
 static AzUpdate upload_to_gpu(AzRefAny data, AzCallbackInfo* info) {
     AzOptionGlContextPtr opt_gl = AzCallbackInfo_getGlContext(info);
     if (opt_gl.Some.tag != AzOptionGlContextPtr_Tag_Some) {
@@ -472,7 +459,6 @@ AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info) {
 int main(void) {
     printf("Starting!\n");
 
-    // The vertices are read + tessellated once the window exists (see startup_window)
     OpenGlState state = {
         .rotation_deg = 0.0f,
         .fill_vertices = AzTessellatedSvgNode_empty(),

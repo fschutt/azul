@@ -7,12 +7,6 @@
 typedef struct { uint32_t counter; } MyDataModel;
 void MyDataModel_destructor(void* m) { }
 
-// AZ_REFLECT_JSON generates MyDataModel_upcast / MyDataModelRef / MyDataModelRefMut
-// and the downcast helpers used below, plus the JSON round-trip the app-state
-// tooling needs: the debug server's set_app_state / assert and undo-redo
-// restore state INTO the RefAny by field name through fromJson. Without a
-// deserialize fn the Export-Code e2e fails with "the app's RefAny has no
-// deserialize fn" — this is not demo filler (2026-09-07, learned the hard way).
 AzJson MyDataModel_toJson(AzRefAny refany);
 AzResultRefAnyString MyDataModel_fromJson(AzJson json);
 AZ_REFLECT_JSON(MyDataModel, MyDataModel_destructor, MyDataModel_toJson, MyDataModel_fromJson);
@@ -62,8 +56,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     MyDataModelRef_delete(&d);
 
     AzString label_text = AzString_copyFromBytes((const uint8_t*)buffer, 0, written);
-    // A counter display is a label, not prose: a <span> carries no UA
-    // paragraph margin (a <p> here grew the line by two font-sizes).
+
     AzDom label = AzDom_createSpanWithText(label_text);
     AzDom label_wrapper = AzDom_createDiv();
     AzDom_addCssProperty(&label_wrapper, AzCssPropertyWithConditions_simple(

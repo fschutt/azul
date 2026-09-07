@@ -13,7 +13,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     const WidgetShowcase* d = WidgetShowcase_downcast_ref(data_wrapper);
     if (!d) return AzDom_createBody();
-    
+
     Dom button_text = Dom::create_p_with_text(String("Click me!"));
     Dom button = Dom::create_div();
     button.set_css(String("margin-bottom: 10px; padding: 10px; background: #4CAF50; color: white;"));
@@ -46,12 +46,12 @@ int main() {
     WidgetShowcase model;
     model.progress_value = 25.0f;
     RefAny data = WidgetShowcase_upcast(model);
-    
+
     WindowCreateOptions window = WindowCreateOptions::create(layout);
     window.inner().window_state.title = az_string_from_literal("Widget Showcase");
     window.inner().window_state.size.dimensions.width = 600.0;
     window.inner().window_state.size.dimensions.height = 500.0;
-    
+
     App app = App::create(data, AppConfig::default_());
     app.run(window);
     return 0;

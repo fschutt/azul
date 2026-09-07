@@ -36,7 +36,6 @@ function layout(dataPtr, _info) {
         .with_child(button.dom());
 }
 
-// Catch callback exceptions before they SIGABRT via the libffi trampoline.
 process.on('uncaughtException', (e) => {
     console.error('[azul] uncaught:', e && e.stack ? e.stack : e);
 });
