@@ -3872,7 +3872,7 @@ impl RemillTranspiler {
         // bytes are the right test rather than the stem — every callback lift
         // shares the stem "transitive-lift", and the widget callbacks are
         // ~880 KB modules where a split saves nothing worth 20 extra links a run.
-        if let Some(core) = chunk_core {
+        if let Some(plan) = chunk_core {
             let obj_bytes: u64 = object_paths
                 .iter()
                 .filter_map(|p| std::fs::metadata(p).ok().map(|m| m.len()))
@@ -3883,7 +3883,7 @@ impl RemillTranspiler {
                 .unwrap_or(20);
             if obj_bytes >= min_mb * 1_000_000 {
                 self.measure_core_chunk(
-                    &core,
+                    &plan,
                     &object_paths,
                     &exports,
                     visited.iter().copied(),
@@ -5940,7 +5940,7 @@ fn intercepted_import_labels(_cases: &[(u64, u64)]) -> Vec<(u64, ImportIntercept
 impl RemillTranspiler {
     fn measure_core_chunk(
         &self,
-        core: &HashSet<usize>,
+        plan: &ChunkPlan,
         object_paths: &[PathBuf],
         exports: &[String],
         visited: impl Iterator<Item = usize>,
@@ -5952,6 +5952,7 @@ impl RemillTranspiler {
         // A per-function object is `__az_dep_<hex>.o`; anything else is
         // infrastructure (helpers, bump heap, callback shim) and belongs in the
         // core unconditionally.
+        let core = &plan.core;
         let in_core = |p: &PathBuf| -> bool {
             let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             match stem.strip_prefix("__az_dep_") {
@@ -5964,9 +5965,12 @@ impl RemillTranspiler {
         let mut core_objs: Vec<PathBuf> =
             object_paths.iter().filter(|p| in_core(p)).cloned().collect();
 
-        let cs: Vec<(u64, u64)> = self
-            .dispatcher_csynths(visited)
-            .into_iter()
+        // Collected once: the iterator is consumed, and every chunk needs to
+        // filter the same case list.
+        let all_cs: Vec<(u64, u64)> = self.dispatcher_csynths(visited);
+        let cs: Vec<(u64, u64)> = all_cs
+            .iter()
+            .copied()
             .filter(|(_label, body)| {
                 // `resolve_synth` returns a SYNTH address (it walks the synth
                 // chain); `core` is keyed by NATIVE canonical addresses. Comparing
@@ -6030,7 +6034,92 @@ impl RemillTranspiler {
                 label, e.reason,
             ),
         }
+
+        // THE LAZY CHUNKS. Each gets ONLY its own objects and ONLY the dispatcher
+        // cases for the bodies it contains -- that split is what makes the whole
+        // exercise pay. If a chunk's dispatcher still named p0's bodies, or p0's
+        // still named the chunk's, `--gc-sections` would pull the other side back
+        // in and the split would yield nothing.
+        //
+        // No `--export` list: wasm-ld errors on `--export=<sym>` for a symbol the
+        // link does not define, and a chunk defines almost none of the mini's
+        // exports. The dispatcher's static `declare`+`call` of each body is what
+        // keeps the bodies alive, exactly as in the main link.
+        for (i, (root, members)) in plan.lazy.iter().enumerate() {
+            let n = i + 1;
+            let objs: Vec<PathBuf> = object_paths
+                .iter()
+                .filter(|p| {
+                    p.file_stem()
+                        .and_then(|s| s.to_str())
+                        .and_then(|s| s.strip_prefix("__az_dep_"))
+                        .and_then(|hex| usize::from_str_radix(hex, 16).ok())
+                        .map(|a| members.contains(&a))
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect();
+            let chunk_cs: Vec<(u64, u64)> = all_cs
+                .iter()
+                .copied()
+                .filter(|(_label, body)| {
+                    symbol_table::get()
+                        .and_then(|t| t.lookup_by_synth(*body as usize))
+                        .map(|e| members.contains(&e.canonical_addr))
+                        .unwrap_or(false)
+                })
+                .collect();
+            let root_name = symbol_table::get()
+                .and_then(|t| t.lookup(*root))
+                .map(|e| e.canonical_name.clone())
+                .unwrap_or_else(|| format!("0x{root:x}"));
+            let mut chunk_objs = objs;
+            if let Some(o) = self.emit_indirect_dispatcher_obj(&chunk_cs) {
+                chunk_objs.push(o);
+            }
+            let stem = format!("{}-p{}", p0_stem.trim_end_matches("-p0"), n);
+            match self.link_objects_to_wasm(
+                &chunk_objs,
+                &[],
+                stem.as_str(),
+                opts.memory_mode,
+                accessed_pages,
+                accessed_ranges,
+            ) {
+                Ok(b) => {
+                    let br = super::server::brotli_compress(&b, 9)
+                        .map(|c| c.len().to_string())
+                        .unwrap_or_else(|| "?".to_string());
+                    eprintln!(
+                        "[azul-web] AZ_CHUNK {}: p{} linked {} bytes raw -> {} brotli (q9), \
+                         {} object(s), {} dispatcher case(s) <- {}",
+                        label,
+                        n,
+                        b.len(),
+                        br,
+                        chunk_objs.len(),
+                        chunk_cs.len(),
+                        root_name,
+                    );
+                }
+                Err(e) => eprintln!(
+                    "[azul-web] AZ_CHUNK {}: p{} link FAILED ({}): {}",
+                    label, n, root_name, e.reason,
+                ),
+            }
+        }
     }
+}
+
+/// The eager core plus the lazy chunks the walk graph implies.
+#[cfg(feature = "web-transpiler")]
+struct ChunkPlan {
+    /// Every node that must stay resident: shared by two or more roots, or
+    /// exclusive to a boot root.
+    core: HashSet<usize>,
+    /// One entry per lazy chunk: the root that owns it, and the nodes reachable
+    /// only through it.
+    lazy: Vec<(usize, HashSet<usize>)>,
 }
 
 /// Report the eager-core / lazy-chunk split the walk graph implies.
@@ -6051,7 +6140,7 @@ fn report_chunk_partition(
     n_lazy: usize,
     object_paths: &[PathBuf],
     boot_names: &HashSet<String>,
-) -> Option<HashSet<usize>> {
+) -> Option<ChunkPlan> {
     // Objects that are not `__az_dep_<hex>.o` — the AzStartup_* wrappers, bump
     // helpers, callback shim, dispatcher — carry no address in their name, so
     // the per-address size lookup below reports them as 0. They are always in
@@ -6220,7 +6309,14 @@ fn report_chunk_partition(
         total as f64 / 1e6,
         -100.0 * (1.0 - core_bytes as f64 / total.max(1) as f64),
     );
-    Some(nodes.difference(&lazy).copied().collect())
+    Some(ChunkPlan {
+        core: nodes.difference(&lazy).copied().collect(),
+        lazy: cands
+            .iter()
+            .take(n_lazy)
+            .map(|(_sz, r, ex)| (*r, ex.clone()))
+            .collect(),
+    })
 }
 
 #[cfg(feature = "web-transpiler")]
