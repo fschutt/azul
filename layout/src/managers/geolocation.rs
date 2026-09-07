@@ -269,49 +269,96 @@ impl EventProvider for GeolocationManager {
 // dependency (SUPER_PLAN_2 §0.5). Mirrors the permission manager's
 // async-result channel.
 
-static PENDING_FIXES: std::sync::Mutex<Vec<LocationFix>> = std::sync::Mutex::new(Vec::new());
+/// The channel, as a VALUE: a fixes queue and an errors queue.
+///
+/// Mirrors `hid::HidChannel` / `sensors::SensorChannel` — a struct so the
+/// process-wide instance (`CHANNEL`) is an instance, and a test can own its
+/// own instead of sharing a global with every other test in the binary.
+#[derive(Debug, Default)]
+pub struct GeolocationChannel {
+    pending_fixes: std::sync::Mutex<Vec<LocationFix>>,
+    /// Error channel (MWA-A1b) — same shape as the fix channel: the native
+    /// backend's error callback fires on an OS thread and parks here; the
+    /// capability pump drains into `set_last_error`.
+    pending_errors: std::sync::Mutex<Vec<LocationError>>,
+}
+
+/// The process-wide channel the dll backends push into and the engine drains.
+static CHANNEL: GeolocationChannel = GeolocationChannel::new();
+
+impl GeolocationChannel {
+    /// An empty channel. `const` so the process-wide one can be a `static`.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            pending_fixes: std::sync::Mutex::new(Vec::new()),
+            pending_errors: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Park a fix. Thread-safe; recovers from a poisoned lock so one
+    /// panicking applier can't wedge delivery forever.
+    pub fn push_fix(&self, fix: LocationFix) {
+        let mut q = self
+            .pending_fixes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        q.push(fix);
+    }
+
+    /// Drain every parked fix, in arrival order.
+    #[must_use]
+    pub fn drain_fixes(&self) -> Vec<LocationFix> {
+        let mut q = self
+            .pending_fixes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        core::mem::take(&mut *q)
+    }
+
+    /// Park an error. Thread-safe; poison-recovering.
+    pub fn push_error(&self, error: LocationError) {
+        let mut q = self
+            .pending_errors
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        q.push(error);
+    }
+
+    /// Drain every parked error, in arrival order.
+    #[must_use]
+    pub fn drain_errors(&self) -> Vec<LocationError> {
+        let mut q = self
+            .pending_errors
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        core::mem::take(&mut *q)
+    }
+}
 
 /// Park a location fix delivered by a platform backend (in the dll).
 /// Thread-safe; recovers from a poisoned lock so one panicking applier
 /// can't wedge delivery forever.
 pub fn push_location_fix(fix: LocationFix) {
-    let mut q = PENDING_FIXES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    q.push(fix);
+    CHANNEL.push_fix(fix);
 }
 
 /// Drain every fix parked by [`push_location_fix`], in arrival order.
 /// Called once per layout pass; the caller applies them through
 /// [`GeolocationManager::set_latest_fix`] (the last one wins).
 pub fn drain_location_fixes() -> Vec<LocationFix> {
-    let mut q = PENDING_FIXES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
+    CHANNEL.drain_fixes()
 }
-
-// Error channel (MWA-A1b) — same shape as the fix channel: the native
-// backend's error callback fires on an OS thread and parks here; the
-// capability pump drains into `set_last_error`.
-
-static PENDING_ERRORS: std::sync::Mutex<Vec<LocationError>> = std::sync::Mutex::new(Vec::new());
 
 /// Park a geolocation error delivered by a platform backend (in the dll).
 /// Thread-safe; poison-recovering.
 pub fn push_location_error(error: LocationError) {
-    let mut q = PENDING_ERRORS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    q.push(error);
+    CHANNEL.push_error(error);
 }
 
 /// Drain every error parked by [`push_location_error`], in arrival order.
 pub fn drain_location_errors() -> Vec<LocationError> {
-    let mut q = PENDING_ERRORS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
+    CHANNEL.drain_errors()
 }
 
 #[cfg(test)]
@@ -440,14 +487,16 @@ mod tests {
     fn error_channel_and_provider_event() {
         use azul_core::task::{Instant, SystemTick};
 
-        drop(drain_location_errors());
-        push_location_error(LocationError {
+        // Own the channel; the process-wide one is shared with every other
+        // test in this binary on the parallel runner.
+        let ch = GeolocationChannel::new();
+        ch.push_error(LocationError {
             code: 1,
             message: "denied".into(),
         });
-        let errs = drain_location_errors();
+        let errs = ch.drain_errors();
         assert_eq!(errs.len(), 1);
-        assert!(drain_location_errors().is_empty());
+        assert!(ch.drain_errors().is_empty());
 
         let ts = Instant::Tick(SystemTick::new(0));
         let mut mgr = GeolocationManager::new();
@@ -476,12 +525,13 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)] // test asserts exact float equality on deterministic values
     fn async_fixes_round_trip_through_manager() {
-        // The channel is process-global; clear any residue first.
-        drop(drain_location_fixes());
-
-        push_location_fix(fix(37.0, -122.0));
-        push_location_fix(fix(48.8566, 2.3522)); // Paris — last wins
-        let drained = drain_location_fixes();
+        // Own the channel rather than clearing "residue" off the process-wide
+        // one — residue is another test's data, and clearing it is how tests
+        // steal from each other.
+        let ch = GeolocationChannel::new();
+        ch.push_fix(fix(37.0, -122.0));
+        ch.push_fix(fix(48.8566, 2.3522)); // Paris — last wins
+        let drained = ch.drain_fixes();
         assert_eq!(drained.len(), 2, "both parked fixes drain in order");
         assert_eq!(drained[0].latitude_deg, 37.0);
         assert_eq!(drained[1].latitude_deg, 48.8566);

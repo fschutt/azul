@@ -148,46 +148,90 @@ fn reading_bitwise_eq(a: &SensorReading, b: &SensorReading) -> bool {
 // drains it and applies the latest per kind. Pure Rust — no platform
 // dependency (SUPER_PLAN_2 §0.5). Mirrors the geolocation fix channel.
 
-static PENDING_READINGS: std::sync::Mutex<Vec<SensorReading>> = std::sync::Mutex::new(Vec::new());
+/// The channel, as a VALUE: a readings queue and a latest-wins proximity slot.
+///
+/// Mirrors `hid::HidChannel` — a struct so the process-wide instance
+/// (`CHANNEL`) is an instance, and a test can own its own instead of sharing
+/// a global with every other test in the binary.
+#[derive(Debug, Default)]
+pub struct SensorChannel {
+    pending_readings: std::sync::Mutex<Vec<SensorReading>>,
+    /// The typed proximity answer, LATEST-WINS rather than queued: proximity
+    /// is a state, and a widget wants the current one, not every flicker
+    /// between two polls.
+    pending_proximity: std::sync::Mutex<Option<azul_core::sensors::Proximity>>,
+}
+
+/// The process-wide channel the dll backends push into and the engine drains.
+static CHANNEL: SensorChannel = SensorChannel::new();
+
+impl SensorChannel {
+    /// An empty channel. `const` so the process-wide one can be a `static`.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            pending_readings: std::sync::Mutex::new(Vec::new()),
+            pending_proximity: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// Park a reading. Thread-safe; poison-recovering.
+    pub fn push_reading(&self, reading: SensorReading) {
+        let mut q = self
+            .pending_readings
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        q.push(reading);
+    }
+
+    /// Drain every parked reading, in arrival order.
+    #[must_use]
+    pub fn drain_readings(&self) -> Vec<SensorReading> {
+        let mut q = self
+            .pending_readings
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        core::mem::take(&mut *q)
+    }
+
+    /// Backend side: publish the current proximity answer.
+    pub fn push_proximity(&self, proximity: azul_core::sensors::Proximity) {
+        if let Ok(mut slot) = self.pending_proximity.lock() {
+            *slot = Some(proximity);
+        }
+    }
+
+    /// Engine side: take the latest published answer, if any.
+    #[must_use]
+    pub fn take_proximity(&self) -> Option<azul_core::sensors::Proximity> {
+        self.pending_proximity
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take())
+    }
+}
 
 /// Park a sensor reading delivered by a platform backend (in the dll).
 /// Thread-safe; poison-recovering.
 pub fn push_sensor_reading(reading: SensorReading) {
-    let mut q = PENDING_READINGS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    q.push(reading);
+    CHANNEL.push_reading(reading);
 }
 
 /// Drain every reading parked by [`push_sensor_reading`], in arrival order.
 /// Called once per layout pass; the caller applies them through
 /// [`SensorManager::set_reading`] (the last per kind wins).
 pub fn drain_sensor_readings() -> Vec<SensorReading> {
-    let mut q = PENDING_READINGS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
+    CHANNEL.drain_readings()
 }
-
-/// The typed proximity answer, LATEST-WINS rather than queued: proximity is
-/// a state, and a widget wants the current one, not every flicker between
-/// two polls.
-static PENDING_PROXIMITY: std::sync::Mutex<Option<azul_core::sensors::Proximity>> =
-    std::sync::Mutex::new(None);
 
 /// Backend side: publish the current proximity answer.
 pub fn push_proximity(proximity: azul_core::sensors::Proximity) {
-    if let Ok(mut slot) = PENDING_PROXIMITY.lock() {
-        *slot = Some(proximity);
-    }
+    CHANNEL.push_proximity(proximity);
 }
 
 /// Engine side: take the latest published answer, if any.
 pub fn take_proximity() -> Option<azul_core::sensors::Proximity> {
-    PENDING_PROXIMITY
-        .lock()
-        .ok()
-        .and_then(|mut slot| slot.take())
+    CHANNEL.take_proximity()
 }
 
 #[cfg(test)]
@@ -249,12 +293,13 @@ mod tests {
 
     #[test]
     fn readings_round_trip_through_manager() {
-        drop(drain_sensor_readings());
-
-        push_sensor_reading(r(SensorKind::Accelerometer, 1.0, 2.0, 3.0));
-        push_sensor_reading(r(SensorKind::Accelerometer, 4.0, 5.0, 6.0)); // last wins per kind
-        push_sensor_reading(r(SensorKind::Magnetometer, 20.0, 0.0, 40.0));
-        let drained = drain_sensor_readings();
+        // Own the channel rather than sharing the process-wide one with every
+        // other test in the binary (the HID mirror of this test raced).
+        let ch = SensorChannel::new();
+        ch.push_reading(r(SensorKind::Accelerometer, 1.0, 2.0, 3.0));
+        ch.push_reading(r(SensorKind::Accelerometer, 4.0, 5.0, 6.0)); // last wins per kind
+        ch.push_reading(r(SensorKind::Magnetometer, 20.0, 0.0, 40.0));
+        let drained = ch.drain_readings();
         assert_eq!(drained.len(), 3, "all parked readings drain in order");
 
         let mut mgr = SensorManager::new();
@@ -293,14 +338,13 @@ mod autotest_generated {
 
     // ─────────────────────────── helpers ────────────────────────────
     //
-    // NOTE — the process-global `PENDING_READINGS` channel
-    // (`push_sensor_reading` / `drain_sensor_readings`) is deliberately NOT
-    // exercised here. `tests::readings_round_trip_through_manager` above
-    // asserts an *exact* drain count (`len() == 3`) on that same global, and
-    // libtest runs the two modules' tests concurrently in one binary — any
-    // push or drain from here could be observed by (or steal readings from)
-    // that test and make it flake. The sibling `geolocation.rs` autotest
-    // module leaves its identical channel alone for the same reason.
+    // NOTE — a test that needs a channel constructs its own `SensorChannel`
+    // (see `tests::readings_round_trip_through_manager`). The process-wide
+    // `CHANNEL` behind `push_sensor_reading` / `drain_sensor_readings` is
+    // shared with every other test in this binary on the parallel runner,
+    // so pushing into or draining it from a test is how one test's readings
+    // end up in another's exact-count assertion. That used to be the reason
+    // this section avoided the channel entirely; owning one is the fix.
 
     const KINDS: [SensorKind; 3] = [
         SensorKind::Accelerometer,

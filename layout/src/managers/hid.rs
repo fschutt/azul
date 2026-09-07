@@ -21,8 +21,24 @@
 
 use azul_core::hid::{HidDevice, HidReport};
 
-static PENDING_REPORTS: std::sync::Mutex<Vec<HidReport>> = std::sync::Mutex::new(Vec::new());
-static DEVICES: std::sync::Mutex<Option<Vec<HidDevice>>> = std::sync::Mutex::new(None);
+/// The channel: a bounded report queue and a devices snapshot, as a VALUE.
+///
+/// A struct rather than two statics so that the process-wide instance the
+/// platform backends and the capability pump share (`CHANNEL`) is an
+/// instance — and a test can own its own instead of racing its siblings on a
+/// global. The free functions below are that instance's methods; callers do
+/// not change.
+#[derive(Debug, Default)]
+pub struct HidChannel {
+    pending_reports: std::sync::Mutex<Vec<HidReport>>,
+    devices: std::sync::Mutex<Option<Vec<HidDevice>>>,
+}
+
+/// The process-wide channel. A global by DESIGN, not by accident: the
+/// producers are OS callbacks (IOHIDManager on macOS, raw input on Windows,
+/// hidraw reader threads on Linux) that hold no handle to any window, and the
+/// one consumer is the capability pump on the main thread.
+static CHANNEL: HidChannel = HidChannel::new();
 
 /// Cap on the parked queue.
 ///
@@ -33,47 +49,86 @@ static DEVICES: std::sync::Mutex<Option<Vec<HidDevice>>> = std::sync::Mutex::new
 /// newest reports are the ones that still describe the device's state.
 const MAX_PENDING_REPORTS: usize = 4096;
 
-/// Park a report delivered by a platform backend. Thread-safe;
-/// poison-recovering, so a panicking backend thread cannot wedge input.
-pub fn push_hid_report(report: HidReport) {
-    let mut q = PENDING_REPORTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if q.len() >= MAX_PENDING_REPORTS {
-        // Drop from the FRONT: a bounded queue that dropped the newest would
-        // freeze the device's apparent state at the moment it overflowed.
-        let overflow = q.len() + 1 - MAX_PENDING_REPORTS;
-        q.drain(..overflow);
+impl HidChannel {
+    /// An empty channel. `const` so the process-wide one can be a `static`.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            pending_reports: std::sync::Mutex::new(Vec::new()),
+            devices: std::sync::Mutex::new(None),
+        }
     }
-    q.push(report);
+
+    /// Park a report. Thread-safe; poison-recovering, so a panicking backend
+    /// thread cannot wedge input.
+    pub fn push_report(&self, report: HidReport) {
+        let mut q = self
+            .pending_reports
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if q.len() >= MAX_PENDING_REPORTS {
+            // Drop from the FRONT: a bounded queue that dropped the newest
+            // would freeze the device's apparent state at the moment it
+            // overflowed.
+            let overflow = q.len() + 1 - MAX_PENDING_REPORTS;
+            q.drain(..overflow);
+        }
+        q.push(report);
+    }
+
+    /// Drain every parked report, in arrival order.
+    #[must_use]
+    pub fn drain_reports(&self) -> Vec<HidReport> {
+        let mut q = self
+            .pending_reports
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        core::mem::take(&mut *q)
+    }
+
+    /// Publish the enumerated device list, replacing any previous one.
+    pub fn set_devices(&self, devices: Vec<HidDevice>) {
+        let mut d = self
+            .devices
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *d = Some(devices);
+    }
+
+    /// Take the device list if a backend published a new one.
+    ///
+    /// `None` means "unchanged", NOT "no devices" - the caller must leave the
+    /// manager's existing list alone, or every pass with no re-enumeration
+    /// would clear it.
+    #[must_use]
+    pub fn take_devices(&self) -> Option<Vec<HidDevice>> {
+        let mut d = self
+            .devices
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        d.take()
+    }
+}
+
+/// Park a report delivered by a platform backend (on the process-wide channel).
+pub fn push_hid_report(report: HidReport) {
+    CHANNEL.push_report(report);
 }
 
 /// Drain every parked report, in arrival order.
 pub fn drain_hid_reports() -> Vec<HidReport> {
-    let mut q = PENDING_REPORTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
+    CHANNEL.drain_reports()
 }
 
 /// Publish the enumerated device list, replacing any previous one.
 pub fn set_hid_devices(devices: Vec<HidDevice>) {
-    let mut d = DEVICES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    *d = Some(devices);
+    CHANNEL.set_devices(devices);
 }
 
-/// Take the device list if a backend published a new one.
-///
-/// `None` means "unchanged", NOT "no devices" - the caller must leave the
-/// manager's existing list alone, or every pass with no re-enumeration would
-/// clear it.
+/// Take the device list if a backend published a new one (see
+/// [`HidChannel::take_devices`] for why `None` means unchanged).
 pub fn take_hid_devices() -> Option<Vec<HidDevice>> {
-    let mut d = DEVICES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    d.take()
+    CHANNEL.take_devices()
 }
 
 #[cfg(test)]
@@ -98,25 +153,28 @@ mod tests {
 
     #[test]
     fn reports_drain_in_arrival_order() {
-        let _ = drain_hid_reports();
-        push_hid_report(report(1));
-        push_hid_report(report(2));
-        let got = drain_hid_reports();
+        // Each test owns its channel. On the parallel runner, tests sharing
+        // the process-wide one landed their pushes in each other's drains
+        // (27 reports where 2 were queued).
+        let ch = HidChannel::new();
+        ch.push_report(report(1));
+        ch.push_report(report(2));
+        let got = ch.drain_reports();
         assert_eq!(got.len(), 2);
         assert_eq!(got[0].report_id, 1);
         assert_eq!(got[1].report_id, 2);
-        assert!(drain_hid_reports().is_empty(), "drain must empty the queue");
+        assert!(ch.drain_reports().is_empty(), "drain must empty the queue");
     }
 
     /// A 1000 Hz device with nothing draining would otherwise grow the queue
     /// for the life of the process.
     #[test]
     fn the_queue_is_bounded_and_drops_the_oldest() {
-        let _ = drain_hid_reports();
+        let ch = HidChannel::new();
         for i in 0..(MAX_PENDING_REPORTS + 10) {
-            push_hid_report(report((i % 251) as u8));
+            ch.push_report(report((i % 251) as u8));
         }
-        let got = drain_hid_reports();
+        let got = ch.drain_reports();
         assert_eq!(
             got.len(),
             MAX_PENDING_REPORTS,
@@ -132,10 +190,11 @@ mod tests {
     /// would clear the device list on every pass that did not re-enumerate.
     #[test]
     fn taking_devices_twice_reports_unchanged_the_second_time() {
-        set_hid_devices(vec![report(0).device]);
-        assert_eq!(take_hid_devices().map(|d| d.len()), Some(1));
+        let ch = HidChannel::new();
+        ch.set_devices(vec![report(0).device]);
+        assert_eq!(ch.take_devices().map(|d| d.len()), Some(1));
         assert!(
-            take_hid_devices().is_none(),
+            ch.take_devices().is_none(),
             "a second take must say UNCHANGED, not empty"
         );
     }
