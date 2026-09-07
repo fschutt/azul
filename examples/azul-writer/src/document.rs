@@ -25,7 +25,7 @@ use azul::pdf::Pdf;
 
 /// Snapshot handles the pagination call takes. Re-exported through this
 /// module so every caller names ONE source.
-pub use azul::css::FontCacheSnapshot;
+pub use azul::font::FontCacheSnapshot;
 pub use azul::image::ImageCacheSnapshot;
 
 /// #28 (b): THE single source of page geometry. A4 @96dpi CSS px with the

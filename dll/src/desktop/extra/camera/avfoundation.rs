@@ -16,8 +16,8 @@ use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass};
 use objc2_av_foundation::{
     AVCaptureConnection, AVCaptureDevice, AVCaptureDeviceDiscoverySession, AVCaptureDeviceInput,
     AVCaptureDevicePosition, AVCaptureDeviceType, AVCaptureOutput, AVCaptureSession,
-    AVCaptureSessionPreset1280x720, AVCaptureSessionPreset640x480, AVCaptureSessionPreset960x540,
-    AVCaptureSessionPresetHigh, AVCaptureVideoDataOutput,
+    AVCaptureSessionPreset1280x720, AVCaptureSessionPreset640x480, AVCaptureSessionPresetHigh,
+    AVCaptureVideoDataOutput,
     AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaType, AVMediaTypeVideo,
 };
 use objc2_core_media::{CMSampleBuffer, CMTime, CMTimeFlags};
@@ -98,6 +98,23 @@ struct AvfCam {
     last_seq: u64,
 }
 
+/// `AVCaptureSessionPreset960x540` exists in macOS's AVFoundation only. iOS
+/// has no such export, and merely referencing the symbol makes the arm64 iOS
+/// link fail with "Undefined symbols" — so it is not in the `use` list above
+/// and is reached only through this item-level cfg, which is the one place a
+/// `#[cfg]` can remove the reference outright.
+#[cfg(target_os = "macos")]
+fn preset_960x540() -> Option<&'static NSString> {
+    // SAFETY: an extern NSString static AVFoundation defines since 10.7,
+    // read exactly as the other presets in `preset_for` are.
+    Some(unsafe { objc2_av_foundation::AVCaptureSessionPreset960x540 })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn preset_960x540() -> Option<&'static NSString> {
+    None
+}
+
 /// The smallest session preset that covers `width` x `height`: the presets
 /// are extern NSString statics present since 10.7. `None` for a zero size
 /// (leave the session's default). Larger than 720p -> `High` (the device's
@@ -110,8 +127,10 @@ fn preset_for(width: u32, height: u32) -> Option<&'static NSString> {
             None
         } else if width <= 640 && height <= 480 {
             Some(AVCaptureSessionPreset640x480)
-        } else if width <= 960 && height <= 540 {
-            Some(AVCaptureSessionPreset960x540)
+        } else if width <= 960 && height <= 540 && preset_960x540().is_some() {
+            // macOS only — see `preset_960x540`. On iOS the arm is never
+            // taken and a 960x540 request falls through to the 720p preset.
+            preset_960x540()
         } else if width <= 1280 && height <= 720 {
             Some(AVCaptureSessionPreset1280x720)
         } else {

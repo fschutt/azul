@@ -153,15 +153,16 @@ geojson = { version = "0.24", optional = true }
 # SQLite engine for the `Db` API (P4.3), gated by `db-sqlite`. `turso` is a
 # pure-Rust SQLite (no `cc`, no system libsqlite, no bindgen) so it
 # cross-compiles to every target with no C toolchain. Default features OFF:
-# they would add mimalloc (a C allocator via `cc`) and FTS; io_uring is an
-# optional feature of turso_core that stays off, which is what the retired
-# fork used to enforce.
+# they would add mimalloc (a C allocator via `cc`) and FTS. io_uring is OFF:
+# upstream turso_sdk_kit 0.7 forces it on, which is why the workspace
+# [patch.crates-io] points turso + turso_sdk_kit at fschutt/turso (v0.7.2 +
+# one commit making both IO backends opt-in). See the note there. The engine
+# ships on every target in the release matrix, 32-bit Linux included.
 turso = { version = "0.7", optional = true, default-features = false }
 # turso pulls aegis (AEAD), whose build.rs compiles C AES via `cc` and fails to
 # cross-compile to 32-bit (i686/armv7) — and a global cc-disable breaks zstd-sys.
 # aegis's `pure-rust` feature (softaes) skips the C build entirely; pull it in
 # directly so feature-unification enables it wherever turso is used.
-aegis = { version = "0.9", features = ["pure-rust"], optional = true }
 # PDF for AzulDoc (P5), gated by `pdf`. printpdf shares OUR azul-layout (via
 # the root [patch.crates-io] → local printpdf branch + local azul-*), so the
 # dll links exactly one azul-layout. The `html` feature pulls in printpdf's
@@ -169,6 +170,7 @@ aegis = { version = "0.9", features = ["pure-rust"], optional = true }
 # display lists into PDF ops INCLUDING TEXT (SetFont/ShowText via
 # azul_layout::text3::glyphs::get_glyph_runs_pdf) — which dom_to_bytes uses;
 # without it PDFs contained rectangles only (the textless azul-writer bug).
+aegis = { version = "0.9", features = ["pure-rust"], optional = true }
 printpdf = { version = "0.12.8", default-features = false, features = ["html", "images", "png", "jpeg"], optional = true }
 
 # Typed multi-flavor clipboard payloads: codecs (RTF/CF_HTML/uri-list/DIB/…)
@@ -434,6 +436,11 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_System_Com_StructuredStorage",
     "Win32_Graphics_Gdi",
     "Win32_UI_Shell",
+    # extra/window_activation.rs: IsIconic / SetForegroundWindow / ShowWindow.
+    # Declared here because azul-dll uses it DIRECTLY; it used to compile only
+    # by feature unification from another crate, which the i686-msvc
+    # link-static check does not pull in.
+    "Win32_UI_WindowsAndMessaging",
 ] }
 # Direct windows-core dep so the `#[implement(IDropTarget)]` macro's
 # `::windows_core::` paths (windows/dnd.rs) resolve to 0.62, not the 0.54

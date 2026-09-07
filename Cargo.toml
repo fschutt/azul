@@ -36,6 +36,8 @@ glean = "60.5.0"
 gleam = "0.15.1"
 
 [patch.crates-io]
+turso_sdk_kit = { git = "https://github.com/fschutt/turso", rev = "e2dbb436ecb8163b3aed1f3d2e568a0bfb5174d7" }
+turso = { git = "https://github.com/fschutt/turso", rev = "e2dbb436ecb8163b3aed1f3d2e568a0bfb5174d7" }
 # NOTE: the former `libudev-sys` and `gpu-video` git patches are GONE — they are
 # now real published crates that dll/ depends on directly by a `package =` rename
 # (cargo `[patch]` cannot rename a crate; a git patch also trips the "no [patch]
@@ -113,12 +115,30 @@ azul-layout = { path = "layout" }
 # `cargo publish` strips [patch] — anything that only builds under one is not publishable.
 # The fork is released as allsorts-azul 0.17.1 and consumed from the registry like any
 # other dependency. Land changes there, publish, then bump.
-# turso is NOT patched any more (2026-08-31). The fork (fschutt/turso,
-# branch no-io-uring-optional, on top of 0.1.5) carried three things that
-# upstream has since shipped: io_uring is an optional, non-default feature of
-# turso_core (0.7.x), the GPL julian_day_converter dependency is gone, and
-# core/io/unix.rs casts offsets with libc::off_t (the 32-bit pwrite/pwritev
-# fix). dll/ consumes turso 0.7 from crates.io like any other dependency.
+# turso: patched AGAIN (2026-09-07), minimally. The 2026-05 fork (branch
+# no-io-uring-optional, on 0.1.5) was retired on 2026-08-31 because upstream
+# had shipped what it carried — io_uring became an optional, non-default
+# feature of turso_core in 0.7.x. That fix does not reach us: turso 0.7 added
+# turso_sdk_kit, which enables `turso_core/io_uring` (and win_iocp) through a
+# hard-coded dependency feature list, and `turso` depends on it with no way to
+# opt out — true of every published version through 0.8.0-pre.8. So every
+# consumer of the Rust API carries io-uring, whose prebuilt bindings refuse
+# to compile on 32-bit Linux (i686, armv7 — both release artifacts).
+#
+# fschutt/turso branch azul/0.7.2-io-uring-optional is v0.7.2 plus ONE commit
+# (3 files, +18/-11): sdk-kit forwards `io_uring` / `experimental_win_iocp`
+# as opt-in features instead of forcing them, the VFS switch gates on them,
+# and `turso` forwards them so an app can still opt in. Nothing else differs
+# from upstream, and the commit is shaped to be submitted there; when it
+# lands, drop the two patch lines and bump. Pinned by rev, not branch.
+#
+# Within the "no [patch] on published deps" gate: that gate guards
+# azul-css / azul-core / azul-layout, the crates that get `cargo publish`ed,
+# and none of them depends on turso. azul-dll does, and azul-dll ships as
+# the artifacts CI builds from THIS tree, where the patch applies. If
+# azul-dll is ever published as a crate, publish the fork first (see the
+# gilrs-azul / gpu-video-azul pattern above) — `cargo publish` strips
+# [patch] and the registry build would carry io-uring again.
 # tfd: use crates.io 0.1.2 (fork published) — the runtime-dlopen Win32 dialog
 # resolver that links on every Windows target incl. legacy i686-rust9x. layout/
 # declares tfd = "0.1", which resolves to 0.1.2.

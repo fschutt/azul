@@ -65,7 +65,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 
     if exported {
         page = page.with_child(
-            Dom::create_text(format!("Exported to {}", path).as_str()).with_css(STATUS),
+            Dom::create_p_with_text(format!("Exported to {}", path)).with_css(STATUS),
         );
     }
 
@@ -75,11 +75,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             .with_child(
                 Dom::create_div()
                     .with_css(TOOLBAR)
-                    .with_child(Dom::create_text("AzulDoc").with_css(TITLE))
+                    .with_child(Dom::create_p_with_text("AzulDoc").with_css(TITLE))
                     .with_child(
                         Dom::create_div()
                             .with_css(BTN)
-                            .with_child(Dom::create_text("Export to PDF"))
+                            .with_child(Dom::create_p_with_text("Export to PDF"))
                             .with_callback(
                                 EventFilter::Hover(HoverEventFilter::MouseUp),
                                 data.clone(),
@@ -94,15 +94,15 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 fn section(heading: &str, body: &str) -> Dom {
     Dom::create_div()
         .with_css(SECTION)
-        .with_child(Dom::create_text(heading).with_css(SECTION_H))
-        .with_child(Dom::create_text(body).with_css(BODY))
+        .with_child(Dom::create_p_with_text(heading).with_css(SECTION_H))
+        .with_child(Dom::create_p_with_text(body).with_css(BODY))
 }
 
 /// The document content (shared by the on-screen view + the PDF export).
 fn doc_page() -> Dom {
     Dom::create_div()
         .with_css(PAGE)
-        .with_child(Dom::create_text("Project Brief").with_css(H1))
+        .with_child(Dom::create_p_with_text("Project Brief").with_css(H1))
         .with_child(section(
             "Overview",
             "AzulDoc renders a styled document and exports it to PDF via the public Pdf::from_dom API (headless dom -> PDF pages, no window).",

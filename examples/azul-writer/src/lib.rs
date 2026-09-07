@@ -457,7 +457,7 @@ fn set_window_title(info: &mut CallbackInfo, name: &str) {
 
 /// The `*.md` filter for the native open dialog.
 fn markdown_filter() -> OptionFileTypeList {
-    use azul::css::FileTypeList;
+    use azul::file::FileTypeList;
     OptionFileTypeList::Some(FileTypeList {
         document_types: vec![AzString::from("*.md")].into(),
         document_descriptor: AzString::from("Markdown documents (*.md)"),

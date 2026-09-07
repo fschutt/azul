@@ -5563,8 +5563,12 @@ impl LayoutWindow {
                 crate::az_mark(0x40610, u32::from(compact_cache_ref.is_some()));
                 if let Some(cc) = compact_cache_ref {
                     crate::az_mark(0x40614, cc.prev_font_hashes.len() as u32);
-                    crate::az_mark(0x40618, cc.prev_font_hashes.as_ptr() as usize as u32);
-                    crate::az_mark(0x4061C, (cc.prev_font_hashes.as_ptr() as usize >> 32) as u32);
+                    // Widen to u64 BEFORE shifting: `usize >> 32` is a
+                    // compile-time overflow error on 32-bit targets
+                    // (rust9x i686, i686-linux), not merely a wrong value.
+                    let ptr_bits = cc.prev_font_hashes.as_ptr() as usize as u64;
+                    crate::az_mark(0x40618, ptr_bits as u32);
+                    crate::az_mark(0x4061C, (ptr_bits >> 32) as u32);
                 }
             }
             let font_stacks_sig = compact_cache_ref.map(|cc| {

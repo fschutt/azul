@@ -618,7 +618,7 @@ pub extern "C" fn on_toggle_record(mut data: RefAny, _: CallbackInfo) -> Update 
 pub extern "C" fn on_audio_frame(
     mut data: RefAny,
     _: CallbackInfo,
-    frame: azul::widgets::AudioFrame,
+    frame: azul::audio::AudioFrame,
 ) -> Update {
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;

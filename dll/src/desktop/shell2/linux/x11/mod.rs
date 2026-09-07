@@ -1897,7 +1897,10 @@ impl X11Window {
                     events::keysym_to_virtual_keycode(unmodified as defines::KeySym)
                 };
                 let text = if is_down {
-                    let mut buffer = [0i8; 32];
+                    // `c_char` is `i8` on x86 and `u8` on arm, riscv and powerpc, and
+            // `XLookupString` takes `*mut c_char` — typed as `i8` this only
+            // compiles where the two happen to coincide.
+            let mut buffer = [0 as core::ffi::c_char; 32];
                     let len = (xkb.xkb_state_key_get_utf8)(
                         xkb_state,
                         keycode,
@@ -1944,7 +1947,10 @@ impl X11Window {
                 same_screen: 1,
             };
             let mut keysym: defines::KeySym = 0;
-            let mut buffer = [0i8; 32];
+            // `c_char` is `i8` on x86 and `u8` on arm, riscv and powerpc, and
+            // `XLookupString` takes `*mut c_char` — typed as `i8` this only
+            // compiles where the two happen to coincide.
+            let mut buffer = [0 as core::ffi::c_char; 32];
             let count = unsafe {
                 (self.xlib.XLookupString)(
                     &mut key_event,
