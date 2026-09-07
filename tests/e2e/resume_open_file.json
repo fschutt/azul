@@ -1,0 +1,33 @@
+[
+  {
+    "name": "resume_open_file_chain",
+    "description": "A mocked file picker resumes with a virtual path; the resume issues a read that is served from the canned document; the second resume renders the byte count. Two requests, two resumes, no native dialog.",
+    "steps": [
+      {
+        "op": "mock",
+        "set": {
+          "reset": true,
+          "file_open": { "path": "e2e://docs/sample.txt" },
+          "file_read": { "e2e://docs/sample.txt": { "text": "hello world" } }
+        }
+      },
+      { "op": "assert_text", "selector": "#file", "expected": "file: -" },
+      { "op": "click", "text": "Open file" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "assert_text", "selector": "#file", "expected": "file: e2e://docs/sample.txt (11 bytes)" },
+      { "op": "assert_no_unmocked_requests" }
+    ]
+  },
+  {
+    "name": "resume_open_file_cancelled",
+    "description": "A mocked cancel resumes with `path: None` and the app reports it.",
+    "steps": [
+      { "op": "mock", "set": { "reset": true, "file_open": null } },
+      { "op": "click", "text": "Open file" },
+      { "op": "wait_frame" },
+      { "op": "assert_text", "selector": "#file", "expected": "file: cancelled" },
+      { "op": "assert_no_unmocked_requests" }
+    ]
+  }
+]

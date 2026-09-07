@@ -1,0 +1,25 @@
+[
+  {
+    "name": "resume_save_bytes_recorded",
+    "description": "Under e2e `FileDialog::save_bytes` shows no dialog: the export is recorded and the scenario reads it back.",
+    "steps": [
+      { "op": "mock", "set": { "reset": true, "save_bytes": { "accept": true } } },
+      { "op": "click", "text": "Export" },
+      { "op": "wait_frame" },
+      { "op": "assert_text", "selector": "#export", "expected": "exported: yes" },
+      { "op": "assert_saved_file", "name": "resume-demo.txt", "mime": "text/plain", "min_len": 10, "contains": "hello from the resume demo" },
+      { "op": "assert_no_unmocked_requests" }
+    ]
+  },
+  {
+    "name": "resume_save_bytes_rejected",
+    "description": "A scenario can make the export report failure while still capturing the bytes.",
+    "steps": [
+      { "op": "mock", "set": { "reset": true, "save_bytes": { "accept": false } } },
+      { "op": "click", "text": "Export" },
+      { "op": "wait_frame" },
+      { "op": "assert_text", "selector": "#export", "expected": "exported: no" },
+      { "op": "assert_saved_file", "name_ends_with": ".txt" }
+    ]
+  }
+]

@@ -50,6 +50,12 @@ path = "src/calc.rs"
 name = "hello-world"
 path = "src/hello-world.rs"
 
+# The request / resume pattern (open file -> read, http, colour picker,
+# export, db) and the e2e target of tests/e2e/resume_*.json.
+[[example]]
+name = "resume"
+path = "src/resume.rs"
+
 [[example]]
 name = "infinity"
 path = "src/infinity.rs"

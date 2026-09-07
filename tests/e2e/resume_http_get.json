@@ -1,0 +1,29 @@
+[
+  {
+    "name": "resume_http_get_mocked_response",
+    "description": "A mocked HTTP route answers the request; the resume renders the status code.",
+    "steps": [
+      {
+        "op": "mock",
+        "set": {
+          "reset": true,
+          "http": { "https://example.invalid/e2e/*": { "status": 200, "text": "ok", "content_type": "text/plain" } }
+        }
+      },
+      { "op": "click", "text": "Fetch" },
+      { "op": "wait_frame" },
+      { "op": "assert_text", "selector": "#http", "expected": "http: 200" },
+      { "op": "assert_no_unmocked_requests" }
+    ]
+  },
+  {
+    "name": "resume_http_get_mocked_transport_error",
+    "description": "A mocked transport error resumes with an HttpError; the resume renders it as an error.",
+    "steps": [
+      { "op": "mock", "set": { "reset": true, "http": { "*": { "error": "connection refused (mocked)" } } } },
+      { "op": "click", "text": "Fetch" },
+      { "op": "wait_frame" },
+      { "op": "assert_text", "selector": "#http", "expected": "http: error" }
+    ]
+  }
+]
