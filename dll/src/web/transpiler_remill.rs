@@ -2840,11 +2840,23 @@ impl RemillTranspiler {
                         queue.push_back(TransitiveLiftTarget::Dep {
                             name: e.canonical_name.clone(),
                             addr: e.canonical_addr,
-                            size: if e.size > 0 {
-                                e.size
-                            } else {
-                                super::LIFT_READ_WINDOW
-                            },
+                            // NOT `e.size`. The PDB size for these shims is
+                            // unreliable because they are ICF-folded: the same
+                            // 44-byte body carries both `__rust_dealloc` and
+                            // `__rdl_dealloc`, and the size heuristic (gap to the
+                            // next symbol in `defined`) landed on a record 16
+                            // bytes in — inside the `mov rsi,[rsi-8]` spanning
+                            // +0x0e..+0x11. The lift then stopped at +0x12 and
+                            // emitted a missing block there, which surfaced as a
+                            // permanent unmatched dispatch at entry+0x12 that no
+                            // dispatcher case could ever satisfy.
+                            //
+                            // A larger window is safe: remill follows control
+                            // flow from the entry and stops at the terminator, so
+                            // bytes past the real end are never decoded. That is
+                            // exactly why LIFT_READ_WINDOW is the existing
+                            // fallback for a zero size.
+                            size: e.size.max(super::LIFT_READ_WINDOW),
                         });
                         bump += 1;
                         continue;
