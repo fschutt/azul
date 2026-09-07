@@ -2811,6 +2811,12 @@ impl RemillTranspiler {
         // (synth 0x101cb0) while its canonical was force-enqueued, lifted and
         // `visited=true` — the fix for which had no effect precisely because the
         // missing case was the alias's, not the canonical's.
+        //
+        // It then recurred at the SAME address in the layout module, for the
+        // opposite reason: there the canonical was NOT lifted, so the guard below
+        // (`!visited.contains(canon)`) skipped the alias case. Both halves have to
+        // hold — the canonical needs a body in THIS bundle, which is why the
+        // bump-class force-enqueue runs per module rather than mini-only.
         let mut tail_alias_pairs: HashSet<(usize, usize)> = HashSet::new();
         // M10-D: extra exports per root, flattened — appended to
         // wasm-ld's `--export` list so the boundary lift can expose
@@ -2828,6 +2834,48 @@ impl RemillTranspiler {
             queue.push_back(TransitiveLiftTarget::Root(root));
         }
 
+        // Bump-class shims (`__rust_alloc` / `__rust_dealloc` / `__rust_realloc`)
+        // are force-enqueued for EVERY module, not just the mini.
+        //
+        // They are reached through indirect calls and tail-jumps — Drop glue,
+        // outlined chains — so nothing in the walk discovers them, and without a
+        // lifted body they never enter `visited`, which is what the alias-thunk
+        // dispatcher case is filtered against. The alias then has no case at all
+        // and an indirect call to it is an unmatched dispatch.
+        //
+        // This lived inside `if is_mini_runtime` and inherited a predicate
+        // written for the OUTLINED epilogue scan below, which has its own
+        // per-module justification. The mini therefore handled `__rust_dealloc`'s
+        // thunk while every other module trapped on it.
+        if let Some(table) = symbol_table::get() {
+            let mut bump = 0usize;
+            for (_a, e) in table.iter() {
+                if !e.classification.is_bump_alloc() {
+                    continue;
+                }
+                queue.push_back(TransitiveLiftTarget::Dep {
+                    name: e.canonical_name.clone(),
+                    addr: e.canonical_addr,
+                    // NOT `e.size`. The PDB size for these shims is unreliable
+                    // because they are ICF-folded: the same 44-byte body carries
+                    // both `__rust_dealloc` and `__rdl_dealloc`, and gap-to-next-
+                    // symbol sizing landed 16 bytes in, inside the
+                    // `mov rsi,[rsi-8]` spanning +0x0e..+0x11. The lift stopped at
+                    // +0x12 and emitted a missing block there.
+                    //
+                    // A larger window is safe: remill follows control flow from
+                    // the entry and stops at the terminator, so bytes past the
+                    // real end are never decoded.
+                    size: e.size.max(super::LIFT_READ_WINDOW),
+                });
+                bump += 1;
+            }
+            eprintln!(
+                "[azul-web]   force-enqueued {bump} bump-class shim(s) (indirect-call \
+                 dispatcher targets) for this module",
+            );
+        }
+
         // WEB-LIFT FIX : force-enqueue ONLY the SP-RESTORING machine-outliner epilogues.
         // These shared `add sp,#N; ret` / `ldp ...,[sp],#N; ret` tails are reached via INDIRECT
         // `br Xn` tail-jumps (register target) that the static scan can't resolve → never lifted →
@@ -2841,37 +2889,6 @@ impl RemillTranspiler {
                 let mut enq = 0usize;
                 let mut bump = 0usize;
                 for (_a, e) in table.iter() {
-                    // FACET 2 : BumpAlloc-class fns (e.g. __rust_dealloc, a noop on the
-                    // bump heap) are reached via INDIRECT calls/tail-jumps (Drop glue / outlined
-                    // chains) but excluded from the dispatcher csynths → __remill_MISSING_BLOCK at
-                    // their synth PC → the fatal `unreachable` (trap PC = __rust_dealloc). Force-
-                    // enqueue them so they're lifted (intercepted noop body) into `visited` → get a
-                    // dispatcher `switch` case → the indirect call routes to the noop instead of unk.
-                    if e.classification.is_bump_alloc() {
-                        queue.push_back(TransitiveLiftTarget::Dep {
-                            name: e.canonical_name.clone(),
-                            addr: e.canonical_addr,
-                            // NOT `e.size`. The PDB size for these shims is
-                            // unreliable because they are ICF-folded: the same
-                            // 44-byte body carries both `__rust_dealloc` and
-                            // `__rdl_dealloc`, and the size heuristic (gap to the
-                            // next symbol in `defined`) landed on a record 16
-                            // bytes in — inside the `mov rsi,[rsi-8]` spanning
-                            // +0x0e..+0x11. The lift then stopped at +0x12 and
-                            // emitted a missing block there, which surfaced as a
-                            // permanent unmatched dispatch at entry+0x12 that no
-                            // dispatcher case could ever satisfy.
-                            //
-                            // A larger window is safe: remill follows control
-                            // flow from the entry and stops at the terminator, so
-                            // bytes past the real end are never decoded. That is
-                            // exactly why LIFT_READ_WINDOW is the existing
-                            // fallback for a zero size.
-                            size: e.size.max(super::LIFT_READ_WINDOW),
-                        });
-                        bump += 1;
-                        continue;
-                    }
                     // FACET 3 : real fns reached ONLY via a JUMP TABLE (indirect blr,
                     // the table fn-ptrs ARE synth-rebased so the dispatcher gets their SYNTH PC) but
                     // never via a direct `bl` → the direct-call discovery misses them → no csynth →
@@ -2948,7 +2965,7 @@ impl RemillTranspiler {
                     }
                 }
                 eprintln!(
-                    "[azul-web]   force-enqueued {} SP-restoring _OUTLINED_FUNCTION_* epilogues + {} BumpAlloc fns (indirect-call dispatcher targets)",
+                    "[azul-web]   force-enqueued {} SP-restoring _OUTLINED_FUNCTION_* epilogues + {} jump-table seed(s) (mini only; the bump-class shims moved to their own per-module pass)",
                     enq, bump
                 );
             }
