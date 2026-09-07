@@ -237,7 +237,11 @@ fn emit_one_register_helper(
     builder.blank();
 }
 
-fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
+/// The ONE inclusion predicate for this binding. `cshim::should_emit_shim_for`
+/// is defined as `should_emit_function(..) && needs_shim(..)`, so a function
+/// can never get a `foreign import "<name>_via"` without the C shim that
+/// defines `<name>_via` (see the 2026-09-07 note there).
+pub(super) fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
     // A trait entry point an api.json `derive` declares is not what the
     // `DestructorOrClone` exclusion below is for. That category is excluded
     // because those types' ordinary methods traffic in callback function
