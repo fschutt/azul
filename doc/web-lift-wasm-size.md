@@ -1254,3 +1254,97 @@ tells were `HTTP 000` and a wasm URL hash identical to the earlier run's.
 **Debug-link runs are wedge-prone.** `--lto-O0` IR is much larger, `llc` runs
 long, and that is what tripped the 314-second `CreateProcess` wedge. Use a normal
 link unless symbol names are genuinely needed.
+
+
+# p0 MEASURED, AND THE DATA MIRROR IS THE FLOOR (run 79)
+
+The first p0 number that passes its gate. Three earlier attempts produced three
+numbers and every one was wrong in the flattering direction, so the gate ran
+first and the size was read only after it passed:
+
+  1. lazy roots must be the expected ones, not a boot entry point;
+  2. eager saving near the independently predicted -29%, not -53%;
+  3. only then is `p0 linked ... brotli` quotable;
+  4. the boot must still be clean.
+
+Roots (1 passes) - all three match `chunk-plan.py` by name, none is `AzStartup_*`:
+
+| chunk | root | fns | MB obj |
+|---|---|---|---|
+| p1 | `azul_layout::window::virtual_view_measure_dom_trampoline` | 514 | 10.38 |
+| p2 | `azwriter::web_state::app_state_from_json` | 271 | 5.05 |
+| p3 | `azul_core::icon::resolve_icons_in_dom_inner` | 22 | 0.43 |
+
+4597 nodes, 1114 roots, 56.14 MB objects; shared by >=2 roots 1374 fns /
+17.76 MB; infrastructure 0.63 MB always eager. Eager core 40.28 of 56.14 MB =
+**-28.3%** (2 passes; the object-byte method predicted -29.1%).
+p0 = 3666 of 4955 objects, 7286 dispatcher cases.
+
+## The artifact is structurally sound, not merely plausibly sized
+
+Run 77's bad p0 was caught only by being implausible, which is not a check. This
+one was compared section by section against the full module:
+
+| | azul-mini | azul-p0 |
+|---|---|---|
+| CODE | 28,111,483 | 19,632,220 |
+| function section | 4,995 B | 3,705 B |
+| exports | 1,121 B | 1,121 B |
+| imports | 831 B | 848 B |
+| DATA | 0 | 0 |
+
+The +17 bytes of imports is the tell that the split is real - p0 imports what it
+no longer contains. It is *small* for the same reason the split is safe: a lazy
+root is a ROOT, so nothing static calls it and p0 needs no new static import for
+it. Entry is via `__az_indirect_dispatch` alone.
+
+## THE RESULT, and the number that matters is not the one asked for
+
+| | raw | brotli q9 |
+|---|---|---|
+| azul-mini, code only (the file on disk is PRE-mirror) | 28,118,620 | 3,772,871 |
+| azul-p0, code only | 19,638,084 | **2,564,371** |
+| **azul-p0, post-mirror - the served equivalent** | **21,707,906** | **3,332,571** |
+| => the data mirror | 2,069,822 | **768,200** |
+
+Chunking is worth about **-26%** off a ~4.5 MB baseline. Against a <1 MB goal p0
+is still **3.3x over**, which is the direction the corroborated ratio predicted;
+the earlier ~2.9 MB estimate was low because it came from run 78's partition,
+which wrongly counted a boot root as lazy.
+
+**The mirror does not move.** p0 mirrors 2,049,743 bytes of content against the
+full module's 2,049,750 - the same data, because it is a mirror of the const
+data the lifted code reads, not of the code. So:
+
+* it compresses **2.69x** where lifted code compresses **7.66x**;
+* it is **23.0% of p0's compressed payload**, up from ~21% of the full module's,
+  and that share **grows with every code win**;
+* it is a **fixed 768 KB floor**. If p0's code went to zero, p0 would still be
+  768 KB. **The mirror alone is 77% of the entire <1 MB budget.**
+
+That reframes the remaining work. Chunking and every code-side lever on the
+backlog are competing for the ~230 KB that the mirror leaves. Either the mirror
+gets much smaller or the target is unreachable, and no amount of lifting less
+code changes that.
+
+Known first candidate inside it, already flagged and still not resolved: the
+fallback font is forced into the mirror (226,812 B, 11% of it) *and* fetched
+separately over the wire by the loader. A TTF is near-incompressible, so it is
+worth roughly 120-150 KB of the 768 KB. Whether both copies are live is a
+question about the guest - whether any lifted function reads the font through
+its original const pointer - not about the loader.
+
+## Method notes
+
+* Both wasm files on disk are PRE-mirror: `patch_wasm_add_data_segments` mutates
+  the in-memory `Vec<u8>` after wasm-ld's output is read back and never writes it
+  out. The Rust's own `p0 linked` line is post-mirror. Mixing the two is the
+  artifact confusion that produced a wrong size table once already.
+* The pre-mirror figures above are the brotli CLI at `-q 9 -w 22`; the Rust uses
+  `CompressorWriter::new(_, 4096, 9, 22)` - same implementation, same quality,
+  same window.
+* `link_objects_to_wasm` already applies the mirror internally, so the p0 link
+  was never missing it; the confusion was only about which file is on disk.
+* p0 takes a non-mini stack relocation (`SP 66576 -> 327680`) because the stem is
+  not "azul-mini". Harmless for a measurement, wrong for a p0 that actually
+  replaces the mini - fix it when the split ships.
