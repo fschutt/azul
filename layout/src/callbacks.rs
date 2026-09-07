@@ -1017,6 +1017,67 @@ pub struct Callback {
 
 impl_callback!(Callback, CallbackType);
 
+/// The one callback shape every resumable API resumes into.
+///
+/// `fn(data, info, result) -> Update`:
+///
+/// * `data` is the `RefAny` the app passed to the request function, returned
+///   untouched - the continuation context.
+/// * `info` is an ordinary `CallbackInfo` for this fresh activation.
+/// * `result` is the per-operation RESULT STRUCT, built by the runtime and
+///   type-erased into a `RefAny`. Every result struct has one static
+///   `downcast(result)` accessor (`FileOpenResult::downcast`, ...) that turns
+///   it back into the typed value.
+///
+/// The callback never runs re-entrantly inside the requesting activation. On
+/// desktop it may run within the same frame; on web it always runs on a later
+/// task.
+pub type ResumeCallbackType = extern "C" fn(
+    /* data: the app's context, exactly as submitted */ RefAny,
+    CallbackInfo,
+    /* result: the type-erased result struct */ RefAny,
+) -> Update;
+
+/// Function-pointer + host-context pair a resumable API function stores until
+/// its result exists. See [`ResumeCallbackType`].
+#[repr(C)]
+pub struct ResumeCallback {
+    pub cb: ResumeCallbackType,
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
+    /// Native Rust code sets this to None
+    pub ctx: OptionRefAny,
+}
+
+impl_callback!(ResumeCallback, ResumeCallbackType);
+
+impl ResumeCallback {
+    /// Create a resume callback from a raw `ResumeCallbackType` function
+    /// pointer (ctx = None). A coercion site, like [`Callback::create`].
+    #[must_use]
+    pub const fn create(cb: ResumeCallbackType) -> Self {
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
+    }
+}
+
+// Host-invoker plumbing for the resume callback: managed runtimes pass a
+// closure as `on_result` to every request function, so this wrapper needs
+// the same `createFromHostHandle` / `set...Invoker` pair `Callback` has.
+azul_core::impl_managed_callback! {
+    wrapper:        ResumeCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: RESUME_CALLBACK_INVOKER,
+    invoker_ty:     AzResumeCallbackInvoker,
+    thunk_fn:       az_resume_callback_thunk,
+    setter_fn:      AzApp_setResumeCallbackInvoker,
+    from_handle_fn: AzResumeCallback_createFromHostHandle,
+    extra_args:     [ result: RefAny ],
+}
+
 // Host-invoker plumbing for managed-FFI bindings (Lua, Ruby, Perl, ...).
 // See `azul_core::host_invoker` for the design. This expands to a static
 // `az_callback_thunk` that the framework dispatches by-value args to, an
