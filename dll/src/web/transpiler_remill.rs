@@ -5285,33 +5285,55 @@ fn inject_user_binary_data_segments(
         // it". Report only — it changes nothing about what is emitted.
         {
             use std::sync::{Mutex, OnceLock};
-            static SEEN: OnceLock<Mutex<std::collections::HashMap<u32, usize>>> =
+            static SEEN: OnceLock<Mutex<std::collections::HashMap<u32, (usize, u64)>>> =
                 OnceLock::new();
             let seen = SEEN.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
             if let Ok(mut seen) = seen.lock() {
-                let (mut dup_segs, mut dup_bytes, mut new_bytes) = (0usize, 0usize, 0usize);
+                // Content-hashed, not just offset+length. Dropping a duplicate
+                // segment is only sound if the earlier module wrote the SAME
+                // bytes, and the pointer rewriting above is per-module: it
+                // translates native→synth, which should be stable across modules,
+                // but "should be" is exactly the assumption that has to be
+                // measured before anything is deleted. A CONFLICT count above
+                // zero means the two modules disagree about what belongs at an
+                // address, and the whole idea is dead.
+                let (mut dup, mut dup_b) = (0usize, 0usize);
+                let (mut conflict, mut conflict_b) = (0usize, 0usize);
+                let mut new_b = 0usize;
                 for (off, bytes) in segments.iter() {
+                    let h = bytes.iter().fold(0xcbf29ce484222325u64, |a, b| {
+                        (a ^ *b as u64).wrapping_mul(0x100000001b3)
+                    });
                     match seen.get(off) {
-                        Some(prev) if *prev == bytes.len() => {
-                            dup_segs += 1;
-                            dup_bytes += bytes.len();
+                        Some((len, hash)) if *len == bytes.len() && *hash == h => {
+                            dup += 1;
+                            dup_b += bytes.len();
                         }
-                        _ => {
-                            new_bytes += bytes.len();
-                            seen.insert(*off, bytes.len());
+                        Some(_) => {
+                            conflict += 1;
+                            conflict_b += bytes.len();
+                            new_b += bytes.len();
+                            seen.insert(*off, (bytes.len(), h));
+                        }
+                        None => {
+                            new_b += bytes.len();
+                            seen.insert(*off, (bytes.len(), h));
                         }
                     }
                 }
                 eprintln!(
-                    "[azul-web] MIRROR-DUP ({}): {} of {} segment(s) already mirrored by an \
-                     earlier module — {} of {} bytes ({:.1}%) are a second copy; {} new",
+                    "[azul-web] MIRROR-DUP ({}): {} of {} segment(s) BYTE-IDENTICAL to an \
+                     earlier module's — {} of {} bytes ({:.1}%); {} new, {} CONFLICT \
+                     ({} bytes, same address different content)",
                     output_stem,
-                    dup_segs,
+                    dup,
                     segments.len(),
-                    dup_bytes,
+                    dup_b,
                     total_bytes,
-                    100.0 * dup_bytes as f64 / total_bytes.max(1) as f64,
-                    new_bytes,
+                    100.0 * dup_b as f64 / total_bytes.max(1) as f64,
+                    new_b,
+                    conflict,
+                    conflict_b,
                 );
             }
         }
