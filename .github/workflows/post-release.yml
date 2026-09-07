@@ -354,10 +354,10 @@ jobs:
           ghc-version: "9.6"
           cabal-version: "3.10"
 
-      # The C / C++ tabs document a Scoop route (Chocolatey is preinstalled
-      # on the runner; Scoop is not). Installed the way its site says to.
-      - name: Scoop (Windows; the documented Scoop route needs it)
-        if: runner.os == 'Windows' && (matrix.lang == 'c' || matrix.lang == 'cpp')
+      # Several tabs document a Scoop route (Chocolatey is preinstalled on
+      # the runner; Scoop is not). Installed the way its site says to.
+      - name: Scoop (Windows; the documented Scoop routes need it)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Invoke-RestMethod get.scoop.sh -OutFile "$env:RUNNER_TEMP\install-scoop.ps1"

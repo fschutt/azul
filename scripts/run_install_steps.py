@@ -29,7 +29,8 @@ script fails if any of them fails, and says which.
 
 Unix steps run under bash (`sudo` is shimmed to a no-op when already root, so
 the apt steps work in a container). Windows steps run under Git Bash, or
-under cmd.exe when they use cmd-isms (%VAR%, `set `, `ren `, `call `, `copy `).
+under cmd.exe when they use cmd-isms (%VAR%, `set `, `ren `, `call `, `copy `,
+a backslash path such as `.cargo\\config.toml`, or an `(echo ...)` group).
 """
 import argparse, json, os, re, shutil, subprocess, sys, tempfile
 
@@ -90,7 +91,7 @@ def run_route(v):
 
     cmds = [interp(s["content"]) for s in steps if s["type"] == "command"]
     win = a.platform == "windows"
-    use_cmd = win and any(re.search(r"%[A-Za-z_]+%|(^|\s)set\s+\w+=|^(ren|call|copy)\s", c, re.M) for c in cmds)
+    use_cmd = win and any(re.search(r"%[A-Za-z_]+%|(^|\s)set\s+\w+=|^(ren|call|copy)\s|\w\\[\w.]|\(echo\s", c, re.M) for c in cmds)
 
     lines = []
     if use_cmd:

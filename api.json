@@ -3963,8 +3963,42 @@
                     "displayName": "OCaml",
                     "install": [
                         {
-                            "id": "linux-opam",
-                            "label": "Linux (opam)",
+                            "id": "linux-apt",
+                            "label": "Linux (apt)",
+                            "os": [
+                                "linux"
+                            ],
+                            "description": "Debian / Ubuntu: install libazul from the self-hosted apt repository (the binding dlopens libazul.so from /usr/lib), install ctypes with opam, then build the generated bindings with dune",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "sudo apt update && sudo apt install azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "opam install ctypes ctypes-foreign dune"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "dune exec ./hello_world.exe"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "linux-manual",
+                            "label": "Linux (manual download)",
                             "os": [
                                 "linux"
                             ],
@@ -3993,8 +4027,42 @@
                             ]
                         },
                         {
-                            "id": "macos-opam",
-                            "label": "macOS (opam)",
+                            "id": "macos-brew",
+                            "label": "macOS (Homebrew)",
+                            "os": [
+                                "macos"
+                            ],
+                            "description": "Install libazul.dylib from the self-hosted Homebrew tap, install ctypes with opam, then build with dune; the binding dlopens libazul.dylib, so the run points DYLD_LIBRARY_PATH at the Homebrew prefix",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "brew install fschutt/azul/azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "opam install ctypes ctypes-foreign dune"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "DYLD_LIBRARY_PATH=\"$(brew --prefix)/lib\" dune exec ./hello_world.exe"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "macos-manual",
+                            "label": "macOS (manual download)",
                             "os": [
                                 "macos"
                             ],
@@ -4023,8 +4091,8 @@
                             ]
                         },
                         {
-                            "id": "windows-opam",
-                            "label": "Windows (opam)",
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
@@ -4045,6 +4113,82 @@
                                 {
                                     "type": "command",
                                     "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "dune exec ./hello_world.exe"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "windows-scoop",
+                            "label": "Windows (Scoop)",
+                            "os": [
+                                "windows"
+                            ],
+                            "description": "Install azul.dll from the self-hosted Scoop bucket, install ctypes with opam, build with dune, and copy azul.dll next to the executable (the binding dlopens it by name)",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "scoop bucket add azul $HOSTNAME/ui/scoop.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "scoop install azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "opam install ctypes ctypes-foreign dune"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy %USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "dune exec ./hello_world.exe"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "windows-choco",
+                            "label": "Windows (Chocolatey)",
+                            "os": [
+                                "windows"
+                            ],
+                            "description": "Install azul.dll from the self-hosted NuGet feed (the package sets AZ_LINK_PATH), install ctypes with opam, build with dune, and copy azul.dll next to the executable",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "call refreshenv"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "opam install ctypes ctypes-foreign dune"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
                                 },
                                 {
                                     "type": "command",
@@ -4831,10 +4975,8 @@
                                     "content": "cargo new hello-azul && cd hello-azul"
                                 },
                                 {
-                                    "type": "code",
-                                    "language": "toml",
-                                    "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }",
-                                    "file": ".cargo/config.toml"
+                                    "type": "command",
+                                    "content": "mkdir -p .cargo && printf '[registries]\\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }\\n' > .cargo/config.toml"
                                 },
                                 {
                                     "type": "command",
@@ -4875,10 +5017,8 @@
                                     "content": "cargo new hello-azul && cd hello-azul"
                                 },
                                 {
-                                    "type": "code",
-                                    "language": "toml",
-                                    "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }",
-                                    "file": ".cargo/config.toml"
+                                    "type": "command",
+                                    "content": "mkdir -p .cargo && printf '[registries]\\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }\\n' > .cargo/config.toml"
                                 },
                                 {
                                     "type": "command",
@@ -4907,10 +5047,8 @@
                                     "content": "cargo new hello-azul && cd hello-azul"
                                 },
                                 {
-                                    "type": "code",
-                                    "language": "toml",
-                                    "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }",
-                                    "file": ".cargo/config.toml"
+                                    "type": "command",
+                                    "content": "mkdir .cargo & (echo [registries]& echo azul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }) > .cargo\\config.toml"
                                 },
                                 {
                                     "type": "command",
