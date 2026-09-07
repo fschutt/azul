@@ -23878,34 +23878,6 @@
                         ],
                         "repr": "C"
                     },
-                    "XmlTagName": {
-                        "doc": [
-                            "Tag of an XML node, such as the \"button\" in `<button>Hello</button>`."
-                        ],
-                        "external": "azul_core::xml::XmlTagName",
-                        "custom_impls": [
-                            "Deref",
-                            "From"
-                        ],
-                        "derive": [
-                            "Clone",
-                            "Debug",
-                            "Default",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "inner": {
-                                    "type": "String"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "CheckBoxOnToggleCallback": {
                         "external": "azul_layout::widgets::check_box::CheckBoxOnToggleCallback",
                         "custom_impls": [
@@ -28200,33 +28172,6 @@
                             }
                         ],
                         "repr": "C"
-                    },
-                    "NativeGestureEvent": {
-                        "external": "azul_layout::managers::gesture::NativeGestureEvent",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "DoubleClick": {},
-                                "LongPress": {
-                                    "type": "DetectedLongPress"
-                                },
-                                "Swipe": {
-                                    "type": "GestureDirection"
-                                },
-                                "Pinch": {
-                                    "type": "DetectedPinch"
-                                },
-                                "Rotation": {
-                                    "type": "DetectedRotation"
-                                }
-                            }
-                        ],
-                        "repr": "C, u8"
                     },
                     "IdentifiedSelection": {
                         "external": "azul_core::selection::IdentifiedSelection",
@@ -41441,26 +41386,6 @@
                             "T"
                         ]
                     },
-                    "FontDatabase": {
-                        "external": "azul_core::svg::FontDatabase",
-                        "derive": [
-                            "Hash",
-                            "PartialEq",
-                            "Eq",
-                            "Copy",
-                            "PartialOrd",
-                            "Clone",
-                            "Debug",
-                            "Ord"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Empty": {},
-                                "System": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "StyledDom": {
                         "priority": 90.0,
                         "external": "azul_core::styled_dom::StyledDom",
@@ -43653,78 +43578,6 @@
                             ]
                         }
                     },
-                    "FontLoadingConfig": {
-                        "doc": [
-                            "Configuration for how fonts should be loaded at app startup."
-                        ],
-                        "external": "azul_core::resources::FontLoadingConfig",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "LoadAllSystemFonts": {},
-                                "LoadOnlyFamilies": {
-                                    "type": "StringVec"
-                                },
-                                "BundledFontsOnly": {}
-                            }
-                        ],
-                        "repr": "C, u8"
-                    },
-                    "NamedFont": {
-                        "doc": [
-                            "A named font bundled with the application (name + raw bytes).",
-                            "The name is used to reference the font in CSS (e.g. font-family: \"MyFont\")."
-                        ],
-                        "external": "azul_core::resources::NamedFont",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "name": {
-                                    "type": "String",
-                                    "doc": [
-                                        "The font family name to use in CSS (e.g. \"Roboto\", \"MyCustomFont\")"
-                                    ]
-                                },
-                                "bytes": {
-                                    "type": "U8Vec",
-                                    "doc": [
-                                        "Raw font file bytes (TTF, OTF, etc.)"
-                                    ]
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "create": {
-                                "fn_args": [
-                                    {
-                                        "name": "String"
-                                    },
-                                    {
-                                        "bytes": "U8Vec"
-                                    }
-                                ],
-                                "fn_body": "azul_core::resources::NamedFont::new(name, bytes)"
-                            }
-                        },
-                        "repr": "C"
-                    },
                     "GridTrackSizingVecSlice": {
                         "external": "azul_css::props::layout::grid::GridTrackSizingVecSlice",
                         "derive": [
@@ -44174,32 +44027,6 @@
                             {
                                 "ptr": {
                                     "type": "StyleBackgroundRepeat",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "NamedFontVecSlice": {
-                        "external": "azul_core::resources::NamedFontVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "NamedFont",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -49014,30 +48841,6 @@
                         ],
                         "repr": "C, u8"
                     },
-                    "FileTypeList": {
-                        "doc": [
-                            "List of file extension patterns and a human-readable descriptor used to filter a file dialog."
-                        ],
-                        "external": "azul_layout::desktop::dialogs::FileTypeList",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "PartialOrd",
-                            "Eq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "document_types": {
-                                    "type": "StringVec"
-                                },
-                                "document_descriptor": {
-                                    "type": "String"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "RelayoutReason": {
                         "doc": [
                             "What triggered the current `layout()` invocation.",
@@ -49463,62 +49266,6 @@
                                 "Alphabetic": {}
                             }
                         ],
-                        "repr": "C"
-                    },
-                    "FontCacheSnapshot": {
-                        "doc": [
-                            "Boxed snapshot of a window's font resolution state (shared parsed-font pool,",
-                            "resolved fallback chains, embedded fonts). Obtain via",
-                            "`CallbackInfo.get_font_cache_clone()`; hand to `Pdf.from_styled_dom_with_resources()`.",
-                            "Cloning shares the pool (cheap); valid after the callback returns (off-thread ok)."
-                        ],
-                        "external": "azul_layout::resource_handles::FontCacheSnapshot",
-                        "custom_impls": [
-                            "Clone",
-                            "Drop"
-                        ],
-                        "derive": [
-                            "Debug"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "c_void",
-                                    "ref_kind": "mutptr"
-                                }
-                            },
-                            {
-                                "run_destructor": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "from_layout_info": {
-                                "doc": [
-                                    "Wrap a font manager into an ABI handle.",
-                                    "Snapshot for use inside a LAYOUT callback: builds family resolution +",
-                                    "fallback chains over the system font cache the callback exposes. No",
-                                    "per-window embedded fonts exist yet at layout time, so nothing is",
-                                    "lost versus `CallbackInfo::get_font_cache_clone` - this is the",
-                                    "off-thread-pagination input an app can hand to",
-                                    "`Pdf::compute_pagination` without ever seeing the internal manager."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "info": "*const LayoutCallbackInfo"
-                                    }
-                                ],
-                                "fn_body": "azul_layout::resource_handles::FontCacheSnapshot::from_layout_info(unsafe { &*info })"
-                            },
-                            "empty": {
-                                "doc": [
-                                    "An empty handle (also what the non-`text_layout` build returns)."
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_layout::resource_handles::FontCacheSnapshot::empty()"
-                            }
-                        },
                         "repr": "C"
                     },
                     "Handedness": {
@@ -55478,29 +55225,6 @@
                         },
                         "repr": "C"
                     },
-                    "VideoFrame": {
-                        "external": "azul_core::video::VideoFrame",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "width": {
-                                    "type": "u32"
-                                },
-                                "height": {
-                                    "type": "u32"
-                                },
-                                "bytes": {
-                                    "type": "U8Vec"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "OnVideoFrame": {
                         "external": "azul_layout::widgets::capture_common::OnVideoFrame",
                         "custom_impls": [
@@ -55735,70 +55459,6 @@
                                 "fn_body": "object.dom()"
                             }
                         },
-                        "repr": "C"
-                    },
-                    "AudioFrame": {
-                        "external": "azul_core::audio::AudioFrame",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "struct_fields": [
-                            {
-                                "sample_rate": {
-                                    "type": "u32"
-                                },
-                                "channels": {
-                                    "type": "u16"
-                                },
-                                "samples": {
-                                    "type": "F32Vec"
-                                }
-                            }
-                        ],
-                        "functions": {
-                            "frame_count": {
-                                "doc": [
-                                    "Number of sample *frames* (samples per channel) in this chunk."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "object.frame_count()"
-                            }
-                        },
-                        "repr": "C"
-                    },
-                    "VideoFrameVecSlice": {
-                        "external": "azul_core::video::VideoFrameVecSlice",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "Copy"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "VideoFrame",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
-                                }
-                            }
-                        ],
                         "repr": "C"
                     },
                     "Switch": {
@@ -79790,6 +79450,180 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "FontCacheSnapshot": {
+                        "doc": [
+                            "Boxed snapshot of a window's font resolution state (shared parsed-font pool,",
+                            "resolved fallback chains, embedded fonts). Obtain via",
+                            "`CallbackInfo.get_font_cache_clone()`; hand to `Pdf.from_styled_dom_with_resources()`.",
+                            "Cloning shares the pool (cheap); valid after the callback returns (off-thread ok)."
+                        ],
+                        "external": "azul_layout::resource_handles::FontCacheSnapshot",
+                        "custom_impls": [
+                            "Clone",
+                            "Drop"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                }
+                            },
+                            {
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "from_layout_info": {
+                                "doc": [
+                                    "Wrap a font manager into an ABI handle.",
+                                    "Snapshot for use inside a LAYOUT callback: builds family resolution +",
+                                    "fallback chains over the system font cache the callback exposes. No",
+                                    "per-window embedded fonts exist yet at layout time, so nothing is",
+                                    "lost versus `CallbackInfo::get_font_cache_clone` - this is the",
+                                    "off-thread-pagination input an app can hand to",
+                                    "`Pdf::compute_pagination` without ever seeing the internal manager."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "info": "*const LayoutCallbackInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::resource_handles::FontCacheSnapshot::from_layout_info(unsafe { &*info })"
+                            },
+                            "empty": {
+                                "doc": [
+                                    "An empty handle (also what the non-`text_layout` build returns)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::resource_handles::FontCacheSnapshot::empty()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "NamedFontVecSlice": {
+                        "external": "azul_core::resources::NamedFontVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "NamedFont",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NamedFont": {
+                        "doc": [
+                            "A named font bundled with the application (name + raw bytes).",
+                            "The name is used to reference the font in CSS (e.g. font-family: \"MyFont\")."
+                        ],
+                        "external": "azul_core::resources::NamedFont",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String",
+                                    "doc": [
+                                        "The font family name to use in CSS (e.g. \"Roboto\", \"MyCustomFont\")"
+                                    ]
+                                },
+                                "bytes": {
+                                    "type": "U8Vec",
+                                    "doc": [
+                                        "Raw font file bytes (TTF, OTF, etc.)"
+                                    ]
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "fn_args": [
+                                    {
+                                        "name": "String"
+                                    },
+                                    {
+                                        "bytes": "U8Vec"
+                                    }
+                                ],
+                                "fn_body": "azul_core::resources::NamedFont::new(name, bytes)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FontLoadingConfig": {
+                        "doc": [
+                            "Configuration for how fonts should be loaded at app startup."
+                        ],
+                        "external": "azul_core::resources::FontLoadingConfig",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "LoadAllSystemFonts": {},
+                                "LoadOnlyFamilies": {
+                                    "type": "StringVec"
+                                },
+                                "BundledFontsOnly": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "FontDatabase": {
+                        "external": "azul_core::svg::FontDatabase",
+                        "derive": [
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "Copy",
+                            "PartialOrd",
+                            "Clone",
+                            "Debug",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Empty": {},
+                                "System": {}
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -80280,640 +80114,6 @@
                                 }
                             }
                         ],
-                        "repr": "C"
-                    },
-                    "FilePath": {
-                        "priority": 26.0,
-                        "external": "azul_layout::file::FilePath",
-                        "custom_impls": [
-                            "Default",
-                            "From"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "inner": {
-                                    "type": "String"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "create": {
-                                "doc": [
-                                    "Creates a new path from a string"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "path": "String"
-                                    }
-                                ],
-                                "fn_body": "azul_layout::file::FilePath::new(path)"
-                            },
-                            "empty": {
-                                "doc": [
-                                    "Creates an empty path"
-                                ],
-                                "fn_args": [],
-                                "fn_body": "azul_layout::file::FilePath::empty()"
-                            },
-                            "from_str": {
-                                "doc": [
-                                    "Creates a path from a string slice"
-                                ],
-                                "priority": 92.0,
-                                "fn_args": [
-                                    {
-                                        "s": "String"
-                                    }
-                                ],
-                                "fn_body": "azul_layout::file::FilePath::from_str(s.as_str())"
-                            },
-                            "get_temp_dir": {
-                                "doc": [
-                                    "Returns the system temporary directory"
-                                ],
-                                "priority": 70.0,
-                                "fn_args": [],
-                                "fn_body": "azul_layout::file::FilePath::get_temp_dir()"
-                            },
-                            "get_current_dir": {
-                                "doc": [
-                                    "Returns the current working directory"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "ResultFilePathFileError"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_current_dir().into()"
-                            },
-                            "get_home_dir": {
-                                "doc": [
-                                    "Returns the user's home directory (e.g., /home/username on Linux, C:\\Users\\username on Windows)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_home_dir().into()"
-                            },
-                            "get_cache_dir": {
-                                "doc": [
-                                    "Returns the user's cache directory (e.g., ~/.cache on Linux, ~/Library/Caches on macOS)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_cache_dir().into()"
-                            },
-                            "get_config_dir": {
-                                "doc": [
-                                    "Returns the user's config directory (e.g., ~/.config on Linux, ~/Library/Application Support on macOS)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_config_dir().into()"
-                            },
-                            "get_config_local_dir": {
-                                "doc": [
-                                    "Returns the user's local config directory"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_config_local_dir().into()"
-                            },
-                            "get_data_dir": {
-                                "doc": [
-                                    "Returns the user's data directory (e.g., ~/.local/share on Linux, ~/Library/Application Support on macOS)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_data_dir().into()"
-                            },
-                            "get_data_local_dir": {
-                                "doc": [
-                                    "Returns the user's local data directory"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_data_local_dir().into()"
-                            },
-                            "get_desktop_dir": {
-                                "doc": [
-                                    "Returns the user's desktop directory (e.g., ~/Desktop)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_desktop_dir().into()"
-                            },
-                            "get_document_dir": {
-                                "doc": [
-                                    "Returns the user's documents directory (e.g., ~/Documents)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_document_dir().into()"
-                            },
-                            "get_download_dir": {
-                                "doc": [
-                                    "Returns the user's downloads directory (e.g., ~/Downloads)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_download_dir().into()"
-                            },
-                            "get_executable_dir": {
-                                "doc": [
-                                    "Returns the user's executable directory (e.g., ~/.local/bin on Linux)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_executable_dir().into()"
-                            },
-                            "get_font_dir": {
-                                "doc": [
-                                    "Returns the user's font directory (e.g., ~/.local/share/fonts on Linux, ~/Library/Fonts on macOS)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_font_dir().into()"
-                            },
-                            "get_picture_dir": {
-                                "doc": [
-                                    "Returns the user's pictures directory (e.g., ~/Pictures)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_picture_dir().into()"
-                            },
-                            "get_preference_dir": {
-                                "doc": [
-                                    "Returns the user's preference directory (e.g., ~/.config on Linux, ~/Library/Preferences on macOS)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_preference_dir().into()"
-                            },
-                            "get_public_dir": {
-                                "doc": [
-                                    "Returns the user's public directory (e.g., ~/Public)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_public_dir().into()"
-                            },
-                            "get_runtime_dir": {
-                                "doc": [
-                                    "Returns the user's runtime directory (e.g., /run/user/1000 on Linux)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_runtime_dir().into()"
-                            },
-                            "get_state_dir": {
-                                "doc": [
-                                    "Returns the user's state directory (e.g., ~/.local/state on Linux)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_state_dir().into()"
-                            },
-                            "get_audio_dir": {
-                                "doc": [
-                                    "Returns the user's audio directory (e.g., ~/Music)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_audio_dir().into()"
-                            },
-                            "get_video_dir": {
-                                "doc": [
-                                    "Returns the user's video directory (e.g., ~/Videos)"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_video_dir().into()"
-                            },
-                            "get_template_dir": {
-                                "doc": [
-                                    "Returns the user's templates directory"
-                                ],
-                                "fn_args": [],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "azul_layout::file::FilePath::get_template_dir().into()"
-                            },
-                            "from": {
-                                "fn_args": [
-                                    {
-                                        "s": "String"
-                                    }
-                                ],
-                                "fn_body": "azul_layout::file::FilePath::from(s)"
-                            }
-                        },
-                        "functions": {
-                            "join": {
-                                "doc": [
-                                    "Joins this path with another path component"
-                                ],
-                                "priority": 80.0,
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "other": "FilePath"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "FilePath"
-                                },
-                                "fn_body": "object.join(&other)"
-                            },
-                            "join_str": {
-                                "doc": [
-                                    "Joins this path with a string component  "
-                                ],
-                                "priority": 76.0,
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "component": "String"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "FilePath"
-                                },
-                                "fn_body": "object.join_str(&component)"
-                            },
-                            "parent": {
-                                "doc": [
-                                    "Returns the parent directory of this path"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionFilePath"
-                                },
-                                "fn_body": "object.parent().into()"
-                            },
-                            "file_name": {
-                                "doc": [
-                                    "Returns the file name component of this path"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionString"
-                                },
-                                "fn_body": "object.file_name().into()"
-                            },
-                            "extension": {
-                                "doc": [
-                                    "Returns the file extension of this path"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionString"
-                                },
-                                "fn_body": "object.extension().into()"
-                            },
-                            "exists": {
-                                "doc": [
-                                    "Checks if the path exists on the filesystem"
-                                ],
-                                "priority": 82.0,
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.exists()"
-                            },
-                            "is_file": {
-                                "doc": [
-                                    "Checks if the path is a file"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.is_file()"
-                            },
-                            "is_dir": {
-                                "doc": [
-                                    "Checks if the path is a directory"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.is_dir()"
-                            },
-                            "is_absolute": {
-                                "doc": [
-                                    "Checks if the path is absolute"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.is_absolute()"
-                            },
-                            "create_dir_all": {
-                                "doc": [
-                                    "Creates this directory and all parent directories"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultEmptyStructFileError"
-                                },
-                                "fn_body": "object.create_dir_all().into()"
-                            },
-                            "create_dir": {
-                                "doc": [
-                                    "Creates this directory (parent must exist)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultEmptyStructFileError"
-                                },
-                                "fn_body": "object.create_dir().into()"
-                            },
-                            "remove_file": {
-                                "doc": [
-                                    "Removes this file"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultEmptyStructFileError"
-                                },
-                                "fn_body": "object.remove_file().into()"
-                            },
-                            "remove_dir": {
-                                "doc": [
-                                    "Removes this directory (must be empty)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultEmptyStructFileError"
-                                },
-                                "fn_body": "object.remove_dir().into()"
-                            },
-                            "remove_dir_all": {
-                                "doc": [
-                                    "Removes this directory and all contents"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultEmptyStructFileError"
-                                },
-                                "fn_body": "object.remove_dir_all().into()"
-                            },
-                            "read_bytes": {
-                                "doc": [
-                                    "Reads the entire file at this path as bytes"
-                                ],
-                                "priority": 74.0,
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultU8VecFileError"
-                                },
-                                "fn_body": "object.read_bytes().into()"
-                            },
-                            "read_string": {
-                                "doc": [
-                                    "Reads the entire file at this path as a string"
-                                ],
-                                "priority": 88.0,
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultStringFileError"
-                                },
-                                "fn_body": "object.read_string().into()"
-                            },
-                            "write_bytes": {
-                                "doc": [
-                                    "Writes bytes to the file at this path"
-                                ],
-                                "priority": 72.0,
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "data": "U8Vec"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultEmptyStructFileError"
-                                },
-                                "fn_body": "object.write_bytes(&data).into()"
-                            },
-                            "write_string": {
-                                "doc": [
-                                    "Writes a string to the file at this path"
-                                ],
-                                "priority": 86.0,
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "data": "String"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultEmptyStructFileError"
-                                },
-                                "fn_body": "object.write_string(&data).into()"
-                            },
-                            "copy_to": {
-                                "doc": [
-                                    "Copies a file from this path to another path"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "dest": "FilePath"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "Resultu64FileError"
-                                },
-                                "fn_body": "object.copy_to(&dest).into()"
-                            },
-                            "rename_to": {
-                                "doc": [
-                                    "Renames/moves a file from this path to another path"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "dest": "FilePath"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultEmptyStructFileError"
-                                },
-                                "fn_body": "object.rename_to(&dest).into()"
-                            },
-                            "as_string": {
-                                "doc": [
-                                    "Returns the path as an AzString"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "String"
-                                },
-                                "fn_body": "object.as_string().into()"
-                            },
-                            "read_dir": {
-                                "doc": [
-                                    "Lists directory contents"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultDirEntryVecFileError"
-                                },
-                                "fn_body": "object.read_dir().into()"
-                            },
-                            "metadata": {
-                                "doc": [
-                                    "Returns metadata about the file/directory"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultFileMetadataFileError"
-                                },
-                                "fn_body": "object.metadata().into()"
-                            },
-                            "canonicalize": {
-                                "doc": [
-                                    "Makes the path canonical (absolute, with no `.` or `..` components)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "ResultFilePathFileError"
-                                },
-                                "fn_body": "object.canonicalize().into()"
-                            }
-                        },
                         "repr": "C"
                     },
                     "CssPathSelectorVecSlice": {
@@ -82364,6 +81564,34 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "XmlTagName": {
+                        "doc": [
+                            "Tag of an XML node, such as the \"button\" in `<button>Hello</button>`."
+                        ],
+                        "external": "azul_core::xml::XmlTagName",
+                        "custom_impls": [
+                            "Deref",
+                            "From"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Default",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -115998,91 +115226,6 @@
                         ],
                         "repr": "C"
                     },
-                    "FluentZipLoadResult": {
-                        "external": "azul_layout::fluent::FluentZipLoadResult",
-                        "derive": [
-                            "Debug",
-                            "Clone"
-                        ],
-                        "struct_fields": [
-                            {
-                                "files_loaded": {
-                                    "type": "usize"
-                                },
-                                "files_failed": {
-                                    "type": "usize"
-                                },
-                                "errors": {
-                                    "type": "FluentLoadErrorVec"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "FluentSyntaxCheckResult": {
-                        "external": "azul_layout::fluent::FluentSyntaxCheckResult",
-                        "derive": [
-                            "Debug",
-                            "Clone",
-                            "PartialEq"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Ok": {},
-                                "Errors": {
-                                    "type": "StringVec"
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "checkSyntax": {
-                                "doc": [
-                                    "Check the syntax of a Fluent (FTL) string.",
-                                    "",
-                                    "Returns Ok if valid, or Errors with a list of error strings.",
-                                    "Each error string has the format 'line:column: message'."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "source": "String"
-                                    }
-                                ],
-                                "fn_body": "azul_layout::fluent::check_fluent_syntax(source.as_str())"
-                            },
-                            "checkSyntaxBytes": {
-                                "doc": [
-                                    "Check the syntax of a Fluent (FTL) file from bytes.",
-                                    "",
-                                    "Returns Ok if valid, or Errors with a list of error strings."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "data": "U8VecRef"
-                                    }
-                                ],
-                                "fn_body": "azul_layout::fluent::check_fluent_syntax_bytes(data.as_slice())"
-                            }
-                        },
-                        "functions": {
-                            "getErrors": {
-                                "doc": [
-                                    "Get the error strings if this is an Errors result.",
-                                    "",
-                                    "Returns None if this is Ok."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "OptionStringVec"
-                                },
-                                "fn_body": "fluentsyntaxcheckresult.get_errors()"
-                            }
-                        },
-                        "repr": "C, u8"
-                    },
                     "HttpResponseTooLargeError": {
                         "external": "azul_layout::http::HttpResponseTooLargeError",
                         "derive": [
@@ -119472,6 +118615,91 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "FluentSyntaxCheckResult": {
+                        "external": "azul_layout::fluent::FluentSyntaxCheckResult",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ok": {},
+                                "Errors": {
+                                    "type": "StringVec"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "checkSyntax": {
+                                "doc": [
+                                    "Check the syntax of a Fluent (FTL) string.",
+                                    "",
+                                    "Returns Ok if valid, or Errors with a list of error strings.",
+                                    "Each error string has the format 'line:column: message'."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "source": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::fluent::check_fluent_syntax(source.as_str())"
+                            },
+                            "checkSyntaxBytes": {
+                                "doc": [
+                                    "Check the syntax of a Fluent (FTL) file from bytes.",
+                                    "",
+                                    "Returns Ok if valid, or Errors with a list of error strings."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "data": "U8VecRef"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::fluent::check_fluent_syntax_bytes(data.as_slice())"
+                            }
+                        },
+                        "functions": {
+                            "getErrors": {
+                                "doc": [
+                                    "Get the error strings if this is an Errors result.",
+                                    "",
+                                    "Returns None if this is Ok."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionStringVec"
+                                },
+                                "fn_body": "fluentsyntaxcheckresult.get_errors()"
+                            }
+                        },
+                        "repr": "C, u8"
+                    },
+                    "FluentZipLoadResult": {
+                        "external": "azul_layout::fluent::FluentZipLoadResult",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "files_loaded": {
+                                    "type": "usize"
+                                },
+                                "files_failed": {
+                                    "type": "usize"
+                                },
+                                "errors": {
+                                    "type": "FluentLoadErrorVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -121390,6 +120618,55 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "VideoFrameVecSlice": {
+                        "external": "azul_core::video::VideoFrameVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "VideoFrame",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "VideoFrame": {
+                        "external": "azul_core::video::VideoFrame",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "height": {
+                                    "type": "u32"
+                                },
+                                "bytes": {
+                                    "type": "U8Vec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -121795,6 +121072,33 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "NativeGestureEvent": {
+                        "external": "azul_layout::managers::gesture::NativeGestureEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DoubleClick": {},
+                                "LongPress": {
+                                    "type": "DetectedLongPress"
+                                },
+                                "Swipe": {
+                                    "type": "GestureDirection"
+                                },
+                                "Pinch": {
+                                    "type": "DetectedPinch"
+                                },
+                                "Rotation": {
+                                    "type": "DetectedRotation"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -122980,6 +122284,664 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "FilePath": {
+                        "priority": 26.0,
+                        "external": "azul_layout::file::FilePath",
+                        "custom_impls": [
+                            "Default",
+                            "From"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "Creates a new path from a string"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "path": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::file::FilePath::new(path)"
+                            },
+                            "empty": {
+                                "doc": [
+                                    "Creates an empty path"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::file::FilePath::empty()"
+                            },
+                            "from_str": {
+                                "doc": [
+                                    "Creates a path from a string slice"
+                                ],
+                                "priority": 92.0,
+                                "fn_args": [
+                                    {
+                                        "s": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::file::FilePath::from_str(s.as_str())"
+                            },
+                            "get_temp_dir": {
+                                "doc": [
+                                    "Returns the system temporary directory"
+                                ],
+                                "priority": 70.0,
+                                "fn_args": [],
+                                "fn_body": "azul_layout::file::FilePath::get_temp_dir()"
+                            },
+                            "get_current_dir": {
+                                "doc": [
+                                    "Returns the current working directory"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "ResultFilePathFileError"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_current_dir().into()"
+                            },
+                            "get_home_dir": {
+                                "doc": [
+                                    "Returns the user's home directory (e.g., /home/username on Linux, C:\\Users\\username on Windows)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_home_dir().into()"
+                            },
+                            "get_cache_dir": {
+                                "doc": [
+                                    "Returns the user's cache directory (e.g., ~/.cache on Linux, ~/Library/Caches on macOS)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_cache_dir().into()"
+                            },
+                            "get_config_dir": {
+                                "doc": [
+                                    "Returns the user's config directory (e.g., ~/.config on Linux, ~/Library/Application Support on macOS)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_config_dir().into()"
+                            },
+                            "get_config_local_dir": {
+                                "doc": [
+                                    "Returns the user's local config directory"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_config_local_dir().into()"
+                            },
+                            "get_data_dir": {
+                                "doc": [
+                                    "Returns the user's data directory (e.g., ~/.local/share on Linux, ~/Library/Application Support on macOS)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_data_dir().into()"
+                            },
+                            "get_data_local_dir": {
+                                "doc": [
+                                    "Returns the user's local data directory"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_data_local_dir().into()"
+                            },
+                            "get_desktop_dir": {
+                                "doc": [
+                                    "Returns the user's desktop directory (e.g., ~/Desktop)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_desktop_dir().into()"
+                            },
+                            "get_document_dir": {
+                                "doc": [
+                                    "Returns the user's documents directory (e.g., ~/Documents)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_document_dir().into()"
+                            },
+                            "get_download_dir": {
+                                "doc": [
+                                    "Returns the user's downloads directory (e.g., ~/Downloads)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_download_dir().into()"
+                            },
+                            "get_executable_dir": {
+                                "doc": [
+                                    "Returns the user's executable directory (e.g., ~/.local/bin on Linux)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_executable_dir().into()"
+                            },
+                            "get_font_dir": {
+                                "doc": [
+                                    "Returns the user's font directory (e.g., ~/.local/share/fonts on Linux, ~/Library/Fonts on macOS)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_font_dir().into()"
+                            },
+                            "get_picture_dir": {
+                                "doc": [
+                                    "Returns the user's pictures directory (e.g., ~/Pictures)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_picture_dir().into()"
+                            },
+                            "get_preference_dir": {
+                                "doc": [
+                                    "Returns the user's preference directory (e.g., ~/.config on Linux, ~/Library/Preferences on macOS)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_preference_dir().into()"
+                            },
+                            "get_public_dir": {
+                                "doc": [
+                                    "Returns the user's public directory (e.g., ~/Public)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_public_dir().into()"
+                            },
+                            "get_runtime_dir": {
+                                "doc": [
+                                    "Returns the user's runtime directory (e.g., /run/user/1000 on Linux)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_runtime_dir().into()"
+                            },
+                            "get_state_dir": {
+                                "doc": [
+                                    "Returns the user's state directory (e.g., ~/.local/state on Linux)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_state_dir().into()"
+                            },
+                            "get_audio_dir": {
+                                "doc": [
+                                    "Returns the user's audio directory (e.g., ~/Music)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_audio_dir().into()"
+                            },
+                            "get_video_dir": {
+                                "doc": [
+                                    "Returns the user's video directory (e.g., ~/Videos)"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_video_dir().into()"
+                            },
+                            "get_template_dir": {
+                                "doc": [
+                                    "Returns the user's templates directory"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "azul_layout::file::FilePath::get_template_dir().into()"
+                            },
+                            "from": {
+                                "fn_args": [
+                                    {
+                                        "s": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::file::FilePath::from(s)"
+                            }
+                        },
+                        "functions": {
+                            "join": {
+                                "doc": [
+                                    "Joins this path with another path component"
+                                ],
+                                "priority": 80.0,
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "other": "FilePath"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FilePath"
+                                },
+                                "fn_body": "object.join(&other)"
+                            },
+                            "join_str": {
+                                "doc": [
+                                    "Joins this path with a string component  "
+                                ],
+                                "priority": 76.0,
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "component": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "FilePath"
+                                },
+                                "fn_body": "object.join_str(&component)"
+                            },
+                            "parent": {
+                                "doc": [
+                                    "Returns the parent directory of this path"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionFilePath"
+                                },
+                                "fn_body": "object.parent().into()"
+                            },
+                            "file_name": {
+                                "doc": [
+                                    "Returns the file name component of this path"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionString"
+                                },
+                                "fn_body": "object.file_name().into()"
+                            },
+                            "extension": {
+                                "doc": [
+                                    "Returns the file extension of this path"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionString"
+                                },
+                                "fn_body": "object.extension().into()"
+                            },
+                            "exists": {
+                                "doc": [
+                                    "Checks if the path exists on the filesystem"
+                                ],
+                                "priority": 82.0,
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.exists()"
+                            },
+                            "is_file": {
+                                "doc": [
+                                    "Checks if the path is a file"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_file()"
+                            },
+                            "is_dir": {
+                                "doc": [
+                                    "Checks if the path is a directory"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_dir()"
+                            },
+                            "is_absolute": {
+                                "doc": [
+                                    "Checks if the path is absolute"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_absolute()"
+                            },
+                            "create_dir_all": {
+                                "doc": [
+                                    "Creates this directory and all parent directories"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultEmptyStructFileError"
+                                },
+                                "fn_body": "object.create_dir_all().into()"
+                            },
+                            "create_dir": {
+                                "doc": [
+                                    "Creates this directory (parent must exist)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultEmptyStructFileError"
+                                },
+                                "fn_body": "object.create_dir().into()"
+                            },
+                            "remove_file": {
+                                "doc": [
+                                    "Removes this file"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultEmptyStructFileError"
+                                },
+                                "fn_body": "object.remove_file().into()"
+                            },
+                            "remove_dir": {
+                                "doc": [
+                                    "Removes this directory (must be empty)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultEmptyStructFileError"
+                                },
+                                "fn_body": "object.remove_dir().into()"
+                            },
+                            "remove_dir_all": {
+                                "doc": [
+                                    "Removes this directory and all contents"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultEmptyStructFileError"
+                                },
+                                "fn_body": "object.remove_dir_all().into()"
+                            },
+                            "read_bytes": {
+                                "doc": [
+                                    "Reads the entire file at this path as bytes"
+                                ],
+                                "priority": 74.0,
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultU8VecFileError"
+                                },
+                                "fn_body": "object.read_bytes().into()"
+                            },
+                            "read_string": {
+                                "doc": [
+                                    "Reads the entire file at this path as a string"
+                                ],
+                                "priority": 88.0,
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultStringFileError"
+                                },
+                                "fn_body": "object.read_string().into()"
+                            },
+                            "write_bytes": {
+                                "doc": [
+                                    "Writes bytes to the file at this path"
+                                ],
+                                "priority": 72.0,
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "data": "U8Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultEmptyStructFileError"
+                                },
+                                "fn_body": "object.write_bytes(&data).into()"
+                            },
+                            "write_string": {
+                                "doc": [
+                                    "Writes a string to the file at this path"
+                                ],
+                                "priority": 86.0,
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "data": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultEmptyStructFileError"
+                                },
+                                "fn_body": "object.write_string(&data).into()"
+                            },
+                            "copy_to": {
+                                "doc": [
+                                    "Copies a file from this path to another path"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "dest": "FilePath"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Resultu64FileError"
+                                },
+                                "fn_body": "object.copy_to(&dest).into()"
+                            },
+                            "rename_to": {
+                                "doc": [
+                                    "Renames/moves a file from this path to another path"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "dest": "FilePath"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultEmptyStructFileError"
+                                },
+                                "fn_body": "object.rename_to(&dest).into()"
+                            },
+                            "as_string": {
+                                "doc": [
+                                    "Returns the path as an AzString"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.as_string().into()"
+                            },
+                            "read_dir": {
+                                "doc": [
+                                    "Lists directory contents"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultDirEntryVecFileError"
+                                },
+                                "fn_body": "object.read_dir().into()"
+                            },
+                            "metadata": {
+                                "doc": [
+                                    "Returns metadata about the file/directory"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultFileMetadataFileError"
+                                },
+                                "fn_body": "object.metadata().into()"
+                            },
+                            "canonicalize": {
+                                "doc": [
+                                    "Makes the path canonical (absolute, with no `.` or `..` components)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultFilePathFileError"
+                                },
+                                "fn_body": "object.canonicalize().into()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FileTypeList": {
+                        "doc": [
+                            "List of file extension patterns and a human-readable descriptor used to filter a file dialog."
+                        ],
+                        "external": "azul_layout::desktop::dialogs::FileTypeList",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "PartialOrd",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "document_types": {
+                                    "type": "StringVec"
+                                },
+                                "document_descriptor": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -124060,6 +124022,44 @@
                                 "Lost": {}
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "AudioFrame": {
+                        "external": "azul_core::audio::AudioFrame",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "sample_rate": {
+                                    "type": "u32"
+                                },
+                                "channels": {
+                                    "type": "u16"
+                                },
+                                "samples": {
+                                    "type": "F32Vec"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "frame_count": {
+                                "doc": [
+                                    "Number of sample *frames* (samples per channel) in this chunk."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.frame_count()"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
