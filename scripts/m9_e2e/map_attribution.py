@@ -12,6 +12,12 @@ mismatched pair joins almost nothing and reads as "the module is unattributable"
 rather than as an error.
 
 Usage: map_attribution.py <wasm-ld .map> <server.log> [--top N] [--fn N]
+                          [--depth N] [--only PREFIX]
+
+  --depth N   bucket by the first N `::` path segments, not just the crate.
+              "core 4.02 MB" is not actionable; "core::slice::sort 1.4 MB" is.
+  --only P    restrict to names starting with P, so a crate can be opened up
+              without the engine crates burying it.
 """
 import collections
 import io
@@ -28,7 +34,37 @@ def opt(flag, default):
     return int(sys.argv[sys.argv.index(flag) + 1]) if flag in sys.argv else default
 
 
-TOP, NFN = opt('--top', 25), opt('--fn', 20)
+TOP, NFN, DEPTH = opt('--top', 25), opt('--fn', 20), opt('--depth', 1)
+ONLY = sys.argv[sys.argv.index('--only') + 1] if '--only' in sys.argv else None
+
+
+def bucket(name):
+    """First DEPTH `::` segments, with generic arguments stripped.
+
+    Splitting on `::` alone puts `Vec<Box<T> >::push` and `Vec<u8>::push` in
+    different buckets and hides the mass; stripping at the first `<` merges the
+    monomorphisations, which is the whole point of asking.
+    """
+    parts = []
+    depth = 0
+    cur = ''
+    i = 0
+    while i < len(name) and len(parts) < DEPTH:
+        c = name[i]
+        if c == '<':
+            depth += 1
+        elif c == '>':
+            depth -= 1
+        if depth == 0 and name.startswith('::', i):
+            parts.append(cur)
+            cur = ''
+            i += 2
+            continue
+        cur += c
+        i += 1
+    if len(parts) < DEPTH and cur:
+        parts.append(cur)
+    return '::'.join(p.split('<', 1)[0] for p in parts)
 
 # Non-greedy, anchored on ` addr=`: MSVC names contain spaces (`Vec<Box<T> >`),
 # and `(\S+)` silently drops about a quarter of them.
@@ -73,17 +109,28 @@ if by_obj and matched < 0.5 * total:
 # and `DisplayList` under `Display`; both have happened.
 by_crate = collections.Counter()
 fns = []
+shown = 0
 for obj, size in by_obj.items():
     name = name_of.get(obj)
     if name is None:
+        if ONLY:
+            continue
         by_crate['(unjoined: %s)' % ('infrastructure' if not obj.startswith('__az_dep_')
                                      else 'no log entry')] += size
         continue
-    by_crate[re.split(r'::|<', name, 1)[0]] += size
+    if ONLY and not name.startswith(ONLY):
+        continue
+    shown += size
+    by_crate[bucket(name)] += size
     fns.append((size, name))
 
+if ONLY:
+    print('')
+    print('--only %s: %.3f MB (%.1f%% of the module)'
+          % (ONLY, shown / 1e6, 100.0 * shown / max(total, 1)))
 print('')
-print('=== linked bytes by leading crate ===')
+print('=== linked bytes by %s ==='
+      % ('leading crate' if DEPTH == 1 else 'first %d path segment(s)' % DEPTH))
 for crate, size in by_crate.most_common(TOP):
     print('  %9.3f MB  %5.1f%%  %s' % (size / 1e6, 100.0 * size / max(total, 1), crate[:56]))
 

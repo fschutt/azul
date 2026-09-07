@@ -1418,3 +1418,63 @@ mass actually is.
 Biggest single survivors, for reference: `layout_dom_recursive_impl` 0.217 MB,
 `ParsedFont::from_bytes_internal` 0.194, `text3::cache::create_logical_items`
 0.184, `parse_css_property` 0.170.
+
+## Ranking the code-side levers in DELIVERED bytes, not raw ones
+
+Every ranking of these families so far has been in object or raw bytes, and that
+ranking is wrong. `scripts/m9_e2e/map_slice_cost.py` slices each family's real
+linked ranges out of the module using wasm-ld's map, then compresses the module
+with and without them, so the number is what a browser stops downloading.
+
+Measured on run 79's p0 (19,638,084 raw -> 2,564,371 brotli q9, 7.66x overall):
+
+| family | raw | raw % | **delivered saving** | del. % | ratio alone |
+|---|---|---|---|---|---|
+| C1 `core::slice::sort` | 1,628,038 | 8.3% | **244,392** | 9.5% | 7.29x |
+| C2 `alloc::collections::btree` | 1,805,624 | 9.2% | **229,226** | 8.9% | 8.99x |
+| C3 `core::fmt` | 857,648 | 4.4% | **73,972** | 2.9% | 12.36x |
+| `core::ptr::drop_in_place` | 724,598 | 3.7% | **54,075** | 2.1% | 14.52x |
+| **all four** | 5,015,908 | 25.5% | **601,665** | 23.5% | |
+
+The reordering is the point. `core::fmt` and `drop_in_place` are highly
+repetitive template code, compress at 12-15x, and therefore deliver barely half
+their raw share: fmt is 4.4% of the bytes and 2.9% of the download. `slice::sort`
+compresses **worse** than the module average and punches above its raw weight.
+A raw-byte ranking puts fmt near sort; the delivered ranking puts sort at 3.3x
+fmt.
+
+The prior expectation was the opposite - that monomorphised template code would
+compress so well that raw share overstates the win everywhere. That holds for
+btree, fmt and drop glue, and is false for sort, which is why this was measured
+rather than projected.
+
+### What the two biggest ones actually are
+
+**C1** is dominated by sorting `azul_css::css::CssRuleBlock` **by value** -
+`quicksort` 0.088 MB, `sort4_stable` 0.064, `small_sort_general_with_scratch`
+0.056, `drift::sort` 0.044, `median3_rec` 0.038, about 0.29 MB from that one
+element type, plus `rust_fontconfig::FontMatch`. Sorting a `u32` index array
+with one comparator collapses the family; the element type is what is being
+monomorphised over.
+
+**C2** has no dominant instantiation: it is ~90 copies of the same BTree node
+logic at ~20 KB each, keyed on `(DomId, ...)`, `FcPattern`, `NodeId` and so on.
+Death by monomorphisation, and the sorted-Vec replacement removes the family
+rather than any one member.
+
+### Where this leaves the target
+
+p0 today is 3,332,571 = 2,564,371 code + 768,200 mirror.
+All four families gone: ~2.73 MB. Plus q11: ~2.35 MB. The goal is under 1 MB.
+
+**So the identified code-side levers plus the packaging levers do not reach it.**
+Chunking is measured and spent at -26.6% (ceiling -41.7% of object bytes), q11 is
+-14.1% on the code half, and these four families are -23.5% of the code. What is
+left is the lift expansion itself - the A-series state-escape work, where A5a/A5b
+already measured -54.8% on a single function - and the mirror, which is a hard
+768 KB floor that none of this touches.
+
+⚠ Caveat the tool prints and that belongs here too: excising ranges is not a
+link. The real saving can be larger (the caller code that sets up a sort goes
+too) or smaller (something else keeps a callee alive). It bounds the lever, it
+does not replace building it.
