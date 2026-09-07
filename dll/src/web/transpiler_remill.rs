@@ -5270,6 +5270,51 @@ fn inject_user_binary_data_segments(
             .map(|(k, (c, b))| (k, c, b))
             .collect();
         tops.sort_unstable_by(|a, b| b.2.cmp(&a.2));
+        // HOW MUCH OF THIS MIRROR IS A SECOND COPY OF SOMEONE ELSE'S?
+        //
+        // Every cb/layout module is linked with `MemoryMode::ImportMemory`: they
+        // import `env.memory` from the mini, so all of them share ONE linear
+        // memory. A module's data segments are replayed into that shared memory
+        // at instantiate — over addresses an earlier module's segments already
+        // filled with the same const bytes. Nine modules on the first-paint path
+        // carry 9.11 MB of mirror between them, and nobody has checked how much
+        // of that is the same pages mirrored again.
+        //
+        // Measured against every module lifted so far in this process, in lift
+        // order, so "already seen" means "an earlier module in this run shipped
+        // it". Report only — it changes nothing about what is emitted.
+        {
+            use std::sync::{Mutex, OnceLock};
+            static SEEN: OnceLock<Mutex<std::collections::HashMap<u32, usize>>> =
+                OnceLock::new();
+            let seen = SEEN.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+            if let Ok(mut seen) = seen.lock() {
+                let (mut dup_segs, mut dup_bytes, mut new_bytes) = (0usize, 0usize, 0usize);
+                for (off, bytes) in segments.iter() {
+                    match seen.get(off) {
+                        Some(prev) if *prev == bytes.len() => {
+                            dup_segs += 1;
+                            dup_bytes += bytes.len();
+                        }
+                        _ => {
+                            new_bytes += bytes.len();
+                            seen.insert(*off, bytes.len());
+                        }
+                    }
+                }
+                eprintln!(
+                    "[azul-web] MIRROR-DUP ({}): {} of {} segment(s) already mirrored by an \
+                     earlier module — {} of {} bytes ({:.1}%) are a second copy; {} new",
+                    output_stem,
+                    dup_segs,
+                    segments.len(),
+                    dup_bytes,
+                    total_bytes,
+                    100.0 * dup_bytes as f64 / total_bytes.max(1) as f64,
+                    new_bytes,
+                );
+            }
+        }
         eprintln!(
             "[azul-web] MIRROR-COMP ({}): {} segment(s) / {} bytes; top owners:",
             output_stem,
