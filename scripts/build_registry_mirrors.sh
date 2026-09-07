@@ -12,7 +12,18 @@
 #   pacman   azul.rs/ui/arch         (repo-add db over the .pkg.tar.zst)
 #   Alpine apk  azul.rs/ui/alpine     (apk index APKINDEX.tar.gz over the .apk)
 #   Homebrew azul.rs/ui/homebrew-azul.git  (a real bare git repo = a tap)
+#   Scoop    azul.rs/ui/scoop-azul.git     (a real bare git repo = a bucket)
 #   Chocolatey  azul.rs/ui/nuget (the v3 feed also serves a `libazul` choco package)
+#   cargo    azul.rs/ui/cargo        (sparse registry index over release/<V>/azul-<V>.crate)
+#
+# SELF-HOSTED FIRST, UPSTREAM LATER: every channel above works with nothing but
+# GitHub Pages. The jobs in .github/workflows/rust.yml additionally push the
+# same artifacts to the official registries (PyPI, npm, RubyGems, NuGet, Maven
+# Central, crates.io, the AUR, Chocolatey, the GitHub-hosted tap/bucket) when
+# the matching secret exists — see scripts/publish_upstream.sh. Signing of the
+# apt/rpm/pacman/apk metadata is the same kind of opt-in (AZUL_*_KEY secrets);
+# unsigned, the docs say [trusted=yes] / gpgcheck=0 / SigLevel=Never /
+# --allow-untrusted, which is what they mean.
 #
 # UPDATE MODEL — every endpoint above is a STABLE, VERSION-INDEPENDENT path. The
 # version only ever appears INSIDE the tree (maven coordinates, the formula's
@@ -71,6 +82,11 @@ build_maven() {
   # javadoc jar — 0 .class files — and every Maven/Gradle/scala-cli user got a
   # NoClassDefFoundError. Select by exact name, and refuse to publish anything
   # that is not demonstrably the classes jar.
+  # No maven-jar artifact dir at all = this run did not build the jar (a local
+  # run, a CI mode without the maven job): skip like the other channels. The
+  # dir existing but the classes jar missing/broken is an error: the docs
+  # point every Java/Kotlin/Scala user at rs.azul:azul.
+  [ -d "$ART/maven-jar" ] || { echo "  [maven] no maven-jar artifacts — skip"; return; }
   local jar="$ART/maven-jar/azul-$V.jar"
   [ -f "$jar" ] || { echo "::error::[maven] $jar missing — the maven job must upload azul-$V.jar (classes + natives)"; return 1; }
   if ! unzip -l "$jar" | grep -qE '\.class$'; then
@@ -559,20 +575,24 @@ RB
 # nuspec + tools/chocolateyInstall.ps1) into that same flat-container, so:
 #   choco install libazul --source https://azul.rs/ui/nuget/index.json
 #   choco upgrade libazul   # the stable v3 source advertises new versions
-# The install script downloads azul.dll from the matching release URL.
-# EXPERIMENTAL: not testable on this Linux runner; the .nupkg structure follows
-# the documented NuGet OPC layout.
+# The install script downloads azul.dll + azul.dll.lib + azul.h from the
+# matching release URLs and sets AZ_LINK_PATH. Verified on a Windows runner by
+# scripts/verify_install_commands.sh choco (post-release.yml).
 # --------------------------------------------------------------------------
 build_choco() {
-  local dll="$RELDIR/azul.dll"
-  [ -f "$dll" ] || { echo "  [choco] no azul.dll in $RELDIR — skip"; return; }
-  local dll_sha; dll_sha="$(sha256_of "$dll")"
+  local dll="$RELDIR/azul.dll" implib="$RELDIR/azul.dll.lib" hdr="$RELDIR/azul.h"
+  for f in "$dll" "$implib" "$hdr"; do
+    [ -f "$f" ] || { echo "  [choco] no $(basename "$f") in $RELDIR — skip"; return; }
+  done
+  local dll_sha implib_sha hdr_sha
+  dll_sha="$(sha256_of "$dll")"; implib_sha="$(sha256_of "$implib")"; hdr_sha="$(sha256_of "$hdr")"
   local lver; lver="$(echo "$V" | tr '[:upper:]' '[:lower:]')"
   local dest="$SITE/ui/nuget/flatcontainer/libazul/$lver"
   mkdir -p "$dest"
-  SITE="$SITE" V="$V" DLLSHA="$dll_sha" DEST="$dest" python3 - <<'PY'
+  SITE="$SITE" V="$V" DLLSHA="$dll_sha" IMPLIBSHA="$implib_sha" HDRSHA="$hdr_sha" DEST="$dest" python3 - <<'PY'
 import os, zipfile, uuid
 V = os.environ["V"]; sha = os.environ["DLLSHA"]; dest = os.environ["DEST"]
+implib_sha = os.environ["IMPLIBSHA"]; hdr_sha = os.environ["HDRSHA"]
 nuspec = f'''<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
   <metadata>
@@ -583,18 +603,34 @@ nuspec = f'''<?xml version="1.0" encoding="utf-8"?>
     <projectUrl>https://azul.rs/</projectUrl>
     <licenseUrl>https://opensource.org/licenses/MIT</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <description>Azul GUI framework prebuilt native library (azul.dll).</description>
+    <description>Azul GUI framework prebuilt native library: azul.dll, the MSVC import library azul.dll.lib and the C header azul.h; sets AZ_LINK_PATH.</description>
     <tags>azul gui native dll</tags>
   </metadata>
 </package>
 '''
+# All three files a C/C++/Rust build needs, not just the DLL: the header to
+# compile against, the MSVC import library to link, the DLL to run. AZ_LINK_PATH
+# makes the pre-rendered `azul` Rust crate's build.rs find them with no
+# further configuration (it is the documented env var; build_link.rs).
 install_ps1 = f'''$ErrorActionPreference = 'Stop'
 $tools = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Get-ChocolateyWebFile -PackageName 'libazul' `
   -FileFullPath (Join-Path $tools 'azul.dll') `
   -Url64bit 'https://azul.rs/ui/release/{V}/azul.dll' `
   -Checksum64 '{sha}' -ChecksumType64 'sha256'
-Write-Host "libazul installed to $tools\\azul.dll"
+Get-ChocolateyWebFile -PackageName 'libazul' `
+  -FileFullPath (Join-Path $tools 'azul.dll.lib') `
+  -Url64bit 'https://azul.rs/ui/release/{V}/azul.dll.lib' `
+  -Checksum64 '{implib_sha}' -ChecksumType64 'sha256'
+Get-ChocolateyWebFile -PackageName 'libazul' `
+  -FileFullPath (Join-Path $tools 'azul.h') `
+  -Url64bit 'https://azul.rs/ui/release/{V}/azul.h' `
+  -Checksum64 '{hdr_sha}' -ChecksumType64 'sha256'
+Install-ChocolateyEnvironmentVariable -VariableName 'AZ_LINK_PATH' -VariableValue $tools -VariableType 'Machine'
+Write-Host "libazul installed to $tools (azul.dll, azul.dll.lib, azul.h); AZ_LINK_PATH=$tools"
+'''
+uninstall_ps1 = '''$ErrorActionPreference = 'Stop'
+Uninstall-ChocolateyEnvironmentVariable -VariableName 'AZ_LINK_PATH' -VariableType 'Machine'
 '''
 content_types = '''<?xml version="1.0" encoding="utf-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -614,7 +650,7 @@ rels = f'''<?xml version="1.0" encoding="utf-8"?>
 psmdcp = f'''<?xml version="1.0" encoding="utf-8"?>
 <coreProperties xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns="http://schemas.openxmlformats.org/package/2006/metadata/core-properties">
   <dc:creator>Felix Schuett</dc:creator>
-  <dc:description>Azul GUI framework prebuilt native library (azul.dll).</dc:description>
+  <dc:description>Azul GUI framework prebuilt native library (azul.dll + import library + C header).</dc:description>
   <dc:identifier>libazul</dc:identifier>
   <version>{V}</version>
 </coreProperties>
@@ -623,6 +659,7 @@ out = os.path.join(dest, f"libazul.{V.lower()}.nupkg")
 with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
     z.writestr("libazul.nuspec", nuspec)
     z.writestr("tools/chocolateyInstall.ps1", install_ps1)
+    z.writestr("tools/chocolateyUninstall.ps1", uninstall_ps1)
     z.writestr("[Content_Types].xml", content_types)
     z.writestr("_rels/.rels", rels)
     z.writestr(f"package/services/metadata/core-properties/{psmdcp_id}.psmdcp", psmdcp)
@@ -636,47 +673,233 @@ IDX
 }
 
 # --------------------------------------------------------------------------
-# pacman (Arch / Manjaro) — host the .pkg.tar.zst + a repo db.
-#   /etc/pacman.conf:  [azlin]
+# Repo-metadata tools that only exist inside their own distro (repo-add, apk)
+# run in that distro's official container when the host lacks them. The GitHub
+# runner has docker; a developer running this locally may not — then the
+# packages are still hosted and the db/index is skipped with a warning.
+# --------------------------------------------------------------------------
+in_distro() { # $1 image, $2 host dir (mounted at /repo, cwd), $3.. command
+  local image="$1" dir="$2"; shift 2
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    docker run --rm --user "$(id -u):$(id -g)" -v "$(cd "$dir" && pwd):/repo" -w /repo "$image" "$@"
+  else
+    return 127
+  fi
+}
+
+# --------------------------------------------------------------------------
+# pacman (Arch / Manjaro) — host the .pkg.tar.zst + a repo db (built by
+# nfpm --packager archlinux in build_linux_packages).
+#   /etc/pacman.conf:  [azul]
+#                      SigLevel = Optional TrustAll   # until AZUL_PACMAN_GPG_KEY signs it
 #                      Server = https://azul.rs/ui/arch/$arch
-#   pacman -Sy azlin-ui     (pacman -Syu keeps it updated)
-# repo-add (from pacman/pacman-contrib) builds the .db; if absent we still host
-# the package + a hand-written .files-less db is skipped (graceful, like rpm).
+#   pacman -Sy azul      (pacman -Syu keeps it updated)
+# repo-add builds the db; the runner has none, so it runs in archlinux:base.
 # --------------------------------------------------------------------------
 build_pacman() {
   local pkgs; pkgs=$(ls -1 "$ART"/artifacts-arch/*.pkg.tar.zst 2>/dev/null)
   [ -n "$pkgs" ] || { echo "  [pacman] no .pkg.tar.zst artifacts — skip"; return; }
   local arch_dir="$SITE/ui/arch/x86_64"
   mkdir -p "$arch_dir"
-  cp "$ART"/artifacts-arch/*.pkg.tar.zst "$arch_dir/" 2>/dev/null || true
+  cp "$ART"/artifacts-arch/*.pkg.tar.zst "$arch_dir/"
+  local sign=""
+  if [ -n "${AZUL_PACMAN_GPG_KEY:-}" ]; then
+    # Signing runs inside the container too (repo-add --sign needs gpg there):
+    # the key is handed over as a file that is deleted right after.
+    printf '%s' "$AZUL_PACMAN_GPG_KEY" | base64 -d > "$arch_dir/.signing-key.asc"
+    sign='gpg --batch --import .signing-key.asc >/dev/null 2>&1 && repo-add --sign'
+  fi
+  local cmd="${sign:-repo-add} azul.db.tar.gz ./*.pkg.tar.zst"
   if command -v repo-add >/dev/null 2>&1; then
-    ( cd "$arch_dir" && repo-add azlin.db.tar.gz ./*.pkg.tar.zst >/dev/null 2>&1 ) \
-      && echo "  [pacman] built azlin.db (repo-add)" \
-      || echo "  [pacman] hosted .pkg.tar.zst only (repo-add failed)"
+    ( cd "$arch_dir" && bash -c "$cmd" >/dev/null 2>&1 )
   else
-    echo "  [pacman] hosted .pkg.tar.zst only (no repo-add available)"
+    in_distro archlinux:base "$arch_dir" bash -c "$cmd" >/dev/null 2>&1
+  fi
+  local rc=$?
+  rm -f "$arch_dir/.signing-key.asc"
+  if [ "$rc" -eq 0 ] && [ -s "$arch_dir/azul.db.tar.gz" ]; then
+    # pacman fetches <repo>.db; repo-add leaves a symlink, which Pages would
+    # not serve — ship real files.
+    for f in db files; do
+      rm -f "$arch_dir/azul.$f"; cp "$arch_dir/azul.$f.tar.gz" "$arch_dir/azul.$f"
+      [ -f "$arch_dir/azul.$f.tar.gz.sig" ] && cp "$arch_dir/azul.$f.tar.gz.sig" "$arch_dir/azul.$f.sig"
+    done
+    echo "  [pacman] built ui/arch/x86_64/azul.db ($(ls "$arch_dir"/*.pkg.tar.zst | wc -l | tr -d ' ') package(s)$([ -n "$sign" ] && echo ', signed'))"
+  else
+    echo "::error::[pacman] repo-add failed (rc=$rc) — the .pkg.tar.zst is hosted but 'pacman -Sy azul' has no db to find it in"
+    return 1
   fi
 }
 
 # --------------------------------------------------------------------------
-# Alpine apk — host the .apk + an APKINDEX. apk repos are <baseurl>/<arch>/, so
+# Alpine apk — host the .apk + an APKINDEX (built by nfpm --packager apk).
+# apk repos are <baseurl>/<arch>/, so:
 #   /etc/apk/repositories:  https://azul.rs/ui/alpine/x86_64
-#   apk add --allow-untrusted azlin-ui   (until the index is signed)
-# `apk index` (apk-tools) builds APKINDEX.tar.gz; absent -> host the .apk only.
+#   apk add --allow-untrusted azul   (until AZUL_APK_SIGN_KEY signs the index;
+#                                    then: curl -o /etc/apk/keys/azul.rsa.pub
+#                                    https://azul.rs/ui/alpine/azul.rsa.pub)
+# The library is a glibc build, hence the package depends on gcompat.
+# `apk index` builds the index; the runner has none, so it runs in alpine.
 # --------------------------------------------------------------------------
 build_apk() {
   local pkgs; pkgs=$(ls -1 "$ART"/artifacts-apk/*.apk 2>/dev/null)
   [ -n "$pkgs" ] || { echo "  [apk] no .apk artifacts — skip"; return; }
   local apk_dir="$SITE/ui/alpine/x86_64"
   mkdir -p "$apk_dir"
-  cp "$ART"/artifacts-apk/*.apk "$apk_dir/" 2>/dev/null || true
-  if command -v apk >/dev/null 2>&1; then
-    ( cd "$apk_dir" && apk index -o APKINDEX.tar.gz ./*.apk >/dev/null 2>&1 ) \
-      && echo "  [apk] built APKINDEX.tar.gz (apk index)" \
-      || echo "  [apk] hosted .apk only (apk index failed)"
-  else
-    echo "  [apk] hosted .apk only (no apk-tools available)"
+  cp "$ART"/artifacts-apk/*.apk "$apk_dir/"
+  local cmd='apk index --rewrite-arch x86_64 -o APKINDEX.tar.gz ./*.apk'
+  if [ -n "${AZUL_APK_SIGN_KEY:-}" ]; then
+    printf '%s' "$AZUL_APK_SIGN_KEY" | base64 -d > "$apk_dir/azul.rsa"
+    cmd="$cmd && apk add -q abuild openssl && abuild-sign -k azul.rsa APKINDEX.tar.gz && openssl rsa -in azul.rsa -pubout -out ../azul.rsa.pub"
   fi
+  if command -v apk >/dev/null 2>&1 && [ -z "${AZUL_APK_SIGN_KEY:-}" ]; then
+    ( cd "$apk_dir" && sh -c "$cmd" >/dev/null 2>&1 )
+  else
+    # abuild-sign needs root inside the container for `apk add`; the files it
+    # writes are chowned back below.
+    if [ -n "${AZUL_APK_SIGN_KEY:-}" ]; then
+      docker run --rm -v "$(cd "$apk_dir" && pwd):/repo" -w /repo alpine:3.20 sh -c "$cmd" >/dev/null 2>&1
+    else
+      in_distro alpine:3.20 "$apk_dir" sh -c "$cmd" >/dev/null 2>&1
+    fi
+  fi
+  local rc=$?
+  rm -f "$apk_dir/azul.rsa"
+  if [ "$rc" -eq 0 ] && [ -s "$apk_dir/APKINDEX.tar.gz" ]; then
+    echo "  [apk] built ui/alpine/x86_64/APKINDEX.tar.gz ($(ls "$apk_dir"/*.apk | wc -l | tr -d ' ') package(s)$([ -n "${AZUL_APK_SIGN_KEY:-}" ] && echo ', signed'))"
+  else
+    echo "::error::[apk] apk index failed (rc=$rc) — the .apk is hosted but 'apk add azul' has no index to find it in"
+    return 1
+  fi
+}
+
+# --------------------------------------------------------------------------
+# cargo — a static SPARSE registry (RFC 2789): plain files, GET-only, no API.
+#   .cargo/config.toml:  [registries]
+#                        azul = { index = "sparse+https://azul.rs/ui/cargo/" }
+#   cargo add azul --registry azul
+# The index entry for `azul` lives at az/ul/azul (cargo's layout for 4+-letter
+# names); config.json's `dl` template points at the .crate the deploy already
+# hosts under release/<V>/, so nothing is copied. The crate itself — the
+# pre-rendered Rust API over the prebuilt libazul — is written by `azul-doc
+# deploy` (doc/src/dllgen/bundles.rs); this publishes the index for it. Its
+# `features` MUST match the crate's Cargo.toml there.
+# --------------------------------------------------------------------------
+build_cargo() {
+  local krate="$RELDIR/azul-$V.crate"
+  [ -f "$krate" ] || { echo "::error::[cargo] $krate missing — azul-doc deploy wrote no .crate (was target/codegen present?)"; return 1; }
+  local size; size=$(wc -c < "$krate" | tr -d ' ')
+  [ "$size" -gt 100000 ] || { echo "::error::[cargo] $krate is $size bytes — a placeholder, not the crate"; return 1; }
+  local sha; sha="$(sha256_of "$krate")"
+  local dir="$SITE/ui/cargo"
+  mkdir -p "$dir/az/ul"
+  printf '{"dl":"%s/ui/release/{version}/{crate}-{version}.crate"}\n' "$BASE" > "$dir/config.json"
+  printf '{"name":"azul","vers":"%s","deps":[],"cksum":"%s","features":{"default":["link-dynamic"],"link-dynamic":[]},"yanked":false}\n' \
+    "$V" "$sha" > "$dir/az/ul/azul"
+  echo "  [cargo] built ui/cargo (sparse index for azul $V, crate sha256 $sha)"
+}
+
+# --------------------------------------------------------------------------
+# Scoop (Windows) — a bucket is a git repo of JSON manifests, and scoop clones
+# any git URL, so a bare repo on Pages works exactly like the Homebrew tap.
+#   scoop bucket add azul https://azul.rs/ui/scoop-azul.git
+#   scoop install azul     (azul.dll + azul.dll.lib + azul.h; sets AZ_LINK_PATH)
+# --------------------------------------------------------------------------
+build_scoop() {
+  command -v git >/dev/null 2>&1 || { echo "  [scoop] git missing — skip"; return; }
+  local dll="$RELDIR/azul.dll" implib="$RELDIR/azul.dll.lib" hdr="$RELDIR/azul.h"
+  for f in "$dll" "$implib" "$hdr"; do
+    [ -f "$f" ] || { echo "  [scoop] no $(basename "$f") in $RELDIR — skip"; return; }
+  done
+  local work; work="$(mktemp -d)"
+  mkdir -p "$work/bucket"
+  cat > "$work/bucket/azul.json" <<JSON
+{
+    "version": "$V",
+    "description": "Azul GUI framework - prebuilt native library (azul.dll, the MSVC import library and the C header)",
+    "homepage": "https://azul.rs/",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": [
+                "$BASE/ui/release/$V/azul.dll",
+                "$BASE/ui/release/$V/azul.dll.lib",
+                "$BASE/ui/release/$V/azul.h"
+            ],
+            "hash": [
+                "$(sha256_of "$dll")",
+                "$(sha256_of "$implib")",
+                "$(sha256_of "$hdr")"
+            ]
+        }
+    },
+    "env_set": {
+        "AZ_LINK_PATH": "\$dir"
+    },
+    "notes": "Compile against \$dir/azul.h and link \$dir/azul.dll.lib; azul.dll sits next to them. AZ_LINK_PATH points here, so the azul Rust crate finds the library."
+}
+JSON
+  ( cd "$work" && git init -q \
+      && git -c user.email=ci@azul.rs -c user.name="azul ci" add -A \
+      && git -c user.email=ci@azul.rs -c user.name="azul ci" commit -q -m "azul $V" ) || {
+    echo "  [scoop] git commit failed — skip"; rm -rf "$work"; return; }
+  rm -rf "$SITE/ui/scoop-azul.git"
+  git clone -q --bare "$work" "$SITE/ui/scoop-azul.git" || { echo "  [scoop] bare clone failed"; rm -rf "$work"; return; }
+  ( cd "$SITE/ui/scoop-azul.git" && git update-server-info )
+  rm -rf "$work"
+  echo "  [scoop] published scoop-azul.git (manifest azul $V)"
+}
+
+# --------------------------------------------------------------------------
+# A human (or the docs' link check) landing on a mirror ROOT — /ui/maven,
+# /ui/apt, /ui/cargo … — got a 404 from Pages while every file below it was
+# fine. One small page per mirror root: the configure-once command.
+# --------------------------------------------------------------------------
+landing() { # $1 dir under $SITE, $2 title, $3 command block
+  local d="$SITE/$1"
+  [ -d "$d" ] || return 0
+  [ -e "$d/index.html" ] && return 0
+  cat > "$d/index.html" <<HTML
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>$2 - azul.rs</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;max-width:52em;margin:3em auto;padding:0 1em;color:#222}pre{background:#f4f4f4;padding:1em;overflow-x:auto}</style>
+<h1>$2</h1>
+<p>This directory is a self-hosted package mirror for <a href="https://azul.rs/">azul</a> $V, regenerated on every release. Configure it once:</p>
+<pre>$3</pre>
+<p><a href="https://azul.rs/ui/release/$V">Release page</a> &middot; <a href="https://azul.rs/ui/guide">Guide</a></p>
+HTML
+}
+
+write_landing_pages() {
+  landing ui/maven "Maven repository" "&lt;repository&gt;&lt;id&gt;azul-rs&lt;/id&gt;&lt;url&gt;https://azul.rs/ui/maven&lt;/url&gt;&lt;/repository&gt;
+&lt;dependency&gt;&lt;groupId&gt;rs.azul&lt;/groupId&gt;&lt;artifactId&gt;azul&lt;/artifactId&gt;&lt;version&gt;$V&lt;/version&gt;&lt;/dependency&gt;"
+  landing ui/apt "apt repository" "echo 'deb [trusted=yes] https://azul.rs/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list
+sudo apt update &amp;&amp; sudo apt install azul"
+  landing ui/rpm "dnf / yum / zypper repository" "sudo dnf config-manager --add-repo https://azul.rs/ui/rpm/azul.repo
+sudo dnf install azul"
+  landing ui/arch "pacman repository" "# /etc/pacman.conf
+[azul]
+SigLevel = Optional TrustAll
+Server = https://azul.rs/ui/arch/\$arch
+
+sudo pacman -Sy azul"
+  landing ui/alpine "Alpine apk repository" "echo https://azul.rs/ui/alpine/x86_64 &gt;&gt; /etc/apk/repositories
+apk add --allow-untrusted azul"
+  landing ui/cargo "cargo registry" "# .cargo/config.toml
+[registries]
+azul = { index = \"sparse+https://azul.rs/ui/cargo/\" }
+
+cargo add azul --registry azul"
+  landing ui/npm "npm registry" "npm install https://azul.rs/ui/npm/azul-$V.tgz"
+  landing ui/gems "RubyGems source" "gem install azul --clear-sources --source https://azul.rs/ui/gems"
+  landing ui/nuget "NuGet v3 feed" "dotnet nuget add source https://azul.rs/ui/nuget/index.json --name azul
+dotnet add package Azul.Net --version $V
+
+# Chocolatey (same feed):
+choco install libazul --source https://azul.rs/ui/nuget/index.json"
+  landing ui/homebrew-azul.git "Homebrew tap" "brew tap fschutt/azul https://azul.rs/ui/homebrew-azul.git
+brew install fschutt/azul/azul"
+  landing ui/scoop-azul.git "Scoop bucket" "scoop bucket add azul https://azul.rs/ui/scoop-azul.git
+scoop install azul"
 }
 
 echo "==> Building self-hosted registry mirrors under $SITE (v$V)"
@@ -685,7 +908,7 @@ echo "==> Building self-hosted registry mirrors under $SITE (v$V)"
 # verbatim. Harmless under the static (Actions) Pages path too.
 touch "$SITE/.nojekyll"
 FAILED=""
-build_maven
+build_maven || FAILED="$FAILED maven"
 build_pypi
 build_npm
 # must run before build_choco (choco writes into the nuget tree). A nuget
@@ -701,9 +924,14 @@ build_choco
 # mask the state of the others, then fail once at the end.
 build_gems || FAILED="$FAILED gems"
 build_rpm       # yum + zypper consume this same repo
-build_pacman
-build_apk
+build_pacman || FAILED="$FAILED pacman"
+build_apk    || FAILED="$FAILED apk"
 build_homebrew
+build_scoop
+# The cargo index is the ONLY way `cargo add azul --registry azul` finds the
+# crate: an index built from a missing/placeholder .crate is a dead command.
+build_cargo  || FAILED="$FAILED cargo"
+write_landing_pages
 if [ -n "$FAILED" ]; then
   echo "::error::registry mirror channels FAILED to build a usable index:$FAILED"
   exit 1

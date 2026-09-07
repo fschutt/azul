@@ -158,6 +158,11 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.adb": "azul.adb",
+                        "azul.ads": "azul.ads",
+                        "hello_world.gpr": "hello_world.gpr"
                     }
                 },
                 "algol68": {
@@ -234,6 +239,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.a68": "azul.a68",
+                        "hello-world.a68": "hello-world.a68"
                     }
                 },
                 "c": {
@@ -318,6 +327,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.h": "azul.h",
+                        "hello-world.c": "hello-world.c"
                     }
                 },
                 "cobol": {
@@ -398,6 +411,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.cpy": "azul.cpy",
+                        "hello-world.cob": "hello-world.cob"
                     }
                 },
                 "cpp03": {
@@ -495,6 +512,11 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.h": "azul.h",
+                        "azul03.hpp": "azul03.hpp",
+                        "hello-world.cpp": "hello-world.cpp"
                     }
                 },
                 "cpp11": {
@@ -592,6 +614,11 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.h": "azul.h",
+                        "azul11.hpp": "azul11.hpp",
+                        "hello-world.cpp": "hello-world.cpp"
                     }
                 },
                 "cpp14": {
@@ -689,6 +716,11 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.h": "azul.h",
+                        "azul14.hpp": "azul14.hpp",
+                        "hello-world.cpp": "hello-world.cpp"
                     }
                 },
                 "cpp17": {
@@ -786,6 +818,11 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.h": "azul.h",
+                        "azul17.hpp": "azul17.hpp",
+                        "hello-world.cpp": "hello-world.cpp"
                     }
                 },
                 "cpp20": {
@@ -883,6 +920,11 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.h": "azul.h",
+                        "azul20.hpp": "azul20.hpp",
+                        "hello-world.cpp": "hello-world.cpp"
                     }
                 },
                 "cpp23": {
@@ -980,6 +1022,11 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.h": "azul.h",
+                        "azul23.hpp": "azul23.hpp",
+                        "hello-world.cpp": "hello-world.cpp"
                     }
                 },
                 "crystal": {
@@ -1064,6 +1111,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.cr": "azul.cr",
+                        "hello-world.cr": "hello-world.cr"
                     }
                 },
                 "csharp": {
@@ -1240,6 +1291,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.d": "azul.d",
+                        "hello-world.d": "hello-world.d"
                     }
                 },
                 "fortran": {
@@ -1332,6 +1387,11 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "Makefile": "Makefile",
+                        "azul.f90": "azul.f90",
+                        "hello_world.f90": "hello_world.f90"
                     }
                 },
                 "freebasic": {
@@ -1412,6 +1472,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.bi": "azul.bi",
+                        "hello-world.bas": "hello-world.bas"
                     }
                 },
                 "go": {
@@ -1520,6 +1584,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.h": "azul.h",
+                        "main.go": "main.go"
                     }
                 },
                 "haskell": {
@@ -1696,6 +1764,16 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "Azul.hs": "azul-haskell/src/Azul.hs",
+                        "Azul/Internal/FFI.hs": "azul-haskell/src/Azul/Internal/FFI.hs",
+                        "Azul/Types.hs": "azul-haskell/src/Azul/Types.hs",
+                        "HelloWorld.hs": "HelloWorld.hs",
+                        "azul-example.cabal": "azul-example.cabal",
+                        "azul.cabal": "azul-haskell/azul.cabal",
+                        "azul.h": "azul-haskell/cbits/azul.h",
+                        "azul_shims.c": "azul-haskell/cbits/azul_shims.c"
                     }
                 },
                 "java": {
@@ -1800,6 +1878,11 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "HelloWorld.java": "HelloWorld.java",
+                        "azul-java.zip": "azul-java/",
+                        "pom.xml": "pom.xml"
                     }
                 },
                 "julia": {
@@ -1868,6 +1951,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul/azul.jl": "azul/azul.jl",
+                        "hello-world.jl": "hello-world.jl"
                     }
                 },
                 "kotlin": {
@@ -1960,6 +2047,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "Azul.kt": "Azul.kt",
+                        "HelloWorld.kt": "HelloWorld.kt"
                     }
                 },
                 "lisp": {
@@ -2052,6 +2143,12 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul-example.asd": "azul-example.asd",
+                        "azul.asd": "azul.asd",
+                        "azul.lisp": "azul.lisp",
+                        "hello-world.lisp": "hello-world.lisp"
                     }
                 },
                 "lua": {
@@ -2120,6 +2217,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.lua": "azul.lua",
+                        "hello-world.lua": "hello-world.lua"
                     }
                 },
                 "nim": {
@@ -2200,6 +2301,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.nim": "azul.nim",
+                        "hello-world.nim": "hello-world.nim"
                     }
                 },
                 "node": {
@@ -2372,6 +2477,13 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.ml": "azul.ml",
+                        "azul.mli": "azul.mli",
+                        "dune": "dune",
+                        "dune-project": "dune-project",
+                        "hello_world.ml": "hello_world.ml"
                     }
                 },
                 "odin": {
@@ -2452,6 +2564,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul/azul.odin": "azul/azul.odin",
+                        "hello-world.odin": "hello-world.odin"
                     }
                 },
                 "pascal": {
@@ -2532,6 +2648,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.pas": "azul.pas",
+                        "hello-world.pas": "hello-world.pas"
                     }
                 },
                 "perl": {
@@ -2636,6 +2756,11 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "Azul.pm": "lib/Azul.pm",
+                        "cpanfile": "cpanfile",
+                        "hello-world.pl": "hello-world.pl"
                     }
                 },
                 "php": {
@@ -2776,6 +2901,11 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "Azul.psd1": "Azul.psd1",
+                        "Azul.psm1": "Azul.psm1",
+                        "hello-world.ps1": "hello-world.ps1"
                     }
                 },
                 "python": {
@@ -2900,6 +3030,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.rkt": "azul.rkt",
+                        "hello-world.rkt": "hello-world.rkt"
                     }
                 },
                 "red": {
@@ -2980,6 +3114,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.reds": "azul.reds",
+                        "hello-world.red": "hello-world.red"
                     }
                 },
                 "ruby": {
@@ -3167,6 +3305,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "HelloWorld.scala": "HelloWorld.scala",
+                        "azul-java.zip": "azul-java/"
                     }
                 },
                 "smalltalk": {
@@ -3271,6 +3413,11 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "Azul.st": "Azul.st",
+                        "BaselineOfAzul.st": "BaselineOfAzul.st",
+                        "hello-world.st": "hello-world.st"
                     }
                 },
                 "swift": {
@@ -3375,6 +3522,12 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.h": "azul.h",
+                        "azul.swift": "azul.swift",
+                        "hello-world.swift": "hello-world.swift",
+                        "module.modulemap": "module.modulemap"
                     }
                 },
                 "v": {
@@ -3443,6 +3596,10 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul/azul.v": "azul/azul.v",
+                        "hello-world.v": "hello-world.v"
                     }
                 },
                 "vb6": {
@@ -3481,6 +3638,11 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "Azul.bas": "Azul.bas",
+                        "HelloWorld.bas": "HelloWorld.bas",
+                        "HelloWorld.vbp": "HelloWorld.vbp"
                     }
                 },
                 "zig": {
@@ -3573,6 +3735,12 @@
                                 }
                             ]
                         }
+                    },
+                    "bundle": {
+                        "azul.h": "azul.h",
+                        "azul.zig": "azul.zig",
+                        "build.zig": "build.zig",
+                        "hello-world.zig": "hello-world.zig"
                     }
                 }
             }
@@ -3633,6 +3801,16 @@
                 "suggests": [
                     "gtk3",
                     "dbus-libs"
+                ]
+            },
+            "archlinux": {
+                "depends": [
+                    "glibc"
+                ]
+            },
+            "apk": {
+                "depends": [
+                    "gcompat"
                 ]
             }
         },

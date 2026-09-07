@@ -298,6 +298,22 @@ pub struct PackageConfig {
     /// RPM-specific configuration
     #[serde(default)]
     pub rpm: RpmPackageConfig,
+    /// Arch Linux (pacman) overrides — `depends` replaces the Debian names,
+    /// which do not exist on Arch (`libc6` → `glibc`).
+    #[serde(default)]
+    pub archlinux: PackagerOverrides,
+    /// Alpine (apk) overrides — the library is a glibc build, so it depends
+    /// on `gcompat`, not on Debian's `libc6`.
+    #[serde(default)]
+    pub apk: PackagerOverrides,
+}
+
+/// Dependency overrides for one nfpm packager (`overrides.<packager>.depends`).
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct PackagerOverrides {
+    /// Required dependencies, in that packager's own package names
+    #[serde(default)]
+    pub depends: Vec<String>,
 }
 
 /// Linux/Debian-specific package dependencies and contents
@@ -510,6 +526,15 @@ pub struct LanguageInstallConfig {
     /// Platform-specific installation (for C/C++)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platforms: Option<BTreeMap<String, InstallationSteps>>,
+    /// Contents of this language's pre-rendered bundle
+    /// (`release/<ver>/azul-<lang>-<ver>.tar.gz`): release file → path inside
+    /// the archive. `"<x>.zip": "<dir>/"` unpacks that zip's tree under
+    /// `<dir>/`. Dialect variants (`cpp03`…`cpp23`) merge into their group's
+    /// bundle. The deploy builds the archive from this map, so an install step
+    /// that says `tar xzf` is backed by exactly what is listed here — see
+    /// `dllgen::bundles`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle: Option<BTreeMap<String, String>>,
 }
 
 /// Configuration for an installation method

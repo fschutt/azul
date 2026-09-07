@@ -2422,6 +2422,46 @@ fn generate_release_pages(
             println!("  [OK] Generated: release/{}/examples.zip", version);
         }
 
+        // Pre-rendered binding bundles + the self-contained Rust crate
+        // (dllgen::bundles). Built from the loose files written above and the
+        // api.json `bundle` maps; a map entry whose file is missing is fatal
+        // in strict mode — a bundle the install steps `tar xzf` must be whole.
+        if let Some(version_data) = api_data.get_version(version) {
+            match dllgen::bundles::create_bindings_bundles(
+                version,
+                &version_dir,
+                codegen_dir,
+                &version_data.installation,
+            ) {
+                Ok(report) => {
+                    println!(
+                        "  [OK] Generated: release/{}/{{{}}}",
+                        version,
+                        report.written.join(",")
+                    );
+                    if !report.missing.is_empty() {
+                        if deploy_mode == DeployMode::Strict {
+                            anyhow::bail!(
+                                "Deploy failed: binding bundles for version {} are incomplete:\n  {}",
+                                version,
+                                report.missing.join("\n  ")
+                            );
+                        }
+                        eprintln!(
+                            "  [WARN] binding bundles incomplete (run `azul-doc codegen all`):\n  {}",
+                            report.missing.join("\n  ")
+                        );
+                    }
+                }
+                Err(e) => {
+                    if deploy_mode == DeployMode::Strict {
+                        anyhow::bail!("Deploy failed: binding bundles for version {}: {}", version, e);
+                    }
+                    eprintln!("  [WARN] Failed to create binding bundles: {}", e);
+                }
+            }
+        }
+
         // Collect asset information (for HTML generation and validation)
         let assets = ReleaseAssets::collect(&version_dir);
 

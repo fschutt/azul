@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::Result;
 
-use crate::{api::ApiData, dllgen::license::License, docgen::HTML_ROOT};
+use crate::{api::ApiData, dllgen::{bundles, license::License}, docgen::HTML_ROOT};
 
 /// Verifies that all example files referenced in api.json exist on the filesystem.
 ///
@@ -416,11 +416,44 @@ pub struct ReleaseAssets {
     pub cpp_headers: Vec<AssetInfo>,
     pub api_json: AssetInfo,
     pub examples_zip: AssetInfo,
+    /// `bindings-<ver>.tar.gz` — every rendered binding (dllgen::bundles)
+    pub bindings_all: AssetInfo,
+    /// `azul-rust-<ver>.tar.gz` — the self-contained `azul` crate
+    pub rust_crate: AssetInfo,
+    /// `azul-<key>-<ver>.tar.gz` per language / dialect group, keyed by the
+    /// api.json language key (`c`, `cpp`, `haskell`, …); rust is excluded.
+    pub bindings: Vec<(String, AssetInfo)>,
 }
 
 impl ReleaseAssets {
     /// Collect asset information from the release directory
     pub fn collect(version_dir: &Path) -> Self {
+        // release/<version>/ — the archives below embed the version.
+        let version = version_dir
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        // azul-<key>-<version>.tar.gz written by dllgen::bundles (rust has its
+        // own tile). The description is the key; generate_release_html swaps
+        // in the api.json display name.
+        let suffix = format!("-{version}.tar.gz");
+        let mut bindings: Vec<(String, AssetInfo)> = fs::read_dir(version_dir)
+            .map(|rd| {
+                rd.filter_map(|e| e.ok())
+                    .filter_map(|e| {
+                        let name = e.file_name().to_string_lossy().to_string();
+                        let key = name.strip_prefix("azul-")?.strip_suffix(&suffix)?;
+                        if key.is_empty() || key == "rust" || key.contains('-') {
+                            return None;
+                        }
+                        Some((key.to_string(), AssetInfo::from_path(&e.path(), key)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        bindings.sort_by(|a, b| a.0.cmp(&b.0));
+
         let mut windows = Vec::new();
         for asset in BinaryAsset::WINDOWS_ASSETS {
             windows.push(AssetInfo::from_path(
@@ -470,6 +503,15 @@ impl ReleaseAssets {
             cpp_headers,
             api_json: AssetInfo::from_path(&version_dir.join("api.json"), "API Description"),
             examples_zip: AssetInfo::from_path(&version_dir.join("examples.zip"), "Examples"),
+            bindings_all: AssetInfo::from_path(
+                &version_dir.join(bundles::union_bundle_name(&version)),
+                "All languages",
+            ),
+            rust_crate: AssetInfo::from_path(
+                &version_dir.join(bundles::rust_bundle_name(&version)),
+                "Rust crate",
+            ),
+            bindings,
         }
     }
 
@@ -1204,6 +1246,13 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "c/hello-world.c",
         source: BindingSource::Examples,
     },
+    // Also becomes examples/hello-world.rs of the pre-rendered `azul` crate
+    // (dllgen::bundles), so `cargo run --example hello-world` works from it.
+    BindingFile {
+        dst: "hello-world.rs",
+        src: "rust/src/hello-world.rs",
+        source: BindingSource::Examples,
+    },
     BindingFile {
         dst: "hello-world.cpp",
         src: "cpp/cpp20/hello-world.cpp",
@@ -1830,6 +1879,31 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     let api_json_link = generate_asset_card(version, &assets.api_json);
     let examples_zip_link = generate_asset_card(version, &assets.examples_zip);
 
+    // ---- Pre-rendered bindings (dllgen::bundles) --------------------------
+    // One tile per archive the deploy wrote. The per-language tiles carry
+    // the api.json display name; a dialect group (cpp) is labelled by the
+    // group's display name.
+    let installation = api_data.get_version(version).map(|v| &v.installation);
+    let display_name = |key: &str| -> String {
+        installation
+            .and_then(|i| {
+                i.dialects
+                    .get(key)
+                    .map(|d| d.display_name.clone())
+                    .or_else(|| i.languages.get(key).map(|l| l.display_name.clone()))
+            })
+            .unwrap_or_else(|| key.to_string())
+    };
+    let mut bundle_links: Vec<String> = Vec::new();
+    bundle_links.push(generate_asset_card(version, &assets.rust_crate));
+    bundle_links.push(generate_asset_card(version, &assets.bindings_all));
+    for (key, asset) in &assets.bindings {
+        let mut labelled = asset.clone();
+        labelled.description = display_name(key);
+        bundle_links.push(generate_asset_card(version, &labelled));
+    }
+    let bundle_links = bundle_links.join("\n                ");
+
     // ---- Linux packages (.deb / .rpm) ----------------------------------
     // nfpm conventional filenames: deb = `name_version_arch.deb`,
     // rpm = `name-version.arch.rpm`. The amd64 packages are built by
@@ -2232,6 +2306,17 @@ brew install fschutt/azul/azul</code></pre>
                 {demo_links}
               </ul>
 
+              <h2 id='bindings'>Pre-rendered bindings</h2>
+              <p>Every binding is generated from this release's <code>api.json</code>
+              and shipped ready to use — download it instead of running the generator.
+              <code>tar xzf</code> unpacks these on macOS, Linux and Windows 10+.
+              The Rust crate keeps its generated sources inside <code>src/</code>, so
+              rust-analyzer resolves every type; <code>cargo add azul --path azul-rust-{version}</code>
+              (or <code>--registry azul</code>, see below) is the whole setup.</p>
+              <div class='docs-card-grid'>
+                {bundle_links}
+              </div>
+
               <h2 id='language-bindings'>Installation instructions</h2>
               <div class='docs-card-grid'>
                 {binding_links}
@@ -2265,22 +2350,28 @@ gem install azul --clear-sources --source {HTML_ROOT}/gems
 # ...or the stable file URLs, as a local NuGet feed / a local gem install:
 #   {HTML_ROOT}/nuget/flatcontainer/azul.net/{version}/azul.net.{version}.nupkg
 #   {HTML_ROOT}/gems/gems/azul-{version}.gem</code></pre>
-              <pre><code class='language-bash'># grab one binding file directly (no examples.zip needed):
-curl -O {HTML_ROOT}/release/{version}/Azul.cs
-curl -O {HTML_ROOT}/release/{version}/Azul.hs
-curl -LO {HTML_ROOT}/release/{version}/azul-java.zip</code></pre>
+              <pre><code class='language-bash'># one language, ready to build (see the Pre-rendered bindings tiles above):
+curl -LO {HTML_ROOT}/release/{version}/azul-haskell-{version}.tar.gz
+tar xzf azul-haskell-{version}.tar.gz
+
+# ...or every rendered binding + headers + api.json in one download:
+curl -LO {HTML_ROOT}/release/{version}/bindings-{version}.tar.gz
+tar xzf bindings-{version}.tar.gz</code></pre>
 
               <h3>Rust (cargo)</h3>
-              <pre><code class='language-toml'># Cargo.toml (azul is NOT on crates.io; the crate in the repo is azul-dll,
-# renamed to `azul` for use)
-[dependencies.azul]
-package = \"azul-dll\"
-git = \"https://github.com/fschutt/azul\"
-tag = \"{version}\"
+              <pre><code class='language-bash'># Self-hosted cargo registry (sparse protocol, read-only, served from azul.rs):
+#   .cargo/config.toml            [registries]
+#                                 azul = {{ index = \"sparse+{HTML_ROOT}/cargo/\" }}
+cargo add azul --registry azul
 
-# Dynamic linking against a prebuilt azul.dll / libazul.so:
-# features = [\"link-dynamic\"], default-features = false
-# export AZ_LINK_PATH=/path/to/libazul</code></pre>
+# ...or the same crate as a download, depended on by path:
+curl -LO {HTML_ROOT}/release/{version}/azul-rust-{version}.tar.gz
+tar xzf azul-rust-{version}.tar.gz
+cargo add azul --path azul-rust-{version}
+
+# Either way the crate links the PREBUILT libazul that brew / apt / dnf
+# installed (or one you downloaded: AZ_LINK_PATH=/dir/holding/libazul).
+# The generated API lives inside the crate, so rust-analyzer sees every type.</code></pre>
 
               <h2 id='docs-guide'>Docs &amp; Guide</h2>
               <div class='docs-card-grid'>
@@ -2319,8 +2410,6 @@ docker pull ghcr.io/fschutt/azul:{version}</code></pre>
                 <li><a href='https://github.com/fschutt/azul'>Git repository</a></li>
                 <li><a href='https://github.com/fschutt/azul/tree/{version}'>Source tree at tag {version}</a></li>
                 <li><a href='https://github.com/fschutt/azul/releases/tag/{version}'>GitHub release page</a></li>
-                <li><a href='https://crates.io/crates/azul/{version}'>Crates.io</a></li>
-                <li><a href='https://docs.rs/azul/{version}'>Docs.rs</a></li>
               </ul>
         </div>
         <aside class='docs-search-rail'>
@@ -2771,14 +2860,22 @@ fn generate_nfpm_yaml_content(version: &str, package: &crate::api::PackageConfig
         yaml.push_str(&format!("  group: {}\n", package.rpm.group));
     }
 
-    // Use overrides for packager-specific dependency versions
-    let has_rpm_overrides = !package.rpm.depends.is_empty();
-    if has_rpm_overrides {
+    // Use overrides for packager-specific dependency names: the top-level
+    // `depends` are Debian names, which rpm/pacman/apk do not know.
+    let overrides: Vec<(&str, &[String])> = [
+        ("rpm", package.rpm.depends.as_slice()),
+        ("archlinux", package.archlinux.depends.as_slice()),
+        ("apk", package.apk.depends.as_slice()),
+    ]
+    .into_iter()
+    .filter(|(_, deps)| !deps.is_empty())
+    .collect();
+    if !overrides.is_empty() {
         yaml.push_str("\noverrides:\n");
-        yaml.push_str("  rpm:\n");
-        if !package.rpm.depends.is_empty() {
+        for (packager, deps) in overrides {
+            yaml.push_str(&format!("  {}:\n", packager));
             yaml.push_str("    depends:\n");
-            for dep in &package.rpm.depends {
+            for dep in deps {
                 yaml.push_str(&format!("      - {}\n", dep));
             }
         }

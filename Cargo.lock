@@ -853,6 +853,7 @@ dependencies = [
  "chrono",
  "colored",
  "comrak",
+ "flate2",
  "ignore",
  "image",
  "indexmap",

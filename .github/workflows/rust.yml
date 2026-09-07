@@ -3833,11 +3833,16 @@ jobs:
           cp LICENSE target/packages/
           ls -la target/packages/
 
-      - name: Build .deb and .rpm packages
+      - name: Build .deb, .rpm, Arch and Alpine packages
         run: |
           cd target/packages
           nfpm pkg --packager deb --target .
           nfpm pkg --packager rpm --target .
+          # Self-hosted pacman + apk repos (azul.rs/ui/arch, /ui/alpine) are
+          # built over these by scripts/build_registry_mirrors.sh in the
+          # deploy job. Same files, per-packager `depends` from api.json.
+          nfpm pkg --packager archlinux --target .
+          nfpm pkg --packager apk --target .
 
       - name: Debug - Tree before upload
         run: |
@@ -3857,6 +3862,24 @@ jobs:
         with:
           name: azul-linux-amd64-rpm
           path: target/packages/*.rpm
+          retention-days: 30
+          if-no-files-found: error
+
+      # The deploy job already downloads these two names into
+      # artifacts-registry/artifacts-{arch,apk} for the mirrors script.
+      - name: Upload Arch package
+        uses: actions/upload-artifact@v7
+        with:
+          name: azul-linux-amd64-arch
+          path: target/packages/*.pkg.tar.zst
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload Alpine package
+        uses: actions/upload-artifact@v7
+        with:
+          name: azul-linux-amd64-apk
+          path: target/packages/*.apk
           retention-days: 30
           if-no-files-found: error
 
@@ -4781,6 +4804,25 @@ jobs:
             need_file maven "website/ui/maven/rs/azul/azul/${AZUL_VERSION}/azul-${AZUL_VERSION}.jar"
             need_file maven "website/ui/maven/rs/azul/azul/${AZUL_VERSION}/azul-${AZUL_VERSION}.pom"
           fi
+
+          if have_artifacts artifacts-registry/artifacts-arch; then
+            need_file pacman website/ui/arch/x86_64/azul.db
+            need_glob pacman 'pkg.tar.zst' 'website/ui/arch/x86_64/*.pkg.tar.zst'
+          fi
+          if have_artifacts artifacts-registry/artifacts-apk; then
+            need_file apk website/ui/alpine/x86_64/APKINDEX.tar.gz
+            need_glob apk '.apk' 'website/ui/alpine/x86_64/*.apk'
+          fi
+
+          # Built from the release dir by azul-doc deploy + the mirrors script —
+          # no artifact to gate on, they must simply be there (dllgen::bundles).
+          need_file bindings "website/ui/release/${AZUL_VERSION}/bindings-${AZUL_VERSION}.tar.gz"
+          need_file bindings "website/ui/release/${AZUL_VERSION}/azul-rust-${AZUL_VERSION}.tar.gz"
+          need_file cargo    "website/ui/release/${AZUL_VERSION}/azul-${AZUL_VERSION}.crate"
+          need_file cargo    website/ui/cargo/config.json
+          need_file cargo    website/ui/cargo/az/ul/azul
+          need_file scoop    website/ui/scoop-azul.git/info/refs
+          need_file brew     website/ui/homebrew-azul.git/info/refs
 
           if [ -n "$missing" ]; then
             echo "::error::registry mirrors missing for:$missing"

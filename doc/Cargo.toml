@@ -26,6 +26,8 @@ indexmap = { version = "2.12", features = ["serde"] } # For ordered maps
 cargo-license = "0.7.0"
 cargo_metadata = "0.21"
 zip = "6.0.0"
+# gzip for the release's binding bundles (dllgen::bundles writes the tar itself)
+flate2 = "1"
 open = "5.3.2"
 tempfile = "3.19.1"
 # default-features=false drops comrak's `cli`/`syntect` features: we render with
