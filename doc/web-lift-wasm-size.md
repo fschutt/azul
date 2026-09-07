@@ -35,6 +35,7 @@ overstated one log by 280×.
 | 68 | 4646 | 28,701,067 | 2,969,896 | 9.66× | force-enqueue dealloc/realloc |
 | 69 | 4865 | 29,288,644 | 3,017,261 | 9.71× | alias-thunk cases + lift `sync::once` |
 | 70 | 4888 | 29,325,309 | 3,023,530 | 9.70× | untruncate ICF-folded alloc shims |
+| 71 | 4888 | 29,325,426 | 3,022,588 | 9.70× | intercept ProcessPrng |
 
 Run 69 is the largest single-change growth so far: **+587,577 raw** over run 68,
 from the `OnceLock`/`Once` carve-out pulling the lazy-init machinery into the
