@@ -3203,10 +3203,25 @@ impl RemillTranspiler {
                                 && e.classification.is_recursable()
                                 && !visited.contains(&e.canonical_addr)
                             {
+                                // The CANONICAL's size, not `e`'s. `e` is the
+                                // entry at the tail-call TARGET — for a
+                                // `jmp rel32` shim that is genuinely ~16 bytes —
+                                // while the address pushed is the canonical's.
+                                // Pairing them lifted a 292-byte function with a
+                                // 16-byte size: remill decoded the prologue and
+                                // its fallthrough became a missing block at an
+                                // address that is not an entry, so no dispatcher
+                                // case could ever key it.
+                                let canon_size = symbol_table::get()
+                                    .and_then(|t| t.lookup(e.canonical_addr))
+                                    .map(|c| c.size)
+                                    .filter(|s| *s > 0)
+                                    .or(if e.size > 0 { Some(e.size) } else { None })
+                                    .unwrap_or(super::LIFT_READ_WINDOW);
                                 tail_deps.push((
                                     e.canonical_name.clone(),
                                     e.canonical_addr,
-                                    if e.size > 0 { e.size } else { super::LIFT_READ_WINDOW },
+                                    canon_size,
                                 ));
                             }
                         }
