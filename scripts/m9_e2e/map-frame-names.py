@@ -37,22 +37,41 @@ raw_frames = [a for a in args[1:] if a.startswith('0x')]
 
 # --- the map: offset -> symbol -----------------------------------------------
 rows = []
-pat = re.compile(r'^\s*(\S+)\s+([0-9a-f]+)\s+([0-9a-f]+)\s+(.*)$')
+# wasm-ld distinguishes the three row kinds by COLUMN, so the indentation is
+# load-bearing and has to be captured, not stripped:
+#     -   98  9ab CODE                       section (1 space)
+#     -   99  194         ...o:(sub_381310)  object  (9 spaces)
+#     -   99  194                 sub_381310 symbol  (17 spaces)
+# Taking everything after the size as one field reported `FUNCTION` as the name
+# of a frame inside the FUNCTION section - true about the map, useless as an
+# answer.
+pat = re.compile(r'^\s*(\S+)\s+([0-9a-f]+)\s+([0-9a-f]+)(\s+)(\S.*)$')
+SECTION_INDENT = 8
+# Only rows inside the CODE section can answer a code offset. Without this,
+# `__stack_pointer` - a GLOBAL at offset 0 - sorts first and swallows every
+# lookup below the code section.
+code_lo = code_hi = None
 for line in io.open(map_path, encoding='utf-8', errors='replace'):
     m = pat.match(line.rstrip('\n'))
     if not m:
         continue
-    tail = m.group(4)
-    # The symbol row is the deepest indentation and carries no ':(' - the row
-    # above it names the object file.
-    if ':(' in tail or not tail.strip():
-        continue
     off = int(m.group(2), 16)
     size = int(m.group(3), 16)
+    tail = m.group(5)
+    if len(m.group(4)) < SECTION_INDENT:
+        if tail.strip() == 'CODE':
+            code_lo, code_hi = off, off + size
+        continue                      # a section row
+    if ':(' in tail:
+        continue                      # an object row; the symbol follows it
+    if code_lo is None or not (code_lo <= off < code_hi):
+        continue                      # not code - a global or a data symbol
     rows.append((off, size, tail.strip()))
 rows.sort()
 offs = [r[0] for r in rows]
-print('%s: %d symbol row(s)' % (map_path, len(rows)))
+print('%s: %d code symbol row(s)%s'
+      % (map_path, len(rows),
+         '' if code_lo is None else '  (CODE 0x%x..0x%x)' % (code_lo, code_hi)))
 
 # --- the log: sub_<synth> -> Rust name ---------------------------------------
 names = {}
