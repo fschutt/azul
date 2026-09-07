@@ -194,11 +194,22 @@ fn configure_dynamic_linking(target: &str, base_dir: &Path, local_dirs: &[PathBu
             if src != dst && src.exists() {
                 let _ = fs::copy(&src, &dst);
                 if target.contains("apple") {
-                    // Set install_name so macOS finds the dylib next to the
-                    // binary at runtime, and also so ld doesn't think it's
-                    // the same dylib being built.
+                    // Set the install name to THIS copy's absolute path, so the
+                    // binary that links against it loads exactly this file.
+                    //
+                    // It used to be `@executable_path/libazul.dylib` ("next to
+                    // the binary"), and that resolved to target/<profile>/deps/
+                    // libazul.dylib for a test binary — where cargo ALSO writes
+                    // the azul-dll crate's own cdylib output. Under link-dynamic
+                    // that cdylib is an empty 16 KB stub (nothing is exported),
+                    // it is written after the copy below, and dyld bound every
+                    // Az* import to null: `cargo test -p AzWriter` died with
+                    // SIGSEGV at address 0 in the first FFI call. OUT_DIR is
+                    // cargo's, nothing overwrites it. Dev builds only — shipped
+                    // apps use the pre-rendered `azul` crate (rlib, no stub) or
+                    // link-static.
                     let _ = Command::new("install_name_tool")
-                        .args(["-id", "@executable_path/libazul.dylib"])
+                        .args(["-id", &dst.display().to_string()])
                         .arg(&dst)
                         .status();
                 }

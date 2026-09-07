@@ -644,7 +644,12 @@ jobs:
       - name: Build the C-ABI libazul.so for the link-dynamic example lib-tests
         run: |
           set -o pipefail
-          cargo build -p azul-dll 2>&1 | tee azul-dll-cabi-build.txt
+          # The SHIPPED feature set (build-dll), not the defaults: the demos'
+          # lib tests link-dynamic against this file, and AzWriter's pagination
+          # goes through Pdf::compute_pagination — without `pdf` the PDF surface
+          # returns EMPTY results and "60 paragraphs must span pages, got 1"
+          # failed while testing nothing about pagination.
+          cargo build -p azul-dll --features build-dll 2>&1 | tee azul-dll-cabi-build.txt
           mkdir -p "$RUNNER_TEMP/azul-cabi"
           cp target/debug/libazul.so "$RUNNER_TEMP/azul-cabi/"
           nm -D "$RUNNER_TEMP/azul-cabi/libazul.so" | grep -q ' T AzU8Vec_delete' \
