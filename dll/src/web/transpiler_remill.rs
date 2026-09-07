@@ -3798,13 +3798,13 @@ impl RemillTranspiler {
             }
         }
 
-        if let Some(n) = std::env::var("AZ_CHUNK")
+        let chunk_n = std::env::var("AZ_CHUNK")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
-            .filter(|n| *n > 0)
-        {
-            report_chunk_partition(&edges, &self.scratch_dir, &opts.output_stem, n);
-        }
+            .filter(|n| *n > 0);
+        let chunk_core = chunk_n.and_then(|n| {
+            report_chunk_partition(&edges, &self.scratch_dir, &opts.output_stem, n)
+        });
 
         let bytes = self.link_objects_to_wasm(
             &object_paths,
@@ -3814,6 +3814,21 @@ impl RemillTranspiler {
             &accessed_pages,
             &accessed_ranges,
         )?;
+        // Link p0 for real, AFTER the main link: emit_indirect_dispatcher_obj
+        // writes one fixed filename, so doing this first would clobber the input
+        // the main link is about to read.
+        if let Some(core) = chunk_core {
+            self.measure_core_chunk(
+                &core,
+                &object_paths,
+                &exports,
+                visited.iter().copied(),
+                &opts,
+                &accessed_pages,
+                &accessed_ranges,
+            );
+        }
+
         let mut boundaries: Vec<usize> = used_boundaries.into_iter().collect();
         boundaries.sort_unstable();
         if !boundaries.is_empty() {
@@ -5688,6 +5703,87 @@ fn intercepted_import_labels(_cases: &[(u64, u64)]) -> Vec<(u64, ImportIntercept
 /// [`AZ_TLV_MAGIC_PC`]) and `__thread_data` (TLS initial image) ranges.
 /// Without this only the adrp'd descriptor bytes would mirror and the
 /// `offset` field at descriptor+16 would read back zero.
+/// Link the eager core alone and report what it delivers.
+///
+/// The whole point is that this cannot be done outside the transpiler: a
+/// chunk's size depends on a dispatcher restricted to ITS bodies. With the full
+/// dispatcher nothing is saved; with none, `--gc-sections` keeps almost
+/// nothing. Bodies outside the core are simply absent from the object set, and
+/// `--allow-undefined` turns the core dispatcher's calls to them into env
+/// imports — which is what the chunked design does through azBoundarySymbols.
+#[cfg(feature = "web-transpiler")]
+impl RemillTranspiler {
+    fn measure_core_chunk(
+        &self,
+        core: &HashSet<usize>,
+        object_paths: &[PathBuf],
+        exports: &[String],
+        visited: impl Iterator<Item = usize>,
+        opts: &LiftOpts,
+        accessed_pages: &std::collections::HashSet<usize>,
+        accessed_ranges: &std::collections::HashSet<(usize, usize)>,
+    ) {
+        // A per-function object is `__az_dep_<hex>.o`; anything else is
+        // infrastructure (helpers, bump heap, callback shim) and belongs in the
+        // core unconditionally.
+        let in_core = |p: &PathBuf| -> bool {
+            let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+            match stem.strip_prefix("__az_dep_") {
+                Some(hex) => usize::from_str_radix(hex, 16)
+                    .map(|a| core.contains(&a))
+                    .unwrap_or(true),
+                None => true,
+            }
+        };
+        let mut core_objs: Vec<PathBuf> =
+            object_paths.iter().filter(|p| in_core(p)).cloned().collect();
+
+        let cs: Vec<(u64, u64)> = self
+            .dispatcher_csynths(visited)
+            .into_iter()
+            .filter(|(_label, body)| {
+                symbol_table::get()
+                    .and_then(|t| t.resolve_synth(*body as usize))
+                    .map(|a| core.contains(&a))
+                    .unwrap_or(true)
+            })
+            .collect();
+        eprintln!(
+            "[azul-web] AZ_CHUNK {}: p0 = {} of {} objects, {} dispatcher case(s)",
+            opts.output_stem,
+            core_objs.len(),
+            object_paths.len(),
+            cs.len(),
+        );
+        // Drop the full dispatcher the main link pushed; this one is core-only.
+        core_objs.retain(|p| {
+            p.file_stem().and_then(|s| s.to_str()) != Some("az_indirect_dispatch")
+        });
+        if let Some(o) = self.emit_indirect_dispatcher_obj(&cs) {
+            core_objs.push(o);
+        }
+
+        match self.link_objects_to_wasm(
+            &core_objs,
+            exports,
+            "azul-p0",
+            opts.memory_mode,
+            accessed_pages,
+            accessed_ranges,
+        ) {
+            Ok(b) => eprintln!(
+                "[azul-web] AZ_CHUNK {}: p0 linked {} bytes",
+                opts.output_stem,
+                b.len(),
+            ),
+            Err(e) => eprintln!(
+                "[azul-web] AZ_CHUNK {}: p0 link FAILED: {}",
+                opts.output_stem, e.reason,
+            ),
+        }
+    }
+}
+
 /// Report the eager-core / lazy-chunk split the walk graph implies.
 ///
 /// A node reachable from two or more roots has to stay resident, so the ceiling
@@ -5704,7 +5800,7 @@ fn report_chunk_partition(
     scratch: &std::path::Path,
     stem: &str,
     n_lazy: usize,
-) {
+) -> Option<HashSet<usize>> {
     let mut nodes: HashSet<usize> = HashSet::new();
     let mut callees: HashSet<usize> = HashSet::new();
     for (c, cs) in edges {
@@ -5786,13 +5882,14 @@ fn report_chunk_partition(
             *sz as f64 / 1e6,
         );
     }
-    let core = total - bytes(&lazy);
+    let core_bytes = total - bytes(&lazy);
     eprintln!(
         "[azul-web] AZ_CHUNK {stem}: eager core {:.2} MB of {:.2} MB ({:+.1}%)",
-        core as f64 / 1e6,
+        core_bytes as f64 / 1e6,
         total as f64 / 1e6,
-        -100.0 * (1.0 - core as f64 / total.max(1) as f64),
+        -100.0 * (1.0 - core_bytes as f64 / total.max(1) as f64),
     );
+    Some(nodes.difference(&lazy).copied().collect())
 }
 
 #[cfg(feature = "web-transpiler")]
