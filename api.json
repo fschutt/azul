@@ -115752,7 +115752,8 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq"
+                            "PartialEq",
+                            "Eq"
                         ],
                         "enum_fields": [
                             {
@@ -115938,7 +115939,8 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq"
+                            "PartialEq",
+                            "Eq"
                         ],
                         "enum_fields": [
                             {
@@ -124246,7 +124248,8 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq"
+                            "PartialEq",
+                            "Eq"
                         ],
                         "struct_fields": [
                             {
@@ -124594,7 +124597,8 @@
                             "Debug",
                             "Clone",
                             "Copy",
-                            "PartialEq"
+                            "PartialEq",
+                            "Eq"
                         ],
                         "struct_fields": [
                             {
@@ -124803,7 +124807,8 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq"
+                            "PartialEq",
+                            "Eq"
                         ],
                         "struct_fields": [
                             {
@@ -125092,7 +125097,8 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq"
+                            "PartialEq",
+                            "Eq"
                         ],
                         "struct_fields": [
                             {
