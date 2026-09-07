@@ -3024,7 +3024,12 @@ jobs:
           apps: scala scalac
 
       - name: Set up Haskell (macOS)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && matrix.os == 'macos-14'
+        # ubuntu too, not only macOS: the runner image's preinstalled GHC is a
+        # moving target (9.14.1 on the 2026-08-31 image), and the hello-world
+        # segfaulted at the first callback into Haskell there while GHC 9.6 on
+        # macOS — and the older image on the last green run — worked. A shipped
+        # binding gates the deploy; its toolchain has to be pinned.
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && (matrix.os == 'macos-14' || matrix.os == 'ubuntu-22.04')
         continue-on-error: true
         uses: haskell-actions/setup@v2
         with:
@@ -3319,7 +3324,12 @@ jobs:
           apps: scala scalac
 
       - name: Set up Haskell (macOS)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && matrix.os == 'macos-14'
+        # ubuntu too, not only macOS: the runner image's preinstalled GHC is a
+        # moving target (9.14.1 on the 2026-08-31 image), and the hello-world
+        # segfaulted at the first callback into Haskell there while GHC 9.6 on
+        # macOS — and the older image on the last green run — worked. A shipped
+        # binding gates the deploy; its toolchain has to be pinned.
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && (matrix.os == 'macos-14' || matrix.os == 'ubuntu-22.04')
         continue-on-error: true
         uses: haskell-actions/setup@v2
         with:
