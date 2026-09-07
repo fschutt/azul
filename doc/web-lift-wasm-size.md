@@ -25,11 +25,13 @@ never the `lifted + linked` number the log prints, which is pre-strip and about
 1.9 MB larger. `du` is not usable here either: it reports allocated size and
 overstated one log by 280×.
 
-| run | mini fns | raw | brotli | ratio |
-|---|---|---|---|---|
-| 61 | 4528 | 28,341,706 | 2,948,275 | 9.61× |
-| 64 | 4629 | 28,559,776 | 2,961,422 | 9.64× |
-| 65 | 4629 | 28,597,541 | 2,962,946 | 9.65× |
+| run | mini fns | raw | brotli | ratio | change under test |
+|---|---|---|---|---|---|
+| 61 | 4528 | 28,341,706 | 2,948,275 | 9.61× | — |
+| 64 | 4629 | 28,559,776 | 2,961,422 | 9.64× | Windows TLS seed |
+| 65 | 4629 | 28,597,541 | 2,962,946 | 9.65× | NeverLift caller recorder (`%pc`) |
+| 66 | 4629 | 28,610,990 | 2,962,847 | 9.66× | caller recorder via `[RSP]` |
+| 67 | 4644 | 28,700,051 | 2,968,550 | 9.67× | lift `std::hash::random` KEYS accessor |
 
 +0.77% raw from 61 to 64, which the swept-in drift alone accounts for (see
 below). The brotli ratio stays flat at ~9.6×, consistent with the measured
