@@ -532,7 +532,7 @@ extern "C" fn on_save_target_picked(
     let Some(path) = target.as_path().into_option() else {
         return Update::DoNothing;
     };
-    let mut path = PathBuf::from(path.as_str());
+    let mut path = PathBuf::from(path.as_string().as_str());
     if path.extension().is_none() {
         path.set_extension("md");
     }
@@ -1050,7 +1050,10 @@ extern "C" fn on_browse_picked(mut data: RefAny, mut info: CallbackInfo, result:
     let Some(path_str) = picked.path.into_option() else {
         return Update::DoNothing; // user cancelled
     };
-    let path = Path::new(path_str.as_str());
+    // `FilePath::as_string` returns an owned `AzString` in the remodelled API;
+    // bind it so the borrowed `Path` outlives this block.
+    let path_string = path_str.as_string();
+    let path = Path::new(path_string.as_str());
 
     let Some(mut state) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
