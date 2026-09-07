@@ -8263,11 +8263,9 @@ fn position_table_cells<T: ParsedFontTrait>(
 /// direction is an element that paints and hit-tests as nothing.
 fn atomic_inline_children_are_laid_out(
     tree: &LayoutTree,
-    content: &[crate::text3::cache::InlineContent],
+    content: &[InlineContent],
     child_map: &HashMap<ContentIndex, usize>,
 ) -> bool {
-    use crate::text3::cache::InlineContent;
-
     content.iter().enumerate().all(|(i, item)| {
         if !matches!(item, InlineContent::Shape(_)) {
             return true;

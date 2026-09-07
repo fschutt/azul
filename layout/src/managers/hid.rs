@@ -35,7 +35,7 @@ pub struct HidChannel {
 }
 
 /// The process-wide channel. A global by DESIGN, not by accident: the
-/// producers are OS callbacks (IOHIDManager on macOS, raw input on Windows,
+/// producers are OS callbacks (`IOHIDManager` on macOS, raw input on Windows,
 /// hidraw reader threads on Linux) that hold no handle to any window, and the
 /// one consumer is the capability pump on the main thread.
 static CHANNEL: HidChannel = HidChannel::new();
