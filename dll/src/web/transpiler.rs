@@ -30,6 +30,26 @@ impl std::fmt::Display for TranspileError {
     }
 }
 
+/// One lazy chunk: a self-contained wasm holding a single root's exclusive
+/// subtree plus its own dispatcher.
+///
+/// The root is safe to defer precisely because nothing statically calls it — it
+/// is entered only through `__az_indirect_dispatch`, so the eager core never
+/// names it and `--gc-sections` does not drag it back in. A chunk that failed
+/// that test would be pulled into the core by the linker and the split would
+/// save nothing.
+#[derive(Debug, Clone, Default)]
+pub struct LazyChunk {
+    /// `<module>-p<N>`. Both the wasm-ld output stem and the served name.
+    pub name: String,
+    /// The root whose exclusive subtree this is.
+    pub root_name: String,
+    /// The linked wasm, data mirror included.
+    pub bytes: Vec<u8>,
+    /// Content hash for the cache-busting URL.
+    pub content_hash: String,
+}
+
 /// A lifted WASM module (bytes + metadata).
 #[derive(Debug, Clone, Default)]
 pub struct WasmModule {
@@ -48,6 +68,11 @@ pub struct WasmModule {
     /// per-cb / per-layout / mini lift, then runs a second pass to
     /// lift each boundary into its own per-fn wasm shard.
     pub used_boundaries: Vec<usize>,
+    /// Lazy chunks this module's walk graph supports. Empty unless `AZ_CHUNK`
+    /// asked for a partition; the module's own `bytes` are still the WHOLE
+    /// module, so shipping the split means serving the chunks AND swapping
+    /// `bytes` for the eager core.
+    pub chunks: Vec<LazyChunk>,
 }
 
 /// Trait for transpiling native functions to WASM.

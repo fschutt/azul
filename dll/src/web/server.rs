@@ -65,6 +65,11 @@ pub struct WebServerState {
     /// `Content-Encoding: br` when the client accepts it; `None` if the
     /// encode failed (then the raw module is served). WEB_WASM_DIET_PLAN §2.2.
     pub mini_wasm_br: Option<Vec<u8>>,
+    /// Lazy chunks of the mini, served at `/az/chunk/`. Each holds one root's
+    /// exclusive subtree plus its own dispatcher. Additive today: the mini
+    /// served above is still the WHOLE module, so nothing depends on these
+    /// until the loader fetches them.
+    pub mini_chunks: Vec<super::transpiler::LazyChunk>,
     /// Per-callback WASM modules served under `/az/cb/`.
     pub cb_wasms: Vec<CallbackWasm>,
     /// Per-layout-callback WASM modules served under `/az/layout/`
@@ -238,6 +243,22 @@ fn handle_connection(
                 state.mini_wasm_br.as_deref(),
                 accept_encoding.as_deref(),
             )
+        }
+        // `/az/chunk/<name>.<hash>.wasm`. Same shape as `/az/cb/`: the hash is
+        // in the path, so the response can be cached immutably.
+        ("GET", p) if p.starts_with("/az/chunk/") && p.ends_with(".wasm") => {
+            let stem = p
+                .strip_prefix("/az/chunk/")
+                .and_then(|s| s.strip_suffix(".wasm"))
+                .unwrap_or("");
+            // Split off the `.<hash>` the URL carries for cache-busting; the
+            // name before it is what identifies the chunk.
+            let name = stem.rsplit_once('.').map(|(n, _h)| n).unwrap_or(stem);
+            if let Some(c) = state.mini_chunks.iter().find(|c| c.name == name) {
+                send_wasm(&mut stream, &c.bytes, None, accept_encoding.as_deref())
+            } else {
+                send_response(&mut stream, 404, "text/plain", b"Chunk not found")
+            }
         }
         ("GET", p) if p.starts_with("/az/cb/") && p.ends_with(".wasm") => {
             let name = p

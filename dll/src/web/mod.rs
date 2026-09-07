@@ -938,14 +938,16 @@ pub fn lift_layout_callbacks(layout_callbacks: &[LayoutCallback]) -> Vec<LayoutW
 /// `(name, addr, size)` tuples to `transpiler.lift_and_link_eventloop`.
 /// On any failure log + fall back to the 8-byte stub so the rest of
 /// run_web can proceed (per the M0-M7 "fail soft" discipline).
-fn lift_eventloop_mini_wasm(extra_roots: &[(String, usize, usize)]) -> Vec<u8> {
+fn lift_eventloop_mini_wasm(
+    extra_roots: &[(String, usize, usize)],
+) -> (Vec<u8>, Vec<transpiler::LazyChunk>) {
     let transpiler = transpiler::default_transpiler();
     if !transpiler.is_available() {
         eprintln!(
             "[azul-web] azul-mini: transpiler unavailable ({}), using 8-byte stub",
             transpiler.name(),
         );
-        return generate_mini_wasm_stub();
+        return (generate_mini_wasm_stub(), Vec::new());
     }
     let mut targets: Vec<(String, usize, usize)> = Vec::with_capacity(EVENTLOOP_SYMBOLS.len());
     for sym_name in EVENTLOOP_SYMBOLS {
@@ -958,7 +960,7 @@ fn lift_eventloop_mini_wasm(extra_roots: &[(String, usize, usize)]) -> Vec<u8> {
                 "[azul-web] azul-mini: could not resolve {} (direct + dlsym) — falling back to stub",
                 sym_name,
             );
-            return generate_mini_wasm_stub();
+            return (generate_mini_wasm_stub(), Vec::new());
         };
         let sym = resolve_fn_ptr(addr);
         targets.push((sym_name.to_string(), sym.addr, sym.size));
@@ -984,7 +986,19 @@ fn lift_eventloop_mini_wasm(extra_roots: &[(String, usize, usize)]) -> Vec<u8> {
                 module.bytes.len(),
                 module.exports.len(),
             );
-            module.bytes
+            if !module.chunks.is_empty() {
+                eprintln!(
+                    "[azul-web] azul-mini: {} lazy chunk(s) available: {}",
+                    module.chunks.len(),
+                    module
+                        .chunks
+                        .iter()
+                        .map(|c| format!("{} ({} B) <- {}", c.name, c.bytes.len(), c.root_name))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+            }
+            (module.bytes, module.chunks)
         }
         Err(e) => {
             eprintln!(
@@ -992,7 +1006,7 @@ fn lift_eventloop_mini_wasm(extra_roots: &[(String, usize, usize)]) -> Vec<u8> {
                  falling back to 8-byte stub",
                 e.fn_name, e.reason,
             );
-            generate_mini_wasm_stub()
+            (generate_mini_wasm_stub(), Vec::new())
         }
     }
 }
@@ -1114,7 +1128,7 @@ pub fn run_web(
             mini_extra_roots.extend(surface);
         }
     }
-    let mini_wasm = lift_eventloop_mini_wasm(&mini_extra_roots);
+    let (mini_wasm, mini_chunks) = lift_eventloop_mini_wasm(&mini_extra_roots);
     eprintln!("[azul-web] azul-mini.wasm: {} bytes", mini_wasm.len());
 
     // Phase D: Pre-render all routes. The walk also collects every
@@ -1512,6 +1526,7 @@ pub fn run_web(
         window_state,
         mini_wasm,
         mini_wasm_br,
+        mini_chunks,
         cb_wasms,
         layout_wasms,
         boundary_wasms,

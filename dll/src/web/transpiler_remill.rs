@@ -2366,6 +2366,7 @@ impl RemillTranspiler {
             // now, leave empty so the caller treats the module as
             // self-contained.
             imports_from_mini: Vec::new(),
+            chunks: Vec::new(),
             used_boundaries: Vec::new(),
         })
     }
@@ -3827,6 +3828,7 @@ impl RemillTranspiler {
         // entire document-parsing world (1433 fns, 27.1 MB of objects, 1.69 MB
         // delivered) hangs off `azwriter::on_browse_clicked` — the file-open
         // button handler, which a first paint never calls.
+        let mut lazy_chunks: Vec<super::transpiler::LazyChunk> = Vec::new();
         let is_mini = opts.output_stem == "azul-mini";
         let boot_names: HashSet<String> = if is_mini {
             HashSet::new()
@@ -3882,7 +3884,7 @@ impl RemillTranspiler {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(20);
             if obj_bytes >= min_mb * 1_000_000 {
-                self.measure_core_chunk(
+                lazy_chunks = self.measure_core_chunk(
                     &plan,
                     &object_paths,
                     &exports,
@@ -3914,6 +3916,7 @@ impl RemillTranspiler {
             bytes,
             exports,
             imports_from_mini: Vec::new(),
+            chunks: lazy_chunks,
             used_boundaries: boundaries,
         })
     })
@@ -4858,6 +4861,7 @@ impl RemillTranspiler {
             bytes,
             exports,
             imports_from_mini: Vec::new(),
+            chunks: Vec::new(),
             used_boundaries: boundaries,
         })
     }
@@ -5948,7 +5952,8 @@ impl RemillTranspiler {
         label: &str,
         accessed_pages: &std::collections::HashSet<usize>,
         accessed_ranges: &std::collections::HashSet<(usize, usize)>,
-    ) {
+    ) -> Vec<super::transpiler::LazyChunk> {
+        let mut out: Vec<super::transpiler::LazyChunk> = Vec::new();
         // A per-function object is `__az_dep_<hex>.o`; anything else is
         // infrastructure (helpers, bump heap, callback shim) and belongs in the
         // core unconditionally.
@@ -6101,6 +6106,12 @@ impl RemillTranspiler {
                         chunk_cs.len(),
                         root_name,
                     );
+                    out.push(super::transpiler::LazyChunk {
+                        name: stem.clone(),
+                        root_name: root_name.clone(),
+                        content_hash: super::fnv1a64_hex(&b),
+                        bytes: b,
+                    });
                 }
                 Err(e) => eprintln!(
                     "[azul-web] AZ_CHUNK {}: p{} link FAILED ({}): {}",
@@ -6108,6 +6119,7 @@ impl RemillTranspiler {
                 ),
             }
         }
+        out
     }
 }
 
@@ -8062,6 +8074,7 @@ impl Transpiler for RemillTranspiler {
             bytes: wasm_bytes,
             exports,
             imports_from_mini: Vec::new(),
+            chunks: Vec::new(),
             used_boundaries: Vec::new(),
         })
     }
