@@ -159,9 +159,17 @@ def main():
         print('  lifted this run: %s' % ('YES  %s (size=%d)' % (was[0][:60], was[1])
                                          if was else 'NO'))
         print('')
-        if off == 0:
-            print('  => the target IS a function entry. It was simply never')
-            print('     lifted, so no dispatcher case exists. A discovery bug.')
+        if off == 0 and not was:
+            print('  => the target IS a function entry, and it was NOT lifted,')
+            print('     so no dispatcher case exists. A discovery bug: find what')
+            print('     branches here and why the walk never reached it.')
+        elif off == 0:
+            print('  => the target IS a function entry AND it WAS lifted, so a')
+            print('     dispatcher case should exist. If this address turned up')
+            print('     in the missing-block ring (0x400F8 last / 0x400FC count /')
+            print('     0x40160 ring), the BRANCHING function emitted')
+            print('     `__remill_missing_block(target)` instead of dispatching.')
+            print('     That is a branch-rewrite bug, NOT a discovery bug.')
         else:
             print('  => the target is MID-FUNCTION. Dispatcher cases are keyed by')
             print('     ENTRIES, so no case can ever exist for it. This is NOT a')
