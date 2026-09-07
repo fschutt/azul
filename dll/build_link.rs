@@ -138,6 +138,18 @@ fn configure_dynamic_linking(target: &str, base_dir: &Path, local_dirs: &[PathBu
         .map(|v| !v.is_empty() && v != "0")
         .unwrap_or(false);
 
+    // MSVC resolves `-l dylib=NAME` as NAME.lib. The release ships the IMPORT
+    // library as azul.dll.lib (rustc's own name for it) next to azul.dll, and
+    // `azul.lib` is the multi-hundred-MB STATIC archive — so asking for
+    // `azul` there linked a downloaded dylib statically, or failed outright
+    // for a user who only had the DLL + import lib. `azul.dll` → azul.dll.lib.
+    // GNU ld searches libazul.dll.a / azul.dll itself, so `azul` stays.
+    let dylib_link_name = if target.contains("windows-msvc") {
+        "azul.dll"
+    } else {
+        "azul"
+    };
+
     // Try shared library (unless static linking is forced)
     for (dir, is_system) in dirs.iter().filter(|_| !force_static) {
         if !probe_dir(dir, target) {
@@ -173,7 +185,7 @@ fn configure_dynamic_linking(target: &str, base_dir: &Path, local_dirs: &[PathBu
             // System library: link directly, no rpath, no copy.
             // At runtime the system linker finds it in the standard paths.
             println!("cargo:rustc-link-search=native={}", dir.display());
-            println!("cargo:rustc-link-lib=dylib=azul");
+            println!("cargo:rustc-link-lib=dylib={dylib_link_name}");
         } else {
             // Local library: copy to OUT_DIR to avoid cdylib self-link,
             // set rpath so the binary finds the dylib next to itself.
@@ -192,7 +204,7 @@ fn configure_dynamic_linking(target: &str, base_dir: &Path, local_dirs: &[PathBu
                 }
             }
             println!("cargo:rustc-link-search=native={}", link_dir.display());
-            println!("cargo:rustc-link-lib=dylib=azul");
+            println!("cargo:rustc-link-lib=dylib={dylib_link_name}");
 
             // Copy the dylib to common output directories so the binary
             // finds it at runtime regardless of where cargo places it.

@@ -283,7 +283,11 @@ pub fn generate_skill_md(api_data: &ApiData) -> String {
     s.push_str(
         "Rust is first-class, but the bindings are all generated from the same `api.json`, so \
          the App / RefAny / LayoutCallback / Dom / CSS / Update model is identical everywhere — \
-         only the syntax changes. Start from the per-language hello world:\n\n",
+         only the syntax changes. Every rendered binding is a download: \
+         `https://azul.rs/ui/release/<version>/bindings-<version>.tar.gz` holds all of them \
+         plus the headers and `api.json`, `azul-<lang>-<version>.tar.gz` one language, and \
+         `azul-rust-<version>.tar.gz` is a complete `azul` crate (also served as a cargo \
+         registry: `sparse+https://azul.rs/ui/cargo/`). Start from the per-language hello world:\n\n",
     );
     for lang in ["rust", "c", "cpp", "python"] {
         s.push_str(&format!("- {HTML_ROOT}/guide/hello-world/{lang}.md\n"));

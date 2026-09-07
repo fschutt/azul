@@ -72,20 +72,43 @@ sudo apt update
 sudo apt install azul
 ```
 
+Arch and Alpine have self-hosted repositories too (unsigned, like the apt
+one — the `SigLevel` / `--allow-untrusted` say so explicitly):
+
+```sh
+# Arch / Manjaro - append to /etc/pacman.conf, then pacman -Sy azul
+[azul]
+SigLevel = Optional TrustAll
+Server = https://azul.rs/ui/arch/$arch
+
+# Alpine
+echo https://azul.rs/ui/alpine/x86_64 >> /etc/apk/repositories
+apk add --allow-untrusted azul
+```
+
 On macOS, a self-hosted Homebrew tap (a real git repository served from
-azul.rs - no external registry involved) installs `libazul.dylib` plus
-`azul.h`:
+azul.rs - no external registry involved) installs `libazul.dylib`, `azul.h`,
+the C++ headers and a pkg-config file:
 
 ```sh
 brew tap fschutt/azul https://azul.rs/ui/homebrew-azul.git
 brew install fschutt/azul/azul
+cc $(pkg-config --cflags --libs azul) hello-world.c -o hello-world
 ```
 
-Experimental Chocolatey / Arch / Alpine mirrors are published best-effort under
-`azul.rs/ui/{nuget,arch,alpine}`. On
-Windows (and for CI on any platform), download the
-header and the library directly from the
-[release page](https://azul.rs/ui/release/$VERSION):
+On Windows, Chocolatey and Scoop (a self-hosted bucket, the same mechanism
+as the tap) both install `azul.dll`, the MSVC import library `azul.dll.lib`
+and `azul.h` into one directory and point `AZ_LINK_PATH` at it:
+
+```powershell
+choco install libazul --source https://azul.rs/ui/nuget/index.json
+# or
+scoop bucket add azul https://azul.rs/ui/scoop-azul.git
+scoop install azul
+```
+
+Or - on any platform, and in CI - download the header and the library
+directly from the [release page](https://azul.rs/ui/release/$VERSION):
 
 ```sh
 # header (same file on every platform)

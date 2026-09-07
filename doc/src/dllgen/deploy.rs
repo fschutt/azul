@@ -426,33 +426,30 @@ pub struct ReleaseAssets {
 }
 
 impl ReleaseAssets {
-    /// Collect asset information from the release directory
-    pub fn collect(version_dir: &Path) -> Self {
+    /// Collect asset information from the release directory.
+    ///
+    /// `bundle_keys` are the language / dialect-group keys that have a
+    /// `bundle` map in api.json (`bundles::bundle_maps(..).keys()`): the
+    /// per-language tiles come from THAT list with a presence check, never
+    /// from scanning the directory — a directory scan would turn any stale
+    /// archive left by an earlier run (a renamed language, a local re-deploy)
+    /// into a download tile.
+    pub fn collect(version_dir: &Path, bundle_keys: &[String]) -> Self {
         // release/<version>/ — the archives below embed the version.
         let version = version_dir
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
 
-        // azul-<key>-<version>.tar.gz written by dllgen::bundles (rust has its
-        // own tile). The description is the key; generate_release_html swaps
-        // in the api.json display name.
-        let suffix = format!("-{version}.tar.gz");
-        let mut bindings: Vec<(String, AssetInfo)> = fs::read_dir(version_dir)
-            .map(|rd| {
-                rd.filter_map(|e| e.ok())
-                    .filter_map(|e| {
-                        let name = e.file_name().to_string_lossy().to_string();
-                        let key = name.strip_prefix("azul-")?.strip_suffix(&suffix)?;
-                        if key.is_empty() || key == "rust" || key.contains('-') {
-                            return None;
-                        }
-                        Some((key.to_string(), AssetInfo::from_path(&e.path(), key)))
-                    })
-                    .collect()
+        // The description is the key; generate_release_html swaps in the
+        // api.json display name.
+        let bindings: Vec<(String, AssetInfo)> = bundle_keys
+            .iter()
+            .map(|key| {
+                let path = version_dir.join(bundles::language_bundle_name(key, &version));
+                (key.clone(), AssetInfo::from_path(&path, key))
             })
-            .unwrap_or_default();
-        bindings.sort_by(|a, b| a.0.cmp(&b.0));
+            .collect();
 
         let mut windows = Vec::new();
         for asset in BinaryAsset::WINDOWS_ASSETS {
@@ -1212,10 +1209,13 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "azul.mli",
         source: BindingSource::Codegen,
     },
+    // The example's dune, not the codegen's: the generated one is the
+    // library manifest with the `(executable ...)` stanza commented out, so
+    // the documented `dune exec ./hello_world.exe` had nothing to build.
     BindingFile {
         dst: "dune",
-        src: "dune",
-        source: BindingSource::Codegen,
+        src: "ocaml/dune",
+        source: BindingSource::Examples,
     },
     BindingFile {
         dst: "dune-project",

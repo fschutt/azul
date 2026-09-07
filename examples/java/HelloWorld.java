@@ -31,7 +31,7 @@ public final class HelloWorld {
             MyDataModel m = (MyDataModel) recovered;
             Dom label = Dom.createDiv()
                 .withCss("font-size: 32px;")
-                .withChild(Dom.createTextDoNotUseWithoutBlockLevelWrapper(String.valueOf(m.counter)));
+                .withChild(Dom.createSpanWithText(String.valueOf(m.counter)));
             Dom buttonDom = Button.create("Increase counter")
                 .withButtonType(ButtonType.Primary.value)
                 .onClick(m, ON_CLICK)

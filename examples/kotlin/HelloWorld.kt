@@ -19,7 +19,7 @@ private val layout = AzulHostInvoker.LayoutCallback { _, dataPtr, _ ->
     } else {
         val label = Dom.createDiv()
             .withCss("font-size: 32px;")
-            .withChild(Dom.createTextDoNotUseWithoutBlockLevelWrapper(m.counter.toString()))
+            .withChild(Dom.createSpanWithText(m.counter.toString()))
         val buttonDom = Button.create("Increase counter")
             .withButtonType(ButtonType.Primary.value)
             .onClick(m, onClick)

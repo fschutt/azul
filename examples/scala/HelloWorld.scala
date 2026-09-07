@@ -26,7 +26,7 @@ object HelloWorld {
           case m: MyDataModel =>
             val label = Dom.createDiv()
               .withCss("font-size: 32px;")
-              .withChild(Dom.createTextDoNotUseWithoutBlockLevelWrapper(String.valueOf(m.counter)))
+              .withChild(Dom.createSpanWithText(String.valueOf(m.counter)))
             val buttonDom = Button.create("Increase counter")
               .withButtonType(ButtonType.Primary.value)
               .onClick(m, ON_CLICK)

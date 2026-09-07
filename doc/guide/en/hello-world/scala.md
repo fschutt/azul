@@ -44,45 +44,30 @@ run** (Scala CLI compiles and runs your program against those classes).
 You need a **JDK 17+**, **Scala 3 / Scala CLI** (the `scala` runner),
 **JNA 5.14+**, and the native `libazul` library.
 
-Linux:
+Scala calls the Java binding directly. The self-hosted Maven repository at
+`https://azul.rs/ui/maven` serves it as `rs.azul:azul`, with `libazul` for
+Linux x86-64, macOS arm64 and Windows x64 bundled as JNA resources — so
+Scala CLI resolves everything and nothing native is downloaded:
 
 ```sh
-curl -O https://azul.rs/ui/release/$VERSION/libazul.so
-curl -O https://azul.rs/ui/release/$VERSION/azul-java.zip
-unzip -o azul-java.zip -d azul-java
 curl -O https://azul.rs/ui/release/$VERSION/HelloWorld.scala
+scala run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository https://azul.rs/ui/maven
+# macOS needs the AppKit main thread:
+scala run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository https://azul.rs/ui/maven --java-opt -XstartOnFirstThread
+```
+
+Alternatively, compile the generated Java sources yourself from the bundle
+(`azul-java/` + `HelloWorld.scala`), with the native library in the working
+directory:
+
+```sh
+curl -LO https://azul.rs/ui/release/$VERSION/azul-scala-$VERSION.tar.gz
+tar xzf azul-scala-$VERSION.tar.gz
+curl -O https://azul.rs/ui/release/$VERSION/libazul.so        # or libazul.dylib / azul.dll
 curl -L -o jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar
 javac -cp jna.jar -d classes azul-java/*.java
 scala run HelloWorld.scala --class-path classes:jna.jar --java-opt -Djna.library.path=.
 ```
-
-macOS (note the extra `-XstartOnFirstThread`):
-
-```sh
-curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
-curl -O https://azul.rs/ui/release/$VERSION/azul-java.zip
-unzip -o azul-java.zip -d azul-java
-curl -O https://azul.rs/ui/release/$VERSION/HelloWorld.scala
-curl -L -o jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar
-javac -cp jna.jar -d classes azul-java/*.java
-scala run HelloWorld.scala --class-path classes:jna.jar --java-opt -Djna.library.path=. --java-opt -XstartOnFirstThread
-```
-
-Windows:
-
-```sh
-curl -O https://azul.rs/ui/release/$VERSION/azul.dll
-curl -O https://azul.rs/ui/release/$VERSION/azul-java.zip
-unzip -o azul-java.zip -d azul-java
-curl -O https://azul.rs/ui/release/$VERSION/HelloWorld.scala
-curl -L -o jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar
-javac -cp jna.jar -d classes azul-java\*.java
-scala run HelloWorld.scala --class-path classes;jna.jar --java-opt -Djna.library.path=.
-```
-
-`azul-java.zip` is the same generated-bindings archive the Java guide
-uses — Scala consumes the compiled `.class` files, so the one `javac`
-invocation is the only Java-side step.
 
 ## Simple "Counter" Example
 
@@ -123,7 +108,7 @@ object HelloWorld {
           case m: MyDataModel =>
             val label = Dom.createDiv()
               .withCss("font-size: 32px;")
-              .withChild(Dom.createTextDoNotUseWithoutBlockLevelWrapper(String.valueOf(m.counter)))
+              .withChild(Dom.createSpanWithText(String.valueOf(m.counter)))
             val buttonDom = new Dom(
               Button.create("Increase counter")
                 .withButtonType(ButtonType.Primary.value)

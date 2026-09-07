@@ -28,18 +28,41 @@ object model for rapid development of beautiful, native desktop applications
 > Visit https://azul.rs/reftest in order to see the current testing and development
 > of the core rendering / HTML layouting engine.
 
-## Building
+## Using azul from Rust
+
+azul is not on crates.io. azul.rs serves a static cargo registry with the
+pre-rendered `azul` crate — the generated API lives inside the crate (so
+rust-analyzer sees every type) and it links the prebuilt `libazul` that
+`brew` / `apt` / `dnf` / `choco` / `scoop` install from the self-hosted
+mirrors, or one you downloaded (`AZ_LINK_PATH`):
+
+```toml
+# .cargo/config.toml
+[registries]
+azul = { index = "sparse+https://azul.rs/ui/cargo/" }
+```
+
+```bash
+cargo add azul --registry azul
+```
+
+The same crate is a download: `https://azul.rs/ui/release/<version>/azul-rust-<version>.tar.gz`
+(`cargo add azul --path azul-rust-<version>`). Full instructions, every
+platform: https://azul.rs/ui/guide/hello-world/rust
+
+## Building from source
 
 ```bash
 cargo build -r -p azul-doc
-./target/release/azul-doc codegen all
+./target/release/azul-doc codegen all                       # generates the API surface of every binding
+cargo build -r -p azul-dll --features build-dll             # libazul.{so,dylib,dll} in target/release
 ```
 
 azul-doc is a multitool that generates all the code *necessary* for having a stable public API that works across multiple languages. 
 
 ```bash
-# link dynamic (fast Rust rebuilds)
+# a Rust app against the freshly built library, from the in-repo crate
 export AZ_LINK_PATH=/path/to/azul/target/release
-cargo add azul --features link_dynamic
-cargo run --release my-project
+cargo add azul-dll --rename azul --path /path/to/azul/dll --no-default-features --features link-dynamic
+cargo run --release
 ```

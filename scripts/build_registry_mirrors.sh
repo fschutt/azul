@@ -152,18 +152,27 @@ META
 #   pip install azul --index-url https://azul.rs/ui
 # --------------------------------------------------------------------------
 build_pypi() {
-  local files; files=$(ls -1 "$ART"/pypi-dist/* 2>/dev/null)
-  [ -n "$files" ] || { echo "  [pypi] no dist artifacts — skip"; return; }
+  local files; files=$(ls -1 "$ART"/pypi-dist/*.whl 2>/dev/null)
+  [ -n "$files" ] || { echo "  [pypi] no wheel artifacts — skip"; return; }
   # PEP 503 index ROOT is /ui itself; pip fetches <index-url>/azul/, so the
   # per-project page lives at /ui/azul/. (pip install azul --index-url .../ui)
   local pkgdir="$SITE/ui/azul"
   mkdir -p "$pkgdir"
+  # macOS (arm64) + Windows (x64) wheels, wrapped around the extension modules
+  # the build_pyext job produced (release/<V>/azul.so + azul.pyd). cibuildwheel
+  # only ran on Linux, so `pip install azul --index-url` had exactly one wheel;
+  # on any other platform pip fell back to the sdist, whose build cannot work
+  # (the extension needs sources only the repo's generator emits), and the
+  # docs said "works with pip" regardless. WHEELS ONLY: an sdist is never
+  # listed, whatever the artifact dir holds.
+  wrap_pyext_wheel "$RELDIR/azul.so"  "macosx_11_0_arm64" "azul.abi3.so" "$pkgdir"
+  wrap_pyext_wheel "$RELDIR/azul.pyd" "win_amd64"         "azul.pyd"     "$pkgdir"
   local links="" f base h
-  for f in "$ART"/pypi-dist/*; do
+  for f in "$ART"/pypi-dist/*.whl "$pkgdir"/azul-"$V"-cp310-abi3-macosx_11_0_arm64.whl "$pkgdir"/azul-"$V"-cp310-abi3-win_amd64.whl; do
     [ -f "$f" ] || continue
     base="$(basename "$f")"
-    cp "$f" "$pkgdir/$base"
-    h="$(sha256_of "$f")"
+    [ "$f" = "$pkgdir/$base" ] || cp "$f" "$pkgdir/$base"
+    h="$(sha256_of "$pkgdir/$base")"
     links="$links    <a href=\"$base#sha256=$h\">$base</a><br>\n"
   done
   # per-project page: /ui/azul/index.html
@@ -173,6 +182,59 @@ build_pypi() {
   # pip/uv/poetry fetch <root>/azul/ directly for a known package, so the root
   # listing is unnecessary and writing one here would clobber that landing page.
   echo "  [pypi] built ui/azul/ ($(ls -1 "$pkgdir" | grep -vc index.html) dists)"
+}
+
+# Wrap one prebuilt CPython extension module into an abi3 wheel (PEP 427: a
+# zip with the module + <name>-<version>.dist-info/{METADATA,WHEEL,RECORD}).
+# $1 module file, $2 platform tag, $3 file name inside the wheel, $4 out dir.
+# A placeholder (the skeleton build touches these) is skipped, never wrapped.
+wrap_pyext_wheel() {
+  local src="$1" plat="$2" inner="$3" out="$4"
+  [ -f "$src" ] || { echo "  [pypi] no $(basename "$src") in $RELDIR — no $plat wheel"; return; }
+  local size; size=$(wc -c < "$src" | tr -d ' ')
+  [ "$size" -gt 1000000 ] || { echo "  [pypi] $(basename "$src") is $size bytes (placeholder) — no $plat wheel"; return; }
+  SRC="$src" PLAT="$plat" INNER="$inner" OUT="$out" V="$V" python3 - <<'PY'
+import base64, hashlib, os, zipfile
+src, plat, inner, out, V = (os.environ[k] for k in ("SRC", "PLAT", "INNER", "OUT", "V"))
+tag = f"cp310-abi3-{plat}"
+name = f"azul-{V}-{tag}.whl"
+info = f"azul-{V}.dist-info"
+metadata = f"""Metadata-Version: 2.1
+Name: azul
+Version: {V}
+Summary: Python bindings for the Azul GUI framework
+Home-page: https://azul.rs/
+License: MIT
+Requires-Python: >=3.10
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Rust
+Classifier: Topic :: Software Development :: User Interfaces
+
+Python bindings for the Azul GUI framework (prebuilt abi3 extension module).
+See https://azul.rs/ui/guide/hello-world/python
+"""
+wheel = f"""Wheel-Version: 1.0
+Generator: azul-release (scripts/build_registry_mirrors.sh)
+Root-Is-Purelib: false
+Tag: {tag}
+"""
+def digest(b):
+    return "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(b).digest()).rstrip(b"=").decode()
+files = [(inner, open(src, "rb").read()),
+         (f"{info}/METADATA", metadata.encode()),
+         (f"{info}/WHEEL", wheel.encode()),
+         (f"{info}/top_level.txt", b"azul\n")]
+record = "".join(f"{p},{digest(b)},{len(b)}\n" for p, b in files) + f"{info}/RECORD,,\n"
+files.append((f"{info}/RECORD", record.encode()))
+path = os.path.join(out, name)
+with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+    for p, b in files:
+        zi = zipfile.ZipInfo(p, date_time=(2026, 1, 1, 0, 0, 0))
+        zi.compress_type = zipfile.ZIP_DEFLATED
+        zi.external_attr = 0o644 << 16
+        z.writestr(zi, b)
+print(f"  [pypi] wrapped {os.path.basename(src)} -> {name} ({os.path.getsize(path)} bytes)")
+PY
 }
 
 # --------------------------------------------------------------------------
@@ -500,6 +562,20 @@ build_homebrew() {
   [ -f "$arm" ] || { echo "  [brew] no macOS arm64 dylib in $RELDIR — skip"; return; }
   [ -f "$hdr" ] || { echo "  [brew] no azul.h in $RELDIR — skip"; return; }
   local arm_sha hdr_sha; arm_sha="$(sha256_of "$arm")"; hdr_sha="$(sha256_of "$hdr")"
+  # The C++ wrapper headers (azul03.hpp … azul23.hpp) go into include/ too, so
+  # `clang++ -I$(brew --prefix)/include` compiles the C++ hello-world without a
+  # second download. Each is its own resource so the formula pins its sha256.
+  local hpp_resources="" hpp_installs="" std
+  for std in 03 11 14 17 20 23; do
+    [ -f "$RELDIR/azul$std.hpp" ] || continue
+    hpp_resources="$hpp_resources
+    resource \"azul$std.hpp\" do
+      url \"$BASE/ui/release/$V/azul$std.hpp\"
+      sha256 \"$(sha256_of "$RELDIR/azul$std.hpp")\"
+    end"
+    hpp_installs="$hpp_installs
+    resource(\"azul$std.hpp\").stage { include.install \"azul$std.hpp\" }"
+  done
 
   # Build the formula. on_intel is emitted only if the Intel dylib exists.
   local intel_block=""
@@ -533,12 +609,25 @@ $intel_block
     resource "header" do
       url "$BASE/ui/release/$V/azul.h"
       sha256 "$hdr_sha"
-    end
+    end$hpp_resources
   end
 
   def install
     lib.install Dir["*.dylib"].first => "libazul.dylib"
-    resource("header").stage { include.install "azul.h" }
+    resource("header").stage { include.install "azul.h" }$hpp_installs
+    # pkg-config, so `cc \$(pkg-config --cflags --libs azul) hello-world.c` works.
+    (lib/"pkgconfig").mkpath
+    (lib/"pkgconfig/azul.pc").write <<~PC
+      prefix=#{opt_prefix}
+      libdir=\${prefix}/lib
+      includedir=\${prefix}/include
+
+      Name: azul
+      Description: Azul GUI framework (prebuilt libazul)
+      Version: $V
+      Libs: -L\${libdir} -lazul
+      Cflags: -I\${includedir}
+    PC
   end
 
   test do

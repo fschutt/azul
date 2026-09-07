@@ -3829,6 +3829,7 @@ jobs:
           mkdir -p target/packages
           find artifacts -name "libazul.so" -exec cp {} target/packages/ \;
           find nfpm-config -name "azul.h" -exec cp {} target/packages/ \;
+          find nfpm-config -name "azul*.hpp" -exec cp {} target/packages/ \;
           find nfpm-config -name "nfpm.yaml" -exec cp {} target/packages/ \;
           cp LICENSE target/packages/
           ls -la target/packages/
@@ -4097,6 +4098,7 @@ jobs:
           path: |
             target/packages/nfpm.yaml
             target/codegen/azul.h
+            target/codegen/azul*.hpp
           retention-days: 30
           if-no-files-found: error
 
@@ -5856,12 +5858,12 @@ jobs:
         with:
           output-dir: dist
 
-      - name: Build sdist (maturin)
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade maturin
-          maturin sdist -m dll/Cargo.toml -o dist || \
-            echo "::warning::maturin sdist failed (sdist is optional for a native extension)"
+      # No sdist, on purpose: the extension needs target/codegen/python_api.rs,
+      # which only the repository's generator produces, so a source build from
+      # pip cannot work — and an index that offers one turns "no matching
+      # distribution" (truthful) into a long compiler failure on every platform
+      # without a wheel. The macOS + Windows wheels are wrapped around the
+      # build_pyext modules at deploy time (build_registry_mirrors.sh).
 
       - name: List built artifacts
         run: ls -la dist/ || echo "no dist/"

@@ -58,33 +58,18 @@ download set is: the native library, the generated `azul.f90` module,
 the generated `Makefile`, and the counter example source.
 
 ```sh
+curl -LO https://azul.rs/ui/release/$VERSION/azul-fortran-$VERSION.tar.gz
+tar xzf azul-fortran-$VERSION.tar.gz      # azul.f90, Makefile, hello_world.f90
+
 # linux
 curl -O https://azul.rs/ui/release/$VERSION/libazul.so
-curl -O https://azul.rs/ui/release/$VERSION/azul.f90
-curl -O https://azul.rs/ui/release/$VERSION/Makefile
-curl -O https://azul.rs/ui/release/$VERSION/hello_world.f90
-make
-./hello_world
-```
-
-```sh
+make && ./hello_world
 # macOS
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
-curl -O https://azul.rs/ui/release/$VERSION/azul.f90
-curl -O https://azul.rs/ui/release/$VERSION/Makefile
-curl -O https://azul.rs/ui/release/$VERSION/hello_world.f90
-make
-DYLD_LIBRARY_PATH=. ./hello_world
-```
-
-```sh
+make && DYLD_LIBRARY_PATH=. ./hello_world
 # windows (MSYS2 / MinGW-w64 shell, azul.dll next to the .exe)
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll
-curl -O https://azul.rs/ui/release/$VERSION/azul.f90
-curl -O https://azul.rs/ui/release/$VERSION/Makefile
-curl -O https://azul.rs/ui/release/$VERSION/hello_world.f90
-make
-hello_world.exe
+make && hello_world.exe
 ```
 
 Use the shipped `Makefile` instead of invoking `gfortran` by hand: it
@@ -182,7 +167,7 @@ contains
       label_wrap = az_dom_create_div()
       label_wrap = az_dom_with_css(label_wrap, mk_str('font-size: 32px;'))
       label_wrap = az_dom_with_child(label_wrap, &
-                                     az_dom_create_text_do_not_use_without_block_level_wrapper(mk_str(trim(num))))
+                                     az_dom_create_span_with_text(mk_str(trim(num))))
 
       click_cb = azul_register_buttononclickcallback(my_on_click)
       click_data = azul_refany_create(c_loc(model))

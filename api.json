@@ -80,15 +80,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.ads"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ada-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.adb"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello_world.gpr"
+                                    "content": "tar xzf azul-ada-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -109,15 +105,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.ads"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ada-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.adb"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello_world.gpr"
+                                    "content": "tar xzf azul-ada-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -138,15 +130,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.ads"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ada-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.adb"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello_world.gpr"
+                                    "content": "tar xzf azul-ada-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -249,15 +237,19 @@
                     "displayName": "C",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library + C header, then compile with GCC (the hello-world.c source is in examples.zip)",
+                            "description": "Install libazul + azul.h from the self-hosted apt repository (into /usr/lib and /usr/include, so a plain -lazul finds them), then compile with GCC",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "sudo apt update && sudo apt install azul"
+                                },
+                                {
+                                    "type": "text",
+                                    "content": "Fedora / RHEL / openSUSE: sudo dnf config-manager --add-repo $HOSTNAME/ui/rpm/azul.repo && sudo dnf install azul. Arch: the [azul] pacman repository at $HOSTNAME/ui/arch. Alpine: $HOSTNAME/ui/alpine (apk add --allow-untrusted azul). Any other distro: curl -O the library + headers from $HOSTNAME/ui/release/$VERSION and add -I. -L. -Wl,-rpath,'$ORIGIN' to the compile line"
                                 },
                                 {
                                     "type": "command",
@@ -265,7 +257,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "gcc -I. hello-world.c -L. -lazul -lpthread -lm -ldl -Wl,-rpath,'$ORIGIN' -o hello-world"
+                                    "content": "gcc hello-world.c -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -274,15 +266,15 @@
                             ]
                         },
                         "macos": {
-                            "description": "Download the prebuilt library + C header, then compile with Clang (the hello-world.c source is in examples.zip)",
+                            "description": "Install libazul.dylib + azul.h from the self-hosted Homebrew tap (a bare git repository served from azul.rs), then compile with Clang against the Homebrew prefix",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "brew install fschutt/azul/azul"
                                 },
                                 {
                                     "type": "command",
@@ -290,7 +282,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang -I. hello-world.c -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
+                                    "content": "clang -I\"$(brew --prefix)/include\" -L\"$(brew --prefix)/lib\" hello-world.c -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -301,6 +293,10 @@
                         "windows": {
                             "description": "Download the prebuilt DLL, import library, and C header, then compile with MSVC (cl) (the hello-world.c source is in examples.zip)",
                             "steps": [
+                                {
+                                    "type": "text",
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                },
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
@@ -422,19 +418,19 @@
                     "dialectOf": "cpp",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library + C++03 header, then compile with g++ (the hello-world.cpp source is in examples.zip)",
+                            "description": "Install libazul + the C and C++ headers (azul.h, azul03.hpp) from the self-hosted apt repository, then compile with g++ -std=c++03",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul03.hpp"
+                                    "content": "sudo apt update && sudo apt install azul"
                                 },
                                 {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "type": "text",
+                                    "content": "Fedora / RHEL / openSUSE: sudo dnf config-manager --add-repo $HOSTNAME/ui/rpm/azul.repo && sudo dnf install azul. Arch: the [azul] pacman repository at $HOSTNAME/ui/arch. Alpine: $HOSTNAME/ui/alpine (apk add --allow-untrusted azul). Any other distro: curl -O the library + headers from $HOSTNAME/ui/release/$VERSION and add -I. -L. -Wl,-rpath,'$ORIGIN' to the compile line"
                                 },
                                 {
                                     "type": "command",
@@ -442,7 +438,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++03 -I. hello-world.cpp -L. -lazul -lpthread -lm -ldl -Wl,-rpath,'$ORIGIN' -o hello-world"
+                                    "content": "g++ -std=c++03 hello-world.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -451,19 +447,15 @@
                             ]
                         },
                         "macos": {
-                            "description": "Download the prebuilt library + C++03 header, then compile with clang++ (the hello-world.cpp source is in examples.zip)",
+                            "description": "Install libazul.dylib + the C and C++ headers from the self-hosted Homebrew tap, then compile with clang++ -std=c++03 against the Homebrew prefix",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul03.hpp"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "brew install fschutt/azul/azul"
                                 },
                                 {
                                     "type": "command",
@@ -471,7 +463,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++03 -I. hello-world.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
+                                    "content": "clang++ -std=c++03 -I\"$(brew --prefix)/include\" hello-world.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -480,8 +472,12 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt DLL, import library, and C++03 header, then compile with MSVC (cl) (the hello-world.cpp source is in examples.zip)",
+                            "description": "Download the prebuilt DLL + import library and the C++ bundle (azul.h, every azul<NN>.hpp, hello-world.cpp), then compile with MSVC (cl)",
                             "steps": [
+                                {
+                                    "type": "text",
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                },
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
@@ -492,15 +488,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul03.hpp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -524,19 +516,19 @@
                     "dialectOf": "cpp",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library + C++11 header, then compile with g++ (the hello-world.cpp source is in examples.zip)",
+                            "description": "Install libazul + the C and C++ headers (azul.h, azul11.hpp) from the self-hosted apt repository, then compile with g++ -std=c++11",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul11.hpp"
+                                    "content": "sudo apt update && sudo apt install azul"
                                 },
                                 {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "type": "text",
+                                    "content": "Fedora / RHEL / openSUSE: sudo dnf config-manager --add-repo $HOSTNAME/ui/rpm/azul.repo && sudo dnf install azul. Arch: the [azul] pacman repository at $HOSTNAME/ui/arch. Alpine: $HOSTNAME/ui/alpine (apk add --allow-untrusted azul). Any other distro: curl -O the library + headers from $HOSTNAME/ui/release/$VERSION and add -I. -L. -Wl,-rpath,'$ORIGIN' to the compile line"
                                 },
                                 {
                                     "type": "command",
@@ -544,7 +536,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++11 -I. hello-world.cpp -L. -lazul -lpthread -lm -ldl -Wl,-rpath,'$ORIGIN' -o hello-world"
+                                    "content": "g++ -std=c++11 hello-world.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -553,19 +545,15 @@
                             ]
                         },
                         "macos": {
-                            "description": "Download the prebuilt library + C++11 header, then compile with clang++ (the hello-world.cpp source is in examples.zip)",
+                            "description": "Install libazul.dylib + the C and C++ headers from the self-hosted Homebrew tap, then compile with clang++ -std=c++11 against the Homebrew prefix",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul11.hpp"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "brew install fschutt/azul/azul"
                                 },
                                 {
                                     "type": "command",
@@ -573,7 +561,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++11 -I. hello-world.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
+                                    "content": "clang++ -std=c++11 -I\"$(brew --prefix)/include\" hello-world.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -582,8 +570,12 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt DLL, import library, and C++11 header, then compile with MSVC (cl) (the hello-world.cpp source is in examples.zip)",
+                            "description": "Download the prebuilt DLL + import library and the C++ bundle (azul.h, every azul<NN>.hpp, hello-world.cpp), then compile with MSVC (cl)",
                             "steps": [
+                                {
+                                    "type": "text",
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                },
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
@@ -594,15 +586,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul11.hpp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -626,19 +614,19 @@
                     "dialectOf": "cpp",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library + C++14 header, then compile with g++ (the hello-world.cpp source is in examples.zip)",
+                            "description": "Install libazul + the C and C++ headers (azul.h, azul14.hpp) from the self-hosted apt repository, then compile with g++ -std=c++14",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul14.hpp"
+                                    "content": "sudo apt update && sudo apt install azul"
                                 },
                                 {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "type": "text",
+                                    "content": "Fedora / RHEL / openSUSE: sudo dnf config-manager --add-repo $HOSTNAME/ui/rpm/azul.repo && sudo dnf install azul. Arch: the [azul] pacman repository at $HOSTNAME/ui/arch. Alpine: $HOSTNAME/ui/alpine (apk add --allow-untrusted azul). Any other distro: curl -O the library + headers from $HOSTNAME/ui/release/$VERSION and add -I. -L. -Wl,-rpath,'$ORIGIN' to the compile line"
                                 },
                                 {
                                     "type": "command",
@@ -646,7 +634,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++14 -I. hello-world.cpp -L. -lazul -lpthread -lm -ldl -Wl,-rpath,'$ORIGIN' -o hello-world"
+                                    "content": "g++ -std=c++14 hello-world.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -655,19 +643,15 @@
                             ]
                         },
                         "macos": {
-                            "description": "Download the prebuilt library + C++14 header, then compile with clang++ (the hello-world.cpp source is in examples.zip)",
+                            "description": "Install libazul.dylib + the C and C++ headers from the self-hosted Homebrew tap, then compile with clang++ -std=c++14 against the Homebrew prefix",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul14.hpp"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "brew install fschutt/azul/azul"
                                 },
                                 {
                                     "type": "command",
@@ -675,7 +659,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++14 -I. hello-world.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
+                                    "content": "clang++ -std=c++14 -I\"$(brew --prefix)/include\" hello-world.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -684,8 +668,12 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt DLL, import library, and C++14 header, then compile with MSVC (cl) (the hello-world.cpp source is in examples.zip)",
+                            "description": "Download the prebuilt DLL + import library and the C++ bundle (azul.h, every azul<NN>.hpp, hello-world.cpp), then compile with MSVC (cl)",
                             "steps": [
+                                {
+                                    "type": "text",
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                },
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
@@ -696,15 +684,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul14.hpp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -728,19 +712,19 @@
                     "dialectOf": "cpp",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library + C++17 header, then compile with g++ (the hello-world.cpp source is in examples.zip)",
+                            "description": "Install libazul + the C and C++ headers (azul.h, azul17.hpp) from the self-hosted apt repository, then compile with g++ -std=c++17",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul17.hpp"
+                                    "content": "sudo apt update && sudo apt install azul"
                                 },
                                 {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "type": "text",
+                                    "content": "Fedora / RHEL / openSUSE: sudo dnf config-manager --add-repo $HOSTNAME/ui/rpm/azul.repo && sudo dnf install azul. Arch: the [azul] pacman repository at $HOSTNAME/ui/arch. Alpine: $HOSTNAME/ui/alpine (apk add --allow-untrusted azul). Any other distro: curl -O the library + headers from $HOSTNAME/ui/release/$VERSION and add -I. -L. -Wl,-rpath,'$ORIGIN' to the compile line"
                                 },
                                 {
                                     "type": "command",
@@ -748,7 +732,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++17 -I. hello-world.cpp -L. -lazul -lpthread -lm -ldl -Wl,-rpath,'$ORIGIN' -o hello-world"
+                                    "content": "g++ -std=c++17 hello-world.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -757,19 +741,15 @@
                             ]
                         },
                         "macos": {
-                            "description": "Download the prebuilt library + C++17 header, then compile with clang++ (the hello-world.cpp source is in examples.zip)",
+                            "description": "Install libazul.dylib + the C and C++ headers from the self-hosted Homebrew tap, then compile with clang++ -std=c++17 against the Homebrew prefix",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul17.hpp"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "brew install fschutt/azul/azul"
                                 },
                                 {
                                     "type": "command",
@@ -777,7 +757,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++17 -I. hello-world.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
+                                    "content": "clang++ -std=c++17 -I\"$(brew --prefix)/include\" hello-world.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -786,8 +766,12 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt DLL, import library, and C++17 header, then compile with MSVC (cl) (the hello-world.cpp source is in examples.zip)",
+                            "description": "Download the prebuilt DLL + import library and the C++ bundle (azul.h, every azul<NN>.hpp, hello-world.cpp), then compile with MSVC (cl)",
                             "steps": [
+                                {
+                                    "type": "text",
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                },
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
@@ -798,15 +782,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul17.hpp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -830,19 +810,19 @@
                     "dialectOf": "cpp",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library + C++20 header, then compile with g++ (the hello-world.cpp source is in examples.zip)",
+                            "description": "Install libazul + the C and C++ headers (azul.h, azul20.hpp) from the self-hosted apt repository, then compile with g++ -std=c++20",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul20.hpp"
+                                    "content": "sudo apt update && sudo apt install azul"
                                 },
                                 {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "type": "text",
+                                    "content": "Fedora / RHEL / openSUSE: sudo dnf config-manager --add-repo $HOSTNAME/ui/rpm/azul.repo && sudo dnf install azul. Arch: the [azul] pacman repository at $HOSTNAME/ui/arch. Alpine: $HOSTNAME/ui/alpine (apk add --allow-untrusted azul). Any other distro: curl -O the library + headers from $HOSTNAME/ui/release/$VERSION and add -I. -L. -Wl,-rpath,'$ORIGIN' to the compile line"
                                 },
                                 {
                                     "type": "command",
@@ -850,7 +830,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++20 -I. hello-world.cpp -L. -lazul -lpthread -lm -ldl -Wl,-rpath,'$ORIGIN' -o hello-world"
+                                    "content": "g++ -std=c++20 hello-world.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -859,19 +839,15 @@
                             ]
                         },
                         "macos": {
-                            "description": "Download the prebuilt library + C++20 header, then compile with clang++ (the hello-world.cpp source is in examples.zip)",
+                            "description": "Install libazul.dylib + the C and C++ headers from the self-hosted Homebrew tap, then compile with clang++ -std=c++20 against the Homebrew prefix",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul20.hpp"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "brew install fschutt/azul/azul"
                                 },
                                 {
                                     "type": "command",
@@ -879,7 +855,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++20 -I. hello-world.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
+                                    "content": "clang++ -std=c++20 -I\"$(brew --prefix)/include\" hello-world.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -888,8 +864,12 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt DLL, import library, and C++20 header, then compile with MSVC (cl) (the hello-world.cpp source is in examples.zip)",
+                            "description": "Download the prebuilt DLL + import library and the C++ bundle (azul.h, every azul<NN>.hpp, hello-world.cpp), then compile with MSVC (cl)",
                             "steps": [
+                                {
+                                    "type": "text",
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                },
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
@@ -900,15 +880,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul20.hpp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -932,19 +908,19 @@
                     "dialectOf": "cpp",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library + C++23 header, then compile with g++ (the hello-world.cpp source is in examples.zip)",
+                            "description": "Install libazul + the C and C++ headers (azul.h, azul23.hpp) from the self-hosted apt repository, then compile with g++ -std=c++23",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul23.hpp"
+                                    "content": "sudo apt update && sudo apt install azul"
                                 },
                                 {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "type": "text",
+                                    "content": "Fedora / RHEL / openSUSE: sudo dnf config-manager --add-repo $HOSTNAME/ui/rpm/azul.repo && sudo dnf install azul. Arch: the [azul] pacman repository at $HOSTNAME/ui/arch. Alpine: $HOSTNAME/ui/alpine (apk add --allow-untrusted azul). Any other distro: curl -O the library + headers from $HOSTNAME/ui/release/$VERSION and add -I. -L. -Wl,-rpath,'$ORIGIN' to the compile line"
                                 },
                                 {
                                     "type": "command",
@@ -952,7 +928,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "g++ -std=c++23 -I. hello-world.cpp -L. -lazul -lpthread -lm -ldl -Wl,-rpath,'$ORIGIN' -o hello-world"
+                                    "content": "g++ -std=c++23 hello-world.cpp -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -961,19 +937,15 @@
                             ]
                         },
                         "macos": {
-                            "description": "Download the prebuilt library + C++23 header, then compile with clang++ (the hello-world.cpp source is in examples.zip)",
+                            "description": "Install libazul.dylib + the C and C++ headers from the self-hosted Homebrew tap, then compile with clang++ -std=c++23 against the Homebrew prefix",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul23.hpp"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "brew install fschutt/azul/azul"
                                 },
                                 {
                                     "type": "command",
@@ -981,7 +953,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "clang++ -std=c++23 -I. hello-world.cpp -L. -lazul -Wl,-rpath,@executable_path -o hello-world"
+                                    "content": "clang++ -std=c++23 -I\"$(brew --prefix)/include\" hello-world.cpp -L\"$(brew --prefix)/lib\" -lazul -o hello-world"
                                 },
                                 {
                                     "type": "command",
@@ -990,8 +962,12 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt DLL, import library, and C++23 header, then compile with MSVC (cl) (the hello-world.cpp source is in examples.zip)",
+                            "description": "Download the prebuilt DLL + import library and the C++ bundle (azul.h, every azul<NN>.hpp, hello-world.cpp), then compile with MSVC (cl)",
                             "steps": [
+                                {
+                                    "type": "text",
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                },
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
@@ -1002,15 +978,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul23.hpp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -1309,15 +1281,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.f90"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-fortran-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Makefile"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello_world.f90"
+                                    "content": "tar xzf azul-fortran-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -1338,15 +1306,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.f90"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-fortran-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Makefile"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello_world.f90"
+                                    "content": "tar xzf azul-fortran-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -1367,15 +1331,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.f90"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-fortran-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Makefile"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello_world.f90"
+                                    "content": "tar xzf azul-fortran-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -1602,39 +1562,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p azul-haskell/src/Azul/Internal azul-haskell/cbits"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-haskell-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -o azul-haskell/azul.cabal $HOSTNAME/ui/release/$VERSION/azul.cabal"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/src/Azul.hs $HOSTNAME/ui/release/$VERSION/Azul.hs"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/src/Azul/Types.hs $HOSTNAME/ui/release/$VERSION/Azul/Types.hs"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/src/Azul/Internal/FFI.hs $HOSTNAME/ui/release/$VERSION/Azul/Internal/FFI.hs"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/cbits/azul_shims.c $HOSTNAME/ui/release/$VERSION/azul_shims.c"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/cbits/azul.h $HOSTNAME/ui/release/$VERSION/azul.h"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.hs"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul-example.cabal"
+                                    "content": "tar xzf azul-haskell-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -1659,39 +1591,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p azul-haskell/src/Azul/Internal azul-haskell/cbits"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-haskell-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -o azul-haskell/azul.cabal $HOSTNAME/ui/release/$VERSION/azul.cabal"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/src/Azul.hs $HOSTNAME/ui/release/$VERSION/Azul.hs"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/src/Azul/Types.hs $HOSTNAME/ui/release/$VERSION/Azul/Types.hs"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/src/Azul/Internal/FFI.hs $HOSTNAME/ui/release/$VERSION/Azul/Internal/FFI.hs"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/cbits/azul_shims.c $HOSTNAME/ui/release/$VERSION/azul_shims.c"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/cbits/azul.h $HOSTNAME/ui/release/$VERSION/azul.h"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.hs"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul-example.cabal"
+                                    "content": "tar xzf azul-haskell-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -1716,39 +1620,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p azul-haskell/src/Azul/Internal azul-haskell/cbits"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-haskell-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -o azul-haskell/azul.cabal $HOSTNAME/ui/release/$VERSION/azul.cabal"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/src/Azul.hs $HOSTNAME/ui/release/$VERSION/Azul.hs"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/src/Azul/Types.hs $HOSTNAME/ui/release/$VERSION/Azul/Types.hs"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/src/Azul/Internal/FFI.hs $HOSTNAME/ui/release/$VERSION/Azul/Internal/FFI.hs"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/cbits/azul_shims.c $HOSTNAME/ui/release/$VERSION/azul_shims.c"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -o azul-haskell/cbits/azul.h $HOSTNAME/ui/release/$VERSION/azul.h"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.hs"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul-example.cabal"
+                                    "content": "tar xzf azul-haskell-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -1780,19 +1656,11 @@
                     "displayName": "Java",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library, the generated JNA bindings, and the hello-world Maven project, then build and run",
+                            "description": "Maven resolves rs.azul:azul from the self-hosted repository at $HOSTNAME/ui/maven (declared in the pom): the jar bundles the compiled com.azul binding AND libazul for Linux x86-64, macOS arm64 and Windows x64 as JNA resources, so nothing native is downloaded. The shaded target/hello-world-1.0.0.jar is self-contained",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul-java.zip"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "unzip -o azul-java.zip -d azul-java"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/pom.xml"
                                 },
                                 {
                                     "type": "command",
@@ -1800,32 +1668,20 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/pom.xml"
+                                    "content": "mvn -q package"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mvn -q package -Dazul.codegen.dir=azul-java"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "java -Djna.library.path=. -cp target/hello-world-1.0.0.jar:$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar com.azul.HelloWorld"
+                                    "content": "java -jar target/hello-world-1.0.0.jar"
                                 }
                             ]
                         },
                         "macos": {
-                            "description": "Download the prebuilt library, the generated JNA bindings, and the hello-world Maven project, then build and run",
+                            "description": "Maven resolves rs.azul:azul from the self-hosted repository at $HOSTNAME/ui/maven (declared in the pom): the jar bundles the compiled com.azul binding AND libazul for Linux x86-64, macOS arm64 and Windows x64 as JNA resources, so nothing native is downloaded. The shaded target/hello-world-1.0.0.jar is self-contained (the JVM needs -XstartOnFirstThread for the AppKit event loop)",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul-java.zip"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "unzip -o azul-java.zip -d azul-java"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/pom.xml"
                                 },
                                 {
                                     "type": "command",
@@ -1833,32 +1689,20 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/pom.xml"
+                                    "content": "mvn -q package"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mvn -q package -Dazul.codegen.dir=azul-java"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "java -XstartOnFirstThread -Djna.library.path=. -cp target/hello-world-1.0.0.jar:$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar com.azul.HelloWorld"
+                                    "content": "java -XstartOnFirstThread -jar target/hello-world-1.0.0.jar"
                                 }
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt library, the generated JNA bindings, and the hello-world Maven project, then build and run",
+                            "description": "Maven resolves rs.azul:azul from the self-hosted repository at $HOSTNAME/ui/maven (declared in the pom): the jar bundles the compiled com.azul binding AND libazul for Linux x86-64, macOS arm64 and Windows x64 as JNA resources, so nothing native is downloaded. The shaded target/hello-world-1.0.0.jar is self-contained",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul-java.zip"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "unzip -o azul-java.zip -d azul-java"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/pom.xml"
                                 },
                                 {
                                     "type": "command",
@@ -1866,15 +1710,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/pom.xml"
+                                    "content": "mvn -q package"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "mvn -q package -Dazul.codegen.dir=azul-java"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "java -Djna.library.path=. -cp target\\hello-world-1.0.0.jar;%USERPROFILE%\\.m2\\repository\\net\\java\\dev\\jna\\jna\\5.14.0\\jna-5.14.0.jar com.azul.HelloWorld"
+                                    "content": "java -jar target/hello-world-1.0.0.jar"
                                 }
                             ]
                         }
@@ -2065,19 +1905,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.lisp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-lisp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.asd"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul-example.asd"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.lisp"
+                                    "content": "tar xzf azul-lisp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -2094,19 +1926,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.lisp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-lisp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.asd"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul-example.asd"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.lisp"
+                                    "content": "tar xzf azul-lisp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -2123,19 +1947,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.lisp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-lisp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.asd"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul-example.asd"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.lisp"
+                                    "content": "tar xzf azul-lisp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -2379,23 +2195,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.ml"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ocaml-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.mli"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/dune"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/dune-project"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello_world.ml"
+                                    "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -2416,23 +2220,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.ml"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ocaml-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.mli"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/dune"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/dune-project"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello_world.ml"
+                                    "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -2453,23 +2245,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.ml"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-ocaml-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.mli"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/dune"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/dune-project"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello_world.ml"
+                                    "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -2662,7 +2442,11 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p lib"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-perl-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-perl-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -2670,19 +2454,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -o lib/Azul.pm $HOSTNAME/ui/release/$VERSION/Azul.pm"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/cpanfile"
-                                },
-                                {
-                                    "type": "command",
                                     "content": "cpanm --installdeps ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.pl"
                                 },
                                 {
                                     "type": "command",
@@ -2695,7 +2467,11 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p lib"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-perl-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-perl-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -2703,19 +2479,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -o lib/Azul.pm $HOSTNAME/ui/release/$VERSION/Azul.pm"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/cpanfile"
-                                },
-                                {
-                                    "type": "command",
                                     "content": "cpanm --installdeps ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.pl"
                                 },
                                 {
                                     "type": "command",
@@ -2728,7 +2492,11 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "mkdir -p lib"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-perl-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-perl-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -2736,19 +2504,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -o lib/Azul.pm $HOSTNAME/ui/release/$VERSION/Azul.pm"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/cpanfile"
-                                },
-                                {
-                                    "type": "command",
                                     "content": "cpanm --installdeps ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.pl"
                                 },
                                 {
                                     "type": "command",
@@ -2767,11 +2523,19 @@
                     "displayName": "PHP",
                     "platforms": {
                         "linux": {
-                            "description": "PHP's full-GUI counter needs the native Zend extension (ext-php-rs). The release ships the desktop libazul (not a PHP module), so build the php-extension flavor from the azul source, then run the driver with it. See examples/php/README.md.",
+                            "description": "Build from source: the PHP binding is a Zend extension compiled from the azul repository (there is no prebuilt extension yet), so this needs a Rust toolchain, a checkout at the release tag and the code generator; pHP's full-GUI counter needs the native Zend extension (ext-php-rs). The release ships the desktop libazul (not a PHP module), so build the php-extension flavor from the azul source, then run the driver with it. See examples/php/README.md.",
                             "steps": [
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.php"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "git clone --depth 1 --branch $VERSION https://github.com/fschutt/azul && cd azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cargo run --release -p azul-doc codegen all"
                                 },
                                 {
                                     "type": "command",
@@ -2784,11 +2548,19 @@
                             ]
                         },
                         "macos": {
-                            "description": "PHP's full-GUI counter needs the native Zend extension (ext-php-rs). The release ships the desktop libazul (not a PHP module), so build the php-extension flavor from the azul source, then run the driver with it. See examples/php/README.md.",
+                            "description": "Build from source: the PHP binding is a Zend extension compiled from the azul repository (there is no prebuilt extension yet), so this needs a Rust toolchain, a checkout at the release tag and the code generator; pHP's full-GUI counter needs the native Zend extension (ext-php-rs). The release ships the desktop libazul (not a PHP module), so build the php-extension flavor from the azul source, then run the driver with it. See examples/php/README.md.",
                             "steps": [
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.php"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "git clone --depth 1 --branch $VERSION https://github.com/fschutt/azul && cd azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cargo run --release -p azul-doc codegen all"
                                 },
                                 {
                                     "type": "command",
@@ -2805,11 +2577,19 @@
                             ]
                         },
                         "windows": {
-                            "description": "PHP's full-GUI counter needs the native Zend extension (ext-php-rs). The release ships the desktop libazul (not a PHP module), so build the php-extension flavor from the azul source, then run the driver with it. See examples/php/README.md.",
+                            "description": "Build from source: the PHP binding is a Zend extension compiled from the azul repository (there is no prebuilt extension yet), so this needs a Rust toolchain, a checkout at the release tag and the code generator; pHP's full-GUI counter needs the native Zend extension (ext-php-rs). The release ships the desktop libazul (not a PHP module), so build the php-extension flavor from the azul source, then run the driver with it. See examples/php/README.md.",
                             "steps": [
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.php"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "git clone --depth 1 --branch $VERSION https://github.com/fschutt/azul && cd azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cargo run --release -p azul-doc codegen all"
                                 },
                                 {
                                     "type": "command",
@@ -2835,15 +2615,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Azul.psm1"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-powershell-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Azul.psd1"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.ps1"
+                                    "content": "tar xzf azul-powershell-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -2860,15 +2636,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Azul.psm1"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-powershell-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Azul.psd1"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.ps1"
+                                    "content": "tar xzf azul-powershell-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -2885,15 +2657,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Azul.psm1"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-powershell-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Azul.psd1"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.ps1"
+                                    "content": "tar xzf azul-powershell-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3178,26 +2946,102 @@
                 },
                 "rust": {
                     "displayName": "Rust",
-                    "methods": {
-                        "cargo": {
-                            "displayName": null,
-                            "description": "Clone the repo at the release tag, generate the bindings once, then depend on the dll crate by path (the crate cannot build as a bare git dependency: its generated sources are created by azul-doc, not committed)",
+                    "platforms": {
+                        "linux": {
+                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories — here from a download next to the project; `sudo apt install azul` / `dnf install azul` from the azul.rs repositories (see the C tab) work just as well",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "git clone --depth 1 --branch $VERSION https://github.com/fschutt/azul"
+                                    "content": "cargo new hello-azul && cd hello-azul"
+                                },
+                                {
+                                    "type": "code",
+                                    "language": "toml",
+                                    "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cargo run --release --manifest-path azul/Cargo.toml -p azul-doc codegen all"
+                                    "content": "cargo add azul --registry azul"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cargo add azul-dll --rename azul --path azul/dll"
+                                    "content": "curl -o src/main.rs $HOSTNAME/ui/release/$VERSION/hello-world.rs"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cargo build"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cargo run --release"
+                                }
+                            ]
+                        },
+                        "macos": {
+                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories — here /opt/homebrew/lib, where the self-hosted Homebrew tap installs it",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "brew install fschutt/azul/azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cargo new hello-azul && cd hello-azul"
+                                },
+                                {
+                                    "type": "code",
+                                    "language": "toml",
+                                    "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cargo add azul --registry azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -o src/main.rs $HOSTNAME/ui/release/$VERSION/hello-world.rs"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cargo run --release"
+                                }
+                            ]
+                        },
+                        "windows": {
+                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories — here the DLL + its MSVC import library downloaded next to the project (`choco install libazul --source $HOSTNAME/ui/nuget/index.json` or the Scoop bucket at $HOSTNAME/ui/scoop-azul.git set AZ_LINK_PATH for you instead)",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "cargo new hello-azul && cd hello-azul"
+                                },
+                                {
+                                    "type": "code",
+                                    "language": "toml",
+                                    "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cargo add azul --registry azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -o src/main.rs $HOSTNAME/ui/release/$VERSION/hello-world.rs"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cargo run --release"
                                 }
                             ]
                         }
@@ -3207,101 +3051,41 @@
                     "displayName": "Scala",
                     "platforms": {
                         "linux": {
-                            "description": "Download the prebuilt library and the generated Java (JNA) bindings - Scala rides on them directly - plus the Scala hello-world, then compile and run with scala-cli",
+                            "description": "Scala CLI resolves rs.azul:azul (the Java binding, which Scala calls directly) from the self-hosted repository at $HOSTNAME/ui/maven; the jar bundles libazul for Linux, macOS and Windows as JNA resources, so nothing native is downloaded",
                             "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul-java.zip"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "unzip -o azul-java.zip -d azul-java"
-                                },
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.scala"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -L -o jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "javac -cp jna.jar -d classes azul-java/*.java"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "scala run HelloWorld.scala --class-path classes:jna.jar --java-opt -Djna.library.path=."
+                                    "content": "scala run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository $HOSTNAME/ui/maven"
                                 }
                             ]
                         },
                         "macos": {
-                            "description": "Download the prebuilt library and the generated Java (JNA) bindings - Scala rides on them directly - plus the Scala hello-world, then compile and run with scala-cli",
+                            "description": "Scala CLI resolves rs.azul:azul (the Java binding, which Scala calls directly) from the self-hosted repository at $HOSTNAME/ui/maven; the jar bundles libazul for Linux, macOS and Windows as JNA resources, so nothing native is downloaded (the JVM needs -XstartOnFirstThread for the AppKit event loop)",
                             "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul-java.zip"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "unzip -o azul-java.zip -d azul-java"
-                                },
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.scala"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -L -o jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "javac -cp jna.jar -d classes azul-java/*.java"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "scala run HelloWorld.scala --class-path classes:jna.jar --java-opt -Djna.library.path=. --java-opt -XstartOnFirstThread"
+                                    "content": "scala run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository $HOSTNAME/ui/maven --java-opt -XstartOnFirstThread"
                                 }
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt library and the generated Java (JNA) bindings - Scala rides on them directly - plus the Scala hello-world, then compile and run with scala-cli",
+                            "description": "Scala CLI resolves rs.azul:azul (the Java binding, which Scala calls directly) from the self-hosted repository at $HOSTNAME/ui/maven; the jar bundles libazul for Linux, macOS and Windows as JNA resources, so nothing native is downloaded",
                             "steps": [
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul-java.zip"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "unzip -o azul-java.zip -d azul-java"
-                                },
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.scala"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -L -o jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "javac -cp jna.jar -d classes azul-java\\*.java"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "scala run HelloWorld.scala --class-path classes;jna.jar --java-opt -Djna.library.path=."
+                                    "content": "scala run HelloWorld.scala --dep rs.azul:azul:$VERSION --repository $HOSTNAME/ui/maven"
                                 }
                             ]
                         }
@@ -3323,11 +3107,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Azul.st"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-smalltalk-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/BaselineOfAzul.st"
+                                    "content": "tar xzf azul-smalltalk-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3336,10 +3120,6 @@
                                 {
                                     "type": "command",
                                     "content": "LD_LIBRARY_PATH=. ./pharo Pharo.image eval --save \"'Azul.st' asFileReference fileIn. 'BaselineOfAzul.st' asFileReference fileIn. (Smalltalk at: #BaselineOfAzul) loadDefault.\""
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.st"
                                 },
                                 {
                                     "type": "command",
@@ -3356,11 +3136,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Azul.st"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-smalltalk-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/BaselineOfAzul.st"
+                                    "content": "tar xzf azul-smalltalk-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3369,10 +3149,6 @@
                                 {
                                     "type": "command",
                                     "content": "DYLD_LIBRARY_PATH=. ./pharo Pharo.image eval --save \"'Azul.st' asFileReference fileIn. 'BaselineOfAzul.st' asFileReference fileIn. (Smalltalk at: #BaselineOfAzul) loadDefault.\""
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.st"
                                 },
                                 {
                                     "type": "command",
@@ -3389,23 +3165,19 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O %HOSTNAME%/ui/release/%VERSION%/Azul.st"
+                                    "content": "curl -LO %HOSTNAME%/ui/release/%VERSION%/azul-smalltalk-%VERSION%.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O %HOSTNAME%/ui/release/%VERSION%/BaselineOfAzul.st"
+                                    "content": "tar xzf azul-smalltalk-%VERSION%.tar.gz"
                                 },
                                 {
-                                    "type": "command",
+                                    "type": "text",
                                     "content": "Download Pharo: https://pharo.org/download"
                                 },
                                 {
                                     "type": "command",
                                     "content": "Pharo.exe Pharo.image eval --save \"'Azul.st' asFileReference fileIn. 'BaselineOfAzul.st' asFileReference fileIn. (Smalltalk at: #BaselineOfAzul) loadDefault.\""
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O %HOSTNAME%/ui/release/%VERSION%/hello-world.st"
                                 },
                                 {
                                     "type": "command",
@@ -3432,19 +3204,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-swift-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.swift"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/module.modulemap"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.swift"
+                                    "content": "tar xzf azul-swift-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3465,19 +3229,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-swift-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.swift"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/module.modulemap"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.swift"
+                                    "content": "tar xzf azul-swift-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3498,19 +3254,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-swift-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.swift"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/module.modulemap"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.swift"
+                                    "content": "tar xzf azul-swift-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3618,15 +3366,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Azul.bas"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-vb6-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.bas"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.vbp"
+                                    "content": "tar xzf azul-vb6-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3657,19 +3401,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-zig-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.zig"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/build.zig"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.zig"
+                                    "content": "tar xzf azul-zig-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3686,19 +3422,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-zig-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.zig"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/build.zig"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.zig"
+                                    "content": "tar xzf azul-zig-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3715,19 +3443,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-zig-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.zig"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/build.zig"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.zig"
+                                    "content": "tar xzf azul-zig-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
@@ -3778,6 +3498,36 @@
                     {
                         "src": "azul.h",
                         "dst": "/usr/include/azul.h",
+                        "type": "file"
+                    },
+                    {
+                        "src": "azul03.hpp",
+                        "dst": "/usr/include/azul03.hpp",
+                        "type": "file"
+                    },
+                    {
+                        "src": "azul11.hpp",
+                        "dst": "/usr/include/azul11.hpp",
+                        "type": "file"
+                    },
+                    {
+                        "src": "azul14.hpp",
+                        "dst": "/usr/include/azul14.hpp",
+                        "type": "file"
+                    },
+                    {
+                        "src": "azul17.hpp",
+                        "dst": "/usr/include/azul17.hpp",
+                        "type": "file"
+                    },
+                    {
+                        "src": "azul20.hpp",
+                        "dst": "/usr/include/azul20.hpp",
+                        "type": "file"
+                    },
+                    {
+                        "src": "azul23.hpp",
+                        "dst": "/usr/include/azul23.hpp",
                         "type": "file"
                     },
                     {

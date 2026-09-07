@@ -8,25 +8,6 @@
     <sourceDirectory>${project.basedir}</sourceDirectory>
     <plugins>
       <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>build-helper-maven-plugin</artifactId>
-        <version>3.5.0</version>
-        <executions>
-          <execution>
-            <id>add-generated-bindings</id>
-            <phase>generate-sources</phase>
-            <goals>
-              <goal>add-source</goal>
-            </goals>
-            <configuration>
-              <sources>
-                <source>${azul.codegen.dir}</source>
-              </sources>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-      <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
         <version>3.11.0</version>
         <configuration>
@@ -74,11 +55,55 @@
       </plugin>
     </plugins>
   </build>
+  <profiles>
+    <profile>
+      <id>from-registry</id>
+      <repositories>
+        <repository>
+          <id>azul-rs</id>
+          <url>https://azul.rs/ui/maven</url>
+        </repository>
+      </repositories>
+      <dependencies>
+        <dependency>
+          <groupId>rs.azul</groupId>
+          <artifactId>azul</artifactId>
+          <version>${azul.version}</version>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
+      <id>from-codegen</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+            <version>3.5.0</version>
+            <executions>
+              <execution>
+                <id>add-generated-bindings</id>
+                <phase>generate-sources</phase>
+                <goals>
+                  <goal>add-source</goal>
+                </goals>
+                <configuration>
+                  <sources>
+                    <source>${azul.codegen.dir}</source>
+                  </sources>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
   <properties>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.target>11</maven.compiler.target>
     <azul.native.dir>${project.basedir}/../../target/release</azul.native.dir>
-    <azul.codegen.dir>${project.basedir}/../../target/codegen/java</azul.codegen.dir>
     <maven.compiler.source>11</maven.compiler.source>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <azul.version>0.2.0</azul.version>
   </properties>
 </project>

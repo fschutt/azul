@@ -38,29 +38,23 @@ out-pointer.
 You need **OCaml 4.14+** with **dune**, the **`ctypes`** + **`ctypes-foreign`**
 packages, and the native `libazul` library.
 
-There is no opam package yet - install manually:
+There is no opam package yet - install manually: the bundle holds the
+generated `azul.ml` / `azul.mli`, the dune scaffolding (`dune` with both the
+`azul` library and the `hello_world` executable stanza, `dune-project`) and
+the counter example, so unpacking it gives a complete dune project:
 
 ```sh
-opam install ctypes ctypes-foreign
-# download the native library into the project dir:
-wget -O libazul.dylib https://azul.rs/ui/release/$VERSION/libazul.dylib   # macOS
-wget -O libazul.so    https://azul.rs/ui/release/$VERSION/libazul.so      # linux
+opam install ctypes ctypes-foreign dune
+curl -LO https://azul.rs/ui/release/$VERSION/azul-ocaml-$VERSION.tar.gz
+tar xzf azul-ocaml-$VERSION.tar.gz
+
+# the native library, into the same directory:
+curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib   # macOS
+curl -O https://azul.rs/ui/release/$VERSION/libazul.so      # linux
+curl -O https://azul.rs/ui/release/$VERSION/azul.dll        # windows
+
+LD_LIBRARY_PATH=. dune exec ./hello_world.exe      # linux (macOS: DYLD_LIBRARY_PATH=.)
 ```
-
-Add the generated `azul.ml` / `azul.mli` (plus optional dune scaffolding) to
-your dune project:
-
-```sh
-wget https://azul.rs/ui/release/$VERSION/azul.ml
-wget https://azul.rs/ui/release/$VERSION/azul.mli
-wget https://azul.rs/ui/release/$VERSION/dune
-wget https://azul.rs/ui/release/$VERSION/dune-project
-```
-
-Then save the counter example below as `hello_world.ml` next to the
-downloaded files, and uncomment the `(executable ...)` stanza at the
-bottom of the downloaded `dune` file so `dune exec ./hello_world.exe`
-has something to build.
 
 ## Simple "Counter" Example
 
@@ -106,7 +100,7 @@ let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
       let label_div =
         Azul.Dom.create_div ()
         |> with_css "font-size: 32px;"
-        |> with_child (Azul.raw_dom (Azul.Dom.create_text_do_not_use_without_block_level_wrapper (string_of_int m.counter)))
+        |> with_child (Azul.raw_dom (Azul.Dom.create_span_with_text (string_of_int m.counter)))
       in
       let button_dom =
         Azul.Button.create "Increase counter"

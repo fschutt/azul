@@ -63,27 +63,21 @@ generated `azul` library and your executable. Keep them in *separate*
 directories — cabal refuses two `.cabal` files in one directory.
 
 ```sh
-# 1. the generated azul library package -> ./azul-haskell/
-mkdir -p azul-haskell/src/Azul/Internal azul-haskell/cbits
+# 1. the generated azul library package (-> ./azul-haskell/) and the example
+#    executable package (-> ./): one bundle, unpacked in place
+curl -LO https://azul.rs/ui/release/$VERSION/azul-haskell-$VERSION.tar.gz
+tar xzf azul-haskell-$VERSION.tar.gz
 
-# native library: pick your platform
+# 2. the native library: pick your platform
 curl -o azul-haskell/libazul.so    https://azul.rs/ui/release/$VERSION/libazul.so     # linux
 curl -o azul-haskell/libazul.dylib https://azul.rs/ui/release/$VERSION/libazul.dylib  # macOS
 curl -o azul-haskell/azul.dll      https://azul.rs/ui/release/$VERSION/azul.dll       # windows
-
-curl -o azul-haskell/azul.cabal              https://azul.rs/ui/release/$VERSION/azul.cabal
-curl -o azul-haskell/src/Azul.hs             https://azul.rs/ui/release/$VERSION/Azul.hs
-curl -o azul-haskell/src/Azul/Types.hs       https://azul.rs/ui/release/$VERSION/Azul/Types.hs
-curl -o azul-haskell/src/Azul/Internal/FFI.hs https://azul.rs/ui/release/$VERSION/Azul/Internal/FFI.hs
-
-# the C shim layer that azul.cabal compiles (c-sources + include-dirs: cbits)
-curl -o azul-haskell/cbits/azul_shims.c https://azul.rs/ui/release/$VERSION/azul_shims.c
-curl -o azul-haskell/cbits/azul.h       https://azul.rs/ui/release/$VERSION/azul.h
-
-# 2. the example executable package -> ./
-curl -O https://azul.rs/ui/release/$VERSION/azul-example.cabal
-curl -O https://azul.rs/ui/release/$VERSION/HelloWorld.hs
 ```
+
+The bundle contains `azul-haskell/azul.cabal`, `azul-haskell/src/Azul.hs`,
+`Azul/Types.hs`, `Azul/Internal/FFI.hs`, the C shim layer the cabal file
+compiles (`cbits/azul_shims.c` + `cbits/azul.h`), and `azul-example.cabal` +
+`HelloWorld.hs` for the executable.
 
 Add a two-line `cabal.project` next to `azul-example.cabal` so cabal
 finds the in-tree `azul` package (it is not on Hackage):
@@ -209,7 +203,7 @@ buildLayout counter master clickCb _data _info outPtr = do
     allocaBytes szDom $ \txt ->
       allocaBytes szString $ \label -> do
         mkAzString (show n) label
-        c_AzDom_createTextDoNotUseWithoutBlockLevelWrapper_via label txt  -- consumes label
+        c_AzDom_createSpanWithText_via label txt  -- consumes label
         c_AzDom_addChild_via divBuf txt   -- consumes txt
     c_AzDom_addChild_via outPtr divBuf    -- consumes divBuf
 

@@ -13,10 +13,11 @@
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <!-- Directory holding the generated com.azul.* bindings.
-             Relative to this pom (examples/java). Override via the
-             system property azul.codegen.dir if your checkout differs. -->
-        <azul.codegen.dir>${project.basedir}/../../target/codegen/java</azul.codegen.dir>
+        <!-- The azul release this example targets. With no azul.codegen.dir
+             given (a user who downloaded this pom from azul.rs), the
+             `from-registry` profile below depends on rs.azul:azul at this
+             version from the self-hosted Maven repository. -->
+        <azul.version>0.2.0</azul.version>
         <!-- Directory holding the prebuilt native libazul (.dylib/.so/.dll).
              Passed to the JVM as jna.library.path so JNA resolves it. -->
         <azul.native.dir>${project.basedir}/../../target/release</azul.native.dir>
@@ -33,27 +34,6 @@
              target/codegen/java tree. -->
         <sourceDirectory>${project.basedir}</sourceDirectory>
         <plugins>
-            <!-- Add the generated bindings directory as an extra source
-                 root so we never have to copy thousands of files. -->
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>build-helper-maven-plugin</artifactId>
-                <version>3.5.0</version>
-                <executions>
-                    <execution>
-                        <id>add-generated-bindings</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>add-source</goal>
-                        </goals>
-                        <configuration>
-                            <sources>
-                                <source>${azul.codegen.dir}</source>
-                            </sources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -138,4 +118,74 @@
             <version>5.14.0</version>
         </dependency>
     </dependencies>
+
+    <!-- Where the com.azul.* binding comes from — one of two profiles:
+
+         from-registry (the default, what azul.rs documents): depend on
+         rs.azul:azul from the self-hosted Maven repository. That jar carries
+         the compiled binding AND libazul for linux-x86-64 / darwin-aarch64 /
+         win32-x86-64 as JNA resources, so nothing native has to be downloaded
+         or pointed at; the shaded jar above is a self-contained app.
+
+         from-codegen (activated by -Dazul.codegen.dir=<dir>): compile the
+         freshly generated sources in <dir> (the repo's target/codegen/java,
+         or the azul-java/ tree of azul-java-<version>.tar.gz) as a second
+         source root. This is what the e2e matrix and the "manual" route use.
+         activeByDefault is switched off as soon as another profile in this
+         pom activates, so passing the property picks exactly one. -->
+    <profiles>
+        <profile>
+            <id>from-registry</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <repositories>
+                <repository>
+                    <id>azul-rs</id>
+                    <url>https://azul.rs/ui/maven</url>
+                </repository>
+            </repositories>
+            <dependencies>
+                <dependency>
+                    <groupId>rs.azul</groupId>
+                    <artifactId>azul</artifactId>
+                    <version>${azul.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>from-codegen</id>
+            <activation>
+                <property>
+                    <name>azul.codegen.dir</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <!-- Add the generated bindings directory as an extra
+                         source root so we never have to copy thousands of
+                         files. -->
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>3.5.0</version>
+                        <executions>
+                            <execution>
+                                <id>add-generated-bindings</id>
+                                <phase>generate-sources</phase>
+                                <goals>
+                                    <goal>add-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>${azul.codegen.dir}</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

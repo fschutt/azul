@@ -46,37 +46,22 @@ and lowercase `callconv(.c)` requires 0.14+).
 
 ## Installation
 
-There is no package-manager story for Zig yet — you download the header,
-the binding, the native library, and a minimal `build.zig` into one
-directory and run `zig build run` there:
+There is no package-manager story for Zig yet — you download the bundle
+(the header, the binding, a minimal `build.zig` and the counter example)
+plus the native library into one directory and run `zig build run` there:
 
 ```sh
+curl -LO https://azul.rs/ui/release/$VERSION/azul-zig-$VERSION.tar.gz
+tar xzf azul-zig-$VERSION.tar.gz          # azul.h, azul.zig, build.zig, hello-world.zig
+
 # linux
 curl -O https://azul.rs/ui/release/$VERSION/libazul.so
-curl -O https://azul.rs/ui/release/$VERSION/azul.h
-curl -O https://azul.rs/ui/release/$VERSION/azul.zig
-curl -O https://azul.rs/ui/release/$VERSION/build.zig
-curl -O https://azul.rs/ui/release/$VERSION/hello-world.zig
 LD_LIBRARY_PATH=. zig build run
-```
-
-```sh
 # macos
 curl -O https://azul.rs/ui/release/$VERSION/libazul.dylib
-curl -O https://azul.rs/ui/release/$VERSION/azul.h
-curl -O https://azul.rs/ui/release/$VERSION/azul.zig
-curl -O https://azul.rs/ui/release/$VERSION/build.zig
-curl -O https://azul.rs/ui/release/$VERSION/hello-world.zig
 DYLD_LIBRARY_PATH=. zig build run
-```
-
-```sh
 # windows
 curl -O https://azul.rs/ui/release/$VERSION/azul.dll
-curl -O https://azul.rs/ui/release/$VERSION/azul.h
-curl -O https://azul.rs/ui/release/$VERSION/azul.zig
-curl -O https://azul.rs/ui/release/$VERSION/build.zig
-curl -O https://azul.rs/ui/release/$VERSION/hello-world.zig
 zig build run
 ```
 
@@ -166,7 +151,7 @@ fn layout(data: C.AzRefAny, _: C.AzLayoutCallbackInfo) callconv(.c) C.AzDom {
     var buf: [16]u8 = undefined;
     const slice = std.fmt.bufPrint(&buf, "{d}", .{m.counter}) catch return C.AzDom_createBody();
     const counter_str = C.AzString_fromUtf8(slice.ptr, slice.len);
-    const label = C.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counter_str);
+    const label = C.AzDom_createSpanWithText(counter_str);
 
     var label_wrapper = C.AzDom_createDiv();
     const font_size = C.AzStyleFontSize_px(32.0);

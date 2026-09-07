@@ -53,8 +53,8 @@ Fedora/RHEL, install the prebuilt package from the GitHub release
 
 ```sh
 # linux - Debian / Ubuntu
-curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul_$VERSION_amd64.deb
-sudo apt install ./azul_$VERSION_amd64.deb
+curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul_${VERSION}_amd64.deb
+sudo apt install ./azul_${VERSION}_amd64.deb
 
 # linux - Fedora / RHEL
 curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/azul-$VERSION-1.x86_64.rpm
@@ -71,18 +71,36 @@ sudo apt update
 sudo apt install azul
 ```
 
+The `.deb` / `.rpm` (and the Arch / Alpine packages, see the
+[C installation](c.md#installation)) install the six C++ headers
+`azul03.hpp` … `azul23.hpp` next to `azul.h`, so `g++ -std=c++17
+hello-world.cpp -lazul` needs no `-I`.
+
 On macOS, a self-hosted Homebrew tap (a real git repository served from
-azul.rs) installs `libazul.dylib` plus the C header `azul.h` (you still
-need to download the C++ wrapper header below):
+azul.rs) installs `libazul.dylib`, `azul.h`, all six C++ headers and a
+pkg-config file:
 
 ```sh
 brew tap fschutt/azul https://azul.rs/ui/homebrew-azul.git
 brew install fschutt/azul/azul
+c++ -std=c++17 $(pkg-config --cflags --libs azul) hello-world.cpp -o hello-world
 ```
 
-There is currently no Chocolatey package, AUR or Alpine repository. On
-Windows (and for CI on any platform), download the
-C++ wrapper header and the library directly from the
+On Windows, Chocolatey (`choco install libazul --source
+https://azul.rs/ui/nuget/index.json`) or Scoop (`scoop bucket add azul
+https://azul.rs/ui/scoop-azul.git && scoop install azul`) install `azul.dll`,
+`azul.dll.lib` and `azul.h`; the C++ headers come with the bundle below.
+
+The C++ bundle holds everything the compiler needs except the library
+itself — `azul.h`, all six `azul<NN>.hpp` and `hello-world.cpp` — in one
+download:
+
+```sh
+curl -LO https://azul.rs/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz
+tar xzf azul-cpp-$VERSION.tar.gz
+```
+
+Or download the C++ wrapper header and the library directly from the
 [release page](https://azul.rs/ui/release/$VERSION):
 
 ```sh
@@ -224,7 +242,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     return Dom::create_body()
         .with_child(Dom::create_div()
             .with_css("font-size: 32px;"sv)
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(String(std::to_string(d->counter).c_str()))))
+            .with_child(Dom::create_span_with_text(String(std::to_string(d->counter).c_str()))))
         .with_child(Button::create("Increase counter"sv)
             .with_button_type(ButtonType::Primary)   // scoped enum constants
             .with_on_click(data_wrapper.clone(), on_click)

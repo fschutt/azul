@@ -2422,6 +2422,13 @@ fn generate_release_pages(
             println!("  [OK] Generated: release/{}/examples.zip", version);
         }
 
+        // The languages that get a bundle tile on the release page — from
+        // api.json, not from what happens to be in the directory.
+        let bundle_keys: Vec<String> = api_data
+            .get_version(version)
+            .map(|v| dllgen::bundles::bundle_maps(&v.installation).keys().cloned().collect())
+            .unwrap_or_default();
+
         // Pre-rendered binding bundles + the self-contained Rust crate
         // (dllgen::bundles). Built from the loose files written above and the
         // api.json `bundle` maps; a map entry whose file is missing is fatal
@@ -2463,7 +2470,7 @@ fn generate_release_pages(
         }
 
         // Collect asset information (for HTML generation and validation)
-        let assets = ReleaseAssets::collect(&version_dir);
+        let assets = ReleaseAssets::collect(&version_dir, &bundle_keys);
 
         // In strict/CI mode, fail if binary assets are missing
         if deploy_mode == DeployMode::Strict {
@@ -2495,7 +2502,7 @@ fn generate_release_pages(
                 }
             }
             // Re-collect assets after creating placeholders
-            let assets = ReleaseAssets::collect(&version_dir);
+            let assets = ReleaseAssets::collect(&version_dir, &bundle_keys);
 
             // Generate release HTML page with dynamic sizes
             let mut release_html = strip_html_links(&dllgen::deploy::generate_release_html(
@@ -2514,7 +2521,7 @@ fn generate_release_pages(
 
         // Generate release HTML page with dynamic sizes (for strict mode, after validation)
         if deploy_mode == DeployMode::Strict {
-            let assets = ReleaseAssets::collect(&version_dir);
+            let assets = ReleaseAssets::collect(&version_dir, &bundle_keys);
             let mut release_html = strip_html_links(&dllgen::deploy::generate_release_html(
                 version, api_data, &assets,
             ));
