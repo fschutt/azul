@@ -215,6 +215,9 @@
       updateImages();
     }
 
+    // The Copy button carries the command in a double-quoted onclick
+    // attribute: JS-escape it (quotes, backslashes, newlines) and THEN
+    // HTML-escape it, or a `"` inside the command ends the attribute.
     function updateInstallCommands(container) {
       // For installation, use the actual language key (e.g., cpp23 for specific install steps)
       var langConfig = installationConfig.languages[currentLang];
@@ -237,12 +240,12 @@
         if (step.type === 'command') {
           html += '<div class="install-step">' +
             '<span class="command">' + escHtml(step.content) + '</span>' +
-            '<button class="copy-btn" onclick="copyText(\'' + escJs(step.content) + '\')">Copy</button>' +
+            '<button class="copy-btn" onclick="copyText(\'' + escHtml(escJs(step.content)) + '\')">Copy</button>' +
             '</div>';
         } else if (step.type === 'code') {
           html += '<div class="install-step">' +
             '<pre style="margin:0;flex:1;">' + escHtml(step.content) + '</pre>' +
-            '<button class="copy-btn" onclick="copyText(\'' + escJs(step.content) + '\')">Copy</button>' +
+            '<button class="copy-btn" onclick="copyText(\'' + escHtml(escJs(step.content)) + '\')">Copy</button>' +
             '</div>';
         } else if (step.type === 'text') {
           html += '<div class="install-step"><span class="command note" style="color:#888;">' + escHtml(step.content) + '</span></div>';
