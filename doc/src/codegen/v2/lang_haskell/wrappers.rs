@@ -417,10 +417,28 @@ fn emit_haskell_method_wrappers(
                     // Phase 5 — Vec returns convert to `IO [Elem]`.
                     let vec_lower = super::lower_first(&haskell_data_name(rt));
                     let helper_name = format!("T.{}ToList", vec_lower);
-                    let elem_ty = if elem == "u8" {
-                        "Word8".to_string()
-                    } else {
+                    // The element type has to be spelled the way `T.<vec>ToList`
+                    // spells it — `types.rs` renders that helper's signature with
+                    // `haskell_field_type`, so anything else makes the wrapper's
+                    // type and the helper it calls disagree.
+                    //
+                    // Only `u8` used to be special-cased here, so every other
+                    // primitive element fell to the aggregate branch: `U32Vec`
+                    // produced `IO [T.U32]` and GHC rejected the module with
+                    // "Azul.Types does not export U32". The pagination API is
+                    // what first returned one (`paginationSnapshotBreakPath`),
+                    // and it took the whole haskell binding down with it.
+                    let elem_ty = if ir.find_struct(&elem).is_some()
+                        || ir.find_enum(&elem).is_some()
+                        || ir.find_type_alias(&elem).is_some()
+                    {
                         format!("T.{}", haskell_data_name(&elem))
+                    } else {
+                        super::types::haskell_field_type(
+                            &elem,
+                            super::super::ir::FieldRefKind::Owned,
+                            ir,
+                        )
                     };
                     ReturnShape::VecToList {
                         elem_type: elem_ty,
