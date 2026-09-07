@@ -347,14 +347,7 @@ pub mod mock {
     }
 
     fn armed_in(s: &mut MockState) -> bool {
-        match s.armed {
-            Some(a) => a,
-            None => {
-                let a = env_armed();
-                s.armed = Some(a);
-                a
-            }
-        }
+        *s.armed.get_or_insert_with(env_armed)
     }
 
     /// Arm the store explicitly (an e2e host that is not driven by the
@@ -382,6 +375,17 @@ pub mod mock {
             *s = MockState::default();
             s.armed = armed;
         });
+    }
+
+    /// The answer a scenario queued for `op`, or - when the queue is empty -
+    /// the recorded "unmocked" fallback.
+    fn answer<T>(s: &mut MockState, taken: Option<T>, op: &str) -> Answer<T> {
+        if let Some(a) = taken {
+            Answer::Mocked(a)
+        } else {
+            unmocked(s, op);
+            Answer::Unmocked
+        }
     }
 
     fn unmocked(s: &mut MockState, op: &str) {
@@ -446,63 +450,47 @@ pub mod mock {
 
     /// `op` names the caller for the unmocked record, e.g.
     /// `"FileDialog::open_file"`.
+    #[must_use]
     pub fn take_file_open(op: &str) -> Answer<Option<AzString>> {
         with(|s| {
             if !armed_in(s) {
                 return Answer::NotArmed;
             }
-            match s.file_open.pop_front() {
-                Some(a) => Answer::Mocked(a),
-                None => {
-                    unmocked(s, op);
-                    Answer::Unmocked
-                }
-            }
+            let taken = s.file_open.pop_front();
+            answer(s, taken, op)
         })
     }
 
+    #[must_use]
     pub fn take_file_open_multi() -> Answer<Vec<AzString>> {
         with(|s| {
             if !armed_in(s) {
                 return Answer::NotArmed;
             }
-            match s.file_open_multi.pop_front() {
-                Some(a) => Answer::Mocked(a),
-                None => {
-                    unmocked(s, "FileDialog::open_multiple_files");
-                    Answer::Unmocked
-                }
-            }
+            let taken = s.file_open_multi.pop_front();
+            answer(s, taken, "FileDialog::open_multiple_files")
         })
     }
 
+    #[must_use]
     pub fn take_color_pick() -> Answer<Option<ColorU>> {
         with(|s| {
             if !armed_in(s) {
                 return Answer::NotArmed;
             }
-            match s.color_pick.pop_front() {
-                Some(a) => Answer::Mocked(a),
-                None => {
-                    unmocked(s, "ColorPickerDialog::open");
-                    Answer::Unmocked
-                }
-            }
+            let taken = s.color_pick.pop_front();
+            answer(s, taken, "ColorPickerDialog::open")
         })
     }
 
+    #[must_use]
     pub fn take_save_file() -> Answer<Option<AzString>> {
         with(|s| {
             if !armed_in(s) {
                 return Answer::NotArmed;
             }
-            match s.save_file.pop_front() {
-                Some(a) => Answer::Mocked(a),
-                None => {
-                    unmocked(s, "FileDialog::save_file");
-                    Answer::Unmocked
-                }
-            }
+            let taken = s.save_file.pop_front();
+            answer(s, taken, "FileDialog::save_file")
         })
     }
 
@@ -531,28 +519,19 @@ pub mod mock {
                         .strip_suffix('*')
                         .is_some_and(|prefix| url.starts_with(prefix))
             });
-            match found {
-                Some((_, answer)) => Answer::Mocked(answer.clone()),
-                None => {
-                    unmocked(s, &alloc::format!("http {url}"));
-                    Answer::Unmocked
-                }
-            }
+            let taken = found.map(|(_, canned)| canned.clone());
+            answer(s, taken, &alloc::format!("http {url}"))
         })
     }
 
+    #[must_use]
     pub fn take_audio_devices() -> Answer<(Vec<AzString>, Vec<AzString>)> {
         with(|s| {
             if !armed_in(s) {
                 return Answer::NotArmed;
             }
-            match s.audio_devices.clone() {
-                Some(a) => Answer::Mocked(a),
-                None => {
-                    unmocked(s, "AudioDeviceList::enumerate");
-                    Answer::Unmocked
-                }
-            }
+            let taken = s.audio_devices.clone();
+            answer(s, taken, "AudioDeviceList::enumerate")
         })
     }
 
@@ -565,6 +544,7 @@ pub mod mock {
 
     /// Records an export while armed; `None` when not armed (show the real
     /// dialog), `Some(accepted)` otherwise.
+    #[must_use]
     pub fn record_saved_file(name: &AzString, mime: &AzString, bytes: &[u8]) -> Option<bool> {
         with(|s| {
             if !armed_in(s) {

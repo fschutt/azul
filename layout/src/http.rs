@@ -324,9 +324,9 @@ impl HttpRequestConfig {
     /// Stub: `http` feature disabled.
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use]
-    pub fn http_get_blocking(&self, _url: AzString) -> ResultHttpResponseHttpError {
+    pub fn http_get_blocking(&self, url: AzString) -> ResultHttpResponseHttpError {
         #[cfg(feature = "text_layout")]
-        if let Some(mocked) = mocked_http(_url.as_str()) {
+        if let Some(mocked) = mocked_http(url.as_str()) {
             return mocked;
         }
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
@@ -382,12 +382,12 @@ impl HttpRequestConfig {
     pub fn http_request_blocking(
         &self,
         _method: HttpMethod,
-        _url: AzString,
+        url: AzString,
         _body: U8Vec,
         _content_type: AzString,
     ) -> ResultHttpResponseHttpError {
         #[cfg(feature = "text_layout")]
-        if let Some(mocked) = mocked_http(_url.as_str()) {
+        if let Some(mocked) = mocked_http(url.as_str()) {
             return mocked;
         }
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
@@ -431,12 +431,12 @@ impl HttpRequestConfig {
     #[must_use]
     pub fn http_post_blocking(
         &self,
-        _url: AzString,
+        url: AzString,
         _body: U8Vec,
         _content_type: AzString,
     ) -> ResultHttpResponseHttpError {
         #[cfg(feature = "text_layout")]
-        if let Some(mocked) = mocked_http(_url.as_str()) {
+        if let Some(mocked) = mocked_http(url.as_str()) {
             return mocked;
         }
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
@@ -472,9 +472,9 @@ impl HttpRequestConfig {
     /// Stub: `http` feature disabled.
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use]
-    pub fn download_bytes_blocking(&self, _url: AzString) -> ResultU8VecHttpError {
+    pub fn download_bytes_blocking(&self, url: AzString) -> ResultU8VecHttpError {
         #[cfg(feature = "text_layout")]
-        if let Some(mocked) = mocked_download(_url.as_str()) {
+        if let Some(mocked) = mocked_download(url.as_str()) {
             return mocked;
         }
         ResultU8VecHttpError::Err(HttpError::other("http feature not enabled".into()))
@@ -529,9 +529,9 @@ impl HttpRequestConfig {
     /// error instead of a bare `false` that reads exactly like "server down".
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use]
-    pub fn is_url_reachable_blocking(&self, _url: AzString) -> (bool, Option<AzString>) {
+    pub fn is_url_reachable_blocking(&self, url: AzString) -> (bool, Option<AzString>) {
         #[cfg(feature = "text_layout")]
-        if let Some(mocked) = mocked_http(_url.as_str()) {
+        if let Some(mocked) = mocked_http(url.as_str()) {
             return match mocked {
                 ResultHttpResponseHttpError::Ok(response) => (response.is_success(), None),
                 ResultHttpResponseHttpError::Err(e) => (false, Some(AzString::from(e.to_string()))),
