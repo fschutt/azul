@@ -132,10 +132,11 @@ const KNOWN = {
     console.log('last  missed PC      : 0x' + (o.lastPC >>> 0).toString(16));
     console.log('state pointer        : 0x' + (o.statePtr >>> 0).toString(16));
     console.log('no-OS stub hits      : ' + o.noosCount + (o.noosCount ? '  last label 0x' + (o.noosLabel >>> 0).toString(16) : ''));
-    // __remill_missing_block RETURNS, so every hit here is control flow that
-    // silently did nothing. This is usually a much bigger number than the
-    // unmatched-dispatch count, and nothing read it until it was found by
-    // searching memory for the trapping PC.
+    // Every unresolved indirect branch is recorded here and THEN dispatched,
+    // so this is instrumentation, not a fault list: a target with a case runs
+    // correctly. Only a target that misses every case reaches `unk` and counts
+    // at 0x40158. The ring is still the only place the RESOLVED indirect
+    // branches are visible, which is why it is worth printing.
     console.log('missing-block hits   : ' + o.mbCount + (o.mbCount ? '  last 0x' + (o.mbLast >>> 0).toString(16) : ''));
     if (o.mbCount) {
         var seen = [];
