@@ -1640,3 +1640,75 @@ objection is that this alone might keep the parser resident. It does not:
 
 **94.9% of the parser mass is exclusive to the browse subtree.** The residue is a
 theme/colour-scheme lookup, which is what a layout callback plausibly does need.
+
+
+# WHAT ACTUALLY RUNS AT FIRST PAINT (run 80, AZ_FN_COVERAGE)
+
+Blocked on the boot for this entire sequence; run 76 cleared it. The call graph
+says what is REACHABLE; this says what EXECUTED.
+
+    coverage slots scanned : 60112
+    functions ENTERED      : 689
+    manifest               : 7297 entries
+
+| | fns | MB objects |
+|---|---|---|
+| entered at first paint | 689 | 13.33 |
+| never entered | 6608 | 89.09 |
+| **cold share of object bytes** | | **87.0%** |
+
+⚠ A dedicated run: the per-`define` entry store inflates every object, so the
+absolute MB are not comparable with any other run and must not enter the size
+table. The RATIO is what this run is for.
+
+## ⚠⚠ READ THIS BEFORE USING THE 87%
+
+The boot it measured **traps before the layout engine runs**:
+
+    initLayoutCache rc=0 current_dom_ptr=168184232
+    hydrateStyledDom TRAPPED (non-fatal; click falls back to the registered cb node)
+    bootstrap complete
+
+Cross-checking the hot set against the biggest cold functions makes it explicit:
+
+| pattern | hot fns |
+|---|---|
+| `LayoutWindow` | **0** |
+| `solver3` | 17 |
+| `text3` | 11 |
+| `restyle` | 2 |
+| `prop_cache` | 4 |
+| `css` | 165 |
+
+`layout_document`, `layout_bfc`, `layout_ifc` and `layout_dom_recursive_impl` are
+all listed as never entered, with 318 DOM nodes on the page. What ran is DOM
+construction and CSS parsing - `AzDom_createDiv`, `AzCss_fromString`,
+`AzCssProperty_*` - then `restyle` starts, and `hydrateStyledDom` traps.
+
+**So 87% cold is a LOWER BOUND on what first paint needs, not a lazy-chunk
+budget.** The layout engine is cold because it was never reached, not because a
+first paint does not need it. Reading it as "87% can be made lazy" would ship a
+module that traps the moment anything relayouts.
+
+➡ **The `hydrateStyledDom` trap is now a size blocker as well as a correctness
+bug.** Until it is fixed there is no trustworthy measurement of the first-paint
+working set, and that measurement is the only thing that can justify making
+layout code lazy. It is a `panic_bounds_check` from
+`azul_core::prop_cache::CssPropertyCache::restyle +14,668` - a Vec index out of
+bounds, present as far back as run 33.
+
+## What the result IS good for
+
+Two things survive the caveat.
+
+**The parser confirmation.** The biggest never-entered functions are the OOXML
+chart parsers - `parse_chart_part_with_references_style_parts_and_images` 0.934 MB,
+`parse_chartex_part_...` 0.763, `docx_parser::parser::parse_vml_pict` 0.428,
+`parse_inline_drawing` 0.424 - and by crate, `ooxml_common` 11.56 MB and
+`docx_parser` 10.57 MB never execute. That is an independent confirmation, from
+execution rather than from the call graph, that the document parser has no part
+in a first paint. Two methods, one answer.
+
+**The instrumentation works.** 60,112 slots, a 7,297-entry manifest, and a clean
+boot (`bootstrap complete`, EXCEPTIONS 0, 318 DOM nodes, unmatched dispatches 0).
+Re-running it after the trap is fixed costs one run and needs no new machinery.
