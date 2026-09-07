@@ -5205,6 +5205,20 @@ enum ImportIntercept {
     /// exports and the guest calls them directly (an audit of a real bundle
     /// turned up floorf/ceilf alongside floor).
     F64Unary(&'static str, bool),
+    /// An import that cannot mean anything in a browser — no OS object to
+    /// close, no message table to format from, no DLL to load — answered with
+    /// the constant the caller already handles. `(label, RAX)`.
+    ///
+    /// Justified per call site by `scripts/m9_e2e/import_reach.py`, which
+    /// resolves statically which imports the walked functions reference. Four
+    /// of the five sit in `windows-result`'s error formatter, where a trap is
+    /// the worst possible failure: it destroys the diagnostic for the error
+    /// being reported.
+    ///
+    /// Unlike the other intercepts this one also writes [`AZ_NOOS_STUB_REC`],
+    /// because replacing a trap with a plausible value is exactly how a live
+    /// wrong path goes silent.
+    NoOsStub(&'static str, u64),
 }
 
 #[cfg(feature = "web-transpiler")]
@@ -5224,6 +5238,7 @@ impl ImportIntercept {
             ImportIntercept::F64Unary(n, _) => n,
             ImportIntercept::F64LibCall(n, _) => n,
             ImportIntercept::F64LibCall2(n, _) => n,
+            ImportIntercept::NoOsStub(n, _) => n,
         }
     }
 
@@ -5368,6 +5383,24 @@ impl ImportIntercept {
                 al = if is_f32 { 4 } else { 8 },
             ),
             ImportIntercept::FutexWake => format!("imp{l}:\n  ret ptr %memory\n", l = l),
+            ImportIntercept::NoOsStub(_, value) => format!(
+                // Volatile so the recorder survives; the return value is a
+                // plain state store like every other intercept's.
+                "imp{l}:\n\
+                 \x20 store volatile i64 {label}, ptr inttoptr (i64 {rec} to ptr), align 8\n\
+                 \x20 %nq{l} = load volatile i64, ptr inttoptr (i64 {cnt} to ptr), align 8\n\
+                 \x20 %nq1{l} = add i64 %nq{l}, 1\n\
+                 \x20 store volatile i64 %nq1{l}, ptr inttoptr (i64 {cnt} to ptr), align 8\n\
+                 \x20 %nr{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n\
+                 \x20 store i64 {value}, ptr %nr{l}, align 8\n\
+                 \x20 ret ptr %memory\n",
+                l = l,
+                label = label,
+                rec = AZ_NOOS_STUB_REC,
+                cnt = AZ_NOOS_STUB_COUNT,
+                ret = ret,
+                value = value as i64,
+            ),
             ImportIntercept::FutexWait => format!(
                 "imp{l}:\n  %wp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n  \
                  store i64 1, ptr %wp{l}, align 8\n  ret ptr %memory\n",
@@ -5510,6 +5543,16 @@ fn intercepted_import_labels(cases: &[(u64, u64)]) -> Vec<(u64, ImportIntercept,
         ("api-ms-win-crt-math-l1-1-0.dll\0", "powf\0", ImportIntercept::F64LibCall2("powf", true)),
         ("api-ms-win-crt-math-l1-1-0.dll\0", "fmod\0", ImportIntercept::F64LibCall2("fmod", false)),
         ("api-ms-win-crt-math-l1-1-0.dll\0", "fmodf\0", ImportIntercept::F64LibCall2("fmodf", true)),
+        ("kernel32.dll\0", "CloseHandle\0", ImportIntercept::NoOsStub("CloseHandle (nothing to close)", 1)),
+        ("kernel32.dll\0", "GetLastError\0", ImportIntercept::NoOsStub("GetLastError (nothing sets one)", 0)),
+        ("kernel32.dll\0", "GetCurrentProcess\0", ImportIntercept::NoOsStub("GetCurrentProcess (pseudo-handle -1)", (-1i64) as u64)),
+        ("kernel32.dll\0", "K32GetProcessMemoryInfo\0", ImportIntercept::NoOsStub("K32GetProcessMemoryInfo (no counters)", 0)),
+        ("oleaut32.dll\0", "GetErrorInfo\0", ImportIntercept::NoOsStub("GetErrorInfo (S_FALSE, no error object)", 1)),
+        ("ole32.dll\0", "CoCreateInstance\0", ImportIntercept::NoOsStub("CoCreateInstance (REGDB_E_CLASSNOTREG)", 0x8004_0154)),
+        ("kernel32.dll\0", "FormatMessageW\0", ImportIntercept::NoOsStub("FormatMessageW (no message table)", 0)),
+        ("kernel32.dll\0", "LoadLibraryExA\0", ImportIntercept::NoOsStub("LoadLibraryExA (no DLLs in wasm)", 0)),
+        ("oleaut32.dll\0", "SysFreeString\0", ImportIntercept::NoOsStub("SysFreeString (BSTR is always null)", 0)),
+        ("oleaut32.dll\0", "SysStringLen\0", ImportIntercept::NoOsStub("SysStringLen (BSTR is always null)", 0)),
         ("bcryptprimitives.dll\0", "ProcessPrng\0", ImportIntercept::ProcessPrng),
         ("VCRUNTIME140.dll\0", "memcmp\0", ImportIntercept::Memcmp),
         ("VCRUNTIME140.dll\0", "memcpy\0", ImportIntercept::Memmove),
@@ -11520,6 +11563,19 @@ const AZ_HOST_LIST_MD_ID: u32 = 90005;
 /// over a thousand callers (see `doc/web-neverlift-decode.md`), so knowing which
 /// panic fired does not locate the bug — this does.
 const AZ_NEVERLIFT_CALLER_REC: u64 = 0x4_0080;
+
+/// Records the dispatcher label of the last [`ImportIntercept::NoOsStub`] that
+/// fired, with a running count at [`AZ_NOOS_STUB_COUNT`].
+///
+/// A stub that answers "there is no OS" is right, but it turns a loud trap into
+/// a quiet success — and one of these sits inside the error-message formatter,
+/// where a quiet success means an error is reported with no text. Recording the
+/// label keeps the trap's diagnostic value: the lift log's
+/// `M12.7: IAT import <DLL>!<fn> -> 0x<label>` lines name it back.
+const AZ_NOOS_STUB_REC: u64 = 0x4_0088;
+/// How many times any [`ImportIntercept::NoOsStub`] fired. Separate from the
+/// label so that "fired once" and "fired in a loop" are distinguishable.
+const AZ_NOOS_STUB_COUNT: u64 = 0x4_0090;
 
 /// Linear address of the synthetic TEB stub. Windows `thread_local!` lowers to
 /// `mov r10, gs:[0x58]` — the TEB's `ThreadLocalStoragePointer` — so the lift
