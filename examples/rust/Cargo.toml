@@ -92,10 +92,16 @@ name = "icu_demo"
 path = "src/icu_demo.rs"
 required-features = ["icu", "link-static"]
 
+# Needs `link-static` for the same reason as `http_zip_demo` below: it reaches
+# into `azul::desktop::fluent` and `azul::desktop::zip`, which live behind
+# `cabi_internal` and therefore do not exist in a `link-dynamic` build. Without
+# it the lean build fails with "could not find `desktop` in `azul`" - which it
+# has been doing, unseen, because that job sits behind a `needs: [clippy]` that
+# was failing and skipped it.
 [[example]]
 name = "fluent_demo"
 path = "src/fluent_demo.rs"
-required-features = ["fluent", "icu"]
+required-features = ["fluent", "icu", "link-static"]
 
 # Also needs `link-static`: this demo drives the desktop ZIP helpers
 # (`zip_create_from_files` / `zip_extract_all` / `zip_list_contents`), which
