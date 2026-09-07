@@ -1864,3 +1864,55 @@ size behind nothing at all, but `azwriter::layout` is 24% larger than it:
 Three near-identical 6.7 MB toggle callbacks and two near-identical 4.9 MB
 undo/redo callbacks is its own finding: those pairs differ by ~50 bytes and are
 almost certainly the same closure over a different constant.
+
+
+# THE LAYOUT MODULE CHUNKS BETTER THAN THE MINI — MEASURED (run 81)
+
+The per-module partition ran for the first time, and the layout module linked its
+own p0:
+
+    AZ_CHUNK azwriter::layout: eager core 36.91 MB of 69.52 MB (-46.9%)
+    AZ_CHUNK azwriter::layout: lazy 0x7ff76e2b79a0 — 1455 fns / 28.82 MB
+    AZ_CHUNK azwriter::layout: p0 linked 19,522,535 bytes raw -> 2,644,835 brotli (q9)
+
+`0x7ff76e2b79a0` resolves to **`azwriter::on_browse_clicked`** — the file-open
+button handler, exactly as the offline analysis predicted, and NOT the boot root.
+Its ceiling is -58.6% over 1053 candidate roots, with top-1 alone at -41.5%: one
+chunk carries almost the whole opportunity, which is the opposite of the mini's
+flat tail.
+
+## The comparison, done properly
+
+Both the full module and its p0 take the SAME 1,773,659-byte mirror, so the
+mirror's compressed cost can be derived and applied to both rather than guessed:
+
+| | pre-mirror raw | pre-mirror q9 | + mirror | = served q9 |
+|---|---|---|---|---|
+| layout, full | 34,621,145 | 4,045,884 | 652,945 | **4,698,829** |
+| layout p0 | 17,737,381 | 1,991,890 | 652,945 | **2,644,835** (logged) |
+| mini, full | 27,606,814 | 3,697,835 | 627,170 | 4,325,005 |
+| mini p0 | 19,120,046 | 2,483,749 | 627,170 | **3,110,919** (logged) |
+
+**The method checks itself**: the mini's predicted served size, 4,325,005, against
+the 4,332,843 the server actually reported — **0.18% off**.
+
+| module | served | chunked p0 | saving |
+|---|---|---|---|
+| azul-mini | 4,332,843 | 3,110,919 | **-1,221,924 (-28.2%)** |
+| **azwriter::layout** | **4,698,829** | **2,644,835** | **-2,053,994 (-43.7%)** |
+| **both** | | | **-3,275,918** |
+
+**The layout module is larger than the mini AND worth 68% more to chunk.** It was
+outside the scope of every measurement in this document until now, because the
+chunk report was gated to `output_stem == "azul-mini"`.
+
+## A third corroboration of the font figure, for free
+
+The mirror's compressed cost is now 627,170 (mini) and 652,945 (layout), against
+**768,200** measured on run 79 with the font still mirrored. That is a fall of
+**141,030** — against the **136,000** predicted from the mirror's raw delta at its
+2.69x ratio. **Within 4%, from a completely different direction.**
+
+So three independent measurements now agree the mirrored font was dead weight
+worth roughly 136-141 KB compressed per module: the raw mirror delta, this
+compressed-cost fall, and the text gate that proved nothing read it.
