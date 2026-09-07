@@ -677,8 +677,16 @@ pub struct InstallationSteps {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum InstallationStep {
-    /// A code block to show (not executable)
-    Code { language: String, content: String },
+    /// A code block to show (not executable). `file`, when set, is the path
+    /// the block is the contents of (`.cargo/config.toml`): the frontpage
+    /// shows it, scripts/run_install_steps.py writes it at that point in
+    /// the sequence when it executes the documented steps.
+    Code {
+        language: String,
+        content: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file: Option<String>,
+    },
     /// A shell command to run
     Command { content: String },
     /// Descriptive text
@@ -704,7 +712,8 @@ impl InstallationStep {
         };
 
         match self {
-            InstallationStep::Code { language, content } => InstallationStep::Code {
+            InstallationStep::Code { language, content, file } => InstallationStep::Code {
+                file: file.clone(),
                 language: language.clone(),
                 content: do_interpolate(content),
             },

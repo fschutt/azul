@@ -4742,19 +4742,34 @@ jobs:
           done
 
           missing=""
+          # Every channel the site documents is REQUIRED here: the artifact
+          # its job produces must have arrived AND its mirror must have been
+          # built. This used to be conditional on the artifact dir being
+          # non-empty — so a packaging job that failed to upload (or was
+          # skipped) silently removed the check, and the site went live
+          # documenting a command with nothing behind it.
           check_channel() {
-            if [ -d "$1" ] && [ -n "$(ls -A "$1" 2>/dev/null)" ] && [ ! -d "$2" ]; then
+            if [ ! -d "$1" ] || [ -z "$(ls -A "$1" 2>/dev/null)" ]; then
+              echo "::error::$1 is empty - the job that packages this channel produced nothing, but the site documents it"
+              missing="$missing $1"
+            elif [ ! -d "$2" ]; then
               echo "::error::$1 has artifacts but $2 was not built - the install commands for this channel would 404"
               missing="$missing $2"
             fi
           }
-          check_channel artifacts-registry/pypi-dist     website/ui/azul
-          check_channel artifacts-registry/npm-package   website/ui/npm
-          check_channel artifacts-registry/nuget-package website/ui/nuget
-          check_channel artifacts-registry/ruby-gem      website/ui/gems
-          check_channel artifacts-registry/maven-jar     website/ui/maven
+          check_channel artifacts-registry/pypi-dist      website/ui/azul
+          check_channel artifacts-registry/npm-package    website/ui/npm
+          check_channel artifacts-registry/nuget-package  website/ui/nuget
+          check_channel artifacts-registry/ruby-gem       website/ui/gems
+          check_channel artifacts-registry/maven-jar      website/ui/maven
+          check_channel artifacts-registry/artifacts-rpm  website/ui/rpm
+          check_channel artifacts-registry/artifacts-arch website/ui/arch
+          check_channel artifacts-registry/artifacts-apk  website/ui/alpine
+          check_channel artifacts-apt                     website/ui/apt
 
-          have_artifacts() { [ -d "$1" ] && [ -n "$(ls -A "$1" 2>/dev/null)" ]; }
+          # After the required-presence check above, the per-file checks are
+          # unconditional too (kept as functions for readability).
+          have_artifacts() { true; }
           need_file() {
             if [ ! -s "$2" ]; then
               echo "::error::$1: $2 is missing or empty - the channel is unusable"
@@ -5175,19 +5190,45 @@ jobs:
             image: mcr.microsoft.com/dotnet/sdk:10.0
           - channel: apt
             image: debian:bookworm
+          # The channels below run the documented command AND, where the tab
+          # then says "compile and run", build the hello-world and run it
+          # headless through the counter e2e (tests/e2e/ is checked out too).
+          - channel: maven
+            image: maven:3.9-eclipse-temurin-17
+          - channel: pacman
+            image: archlinux:base
+          - channel: apk
+            image: alpine:3.20
+          - channel: bindings
+            image: python:3.12-bookworm
+          - channel: rust
+            image: rust:1.90-bookworm
+          - channel: cargo
+            image: rust:1.90-bookworm
+          - channel: doclinks
+            image: python:3.12-bookworm
     steps:
       - name: Install the harness prerequisites
+        shell: sh
         run: |
           set -eu
-          export DEBIAN_FRONTEND=noninteractive
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git
+          if command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends ca-certificates curl git unzip gcc g++
+          elif command -v pacman >/dev/null 2>&1; then
+            pacman -Sy --noconfirm curl git
+          elif command -v apk >/dev/null 2>&1; then
+            apk add -q bash curl git coreutils
+          fi
 
       - name: Checkout the verifier
         uses: actions/checkout@v7
         with:
           sparse-checkout: |
             scripts/verify_install_commands.sh
+            tests/e2e/hello_world_counter.json
+            doc/guide/en/hello-world
           sparse-checkout-cone-mode: false
 
       - name: Run the command the site tells ${{ matrix.channel }} users to run
@@ -5224,6 +5265,48 @@ jobs:
           printf '%s\n' "$AZUL_CHANNEL_DIGESTS" > "$RUNNER_TEMP/channel-digests.tsv"
           bash scripts/verify_install_commands.sh \
             brew https://azul.rs "${AZUL_VERSION}" "$RUNNER_TEMP/channel-digests.tsv"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: The macOS wheel (pip install azul --index-url) installs and imports
+        run: |
+          set -eu
+          bash scripts/verify_install_commands.sh \
+            pypi https://azul.rs "${AZUL_VERSION}" -
+
+  # Verify the Windows channels on a Windows runner: Chocolatey, the Scoop
+  # bucket, the Windows wheel. `libazul` on choco was "EXPERIMENTAL: not
+  # testable" for months; it is tested now.
+  verify_install_windows:
+    name: Verify documented install (${{ matrix.channel }}, Windows)
+    needs: deploy_pages
+    if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [choco, scoop, pypi]
+    steps:
+      - name: Checkout the verifier
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            scripts/verify_install_commands.sh
+            tests/e2e/hello_world_counter.json
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@v7
+        if: matrix.channel == 'pypi'
+        with:
+          python-version: "3.12"
+      - name: Run the command the site tells Windows users to run
+        shell: bash
+        env:
+          AZUL_CHANNEL_DIGESTS: ${{ needs.deploy_pages.outputs.channel_digests }}
+        run: |
+          set -eu
+          printf '%s\n' "$AZUL_CHANNEL_DIGESTS" > "$RUNNER_TEMP/channel-digests.tsv"
+          bash scripts/verify_install_commands.sh \
+            "${{ matrix.channel }}" https://azul.rs "${AZUL_VERSION}" "$RUNNER_TEMP/channel-digests.tsv"
 
   # Quality & Security reports.
   # Writes output to the GitHub run summary ($GITHUB_STEP_SUMMARY).

@@ -126,34 +126,42 @@ jobs:
           fi
           echo "::notice::release page resolved, $bytes bytes"
 
-  # Verifies the documented install commands against fresh environments.
+  # Every self-hosted channel, run the way the site documents it, on the OS it
+  # is for. Linux channels run in that ecosystem's own fresh container (a
+  # Debian image for apt, an Arch image for pacman, ...); each check installs
+  # from the live mirror and — where the tab then says "compile and run" —
+  # builds the hello-world and runs it headless through the counter e2e.
   channels:
     name: "install: ${{ matrix.channel }}"
     needs: resolve
     if: needs.resolve.outputs.deployed == 'true'
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { channel: pypi,  image: "python:3.12-bookworm" }
-          - { channel: npm,   image: "node:22-bookworm" }
-          - { channel: gems,  image: "ruby:3.3-bookworm" }
-          - { channel: nuget, image: "mcr.microsoft.com/dotnet/sdk:10.0" }
-          - { channel: apt,   image: "debian:bookworm" }
+          - { channel: pypi,     image: "python:3.12-bookworm",           prep: "" }
+          - { channel: npm,      image: "node:22-bookworm",               prep: "" }
+          - { channel: gems,     image: "ruby:3.3-bookworm",              prep: "" }
+          - { channel: nuget,    image: "mcr.microsoft.com/dotnet/sdk:10.0", prep: "" }
+          - { channel: apt,      image: "debian:bookworm",                prep: "apt-get update -qq && apt-get install -y -qq curl ca-certificates gnupg gcc g++ >/dev/null" }
+          - { channel: maven,    image: "maven:3.9-eclipse-temurin-17",   prep: "apt-get update -qq && apt-get install -y -qq curl unzip >/dev/null" }
+          - { channel: pacman,   image: "archlinux:base",                 prep: "pacman -Sy --noconfirm curl" }
+          - { channel: apk,      image: "alpine:3.20",                    prep: "apk add -q bash curl coreutils" }
+          - { channel: bindings, image: "python:3.12-bookworm",           prep: "" }
+          - { channel: rust,     image: "rust:1.90-bookworm",             prep: "" }
+          - { channel: cargo,    image: "rust:1.90-bookworm",             prep: "" }
+          - { channel: doclinks, image: "python:3.12-bookworm",           prep: "" }
     container:
       image: ${{ matrix.image }}
     steps:
-      - uses: actions/checkout@v7
+      - name: "Provide tools assumed by the documented commands"
+        if: matrix.prep != ''
+        shell: sh
+        run: ${{ matrix.prep }}
 
-      - name: "Provide tools assumed by documented commands (apt)"
-        if: matrix.channel == 'apt'
-        shell: bash
-        run: |
-          set -euo pipefail
-          apt-get update -qq
-          apt-get install -y -qq curl ca-certificates gnupg >/dev/null
+      - uses: actions/checkout@v7
 
       - name: "Run the documented command for ${{ matrix.channel }}"
         shell: bash
@@ -163,6 +171,195 @@ jobs:
             "${{ matrix.channel }}" \
             "${{ needs.resolve.outputs.base_url }}" \
             "${{ needs.resolve.outputs.version }}"
+
+  # macOS: the Homebrew tap (+ the documented clang build, run headless), the
+  # macOS wheel, and the cargo registry against the brew-installed libazul.
+  macos:
+    name: "install: ${{ matrix.channel }} (macOS)"
+    needs: resolve
+    if: needs.resolve.outputs.deployed == 'true'
+    runs-on: macos-14
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [brew, pypi, cargo]
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        if: matrix.channel == 'pypi'
+        with:
+          python-version: "3.12"
+      - name: "Run the documented command for ${{ matrix.channel }}"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/verify_install_commands.sh \
+            "${{ matrix.channel }}" \
+            "${{ needs.resolve.outputs.base_url }}" \
+            "${{ needs.resolve.outputs.version }}"
+
+  # Windows: Chocolatey, the Scoop bucket and the Windows wheel.
+  windows:
+    name: "install: ${{ matrix.channel }} (Windows)"
+    needs: resolve
+    if: needs.resolve.outputs.deployed == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [choco, scoop, pypi]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        if: matrix.channel == 'pypi'
+        with:
+          python-version: "3.12"
+      - name: "Run the documented command for ${{ matrix.channel }}"
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/verify_install_commands.sh \
+            "${{ matrix.channel }}" \
+            "${{ needs.resolve.outputs.base_url }}" \
+            "${{ needs.resolve.outputs.version }}"
+
+  # The "curl these files" route: for every shipped language, on every OS it
+  # documents, execute the frontpage's steps LITERALLY from the published
+  # api.json (scripts/run_install_steps.py) and require the program they build
+  # to pass the headless counter e2e. Toolchains are set up the way the e2e
+  # matrix in rust.yml does it. Nothing is excluded: a language the site
+  # documents for an OS is checked on that OS, and a red cell here is a
+  # documented route that does not work — the finding, not noise.
+  manual:
+    name: "steps: ${{ matrix.lang }} (${{ matrix.os }})"
+    needs: resolve
+    if: needs.resolve.outputs.deployed == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-2022]
+        lang: [c, cpp, rust, csharp, java, kotlin, lua, ruby, node, ocaml, zig, go, pascal, scala, fortran, haskell, python]
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      # ---- toolchains (the same actions the AZ_E2E matrix uses) ----
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          set -e
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential curl libgl1-mesa-dev libx11-dev >/dev/null
+          case "${{ matrix.lang }}" in
+            fortran) sudo apt-get install -y -qq gfortran make >/dev/null ;;
+            pascal)  sudo apt-get install -y -qq fpc >/dev/null ;;
+          esac
+      - name: macOS packages
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          case "${{ matrix.lang }}" in
+            fortran) brew install gcc make >/dev/null ;;
+            pascal)  brew install fpc >/dev/null ;;
+            lua)     brew install luajit >/dev/null ;;
+          esac
+      - name: Linux packages (lua)
+        if: runner.os == 'Linux' && matrix.lang == 'lua'
+        run: sudo apt-get install -y -qq luajit >/dev/null
+      - name: Windows packages (lua)
+        if: runner.os == 'Windows' && matrix.lang == 'lua'
+        shell: bash
+        run: choco install luajit -y --no-progress
+      - name: MSVC (C / C++ on Windows)
+        if: runner.os == 'Windows' && (matrix.lang == 'c' || matrix.lang == 'cpp')
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Windows packages
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -e
+          case "${{ matrix.lang }}" in
+            pascal)  choco install freepascal -y --no-progress ;;
+            fortran) echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"; C:/msys64/usr/bin/pacman -S --noconfirm mingw-w64-x86_64-gcc-fortran make ;;
+          esac
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.lang == 'rust'
+        with:
+          toolchain: 1.90.0
+      - uses: actions/setup-python@v7
+        if: matrix.lang == 'python'
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v6
+        if: matrix.lang == 'node'
+        with:
+          node-version: "22"
+      - uses: ruby/setup-ruby@v1
+        if: matrix.lang == 'ruby'
+        with:
+          ruby-version: "3.3"
+      - uses: actions/setup-dotnet@v5
+        if: matrix.lang == 'csharp'
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/setup-java@v5
+        if: matrix.lang == 'java' || matrix.lang == 'kotlin' || matrix.lang == 'scala'
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: fwilhe2/setup-kotlin@v1
+        if: matrix.lang == 'kotlin'
+      - uses: coursier/setup-action@v1
+        if: matrix.lang == 'scala'
+        with:
+          apps: scala
+      - uses: actions/setup-go@v7
+        if: matrix.lang == 'go'
+        with:
+          go-version: "1.22"
+      - uses: mlugg/setup-zig@v1
+        if: matrix.lang == 'zig'
+        with:
+          version: "0.14.1"
+      - uses: ocaml/setup-ocaml@v3
+        if: matrix.lang == 'ocaml'
+        with:
+          ocaml-compiler: "5.2"
+      - name: OCaml FFI packages
+        if: matrix.lang == 'ocaml'
+        run: opam install -y dune ctypes ctypes-foreign
+      - uses: haskell-actions/setup@v2
+        if: matrix.lang == 'haskell'
+        with:
+          ghc-version: "9.6"
+          cabal-version: "3.10"
+
+      - name: Fetch the published api.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o /tmp/api.json \
+            "${{ needs.resolve.outputs.base_url }}/ui/release/${{ needs.resolve.outputs.version }}/api.json"
+
+      - name: "Run the documented ${{ matrix.lang }} steps"
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ runner.os }}" in Linux) P=linux;; macOS) P=macos;; Windows) P=windows;; esac
+          # opam's environment (ocaml) and cabal's PATH are per-shell.
+          [ "${{ matrix.lang }}" = ocaml ] && eval "$(opam env)" || true
+          python3 scripts/run_install_steps.py --api /tmp/api.json \
+            --lang "${{ matrix.lang }}" --platform "$P" \
+            --base "${{ needs.resolve.outputs.base_url }}" \
+            --version "${{ needs.resolve.outputs.version }}"
 
   # A successful `pip install` does not guarantee successful import (e.g., SIGILL/SIGSEGV).
   python_import:

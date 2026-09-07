@@ -578,7 +578,7 @@ fn generate_installation_json(
             .map(|step| {
                 let interpolated = step.interpolate(hostname, version);
                 match interpolated {
-                    InstallationStep::Code { language, content } => StepJson {
+                    InstallationStep::Code { language, content, .. } => StepJson {
                         step_type: "code".to_string(),
                         language: Some(language),
                         content,

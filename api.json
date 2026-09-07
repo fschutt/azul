@@ -1612,7 +1612,7 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt library, the generated cabal package (as an azul-haskell subdirectory), and the hello-world project, then build with cabal",
+                            "description": "Download the prebuilt library, the generated cabal package (as an azul-haskell subdirectory), and the hello-world project, then build with cabal (in the GHCup MSYS2 shell)",
                             "steps": [
                                 {
                                     "type": "command",
@@ -1632,7 +1632,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cabal build --extra-lib-dirs=%CD%"
+                                    "content": "cabal build --extra-lib-dirs=$PWD"
                                 },
                                 {
                                     "type": "command",
@@ -2892,8 +2892,12 @@
                     "displayName": "Ruby",
                     "platforms": {
                         "linux": {
-                            "description": "Install the gem from the azul.rs source (bundles the native libazul for Linux/macOS/Windows); the `ffi` gem is pulled in automatically",
+                            "description": "Install the gem from the azul.rs source (bundles the native libazul for Linux/macOS/Windows); the `ffi` gem is pulled in automatically; `ffi` (the binding's one runtime dependency) comes from rubygems.org first, since --clear-sources makes the azul.rs mirror the only source for the next command",
                             "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "gem install ffi"
+                                },
                                 {
                                     "type": "command",
                                     "content": "gem install azul --clear-sources --source $HOSTNAME/ui/gems"
@@ -2909,8 +2913,12 @@
                             ]
                         },
                         "macos": {
-                            "description": "Install the gem from the azul.rs source (bundles the native libazul for Linux/macOS/Windows); the `ffi` gem is pulled in automatically",
+                            "description": "Install the gem from the azul.rs source (bundles the native libazul for Linux/macOS/Windows); the `ffi` gem is pulled in automatically; `ffi` (the binding's one runtime dependency) comes from rubygems.org first, since --clear-sources makes the azul.rs mirror the only source for the next command",
                             "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "gem install ffi"
+                                },
                                 {
                                     "type": "command",
                                     "content": "gem install azul --clear-sources --source $HOSTNAME/ui/gems"
@@ -2926,8 +2934,12 @@
                             ]
                         },
                         "windows": {
-                            "description": "Install the gem from the azul.rs source (bundles the native libazul for Linux/macOS/Windows); the `ffi` gem is pulled in automatically",
+                            "description": "Install the gem from the azul.rs source (bundles the native libazul for Linux/macOS/Windows); the `ffi` gem is pulled in automatically; `ffi` (the binding's one runtime dependency) comes from rubygems.org first, since --clear-sources makes the azul.rs mirror the only source for the next command",
                             "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "gem install ffi"
+                                },
                                 {
                                     "type": "command",
                                     "content": "gem install azul --clear-sources --source $HOSTNAME/ui/gems"
@@ -2957,6 +2969,7 @@
                                 {
                                     "type": "code",
                                     "language": "toml",
+                                    "file": ".cargo/config.toml",
                                     "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }"
                                 },
                                 {
@@ -2995,6 +3008,7 @@
                                 {
                                     "type": "code",
                                     "language": "toml",
+                                    "file": ".cargo/config.toml",
                                     "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }"
                                 },
                                 {
@@ -3021,6 +3035,7 @@
                                 {
                                     "type": "code",
                                     "language": "toml",
+                                    "file": ".cargo/config.toml",
                                     "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }"
                                 },
                                 {
