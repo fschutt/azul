@@ -4,17 +4,20 @@
 //! single Haskell binding of the shape:
 //!
 //! ```haskell
-//! foreign import ccall unsafe "AzApp_create"
-//!   c_AzApp_create :: Ptr AppCreateOptions -> IO (Ptr App)
+//! foreign import ccall safe "AzApp_create_via"
+//!   c_AzApp_create_via :: Ptr RefAny -> Ptr AppConfig -> Ptr App -> IO ()
 //! ```
 //!
 //! Conventions:
 //! - The Haskell-side identifier is `c_<C symbol>` so the FFI bindings
 //!   are textually distinct from the idiomatic surface.
-//! - We use `unsafe` for non-callback-invoking functions (the common
-//!   case): faster call, no callback re-entry. We reserve `safe` for
-//!   any function whose argument type list contains a callback typedef
-//!   pointer.
+//! - Every import is `safe`. A `RefAny` built by `refAnyCreate` carries a
+//!   host handle whose destructor calls back into Haskell through the
+//!   registered releaser, so ANY function that may drop a `RefAny` — every
+//!   `_delete`, every by-value consumer — can re-enter Haskell. A call-in
+//!   during an `unsafe` foreign call is undefined behaviour in GHC
+//!   (deadlock or abort); the cost of `safe` is a few nanoseconds per call
+//!   against a GUI toolkit's frame budget.
 //! - Every C function is treated as living in `IO`, since calls have
 //!   side effects from Haskell's perspective even when the Rust side
 //!   is morally pure (e.g. construction of a `Dom`).
@@ -22,12 +25,16 @@
 //!   in `types.rs` for the matching IR type. Pointers to FFI types
 //!   become `Ptr <Name>`; primitives become their `Foreign.C.Types`
 //!   equivalent.
+//! - Functions whose C-ABI signature passes or returns a struct by value
+//!   route through the `<name>_via` shim (`cshim.rs`): aggregate args are
+//!   `Ptr T`, an aggregate return is a trailing `Ptr T` out-parameter.
 
 use anyhow::Result;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
+use super::super::ir::{ArgRefKind, CodegenIR, FieldRefKind, FunctionDef, TypeCategory};
+use super::super::managed_host_invoker;
 use super::sanitize_doc;
 use super::types::haskell_field_type;
 
@@ -46,6 +53,8 @@ pub fn emit_foreign_imports(
         }
         emit_one(builder, func, ir);
     }
+
+    emit_host_invoker_imports(builder, ir, config);
 
     // Callback wrappers: emit `foreign import ccall "wrapper"` for each
     // callback typedef so users can pass Haskell functions across the
@@ -75,6 +84,9 @@ pub fn emit_foreign_imports(
     //      knows where to delegate.
     //   3. Take `p_<X>_trampoline` as the actual C fn pointer to splice
     //      into AzLayoutCallback / button.with_on_click / etc.
+    //
+    // This is the raw path for callback kinds WITHOUT a host invoker; the
+    // kinds in `HOST_INVOKER_KINDS` go through `Azul`'s managed layer.
     builder.blank();
     builder.line("-- ---------------------------------------------------------------------------");
     builder.line("-- Inbound trampolines (Haskell-friendly out-pointer inner + C-ABI trampoline).");
@@ -90,16 +102,109 @@ pub fn emit_foreign_imports(
     Ok(())
 }
 
-/// Phase H.1 — per-callback-typedef `register<X>Callback` helpers that
-/// hide the inbound-trampoline triplet (mk_inner + set_inner +
-/// trampoline) behind a single user-facing API. The user passes a
-/// Haskell function of the natural shape (`Ptr Arg1 -> ... -> IO Ret`);
-/// the helper wraps it, registers it as the inner, and returns
-/// `FunPtr ()` to splice into libazul's C-ABI parameter.
-///
-/// Lives here (FFI.hs) so the helper signatures use the SAME
-/// `Azul.Types`-unqualified type names as the `mk_<X>_inner` declarations
-/// above. Pure type-driven; no method-name allowlist.
+/// Imports for the host-invoker protocol (`core/src/host_invoker.rs`): the
+/// shared handle releaser, host-handle `RefAny` constructors, and per
+/// callback kind the invoker setter + the `createFromHostHandle` factory.
+/// The `_via` forms are the shims `cshim.rs` emits for the by-value
+/// returns. The managed layer in `Azul` builds `refAnyCreate` and the
+/// closure-taking callback setters on top of these.
+fn emit_host_invoker_imports(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
+    builder.blank();
+    builder.line("-- ---------------------------------------------------------------------------");
+    builder.line("-- Host-invoker protocol: host-handle RefAny + per-kind invokers.");
+    builder.line("-- ---------------------------------------------------------------------------");
+    builder.blank();
+    builder.line("foreign import ccall \"wrapper\"");
+    builder.indent();
+    builder.line("mk_HostHandleReleaser :: (Word64 -> IO ()) -> IO (FunPtr (Word64 -> IO ()))");
+    builder.dedent();
+    builder.line("foreign import ccall safe \"AzApp_setHostHandleReleaser\"");
+    builder.indent();
+    builder.line("c_AzApp_setHostHandleReleaser :: FunPtr (Word64 -> IO ()) -> IO ()");
+    builder.dedent();
+    builder.line("foreign import ccall safe \"AzRefAny_newHostHandle_via\"");
+    builder.indent();
+    builder.line("c_AzRefAny_newHostHandle_via :: Word64 -> Ptr RefAny -> IO ()");
+    builder.dedent();
+    builder.line("foreign import ccall safe \"AzRefAny_getHostHandle\"");
+    builder.indent();
+    builder.line("c_AzRefAny_getHostHandle :: Ptr RefAny -> IO Word64");
+    builder.dedent();
+    builder.blank();
+
+    for cb in managed_host_invoker::host_invoker_kinds(ir) {
+        if !config.should_include_type(&cb.name) {
+            continue;
+        }
+        let wrapper = managed_host_invoker::wrapper_name(cb);
+        if ir.find_struct(wrapper).is_none() {
+            continue;
+        }
+        let sig = host_invoker_signature(cb, ir);
+        builder.line(&format!("-- {} invoker: handle, one pointer per callback arg, out-pointer return.", wrapper));
+        builder.line("foreign import ccall \"wrapper\"");
+        builder.indent();
+        builder.line(&format!(
+            "mk_{}Invoker :: ({}) -> IO (FunPtr ({}))",
+            wrapper, sig, sig
+        ));
+        builder.dedent();
+        builder.line(&format!(
+            "foreign import ccall safe \"AzApp_set{}Invoker\"",
+            wrapper
+        ));
+        builder.indent();
+        builder.line(&format!(
+            "c_AzApp_set{}Invoker :: FunPtr ({}) -> IO ()",
+            wrapper, sig
+        ));
+        builder.dedent();
+        builder.line(&format!(
+            "foreign import ccall safe \"Az{}_createFromHostHandle_via\"",
+            wrapper
+        ));
+        builder.indent();
+        builder.line(&format!(
+            "c_Az{}_createFromHostHandle_via :: Word64 -> Ptr {} -> IO ()",
+            wrapper,
+            super::haskell_data_name(wrapper)
+        ));
+        builder.dedent();
+        builder.blank();
+    }
+}
+
+/// The Haskell type of a host invoker for `cb`, mirroring
+/// `managed_host_invoker::invoker_c_arg_list`: `Word64 -> Ptr A1 -> ... ->
+/// Ptr R -> IO ()` (the trailing out-pointer only when the callback
+/// returns a value).
+pub(super) fn host_invoker_signature(
+    cb: &super::super::ir::CallbackTypedefDef,
+    ir: &CodegenIR,
+) -> String {
+    let mut parts = vec!["Word64".to_string()];
+    for a in &cb.args {
+        let raw = haskell_field_type(&a.type_name, FieldRefKind::Owned, ir);
+        parts.push(format!("Ptr {}", paren_if_needed(&raw)));
+    }
+    if managed_host_invoker::has_return(cb) {
+        let raw = haskell_field_type(
+            cb.return_type.as_deref().unwrap_or("()"),
+            FieldRefKind::Owned,
+            ir,
+        );
+        parts.push(format!("Ptr {}", paren_if_needed(&raw)));
+    }
+    format!("{} -> IO ()", parts.join(" -> "))
+}
+
+/// Per-callback-typedef `register<X>Callback` helpers that hide the
+/// inbound-trampoline triplet (mk_inner + set_inner + trampoline) behind a
+/// single user-facing API. The user passes a Haskell function of the
+/// natural shape (`Ptr Arg1 -> ... -> IO Ret`); the helper wraps it,
+/// registers it as the inner, and returns `FunPtr ()` to splice into
+/// libazul's C-ABI parameter. One static slot per kind — the newest
+/// registration wins for the whole kind.
 pub fn emit_callback_register_helpers(
     builder: &mut CodeBuilder,
     ir: &CodegenIR,
@@ -110,12 +215,7 @@ pub fn emit_callback_register_helpers(
     }
     builder.blank();
     builder.line("-- ---------------------------------------------------------------------------");
-    builder.line("-- Phase H.1: Per-callback-typedef `register<X>Callback` helpers.");
-    builder.line("--");
-    builder.line("-- Hide the inbound-trampoline triplet (mk_inner + set_inner +");
-    builder.line("-- trampoline) behind a single user-facing API. Users pass a Haskell");
-    builder.line("-- function of the natural shape; the helper handles all marshalling");
-    builder.line("-- and returns a `FunPtr ()` to splice into libazul's C-ABI param.");
+    builder.line("-- Per-callback-typedef `register<X>Callback` helpers (raw trampoline path).");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
     for cb in &ir.callback_typedefs {
@@ -132,11 +232,9 @@ fn emit_one_register_helper(
     cb: &super::super::ir::CallbackTypedefDef,
     ir: &CodegenIR,
 ) {
-    use super::super::ir::FieldRefKind;
     // Build user-facing arg signature, mirroring exactly what
     // `mk_<X>_inner` accepts (minus the trailing out-ptr for aggregate
-    // returns). We use `haskell_field_type` directly so the names line
-    // up with the FFI-side declarations.
+    // returns).
     let mut user_arg_types: Vec<String> = Vec::new();
     for a in &cb.args {
         let kind = match a.ref_kind {
@@ -146,11 +244,11 @@ fn emit_one_register_helper(
             ArgRefKind::Ptr => FieldRefKind::Ptr,
             ArgRefKind::PtrMut => FieldRefKind::PtrMut,
         };
-        let raw = super::types::haskell_field_type(&a.type_name, kind, ir);
+        let raw = haskell_field_type(&a.type_name, kind, ir);
         if is_haskell_ffi_primitive(&raw) {
             user_arg_types.push(raw);
         } else {
-            user_arg_types.push(format!("Ptr {}", raw));
+            user_arg_types.push(format!("Ptr {}", paren_if_needed(&raw)));
         }
     }
 
@@ -166,15 +264,14 @@ fn emit_one_register_helper(
             if matches!(t, "" | "void" | "()" | "c_void") {
                 "()".to_string()
             } else {
-                super::types::haskell_field_type(t, FieldRefKind::Owned, ir)
+                haskell_field_type(t, FieldRefKind::Owned, ir)
             }
         }
     };
     let ret_is_aggregate = !returns_void && !is_haskell_ffi_primitive(&ret_raw);
 
-    let user_ret = ret_raw.clone();
     let user_func_ty = if user_arg_types.is_empty() {
-        format!("IO {}", paren_if_needed(&user_ret))
+        format!("IO {}", paren_if_needed(&ret_raw))
     } else {
         format!(
             "{} -> IO {}",
@@ -183,7 +280,7 @@ fn emit_one_register_helper(
                 .map(|a| paren_if_needed(a))
                 .collect::<Vec<_>>()
                 .join(" -> "),
-            paren_if_needed(&user_ret)
+            paren_if_needed(&ret_raw)
         )
     };
 
@@ -204,13 +301,7 @@ fn emit_one_register_helper(
     builder.indent();
     let args_vars: Vec<String> = (0..cb.args.len()).map(|i| format!("a{}", i)).collect();
     let call_args = args_vars.join(" ");
-    if returns_void {
-        let args_pat = args_vars.join(" ");
-        builder.line(&format!(
-            "innerFn <- mk_{}_inner $ \\{} -> userFn {}",
-            cb.name, args_pat, call_args,
-        ));
-    } else if ret_is_aggregate {
+    if ret_is_aggregate {
         let args_pat = if args_vars.is_empty() {
             String::from("outPtr")
         } else {
@@ -240,24 +331,15 @@ fn emit_one_register_helper(
 /// The ONE inclusion predicate for this binding. `cshim::should_emit_shim_for`
 /// is defined as `should_emit_function(..) && needs_shim(..)`, so a function
 /// can never get a `foreign import "<name>_via"` without the C shim that
-/// defines `<name>_via` (see the 2026-09-07 note there).
+/// defines `<name>_via`.
 pub(super) fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
     // A trait entry point an api.json `derive` declares is not what the
     // `DestructorOrClone` exclusion below is for. That category is excluded
     // because those types' ordinary methods traffic in callback function
     // pointers this binding cannot marshal; `Az{T}_toDbgString(ptr) ->
     // AzString` traffics in neither, and is the same shape as the ~2800
-    // `_toDbgString` declarations this binding already emits. Excluding it
-    // wholesale is why every `*VecDestructor` declared `Debug` and named it
-    // nowhere. (`*VecDestructor` is a tagged union, hence `find_enum`.)
-    // RECURSIVE types are here for the same reason. `XmlNodeChild` and friends
-    // are excluded below because their ORDINARY methods traffic in a shape
-    // this binding cannot express by value - but `Az{T}_partialEq(a, b) ->
-    // bool` and `Az{T}_toDbgString(ptr) -> AzString` take a pointer and return
-    // a scalar, so the exclusion never applied to them. That is why the same
-    // four types - `Xml`, `XmlNodeChild`, `XmlNodeChildVec`,
-    // `ResultXmlXmlError` - showed up as the residue in fourteen bindings at
-    // once: one cause, not fourteen.
+    // `_toDbgString` declarations this binding already emits. RECURSIVE types
+    // are here for the same reason.
     if func.kind.is_declared_capability()
         && (ir.find_enum(&func.class_name).is_some_and(|e| {
             matches!(
@@ -305,6 +387,65 @@ pub(super) fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &
 }
 
 // ============================================================================
+// FFI signature (shared with the wrapper layer)
+// ============================================================================
+
+/// The Haskell-side shape of one C-ABI import. `Azul` (the wrapper layer)
+/// builds its call sites from this so the two can never disagree about
+/// which arguments travel by pointer.
+pub(super) struct FfiSig {
+    /// `c_<symbol>` or `c_<symbol>_via`.
+    pub binding: String,
+    /// True when the import points at the `_via` shim (aggregate args are
+    /// `Ptr T`, an aggregate return is a trailing out-pointer).
+    pub shimmed: bool,
+    /// Haskell type of each C argument, in order (without the out-pointer).
+    pub arg_types: Vec<String>,
+    /// Haskell type of the trailing out-pointer's pointee for aggregate
+    /// returns through the shim.
+    pub out_type: Option<String>,
+    /// Haskell return type (`()` when void or returned through `out_type`).
+    pub ret_type: String,
+}
+
+impl FfiSig {
+    pub fn haskell_type(&self) -> String {
+        let mut atoms: Vec<String> = self.arg_types.iter().map(|a| paren_if_needed(a)).collect();
+        if let Some(out) = &self.out_type {
+            atoms.push(format!("Ptr {}", paren_if_needed(out)));
+        }
+        if atoms.is_empty() {
+            format!("IO {}", paren_if_needed(&self.ret_type))
+        } else {
+            format!("{} -> IO {}", atoms.join(" -> "), paren_if_needed(&self.ret_type))
+        }
+    }
+}
+
+pub(super) fn ffi_signature(func: &FunctionDef, ir: &CodegenIR) -> FfiSig {
+    let shimmed = super::cshim::needs_shim(func);
+    let arg_types = build_haskell_args(func, ir);
+    let aggregate_return = shimmed && super::cshim::return_is_aggregate(func);
+    let (out_type, ret_type) = if aggregate_return {
+        let r = func.return_type.as_deref().unwrap();
+        (Some(map_arg_owned(r, ir)), "()".to_string())
+    } else {
+        (None, build_haskell_return(func, ir))
+    };
+    FfiSig {
+        binding: if shimmed {
+            format!("c_{}_via", func.c_name)
+        } else {
+            format!("c_{}", func.c_name)
+        },
+        shimmed,
+        arg_types,
+        out_type,
+        ret_type,
+    }
+}
+
+// ============================================================================
 // Function emission
 // ============================================================================
 
@@ -314,105 +455,15 @@ fn emit_one(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
             builder.line(&format!("-- | {}", sanitize_doc(d)));
         }
     }
-
-    // `safe` when the call can RE-ENTER Haskell: either a callback typedef
-    // appears in the function's own signature, OR the function invokes
-    // callbacks STORED IN STRUCTS earlier (the event loop / window plumbing).
-    // A Haskell call-in during an `unsafe` foreign call aborts or deadlocks
-    // the GHC RTS — AzApp_run re-entering the layout trampoline was exactly
-    // that failure (2026-07-04). Keep this list in sync with any future
-    // "runs callbacks without taking one" entry points.
-    let reenters_haskell = matches!(func.c_name.as_str(), "AzApp_run" | "AzApp_addWindow");
-    let safety = if function_takes_callback(func, ir) || reenters_haskell {
-        "safe"
+    let sig = ffi_signature(func, ir);
+    let symbol = if sig.shimmed {
+        format!("{}_via", func.c_name)
     } else {
-        "unsafe"
+        func.c_name.clone()
     };
-
-    // Functions whose C-ABI signature has struct-by-value args/return
-    // route through the C shim layer (`<name>_via`); GHC's FFI can't
-    // marshal those directly. The shim takes aggregate args as
-    // `const T*` (Haskell allocates + pokes; shim derefs), and writes
-    // aggregate returns through a trailing `T *__out` (Haskell
-    // allocates the buffer). See `cshim.rs` for the generator and
-    // `cabal.rs` for the `c-sources: cbits/azul_shims.c` declaration.
-    if super::cshim::needs_shim(func) {
-        emit_shimmed(builder, func, ir, safety);
-    } else {
-        emit_direct(builder, func, ir, safety);
-    }
-}
-
-/// Functions with primitive-only signatures pass through GHC's
-/// foreign-import unchanged.
-fn emit_direct(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR, safety: &str) {
-    let hs_binding = format!("c_{}", func.c_name);
-    let atoms = build_haskell_args(func, ir);
-    let return_ty = build_haskell_return(func, ir);
-
-    let sig = if atoms.is_empty() {
-        format!("IO {}", paren_if_needed(&return_ty))
-    } else {
-        format!(
-            "{} -> IO {}",
-            atoms
-                .iter()
-                .map(|a| paren_if_needed(a))
-                .collect::<Vec<_>>()
-                .join(" -> "),
-            paren_if_needed(&return_ty)
-        )
-    };
-
-    builder.line(&format!(
-        "foreign import ccall {} \"{}\"",
-        safety, func.c_name
-    ));
+    builder.line(&format!("foreign import ccall safe \"{}\"", symbol));
     builder.indent();
-    builder.line(&format!("{} :: {}", hs_binding, sig));
-    builder.dedent();
-}
-
-/// Functions with struct-by-value args or return route through a C
-/// shim. The foreign-import points at `<c_name>_via`; aggregate args
-/// stay typed as `Ptr T` (same as before), aggregate returns become a
-/// trailing `Ptr T -> IO ()` out-parameter. The natural-shape Haskell
-/// wrapper is left for the Azul.hs umbrella module to bracket-wrap
-/// (alloca + peek); the raw `_via` binding is the FFI-level thing.
-fn emit_shimmed(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR, safety: &str) {
-    let hs_binding = format!("c_{}_via", func.c_name);
-    let mut atoms = build_haskell_args(func, ir);
-    // Delegate the aggregate-return predicate to cshim — `is_haskell_ffi_primitive`
-    // returns TRUE for `Ptr T` (a pointer IS something GHC can pass by value),
-    // so it's the wrong oracle for "is the C ABI returning a struct here".
-    let aggregate_return = super::cshim::return_is_aggregate(func);
-    let return_ty = if aggregate_return {
-        let r = func.return_type.as_deref().unwrap();
-        let raw = map_arg_owned(r, ir);
-        atoms.push(format!("Ptr {}", raw));
-        "()".to_string()
-    } else {
-        build_haskell_return(func, ir)
-    };
-    let sig = if atoms.is_empty() {
-        format!("IO {}", paren_if_needed(&return_ty))
-    } else {
-        format!(
-            "{} -> IO {}",
-            atoms
-                .iter()
-                .map(|a| paren_if_needed(a))
-                .collect::<Vec<_>>()
-                .join(" -> "),
-            paren_if_needed(&return_ty)
-        )
-    };
-    builder.line(&format!(
-        "foreign import ccall {} \"{}_via\"",
-        safety, func.c_name
-    ));
-    builder.indent();
-    builder.line(&format!("{} :: {}", hs_binding, sig));
+    builder.line(&format!("{} :: {}", sig.binding, sig.haskell_type()));
     builder.dedent();
 }
 
@@ -422,7 +473,7 @@ fn build_haskell_args(func: &FunctionDef, ir: &CodegenIR) -> Vec<String> {
         let ty = match a.ref_kind {
             ArgRefKind::Owned => map_arg_owned_ffi(&a.type_name, ir),
             ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
-                format!("Ptr {}", map_arg_owned(&a.type_name, ir))
+                format!("Ptr {}", paren_if_needed(&map_arg_owned(&a.type_name, ir)))
             }
         };
         atoms.push(ty);
@@ -442,8 +493,22 @@ fn build_haskell_return(func: &FunctionDef, ir: &CodegenIR) -> String {
     if returns_void {
         "()".to_string()
     } else {
-        let r = func.return_type.as_deref().unwrap_or("()");
-        map_arg_owned_ffi(r, ir)
+        ffi_return_type(func.return_type.as_deref().unwrap_or("()"), ir)
+    }
+}
+
+/// A C return value: primitives by value, aggregates through the shim's
+/// out-pointer (handled by the caller), and pointer-typed returns
+/// (`*const u8` from `AzImageRef_getBytesPtr`) as the pointer itself. Unlike
+/// an argument — where a pointer-spelled type name travels through the shim
+/// as a pointer to the pointer — a returned pointer is what the C function
+/// returns.
+fn ffi_return_type(type_name: &str, ir: &CodegenIR) -> String {
+    let raw = haskell_field_type(type_name, FieldRefKind::Owned, ir);
+    if raw.starts_with("(Ptr ") {
+        raw
+    } else {
+        map_arg_owned_ffi(type_name, ir)
     }
 }
 
@@ -470,7 +535,7 @@ fn emit_callback_wrapper(
         let ty = match a.ref_kind {
             ArgRefKind::Owned => map_arg_owned_ffi(&a.type_name, ir),
             ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
-                format!("Ptr {}", map_arg_owned(&a.type_name, ir))
+                format!("Ptr {}", paren_if_needed(&map_arg_owned(&a.type_name, ir)))
             }
         };
         atoms.push(ty);
@@ -487,7 +552,7 @@ fn emit_callback_wrapper(
     let ret_ty = if returns_void {
         "()".to_string()
     } else {
-        map_arg_owned_ffi(cb.return_type.as_deref().unwrap_or("()"), ir)
+        ffi_return_type(cb.return_type.as_deref().unwrap_or("()"), ir)
     };
 
     let func_ty = if atoms.is_empty() {
@@ -518,12 +583,12 @@ fn emit_callback_wrapper(
 ///
 /// ```haskell
 /// foreign import ccall "wrapper"
-///     mk_LayoutCallbackType_inner :: (Ptr (RefAny ()) -> Ptr LayoutCallbackInfo -> Ptr Dom -> IO ())
+///     mk_LayoutCallbackType_inner :: (Ptr RefAny -> Ptr LayoutCallbackInfo -> Ptr Dom -> IO ())
 ///                                 -> IO (FunPtr (...))
 /// foreign import ccall "AzLayoutCallbackType_set_inner"
 ///     c_AzLayoutCallbackType_set_inner :: FunPtr (...) -> IO ()
 /// foreign import ccall "&AzLayoutCallbackType_trampoline"
-///     p_AzLayoutCallbackType_trampoline :: FunPtr (...)
+///     p_AzLayoutCallbackType_trampoline :: FunPtr ()
 /// ```
 ///
 /// The wrapper inner signature uses by-pointer args + out-pointer return
@@ -541,12 +606,11 @@ fn emit_inbound_trampoline_imports(
     // out-parameter; primitive return stays as the primitive.
     let mut inner_atoms: Vec<String> = Vec::new();
     for a in &cb.args {
-        let raw = haskell_field_type(&a.type_name, super::super::ir::FieldRefKind::Owned, ir);
-        // Primitive args stay primitive; aggregate args are `Ptr T`.
+        let raw = haskell_field_type(&a.type_name, FieldRefKind::Owned, ir);
         if is_haskell_ffi_primitive(&raw) {
             inner_atoms.push(raw);
         } else {
-            inner_atoms.push(format!("Ptr {}", raw));
+            inner_atoms.push(format!("Ptr {}", paren_if_needed(&raw)));
         }
     }
 
@@ -556,7 +620,7 @@ fn emit_inbound_trampoline_imports(
             if matches!(t, "" | "void" | "()" | "c_void") {
                 false
             } else {
-                let raw = haskell_field_type(t, super::super::ir::FieldRefKind::Owned, ir);
+                let raw = haskell_field_type(t, FieldRefKind::Owned, ir);
                 !is_haskell_ffi_primitive(&raw)
             }
         }
@@ -565,12 +629,8 @@ fn emit_inbound_trampoline_imports(
 
     let inner_ret_ty;
     if ret_is_aggregate {
-        let raw = haskell_field_type(
-            cb.return_type.as_deref().unwrap(),
-            super::super::ir::FieldRefKind::Owned,
-            ir,
-        );
-        inner_atoms.push(format!("Ptr {}", raw));
+        let raw = haskell_field_type(cb.return_type.as_deref().unwrap(), FieldRefKind::Owned, ir);
+        inner_atoms.push(format!("Ptr {}", paren_if_needed(&raw)));
         inner_ret_ty = "()".to_string();
     } else {
         inner_ret_ty = match cb.return_type.as_deref() {
@@ -580,7 +640,7 @@ fn emit_inbound_trampoline_imports(
                 if matches!(t, "" | "void" | "()" | "c_void") {
                     "()".to_string()
                 } else {
-                    haskell_field_type(t, super::super::ir::FieldRefKind::Owned, ir)
+                    haskell_field_type(t, FieldRefKind::Owned, ir)
                 }
             }
         };
@@ -613,7 +673,7 @@ fn emit_inbound_trampoline_imports(
     builder.dedent();
 
     builder.line(&format!(
-        "foreign import ccall unsafe \"Az{}_set_inner\"",
+        "foreign import ccall safe \"Az{}_set_inner\"",
         cb.name
     ));
     builder.indent();
@@ -625,9 +685,8 @@ fn emit_inbound_trampoline_imports(
 
     // p_<X>_trampoline is the C fn-pointer value of the trampoline,
     // imported as a FunPtr to splice into AzLayoutCallback / Button.
-    // The FunPtr's type parameter doesn't need to be precise — Haskell
-    // never *calls* through it; it only needs to be the right size to
-    // poke into a struct field. We use `()` to keep the signature short.
+    // Haskell never *calls* through it; it only needs to be the right
+    // size to poke into a struct field, hence `FunPtr ()`.
     builder.line(&format!(
         "foreign import ccall unsafe \"&Az{}_trampoline\"",
         cb.name
@@ -642,21 +701,11 @@ fn emit_inbound_trampoline_imports(
 // Helpers
 // ============================================================================
 
-fn function_takes_callback(func: &FunctionDef, ir: &CodegenIR) -> bool {
-    func.args.iter().any(|a| {
-        a.callback_info.is_some()
-            || ir
-                .callback_typedefs
-                .iter()
-                .any(|c| c.name == a.type_name.trim())
-    })
-}
-
 /// Map an argument's IR type (without ref-kind decoration) to the
 /// matching Haskell type. We share with `types::haskell_field_type`
 /// for the leaf-type mapping by faking an Owned ref-kind.
-fn map_arg_owned(type_name: &str, ir: &CodegenIR) -> String {
-    haskell_field_type(type_name, super::super::ir::FieldRefKind::Owned, ir)
+pub(super) fn map_arg_owned(type_name: &str, ir: &CodegenIR) -> String {
+    haskell_field_type(type_name, FieldRefKind::Owned, ir)
 }
 
 /// Map a type as an FFI argument/return value. GHC's foreign-import
@@ -664,7 +713,7 @@ fn map_arg_owned(type_name: &str, ir: &CodegenIR) -> String {
 /// be wrapped in `Ptr T`. This wrapper does that automatically so the
 /// generated `foreign import ccall` declarations type-check.
 fn map_arg_owned_ffi(type_name: &str, ir: &CodegenIR) -> String {
-    let raw = haskell_field_type(type_name, super::super::ir::FieldRefKind::Owned, ir);
+    let raw = haskell_field_type(type_name, FieldRefKind::Owned, ir);
     if is_haskell_ffi_primitive(&raw) {
         raw
     } else {
@@ -672,67 +721,12 @@ fn map_arg_owned_ffi(type_name: &str, ir: &CodegenIR) -> String {
         // becomes a pointer-to-struct at the Haskell FFI boundary.
         // Caller-side marshalling (alloca/poke/peek) happens in the
         // wrapper layer.
-        format!("Ptr {}", raw)
-    }
-}
-
-/// Public re-export for wrappers.rs (Phase H.1 register helpers need
-/// to reason about which callback typedefs have aggregate returns).
-pub fn is_haskell_ffi_primitive_pub(ty: &str) -> bool {
-    is_haskell_ffi_primitive(ty)
-}
-
-/// Public re-export for wrappers.rs: map an IR callback-arg / return
-/// type to its `Azul.Types`-side Haskell name, *qualified as `T.`*
-/// since the umbrella module imports `Azul.Types as T`. Primitives
-/// stay unqualified (they're imported from Foreign.C.Types / Data.Word).
-pub fn map_field_type_for_callback(type_name: &str) -> String {
-    let t = type_name.trim();
-    // Pointer-prefix forms (`*mut T` / `*const T`): map to `Ptr <T>`.
-    // `c_void` collapses to `()`.
-    if let Some(inner) = t
-        .strip_prefix("*mut ")
-        .or_else(|| t.strip_prefix("*const "))
-    {
-        let inner_t = map_field_type_for_callback(inner);
-        // Paren the inner if it contains whitespace (e.g. `RefAny ()`).
-        let inner_p = if inner_t.contains(' ') {
-            format!("({})", inner_t)
-        } else {
-            inner_t
-        };
-        return format!("Ptr {}", inner_p);
-    }
-    match t {
-        "u8" => "Word8".to_string(),
-        "u16" => "Word16".to_string(),
-        "u32" => "Word32".to_string(),
-        "u64" => "Word64".to_string(),
-        "i8" => "Int8".to_string(),
-        "i16" => "Int16".to_string(),
-        "i32" => "Int32".to_string(),
-        "i64" => "Int64".to_string(),
-        "usize" => "CSize".to_string(),
-        "isize" => "CSSize".to_string(),
-        "f32" => "CFloat".to_string(),
-        "f64" => "CDouble".to_string(),
-        "bool" => "CBool".to_string(),
-        "void" | "()" | "c_void" => "()".to_string(),
-        "c_int" => "CInt".to_string(),
-        "c_uint" => "CUInt".to_string(),
-        "c_long" => "CLong".to_string(),
-        "c_ulong" => "CULong".to_string(),
-        "char" | "c_char" => "CChar".to_string(),
-        // RefAny needs the phantom-type parameter.
-        "RefAny" => "T.RefAny ()".to_string(),
-        // Aggregate / wrapper type — qualify as `T.<Name>` because the
-        // umbrella module imports `Azul.Types as T`.
-        other => format!("T.{}", other),
+        format!("Ptr {}", paren_if_needed(&raw))
     }
 }
 
 /// Haskell primitive types that GHC's foreign-import allows by value.
-fn is_haskell_ffi_primitive(ty: &str) -> bool {
+pub(super) fn is_haskell_ffi_primitive(ty: &str) -> bool {
     matches!(
         ty,
         "()" | "Int"
@@ -767,10 +761,7 @@ fn is_haskell_ffi_primitive(ty: &str) -> bool {
             | "CIntMax"
             | "CUIntMax"
             | "CPtrdiff"
-            | "CWchar" // Already a pointer — no need to wrap further.
-                       // (Conservative startswith check; ref_kind != Owned cases
-                       // are handled separately above so we expect plain names
-                       // here only.)
+            | "CWchar"
     ) || ty.starts_with("Ptr ")
         || ty.starts_with("FunPtr ")
 }
@@ -778,7 +769,7 @@ fn is_haskell_ffi_primitive(ty: &str) -> bool {
 /// Wrap a multi-token type expression in parens so the surrounding
 /// signature parses unambiguously (`Ptr Foo` would otherwise bind
 /// `Ptr` only).
-fn paren_if_needed(s: &str) -> String {
+pub(super) fn paren_if_needed(s: &str) -> String {
     let needs = s.contains(' ') && !(s.starts_with('(') && s.ends_with(')'));
     if needs {
         format!("({})", s)
