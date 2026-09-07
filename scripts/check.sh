@@ -367,7 +367,16 @@ stage_binding_syntax() {
   printf 'int x;\n'                              > "$tmp/p.c"
   printf '#include <cstdint>\nint x;\n'          > "$tmp/p.cpp"
   printf '      program p\n      end program p\n' > "$tmp/p.f90"
-  printf 'use FFI::Platypus;\n1;\n'             > "$tmp/p.pm"
+  # WITH THE VERSION, because that is what the artifact asks for. `Azul.pm`
+  # opens with `use FFI::Platypus 2.00;`, so a runner carrying the DISTRO
+  # package (Ubuntu ships 1.56) passed a bare `use FFI::Platypus;` probe, went
+  # on to check the real file, and reported
+  #   FFI::Platypus version 2 required--this is only version 1.56
+  # as broken generated code. That is the exact failure this probe exists to
+  # prevent: it is a missing dependency, not a bad binding, and such a runner
+  # must SKIP perl like one with no Platypus at all. Keep the version in step
+  # with `doc/src/codegen/v2/lang_perl/mod.rs`, which emits it.
+  printf 'use FFI::Platypus 2.00;\n1;\n'        > "$tmp/p.pm"
   printf 'x = 1\n'                               > "$tmp/p.rb"
   printf 'local x = 1\n'                         > "$tmp/p.lua"
   printf '<?php $x = 1;\n'                       > "$tmp/p.php"
