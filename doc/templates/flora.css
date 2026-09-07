@@ -436,6 +436,14 @@
 /* Smooth Scrolling */
 html {
     scroll-behavior: smooth;
+    /* No text auto-sizing. Mobile WebKit (iOS/iPadOS Safari) and Chrome on
+       Android inflate the text of any block they judge too wide to read
+       after zooming, PER BLOCK — so in one <pre> the two long command lines
+       rendered at ~2x while the short one beside them stayed at 1x, and a
+       paragraph's size depended on its neighbours. The sizes in this file
+       are the sizes. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
 }
 
 /* Skip to Content Link - Accessibility */
@@ -3218,6 +3226,10 @@ code, kbd, samp, pre {
 
 pre[class*="language-"],
 pre.fl-code {
+    /* Long lines scroll inside the panel. Without this a single unbreakable
+       install command decides the width of everything around it on a phone. */
+    overflow-x: auto;
+    max-width: 100%;
     background: var(--fl-code-bg) !important;
     color: var(--fl-code-fg) !important;
     border: 0;

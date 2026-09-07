@@ -354,6 +354,15 @@ a.docs-card:hover {
    Content keeps its reading measure; the API search box lives in the
    right gutter and stays on screen while scrolling, so results expand
    NEXT TO the content instead of pushing it around. */
+.docs-content,
+.docs-card-grid > * {
+    /* A grid or flex item's automatic minimum width is its min-content
+       width. A <pre> with one long line inside a card therefore widened the
+       card, and the card widened the grid, past the viewport — regardless of
+       the <pre> scrolling internally. 0 lets the item shrink; the <pre>
+       (flora.css) then scrolls inside its own box. */
+    min-width: 0;
+}
 .docs-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 340px;
@@ -366,7 +375,13 @@ a.docs-card:hover {
     min-width: 0;
 }
 @media (max-width: 1024px) {
-    .docs-layout { grid-template-columns: 1fr; }
+    /* minmax(0, 1fr), NOT 1fr: bare `1fr` is minmax(auto, 1fr), and `auto`
+       here is the column's min-content width — the longest unbreakable
+       line in any <pre> on the page (a release page has eleven of them).
+       On a phone that made the whole content column ~2x the viewport, cut
+       every paragraph off at the right edge, and let mobile WebKit inflate
+       the text on top. The desktop rule above already says minmax(0, 1fr). */
+    .docs-layout { grid-template-columns: minmax(0, 1fr); }
     /* On mobile the search bar goes ABOVE the content (after the page
        heading - never before it). */
     .docs-search-rail { position: static; order: -1; }
