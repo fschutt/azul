@@ -112,7 +112,7 @@ impl PlatformCapability {
     /// is an internal detail. Reported so an app can tell "no SQL by
     /// design" from a missing engine.
     pub fn sql() -> PlatformCapability {
-        if cfg!(feature = "db-sqlite") {
+        if cfg!(az_db_engine) {
             cap(
                 false,
                 "turso (internal)",
@@ -126,9 +126,9 @@ impl PlatformCapability {
     /// Probe `Db` backup sync (`DbConfig::with_backup_sync_url`). Needs the
     /// HTTP client: the row-level oplog travels over HTTPS on every target.
     pub fn sync() -> PlatformCapability {
-        if cfg!(all(feature = "http", feature = "db-sqlite")) {
+        if cfg!(all(feature = "http", az_db_engine)) {
             cap(true, "oplog over ureq", "")
-        } else if cfg!(feature = "db-sqlite") {
+        } else if cfg!(az_db_engine) {
             cap(
                 false,
                 "none",

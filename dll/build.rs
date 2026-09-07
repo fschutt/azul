@@ -41,6 +41,26 @@ fn emit_lift_build_id() {
 fn main() {
     let target = env::var("TARGET").unwrap_or_default();
 
+    // `az_db_engine`: the bundled SQLite engine (`turso`) is compiled in.
+    // It is `feature = "db-sqlite"` MINUS 32-bit Linux: turso pulls
+    // turso_sync_engine 0.7.2, whose sparse_io.rs passes `pos as i64` to
+    // libc::lseek/fallocate — `off_t` is i32 on i686/armv7 glibc, so the crate
+    // itself does not compile there (upstream main still has it, 2026-09-07).
+    // Cargo.toml declares `turso`/`aegis` for the same target set, so on
+    // 32-bit Linux the feature stays ON (the api.json surface is unchanged),
+    // the engine is OFF, and `Db::open` returns an invalid handle exactly as
+    // it does without the feature. Drop the target clause once the fork
+    // (fschutt/turso) ships a sync engine with `pos as libc::off_t`.
+    println!("cargo:rustc-check-cfg=cfg(az_db_engine)");
+    {
+        let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+        let width = env::var("CARGO_CFG_TARGET_POINTER_WIDTH").unwrap_or_default();
+        let engine_target = !(os == "linux" && width == "32");
+        if env::var("CARGO_FEATURE_DB_SQLITE").is_ok() && engine_target {
+            println!("cargo:rustc-cfg=az_db_engine");
+        }
+    }
+
     // Embed a build identity for the web lift cache. A CLEAN git checkout keys the
     // framework lift cache by (ref + fn name) — arch-neutral, so an aarch64-lifted
     // WASM cache is reused by an x86 server (transpiler_remill::lift_cache_path).

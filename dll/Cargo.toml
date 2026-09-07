@@ -150,22 +150,6 @@ proj4rs = { version = "0.1", optional = true }
 # `decode_mvt_tile` return type without going through `td`'s private
 # graph. Same gate as `td`.
 geojson = { version = "0.24", optional = true }
-# SQLite engine for the `Db` API (P4.3), gated by `db-sqlite`. `turso` is a
-# pure-Rust SQLite (no `cc`, no system libsqlite, no bindgen) so it
-# cross-compiles to every target with no C toolchain. Default features OFF:
-# they would add mimalloc (a C allocator via `cc`) and FTS. io_uring is OFF:
-# upstream turso_sdk_kit 0.7 forces it on and `turso` cannot opt out, so this
-# is `turso-azul` — the fork published from fschutt/turso (v0.7.2 + one commit
-# making both IO backends opt-in), consumed by `package =` rename like
-# gilrs-azul / gpu-video-azul so it survives `cargo publish`. It brings
-# turso-sdk-kit-azul and turso-sync-sdk-kit-azul with it; turso_core is
-# upstream. See the workspace Cargo.toml note. The engine ships on every
-# target in the release matrix, 32-bit Linux included.
-turso = { package = "turso-azul", version = "0.7.2", optional = true, default-features = false }
-# turso pulls aegis (AEAD), whose build.rs compiles C AES via `cc` and fails to
-# cross-compile to 32-bit (i686/armv7) — and a global cc-disable breaks zstd-sys.
-# aegis's `pure-rust` feature (softaes) skips the C build entirely; pull it in
-# directly so feature-unification enables it wherever turso is used.
 # PDF for AzulDoc (P5), gated by `pdf`. printpdf shares OUR azul-layout (via
 # the root [patch.crates-io] → local printpdf branch + local azul-*), so the
 # dll links exactly one azul-layout. The `html` feature pulls in printpdf's
@@ -173,7 +157,6 @@ turso = { package = "turso-azul", version = "0.7.2", optional = true, default-fe
 # display lists into PDF ops INCLUDING TEXT (SetFont/ShowText via
 # azul_layout::text3::glyphs::get_glyph_runs_pdf) — which dom_to_bytes uses;
 # without it PDFs contained rectangles only (the textless azul-writer bug).
-aegis = { version = "0.9", features = ["pure-rust"], optional = true }
 printpdf = { version = "0.12.8", default-features = false, features = ["html", "images", "png", "jpeg"], optional = true }
 
 # Typed multi-flavor clipboard payloads: codecs (RTF/CF_HTML/uri-list/DIB/…)
@@ -198,6 +181,34 @@ rich-clipboard = { version = "0.1", features = ["rich-text", "file-list", "dib",
 # predefined CF_* number to the name `Flavor::from_windows_name` reads back,
 # and `Budget`, to bound a Wayland pipe read that declares no length.
 rclip-core = { version = "0.1", optional = true }
+
+# The Db engine is declared for every target EXCEPT 32-bit Linux. turso pulls
+# turso_sync_engine 0.7.2, whose sparse_io.rs hands `pos as i64` to
+# libc::lseek/fallocate; `off_t` is i32 on i686/armv7 glibc, so that crate does
+# not compile there (Cross-Build i686 + armv7 on master 34144083957 and PR 469
+# 34152799415; upstream main unchanged on 2026-09-07). `db-sqlite` stays a
+# plain feature, so the api.json surface is identical everywhere; build.rs
+# turns it into `cfg(az_db_engine)` = feature AND this target set, and on
+# 32-bit Linux `Db::open` returns an invalid handle like a build without the
+# feature. Remove the target clause when the fork (fschutt/turso) publishes a
+# sync engine with `pos as libc::off_t`.
+[target.'cfg(not(all(target_os = "linux", target_pointer_width = "32")))'.dependencies]
+# SQLite engine for the `Db` API (P4.3), gated by `db-sqlite`. `turso` is a
+# pure-Rust SQLite (no `cc`, no system libsqlite, no bindgen) so it
+# cross-compiles to every target with no C toolchain. Default features OFF:
+# they would add mimalloc (a C allocator via `cc`) and FTS. io_uring is OFF:
+# upstream turso_sdk_kit 0.7 forces it on and `turso` cannot opt out, so this
+# is `turso-azul` — the fork published from fschutt/turso (v0.7.2 + one commit
+# making both IO backends opt-in), consumed by `package =` rename like
+# gilrs-azul / gpu-video-azul so it survives `cargo publish`. It brings
+# turso-sdk-kit-azul and turso-sync-sdk-kit-azul with it; turso_core is
+# upstream. See the workspace Cargo.toml note.
+turso = { package = "turso-azul", version = "0.7.2", optional = true, default-features = false }
+# turso pulls aegis (AEAD), whose build.rs compiles C AES via `cc` and fails to
+# cross-compile to 32-bit (i686/armv7) — and a global cc-disable breaks zstd-sys.
+# aegis's `pure-rust` feature (softaes) skips the C build entirely; pull it in
+# directly so feature-unification enables it wherever turso is used.
+aegis = { version = "0.9", features = ["pure-rust"], optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tfd = { version = "0.1.0", default-features = false, optional = true }
