@@ -3617,16 +3617,16 @@
                     "mac": "hello-world.mac.png"
                 },
                 "description": [
-                    "No Chromium. No V8. No 200MB runtime. Just a 15MB DLL and GPU-accelerated rendering via WebRender.",
-                    "Your app state lives in YOUR code - Azul just renders it. Unlike React, you control exactly when the UI refreshes.",
-                    "Write once in Rust, C, C++ or Python. Style with real CSS. Ship a single binary that starts instantly."
+                    "Build native desktop applications without the overhead of a bundled web browser.",
+                    "Write your application logic in one of 17 supported programming languages.",
+                    "Distribute a lightweight executable that starts instantly."
                 ]
             },
             {
                 "name": "widgets",
                 "title": [
-                    "Massive Widget",
-                    "library"
+                    "Built-in Widget",
+                    "Library"
                 ],
                 "alt": "Demonstration of all built-in widgets including buttons, checkboxes, inputs and more",
                 "show_on_index": true,
@@ -3647,9 +3647,9 @@
                     "mac": "widgets.mac.png"
                 },
                 "description": [
-                    "Buttons, inputs, dropdowns, tabs, color pickers, progress bars - all GPU-rendered and fully styleable via CSS.",
-                    "No DOM/JS bridge overhead. Callbacks are direct function pointers to your native code.",
-                    "Compose widgets freely - no prop drilling, no state lifting. Your architecture, your rules."
+                    "Construct complex interfaces using a rich set of built-in desktop controls.",
+                    "Add standard elements like tabs, ribbons, and data lists out of the box.",
+                    "Customize the appearance of every component using standard CSS."
                 ]
             },
             {
@@ -3677,9 +3677,9 @@
                     "mac": "opengl.mac.png"
                 },
                 "description": [
-                    "Embed raw OpenGL directly in your UI - no WebGL abstraction, no canvas hacks.",
-                    "Render 3D scenes, CAD models, or data visualizations right next to native widgets.",
-                    "Perfect for scientific apps, GIS or CAD."
+                    "Embed hardware-accelerated graphics directly alongside your standard user interface.",
+                    "Render 3D scenes, CAD models, or complex data visualizations natively.",
+                    "Integrate graphics smoothly without performance penalties or canvas wrappers."
                 ]
             },
             {
@@ -3707,15 +3707,15 @@
                     "mac": "infinity.mac.png"
                 },
                 "description": [
-                    "Display 10 million rows at 60 FPS. VirtualViewCallbacks render only what's visible on screen.",
-                    "Lazy-load images, SVGs, and complex content as users scroll - zero upfront memory cost.",
-                    "Perfect for IDE file trees, database viewers, and infinite feeds, ..."
+                    "Display massive datasets with millions of entries without slowing down the interface.",
+                    "Render only what is currently visible on the screen to maintain high frame rates.",
+                    "Build high-performance data tables, log viewers, and infinite scrolling feeds."
                 ]
             },
             {
                 "name": "async",
                 "title": [
-                    "True Native",
+                    "Native",
                     "Multithreading"
                 ],
                 "alt": "Background threads and timers for non-blocking operations",
@@ -3737,9 +3737,9 @@
                     "mac": "async.mac.png"
                 },
                 "description": [
-                    "Real OS threads, not JavaScript promises. Background tasks with automatic UI updates.",
-                    "Spawn database queries, file operations, or network requests without freezing your app.",
-                    "Timers, thread pools, and progress callbacks built-in."
+                    "Run heavy background tasks like network requests without blocking the user interface.",
+                    "Keep your applications responsive while processing data in the background.",
+                    "Utilize native operating system threads for true concurrent execution."
                 ]
             },
             {
@@ -3767,9 +3767,9 @@
                     "mac": "xhtml.mac.png"
                 },
                 "description": [
-                    "Block, inline, flexbox, grid - the same layout power as modern browsers, but without any bloat.",
-                    "Load XHTML from files or strings. Hot-reload your UI without recompiling.",
-                    "Perfect for designers: tweak styles in CSS, see changes instantly."
+                    "Design your application layouts using familiar web standards like HTML and CSS.",
+                    "Load user interfaces from external files without needing to recompile your application.",
+                    "Display clear error messages during development instead of crashing on invalid markup."
                 ]
             },
             {
@@ -3797,9 +3797,9 @@
                     "mac": "calc.mac.png"
                 },
                 "description": [
-                    "Modern CSS Grid and Flexbox layouts, powered by the Taffy engine.",
-                    "Build responsive, complex interfaces without learning yet another layout system.",
-                    "Just the same CSS you know from the web - without the browser baggage."
+                    "Create adaptive layouts that automatically adjust to different window sizes.",
+                    "Apply modern styling features like rounded corners, shadows, and gradients.",
+                    "Blend seamlessly with the operating system by using native accent colors."
                 ]
             }
         ],
