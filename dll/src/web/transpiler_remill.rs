@@ -2834,6 +2834,9 @@ impl RemillTranspiler {
         // WEB-LIFT FIX : only the mini runtime (AzStartup_* roots) runs the cascade +
         // allsorts shaping that hits the indirect-br outlined-epilogue MISSING_BLOCK.
         let is_mini_runtime = roots.iter().any(|r| r.fn_name.starts_with("AzStartup_"));
+        // Captured before the queue consumes `roots`: the chunk report needs the
+        // seeded entry points to tell a boot root from a lazy candidate.
+        let seed_names: Vec<String> = roots.iter().map(|r| r.fn_name.clone()).collect();
 
         for root in roots {
             queue.push_back(TransitiveLiftTarget::Root(root));
@@ -3815,20 +3818,35 @@ impl RemillTranspiler {
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|n| *n > 0);
-        // The mini only: the chunk design is about the first-paint payload, and
-        // the per-callback modules are already separate downloads. Running it for
-        // all 24 cost 23 wasted links a run.
-        let chunk_core = chunk_n
-            .filter(|_| opts.output_stem == "azul-mini")
-            .and_then(|n| {
-                report_chunk_partition(
-                    &edges,
-                    &self.scratch_dir,
-                    &opts.output_stem,
-                    n,
-                    &object_paths,
-                )
-            });
+        // The REPORT is graph-only and costs nothing, so it runs for every
+        // module. It used to be gated to the mini, on the reasoning that the
+        // per-callback modules are already separate downloads — true, and
+        // insufficient: a separate download that a first paint fetches anyway is
+        // not saved. That gate is what kept the biggest lazy chunk in the build
+        // invisible. It is not in the mini at all: in `azwriter::layout` the
+        // entire document-parsing world (1433 fns, 27.1 MB of objects, 1.69 MB
+        // delivered) hangs off `azwriter::on_browse_clicked` — the file-open
+        // button handler, which a first paint never calls.
+        let is_mini = opts.output_stem == "azul-mini";
+        let boot_names: HashSet<String> = if is_mini {
+            HashSet::new()
+        } else {
+            seed_names.iter().cloned().collect()
+        };
+        let module_label = seed_names
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or(opts.output_stem.as_str());
+        let chunk_core = chunk_n.and_then(|n| {
+            report_chunk_partition(
+                &edges,
+                &self.scratch_dir,
+                module_label,
+                n,
+                &object_paths,
+                &boot_names,
+            )
+        });
 
         let bytes = self.link_objects_to_wasm(
             &object_paths,
@@ -3841,16 +3859,38 @@ impl RemillTranspiler {
         // Link p0 for real, AFTER the main link: emit_indirect_dispatcher_obj
         // writes one fixed filename, so doing this first would clobber the input
         // the main link is about to read.
+        // The report is free; the LINK is a wasm-ld run plus a brotli pass, so
+        // only pay it where a split could move the first-paint number. Object
+        // bytes are the right test rather than the stem — every callback lift
+        // shares the stem "transitive-lift", and the widget callbacks are
+        // ~880 KB modules where a split saves nothing worth 20 extra links a run.
         if let Some(core) = chunk_core {
-            self.measure_core_chunk(
-                &core,
-                &object_paths,
-                &exports,
-                visited.iter().copied(),
-                &opts,
-                &accessed_pages,
-                &accessed_ranges,
-            );
+            let obj_bytes: u64 = object_paths
+                .iter()
+                .filter_map(|p| std::fs::metadata(p).ok().map(|m| m.len()))
+                .sum();
+            let min_mb: u64 = std::env::var("AZ_CHUNK_LINK_MIN_MB")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(20);
+            if obj_bytes >= min_mb * 1_000_000 {
+                self.measure_core_chunk(
+                    &core,
+                    &object_paths,
+                    &exports,
+                    visited.iter().copied(),
+                    &opts,
+                    module_label,
+                    &accessed_pages,
+                    &accessed_ranges,
+                );
+            } else {
+                eprintln!(
+                    "[azul-web] AZ_CHUNK {module_label}: {:.2} MB of objects, below the \
+                     {min_mb} MB link threshold — reported only (AZ_CHUNK_LINK_MIN_MB)",
+                    obj_bytes as f64 / 1e6,
+                );
+            }
         }
 
         let mut boundaries: Vec<usize> = used_boundaries.into_iter().collect();
@@ -5830,6 +5870,7 @@ impl RemillTranspiler {
         exports: &[String],
         visited: impl Iterator<Item = usize>,
         opts: &LiftOpts,
+        label: &str,
         accessed_pages: &std::collections::HashSet<usize>,
         accessed_ranges: &std::collections::HashSet<(usize, usize)>,
     ) {
@@ -5864,7 +5905,7 @@ impl RemillTranspiler {
             .collect();
         eprintln!(
             "[azul-web] AZ_CHUNK {}: p0 = {} of {} objects, {} dispatcher case(s)",
-            opts.output_stem,
+            label,
             core_objs.len(),
             object_paths.len(),
             cs.len(),
@@ -5877,10 +5918,11 @@ impl RemillTranspiler {
             core_objs.push(o);
         }
 
+        let and_stem = format!("{}-p0", label.replace(|c: char| !c.is_ascii_alphanumeric(), "_"));
         match self.link_objects_to_wasm(
             &core_objs,
             exports,
-            "azul-p0",
+            and_stem.as_str(),
             opts.memory_mode,
             accessed_pages,
             accessed_ranges,
@@ -5895,14 +5937,14 @@ impl RemillTranspiler {
                     .unwrap_or_else(|| "?".to_string());
                 eprintln!(
                     "[azul-web] AZ_CHUNK {}: p0 linked {} bytes raw -> {} brotli (q9)",
-                    opts.output_stem,
+                    label,
                     b.len(),
                     br,
                 );
             }
             Err(e) => eprintln!(
                 "[azul-web] AZ_CHUNK {}: p0 link FAILED: {}",
-                opts.output_stem, e.reason,
+                label, e.reason,
             ),
         }
     }
@@ -5925,6 +5967,7 @@ fn report_chunk_partition(
     stem: &str,
     n_lazy: usize,
     object_paths: &[PathBuf],
+    boot_names: &HashSet<String>,
 ) -> Option<HashSet<usize>> {
     // Objects that are not `__az_dep_<hex>.o` — the AzStartup_* wrappers, bump
     // helpers, callback shim, dispatcher — carry no address in their name, so
@@ -5995,6 +6038,14 @@ fn report_chunk_partition(
     // these; without the same rule here, AzStartup_solveLayoutReal's 984-function
     // subtree was offered as the biggest "lazy" chunk, which inflated the saving
     // AND made p0 too small by leaving boot-path code out of the link.
+    //
+    // `boot_names` carries the same rule for modules whose entry points are not
+    // named by a prefix. A cb/layout lift is seeded ONLY with genuine entry
+    // points, so every seed is a boot root; the mini is additionally seeded with
+    // `extra fn-pointer root`s, which are entered only through the dispatcher and
+    // are precisely the lazy candidates, so it passes an empty set and relies on
+    // the prefixes. Without this the layout module offered `azwriter::layout`
+    // itself as its second-biggest lazy chunk.
     const BOOT_PREFIXES: [&str; 3] = ["AzStartup_", "AzApp_", "AzWindow_"];
     let is_boot_root = |a: usize| -> bool {
         symbol_table::get()
@@ -6003,6 +6054,7 @@ fn report_chunk_partition(
                 BOOT_PREFIXES
                     .iter()
                     .any(|p| e.canonical_name.starts_with(p))
+                    || boot_names.contains(&e.canonical_name)
             })
             .unwrap_or(false)
     };
