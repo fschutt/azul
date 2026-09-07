@@ -1,19 +1,29 @@
 /**
  * File System Operations Demo for Azul GUI Framework
- * 
+ *
  * This example demonstrates:
  * - Reading and writing files
  * - Creating directories
  * - Listing directory contents
  * - File metadata access
  * - Path manipulation
- * 
- * Compile with: 
+ *
+ * Reading is asynchronous: AzFilePath_readBytes / AzFilePath_readDir only
+ * REQUEST the read and deliver the result later, through the event loop, to
+ * a resume callback (a browser can only answer these asynchronously). So this
+ * demo is a tiny azul app: main() runs the synchronous part (path algebra),
+ * then starts an app whose layout callback issues the first read exactly
+ * once; every resume prints its result and issues the next step, and the
+ * last one exits the process so the demo still behaves like a CLI tool.
+ * Writing, metadata, copying and deleting stay synchronous.
+ *
+ * Compile with:
  *   gcc -o file file.c -I. -L../../target/release -lazul -Wl,-rpath,../../target/release
  */
 
 #include "azul.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 // Helper to create AzString from C string
@@ -53,6 +63,35 @@ void cstr_free(CStr* c) {
 } while(0)
 
 // ============================================================================
+// Demo State
+// ============================================================================
+
+// Carried through the request/resume chain. A step that issues a read keeps
+// the paths its resume still needs in here.
+typedef struct {
+    bool started;          // the layout callback issued the first request
+    AzFilePath test_dir;   // valid while has_test_dir
+    AzFilePath file_path;  // valid while has_file_path
+    bool has_test_dir;
+    bool has_file_path;
+} FileDemo;
+
+void FileDemo_destructor(void* p) {
+    FileDemo* d = (FileDemo*)p;
+    if (d->has_test_dir) AzFilePath_delete(&d->test_dir);
+    if (d->has_file_path) AzFilePath_delete(&d->file_path);
+}
+AZ_REFLECT(FileDemo, FileDemo_destructor);
+
+// The steps of the chain, in the order they run
+void demo_file_operations(AzRefAny data);
+AzUpdate on_file_read(AzRefAny data, AzCallbackInfo info, AzRefAny result);
+void demo_directory_listing(AzRefAny data);
+AzUpdate on_dir_listed(AzRefAny data, AzCallbackInfo info, AzRefAny result);
+void demo_error_handling(AzRefAny data);
+AzUpdate on_bad_read(AzRefAny data, AzCallbackInfo info, AzRefAny result);
+
+// ============================================================================
 // Path Manipulation Demo
 // ============================================================================
 
@@ -60,7 +99,7 @@ void demo_path_operations(void) {
     printf("\n============================================================\n");
     printf("Path Manipulation Demo\n");
     printf("============================================================\n\n");
-    
+
     // Get temp directory
     AzFilePath temp = AzFilePath_getTempDir();
     AzString temp_str = AzFilePath_asString(&temp);
@@ -68,7 +107,7 @@ void demo_path_operations(void) {
         printf("System temp directory: %s\n", temp_path);
     });
     AzString_delete(&temp_str);
-    
+
     // Join paths
     printf("\nPath joining:\n");
     AzFilePath base = az_path("/home/user");
@@ -78,7 +117,7 @@ void demo_path_operations(void) {
     AzString_delete(&joined_str);
     AzFilePath_delete(&joined);
     AzFilePath_delete(&base);
-    
+
     // Get parent directory
     printf("\nParent directory:\n");
     AzFilePath path = az_path("/home/user/documents/file.txt");
@@ -90,7 +129,7 @@ void demo_path_operations(void) {
         AzFilePath_delete(&parent.Some.payload);
     }
     AzFilePath_delete(&path);
-    
+
     // Get filename
     printf("\nFilename extraction:\n");
     AzFilePath path2 = az_path("/home/user/documents/file.txt");
@@ -100,7 +139,7 @@ void demo_path_operations(void) {
         AzString_delete(&filename.Some.payload);
     }
     AzFilePath_delete(&path2);
-    
+
     // Get extension
     printf("\nExtension extraction:\n");
     AzFilePath path3 = az_path("/home/user/documents/file.txt");
@@ -110,7 +149,7 @@ void demo_path_operations(void) {
         AzString_delete(&ext.Some.payload);
     }
     AzFilePath_delete(&path3);
-    
+
     // Check path types
     printf("\nPath type checking:\n");
     AzFilePath dir_path = az_path("/tmp");
@@ -118,7 +157,7 @@ void demo_path_operations(void) {
     printf("  /tmp is directory: %s\n", AzFilePath_isDir(&dir_path) ? "true" : "false");
     printf("  /tmp exists:       %s\n", AzFilePath_exists(&dir_path) ? "true" : "false");
     AzFilePath_delete(&dir_path);
-    
+
     AzFilePath_delete(&temp);
 }
 
@@ -126,21 +165,24 @@ void demo_path_operations(void) {
 // File Read/Write Demo
 // ============================================================================
 
-void demo_file_operations(void) {
+// Synchronous prelude (create directory, write file), then the read request.
+// The read result arrives in on_file_read, which finishes this demo.
+void demo_file_operations(AzRefAny data) {
     printf("\n============================================================\n");
     printf("File Read/Write Demo\n");
     printf("============================================================\n\n");
-    
+
     // Create a test directory in temp
     AzFilePath temp = AzFilePath_getTempDir();
     AzFilePath test_dir = AzFilePath_joinStr(&temp, az_str("azul_file_demo"));
-    
+    AzFilePath_delete(&temp);
+
     AzString test_dir_str = AzFilePath_asString(&test_dir);
     WITH_CSTR(test_dir_str, dir_path, {
         printf("Creating test directory: %s\n", dir_path);
     });
     AzString_delete(&test_dir_str);
-    
+
     // Create directory (will succeed or already exists)
     AzResultEmptyStructFileError dir_result = AzFilePath_createDirAll(&test_dir);
     if (dir_result.Ok.tag == AzResultEmptyStructFileError_Tag_Ok) {
@@ -149,15 +191,15 @@ void demo_file_operations(void) {
         printf("  Directory creation failed (may already exist)\n");
         AzFileError_delete(&dir_result.Err.payload);
     }
-    
+
     // Write a text file
     printf("\nWriting text file...\n");
     AzFilePath file_path = AzFilePath_joinStr(&test_dir, az_str("test.txt"));
-    
+
     const char* content = "Hello from Azul!\nThis is a test file.\nLine 3.";
-    AzU8Vec data = AzU8Vec_copyFromBytes((const uint8_t*)content, 0, strlen(content));
-    
-    AzResultEmptyStructFileError write_result = AzFilePath_writeBytes(&file_path, data);
+    AzU8Vec file_data = AzU8Vec_copyFromBytes((const uint8_t*)content, 0, strlen(content));
+
+    AzResultEmptyStructFileError write_result = AzFilePath_writeBytes(&file_path, file_data);
     if (write_result.Ok.tag == AzResultEmptyStructFileError_Tag_Ok) {
         printf("  Successfully wrote %zu bytes\n", strlen(content));
     } else {
@@ -166,28 +208,58 @@ void demo_file_operations(void) {
         });
         AzFileError_delete(&write_result.Err.payload);
     }
-    
-    // Read the file back
+
+    // Read the file back - the bytes arrive in on_file_read
     printf("\nReading file back...\n");
-    AzResultU8VecFileError read_result = AzFilePath_readBytes(&file_path);
-    if (read_result.Ok.tag == AzResultU8VecFileError_Tag_Ok) {
-        AzU8Vec read_data = read_result.Ok.payload;
-        printf("  Read %zu bytes:\n", read_data.len);
-        printf("  ---\n");
-        // Print content (assuming it's text)
-        printf("  %.*s\n", (int)read_data.len, (char*)read_data.ptr);
-        printf("  ---\n");
-        AzU8Vec_delete(&read_data);
-    } else {
-        WITH_CSTR(read_result.Err.payload.message, err, {
-            printf("  Read failed: %s\n", err);
-        });
-        AzFileError_delete(&read_result.Err.payload);
+
+    FileDemoRefMut d = FileDemoRefMut_create(&data);
+    if (!FileDemo_downcastMut(&data, &d)) {
+        AzFilePath_delete(&file_path);
+        AzFilePath_delete(&test_dir);
+        return;
     }
-    
+    // The resume still needs both paths (metadata, copy): keep them in the state
+    d.ptr->test_dir = test_dir;
+    d.ptr->file_path = file_path;
+    d.ptr->has_test_dir = true;
+    d.ptr->has_file_path = true;
+    AzFilePath_readBytes(&d.ptr->file_path, AzRefAny_clone(&data), on_file_read);
+    FileDemoRefMut_delete(&d);
+}
+
+// Resume of the read: print the content, then metadata + copy (synchronous)
+AzUpdate on_file_read(AzRefAny data, AzCallbackInfo info, AzRefAny result) {
+    (void)info;
+
+    AzOptionFileReadBytesResult r = AzFileReadBytesResult_downcast(result);
+    if (r.Some.tag != AzOptionFileReadBytesResult_Tag_Some) {
+        printf("  Read failed: unexpected result payload\n");
+    } else {
+        AzResultU8VecFileError read_result = r.Some.payload.result;
+        if (read_result.Ok.tag == AzResultU8VecFileError_Tag_Ok) {
+            AzU8Vec read_data = read_result.Ok.payload;
+            printf("  Read %zu bytes:\n", read_data.len);
+            printf("  ---\n");
+            // Print content (assuming it's text)
+            printf("  %.*s\n", (int)read_data.len, (char*)read_data.ptr);
+            printf("  ---\n");
+            AzU8Vec_delete(&read_data);
+        } else {
+            WITH_CSTR(read_result.Err.payload.message, err, {
+                printf("  Read failed: %s\n", err);
+            });
+            AzFileError_delete(&read_result.Err.payload);
+        }
+    }
+
+    FileDemoRefMut d = FileDemoRefMut_create(&data);
+    if (!FileDemo_downcastMut(&data, &d)) {
+        return AzUpdate_DoNothing;
+    }
+
     // Get file metadata
     printf("\nFile metadata:\n");
-    AzResultFileMetadataFileError meta_result = AzFilePath_metadata(&file_path);
+    AzResultFileMetadataFileError meta_result = AzFilePath_metadata(&d.ptr->file_path);
     if (meta_result.Ok.tag == AzResultFileMetadataFileError_Tag_Ok) {
         AzFileMetadata meta = meta_result.Ok.payload;
         printf("  Size:        %llu bytes\n", (unsigned long long)meta.size);
@@ -206,12 +278,12 @@ void demo_file_operations(void) {
         });
         AzFileError_delete(&meta_result.Err.payload);
     }
-    
+
     // Copy the file
     printf("\nCopying file...\n");
-    AzFilePath copy_path = AzFilePath_joinStr(&test_dir, az_str("test_copy.txt"));
-    
-    AzResultu64FileError copy_result = AzFilePath_copyTo(&file_path, copy_path);
+    AzFilePath copy_path = AzFilePath_joinStr(&d.ptr->test_dir, az_str("test_copy.txt"));
+
+    AzResultu64FileError copy_result = AzFilePath_copyTo(&d.ptr->file_path, copy_path);
     if (copy_result.Ok.tag == AzResultu64FileError_Tag_Ok) {
         printf("  Copied %llu bytes\n", (unsigned long long)copy_result.Ok.payload);
     } else {
@@ -220,115 +292,179 @@ void demo_file_operations(void) {
         });
         AzFileError_delete(&copy_result.Err.payload);
     }
-    
+
     // Clean up
-    AzFilePath_delete(&file_path);
-    AzFilePath_delete(&test_dir);
-    AzFilePath_delete(&temp);
+    AzFilePath_delete(&d.ptr->file_path);
+    AzFilePath_delete(&d.ptr->test_dir);
+    d.ptr->has_file_path = false;
+    d.ptr->has_test_dir = false;
+    FileDemoRefMut_delete(&d);
+
+    demo_directory_listing(data);
+    return AzUpdate_DoNothing;
 }
 
 // ============================================================================
 // Directory Listing Demo
 // ============================================================================
 
-void demo_directory_listing(void) {
+// Synchronous prelude (write a few files), then the listing request.
+// The entries arrive in on_dir_listed, which finishes this demo.
+void demo_directory_listing(AzRefAny data) {
     printf("\n============================================================\n");
     printf("Directory Listing Demo\n");
     printf("============================================================\n\n");
-    
+
     // Get temp directory
     AzFilePath temp = AzFilePath_getTempDir();
     AzFilePath test_dir = AzFilePath_joinStr(&temp, az_str("azul_file_demo"));
-    
+    AzFilePath_delete(&temp);
+
     // Create a few more files for demonstration
     for (int i = 1; i <= 3; i++) {
         char name[32];
         snprintf(name, sizeof(name), "file_%d.txt", i);
         AzFilePath fpath = AzFilePath_joinStr(&test_dir, az_str(name));
-        
+
         char content[64];
         snprintf(content, sizeof(content), "Content of file %d", i);
         AzU8Vec file_data = AzU8Vec_copyFromBytes((const uint8_t*)content, 0, strlen(content));
-        
+
         AzFilePath_writeBytes(&fpath, file_data);
-        
+
         AzFilePath_delete(&fpath);
     }
-    
-    // List directory contents
+
+    // List directory contents - the entries arrive in on_dir_listed
     AzString test_dir_str = AzFilePath_asString(&test_dir);
     WITH_CSTR(test_dir_str, dir_path, {
         printf("Listing contents of: %s\n\n", dir_path);
     });
     AzString_delete(&test_dir_str);
-    
-    AzResultDirEntryVecFileError list_result = AzFilePath_readDir(&test_dir);
-    if (list_result.Ok.tag == AzResultDirEntryVecFileError_Tag_Ok) {
-        AzDirEntryVec entries = list_result.Ok.payload;
-        
-        printf("  %-30s %-10s\n", "Name", "Type");
-        printf("  %-30s %-10s\n", "----", "----");
-        
-        for (size_t i = 0; i < entries.len; i++) {
-            AzDirEntry* entry = &((AzDirEntry*)entries.ptr)[i];
-            
-            CStr name_cstr = cstr_new(&entry->name);
-            const char* name = cstr_ptr(&name_cstr);
-            
-            const char* type_str;
-            switch (entry->file_type) {
-                case AzFileType_File: type_str = "File"; break;
-                case AzFileType_Directory: type_str = "Dir"; break;
-                case AzFileType_Symlink: type_str = "Link"; break;
-                default: type_str = "Other"; break;
-            }
-            
-            printf("  %-30s %-10s\n", name, type_str);
-            
-            cstr_free(&name_cstr);
-        }
-        
-        printf("\n  Total: %zu entries\n", entries.len);
-        
-        AzDirEntryVec_delete(&entries);
-    } else {
-        WITH_CSTR(list_result.Err.payload.message, err, {
-            printf("  Listing failed: %s\n", err);
-        });
-        AzFileError_delete(&list_result.Err.payload);
+
+    FileDemoRefMut d = FileDemoRefMut_create(&data);
+    if (!FileDemo_downcastMut(&data, &d)) {
+        AzFilePath_delete(&test_dir);
+        return;
     }
-    
+    d.ptr->test_dir = test_dir;
+    d.ptr->has_test_dir = true;
+    AzFilePath_readDir(&d.ptr->test_dir, AzRefAny_clone(&data), on_dir_listed);
+    FileDemoRefMut_delete(&d);
+}
+
+// Resume of the listing: print the entries, then clean up (synchronous)
+AzUpdate on_dir_listed(AzRefAny data, AzCallbackInfo info, AzRefAny result) {
+    (void)info;
+
+    AzOptionFileDirListResult r = AzFileDirListResult_downcast(result);
+    if (r.Some.tag != AzOptionFileDirListResult_Tag_Some) {
+        printf("  Listing failed: unexpected result payload\n");
+    } else {
+        AzResultDirEntryVecFileError list_result = r.Some.payload.result;
+        if (list_result.Ok.tag == AzResultDirEntryVecFileError_Tag_Ok) {
+            AzDirEntryVec entries = list_result.Ok.payload;
+
+            printf("  %-30s %-10s\n", "Name", "Type");
+            printf("  %-30s %-10s\n", "----", "----");
+
+            for (size_t i = 0; i < entries.len; i++) {
+                AzDirEntry* entry = &((AzDirEntry*)entries.ptr)[i];
+
+                CStr name_cstr = cstr_new(&entry->name);
+                const char* name = cstr_ptr(&name_cstr);
+
+                const char* type_str;
+                switch (entry->file_type) {
+                    case AzFileType_File: type_str = "File"; break;
+                    case AzFileType_Directory: type_str = "Dir"; break;
+                    case AzFileType_Symlink: type_str = "Link"; break;
+                    default: type_str = "Other"; break;
+                }
+
+                printf("  %-30s %-10s\n", name, type_str);
+
+                cstr_free(&name_cstr);
+            }
+
+            printf("\n  Total: %zu entries\n", entries.len);
+
+            AzDirEntryVec_delete(&entries);
+        } else {
+            WITH_CSTR(list_result.Err.payload.message, err, {
+                printf("  Listing failed: %s\n", err);
+            });
+            AzFileError_delete(&list_result.Err.payload);
+        }
+    }
+
+    FileDemoRefMut d = FileDemoRefMut_create(&data);
+    if (!FileDemo_downcastMut(&data, &d)) {
+        return AzUpdate_DoNothing;
+    }
+
     // Clean up - delete all files and directory
     printf("\nCleaning up test directory...\n");
-    AzResultEmptyStructFileError del_result = AzFilePath_removeDirAll(&test_dir);
+    AzResultEmptyStructFileError del_result = AzFilePath_removeDirAll(&d.ptr->test_dir);
     if (del_result.Ok.tag == AzResultEmptyStructFileError_Tag_Ok) {
         printf("  Cleanup successful\n");
     } else {
         printf("  Cleanup failed (files may remain)\n");
         AzFileError_delete(&del_result.Err.payload);
     }
-    
-    AzFilePath_delete(&test_dir);
-    AzFilePath_delete(&temp);
+
+    AzFilePath_delete(&d.ptr->test_dir);
+    d.ptr->has_test_dir = false;
+    FileDemoRefMut_delete(&d);
+
+    demo_error_handling(data);
+    return AzUpdate_DoNothing;
 }
 
 // ============================================================================
 // Error Handling Demo
 // ============================================================================
 
-void demo_error_handling(void) {
+// Request a read that must fail; the error arrives in on_bad_read
+void demo_error_handling(AzRefAny data) {
     printf("\n============================================================\n");
     printf("Error Handling Demo\n");
     printf("============================================================\n\n");
-    
+
     // Try to read a non-existent file
     printf("Attempting to read non-existent file...\n");
     AzFilePath bad_path = az_path("/this/path/does/not/exist/file.txt");
-    AzResultU8VecFileError result = AzFilePath_readBytes(&bad_path);
-    
-    if (result.Err.tag == AzResultU8VecFileError_Tag_Err) {
-        AzFileError err = result.Err.payload;
-        
+
+    FileDemoRefMut d = FileDemoRefMut_create(&data);
+    if (!FileDemo_downcastMut(&data, &d)) {
+        AzFilePath_delete(&bad_path);
+        return;
+    }
+    d.ptr->file_path = bad_path;
+    d.ptr->has_file_path = true;
+    AzFilePath_readBytes(&d.ptr->file_path, AzRefAny_clone(&data), on_bad_read);
+    FileDemoRefMut_delete(&d);
+}
+
+// The whole chain ran: leave the event loop the way a CLI tool would
+static void finish_demo(void) {
+    printf("\n============================================================\n");
+    printf("Demo complete!\n");
+    printf("============================================================\n");
+    exit(0);
+}
+
+// Resume of the failing read: inspect the error, then the synchronous
+// non-empty-directory error case, then finish
+AzUpdate on_bad_read(AzRefAny data, AzCallbackInfo info, AzRefAny result) {
+    (void)info;
+
+    AzOptionFileReadBytesResult r = AzFileReadBytesResult_downcast(result);
+    if (r.Some.tag != AzOptionFileReadBytesResult_Tag_Some) {
+        printf("  Unexpected result payload\n");
+    } else if (r.Some.payload.result.Err.tag == AzResultU8VecFileError_Tag_Err) {
+        AzFileError err = r.Some.payload.result.Err.payload;
+
         printf("  Error kind: ");
         switch (err.kind) {
             case AzFileErrorKind_NotFound:
@@ -359,29 +495,38 @@ void demo_error_handling(void) {
                 printf("Other\n");
                 break;
         }
-        
+
         WITH_CSTR(err.message, msg, {
             printf("  Message: %s\n", msg);
         });
-        
+
         AzFileError_delete(&err);
+    } else {
+        printf("  Unexpectedly succeeded\n");
+        AzU8Vec_delete(&r.Some.payload.result.Ok.payload);
     }
-    AzFilePath_delete(&bad_path);
-    
+
+    FileDemoRefMut d = FileDemoRefMut_create(&data);
+    if (FileDemo_downcastMut(&data, &d)) {
+        AzFilePath_delete(&d.ptr->file_path);
+        d.ptr->has_file_path = false;
+        FileDemoRefMut_delete(&d);
+    }
+
     // Try to delete a non-empty directory (create first)
     printf("\nAttempting to delete non-empty directory...\n");
     AzFilePath temp = AzFilePath_getTempDir();
     AzFilePath test_dir = AzFilePath_joinStr(&temp, az_str("azul_error_demo"));
     AzFilePath_delete(&temp);
-    
+
     AzFilePath_createDirAll(&test_dir);
-    
+
     // Create a file inside
     AzFilePath fpath = AzFilePath_joinStr(&test_dir, az_str("file.txt"));
     AzU8Vec file_data = AzU8Vec_copyFromBytes((const uint8_t*)"test", 0, 4);
     AzFilePath_writeBytes(&fpath, file_data);
     AzFilePath_delete(&fpath);
-    
+
     // Try to delete directory (not recursive)
     AzResultEmptyStructFileError del_result = AzFilePath_removeDir(&test_dir);
     if (del_result.Err.tag == AzResultEmptyStructFileError_Tag_Err) {
@@ -397,10 +542,37 @@ void demo_error_handling(void) {
         }
         AzFileError_delete(&del_result.Err.payload);
     }
-    
+
     // Clean up with recursive delete
     AzFilePath_removeDirAll(&test_dir);
     AzFilePath_delete(&test_dir);
+
+    finish_demo();
+    return AzUpdate_DoNothing;
+}
+
+// ============================================================================
+// Layout Callback
+// ============================================================================
+
+// Issues the first request exactly once; every later step is issued by the
+// resume callback of the step before it.
+AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+    (void)info;
+
+    FileDemoRefMut d = FileDemoRefMut_create(&data);
+    if (FileDemo_downcastMut(&data, &d)) {
+        bool start = !d.ptr->started;
+        d.ptr->started = true;
+        FileDemoRefMut_delete(&d);
+        if (start) {
+            demo_file_operations(data);
+        }
+    }
+
+    AzDom body = AzDom_createBody();
+    AzDom_addChild(&body, AzDom_createPWithText(az_str("Azul file demo - the output is on the console")));
+    return body;
 }
 
 // ============================================================================
@@ -410,15 +582,22 @@ void demo_error_handling(void) {
 int main(void) {
     printf("Azul File System Operations Demo\n");
     printf("==================================\n");
-    
+
+    // Pure path algebra is synchronous: run it before the app starts
     demo_path_operations();
-    demo_file_operations();
-    demo_directory_listing();
-    demo_error_handling();
-    
-    printf("\n============================================================\n");
-    printf("Demo complete!\n");
-    printf("============================================================\n");
-    
+
+    // Everything that reads from disk needs the event loop: run it as an app
+    FileDemo state = { .started = false, .has_test_dir = false, .has_file_path = false };
+    AzRefAny data = FileDemo_upcast(state);
+
+    AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
+    window.window_state.title = az_str("Azul File Demo");
+    window.window_state.size.dimensions.width = 420.0;
+    window.window_state.size.dimensions.height = 120.0;
+
+    AzApp app = AzApp_create(data, AzAppConfig_create());
+    AzApp_run(&app, window);   // the last resume calls exit(0)
+    AzApp_delete(&app);
+
     return 0;
 }
