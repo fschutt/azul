@@ -632,10 +632,28 @@ fn layout_flex_grid<T: ParsedFontTrait>(
     node_index: usize,
     constraints: &LayoutConstraints<'_>,
 ) -> Result<BfcLayoutResult> {
-    // Available space comes directly from constraints - margins are handled by Taffy
+    // Available space comes directly from constraints - margins are handled by Taffy.
+    //
+    // `available_size` encodes "indefinite" as INFINITY (see the text/inline
+    // constraint plumbing). That must NOT reach taffy as `Definite(inf)`: taffy
+    // treats a definite value as a real length — a multi-line wrap container
+    // takes `max(content, inf)` as its main size, a grid item stretches to
+    // `inf.max(content)` in the bridge — and its layout cache compares keys
+    // with `abs(a - b) < EPSILON`, where `inf - inf` is NaN, so an entry with
+    // an infinite key never hits and every pass re-measures. That NaN is also
+    // how the Pascal hello-world died: the FPC runtime traps InvalidOp, the
+    // subtraction raised it inside taffy on the first layout. Indefinite is
+    // `MaxContent` in taffy's vocabulary.
+    let to_taffy = |v: f32| {
+        if v.is_finite() {
+            AvailableSpace::Definite(v)
+        } else {
+            AvailableSpace::MaxContent
+        }
+    };
     let available_space = TaffySize {
-        width: AvailableSpace::Definite(constraints.available_size.width),
-        height: AvailableSpace::Definite(constraints.available_size.height),
+        width: to_taffy(constraints.available_size.width),
+        height: to_taffy(constraints.available_size.height),
     };
 
     let node = tree
