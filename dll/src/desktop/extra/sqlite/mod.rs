@@ -85,6 +85,141 @@ struct DbState {
     /// clean row has been evicted since.
     covered: bool,
     closed: bool,
+    /// Where the local store lives (`":memory:"` for the throwaway store);
+    /// the free-space query runs against its directory.
+    store_path: String,
+    /// When the last local write happened, for `DbAutoSync::on_idle`.
+    last_write_ms: u64,
+    /// When the last sync attempt started, for `DbAutoSync::interval`.
+    last_sync_attempt_ms: u64,
+}
+
+/// Every open store, so the shells' per-frame pump can run the automatic
+/// syncs (`DbAutoSync`). Entries are weak: a dropped handle disappears on
+/// the next tick.
+static OPEN_DBS: Mutex<Vec<std::sync::Weak<Inner>>> = Mutex::new(Vec::new());
+
+/// Milliseconds of a `Duration` (ticks count as milliseconds on targets
+/// without a system clock).
+fn duration_ms(d: &azul_core::task::Duration) -> u64 {
+    match d {
+        azul_core::task::Duration::System(t) => {
+            t.secs.saturating_mul(1000).saturating_add(u64::from(t.nanos) / 1_000_000)
+        }
+        azul_core::task::Duration::Tick(t) => t.tick_diff,
+    }
+}
+
+/// How long a store may sit unwritten before `on_idle` syncs it.
+const IDLE_SYNC_MS: u64 = 1500;
+
+/// Free bytes on the volume holding `path` (`0` = unknown / in-memory).
+fn free_bytes_at(path: &str) -> u64 {
+    if path == ":memory:" {
+        return 0;
+    }
+    let dir = std::path::Path::new(path)
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    #[cfg(all(unix, feature = "libc"))]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let Ok(c_dir) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else {
+            return 0;
+        };
+        // SAFETY: `statvfs` is zero-initialised and only read after the call
+        // reported success; `c_dir` is a valid NUL-terminated path.
+        unsafe {
+            let mut stats: libc::statvfs = core::mem::zeroed();
+            if libc::statvfs(c_dir.as_ptr(), &mut stats) == 0 {
+                return u64::from(stats.f_bavail).saturating_mul(u64::from(stats.f_frsize));
+            }
+        }
+        0
+    }
+    #[cfg(all(windows, feature = "winapi"))]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(core::iter::once(0)).collect();
+        let mut free_to_caller: winapi::shared::ntdef::ULARGE_INTEGER = unsafe { core::mem::zeroed() };
+        // SAFETY: `wide` is NUL-terminated; the out-pointer is a valid, writable
+        // ULARGE_INTEGER; the two other out-pointers may be null.
+        let ok = unsafe {
+            winapi::um::fileapi::GetDiskFreeSpaceExW(
+                wide.as_ptr(),
+                &mut free_to_caller,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
+            )
+        };
+        if ok != 0 {
+            return unsafe { *free_to_caller.QuadPart() };
+        }
+        0
+    }
+    #[cfg(not(any(all(unix, feature = "libc"), all(windows, feature = "winapi"))))]
+    {
+        let _ = dir;
+        0
+    }
+}
+
+/// Run the automatic syncs that are due (`DbAutoSync::interval` elapsed, or
+/// `on_idle` with unpushed writes older than `IDLE_SYNC_MS`). Called by the
+/// shells' per-frame pump before completed requests are delivered, so the
+/// sync's status callbacks resume in the same frame.
+pub fn tick_auto_sync() {
+    let now = now_ms();
+    let live: Vec<Arc<Inner>> = {
+        let mut open = OPEN_DBS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        open.retain(|w| w.strong_count() > 0);
+        open.iter().filter_map(std::sync::Weak::upgrade).collect()
+    };
+    for inner in live {
+        let due = {
+            let s = inner
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            auto_sync_due(&s, now)
+        };
+        if !due {
+            continue;
+        }
+        // SAFETY: `inner` is a live Arc; the temporary handle below balances
+        // this increment in its `Drop`.
+        unsafe { Arc::increment_strong_count(Arc::as_ptr(&inner)) };
+        let db = Db {
+            ptr: Arc::as_ptr(&inner) as *mut c_void,
+            run_destructor: true,
+        };
+        let status = db.sync_now_blocking(OptionDbScope::None);
+        db.notify_status(&status);
+    }
+}
+
+fn auto_sync_due(s: &DbState, now: u64) -> bool {
+    if s.closed || s.config.backup_sync_url.is_none() {
+        return false;
+    }
+    #[cfg(feature = "db-sqlite")]
+    let pending = s.engine.is_some() && engine::pending_push_ops(s) > 0;
+    #[cfg(not(feature = "db-sqlite"))]
+    let pending = false;
+    let auto = &s.config.auto_sync;
+    let by_interval = auto
+        .interval
+        .as_ref()
+        .map(duration_ms)
+        .is_some_and(|ms| ms > 0 && now.saturating_sub(s.last_sync_attempt_ms) >= ms);
+    let by_idle = auto.on_idle
+        && pending
+        && s.last_write_ms > s.last_sync_attempt_ms
+        && now.saturating_sub(s.last_write_ms) >= IDLE_SYNC_MS;
+    by_interval || by_idle
 }
 
 struct Inner {
@@ -274,6 +409,9 @@ impl Db {
                 sync_error: None,
                 covered: false,
                 closed: false,
+                store_path: path.clone(),
+                last_write_ms: 0,
+                last_sync_attempt_ms: 0,
             };
             engine::ensure_meta_tables(&mut state)?;
             let declared: Vec<AzString> = state
@@ -300,6 +438,10 @@ impl Db {
             let inner = Arc::new(Inner {
                 state: Mutex::new(state),
             });
+            OPEN_DBS
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(Arc::downgrade(&inner));
             Ok(Db {
                 ptr: Arc::into_raw(inner) as *mut c_void,
                 run_destructor: true,
@@ -373,6 +515,7 @@ impl Db {
                 {
                     let ok = engine::put(s, store.as_str(), &key, Some(&value), now_ms()).is_ok();
                     if ok {
+                        s.last_write_ms = now_ms();
                         engine::enforce_budget(s);
                         if s.config.backup_sync_url.is_some() && s.sync_state != DbSyncState::Error {
                             s.sync_state = DbSyncState::Queued;
@@ -407,6 +550,9 @@ impl Db {
                 #[cfg(feature = "db-sqlite")]
                 {
                     let ok = engine::put(s, store.as_str(), &key, None, now_ms()).is_ok();
+                    if ok {
+                        s.last_write_ms = now_ms();
+                    }
                     if ok && s.config.backup_sync_url.is_some() && s.sync_state != DbSyncState::Error {
                         s.sync_state = DbSyncState::Queued;
                     }
@@ -587,7 +733,7 @@ impl Db {
                     last_synced_ms: s.last_synced_ms,
                     local_bytes_used: used,
                     local_bytes_budget: s.config.local_budget_bytes,
-                    quota_bytes_available: 0,
+                    quota_bytes_available: free_bytes_at(&s.store_path),
                     error: s.sync_error.clone().into(),
                 }
             }
@@ -1403,6 +1549,7 @@ mod sync {
     /// Push then pull. Returns the changes applied from the remote so the
     /// caller can notify subscribers once the state lock is released.
     pub fn run(state: &mut DbState, scope: Option<&DbScope>) -> Vec<(AzString, DbValue, Option<DbValue>)> {
+        state.last_sync_attempt_ms = now_ms();
         let Some(url) = state.config.backup_sync_url.as_ref().map(|u| u.as_str().trim_end_matches('/').to_string()) else {
             state.sync_state = DbSyncState::Disconnected;
             state.sync_error = None;

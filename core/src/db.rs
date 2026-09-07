@@ -506,11 +506,13 @@ pub fn range_contains(range: &DbKeyRange, key: &DbValue) -> bool {
     true
 }
 
-/// When the runtime syncs on its own: after `interval`, and / or when the
-/// app goes idle.
+/// When the runtime syncs on its own: every `interval`, and / or when the
+/// app has not written to the store for a moment (`on_idle`, about 1.5 s
+/// after the last write, when unpushed writes exist).
 ///
-/// On web the host schedules it; on desktop drive `sync_now`
-/// from a `Timer` for now (the desktop runtime does not schedule it yet).
+/// Both are driven by the runtime's per-frame pump on desktop and by the
+/// host on web; every automatic sync reports through
+/// `Db::set_on_sync_status` like an explicit `sync_now`.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DbAutoSync {

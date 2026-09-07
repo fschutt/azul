@@ -124639,9 +124639,10 @@
                     },
                     "DbAutoSync": {
                         "doc": [
-                            "When the runtime syncs on its own: after `interval`, and / or when the app goes",
-                            "idle. On web the host schedules it; on desktop drive `sync_now` from a `Timer` for",
-                            "now (the desktop runtime does not schedule it yet)."
+                            "When the runtime syncs on its own: every `interval`, and / or when the app has not",
+                            "written to the store for a moment (`on_idle`: about 1.5 s after the last write, when",
+                            "unpushed writes exist). Driven by the runtime's per-frame pump on desktop and by the",
+                            "host on web; every automatic sync reports through `Db::set_on_sync_status`."
                         ],
                         "external": "azul_core::db::DbAutoSync",
                         "custom_impls": [

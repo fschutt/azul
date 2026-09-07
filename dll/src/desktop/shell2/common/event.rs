@@ -12533,6 +12533,10 @@ pub trait PlatformWindow {
 
         const MAX_RESUME_ROUNDS: usize = 1024;
 
+        // Automatic Db syncs that are due run first, so their status
+        // callbacks are among the completions delivered below.
+        crate::desktop::extra::sqlite::tick_auto_sync();
+
         let mut delivered_any = false;
         let mut changes_result = ProcessEventResult::DoNothing;
         let mut update = azul_core::callbacks::Update::DoNothing;
