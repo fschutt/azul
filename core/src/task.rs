@@ -199,7 +199,7 @@ static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 /// Every request function (`FileDialog::open_file`, `FilePath::read_bytes`,
 /// `HttpRequestConfig::http_get`, ...) returns one of these immediately and
 /// resumes the caller later through its `ResumeCallback`. The id is a `u64`
-/// on every target - it crosses to JavaScript as a BigInt, where a 32-bit
+/// on every target - it crosses to JavaScript as a `BigInt`, where a 32-bit
 /// `usize` would not round-trip - and it is process-unique, never reused.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]

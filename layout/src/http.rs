@@ -254,6 +254,7 @@ impl HttpRequestConfig {
     /// naming CORS. Chromium 142+ additionally prompts for Local Network
     /// Access on loopback / LAN targets.
     #[cfg(feature = "text_layout")]
+    #[must_use]
     pub fn http_get(
         &self,
         url: AzString,
@@ -286,6 +287,7 @@ impl HttpRequestConfig {
     /// only applied when a body is present. Same contract as
     /// [`Self::http_get`].
     #[cfg(feature = "text_layout")]
+    #[must_use]
     pub fn http_request(
         &self,
         method: HttpMethod,
@@ -335,6 +337,7 @@ impl HttpRequestConfig {
     /// HTTP POST with a body, using this configuration, resuming `on_result`
     /// with an [`HttpGetResult`]. Same contract as [`Self::http_get`].
     #[cfg(feature = "text_layout")]
+    #[must_use]
     pub fn http_post(
         &self,
         url: AzString,
@@ -376,6 +379,7 @@ impl HttpRequestConfig {
     /// `on_result` with an [`HttpBytesResult`] (a non-2xx status is an
     /// `HttpError::HttpStatus`). Same contract as [`Self::http_get`].
     #[cfg(feature = "text_layout")]
+    #[must_use]
     pub fn download_bytes(
         &self,
         url: AzString,
@@ -410,6 +414,7 @@ impl HttpRequestConfig {
     /// server that answers at all counts as reachable even when its status
     /// cannot be read.
     #[cfg(feature = "text_layout")]
+    #[must_use]
     pub fn is_url_reachable(
         &self,
         url: AzString,
@@ -546,7 +551,7 @@ pub struct HttpGetResult {
 impl_option!(HttpGetResult, OptionHttpGetResult, copy = false, [Debug, Clone]);
 
 impl HttpGetResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionHttpGetResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -568,7 +573,7 @@ impl_option!(
 );
 
 impl HttpBytesResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionHttpBytesResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -594,7 +599,7 @@ impl_option!(
 );
 
 impl HttpReachableResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionHttpReachableResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()

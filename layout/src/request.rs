@@ -128,6 +128,7 @@ pub fn complete<T: 'static>(data: RefAny, on_result: ResumeCallback, result: T) 
 }
 
 /// [`complete`] with an already type-erased result struct.
+#[must_use]
 pub fn complete_erased(data: RefAny, on_result: ResumeCallback, result: RefAny) -> RequestId {
     let request_id = RequestId::unique();
     #[cfg(feature = "std")]
@@ -151,6 +152,7 @@ pub fn complete_erased(data: RefAny, on_result: ResumeCallback, result: RefAny) 
 
 /// Registers a request the platform will answer later. `poll` is asked once
 /// per frame until it returns `Some(result)`.
+#[must_use]
 pub fn defer(data: RefAny, on_result: ResumeCallback, poll: PollFn) -> RequestId {
     let request_id = RequestId::unique();
     #[cfg(feature = "std")]

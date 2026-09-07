@@ -155,12 +155,14 @@ pub enum DbConflictPolicy {
     Merge,
 }
 
-/// A secondary index over a store. Values are indexed when they are JSON
+/// A secondary index over a store.
+///
+/// Values are indexed when they are JSON
 /// objects: `key_path` names the top-level field whose value becomes the
 /// index key; values that are not JSON objects, or lack the field, are
 /// simply not indexed.
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DbIndexSchema {
     pub name: AzString,
     pub key_path: AzString,
@@ -182,7 +184,7 @@ impl_option!(
     DbIndexSchema,
     OptionDbIndexSchema,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 /// One store (collection) of a `DbSchema`: its name, indexes and the
@@ -214,7 +216,9 @@ impl_option!(
 );
 
 /// The declarative schema of a database: its stores with their indexes and
-/// conflict policies. No DDL strings - the engine derives its tables from
+/// conflict policies.
+///
+/// No DDL strings - the engine derives its tables from
 /// this on every target. Stores not declared here are created on first
 /// write, without indexes and with `LastWriteWins`.
 #[repr(C)]
@@ -226,7 +230,7 @@ pub struct DbSchema {
 impl DbSchema {
     /// A schema with no declared stores.
     #[must_use]
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self {
             stores: DbStoreSchemaVec::from_vec(Vec::new()),
         }
@@ -246,7 +250,7 @@ impl Default for DbSchema {
 }
 
 /// A key range: `None` bounds are unbounded, `*_open` excludes the bound
-/// itself. Keys order the way SQLite orders values (Null < numbers < text <
+/// itself. Keys order the way `SQLite` orders values (Null < numbers < text <
 /// blobs).
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
@@ -329,7 +333,7 @@ pub struct DbCollectionScope {
 impl DbCollectionScope {
     /// The whole `store`.
     #[must_use]
-    pub fn whole_store(store: AzString) -> Self {
+    pub const fn whole_store(store: AzString) -> Self {
         Self {
             store,
             range: OptionDbKeyRange::None,
@@ -345,10 +349,9 @@ impl DbCollectionScope {
         if self.store.as_str() != store {
             return false;
         }
-        match self.range.as_ref() {
-            None => true,
-            Some(range) => range_contains(range, key),
-        }
+        self.range
+            .as_ref()
+            .is_none_or(|range| range_contains(range, key))
     }
 }
 
@@ -385,7 +388,7 @@ pub struct DbScope {
 impl DbScope {
     /// Everything.
     #[must_use]
-    pub fn everything() -> Self {
+    pub const fn everything() -> Self {
         Self {
             collections: DbCollectionScopeVec::from_vec(Vec::new()),
         }
@@ -410,9 +413,56 @@ impl_option!(DbScope, OptionDbScope, copy = false, [Debug, Clone, PartialEq]);
 /// Compares two values the way the store orders keys: Null < numbers < text
 /// < blobs, numbers by value, text and blobs bytewise.
 #[must_use]
+/// Order an integer against a real the way `SQLite` does
+/// (`sqlite3IntFloatCompare`), without first rounding the integer to `f64`.
+///
+/// `i64 as f64` is exact only up to 2^53; above that, integers that differ
+/// round to the same double and would compare `Equal` — 9007199254740993 vs
+/// 9007199254740992.0, say — and the DB would treat two distinct keys as one.
+/// So: decide by the real's magnitude first (outside i64's range the answer
+/// needs no conversion), then compare the integer against the real's
+/// truncation, and only if THOSE are equal look at the real's fraction.
+fn compare_int_real(i: i64, r: f64) -> core::cmp::Ordering {
+    use core::cmp::Ordering;
+    // `total_cmp` semantics for NaN, matching the Real/Real arm: NaN sorts
+    // after every finite value.
+    if r.is_nan() {
+        return Ordering::Less;
+    }
+    // 2^63 is exactly representable; everything at or beyond it is above
+    // any i64, everything below -2^63 is below any i64.
+    if r >= 9_223_372_036_854_775_808.0 {
+        return Ordering::Less;
+    }
+    if r < -9_223_372_036_854_775_808.0 {
+        return Ordering::Greater;
+    }
+    // In range: truncation toward zero is exact for a double this size.
+    #[allow(clippy::cast_possible_truncation)] // bounds checked just above
+    let r_trunc = r as i64;
+    match i.cmp(&r_trunc) {
+        Ordering::Equal => {
+            // Same integer part. The real is bigger iff it has a positive
+            // fraction, smaller iff negative; `r - trunc` is exact here
+            // because both share an exponent.
+            #[allow(clippy::cast_precision_loss)] // |r_trunc| == |trunc(r)| <= 2^63, and r_trunc == trunc(r) exactly, so this cast reproduces r's own integer part
+            let frac = r - (r_trunc as f64);
+            if frac > 0.0 {
+                Ordering::Less
+            } else if frac < 0.0 {
+                Ordering::Greater
+            } else {
+                Ordering::Equal
+            }
+        }
+        other => other,
+    }
+}
+
+#[must_use]
 pub fn compare_db_values(a: &DbValue, b: &DbValue) -> core::cmp::Ordering {
     use core::cmp::Ordering;
-    fn class(v: &DbValue) -> u8 {
+    const fn class(v: &DbValue) -> u8 {
         match v {
             DbValue::Null => 0,
             DbValue::Integer(_) | DbValue::Real(_) => 1,
@@ -426,8 +476,8 @@ pub fn compare_db_values(a: &DbValue, b: &DbValue) -> core::cmp::Ordering {
     }
     match (a, b) {
         (DbValue::Integer(x), DbValue::Integer(y)) => x.cmp(y),
-        (DbValue::Integer(x), DbValue::Real(y)) => (*x as f64).total_cmp(y),
-        (DbValue::Real(x), DbValue::Integer(y)) => x.total_cmp(&(*y as f64)),
+        (DbValue::Integer(x), DbValue::Real(y)) => compare_int_real(*x, *y),
+        (DbValue::Real(x), DbValue::Integer(y)) => compare_int_real(*y, *x).reverse(),
         (DbValue::Real(x), DbValue::Real(y)) => x.total_cmp(y),
         (DbValue::Text(x), DbValue::Text(y)) => x.as_str().as_bytes().cmp(y.as_str().as_bytes()),
         (DbValue::Blob(x), DbValue::Blob(y)) => x.as_ref().cmp(y.as_ref()),
@@ -457,10 +507,12 @@ pub fn range_contains(range: &DbKeyRange, key: &DbValue) -> bool {
 }
 
 /// When the runtime syncs on its own: after `interval`, and / or when the
-/// app goes idle. On web the host schedules it; on desktop drive `sync_now`
+/// app goes idle.
+///
+/// On web the host schedules it; on desktop drive `sync_now`
 /// from a `Timer` for now (the desktop runtime does not schedule it yet).
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DbAutoSync {
     pub interval: crate::task::OptionDuration,
     pub on_idle: bool,
@@ -483,13 +535,15 @@ impl Default for DbAutoSync {
     }
 }
 
-/// How to open a database. Builder-style: `DbConfig::new(local_name)` plus
+/// How to open a database.
+///
+/// Builder-style: `DbConfig::new(local_name)` plus
 /// the `with_*` setters. Identical on every target; the local store is a
-/// file under the app's data directory on desktop and IndexedDB on web.
+/// file under the app's data directory on desktop and `IndexedDB` on web.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct DbConfig {
-    /// Name of the local store (a file name stem on desktop, the IndexedDB
+    /// Name of the local store (a file name stem on desktop, the `IndexedDB`
     /// database name on web). `":memory:"` opens a throwaway in-memory store.
     pub local_name: AzString,
     /// Remote backup / sync endpoint (HTTPS). `None` = local only.
@@ -509,7 +563,7 @@ impl DbConfig {
     /// A local-only database called `local_name` with no schema, no scope,
     /// no budget and manual sync.
     #[must_use]
-    pub fn new(local_name: AzString) -> Self {
+    pub const fn new(local_name: AzString) -> Self {
         Self {
             local_name,
             backup_sync_url: OptionString::None,
@@ -552,7 +606,7 @@ impl DbConfig {
     }
 
     #[must_use]
-    pub fn with_auto_sync(mut self, auto: DbAutoSync) -> Self {
+    pub const fn with_auto_sync(mut self, auto: DbAutoSync) -> Self {
         self.auto_sync = auto;
         self
     }
@@ -580,7 +634,7 @@ pub enum DbSyncState {
 /// `Db::sync_now` and `Db::set_on_sync_status`. Timestamps are milliseconds
 /// since the Unix epoch (`0` = never).
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DbSyncStatus {
     pub state: DbSyncState,
     /// How much of the configured scope the local working set holds, in
@@ -601,7 +655,7 @@ pub struct DbSyncStatus {
 impl DbSyncStatus {
     /// The status of a closed or engine-less handle.
     #[must_use]
-    pub fn disconnected() -> Self {
+    pub const fn disconnected() -> Self {
         Self {
             state: DbSyncState::Disconnected,
             working_set_coverage_x1000: 0,
@@ -619,7 +673,7 @@ impl_option!(
     DbSyncStatus,
     OptionDbSyncStatus,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 /// A sync conflict handed to a store's `DbMergeCallback`: the same key was
@@ -727,7 +781,7 @@ impl_option!(
 );
 
 impl DbValueResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: RefAny) -> OptionDbValueResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -751,7 +805,7 @@ impl_option!(
 );
 
 impl DbRowsResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: RefAny) -> OptionDbRowsResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -776,7 +830,7 @@ impl_option!(
 );
 
 impl DbChangeResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: RefAny) -> OptionDbChangeResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -785,7 +839,7 @@ impl DbChangeResult {
 
 /// Result of `Db::sync_now` and every `Db::set_on_sync_status` delivery.
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DbSyncStatusResult {
     pub status: DbSyncStatus,
 }
@@ -794,11 +848,11 @@ impl_option!(
     DbSyncStatusResult,
     OptionDbSyncStatusResult,
     copy = false,
-    [Debug, Clone, PartialEq]
+    [Debug, Clone, PartialEq, Eq]
 );
 
 impl DbSyncStatusResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: RefAny) -> OptionDbSyncStatusResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()

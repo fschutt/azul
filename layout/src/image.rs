@@ -79,7 +79,7 @@ pub mod decode {
     );
 
     impl ImageDecodeResult {
-        /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+        /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
         #[must_use]
         pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionImageDecodeResult {
             result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -96,6 +96,7 @@ pub mod decode {
     /// backend (premultiplication, ICC handling), so treat the output as an
     /// RGBA bitmap, not as a byte-exact reference.
     #[cfg(feature = "text_layout")]
+    #[must_use]
     pub fn decode_image_bytes(
         bytes: U8Vec,
         data: azul_core::refany::RefAny,

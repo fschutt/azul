@@ -1147,7 +1147,7 @@ that queues `CallbackChange::CompleteRequest`.
 | P1-5 | `layout/src/file.rs:930` — `FilePath::read_string` (→ `file_read_string`, `file.rs:224`) |
 | P1-6 | new: save dialog (or Downloads dir) + `std::fs::write` |
 | P1-7 | `image` crate decode + defer (the same code the sync `decode_image_bytes_any` runs) |
-| P1-9..15 | **retire** `layout/src/desktop/file.rs` — `impl File` at `:68`, `open` `:77`, `create` `:84`, `read_to_string` `:91`, `read_to_bytes` `:96`, `write_string` `:101`, `write_bytes` `:105`, `close` `:112`. Its own header (`:3-4`) already says `layout/src/file.rs` is the more complete API. Grep for framework-internal users before deleting. |
+| P1-9..15 | **retired** the desktop `File` shim (was under `layout/src/desktop/`, deleted in f13aca993) — `impl File` at `:68`, `open` `:77`, `create` `:84`, `read_to_string` `:91`, `read_to_bytes` `:96`, `write_string` `:101`, `write_bytes` `:105`, `close` `:112`. Its own header (`:3-4`) already says `layout/src/file.rs` is the more complete API. Grep for framework-internal users before deleting. |
 
 Note all five dialog entry points are `#[cfg(not(any(target_os = "android", target_os = "ios")))]`
 with `None`-returning mobile stubs — preserve that structure in the resumable form (mobile resolves

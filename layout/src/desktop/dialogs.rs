@@ -238,6 +238,7 @@ impl ColorPickerDialog {
     /// `None`.
     // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
+    #[must_use]
     pub fn open(
         title: AzString,
         default_value: OptionColorU,
@@ -299,7 +300,7 @@ impl_option!(
 );
 
 impl FileOpenResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: RefAny) -> OptionFileOpenResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -322,7 +323,7 @@ impl_option!(
 );
 
 impl FileOpenMultiResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: RefAny) -> OptionFileOpenMultiResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -345,10 +346,10 @@ impl_option!(
 );
 
 impl ColorPickResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: RefAny) -> OptionColorPickResult {
-        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+        result.downcast_ref::<Self>().map(|r| *r).into()
     }
 }
 
@@ -428,7 +429,7 @@ impl_option!(
 );
 
 impl SaveTargetResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: RefAny) -> OptionSaveTargetResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -506,6 +507,7 @@ impl FileDialog {
     /// outside one (from a timer, for example) resolves with `path: None`.
     // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
+    #[must_use]
     pub fn open_file(
         title: AzString,
         default_path: OptionString,
@@ -562,6 +564,7 @@ impl FileDialog {
     /// virtual root that snapshot is mounted at.
     // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
+    #[must_use]
     pub fn open_directory(
         title: AzString,
         default_path: OptionString,
@@ -607,6 +610,7 @@ impl FileDialog {
     /// Same contract as [`Self::open_file`].
     // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
+    #[must_use]
     pub fn open_multiple_files(
         title: AzString,
         default_path: OptionString,
@@ -690,6 +694,7 @@ impl FileDialog {
     /// `as_path` is `None`.
     // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
+    #[must_use]
     pub fn save_file(
         title: AzString,
         suggested_name: AzString,

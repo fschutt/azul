@@ -728,7 +728,7 @@ impl_option!(
 );
 
 impl FileReadBytesResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionFileReadBytesResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -750,7 +750,7 @@ impl_option!(
 );
 
 impl FileReadStringResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionFileReadStringResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -772,7 +772,7 @@ impl_option!(
 );
 
 impl FileDirListResult {
-    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
     #[must_use]
     pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionFileDirListResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -1120,6 +1120,7 @@ impl FilePath {
     /// after the current one returns (same frame on desktop, a later task on
     /// web). `data` is handed back to the callback untouched.
     #[cfg(feature = "text_layout")]
+    #[must_use]
     pub fn read_bytes(
         &self,
         data: azul_core::refany::RefAny,
@@ -1132,6 +1133,7 @@ impl FilePath {
     /// Reads the entire file at this path as a string, resuming `on_result`
     /// with a [`FileReadStringResult`]. See [`Self::read_bytes`].
     #[cfg(feature = "text_layout")]
+    #[must_use]
     pub fn read_string(
         &self,
         data: azul_core::refany::RefAny,
@@ -1213,6 +1215,7 @@ impl FilePath {
     /// Lists directory contents, resuming `on_result` with a
     /// [`FileDirListResult`]. See [`Self::read_bytes`] for the contract.
     #[cfg(feature = "text_layout")]
+    #[must_use]
     pub fn read_dir(
         &self,
         data: azul_core::refany::RefAny,
