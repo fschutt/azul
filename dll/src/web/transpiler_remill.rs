@@ -5159,6 +5159,65 @@ fn inject_user_binary_data_segments(
         }
     }
     let total_bytes: usize = segments.iter().map(|(_, b)| b.len()).sum();
+    // WHERE THE MIRROR'S BYTES COME FROM. Report-only.
+    //
+    // The mirror does not shrink when code is chunked away — the p0 link mirrors
+    // the same ~1.95 MiB as the full module — and it compresses ~2x where code
+    // compresses ~10x. So its share of the payload GROWS with every code win,
+    // and attributing it is the precondition for cutting it. Bucketed by the
+    // nearest symbol at or below each segment's native address: data segments
+    // rarely start exactly on a symbol, so an exact lookup reports almost
+    // nothing and would read as "the mirror is unattributable".
+    {
+        let native_of = |synth: usize| -> Option<usize> {
+            table.image_rebases().iter().find_map(|r| {
+                let span = r.native_end.saturating_sub(r.native_base);
+                (synth >= r.synth_base && synth < r.synth_base + span)
+                    .then(|| r.native_base + (synth - r.synth_base))
+            })
+        };
+        let mut by_owner: std::collections::HashMap<String, (usize, usize)> =
+            std::collections::HashMap::new();
+        let mut biggest: Vec<(usize, u32, String)> = Vec::new();
+        for (off, bytes) in segments.iter() {
+            let owner = native_of(*off as usize)
+                .and_then(|n| table.nearest_below(n))
+                .map(|e| e.canonical_name.clone())
+                .unwrap_or_else(|| "(no symbol below)".to_string());
+            let slot = by_owner.entry(owner.clone()).or_insert((0, 0));
+            slot.0 += 1;
+            slot.1 += bytes.len();
+            biggest.push((bytes.len(), *off, owner));
+        }
+        biggest.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+        let mut tops: Vec<(String, usize, usize)> = by_owner
+            .into_iter()
+            .map(|(k, (c, b))| (k, c, b))
+            .collect();
+        tops.sort_unstable_by(|a, b| b.2.cmp(&a.2));
+        eprintln!(
+            "[azul-web] MIRROR-COMP ({}): {} segment(s) / {} bytes; top owners:",
+            output_stem,
+            segments.len(),
+            total_bytes,
+        );
+        for (name, c, b) in tops.iter().take(12) {
+            eprintln!(
+                "[azul-web]   MIRROR-COMP {:>9} B  {:>4} seg  {}",
+                b,
+                c,
+                &name[..name.len().min(96)],
+            );
+        }
+        for (b, off, name) in biggest.iter().take(8) {
+            eprintln!(
+                "[azul-web]   MIRROR-COMP biggest {:>9} B @synth 0x{:x}  {}",
+                b,
+                off,
+                &name[..name.len().min(88)],
+            );
+        }
+    }
     let pre_len = wasm.len();
     match patch_wasm_add_data_segments(wasm, &segments) {
         Ok(added) => {
@@ -5944,6 +6003,39 @@ fn report_chunk_partition(
         total as f64 / 1e6,
         shared.len(),
         bytes(&shared) as f64 / 1e6,
+    );
+
+    // The CEILING on the whole chunking lever. Every byte owned by exactly one
+    // non-boot root is a lazy candidate and nothing else ever can be: shared
+    // nodes must stay resident by definition, and a boot root's subtree is
+    // entered directly by the loader. Reporting only the top `n_lazy` hides
+    // whether the rest is worth a chunk at all — a long tail of 20 KB chunks
+    // costs a fetch each and saves nothing — and, more importantly, hides
+    // whether this lever can reach the target or is structurally capped.
+    let n_boot = roots.iter().filter(|r| is_boot_root(**r)).count();
+    let ceiling: u64 = cands.iter().map(|(s, _, _)| *s).sum();
+    let mut cum = 0u64;
+    let mut marks = String::new();
+    for (i, (sz, _, _)) in cands.iter().enumerate() {
+        cum += *sz;
+        if matches!(i + 1, 1 | 3 | 10 | 30 | 100) {
+            marks.push_str(&format!(
+                " | top-{}: {:.2} MB ({:+.1}%)",
+                i + 1,
+                cum as f64 / 1e6,
+                -100.0 * cum as f64 / total.max(1) as f64,
+            ));
+        }
+    }
+    eprintln!(
+        "[azul-web] AZ_CHUNK {stem}: lazy CEILING {:.2} MB of {:.2} MB ({:+.1}%) over {} \
+         candidate root(s), {} boot root(s) excluded{}",
+        ceiling as f64 / 1e6,
+        total as f64 / 1e6,
+        -100.0 * ceiling as f64 / total.max(1) as f64,
+        cands.len(),
+        n_boot,
+        marks,
     );
     let mut lazy: HashSet<usize> = HashSet::new();
     for (sz, r, ex) in cands.iter().take(n_lazy) {
