@@ -36,10 +36,10 @@ overstated one log by 280×.
 | 69 | 4865 | 29,288,644 | 3,017,261 | 9.71× | alias-thunk cases + lift `sync::once` |
 | 70 | 4888 | 29,325,309 | 3,023,530 | 9.70× | untruncate ICF-folded alloc shims |
 | 71 | 4888 | 29,325,426 | 3,022,588 | 9.70× | intercept ProcessPrng |
-| 72 | 4885 | — | — | — | route the CRT transcendentals — **no artifact:** the lift audit refused to serve (F3, four env imports the loader did not implement) |
+| 72 | 4885 | 29,322,716 | 3,024,434 | 9.70× | route the CRT transcendentals — **never served:** the lift audit refused (F3, four env imports the loader did not implement) |
 
-A run can end without a row. Run 72 lifted 4885 functions and then the audit
-stopped the server over four unimplemented env imports — which turned out to be
+A run can end without ever serving, and still be measurable. Run 72 linked its
+mini and then the audit stopped the server over four unimplemented env imports — which turned out to be
 the visible edge of `azCallbackImports` carrying no math table at all, so every
 math libcall in the layout and callback wasms was Proxy-zero-stubbed. A gate
 that costs a 40-minute run is cheap against shipping that.
