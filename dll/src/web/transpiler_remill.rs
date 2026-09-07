@@ -3833,10 +3833,18 @@ impl RemillTranspiler {
         } else {
             seed_names.iter().cloned().collect()
         };
-        let module_label = seed_names
-            .first()
-            .map(|s| s.as_str())
-            .unwrap_or(opts.output_stem.as_str());
+        // The mini keeps its stem: every log grep, monitor and analysis script
+        // in scripts/m9_e2e keys on "AZ_CHUNK azul-mini". Only the callback
+        // lifts need a better name, because they all share the stem
+        // "transitive-lift" and are otherwise indistinguishable in the log.
+        let module_label = if is_mini {
+            opts.output_stem.as_str()
+        } else {
+            seed_names
+                .first()
+                .map(|s| s.as_str())
+                .unwrap_or(opts.output_stem.as_str())
+        };
         let chunk_core = chunk_n.and_then(|n| {
             report_chunk_partition(
                 &edges,
@@ -5918,11 +5926,19 @@ impl RemillTranspiler {
             core_objs.push(o);
         }
 
-        let and_stem = format!("{}-p0", label.replace(|c: char| !c.is_ascii_alphanumeric(), "_"));
+        // The mini keeps the name every recorded measurement and every
+        // analysis script uses; other modules get one derived from their
+        // entry point, because they all share the stem "transitive-lift"
+        // and would otherwise overwrite each other's artifact.
+        let p0_stem = if label == "azul-mini" {
+            "azul-p0".to_string()
+        } else {
+            format!("{}-p0", label.replace(|c: char| !c.is_ascii_alphanumeric(), "_"))
+        };
         match self.link_objects_to_wasm(
             &core_objs,
             exports,
-            and_stem.as_str(),
+            p0_stem.as_str(),
             opts.memory_mode,
             accessed_pages,
             accessed_ranges,
