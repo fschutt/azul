@@ -2575,6 +2575,18 @@ criteria = "safe-to-deploy"
 version = "0.7.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.turso-azul]]
+version = "0.7.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.turso-sdk-kit-azul]]
+version = "0.7.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.turso-sync-sdk-kit-azul]]
+version = "0.7.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.turso_core]]
 version = "0.7.2"
 criteria = "safe-to-deploy"
