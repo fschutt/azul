@@ -5882,9 +5882,27 @@ fn report_chunk_partition(
         .filter(|n| owners.get(n).copied().unwrap_or(0) >= 2)
         .collect();
 
+    // A boot root is an entry point the loader calls directly, so its subtree
+    // cannot be lazy however exclusive it is. chunk-plan.py has always excluded
+    // these; without the same rule here, AzStartup_solveLayoutReal's 984-function
+    // subtree was offered as the biggest "lazy" chunk, which inflated the saving
+    // AND made p0 too small by leaving boot-path code out of the link.
+    const BOOT_PREFIXES: [&str; 3] = ["AzStartup_", "AzApp_", "AzWindow_"];
+    let is_boot_root = |a: usize| -> bool {
+        symbol_table::get()
+            .and_then(|t| t.lookup(a))
+            .map(|e| {
+                BOOT_PREFIXES
+                    .iter()
+                    .any(|p| e.canonical_name.starts_with(p))
+            })
+            .unwrap_or(false)
+    };
+
     let total = bytes(&nodes);
     let mut cands: Vec<(u64, usize, HashSet<usize>)> = roots
         .iter()
+        .filter(|r| !is_boot_root(**r))
         .filter_map(|r| {
             let excl: HashSet<usize> = own[r].difference(&shared).copied().collect();
             if excl.is_empty() {
