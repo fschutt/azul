@@ -204,15 +204,22 @@ fn on_cancel(mut data: RefAny, mut event: CallbackInfo) -> Update {
 
 `remove_thread` schedules the same `TerminateThread` + drop sequence the destructor runs.
 
-## Sleeping inside a thread
+## Waiting without blocking
+
+The API has no blocking sleep. Blocking the UI thread is wrong on every
+target, and the browser has no such primitive at all, so anything that has to
+happen *later* is expressed as a timer:
 
 ```rust,ignore
-Thread::sleep_ms(milliseconds);
-Thread::sleep_us(microseconds);
-Thread::sleep_ns(nanoseconds);
+let timer = Timer::create(data, on_tick, get_system_time_fn)
+    .with_delay(Duration::from_millis(500))      // first run after 500 ms
+    .with_interval(Duration::from_millis(1000)); // then once a second
+info.add_timer(TimerId::unique(), timer);
 ```
 
-These are FFI-safe wrappers around `std::thread::sleep`. They exist so non-Rust bindings can sleep. Inside a Rust callback `std::thread::sleep` works equally well.
+A worker thread created with `Thread::create` runs on its own OS thread and
+may pace itself with the platform's own sleep (`std::thread::sleep` in Rust,
+`nanosleep` / `Sleep` in C) - that never blocks the UI.
 
 ## Instant and Duration
 

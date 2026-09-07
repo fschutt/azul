@@ -3,6 +3,37 @@
 Status: **implementation work order** (executable spec, not a proposal) · Written 2026-08-19 ·
 Branch `weblift/x86-lifter-fixes`, draft PR #431 · repo HEAD when verified: `4d57444d7`
 
+### Implementation status (branch `feat/web-api-remodel`, off master)
+
+The API surface (phases 0-4 and R) is implemented: api.json is a fixpoint of the autofix
+pipeline, every result struct passes the size/align memtest, and the desktop side delivers
+every resume through the runtime's completion queue. Deviations from the text below, each
+forced by something the work order could not see:
+
+* **No `CallbackChange::CompleteRequest`.** The settled request signatures carry no
+  `CallbackInfo`, so a request function cannot `push_change`. The queue lives in
+  `azul_layout::request` instead (process-wide, FIFO); the shells pump it from
+  `process_timers_and_threads` and from the outermost `process_window_events` pass, the E2E
+  runner from `service()`. Same ordering guarantee, no dead enum variant.
+* **`ResumeCallback` lives in `azul_layout::callbacks`**, not `azul_core::callbacks`:
+  `CallbackInfo` is a layout type. `RequestId` is in `azul_core::task` as specified.
+* **`FilePickerHandle` / `FileDialog::*_async`** (added after this document) are gone from
+  api.json: the mobile picker backend is now the internal implementation behind the resumable
+  `open_file` (`request::defer` polls the OS delegate's slot once per frame).
+* **`http_post` / `http_request`** (also newer than this document) are resumable too; all
+  three response-shaped requests share `HttpGetResult`.
+* **`Db::delete` is `Db::remove`**: `delete` is a reserved function name in codegen (the
+  generated destructor). `DbMergeCallbackType` is `fn(RefAny, DbConflict) -> DbValue` - a pure
+  merge over data, invoked while a sync is applied, where no `CallbackInfo` exists.
+  `DbConflict` / `DbSyncStatus` carry Unix-millisecond `u64` timestamps rather than `Instant`
+  (they cross the wire). Desktop auto-sync is not scheduled yet; drive `sync_now` from a Timer.
+* **`PlatformCapability::udp` was never in api.json**; the Rust probe was renamed to
+  `webtransport` and the seven new probes added.
+* The web-side runtime pieces (`AzStartup_completeRequest`, the pending table, the loader's
+  `azCompleteRequest`, the JS boundary implementations) are not part of this branch; they
+  belong with the lifter work on `weblift/*`. `azul_layout::request::{complete_erased, defer,
+  take_completed}` is the single choke point that work replaces.
+
 **Who this is for.** One engineer/agent executes this top-to-bottom. Every design question is
 already settled; this document says *what to change, where, in what order, and how to prove it
 worked*. Do not re-litigate the design — if you think a decision is wrong, finish the phase and

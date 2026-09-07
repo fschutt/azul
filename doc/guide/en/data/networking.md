@@ -38,48 +38,55 @@ default-search-keys:
 - `HttpRequestConfig`. A small blocking HTTP client. Configure timeouts, headers, max response size, and TLS verification, then call `http_get`, `download_bytes`, or `is_url_reachable`. The convenience constructors `http_get_default` and `download_bytes_default` skip configuration.
 - `HttpResponse`. The result. Carries `status_code`, `body` (`U8Vec`), `headers`, `content_type`, `content_length`. Use `is_success`, `is_redirect`, `is_client_error`, `is_server_error`, `body_as_string` to inspect it.
 
-The framework is intentionally runtime-agnostic. There's no built-in raw-socket type and no async runtime integration. Heavy networking belongs in a worker thread.
+The framework is intentionally runtime-agnostic. There's no built-in raw-socket type and no async runtime integration. HTTP is request / resume shaped (below), so ordinary fetches need no worker thread; anything heavier still belongs in one.
 
-## Calling HTTP from a thread
+## Making a request
 
-Wrap an `HttpRequestConfig` call in a `Thread` callback and post the result back via `ThreadReceiveMsg::WriteBack`:
+Every `HttpRequestConfig` call is a *request*: it returns a `RequestId`
+immediately and resumes the callback you pass in with the answer. On desktop
+the transfer runs synchronously inside the call and the callback runs right
+after the requesting callback returns; in the browser it is a `fetch()` and
+the callback runs on a later task. Either way the callback never runs
+re-entrantly inside the callback that issued the request, and the same code
+works on both.
 
 ```rust,ignore
-extern "C" fn http_get(
-    mut initial: RefAny,
-    mut sender:  ThreadSender,
-    mut recv:    ThreadReceiver,
-) {
-    let url = match initial.downcast_ref::<String>() {
-        Some(s) => s.clone(),
-        None    => return,
-    };
-
+extern "C" fn on_fetch_clicked(data: RefAny, _info: CallbackInfo) -> Update {
     let cfg = HttpRequestConfig::create()
         .with_timeout(10)
         .with_user_agent("my-app/1.0");
+    let _request = cfg.http_get("https://example.org/api".into(), data, on_response);
+    Update::DoNothing
+}
 
-    let result = cfg.http_get(url.as_str().into());
-
-    if let OptionThreadSendMsg::Some(ThreadSendMsg::TerminateThread) = recv.recv() {
-        return;
-    }
-
-    let msg = match result {
-        ResultHttpResponseHttpError::Ok(resp) => ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
-            refany:   RefAny::new(resp),
-            callback: WriteBackCallback { cb: apply_response, ctx: OptionRefAny::None },
-        }),
-        ResultHttpResponseHttpError::Err(e) => ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
-            refany:   RefAny::new(e),
-            callback: WriteBackCallback { cb: apply_error, ctx: OptionRefAny::None },
-        }),
+extern "C" fn on_response(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some(answer) = HttpGetResult::downcast(result).into_option() else {
+        return Update::DoNothing;
     };
-    sender.send(msg);
+    match answer.result {
+        ResultHttpResponseHttpError::Ok(resp) => {
+            // mutate the model through `data` the usual way
+            let _ = (&mut data, resp);
+            Update::RefreshDom
+        }
+        ResultHttpResponseHttpError::Err(e) => {
+            eprintln!("request failed: {e:?}");
+            Update::DoNothing
+        }
+    }
 }
 ```
 
-`apply_response` and `apply_error` run on the main thread and mutate the application's `RefAny` model the usual way. See [background-tasks](background-tasks.md) for the full `WriteBackCallback` pattern.
+The result structs are `HttpGetResult` (for `http_get`, `http_post` and
+`http_request`), `HttpBytesResult` (`download_bytes`) and
+`HttpReachableResult` (`is_url_reachable`); each has a static
+`downcast(result)` accessor. There is no default-config shortcut: build a
+config with `HttpRequestConfig::create()` and call the method on it.
+
+A request may be issued from a worker thread as well; its resume still runs
+on the main thread. CORS applies in the browser and cannot be escaped: a
+target that does not send `Access-Control-Allow-Origin` fails with
+`HttpError::Other` naming CORS.
 
 ## Modelling connection state
 
