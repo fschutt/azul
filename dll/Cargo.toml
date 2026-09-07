@@ -154,11 +154,14 @@ geojson = { version = "0.24", optional = true }
 # pure-Rust SQLite (no `cc`, no system libsqlite, no bindgen) so it
 # cross-compiles to every target with no C toolchain. Default features OFF:
 # they would add mimalloc (a C allocator via `cc`) and FTS. io_uring is OFF:
-# upstream turso_sdk_kit 0.7 forces it on, which is why the workspace
-# [patch.crates-io] points turso + turso_sdk_kit at fschutt/turso (v0.7.2 +
-# one commit making both IO backends opt-in). See the note there. The engine
-# ships on every target in the release matrix, 32-bit Linux included.
-turso = { version = "0.7", optional = true, default-features = false }
+# upstream turso_sdk_kit 0.7 forces it on and `turso` cannot opt out, so this
+# is `turso-azul` — the fork published from fschutt/turso (v0.7.2 + one commit
+# making both IO backends opt-in), consumed by `package =` rename like
+# gilrs-azul / gpu-video-azul so it survives `cargo publish`. It brings
+# turso-sdk-kit-azul and turso-sync-sdk-kit-azul with it; turso_core is
+# upstream. See the workspace Cargo.toml note. The engine ships on every
+# target in the release matrix, 32-bit Linux included.
+turso = { package = "turso-azul", version = "0.7.2", optional = true, default-features = false }
 # turso pulls aegis (AEAD), whose build.rs compiles C AES via `cc` and fails to
 # cross-compile to 32-bit (i686/armv7) — and a global cc-disable breaks zstd-sys.
 # aegis's `pure-rust` feature (softaes) skips the C build entirely; pull it in

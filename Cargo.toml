@@ -36,8 +36,6 @@ glean = "60.5.0"
 gleam = "0.15.1"
 
 [patch.crates-io]
-turso_sdk_kit = { git = "https://github.com/fschutt/turso", rev = "e2dbb436ecb8163b3aed1f3d2e568a0bfb5174d7" }
-turso = { git = "https://github.com/fschutt/turso", rev = "e2dbb436ecb8163b3aed1f3d2e568a0bfb5174d7" }
 # NOTE: the former `libudev-sys` and `gpu-video` git patches are GONE — they are
 # now real published crates that dll/ depends on directly by a `package =` rename
 # (cargo `[patch]` cannot rename a crate; a git patch also trips the "no [patch]
@@ -125,20 +123,18 @@ azul-layout = { path = "layout" }
 # consumer of the Rust API carries io-uring, whose prebuilt bindings refuse
 # to compile on 32-bit Linux (i686, armv7 — both release artifacts).
 #
-# fschutt/turso branch azul/0.7.2-io-uring-optional is v0.7.2 plus ONE commit
-# (3 files, +18/-11): sdk-kit forwards `io_uring` / `experimental_win_iocp`
-# as opt-in features instead of forcing them, the VFS switch gates on them,
-# and `turso` forwards them so an app can still opt in. Nothing else differs
-# from upstream, and the commit is shaped to be submitted there; when it
-# lands, drop the two patch lines and bump. Pinned by rev, not branch.
-#
-# Within the "no [patch] on published deps" gate: that gate guards
-# azul-css / azul-core / azul-layout, the crates that get `cargo publish`ed,
-# and none of them depends on turso. azul-dll does, and azul-dll ships as
-# the artifacts CI builds from THIS tree, where the patch applies. If
-# azul-dll is ever published as a crate, publish the fork first (see the
-# gilrs-azul / gpu-video-azul pattern above) — `cargo publish` strips
-# [patch] and the registry build would carry io-uring again.
+# fschutt/turso branch azul/0.7.2-io-uring-optional is v0.7.2 plus one
+# commit (3 files, +18/-11): sdk-kit forwards `io_uring` /
+# `experimental_win_iocp` as opt-in features instead of forcing them, the VFS
+# switch gates on them, and `turso` forwards them so an app can still opt in
+# — shaped to be submitted upstream. A second commit only renames for
+# publishing. It is NOT a [patch]: it is on crates.io as turso-azul,
+# turso-sdk-kit-azul and turso-sync-sdk-kit-azul (all three, because
+# `turso` and the sync kit name the sdk kit as a dependency, so the fix only
+# reaches a consumer if the whole chain is the fork), and dll/ depends on it
+# by `package = "turso-azul"` — the gilrs-azul / gpu-video-azul pattern, so
+# `cargo publish` of anything here is unaffected. When upstream takes the
+# change, switch back to `turso` and drop the three crates.
 # tfd: use crates.io 0.1.2 (fork published) — the runtime-dlopen Win32 dialog
 # resolver that links on every Windows target incl. legacy i686-rust9x. layout/
 # declares tfd = "0.1", which resolves to 0.1.2.
