@@ -178,43 +178,73 @@ if hit * 2 < len(vas):
           'build? every relink moves every RVA.')
 
 # --- scan ---------------------------------------------------------------------
+import bisect
+
 bstart = {b: e for b, e in funcs}
 walked_rvas = sorted(v - base for v in vas)
 reach = {}
+kinds = {}
 scanned = 0
-for rva in walked_rvas:
-    e = bstart.get(rva)
-    if e is None:                       # not a .pdata entry (thunk, or folded)
+seen_ranges = set()
+outside = 0
+for walked in walked_rvas:
+    e = bstart.get(walked)
+    rva = walked
+    if e is None:
+        # An interior address: a folded alias or a thunk. It still belongs to
+        # the .pdata range that contains it, and skipping those was dropping
+        # one walked function in six.
+        i = bisect.bisect_right(begins, walked) - 1
+        if i < 0 or bstart[begins[i]] <= walked:
+            outside += 1
+            continue
+        rva, e = begins[i], bstart[begins[i]]
+    if (rva, e) in seen_ranges:
         continue
+    seen_ranges.add((rva, e))
     o0 = r2o(rva)
     if o0 is None:
         continue
     n = e - rva
     body = raw[o0:o0 + n]
     scanned += 1
-    p = 0
-    while True:
-        p = body.find(b'\xff', p)
-        if p < 0 or p + 6 > n:
-            break
-        if body[p + 1] in (0x15, 0x25):
+    for p in range(n - 7):
+        b0 = body[p]
+        if b0 == 0xFF and body[p + 1] in (0x15, 0x25):
+            # call/jmp [rip+d32]
             disp, = struct.unpack_from('<i', body, p + 2)
-            tgt = rva + p + 6 + disp
-            if tgt in slots:
-                reach.setdefault(slots[tgt], set()).add(rva)
-        p += 1
+            tgt, kind = rva + p + 6 + disp, 'call'
+        elif b0 in (0x48, 0x4C) and body[p + 1] in (0x8B, 0x8D) \
+                and (body[p + 2] & 0xC7) == 0x05:
+            # mov/lea r64, [rip+d32] - the address-taken form
+            disp, = struct.unpack_from('<i', body, p + 3)
+            tgt = rva + p + 7 + disp
+            kind = 'mov' if body[p + 1] == 0x8B else 'lea'
+        else:
+            continue
+        if tgt in slots:
+            reach.setdefault(slots[tgt], set()).add(rva)
+            kinds.setdefault(slots[tgt], set()).add(kind)
 
-print('scanned %d walked functions with a .pdata extent' % scanned)
+print('scanned %d distinct .pdata extents covering the walked set '
+      '(%d walked addresses lie outside every extent)' % (scanned, outside))
 print('')
 
 by_rva = {}
 for v, s in names.items():
     by_rva[v - base] = s
 
+# An extent's begin is often an ICF-folded symbol that was never walked under
+# that address; any walked address inside it names the same code.
+in_extent = {}
+for r, s in sorted(by_rva.items()):
+    i = bisect.bisect_right(begins, r) - 1
+    if i >= 0 and r < bstart[begins[i]]:
+        in_extent.setdefault(begins[i], s)
+
 
 def callers(sites):
-    out = sorted(by_rva.get(r, '0x%x' % r) for r in sites)
-    return out
+    return sorted(by_rva.get(r) or in_extent.get(r) or ('0x%x' % r) for r in sites)
 
 
 miss, have = [], []
@@ -226,7 +256,8 @@ for (dll, nm), sites in sorted(reach.items()):
 
 def show(rows):
     for dll, nm, c, cs in rows:
-        print('  %-38s %-26s %d site(s)' % (dll, nm, c))
+        k = ','.join(sorted(kinds.get((dll, nm), {'?'})))
+        print('  %-38s %-26s %d site(s)  [%s]' % (dll, nm, c, k))
         for s in cs[:8]:
             print('        <- %s' % s)
         if len(cs) > 8:

@@ -109,34 +109,87 @@ Two consequences worth keeping:
   table. `scripts/m9_e2e/dump_dealloc.py` decodes a function from a confirmed
   entry for exactly this.
 
-## The interception table covers 15 of 248 imports
+## Coverage is the wrong question — reachability is the right one
 
-Measured with `scripts/m9_e2e/import_gap.py`, which resolves every PE import
-*and* every entry of the interception list to an address and compares those —
-the same thing `intercepted_import_labels` does.
+248 is what the PE imports, not what lifted code calls. Every un-intercepted
+import that lifted code *reaches* becomes an unmatched dispatch at a raw native
+address; the rest are irrelevant. For several runs each missing entry cost one
+35-minute lift to discover, because the only oracle was the trap itself.
 
-Comparing DLL **names** instead gives a wrong answer: the image imports `trunc`
-from `api-ms-win-crt-math-l1-1-0.dll` while the list names `ucrtbase.dll`. API
-sets forward, so both resolve to the same ucrtbase function and the interception
-does fire — name-matching reported ~20 false gaps.
+`scripts/m9_e2e/import_gap.py` narrowed that by listing un-intercepted imports,
+but only by name heuristic over all 248 — which says nothing about whether
+lifted code ever calls them. Measured against the answer below, it flagged eight
+names that are never reached and missed every one of the ten that are.
 
-Every un-intercepted import that lifted code reaches becomes an unmatched
-dispatch at a raw native address. The list is name-based and incomplete by
-construction, so this is a standing source of one-blocker-per-run. Currently
-flagged as plausibly reachable from lifted `std`:
+`scripts/m9_e2e/import_reach.py` answers it statically, with no relift:
 
-| DLL | names |
-|---|---|
-| `api-ms-win-core-synch-l1-2-0` | `WaitOnAddress`, `WakeByAddressAll`, `WakeByAddressSingle` |
-| `KERNEL32` | `QueryPerformanceCounter`, `GetSystemTimeAsFileTime`, `GetSystemTimePreciseAsFileTime`, `Sleep`, `VirtualProtect`, `GlobalAlloc`/`GlobalLock`/`GlobalFree` |
-| `api-ms-win-crt-math-l1-1-0` | `pow`, `exp`, `log`, `fmod`, `round`, `sin`, `cos`, `tan` (+ `f` forms) |
-| `api-ms-win-crt-string-l1-1-0` | `strlen` |
+1. the lift scratch holds one `<Name>_<va>.lifted.ll` per walked function, so
+   the filenames **are** the walked set;
+2. `.pdata` gives each function's exact `[begin, end)` — authoritative, and free
+   of the ICF truncation that gap-to-next-symbol sizing suffers (that sizing is
+   what truncated `__rust_dealloc` to 16 bytes);
+3. inside those extents, scan for `call`/`jmp [rip+d]` **and** `mov r64, [rip+d]`
+   — the address-taken form, which took the reached set from 12 to 18;
+4. a target landing exactly on a live IAT slot names the import, and the scratch
+   filename names the **call site**, which is what makes the result a decision
+   rather than a list.
 
-The math names are the ones deliberately left out — anything needing a real
-libm is excluded rather than approximated — so they are known traps, not
-oversights. The futex trio matters most: `Once::call` is lifted, and its
-completion path calls `WakeByAddressAll`.
+A walked address that is not itself a `.pdata` begin is mapped to the extent
+containing it: those are ICF-folded aliases and thunks, one walked function in
+six, and skipping them was a real hole.
 
-A name here is a **candidate, not a bug**. It only matters once lifted code
-actually reaches it, and each needs its own judgement about what the right
-answer is — a zero-stub is correct for a wake and wrong for `memcpy`.
+The module base is recovered by vote over `(walked VA − .pdata begin)`
+candidates. The winner's margin and the share of the walked set landing on a
+begin are printed, so a scratch from a *different build* shows up as a low share
+rather than as confident wrong output.
+
+### The answer, against the mini's complete 4885-function walk
+
+**20 of 248 imports are reached.** Ten of them had no case, and the call sites
+decided the semantics:
+
+| Import | Call site | Answer | Why it is exact, not a guess |
+|---|---|---|---|
+| `FormatMessageW` | `windows_result::HRESULT::message` | `0` | "no text for this code"; the caller then prints the numeric code |
+| `LoadLibraryExA` | same | `NULL` | `windows-result` probes for a module to pull NTSTATUS text from and falls back |
+| `SysStringLen` | `windows_result::Error::message` | `0` | defined return for `NULL`, and COM is never initialised so `NULL` is the only case |
+| `SysFreeString` | same | no-op | documented no-op for `NULL` |
+| `GetErrorInfo` | `windows_result::Error::from` | `S_FALSE` | documented "no error object" |
+| `GetLastError` | `Once::call`, `Error::from_win32` | `0` | nothing here sets a last error |
+| `CloseHandle` | thread/file `Drop` glue, 11 sites | `TRUE` | no handle was ever opened |
+| `GetCurrentProcess` | `layout::probe` | `(HANDLE)-1` | the pseudo-handle is a constant on real Windows too |
+| `K32GetProcessMemoryInfo` | same | `FALSE` | `probe.rs` reads `if .. == 0 { return None }` — a branch the caller has |
+| `CoCreateInstance` | cpal WASAPI `OnceLock` | `REGDB_E_CLASSNOTREG` | there is no COM registry — and it **must** fail: `S_OK` with no object hands back a null interface pointer |
+| `GetProcAddress` | std's dbghelp backtrace symbolizer | `NULL` | there is no dbghelp to load, and `backtrace-rs` is written around the probe failing |
+
+Five of these sit in the error-message **formatter**, which is the worst place a
+trap can be: the boot dies formatting the message instead of showing the error
+it was reporting. Two sit in layout, which runs on hydrate.
+
+### Deliberately left to trap
+
+`kernel32!WideCharToMultiByte`, reached from the same symbolizer function as
+`GetProcAddress`. The two decisions are not inconsistent: `GetProcAddress` asks
+a question about the environment and the environment's answer is "no", whereas
+`WideCharToMultiByte` **computes** something, and a stubbed `0` would be silent
+corruption of a real conversion — worse than the trap it replaces. It also sits
+past the symbolizer's success path, so with `GetProcAddress` returning `NULL` it
+is not reached. A trap there is the signal that the path went live and the
+conversion has to be implemented rather than answered.
+
+Also still held, with no evidence of reachability: `QueryPerformanceCounter`,
+`GetSystemTimeAsFileTime`. When justified, a time interception needs a **counter
+slot** — a fixed value makes every measured duration zero — not a constant.
+
+### A stub is quieter than a trap
+
+Replacing a trap with a plausible value is exactly how a live wrong path goes
+silent, so every `NoOsStub` records its dispatcher label at `0x40088` and bumps a
+count at `0x40090`; `state-regs.js` prints both, and the lift log's
+`M12.7: IAT import <DLL>!<fn> → 0x<label>` lines name the label back. A non-zero
+count is not a failure — but five of the eleven only run when something upstream
+already failed, so it is worth reading.
+
+A name in the gap list is a **candidate, not a bug**. It only matters once
+lifted code reaches it, and each still needs its own judgement about what the
+right answer is — a zero-stub is correct for a wake and wrong for `memcpy`.
