@@ -519,11 +519,24 @@ impl CGenerator {
                 builder.line(&format!("typedef enum {}_Tag {}_Tag;", name, name));
                 builder.blank();
 
-                // Generate variant structs
+                // Generate variant structs. The tag FIELD must be `uint8_t`
+                // for a `#[repr(C, u8)]` enum: a C `enum` is `int`-sized no
+                // matter how small its values (the `__Force8Bit = 0xFF`
+                // sentinel above documents the intent, it does not shrink the
+                // type), so `X_Tag tag;` made every variant struct 4 bytes
+                // of tag + padding to the payload's alignment. For payloads
+                // aligned to 8 that coincides with the u8 layout by luck; for
+                // the 13 `CssPropertyValue<Color>` types (ColorU: 4×u8, align
+                // 1) the header said 8 where the DLL and Pascal said 5. Same
+                // rule as the regular tagged-enum emitter below.
                 for variant in variants {
                     builder.line(&format!("struct {}Variant_{} {{", name, variant.name));
                     builder.indent();
-                    builder.line(&format!("{}_Tag tag;", name));
+                    if is_u8_repr {
+                        builder.line("uint8_t tag;");
+                    } else {
+                        builder.line(&format!("{}_Tag tag;", name));
+                    }
 
                     if let Some(ref payload_type) = variant.payload_type {
                         let c_type = self.rust_type_to_c_with_prefix(payload_type, config);

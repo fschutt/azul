@@ -644,7 +644,12 @@ jobs:
       - name: Build the C-ABI libazul.so for the link-dynamic example lib-tests
         run: |
           set -o pipefail
-          cargo build -p azul-dll 2>&1 | tee azul-dll-cabi-build.txt
+          # The SHIPPED feature set (build-dll), not the defaults: the demos'
+          # lib tests link-dynamic against this file, and AzWriter's pagination
+          # goes through Pdf::compute_pagination — without `pdf` the PDF surface
+          # returns EMPTY results and "60 paragraphs must span pages, got 1"
+          # failed while testing nothing about pagination.
+          cargo build -p azul-dll --features build-dll 2>&1 | tee azul-dll-cabi-build.txt
           mkdir -p "$RUNNER_TEMP/azul-cabi"
           cp target/debug/libazul.so "$RUNNER_TEMP/azul-cabi/"
           nm -D "$RUNNER_TEMP/azul-cabi/libazul.so" | grep -q ' T AzU8Vec_delete' \
@@ -4718,6 +4723,12 @@ jobs:
           ruby-version: "3.2"
 
       - name: Build self-hosted package channels (brew tap, apt, registry mirrors)
+        env:
+          # Opt-in repo signing; unsigned mirrors say so in their configure
+          # lines (gpgcheck=0 / SigLevel / --allow-untrusted).
+          AZUL_RPM_GPG_KEY: ${{ secrets.AZUL_RPM_GPG_KEY }}
+          AZUL_PACMAN_GPG_KEY: ${{ secrets.AZUL_PACMAN_GPG_KEY }}
+          AZUL_APK_SIGN_KEY: ${{ secrets.AZUL_APK_SIGN_KEY }}
         run: |
           set -u
           if [ -d artifacts-apt ] && [ -n "$(ls -A artifacts-apt 2>/dev/null)" ]; then
@@ -4735,8 +4746,8 @@ jobs:
           bash scripts/build_registry_mirrors.sh website "${AZUL_VERSION}" artifacts-registry
 
           echo "=== self-hosted channel summary ==="
-          for d in website/ui/brew.git website/ui/apt website/ui/azul \
-                   website/ui/maven website/ui/npm website/ui/nuget \
+          for d in website/ui/brew.git website/ui/scoop.git website/ui/cargo website/ui/apt \
+                   website/ui/azul website/ui/maven website/ui/npm website/ui/nuget \
                    website/ui/gems website/ui/rpm website/ui/arch website/ui/alpine; do
             if [ -d "$d" ]; then echo "[live] ${d#website/}"; else echo "[skip] ${d#website/}"; fi
           done
@@ -4914,6 +4925,13 @@ jobs:
             kill "$pypi_srv" 2>/dev/null
             rm -rf "$pypi_root"
           fi
+
+      - name: Publish to upstream registries (secret-gated; self-hosted stays the baseline)
+        if: github.event.inputs.run_mode == 'deploy'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          AZUL_TAP_PUSH_TOKEN: ${{ secrets.AZUL_TAP_PUSH_TOKEN }}
+        run: bash scripts/publish_upstream.sh website "${AZUL_VERSION}"
 
       - name: Record channel entry-point digests
         id: channel_digests
@@ -5307,6 +5325,22 @@ jobs:
           printf '%s\n' "$AZUL_CHANNEL_DIGESTS" > "$RUNNER_TEMP/channel-digests.tsv"
           bash scripts/verify_install_commands.sh \
             "${{ matrix.channel }}" https://azul.rs "${AZUL_VERSION}" "$RUNNER_TEMP/channel-digests.tsv"
+      # The community feed needs the choco CLI (= this runner). Gated on the
+      # API key; the package pushed is the one just verified from the live
+      # self-hosted feed, so upstream can never be ahead of what was checked.
+      - name: Publish libazul to the Chocolatey community repository (secret-gated)
+        if: matrix.channel == 'choco' && github.event.inputs.run_mode == 'deploy'
+        shell: bash
+        env:
+          CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+        run: |
+          set -eu
+          if [ -z "${CHOCO_API_KEY:-}" ]; then
+            echo "CHOCO_API_KEY not set - skipping (the self-hosted feed at azul.rs/ui/nuget stays the channel)"; exit 0
+          fi
+          v="$(echo "${AZUL_VERSION}" | tr '[:upper:]' '[:lower:]')"
+          curl -fsSL -o "libazul.$v.nupkg" "https://azul.rs/ui/nuget/flatcontainer/libazul/$v/libazul.$v.nupkg"
+          choco push "libazul.$v.nupkg" --source https://push.chocolatey.org/ --api-key "$CHOCO_API_KEY"
 
   # Quality & Security reports.
   # Writes output to the GitHub run summary ($GITHUB_STEP_SUMMARY).

@@ -1,11 +1,18 @@
 # Azul — Pascal (FPC / Lazarus)
 
-⊘ **Blocked on libazul-side fix.** Codegen is complete and correct;
-`hello-world` builds and runs through the host-invoker init, then
-`AzApp_run` crashes inside libazul's webrender
-`SceneBuilder::build_item` before the first paint. Reproduces with
-an empty default WCO — libazul-side, not codegen. See
-`memory/pascal_codegen_2026_05_13.md` for the full diagnosis.
+Full-GUI counter example, e2e-gated (`scripts/e2e_language_matrix.sh pascal`).
+
+**The macOS "EAccessViolation in AzApp_run" is root-caused and fixed
+(2026-09-07).** It was never a memory bug. The Free Pascal runtime unmasks
+the InvalidOp, ZeroDivide and Overflow FPU exceptions at program start,
+while libazul (Rust + C, IEEE-754 default environment) treats NaN and
+±inf as ordinary values. The first `inf - inf` inside taffy's layout cache
+compare trapped. On aarch64-darwin the kernel delivers a trapped FP
+exception as SIGILL (ESR class 0x2C), which the FPC RTL prints as
+`EAccessViolation: Access violation`. The generated `azul.pas` now calls
+`SetExceptionMask([...all six...])` in its `initialization` block, exactly
+what Delphi programs do before calling OpenGL/DirectX. If you re-enable FP
+traps in your own code, do it only around code that never calls into azul.
 
 ## What works
 
@@ -17,18 +24,12 @@ an empty default WCO — libazul-side, not codegen. See
   repr(C, u8) tag width, DestructorOrClone field inclusion all
   fixed in commit `1f7f84a90`).
 
-## What doesn't
-
-- `AzApp_run` exits with `EAccessViolation` deep in libazul's
-  webrender code on every macOS run. Will resume from this state
-  once the libazul agent's macOS/aarch64 fix lands.
-
 ## Files
 
 - `hello-world.pas` — full-GUI port (subclassing `TAzLayoutCallbackInvoker`).
 - `azul.pas` — generated bindings.
 - `hello-world.lpi` — Lazarus project file.
-- `libazul.dylib` — prebuilt native library.
+- `libazul.dylib` / `libazul.so` / `azul.dll` — the native library, copied here by the e2e script (not tracked).
 
 ## Recent updates (2026-05-15/16)
 

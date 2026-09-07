@@ -7,9 +7,39 @@
 typedef struct { uint32_t counter; } MyDataModel;
 void MyDataModel_destructor(void* m) { }
 
-// AZ_REFLECT generates MyDataModel_upcast / MyDataModelRef / MyDataModelRefMut
-// and the downcast helpers used below.
-AZ_REFLECT(MyDataModel, MyDataModel_destructor);
+// AZ_REFLECT_JSON generates MyDataModel_upcast / MyDataModelRef / MyDataModelRefMut
+// and the downcast helpers used below, plus the JSON round-trip the app-state
+// tooling needs: the debug server's set_app_state / assert and undo-redo
+// restore state INTO the RefAny by field name through fromJson. Without a
+// deserialize fn the Export-Code e2e fails with "the app's RefAny has no
+// deserialize fn" — this is not demo filler (2026-09-07, learned the hard way).
+AzJson MyDataModel_toJson(AzRefAny refany);
+AzResultRefAnyString MyDataModel_fromJson(AzJson json);
+AZ_REFLECT_JSON(MyDataModel, MyDataModel_destructor, MyDataModel_toJson, MyDataModel_fromJson);
+
+AzJson MyDataModel_toJson(AzRefAny refany) {
+    MyDataModelRef ref = MyDataModelRef_create(&refany);
+    if (!MyDataModel_downcastRef(&refany, &ref)) {
+        return AzJson_null();
+    }
+    int64_t counter = (int64_t)ref.ptr->counter;
+    MyDataModelRef_delete(&ref);
+    AzJsonKeyValue kv = AzJsonKeyValue_create(AZ_STR("counter"), AzJson_int(counter));
+    return AzJson_object(AzJsonKeyValueVec_fromItem(kv));
+}
+
+AzResultRefAnyString MyDataModel_fromJson(AzJson json) {
+    AzOptionJson field = AzJson_getKey(&json, AZ_STR("counter"));
+    if (field.None.tag == AzOptionJson_Tag_None) {
+        return AzResultRefAnyString_err(AZ_STR("Expected object with 'counter'"));
+    }
+    AzOptionI64 counter_opt = AzJson_asInt(&field.Some.payload);
+    if (counter_opt.None.tag == AzOptionI64_Tag_None) {
+        return AzResultRefAnyString_err(AZ_STR("'counter' is not an integer"));
+    }
+    MyDataModel model = { .counter = (uint32_t)counter_opt.Some.payload };
+    return AzResultRefAnyString_ok(MyDataModel_upcast(model));
+}
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     MyDataModelRefMut d = MyDataModelRefMut_create(&data);
