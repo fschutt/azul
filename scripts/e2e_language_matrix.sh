@@ -97,9 +97,13 @@ ALL_LANGS=(
 # -----------------------------------------------------------------------------
 # Maturity tiers.
 #
-#   SHIPPED  the 11 bindings we officially ship — a good hello-world and proper
+#   SHIPPED  the 17 bindings we officially ship — a good hello-world and proper
 #            integration (string/vec/option/error wrappers, host-invoker, etc.).
-#            Matches api.json `installation.tabOrder`. These GATE CI.
+#            These GATE CI, and they are exactly the set that carries a
+#            `doc/guide/en/hello-world/<lang>.md` page. NOT the same as
+#            api.json `installation.tabOrder`, which lists all 29 frontpage
+#            tabs — the extra 12 ship a binding without a documented,
+#            stable install path.
 #   BETA     a real counter E2E that works on most platforms, but not part of
 #            the official shipped set yet.
 #   ALPHA    everything else: smoke-only, single-platform, or no counter example.
@@ -113,19 +117,24 @@ ALL_LANGS=(
 SHIPPED_LANGS=(
   c cpp rust csharp java kotlin lua ruby node ocaml
   # Promoted 2026-07-04 (counter e2e green + truthful install steps + guide;
-  # see scripts/BINDINGS_REVIEW_2026_07_04.md and FRONTPAGE_LANGUAGES in
-  # doc/src/docgen/mod.rs -- keep the three lists in sync):
+  # see scripts/BINDINGS_REVIEW_2026_07_04.md):
   zig go pascal scala fortran haskell
+  # RESTORED 2026-09-07. python was de-gated on 2026-07-08 (06adf267a) for a
+  # headless-Linux segfault in the counter e2e. That reason is stale: run
+  # 33992306451 (2026-09-05, ubuntu-22.04, AZ_E2E scripting-b) reports
+  # `| python | beta | ✓ WORKS | test result: ok |` — on the exact platform
+  # the segfault was about. The old comment asked for green on all three OSes
+  # before restoring, and that evidence does not exist either way: the
+  # macOS/Windows AZ_E2E legs do not expand on pull_request runs, so BETA was
+  # keeping python unproven rather than proving anything. Gating it is what
+  # produces the cross-OS answer; if a runner disagrees, the mechanism for
+  # that is WINDOWS_NONGATING_LANGS below, not a second de-gating.
+  python
 )
-# TEMPORARY: python is de-gated (moved to BETA below) — the pyo3 extension
-# segfaults at runtime in the headless-Linux counter e2e (imports + teardown are
-# fine; crash is after "App created successfully", Linux-only, Windows passes).
-# Regression predating the double-drop/abi3 codegen work; being root-caused.
-# RESTORE python to SHIPPED once the segfault is fixed + green on all 3 OSes.
 # odin: C-ABI-direct binding (proc "c" callbacks, no host-invoker), a real
 # counter E2E — but UNVERIFIED locally (no Odin toolchain here). Kept out of
 # SHIPPED until CI proves it green on all three OSes; BETA/ALPHA never gate CI.
-BETA_LANGS=( python odin nim racket red d crystal v swift julia )
+BETA_LANGS=( odin nim racket red d crystal v swift julia )
 
 # -----------------------------------------------------------------------------
 # Per-OS gating exclusions.
