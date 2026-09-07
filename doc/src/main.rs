@@ -2218,6 +2218,10 @@ fn main() -> anyhow::Result<()> {
             fs::copy(templates_dir.join("flora.css"), root_dir.join("flora.css"))?;
             // Brand logo for the marketing nav (same asset the /ui docs use).
             fs::copy(templates_dir.join("logo.svg"), root_dir.join("logo.svg"))?;
+            // Browsers ask for /favicon.ico whenever a page carries no icon
+            // link (the marketing landing, /os, /ws, every 404 page); the
+            // docs under /ui link their own copy.
+            fs::copy(templates_dir.join("favicon.ico"), root_dir.join("favicon.ico"))?;
             // Animated foam decoration for the landing hero (copied from the
             // erp-site design; that repo ships no hero video, so only the SVG).
             fs::copy(templates_dir.join("foam.svg"), root_dir.join("foam.svg"))?;

@@ -874,6 +874,7 @@ pub fn get_landing_head_tags(inline_css: bool) -> String {
       {theme_boot}
       <link rel='preload' as='font' href='{base_url}/fonts/EBGaramond-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
       <link rel='preload' as='font' href='{base_url}/fonts/GrenzeGotisch-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
+      <link rel='icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='{base_url}/prism/prism.min.css'>
       <link rel='stylesheet' href='{base_url}/azul-search.css'>
@@ -1096,6 +1097,7 @@ pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&str>) -> String {
       {theme_boot}
       <link rel='preload' as='font' href='{base_url}/fonts/EBGaramond-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
       <link rel='preload' as='font' href='{base_url}/fonts/GrenzeGotisch-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
+      <link rel='icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='{base_url}/prism/prism.min.css'>
       <link rel='stylesheet' href='{base_url}/azul-search.css'>
