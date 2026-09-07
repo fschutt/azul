@@ -30,11 +30,11 @@ default-search-keys:
 
 The Haskell binding drives the prebuilt `libazul` native library through
 GHC's FFI. You write ordinary Haskell: a model type, a layout function
-that builds the DOM from it, and a click handler that is a pure state
-transition `model -> (model, Update)`. The generated `azul` package does
-the rest — it wraps your model in a libazul `RefAny`, turns your functions
-into callbacks libazul can invoke, and marshals every struct through the
-C ABI with sizes and offsets the C compiler computed.
+that builds the DOM from it, and a click handler that updates the model
+with a pure function. The generated `azul` package does the rest — it
+wraps your model in a libazul `RefAny`, turns your functions into
+callbacks libazul can invoke, and marshals every struct through the C ABI
+with sizes and offsets the C compiler computed.
 
 `import Azul` is the whole surface. It exports one managed wrapper type per
 resource-owning class (`Dom`, `Button`, `App`, ...), one function per
@@ -113,8 +113,8 @@ layout dat model _ = do
     >>= buttonDom
   domCreateBody >>= domWithChild label >>= domWithChild button
 
-onClick :: DataModel -> CallbackInfo -> (DataModel, Update)
-onClick model _ = (model { counter = counter model + 1 }, Update_RefreshDom)
+onClick :: RefAny -> CallbackInfo -> IO Update
+onClick dat _ = refAnyUpdate dat (\m -> m { counter = counter m + 1 }) Update_RefreshDom
 
 main :: IO ()
 main = do
@@ -129,9 +129,7 @@ main = do
 binding and hands libazul a `RefAny` that refers to it. Every clone
 libazul makes of that `RefAny` — the one it passes to the layout callback,
 the one the button keeps — refers to the same entry; the entry is
-released when the last clone is dropped. `refAnyGet :: RefAny -> IO (Maybe a)`
-and `refAnyModify :: RefAny -> (a -> a) -> IO ()` read and update it
-directly when you need to.
+released when the last clone is dropped.
 
 ### The layout callback
 
@@ -155,15 +153,24 @@ consumes both operands and returns the merged tree.
 
 ### The click handler
 
-`buttonWithOnClick` accepts the raw closure
-`RefAny -> CallbackInfo -> IO Update` or, as here, a pure state transition
-`DataModel -> CallbackInfo -> (DataModel, Update)`. The binding applies it
-to the current model, stores the new model in the `RefAny`, and returns
-the verdict to libazul; `Update_RefreshDom` re-runs `layout`. Both shapes
-are instances of the generated `ButtonOnClickCallbackHandler` class, and
-every callback kind in api.json has the same pair. If the `RefAny` does not
-hold a value of the handler's model type, the call is logged on stderr
-and libazul's default (`Update_DoNothing`, an empty body) applies.
+`onClick` has the same shape as in every other language — it receives the
+`RefAny` and answers with an `Update` — and its body is one expression:
+`refAnyUpdate dat f verdict` reads the model out of the `RefAny`, stores
+`f model` back, and returns the verdict; `Update_RefreshDom` re-runs
+`layout`. The downcast, the update and the upcast are the combinator's
+business; a `RefAny` that holds another type is left untouched. When a
+handler needs the model in `IO` — to do more than a pure update —
+`refAnyGet :: RefAny -> IO (Maybe a)` and `refAnyModify :: RefAny -> (a -> a) -> IO ()`
+are the fallback.
+
+`buttonWithOnClick` also accepts a pure state transition
+`DataModel -> CallbackInfo -> (DataModel, Update)` instead of the raw
+closure: the binding applies it to the current model and stores the new
+one. Both shapes are instances of the generated `ButtonOnClickCallbackHandler`
+class, and every callback kind in api.json has the same pair. If the
+`RefAny` does not hold a value of the handler's model type, the call is
+logged on stderr and libazul's default (`Update_DoNothing`, an empty body)
+applies.
 
 ### `main`
 
@@ -198,14 +205,13 @@ You should see the window pictured on the
   not loaded`** — set `LD_LIBRARY_PATH` (Linux) or `DYLD_LIBRARY_PATH`
   (macOS) to the directory containing the native library; on Windows
   put `azul.dll` on `PATH`.
-- **`Ambiguous type variable` at a `buttonWithOnClick` call** — a
-  lambda handler has no model type for the binding to look up. Give the
-  handler a signature (`DataModel -> CallbackInfo -> (DataModel, Update)`),
-  as the example does.
-- **`[azul] ButtonOnClickCallback callback raised: user error (... does
-  not hold the model type ...)` on stderr and nothing happens** — the
-  `RefAny` given to `buttonWithOnClick` was created from a value of
-  another type than the handler's model.
+- **`Ambiguous type variable` at a `refAnyUpdate` or `buttonWithOnClick`
+  call** — a lambda gives the binding no model type to look up. Name the
+  model type, as `onClick`'s record update and `layout`'s signature do.
+- **`[azul] LayoutCallback callback raised: user error (... does not hold
+  the model type ...)` on stderr and an empty window** — the `RefAny`
+  given to `appCreate` was created from a value of another type than the
+  layout's model.
 - **A handler throws and the app keeps running** — exceptions never
   cross into libazul: the binding catches them, prints them to stderr
   and returns libazul's default for that callback kind.

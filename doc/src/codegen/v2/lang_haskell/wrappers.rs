@@ -631,6 +631,13 @@ fn emit_managed_refany(b: &mut CodeBuilder, ctx: &Ctx) {
     b.dedent();
     b.dedent();
     b.blank();
+    b.line("-- | Apply a pure update to the model behind a 'RefAny' and answer with the");
+    b.line("-- given verdict: the one-expression body of a click handler,");
+    b.line("-- @refAnyUpdate dat (\\m -> m { counter = counter m + 1 }) Update_RefreshDom@.");
+    b.line("-- A 'RefAny' that does not hold a value of this type is left untouched.");
+    b.line("refAnyUpdate :: Typeable a => RefAny -> (a -> a) -> r -> IO r");
+    b.line("refAnyUpdate r f verdict = refAnyModify r f >> pure verdict");
+    b.blank();
     if let Some(clone) = &ctx.refany_clone {
         b.line("-- | Hand a clone of a 'RefAny' to a by-value C parameter (the callee");
         b.line("-- owns the clone; the caller keeps its own).");

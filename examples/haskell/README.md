@@ -29,10 +29,11 @@ DYLD_LIBRARY_PATH=$PWD/../../target/release cabal run hello-world --extra-lib-di
 |---|---|
 | `refAnyCreate :: Typeable a => a -> IO RefAny` | wrap any Haskell value as the app data |
 | `refAnyGet :: Typeable a => RefAny -> IO (Maybe a)` | read it back inside a callback |
+| `refAnyUpdate :: Typeable a => RefAny -> (a -> a) -> r -> IO r` | update it and answer libazul, in one expression |
 | `refAnyModify :: Typeable a => RefAny -> (a -> a) -> IO ()` | update it |
 | `domCreateBody`, `domCreatePWithText`, `domWithCss`, `domWithChild` | one function per api.json method, receiver last |
-| `buttonCreate`, `buttonWithButtonType`, `buttonWithOnClick`, `buttonDom` | `buttonWithOnClick` takes a plain closure |
-| `windowCreateOptionsCreate :: LayoutCallbackFn -> IO WindowCreateOptions` | the layout closure |
+| `buttonCreate`, `buttonWithButtonType`, `buttonWithOnClick`, `buttonDom` | `buttonWithOnClick dat f` takes `RefAny -> CallbackInfo -> IO Update` or a pure `a -> CallbackInfo -> (a, Update)` |
+| `windowCreateOptionsCreate :: LayoutCallbackHandler h => h -> IO WindowCreateOptions` | the layout: `RefAny -> LayoutCallbackInfo -> IO Dom`, or model-typed `RefAny -> a -> LayoutCallbackInfo -> IO Dom` |
 | `appConfigCreate`, `appCreate`, `appRun` | `appConfigCreate >>= appCreate dat >>= appRun window` |
 
 Because the receiver is the last argument, builder chains are `>>=`
@@ -49,7 +50,8 @@ method-name allowlist, no hand-written wrappers.
   / `domFromValue` / `domToValue`; one function per api.json constructor
   and method; `Show` / `Eq` instances routed through `_toDbgString` /
   `_partialEq` where api.json derives them; the host-handle `RefAny`;
-  `<Kind>Fn` closure types plus a registered invoker for every callback
+  `<Kind>Fn` closure types, a `<Kind>Handler` class (raw closure or
+  model-typed function) and a registered invoker for every callback
   kind in `HOST_INVOKER_KINDS`; re-exports of every `Azul.Types` enum and
   plain struct, so `Update_RefreshDom` and `ButtonType_Primary` are in
   scope.

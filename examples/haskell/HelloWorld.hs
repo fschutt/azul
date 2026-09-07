@@ -13,8 +13,8 @@ layout dat model _ = do
     >>= buttonDom
   domCreateBody >>= domWithChild label >>= domWithChild button
 
-onClick :: DataModel -> CallbackInfo -> (DataModel, Update)
-onClick model _ = (model { counter = counter model + 1 }, Update_RefreshDom)
+onClick :: RefAny -> CallbackInfo -> IO Update
+onClick dat _ = refAnyUpdate dat (\m -> m { counter = counter m + 1 }) Update_RefreshDom
 
 main :: IO ()
 main = do
