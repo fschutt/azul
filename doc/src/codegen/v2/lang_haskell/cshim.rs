@@ -14,12 +14,19 @@
 //!
 //! The shims are emitted into `cbits/azul_shims.c` and compiled into
 //! the cabal library via the `c-sources` field. Foreign-imports point
-//! at the `<C symbol>_via` names; the Haskell wrapper layer in
-//! `Internal.FFI` hides the alloca dance so user code keeps the
-//! natural `args -> IO T` shape.
+//! at the `<C symbol>_via` names; the wrapper layer in `Azul` hides the
+//! pointer dance so user code keeps the natural `args -> IO T` shape.
+//!
+//! The file is also the **layout oracle** for `Azul.Types`: one
+//! `size_t az_hs_sizeof_<T>(void)` / `az_hs_alignof_<T>` / `az_hs_offsetof_<T>_<m>`
+//! per type and member in [`super::types::layout_oracle`], returning what
+//! the C compiler computes against `azul.h`. The Haskell `Storable`
+//! instances import those and nothing else, so they are exact on every
+//! platform cabal builds the cbits for.
 
 use super::super::config::CodegenConfig;
 use super::super::ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionDef};
+use super::super::managed_host_invoker;
 
 /// Top-level entry: produce the full `cbits/azul_shims.c` source as a
 /// single string, including the necessary `#include`s.
@@ -32,6 +39,7 @@ pub fn generate_c_shims(ir: &CodegenIR, config: &CodegenConfig) -> String {
          /* boundary; every function whose C signature uses one gets a   */\n\
          /* `<name>_via` wrapper that takes/returns through pointers.   */\n\
          /* ============================================================ */\n\n\
+         #include <stddef.h>\n\
          #include \"azul.h\"\n\n",
     );
     for func in &ir.functions {
@@ -40,6 +48,8 @@ pub fn generate_c_shims(ir: &CodegenIR, config: &CodegenConfig) -> String {
         }
         emit_one(&mut out, func, ir);
     }
+
+    emit_host_invoker_shims(&mut out, ir, config);
 
     // Inbound trampolines: per callback typedef, emit a C function that
     // matches the C ABI's by-value-struct signature and forwards to a
@@ -65,45 +75,84 @@ pub fn generate_c_shims(ir: &CodegenIR, config: &CodegenConfig) -> String {
         emit_inbound_trampoline(&mut out, cb);
     }
 
-    // Layout oracle: `Azul.Types`' Storable instances take `sizeOf` and
-    // `alignment` from the C compiler instead of guessing. The generated
-    // Haskell used to sum the fields' sizes (no padding: AzApp came out as 9
-    // bytes, sizeof is 16) and to give every tagged union a fixed
-    // `8 + 64` (AzOptionDom is 288 bytes). Anything that `alloca`s a struct
-    // through those instances — the hello-world's buffers included — was
-    // under-allocated and overflowed the stack (2026-09-07). Every struct and
-    // tagged union that gets a real Storable instance (types::should_emit_*)
-    // gets one sizeof/alignof pair here; the header is the single source.
-    out.push_str(
-        "\n\
-         /* ============================================================ */\n\
-         /* Layout oracle for Azul.Types (Storable sizeOf / alignment).   */\n\
-         /* sizeof/_Alignof of every struct and tagged union the Haskell  */\n\
-         /* module declares, so the instances match the C ABI exactly.    */\n\
-         /* ============================================================ */\n\n\
-         #include <stddef.h>\n\n",
-    );
-    for s in &ir.structs {
-        if super::types::should_emit_struct(s, config) && !s.fields.is_empty() {
-            emit_layout_oracle(&mut out, &s.name);
-        }
-    }
-    for e in &ir.enums {
-        if super::types::should_emit_enum(e, config) {
-            emit_layout_oracle(&mut out, &e.name);
-        }
-    }
+    emit_layout_oracle(&mut out, ir, config);
     out
 }
 
-/// `size_t az_hs_sizeof_<T>(void)` / `size_t az_hs_alignof_<T>(void)` for one
-/// C type `Az<T>` — see the layout-oracle note in `generate_c_shims`.
-fn emit_layout_oracle(out: &mut String, ir_name: &str) {
-    out.push_str(&format!(
-        "size_t az_hs_sizeof_{n}(void) {{ return sizeof(Az{n}); }}\n\
-         size_t az_hs_alignof_{n}(void) {{ return _Alignof(Az{n}); }}\n",
-        n = ir_name
-    ));
+// ============================================================================
+// Layout oracle
+// ============================================================================
+
+/// `size_t az_hs_sizeof_<T>(void)` / `az_hs_alignof_<T>` / `az_hs_offsetof_<T>_<m>`
+/// for every type and member `Azul.Types` imports. The table is
+/// [`super::types::layout_oracle`] — the same one `types.rs` emits the
+/// imports from — so definitions and imports cannot drift.
+///
+/// `Azul.Types` used to sum its fields' sizes (no padding: AzApp came out
+/// as 9 bytes, sizeof is 16), give every tagged union a fixed `8 + 64`
+/// (AzOptionDom is 288) and read every member at the unpadded running
+/// sum; anything that `alloca`d or peeked a struct through those instances
+/// was wrong, and the hello-world overflowed its stack (2026-09-07).
+fn emit_layout_oracle(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) {
+    out.push_str(
+        "\n\
+         /* ============================================================ */\n\
+         /* Layout oracle for Azul.Types (Storable sizeOf / alignment /  */\n\
+         /* member offsets): sizeof, _Alignof and offsetof of every type  */\n\
+         /* the Haskell module declares, so the instances match the C    */\n\
+         /* ABI exactly on the platform the cbits are compiled for.      */\n\
+         /* ============================================================ */\n\n",
+    );
+    for t in super::types::layout_oracle(ir, config) {
+        out.push_str(&format!(
+            "size_t az_hs_sizeof_{n}(void) {{ return sizeof(Az{n}); }}\n\
+             size_t az_hs_alignof_{n}(void) {{ return _Alignof(Az{n}); }}\n",
+            n = t.ir_name
+        ));
+        for m in &t.members {
+            out.push_str(&format!(
+                "size_t az_hs_offsetof_{n}_{s}(void) {{ return offsetof(Az{n}, {p}); }}\n",
+                n = t.ir_name,
+                s = m.suffix,
+                p = m.c_path
+            ));
+        }
+    }
+}
+
+// ============================================================================
+// Host-invoker protocol
+// ============================================================================
+
+/// Prototypes for the host-invoker exports (`core/src/host_invoker.rs`),
+/// which `azul.h` does not declare, plus `_via` shims for the two by-value
+/// returns Haskell needs: `AzRefAny_newHostHandle` and every
+/// `Az<K>_createFromHostHandle`.
+fn emit_host_invoker_shims(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) {
+    out.push_str(
+        "\n\
+         /* ============================================================ */\n\
+         /* Host-invoker protocol (see core/src/host_invoker.rs).        */\n\
+         /* ============================================================ */\n\n",
+    );
+    managed_host_invoker::emit_cdef_block(out, ir);
+    out.push('\n');
+    out.push_str(
+        "void AzRefAny_newHostHandle_via(uint64_t id, AzRefAny *az_out) { *az_out = AzRefAny_newHostHandle(id); }\n",
+    );
+    for cb in managed_host_invoker::host_invoker_kinds(ir) {
+        if !config.should_include_type(&cb.name) {
+            continue;
+        }
+        let w = managed_host_invoker::wrapper_name(cb);
+        if ir.find_struct(w).is_none() {
+            continue;
+        }
+        out.push_str(&format!(
+            "void Az{w}_createFromHostHandle_via(uint64_t id, Az{w} *az_out) {{ *az_out = Az{w}_createFromHostHandle(id); }}\n",
+            w = w
+        ));
+    }
 }
 
 /// True if a callback typedef needs an inbound trampoline. We emit one
@@ -172,9 +221,6 @@ fn emit_inbound_trampoline(out: &mut String, cb: &CallbackTypedefDef) {
             a.type_name.starts_with("*mut ") || a.type_name.starts_with("*const ");
         let c_ty = c_typename(&a.type_name);
         if type_is_ptr_prefix {
-            // c_ty already ends in ` *` (or `const T *`) — emit the
-            // identifier directly. No extra address-of needed when
-            // forwarding to the inner.
             abi_params.push(format!("{}{}", c_ty, raw_name));
             inner_args.push(raw_name.clone());
             inner_params.push(format!("{}{}", c_ty, raw_name));
@@ -225,11 +271,8 @@ fn emit_inbound_trampoline(out: &mut String, cb: &CallbackTypedefDef) {
             if matches!(t, "" | "void" | "()" | "c_void") {
                 ("void".to_string(), "void".to_string())
             } else if ret_is_aggregate {
-                // Inner signature gets a trailing `AzR *az_out` and
-                // returns void; trampoline returns `AzR` by value.
                 ("void".to_string(), c_typename(t))
             } else {
-                // Primitive return: inner returns the primitive too.
                 (c_typename(t), c_typename(t))
             }
         }
@@ -305,19 +348,10 @@ fn emit_inbound_trampoline(out: &mut String, cb: &CallbackTypedefDef) {
 /// foreign-import emitter (so the shim's symbol resolves to the same
 /// libazul export) AND actually needs a shim.
 ///
-/// This used to be a hand-copied twin of `functions::should_emit_function`
-/// "kept in lockstep" by a comment, and it drifted: the import side let
-/// declared capabilities (`clone`, `default`, `toDbgString`, `partialEq`) of
-/// RECURSIVE types through, this side only those of `DestructorOrClone`
-/// enums. Result: `foreign import ccall "AzXmlNode_clone_via"` with no
-/// `AzXmlNode_clone_via` in cbits/azul_shims.c, and the ubuntu e2e lane died
-/// at link time with 15 undefined references (`AzXmlNode_clone_via`,
-/// `AzXml_toDbgString_via`, `AzXmlNodeChildVec_clone_via`,
-/// `AzResultXmlXmlError_clone_via`, ...). Two predicates cannot drift when
-/// there is one.
+/// Defined as `should_emit_function(..) && needs_shim(..)` so the import
+/// side and the shim side cannot drift: a `foreign import "<name>_via"`
+/// always has the C shim that defines `<name>_via`.
 pub fn should_emit_shim_for(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
-    // Only emit a shim when the function actually needs one — primitive-only
-    // signatures pass through GHC's FFI natively.
     super::functions::should_emit_function(func, ir, config) && needs_shim(func)
 }
 
@@ -351,7 +385,9 @@ pub fn return_is_aggregate(func: &FunctionDef) -> bool {
     !is_c_primitive(t)
 }
 
-fn is_c_primitive(t: &str) -> bool {
+/// The IR type names the C shim passes by value (everything else travels
+/// as a pointer). The wrapper layer keys its arg marshalling on this too.
+pub(super) fn is_c_primitive(t: &str) -> bool {
     matches!(
         t.trim(),
         "u8" | "u16"
@@ -391,10 +427,6 @@ fn is_c_primitive(t: &str) -> bool {
 fn c_typename(t: &str) -> String {
     let t = t.trim();
     // Pointer-prefix forms: `*mut T` → `T *`, `*const T` → `const T *`.
-    // The IR encodes some raw-pointer types this way (e.g.
-    // `*mut c_void` for RefAnyDestructorType arg). Recurse into the
-    // pointee so the C output picks up `void *` / `AzFoo *` rather than
-    // the literal pasted `Az*mut c_void`.
     if let Some(inner) = t.strip_prefix("*mut ") {
         return format!("{} *", c_typename(inner));
     }
@@ -447,26 +479,7 @@ fn emit_one(out: &mut String, func: &FunctionDef, _ir: &CodegenIR) {
         let c_ty = c_typename(&a.type_name);
         match a.ref_kind {
             ArgRefKind::Owned => {
-                if let Some(cbi) = a.callback_info.as_ref().filter(|cbi| {
-                    // The DLL ABI takes the BARE fn pointer (`Az<K>CallbackType`)
-                    // exactly when the api.json arg passes the WRAPPER struct of a
-                    // host-invoker kind (the typed-callback API change rewrote
-                    // those setters). The Haskell side holds the wrapper struct
-                    // (what `Az<K>Callback_createFromHostHandle` returns), so keep
-                    // the struct-pointer parameter and forward its `cb` field.
-                    // NOT rewritten:
-                    //  - typedef-form args (`IconResolverCallbackType`): the plain
-                    //    aggregate path already passes the fn ptr correctly;
-                    //  - non-invoker wrapper structs (`DatasetMergeCallback`): the
-                    //    DLL genuinely takes the struct by value.
-                    a.type_name == cbi.callback_wrapper_name
-                        && super::super::managed_host_invoker::HOST_INVOKER_KINDS
-                            .contains(&cbi.callback_wrapper_name.as_str())
-                }) {
-                    let wrapper = c_typename(&cbi.callback_wrapper_name);
-                    params.push(format!("const {} *{}", wrapper, raw_name));
-                    call_args.push(format!("{}->cb", raw_name));
-                } else if is_c_primitive(&a.type_name) {
+                if is_c_primitive(&a.type_name) {
                     params.push(format!("{} {}", c_ty, raw_name));
                     call_args.push(raw_name);
                 } else {
@@ -491,6 +504,16 @@ fn emit_one(out: &mut String, func: &FunctionDef, _ir: &CodegenIR) {
         }
     }
 
+    // A function that takes a host-invoker callback WRAPPER struct
+    // (`Button::with_on_click(self, data, on_click: ButtonOnClickCallback)`)
+    // is exported by libazul as a triple; the literal api.json shape — the
+    // whole `{ cb, ctx }` struct by value — is the `<c_name>Struct` symbol,
+    // and it is the only form through which the host-handle ctx survives
+    // (the bare `<c_name>` takes just the fn pointer). The Haskell side
+    // always holds the wrapper struct (from `Az<K>_createFromHostHandle` or
+    // built by hand with ctx None), so the shim forwards it whole.
+    let target = managed_host_invoker::managed_c_symbol(func);
+
     let returns_void = match &func.return_type {
         None => true,
         Some(r) => matches!(r.trim(), "" | "void" | "()" | "c_void"),
@@ -505,7 +528,7 @@ fn emit_one(out: &mut String, func: &FunctionDef, _ir: &CodegenIR) {
             "void {}_via({}) {{ *az_out = {}({}); }}\n",
             func.c_name,
             params.join(", "),
-            func.c_name,
+            target,
             call_args.join(", ")
         ));
     } else if returns_void {
@@ -513,7 +536,7 @@ fn emit_one(out: &mut String, func: &FunctionDef, _ir: &CodegenIR) {
             "void {}_via({}) {{ {}({}); }}\n",
             func.c_name,
             params.join(", "),
-            func.c_name,
+            target,
             call_args.join(", ")
         ));
     } else {
@@ -524,7 +547,7 @@ fn emit_one(out: &mut String, func: &FunctionDef, _ir: &CodegenIR) {
             c_r,
             func.c_name,
             params.join(", "),
-            func.c_name,
+            target,
             call_args.join(", ")
         ));
     }

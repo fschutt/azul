@@ -1,32 +1,36 @@
 //! Haskell type emission: `data`/`newtype` declarations + `Storable`
-//! instances for every IR struct and enum that survives the inclusion
-//! filter.
+//! instances for every non-generic IR type.
 //!
-//! Strategy:
-//! - **Plain structs** become `data <Name> = <Name> { field1 :: !T1, ... }`
-//!   with a manually-written `Storable` instance. Field offsets are
-//!   not known at codegen time (they depend on the C compiler's
-//!   layout of the corresponding Rust `#[repr(C)]` struct), so we
-//!   emit `peek`/`poke` bodies that walk the fields *in declaration
-//!   order* using `peekByteOff` / `pokeByteOff` with a running offset.
-//!   The running offset is computed from the previous field's
-//!   `sizeOf`, which is exact only for structs without padding; for
-//!   padded structs the user can fall back to the raw FFI primitives
-//!   (exact `offsetof` through the oracle is the follow-up).
-//!   `sizeOf` and `alignment` themselves ARE exact: they come from the
-//!   cbits layout oracle (`az_hs_sizeof_<T>` / `az_hs_alignof_<T>`,
-//!   cshim.rs), i.e. from the C compiler, since 2026-09-07 — the former
-//!   field-size sum under-allocated every padded struct (AzApp 9 vs 16,
-//!   AzButton 700 vs 728) and the hello-world overflowed its stack buffers.
-//! - **Unit enums** (no payload) become a normal Haskell sum type
-//!   with `deriving (Show, Eq, Enum, Bounded)`, plus a `Storable`
-//!   instance going through `Word32` (the Rust ABI repr for unit
-//!   enums).
-//! - **Tagged unions** become a Haskell sum type with payload
-//!   constructors. The `Storable` instance dispatches on the
-//!   discriminator field and uses `peek` / `poke` recursively for the
-//!   payload variant. Unsizeable payloads (recursive types, generics)
-//!   are skipped with a `-- SKIPPED:` marker.
+//! Every `Storable` instance here is layout-exact, and none of its numbers
+//! is computed on the Haskell side: `sizeOf`, `alignment` and every member
+//! offset are nullary pure foreign imports of the cbits layout oracle
+//! (`az_hs_sizeof_<T>` / `az_hs_alignof_<T>` / `az_hs_offsetof_<T>_<m>`,
+//! emitted by `cshim.rs` from the SAME [`layout_oracle`] table this module
+//! consumes), i.e. `sizeof` / `_Alignof` / `offsetof` as the C compiler
+//! evaluates them against `azul.h` on the target platform. GHC evaluates
+//! each import once (it is a CAF), so `peek`/`poke` pay no call per use.
+//! Nothing guesses a size, and no instance `error`s out of `peek`/`poke`.
+//!
+//! - **Structs** become `data <Name> = <Name> { field1 :: !T1, ... }` with
+//!   `peekByteOff`/`pokeByteOff` at the oracle's offsets. Every
+//!   non-generic struct is emitted — including the categories other
+//!   emitters skip (`Recursive`, `VecRef`, `DestructorOrClone`) — because
+//!   a struct that is embedded by value anywhere must have its true size,
+//!   or every struct embedding it shifts.
+//! - **Unit enums** become a Haskell sum type with
+//!   `deriving (Show, Eq, Enum, Bounded)` and a 4-byte `Storable` (the C
+//!   header spells them as `enum`, which is `int`-sized).
+//! - **Tagged unions** become a sum type with payload constructors. The
+//!   `Storable` instance reads the tag (`uint8_t` for `#[repr(C, u8)]`,
+//!   the C tag enum otherwise — the same rule `lang_c` spells into the
+//!   header) at offset 0 and peeks/pokes each payload member at its
+//!   oracle offset.
+//! - **Monomorphized generic aliases** (`CssPropertyValue<T>` etc.) get
+//!   the same treatment as the shape they instantiate.
+//! - **Simple type aliases** (`ScanCode = u32`, `X11Visual = *const
+//!   c_void`) become Haskell `type` synonyms of the target's
+//!   representation.
+//! - **Callback typedefs** become `newtype <Name> = <Name> (FunPtr ())`.
 
 use std::collections::BTreeMap;
 
@@ -35,9 +39,169 @@ use anyhow::{bail, Result};
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, StructDef, TypeCategory,
+    CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind, MonomorphizedKind,
+    MonomorphizedVariant, StructDef, TypeAliasDef, TypeCategory,
 };
-use super::{haskell_data_name, haskell_field_name, haskell_variant_name, sanitize_doc};
+use super::super::lang_c::escape_cpp_keyword_for_c;
+use super::{
+    haskell_data_name, haskell_field_name, haskell_variant_name, lower_first, sanitize_doc,
+};
+
+// ============================================================================
+// Layout oracle table (shared with cshim.rs)
+// ============================================================================
+
+/// One C type whose layout the cbits oracle reports: `sizeof` /
+/// `_Alignof`, plus `offsetof` for each member in `members`.
+pub(super) struct OracleType {
+    /// api.json spelling (`Dom`, `OptionRefAny`, `StyleTextColorValue`);
+    /// the C type is `Az<ir_name>` and the symbols are
+    /// `az_hs_{sizeof,alignof}_<ir_name>` / `az_hs_offsetof_<ir_name>_<suffix>`.
+    pub ir_name: String,
+    pub members: Vec<OracleMember>,
+}
+
+/// One `offsetof` the oracle reports.
+pub(super) struct OracleMember {
+    /// Member designator as C spells it: `root`, `Some.payload`,
+    /// `Exact.payload_1`, `Point.x`.
+    pub c_path: String,
+    /// Symbol suffix (`root`, `Some_payload`, ...); a valid identifier
+    /// fragment in both C and Haskell.
+    pub suffix: String,
+}
+
+/// Every type `Azul.Types` needs oracle numbers for, in emission order.
+/// `cshim.rs` emits one C function per entry and member from this exact
+/// list, so the Haskell imports and the C definitions cannot drift.
+pub(super) fn layout_oracle(ir: &CodegenIR, config: &CodegenConfig) -> Vec<OracleType> {
+    let mut out = Vec::new();
+    for s in &ir.structs {
+        if should_emit_struct(s, config) && !s.fields.is_empty() {
+            out.push(OracleType {
+                ir_name: s.name.clone(),
+                members: struct_members(&s.fields),
+            });
+        }
+    }
+    for e in &ir.enums {
+        if should_emit_enum(e, config) && e.is_union && !e.variants.is_empty() {
+            let mut members = Vec::new();
+            for v in &e.variants {
+                let names: Vec<String> = match &v.kind {
+                    EnumVariantKind::Unit => Vec::new(),
+                    EnumVariantKind::Tuple(types) if types.len() == 1 => vec!["payload".to_string()],
+                    EnumVariantKind::Tuple(types) => {
+                        (0..types.len()).map(|i| format!("payload_{}", i)).collect()
+                    }
+                    EnumVariantKind::Struct(fields) => fields
+                        .iter()
+                        .map(|f| escape_cpp_keyword_for_c(&f.name))
+                        .collect(),
+                };
+                for n in names {
+                    members.push(OracleMember {
+                        c_path: format!("{}.{}", v.name, n),
+                        suffix: format!("{}_{}", v.name, n),
+                    });
+                }
+            }
+            out.push(OracleType {
+                ir_name: e.name.clone(),
+                members,
+            });
+        }
+    }
+    for ta in &ir.type_aliases {
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        match ta.monomorphized_def.as_ref().map(|m| &m.kind) {
+            Some(MonomorphizedKind::Struct { fields }) if !fields.is_empty() => {
+                out.push(OracleType {
+                    ir_name: ta.name.clone(),
+                    members: struct_members(fields),
+                });
+            }
+            Some(MonomorphizedKind::TaggedUnion { variants, .. }) if !variants.is_empty() => {
+                let members = variants
+                    .iter()
+                    .filter(|v| v.payload_type.is_some())
+                    .map(|v| OracleMember {
+                        c_path: format!("{}.payload", v.name),
+                        suffix: format!("{}_payload", v.name),
+                    })
+                    .collect();
+                out.push(OracleType {
+                    ir_name: ta.name.clone(),
+                    members,
+                });
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn struct_members(fields: &[FieldDef]) -> Vec<OracleMember> {
+    fields
+        .iter()
+        .map(|f| {
+            let c = escape_cpp_keyword_for_c(&f.name);
+            OracleMember {
+                c_path: c.clone(),
+                suffix: c,
+            }
+        })
+        .collect()
+}
+
+/// Haskell name of the oracle import for a type's size / alignment.
+fn oracle_size_binding(lname: &str) -> String {
+    format!("c_az_hs_sizeof_{}", lname)
+}
+
+fn oracle_align_binding(lname: &str) -> String {
+    format!("c_az_hs_alignof_{}", lname)
+}
+
+fn oracle_offset_binding(lname: &str, suffix: &str) -> String {
+    format!("c_az_hs_offsetof_{}_{}", lname, suffix)
+}
+
+/// `foreign import ccall unsafe "az_hs_sizeof_<T>" c_az_hs_sizeof_<t> :: CSize`
+/// and friends: nullary pure imports, evaluated once by GHC.
+fn emit_oracle_imports(
+    builder: &mut CodeBuilder,
+    ir_name: &str,
+    lname: &str,
+    members: &[OracleMember],
+) {
+    builder.line(&format!(
+        "foreign import ccall unsafe \"az_hs_sizeof_{}\"",
+        ir_name
+    ));
+    builder.line(&format!("    {} :: CSize", oracle_size_binding(lname)));
+    builder.line(&format!(
+        "foreign import ccall unsafe \"az_hs_alignof_{}\"",
+        ir_name
+    ));
+    builder.line(&format!("    {} :: CSize", oracle_align_binding(lname)));
+    for m in members {
+        builder.line(&format!(
+            "foreign import ccall unsafe \"az_hs_offsetof_{}_{}\"",
+            ir_name, m.suffix
+        ));
+        builder.line(&format!(
+            "    {} :: CSize",
+            oracle_offset_binding(lname, &m.suffix)
+        ));
+    }
+}
+
+fn offset_expr(lname: &str, suffix: &str) -> String {
+    format!("(fromIntegral {})", oracle_offset_binding(lname, suffix))
+}
 
 // ============================================================================
 // Top-level entry
@@ -49,7 +213,7 @@ pub fn emit_type_decls(
     config: &CodegenConfig,
 ) -> Result<()> {
     builder.line("-- ---------------------------------------------------------------------------");
-    builder.line("-- Struct data declarations + Storable instances");
+    builder.line("-- Struct data declarations + Storable instances (layout from the cbits oracle)");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
 
@@ -69,18 +233,6 @@ pub fn emit_type_decls(
                     "-- SKIPPED: generic struct {} (no Haskell equivalent over the C ABI)",
                     s.name
                 ));
-            } else if matches!(
-                s.category,
-                TypeCategory::Recursive
-                    | TypeCategory::VecRef
-                    | TypeCategory::DestructorOrClone
-                    | TypeCategory::GenericTemplate
-            ) {
-                builder.line(&format!(
-                    "-- SKIPPED: struct {} ({})",
-                    s.name,
-                    s.category.description()
-                ));
             }
             continue;
         }
@@ -99,17 +251,6 @@ pub fn emit_type_decls(
                     "-- SKIPPED: generic enum {} (no Haskell equivalent over the C ABI)",
                     e.name
                 ));
-            } else if matches!(
-                e.category,
-                TypeCategory::Recursive
-                    | TypeCategory::DestructorOrClone
-                    | TypeCategory::GenericTemplate
-            ) {
-                builder.line(&format!(
-                    "-- SKIPPED: enum {} ({})",
-                    e.name,
-                    e.category.description()
-                ));
             }
             continue;
         }
@@ -120,13 +261,10 @@ pub fn emit_type_decls(
         }
     }
 
-    // Monomorphized type aliases (`CssPropertyValue<StringSet>` =
-    // `StringSetValue` etc.). The IR builder pre-instantiates these
-    // with concrete payloads — emit them so other types that reference
-    // them by their flattened name (e.g. `CssProperty_StringSet
-    // StringSetValue`) resolve.
+    // Monomorphized generic aliases (`CssPropertyValue<StringSet>` =
+    // `StringSetValue` etc.) and simple aliases (`ScanCode = u32`).
     builder.line("-- ---------------------------------------------------------------------------");
-    builder.line("-- Monomorphized type aliases");
+    builder.line("-- Type aliases (monomorphized generics as real types, simple ones as synonyms)");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
     for ta in &ir.type_aliases {
@@ -134,225 +272,54 @@ pub fn emit_type_decls(
             continue;
         }
         match &ta.monomorphized_def {
-            Some(md) => emit_monomorphized_alias(builder, ta, md, ir),
-            None => {
-                // Simple type alias (`X11Visual = *mut c_void`,
-                // `HwndHandle = *mut c_void`, etc.). Emit a 1-byte
-                // placeholder data type so variants that reference
-                // these by name (`Option<X11Visual>::Some X11Visual`)
-                // resolve. The C ABI representation is opaque.
-                let name = super::haskell_data_name(&ta.name);
-                builder.line(&format!("-- type alias placeholder for {}", ta.name));
-                builder.line(&format!("data {} = {} deriving (Show, Eq)", name, name));
-                builder.line(&format!("instance Storable {} where", name));
-                builder.indent();
-                builder.line("sizeOf _ = 1");
-                builder.line("alignment _ = 1");
-                builder.line(&format!("peek _ = pure {}", name));
-                builder.line("poke _ _ = pure ()");
-                builder.dedent();
-                builder.blank();
-            }
+            Some(md) => emit_monomorphized_alias(builder, ta, &md.kind, ir),
+            None => emit_simple_alias(builder, ta, ir),
         }
     }
 
-    // Callback typedefs (function pointers, e.g. `ComponentCompileFn`)
-    // are emitted in `Azul.Internal.FFI` but Types.hs references them
-    // by bare name from struct field positions
-    // (`componentDefCompileFn :: !(ComponentCompileFn)`). Emit a
-    // 1-byte Storable placeholder here so the type resolves locally;
-    // actual function-pointer marshalling lives on the FFI side.
+    // Callback typedefs are C function pointers. A newtype over `FunPtr ()`
+    // gives them an exact pointer-sized `Storable`, so a struct field of
+    // that type (`LayoutCallback.cb`) round-trips instead of being dropped
+    // on poke.
     builder.line("-- ---------------------------------------------------------------------------");
-    builder
-        .line("-- Callback typedef placeholders (function pointers — real marshalling in FFI.hs)");
+    builder.line("-- Callback typedefs (C function pointers)");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
     for cb in &ir.callback_typedefs {
         if !config.should_include_type(&cb.name) {
             continue;
         }
-        let name = super::haskell_data_name(&cb.name);
-        builder.line(&format!("data {} = {} deriving (Show, Eq)", name, name));
+        let name = haskell_data_name(&cb.name);
+        builder.line(&format!(
+            "newtype {} = {} (FunPtr ()) deriving (Show, Eq)",
+            name, name
+        ));
         builder.line(&format!("instance Storable {} where", name));
         builder.indent();
         builder.line("sizeOf _ = sizeOf (undefined :: FunPtr ())");
         builder.line("alignment _ = alignment (undefined :: FunPtr ())");
-        builder.line(&format!("peek _ = pure {}", name));
-        builder.line("poke _ _ = pure ()");
+        builder.line(&format!("peek p = {} <$> peek (castPtr p)", name));
+        builder.line(&format!("poke p ({} f) = poke (castPtr p) f", name));
         builder.dedent();
         builder.blank();
     }
 
-    // Types filtered out of the main struct/enum emit (Recursive,
-    // VecRef, DestructorOrClone, GenericTemplate) are still referenced
-    // by name from other variants. Emit a 1-byte placeholder for each
-    // so those references resolve as a Haskell type — full memory
-    // layout for these categories is a follow-up.
-    builder.line("-- ---------------------------------------------------------------------------");
-    builder.line("-- Placeholders for filtered-out categories (Recursive/VecRef/...)");
-    builder.line("-- ---------------------------------------------------------------------------");
-    builder.blank();
-    let filtered = |cat: TypeCategory| {
-        matches!(
-            cat,
-            TypeCategory::Recursive | TypeCategory::VecRef | TypeCategory::DestructorOrClone
-        )
-    };
-    for s in &ir.structs {
-        if !config.should_include_type(&s.name) || !s.generic_params.is_empty() {
-            continue;
-        }
-        if filtered(s.category) {
-            let name = super::haskell_data_name(&s.name);
-            builder.line(&format!("data {} = {} deriving (Show, Eq)", name, name));
-            builder.line(&format!("instance Storable {} where", name));
-            builder.indent();
-            builder.line("sizeOf _ = 1");
-            builder.line("alignment _ = 1");
-            builder.line(&format!("peek _ = pure {}", name));
-            builder.line("poke _ _ = pure ()");
-            builder.dedent();
-            builder.blank();
-        }
-    }
-    for e in &ir.enums {
-        if !config.should_include_type(&e.name) || !e.generic_params.is_empty() {
-            continue;
-        }
-        if filtered(e.category) {
-            let name = super::haskell_data_name(&e.name);
-            builder.line(&format!("data {} = {} deriving (Show, Eq)", name, name));
-            builder.line(&format!("instance Storable {} where", name));
-            builder.indent();
-            builder.line("sizeOf _ = 1");
-            builder.line("alignment _ = 1");
-            builder.line(&format!("peek _ = pure {}", name));
-            builder.line("poke _ _ = pure ()");
-            builder.dedent();
-            builder.blank();
-        }
-    }
-
     Ok(())
-}
-
-fn emit_monomorphized_alias(
-    builder: &mut CodeBuilder,
-    ta: &super::super::ir::TypeAliasDef,
-    md: &super::super::ir::MonomorphizedTypeDef,
-    ir: &CodegenIR,
-) {
-    use super::super::ir::MonomorphizedKind;
-    let name = super::haskell_data_name(&ta.name);
-
-    match &md.kind {
-        MonomorphizedKind::SimpleEnum { variants, .. } => {
-            // No Show/Eq derive — variants are simple unit constructors.
-            builder.line(&format!("data {} =", name));
-            builder.indent();
-            let last = variants.len().saturating_sub(1);
-            for (i, v) in variants.iter().enumerate() {
-                let ctor = super::haskell_variant_name(&ta.name, v);
-                let prefix = if i == 0 { "  " } else { "| " };
-                let trailing = if i == last { "" } else { "" };
-                builder.line(&format!("{}{}{}", prefix, ctor, trailing));
-            }
-            builder.line("deriving (Show, Eq)");
-            builder.dedent();
-            // Minimal Storable: encode/decode the variant index as Int32.
-            builder.line(&format!("instance Storable {} where", name));
-            builder.indent();
-            builder.line(&format!(
-                "sizeOf _ = sizeOf (undefined :: Foreign.C.Types.CInt)"
-            ));
-            builder.line(&format!(
-                "alignment _ = alignment (undefined :: Foreign.C.Types.CInt)"
-            ));
-            builder
-                .line("peek _ = error \"peek on monomorphized SimpleEnum: not yet implemented\"");
-            builder
-                .line("poke _ _ = error \"poke on monomorphized SimpleEnum: not yet implemented\"");
-            builder.dedent();
-            builder.blank();
-        }
-        MonomorphizedKind::Struct { .. } | MonomorphizedKind::TaggedUnion { .. } => {
-            // Both shapes get a placeholder data constructor so they
-            // resolve as a Haskell type. The C ABI memory layout is
-            // unused by the hello-world smoke tests — we just need the
-            // name to exist. Full peek/poke is a follow-up.
-            builder.line(&format!(
-                "-- Monomorphized alias placeholder for {} (concrete layout unused by Haskell smoke tests).",
-                ta.name
-            ));
-            builder.line(&format!("data {} = {} deriving (Show, Eq)", name, name));
-            builder.line(&format!("instance Storable {} where", name));
-            builder.indent();
-            builder.line("sizeOf _ = 1");
-            builder.line("alignment _ = 1");
-            builder.line(&format!("peek _ = pure {}", name));
-            builder.line("poke _ _ = pure ()");
-            builder.dedent();
-            builder.blank();
-        }
-    }
 }
 
 // ============================================================================
 // Inclusion filters
 // ============================================================================
 
+/// Every non-generic struct the header declares gets a layout-exact
+/// declaration — a struct that any other struct embeds by value must have
+/// its true size, whatever its category.
 pub fn should_emit_struct(s: &StructDef, config: &CodegenConfig) -> bool {
-    if !config.should_include_type(&s.name) {
-        return false;
-    }
-    if !s.generic_params.is_empty() {
-        return false;
-    }
-    // `RefAny` is emitted by hand earlier in mod.rs as a phantom-typed
-    // newtype (`newtype RefAny a = RefAny { unRefAny :: Ptr () }`); the
-    // default struct emit here would clash with that declaration:
-    //   Multiple declarations of 'RefAny'
-    if s.name == "RefAny" {
-        return false;
-    }
-    !matches!(
-        s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::DestructorOrClone
-            | TypeCategory::GenericTemplate
-    )
+    config.should_include_type(&s.name) && s.generic_params.is_empty()
 }
 
 pub fn should_emit_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
-    if !config.should_include_type(&e.name) {
-        return false;
-    }
-    if !e.generic_params.is_empty() {
-        return false;
-    }
-    !matches!(
-        e.category,
-        TypeCategory::Recursive | TypeCategory::GenericTemplate | TypeCategory::DestructorOrClone
-    )
-}
-
-/// `<t>_sizeOf_total` / `<t>_alignment_total` bound to the cbits layout oracle
-/// (`az_hs_sizeof_<IrName>` / `az_hs_alignof_<IrName>`, cshim.rs). Nullary
-/// pure foreign imports: GHC calls the C function once per evaluation and the
-/// value is a CAF, so `sizeOf` stays a constant.
-fn emit_layout_oracle_bindings(builder: &mut CodeBuilder, ir_name: &str, lname: &str) {
-    // Two-line form like every other foreign import in the module (the
-    // module's own tests parse `foreign import ccall unsafe "sym"` + the
-    // Haskell name on the next line).
-    builder.line(&format!("foreign import ccall unsafe \"az_hs_sizeof_{}\"", ir_name));
-    builder.line(&format!("    c_az_hs_sizeof_{} :: CSize", lname));
-    builder.line(&format!("foreign import ccall unsafe \"az_hs_alignof_{}\"", ir_name));
-    builder.line(&format!("    c_az_hs_alignof_{} :: CSize", lname));
-    builder.line(&format!("{}_sizeOf_total :: Int", lname));
-    builder.line(&format!("{}_sizeOf_total = fromIntegral c_az_hs_sizeof_{}", lname, lname));
-    builder.line(&format!("{}_alignment_total :: Int", lname));
-    builder.line(&format!("{}_alignment_total = fromIntegral c_az_hs_alignof_{}", lname, lname));
+    config.should_include_type(&e.name) && e.generic_params.is_empty()
 }
 
 // ============================================================================
@@ -366,16 +333,59 @@ fn emit_struct_decl(
     foreign_imports: &mut BTreeMap<String, String>,
 ) -> Result<()> {
     let name = haskell_data_name(&s.name);
-
-    if !s.doc.is_empty() {
-        for d in &s.doc {
-            builder.line(&format!("-- | {}", sanitize_doc(d)));
-        }
+    for d in &s.doc {
+        builder.line(&format!("-- | {}", sanitize_doc(d)));
     }
 
-    if s.fields.is_empty() {
-        // Phantom marker type — we still need a Storable instance so it
-        // can appear in field positions of other structs.
+    let fields: Vec<(String, String)> = s
+        .fields
+        .iter()
+        .map(|f| {
+            (
+                haskell_field_name(&s.name, &f.name),
+                haskell_field_type(&f.type_name, f.ref_kind, ir),
+            )
+        })
+        .collect();
+    let field_docs: Vec<Option<String>> = s.fields.iter().map(|f| f.doc.clone()).collect();
+    emit_record_type(
+        builder,
+        &s.name,
+        &name,
+        &fields,
+        &field_docs,
+        &struct_members(&s.fields),
+    );
+
+    // AzString -> Haskell String decoder, keyed on the IR's String category
+    // rather than the name so it stays honest if a second string type
+    // ever appears.
+    if matches!(s.category, TypeCategory::String) {
+        emit_string_to_string_helper(builder, s);
+    }
+
+    // AzVec<T> -> Haskell list helper, keyed on the (ptr, len, cap,
+    // destructor) field pattern every codegen-emitted Vec type has.
+    if let Some(elem_ty) = detect_vec_elem_type(s) {
+        emit_vec_to_list_helper(builder, s, &elem_ty, ir, foreign_imports)?;
+    }
+
+    Ok(())
+}
+
+/// Emit `data Name = Name { f1 :: !T1, ... }` plus its `Storable` instance
+/// over the oracle. Shared by structs and monomorphized struct aliases.
+fn emit_record_type(
+    builder: &mut CodeBuilder,
+    ir_name: &str,
+    name: &str,
+    fields: &[(String, String)],
+    field_docs: &[Option<String>],
+    members: &[OracleMember],
+) {
+    if fields.is_empty() {
+        // The C header spells an empty struct with a `uint8_t _dummy`
+        // member, so it is exactly one byte.
         builder.line(&format!("data {} = {} deriving (Show, Eq)", name, name));
         builder.line(&format!("instance Storable {} where", name));
         builder.indent();
@@ -385,142 +395,70 @@ fn emit_struct_decl(
         builder.line("poke _ _ = pure ()");
         builder.dedent();
         builder.blank();
-        return Ok(());
+        return;
     }
 
-    // data Name = Name { ... }
     builder.line(&format!("data {} = {}", name, name));
     builder.indent();
-    let mut first = true;
-    for f in &s.fields {
-        let prefix = if first { "{ " } else { ", " };
-        first = false;
-        let fname = haskell_field_name(&s.name, &f.name);
-        let hty = haskell_field_type(&f.type_name, f.ref_kind, ir);
-        if let Some(ref doc) = f.doc {
+    for (i, (fname, hty)) in fields.iter().enumerate() {
+        let prefix = if i == 0 { "{ " } else { ", " };
+        if let Some(Some(doc)) = field_docs.get(i) {
             builder.line(&format!("-- ^ {}", sanitize_doc(doc)));
         }
-        // Wrap the type in parens — GHC rejects `!Ptr ()` because the
-        // strictness annotation binds tighter than application:
-        //   "Unexpected strictness (!) annotation: !Ptr"
-        // `!(Ptr ())` is unambiguous regardless of how many type-app
-        // tokens follow.
+        // `!(T)` — the strictness annotation binds tighter than type
+        // application, so `!Ptr ()` is a parse error without the parens.
         builder.line(&format!("{}{} :: !({})", prefix, fname, hty));
     }
     builder.line("} deriving (Show)");
     builder.dedent();
     builder.blank();
 
-    // Storable instance using a running offset and per-field sizeOf.
-    // Helper names must start with a lowercase letter — Haskell rejects
-    // top-level value bindings whose name starts with uppercase
-    // ("Invalid data constructor 'Foo_sizeOf_total' in type signature").
-    let lname = lower_first(&name);
+    let lname = lower_first(name);
+    emit_oracle_imports(builder, ir_name, &lname, members);
     builder.line(&format!("instance Storable {} where", name));
     builder.indent();
-    builder.line(&format!("sizeOf _ = {}_sizeOf_total", lname));
-    builder.line(&format!("alignment _ = {}_alignment_total", lname));
-
-    // peek
-    builder.line("peek p = do");
-    builder.indent();
-    let mut offset_acc: Vec<String> = Vec::new();
-    for (i, f) in s.fields.iter().enumerate() {
-        let bind = format!("v{}", i);
-        let offset_expr = if i == 0 {
-            "0".to_string()
-        } else {
-            offset_acc.join(" + ")
-        };
-        let hty = haskell_field_type(&f.type_name, f.ref_kind, ir);
-        // Wrap the type in parens: `IO Ptr ()` is invalid Haskell;
-        // `IO (Ptr ())` is what GHC expects.
-        builder.line(&format!(
-            "{} <- peekByteOff p ({}) :: IO ({})",
-            bind, offset_expr, hty
+    builder.line(&format!(
+        "sizeOf _ = fromIntegral {}",
+        oracle_size_binding(&lname)
+    ));
+    builder.line(&format!(
+        "alignment _ = fromIntegral {}",
+        oracle_align_binding(&lname)
+    ));
+    let mut peek_expr = format!("peek p = {}", name);
+    for (i, _) in fields.iter().enumerate() {
+        let op = if i == 0 { "<$>" } else { "<*>" };
+        peek_expr.push_str(&format!(
+            " {} peekByteOff p {}",
+            op,
+            offset_expr(&lname, &members[i].suffix)
         ));
-        offset_acc.push(format!("sizeOf (undefined :: ({}))", hty));
     }
-    let mut acc = String::new();
-    acc.push_str(&format!("pure ({}", name));
-    for (i, _) in s.fields.iter().enumerate() {
-        acc.push_str(&format!(" v{}", i));
-    }
-    acc.push(')');
-    builder.line(&acc);
-    builder.dedent();
-
-    // poke
+    builder.line(&peek_expr);
     builder.line("poke p x = do");
     builder.indent();
-    let mut offset_acc: Vec<String> = Vec::new();
-    for (i, f) in s.fields.iter().enumerate() {
-        let fname = haskell_field_name(&s.name, &f.name);
-        let offset_expr = if i == 0 {
-            "0".to_string()
-        } else {
-            offset_acc.join(" + ")
-        };
-        let hty = haskell_field_type(&f.type_name, f.ref_kind, ir);
-        builder.line(&format!("pokeByteOff p ({}) ({} x)", offset_expr, fname));
-        offset_acc.push(format!("sizeOf (undefined :: {})", hty));
+    for (i, (fname, _)) in fields.iter().enumerate() {
+        builder.line(&format!(
+            "pokeByteOff p {} ({} x)",
+            offset_expr(&lname, &members[i].suffix),
+            fname
+        ));
     }
     builder.dedent();
     builder.dedent();
-
-    // Helper bindings: total size and alignment computed at runtime.
-    // This avoids requiring offsetof macros at codegen time. Names are
-    // lower-camelCased so Haskell parses them as value bindings rather
-    // than data constructors.
-    // Size and alignment come from the C compiler through the cbits layout
-    // oracle (cshim.rs `emit_layout_oracle`): `sizeof(Az<T>)` / `_Alignof`.
-    // The previous field-size sum had no padding (AzApp: 9 vs 16) and every
-    // `alloca` through the instance was too small — the hello-world's
-    // AzButton buffer overflowed the stack on 2026-09-07. The peek/poke
-    // offsets above are still the running unpadded sum (see the module doc).
-    let tname = lower_first(&name);
     builder.blank();
-    if s.fields.is_empty() {
-        builder.line(&format!("{}_sizeOf_total :: Int", tname));
-        builder.line(&format!("{}_sizeOf_total = 1", tname));
-        builder.line(&format!("{}_alignment_total :: Int", tname));
-        builder.line(&format!("{}_alignment_total = 1", tname));
-    } else {
-        emit_layout_oracle_bindings(builder, &s.name, &tname);
-    }
-    builder.blank();
-
-    // Phase H.6: AzString → Haskell String round-trip helper.
-    // Triggered by TypeCategory::String (the IR's marker for the UTF-8
-    // wrapper type) rather than a name-string match — keeps codegen
-    // honest if there's ever more than one string type.
-    if matches!(s.category, TypeCategory::String) {
-        emit_string_to_string_helper(builder, s);
-    }
-
-    // Phase H.3: AzVec<T> → Haskell list helper.
-    // Detect via the (ptr, len, cap, destructor) field pattern that every
-    // codegen-emitted Vec type has. Skips structs that don't match the
-    // shape exactly (so non-Vec structs with happenstance "Vec" suffixes
-    // are left alone).
-    if let Some(elem_ty) = detect_vec_elem_type(s) {
-        emit_vec_to_list_helper(builder, s, &elem_ty, ir, foreign_imports)?;
-    }
-
-    Ok(())
 }
 
 /// True if this struct matches the codegen-emitted Vec shape:
 /// fields = [ptr : *mut|*const T, len : usize, cap : usize, destructor : <Self>Destructor]
 /// Returns the element type (T) on match.
-fn detect_vec_elem_type(s: &super::super::ir::StructDef) -> Option<String> {
+fn detect_vec_elem_type(s: &StructDef) -> Option<String> {
     if s.fields.len() != 4 {
         return None;
     }
     let f_ptr = &s.fields[0];
     let f_len = &s.fields[1];
     let f_cap = &s.fields[2];
-    let _f_dst = &s.fields[3];
     if f_ptr.name != "ptr" || f_len.name != "len" || f_cap.name != "cap" {
         return None;
     }
@@ -543,26 +481,22 @@ fn detect_vec_elem_type(s: &super::super::ir::StructDef) -> Option<String> {
 
 fn emit_vec_to_list_helper(
     builder: &mut CodeBuilder,
-    s: &super::super::ir::StructDef,
+    s: &StructDef,
     elem_rust: &str,
     ir: &CodegenIR,
     foreign_imports: &mut BTreeMap<String, String>,
 ) -> Result<()> {
     use super::super::ir::FunctionKind;
     let vec_name = haskell_data_name(&s.name);
-    let elem_haskell = haskell_field_type(elem_rust, super::super::ir::FieldRefKind::Owned, ir);
+    let elem_haskell = haskell_field_type(elem_rust, FieldRefKind::Owned, ir);
     let lname = lower_first(&vec_name);
     let helper = format!("{}ToList", lname);
 
-    // V8 (Haskell): when the element type has a `_clone` export, the
-    // Phase-B.8 shim layer already provides `Az<X>_clone_via` (input
-    // ptr + output ptr; `cshim.rs:452-470` emits the wrapper). Each
-    // list entry then owns an independent heap allocation — closing
-    // the Vec later doesn't dangle the yielded `Storable` peeks.
-    //
-    // Without `_clone`, fall back to the legacy shallow `peekElemOff`
-    // path with a warning comment. Pre-existing for POD elements with
-    // no clone; same recipe as the Lua / OCaml fallbacks.
+    // When the element type has a `_clone` export, the shim layer provides
+    // `Az<X>_clone_via` (input ptr + output ptr). Each list entry then owns
+    // an independent heap allocation — closing the Vec later doesn't
+    // dangle the yielded `Storable` peeks. Without `_clone`, fall back to
+    // the shallow `peekElemOff` path (POD elements).
     let has_clone = ir
         .functions
         .iter()
@@ -574,30 +508,18 @@ fn emit_vec_to_list_helper(
     let clone_via_symbol = format!("Az{}_clone_via", elem_rust);
 
     if has_clone {
-        // Emit a local foreign-import bound to the same C symbol the
-        // FFI module imports. Re-declaring the symbol in *another*
-        // module is intentional and safe — Haskell links each module's
-        // foreign-import to the C symbol independently, and the
-        // `_internal` suffix avoids name clashes with
-        // `Azul.Internal.FFI.c_<symbol>` for users who import both
-        // modules unqualified.
-        //
-        // WITHIN a module, however, a repeated declaration is a hard
-        // GHC error (GHC-29916 "Multiple declarations of ..."), and
-        // that is exactly what this loop can produce: the binding name
-        // is keyed on the *element* type while this helper runs once
-        // per *Vec* struct, so every pair of Vec types over the same
-        // element (`StringVec` + `IcuStringVec` over `String`) hits it.
-        // `foreign_imports` is the module-scoped registry that makes
-        // the declaration emit exactly once. Do NOT drop it — and note
-        // that only the shared `foreign import` is deduplicated; the
-        // per-Vec `<vec>ToList` below must still be emitted for every
-        // Vec struct.
+        // A local foreign-import bound to the same C symbol the FFI module
+        // imports. Re-declaring the symbol in *another* module is fine
+        // (each module links its own import); WITHIN a module a repeated
+        // declaration is GHC-29916, and this loop can produce one because
+        // the binding is keyed on the *element* type while the helper runs
+        // once per *Vec* struct (`StringVec` + `IcuStringVec` over
+        // `String`). `foreign_imports` makes the declaration emit once.
         match foreign_imports.get(&clone_via_binding) {
             None => {
                 foreign_imports.insert(clone_via_binding.clone(), clone_via_symbol.clone());
                 builder.line(&format!(
-                    "foreign import ccall unsafe \"{}\"",
+                    "foreign import ccall safe \"{}\"",
                     clone_via_symbol
                 ));
                 builder.indent();
@@ -609,20 +531,12 @@ fn emit_vec_to_list_helper(
                 builder.blank();
             }
             Some(prev) if *prev == clone_via_symbol => {
-                // Already declared for an earlier Vec over the same
-                // element type. The binding is module-scoped, so the
-                // `ToList` emitted below resolves against it.
                 builder.line(&format!(
                     "-- `{}` (= C `{}`) already declared above for another Vec over `{}`.",
                     clone_via_binding, clone_via_symbol, elem_rust
                 ));
             }
             Some(prev) => {
-                // Two *different* C symbols normalized onto one Haskell
-                // binding name. Silently reusing the first would make
-                // this Vec's `ToList` clone via the wrong C function —
-                // a memory-corruption bug that no downstream compiler
-                // can catch. Fail codegen instead.
                 bail!(
                     "Haskell codegen: foreign-import binding `{}` would be bound to two \
                      different C symbols in Azul.Types: `{}` (already emitted) and `{}` \
@@ -638,15 +552,14 @@ fn emit_vec_to_list_helper(
         }
     }
 
-    builder.line("-- | Phase H.3 / V8: Decode the underlying buffer into a Haskell list.");
+    builder.line("-- | Decode the underlying buffer into a Haskell list.");
     if has_clone {
         builder.line(&format!(
             "-- Each element is cloned via `Az{}_clone_via` so the yielded list",
             elem_rust
         ));
         builder.line("-- entries own independent heap allocations and survive the Vec being");
-        builder.line("-- closed. Pure type-driven from the (ptr, len, cap, destructor) field");
-        builder.line("-- pattern; no per-Vec hardcoding.");
+        builder.line("-- closed.");
     } else {
         builder.line(&format!(
             "-- WARNING: no `Az{}_clone` export — falls back to shallow peekElemOff;",
@@ -665,9 +578,6 @@ fn emit_vec_to_list_helper(
     builder.line(&format!("let __p = {} v", ptr_field));
     builder.line(&format!("    __n = fromIntegral ({} v) :: Int", len_field));
     if has_clone {
-        // `Foreign.Marshal.Alloc.alloca` provides a `Ptr <Elem>` for
-        // the clone output; `peek` reads it back as `Elem` and the
-        // Vec mapM yields the list.
         builder.line(&format!(
             "let __elem_sz = sizeOf (undefined :: {})",
             elem_haskell
@@ -685,46 +595,41 @@ fn emit_vec_to_list_helper(
     Ok(())
 }
 
-use super::lower_first;
-
 // ============================================================================
 // Unit enum emission
 // ============================================================================
 
 fn emit_unit_enum_decl(builder: &mut CodeBuilder, e: &EnumDef) {
     let name = haskell_data_name(&e.name);
-
-    if !e.doc.is_empty() {
-        for d in &e.doc {
-            builder.line(&format!("-- | {}", sanitize_doc(d)));
-        }
+    for d in &e.doc {
+        builder.line(&format!("-- | {}", sanitize_doc(d)));
     }
-
-    if e.variants.is_empty() {
-        builder.line(&format!("-- SKIPPED: unit enum {} has no variants", e.name));
-        builder.blank();
-        return;
-    }
-
     let variants: Vec<String> = e
         .variants
         .iter()
         .map(|v| haskell_variant_name(&e.name, &v.name))
         .collect();
+    emit_unit_enum_type(builder, &name, &variants);
+}
+
+/// `data Name = V0 | V1 | ...` with a 4-byte `Storable` (C `enum`).
+fn emit_unit_enum_type(builder: &mut CodeBuilder, name: &str, variants: &[String]) {
+    if variants.is_empty() {
+        builder.line(&format!("-- SKIPPED: unit enum {} has no variants", name));
+        builder.blank();
+        return;
+    }
 
     builder.line(&format!("data {}", name));
     builder.indent();
-    let mut first = true;
-    for vname in &variants {
-        let prefix = if first { "= " } else { "| " };
-        first = false;
+    for (i, vname) in variants.iter().enumerate() {
+        let prefix = if i == 0 { "= " } else { "| " };
         builder.line(&format!("{}{}", prefix, vname));
     }
     builder.line("deriving (Show, Eq, Enum, Bounded)");
     builder.dedent();
     builder.blank();
 
-    // Storable: pass through Word32 (the Rust ABI repr for unit enums).
     builder.line(&format!("instance Storable {} where", name));
     builder.indent();
     builder.line("sizeOf _ = 4");
@@ -738,7 +643,7 @@ fn emit_unit_enum_decl(builder: &mut CodeBuilder, e: &EnumDef) {
         builder.line(&format!("{} -> pure {}", idx, vname));
     }
     builder.line(&format!(
-        "_ -> error \"Azul.Types.peek {}: unknown discriminator\"",
+        "_ -> error (\"Azul.Types.peek {}: unknown discriminator \" ++ show w)",
         name
     ));
     builder.dedent();
@@ -760,84 +665,84 @@ fn emit_unit_enum_decl(builder: &mut CodeBuilder, e: &EnumDef) {
 // Tagged-union emission
 // ============================================================================
 
+/// One constructor of a tagged union: its Haskell name and, per payload
+/// member (in C declaration order), the Haskell type and the oracle suffix
+/// of its offset.
+struct UnionVariant {
+    ctor: String,
+    payloads: Vec<(String, String)>,
+}
+
+/// The tag `lang_c` spells for this repr: `uint8_t` iff the repr contains
+/// "u8", else the C tag enum (`int`-sized). The Haskell side reads/writes
+/// it through the matching word type.
+fn tag_haskell_type(repr: Option<&str>) -> &'static str {
+    if repr.map(|r| r.contains("u8")).unwrap_or(false) {
+        "Word8"
+    } else {
+        "Word32"
+    }
+}
+
 fn emit_tagged_union_decl(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     let name = haskell_data_name(&e.name);
-
-    if !e.doc.is_empty() {
-        for d in &e.doc {
-            builder.line(&format!("-- | {}", sanitize_doc(d)));
-        }
+    for d in &e.doc {
+        builder.line(&format!("-- | {}", sanitize_doc(d)));
     }
-
-    if e.variants.is_empty() {
-        builder.line(&format!(
-            "-- SKIPPED: tagged-union {} has no variants",
-            e.name
-        ));
-        builder.blank();
-        return;
-    }
-
-    builder.line(&format!("data {}", name));
-    builder.indent();
-    let mut first = true;
-    for v in &e.variants {
-        let prefix = if first { "= " } else { "| " };
-        first = false;
-        let vname = haskell_variant_name(&e.name, &v.name);
-        match &v.kind {
-            EnumVariantKind::Unit => {
-                builder.line(&format!("{}{}", prefix, vname));
-            }
-            EnumVariantKind::Tuple(payload) => {
-                let payload_types: Vec<String> = payload
+    let variants: Vec<UnionVariant> = e
+        .variants
+        .iter()
+        .map(|v| {
+            let types: Vec<String> = match &v.kind {
+                EnumVariantKind::Unit => Vec::new(),
+                EnumVariantKind::Tuple(payload) => payload
                     .iter()
                     .map(|(t, rk)| haskell_field_type(t, *rk, ir))
-                    .collect();
-                builder.line(&format!("{}{} {}", prefix, vname, payload_types.join(" ")));
-            }
-            EnumVariantKind::Struct(fields) => {
-                let payload_types: Vec<String> = fields
+                    .collect(),
+                EnumVariantKind::Struct(fields) => fields
                     .iter()
                     .map(|f| haskell_field_type(&f.type_name, f.ref_kind, ir))
-                    .collect();
-                builder.line(&format!("{}{} {}", prefix, vname, payload_types.join(" ")));
+                    .collect(),
+            };
+            let suffixes: Vec<String> = match &v.kind {
+                EnumVariantKind::Unit => Vec::new(),
+                EnumVariantKind::Tuple(types) if types.len() == 1 => {
+                    vec![format!("{}_payload", v.name)]
+                }
+                EnumVariantKind::Tuple(types) => (0..types.len())
+                    .map(|i| format!("{}_payload_{}", v.name, i))
+                    .collect(),
+                EnumVariantKind::Struct(fields) => fields
+                    .iter()
+                    .map(|f| format!("{}_{}", v.name, escape_cpp_keyword_for_c(&f.name)))
+                    .collect(),
+            };
+            UnionVariant {
+                ctor: haskell_variant_name(&e.name, &v.name),
+                payloads: types.into_iter().zip(suffixes).collect(),
             }
-        }
-    }
-    builder.line("deriving (Show)");
-    builder.dedent();
-    builder.blank();
+        })
+        .collect();
+    let members: Vec<OracleMember> = variants
+        .iter()
+        .flat_map(|v| v.payloads.iter())
+        .map(|(_, suffix)| OracleMember {
+            c_path: String::new(),
+            suffix: suffix.clone(),
+        })
+        .collect();
+    emit_union_type(
+        builder,
+        &e.name,
+        &name,
+        &variants,
+        &members,
+        tag_haskell_type(e.repr.as_deref()),
+    );
 
-    // Storable: discriminator + opaque-byte-array payload. We expose a
-    // best-effort instance that round-trips the unit variants exactly
-    // and round-trips payload variants only when their payload is
-    // 'Storable' itself. For complex payloads users should reach for
-    // the raw FFI primitives.
-    // sizeof/alignof from the C compiler (cbits layout oracle) — the old
-    // fixed `8 + 64` bound was far off for large payloads (AzOptionDom: 288).
-    let lname = lower_first(&name);
-    emit_layout_oracle_bindings(builder, &e.name, &lname);
-    builder.line(&format!("instance Storable {} where", name));
-    builder.indent();
-    builder.line(&format!("sizeOf _ = {}_sizeOf_total", lname));
-    builder.line(&format!("alignment _ = {}_alignment_total", lname));
-    builder.line(&format!(
-        "peek _ = error \"Azul.Types.peek {}: tagged-union peek not implemented; use the raw FFI primitives\"",
-        name
-    ));
-    builder.line(&format!(
-        "poke _ _ = error \"Azul.Types.poke {}: tagged-union poke not implemented; use the raw FFI primitives\"",
-        name
-    ));
-    builder.dedent();
-    builder.blank();
-
-    // Phase H.4/H.5: tag-byte discriminator accessors for Option/Result-
-    // shaped enums. The full Storable peek/poke is a separate task
-    // (variants have payload-type-dependent offsets), but the tag is at
-    // offset 0 in every #[repr(C, u8)] tagged-union — peek that single
-    // byte and compare. Mirrors OCaml's `az_option_<T>_is_some` from A.1.4.
+    // Tag-byte discriminator accessors for Option/Result-shaped enums
+    // (`optionXIsSome :: Ptr OptionX -> IO Bool`): cheap checks that don't
+    // require peeking the payload.
     if is_option_shape(e) {
         emit_option_tag_helpers(builder, e);
     } else if is_result_shape(e) {
@@ -845,20 +750,117 @@ fn emit_tagged_union_decl(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR
     }
 }
 
+/// `data Name = V0 | V1 T | ...` plus the `Storable` instance over the
+/// oracle. Shared by IR enums and monomorphized union aliases.
+fn emit_union_type(
+    builder: &mut CodeBuilder,
+    ir_name: &str,
+    name: &str,
+    variants: &[UnionVariant],
+    members: &[OracleMember],
+    tag_ty: &str,
+) {
+    if variants.is_empty() {
+        builder.line(&format!("-- SKIPPED: tagged-union {} has no variants", name));
+        builder.blank();
+        return;
+    }
+
+    builder.line(&format!("data {}", name));
+    builder.indent();
+    for (i, v) in variants.iter().enumerate() {
+        let prefix = if i == 0 { "= " } else { "| " };
+        if v.payloads.is_empty() {
+            builder.line(&format!("{}{}", prefix, v.ctor));
+        } else {
+            let payloads: Vec<String> = v
+                .payloads
+                .iter()
+                .map(|(t, _)| paren_if_needed(t))
+                .collect();
+            builder.line(&format!("{}{} {}", prefix, v.ctor, payloads.join(" ")));
+        }
+    }
+    builder.line("deriving (Show)");
+    builder.dedent();
+    builder.blank();
+
+    let lname = lower_first(name);
+    emit_oracle_imports(builder, ir_name, &lname, members);
+    builder.line(&format!("instance Storable {} where", name));
+    builder.indent();
+    builder.line(&format!(
+        "sizeOf _ = fromIntegral {}",
+        oracle_size_binding(&lname)
+    ));
+    builder.line(&format!(
+        "alignment _ = fromIntegral {}",
+        oracle_align_binding(&lname)
+    ));
+    builder.line("peek p = do");
+    builder.indent();
+    builder.line(&format!("tag <- peek (castPtr p :: Ptr {})", tag_ty));
+    builder.line("case tag of");
+    builder.indent();
+    for (idx, v) in variants.iter().enumerate() {
+        if v.payloads.is_empty() {
+            builder.line(&format!("{} -> pure {}", idx, v.ctor));
+        } else {
+            let mut expr = format!("{} -> {}", idx, v.ctor);
+            for (j, (_, suffix)) in v.payloads.iter().enumerate() {
+                let op = if j == 0 { "<$>" } else { "<*>" };
+                expr.push_str(&format!(
+                    " {} peekByteOff p {}",
+                    op,
+                    offset_expr(&lname, suffix)
+                ));
+            }
+            builder.line(&expr);
+        }
+    }
+    builder.line(&format!(
+        "_ -> error (\"Azul.Types.peek {}: unknown discriminator \" ++ show tag)",
+        name
+    ));
+    builder.dedent();
+    builder.dedent();
+    builder.line("poke p v = case v of");
+    builder.indent();
+    for (idx, v) in variants.iter().enumerate() {
+        if v.payloads.is_empty() {
+            builder.line(&format!(
+                "{} -> poke (castPtr p :: Ptr {}) {}",
+                v.ctor, tag_ty, idx
+            ));
+        } else {
+            let binders: Vec<String> = (0..v.payloads.len()).map(|j| format!("a{}", j)).collect();
+            builder.line(&format!("{} {} -> do", v.ctor, binders.join(" ")));
+            builder.indent();
+            builder.line(&format!("poke (castPtr p :: Ptr {}) {}", tag_ty, idx));
+            for (j, b) in binders.iter().enumerate() {
+                builder.line(&format!(
+                    "pokeByteOff p {} {}",
+                    offset_expr(&lname, &v.payloads[j].1),
+                    b
+                ));
+            }
+            builder.dedent();
+        }
+    }
+    builder.dedent();
+    builder.dedent();
+    builder.blank();
+}
+
 /// Emit a `azStringToString :: AzString -> IO String` helper that
 /// decodes the wrapped UTF-8 bytes via the U8Vec's (ptr, len) fields.
-/// Triggered by TypeCategory::String — no name allowlist.
-fn emit_string_to_string_helper(builder: &mut CodeBuilder, s: &super::super::ir::StructDef) {
-    // Identify the single byte-buffer field (U8Vec). Assume it's the
-    // first field — the IR's AzString definition has exactly one field
-    // of type "U8Vec".
+fn emit_string_to_string_helper(builder: &mut CodeBuilder, s: &StructDef) {
     let Some(field) = s.fields.first() else {
         return;
     };
     let field_name = haskell_field_name(&s.name, &field.name);
     let lname = lower_first(&haskell_data_name(&s.name));
-    builder.line("-- | Phase H.6: decode the wrapped UTF-8 bytes into a Haskell String.");
-    builder.line("-- Uses the underlying U8Vec's (ptr, len) accessors via peekCStringLen.");
+    builder.line("-- | Decode the wrapped UTF-8 bytes into a Haskell String.");
     builder.line(&format!(
         "{}ToString :: {} -> IO String",
         lname,
@@ -869,8 +871,8 @@ fn emit_string_to_string_helper(builder: &mut CodeBuilder, s: &super::super::ir:
     builder.line(&format!("let __vec = {} s", field_name));
     builder.line("    __p = u8VecPtr __vec");
     builder.line("    __n = fromIntegral (u8VecLen __vec) :: Int");
-    // peekCStringLen expects (CString, Int); CString = Ptr CChar.
-    builder.line("peekCStringLen (castPtr __p, __n)");
+    builder.line("__bytes <- mapM (peekElemOff __p) [0 .. __n - 1]");
+    builder.line("pure (decodeUtf8 __bytes)");
     builder.dedent();
     builder.blank();
 }
@@ -890,55 +892,137 @@ fn is_result_shape(e: &EnumDef) -> bool {
         && e.variants.iter().any(|v| v.name == "Err")
 }
 
+fn emit_tag_predicate(
+    builder: &mut CodeBuilder,
+    fn_name: &str,
+    ty_name: &str,
+    tag_ty: &str,
+    expected: usize,
+) {
+    builder.line(&format!("{} :: Ptr {} -> IO Bool", fn_name, ty_name));
+    builder.line(&format!("{} p = do", fn_name));
+    builder.indent();
+    builder.line(&format!("tag <- peek (castPtr p :: Ptr {})", tag_ty));
+    builder.line(&format!("pure (tag == {})", expected));
+    builder.dedent();
+}
+
 fn emit_option_tag_helpers(builder: &mut CodeBuilder, e: &EnumDef) {
     let name = haskell_data_name(&e.name);
     let lname = lower_first(&name);
+    let tag_ty = tag_haskell_type(e.repr.as_deref());
     let none_idx = e.variants.iter().position(|v| v.name == "None").unwrap();
     let some_idx = e.variants.iter().position(|v| v.name == "Some").unwrap();
-    builder.line("-- | Phase H.4: read the tag byte at offset 0.");
-    builder.line("-- True if the underlying Option is the None variant.");
-    builder.line(&format!("{}IsNone :: Ptr {} -> IO Bool", lname, name));
-    builder.line(&format!("{}IsNone p = do", lname));
-    builder.indent();
-    builder.line(&format!(
-        "tag <- peekByteOff (castPtr p :: Ptr Word8) 0 :: IO Word8"
-    ));
-    builder.line(&format!("pure (tag == {})", none_idx));
-    builder.dedent();
-    builder.line(&format!("{}IsSome :: Ptr {} -> IO Bool", lname, name));
-    builder.line(&format!("{}IsSome p = do", lname));
-    builder.indent();
-    builder.line(&format!(
-        "tag <- peekByteOff (castPtr p :: Ptr Word8) 0 :: IO Word8"
-    ));
-    builder.line(&format!("pure (tag == {})", some_idx));
-    builder.dedent();
+    builder.line("-- | True if the underlying Option is the None variant (reads only the tag).");
+    emit_tag_predicate(builder, &format!("{}IsNone", lname), &name, tag_ty, none_idx);
+    emit_tag_predicate(builder, &format!("{}IsSome", lname), &name, tag_ty, some_idx);
     builder.blank();
 }
 
 fn emit_result_tag_helpers(builder: &mut CodeBuilder, e: &EnumDef) {
     let name = haskell_data_name(&e.name);
     let lname = lower_first(&name);
+    let tag_ty = tag_haskell_type(e.repr.as_deref());
     let ok_idx = e.variants.iter().position(|v| v.name == "Ok").unwrap();
     let err_idx = e.variants.iter().position(|v| v.name == "Err").unwrap();
-    builder.line("-- | Phase H.5: read the tag byte at offset 0.");
-    builder.line("-- True if the underlying Result is the Ok variant.");
-    builder.line(&format!("{}IsOk :: Ptr {} -> IO Bool", lname, name));
-    builder.line(&format!("{}IsOk p = do", lname));
-    builder.indent();
-    builder.line(&format!(
-        "tag <- peekByteOff (castPtr p :: Ptr Word8) 0 :: IO Word8"
-    ));
-    builder.line(&format!("pure (tag == {})", ok_idx));
-    builder.dedent();
-    builder.line(&format!("{}IsErr :: Ptr {} -> IO Bool", lname, name));
-    builder.line(&format!("{}IsErr p = do", lname));
-    builder.indent();
-    builder.line(&format!(
-        "tag <- peekByteOff (castPtr p :: Ptr Word8) 0 :: IO Word8"
-    ));
-    builder.line(&format!("pure (tag == {})", err_idx));
-    builder.dedent();
+    builder.line("-- | True if the underlying Result is the Ok variant (reads only the tag).");
+    emit_tag_predicate(builder, &format!("{}IsOk", lname), &name, tag_ty, ok_idx);
+    emit_tag_predicate(builder, &format!("{}IsErr", lname), &name, tag_ty, err_idx);
+    builder.blank();
+}
+
+// ============================================================================
+// Type aliases
+// ============================================================================
+
+fn emit_monomorphized_alias(
+    builder: &mut CodeBuilder,
+    ta: &TypeAliasDef,
+    kind: &MonomorphizedKind,
+    ir: &CodegenIR,
+) {
+    let name = haskell_data_name(&ta.name);
+    for d in &ta.doc {
+        builder.line(&format!("-- | {}", sanitize_doc(d)));
+    }
+    match kind {
+        MonomorphizedKind::SimpleEnum { variants, .. } => {
+            let ctors: Vec<String> = variants
+                .iter()
+                .map(|v| haskell_variant_name(&ta.name, v))
+                .collect();
+            emit_unit_enum_type(builder, &name, &ctors);
+        }
+        MonomorphizedKind::Struct { fields } => {
+            let hs_fields: Vec<(String, String)> = fields
+                .iter()
+                .map(|f| {
+                    (
+                        haskell_field_name(&ta.name, &f.name),
+                        haskell_field_type(&f.type_name, f.ref_kind, ir),
+                    )
+                })
+                .collect();
+            let docs: Vec<Option<String>> = fields.iter().map(|f| f.doc.clone()).collect();
+            emit_record_type(
+                builder,
+                &ta.name,
+                &name,
+                &hs_fields,
+                &docs,
+                &struct_members(fields),
+            );
+        }
+        MonomorphizedKind::TaggedUnion { repr, variants } => {
+            let hs_variants: Vec<UnionVariant> = variants
+                .iter()
+                .map(|v: &MonomorphizedVariant| UnionVariant {
+                    ctor: haskell_variant_name(&ta.name, &v.name),
+                    payloads: v
+                        .payload_type
+                        .iter()
+                        .map(|p| {
+                            (
+                                haskell_field_type(p, v.payload_ref_kind, ir),
+                                format!("{}_payload", v.name),
+                            )
+                        })
+                        .collect(),
+                })
+                .collect();
+            let members: Vec<OracleMember> = hs_variants
+                .iter()
+                .flat_map(|v| v.payloads.iter())
+                .map(|(_, suffix)| OracleMember {
+                    c_path: String::new(),
+                    suffix: suffix.clone(),
+                })
+                .collect();
+            emit_union_type(
+                builder,
+                &ta.name,
+                &name,
+                &hs_variants,
+                &members,
+                tag_haskell_type(repr.as_deref()),
+            );
+        }
+    }
+}
+
+/// `type ScanCode = Word32`, `type X11Visual = Ptr ()`: a simple alias is
+/// a synonym of its target's representation, so a field of that type has
+/// the target's exact `Storable`.
+fn emit_simple_alias(builder: &mut CodeBuilder, ta: &TypeAliasDef, ir: &CodegenIR) {
+    let name = haskell_data_name(&ta.name);
+    let target = map_owned_type(&ta.target, ir);
+    if target == name {
+        return;
+    }
+    for d in &ta.doc {
+        builder.line(&format!("-- | {}", sanitize_doc(d)));
+    }
+    builder.line(&format!("type {} = {}", name, target));
     builder.blank();
 }
 
@@ -955,11 +1039,24 @@ pub fn haskell_field_type(type_name: &str, ref_kind: FieldRefKind, ir: &CodegenI
         | FieldRefKind::Ptr
         | FieldRefKind::PtrMut
         | FieldRefKind::Boxed
-        | FieldRefKind::OptionBoxed => format!("Ptr {}", map_owned_type(type_name, ir)),
+        | FieldRefKind::OptionBoxed => {
+            format!("Ptr {}", paren_if_needed(&map_owned_type(type_name, ir)))
+        }
     }
 }
 
-fn map_owned_type(type_name: &str, ir: &CodegenIR) -> String {
+/// Wrap a multi-token type expression in parens so it can be applied to
+/// (`Ptr (RefAny)` is fine, `Ptr Ptr ()` is not).
+fn paren_if_needed(s: &str) -> String {
+    let needs = s.contains(' ') && !(s.starts_with('(') && s.ends_with(')'));
+    if needs {
+        format!("({})", s)
+    } else {
+        s.to_string()
+    }
+}
+
+pub fn map_owned_type(type_name: &str, ir: &CodegenIR) -> String {
     let t = type_name.trim();
 
     // Pointer / reference forms in the type string itself.
@@ -992,11 +1089,6 @@ fn map_owned_type(type_name: &str, ir: &CodegenIR) -> String {
         "usize" => "CSize".to_string(),
         "isize" => "CIntPtr".to_string(),
         "c_void" | "()" | "void" => "()".to_string(),
-        // RefAny is a phantom-typed `newtype RefAny a`. When referenced
-        // from variants like `ResultRefAnyString_Ok RefAny`, GHC needs
-        // a type argument. Use `()` as the default (matches the
-        // hand-rolled `unRefAny :: Ptr ()` payload).
-        "RefAny" => "(RefAny ())".to_string(),
         _ => {
             if ir.find_struct(t).is_some()
                 || ir.find_enum(t).is_some()
@@ -1022,33 +1114,29 @@ fn pointer_form(inner: &str, ir: &CodegenIR) -> String {
         // benefit, but the underlying repr is the same as `Ptr Word8`.
         return "(Ptr Word8)".to_string();
     }
-    format!("(Ptr {})", map_owned_type(inner, ir))
+    format!("(Ptr {})", paren_if_needed(&map_owned_type(inner, ir)))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::ir::{FunctionDef, FunctionKind};
+    use super::super::super::ir::{EnumVariantDef, FunctionDef, FunctionKind};
     use super::*;
 
-    /// A Vec-shaped struct: `[ptr: *const <elem>, len, cap, destructor]` —
-    /// exactly the shape `detect_vec_elem_type` keys on.
-    fn vec_struct(name: &str, elem: &str) -> StructDef {
-        let field = |fname: &str, ty: &str| FieldDef {
+    fn field(fname: &str, ty: &str) -> FieldDef {
+        FieldDef {
             name: fname.to_string(),
             type_name: ty.to_string(),
             doc: None,
             is_public: true,
             ref_kind: FieldRefKind::Owned,
-        };
+        }
+    }
+
+    fn plain_struct(name: &str, fields: Vec<FieldDef>, category: TypeCategory) -> StructDef {
         StructDef {
             name: name.to_string(),
             doc: vec![],
-            fields: vec![
-                field("ptr", &format!("*const {}", elem)),
-                field("len", "usize"),
-                field("cap", "usize"),
-                field("destructor", &format!("{}Destructor", name)),
-            ],
+            fields,
             external_path: None,
             module: "vec".to_string(),
             derives: vec![],
@@ -1059,11 +1147,61 @@ mod tests {
             is_send_safe: true,
             generic_params: vec![],
             traits: Default::default(),
-            category: TypeCategory::Vec,
+            category,
             dependencies: vec![],
             sort_order: 0,
             needs_forward_decl: false,
             callback_wrapper_info: None,
+        }
+    }
+
+    /// A Vec-shaped struct: `[ptr: *const <elem>, len, cap, destructor]` —
+    /// exactly the shape `detect_vec_elem_type` keys on.
+    fn vec_struct(name: &str, elem: &str) -> StructDef {
+        plain_struct(
+            name,
+            vec![
+                field("ptr", &format!("*const {}", elem)),
+                field("len", "usize"),
+                field("cap", "usize"),
+                field("destructor", &format!("{}Destructor", name)),
+            ],
+            TypeCategory::Vec,
+        )
+    }
+
+    fn destructor_union(name: &str, repr: &str) -> EnumDef {
+        EnumDef {
+            name: name.to_string(),
+            doc: vec![],
+            variants: vec![
+                EnumVariantDef {
+                    name: "DefaultRust".into(),
+                    doc: None,
+                    kind: EnumVariantKind::Unit,
+                },
+                EnumVariantDef {
+                    name: "External".into(),
+                    doc: None,
+                    kind: EnumVariantKind::Tuple(vec![(
+                        "*mut c_void".into(),
+                        FieldRefKind::Owned,
+                    )]),
+                },
+            ],
+            external_path: None,
+            module: "vec".to_string(),
+            derives: vec![],
+            has_explicit_derive: false,
+            is_union: true,
+            repr: Some(repr.to_string()),
+            is_send_safe: true,
+            traits: Default::default(),
+            generic_params: vec![],
+            category: TypeCategory::DestructorOrClone,
+            dependencies: vec![],
+            sort_order: 0,
+            needs_forward_decl: false,
         }
     }
 
@@ -1082,6 +1220,23 @@ mod tests {
         }
     }
 
+    fn fixture_ir() -> CodegenIR {
+        let mut ir = CodegenIR::new();
+        ir.structs.push(plain_struct(
+            "String",
+            vec![field("vec", "U8Vec")],
+            TypeCategory::String,
+        ));
+        ir.structs.push(vec_struct("U8Vec", "u8"));
+        ir.structs.push(vec_struct("StringVec", "String"));
+        ir.structs.push(vec_struct("IcuStringVec", "String"));
+        ir.enums.push(destructor_union("U8VecDestructor", "C"));
+        ir.enums.push(destructor_union("StringVecDestructor", "C"));
+        ir.enums.push(destructor_union("IcuStringVecDestructor", "C, u8"));
+        ir.functions.push(deep_copy_fn("String"));
+        ir
+    }
+
     /// The element type carries a `_clone` export, so every Vec over it
     /// wants the `az_<elem>_clone_via_internal` foreign import. Two such
     /// Vec structs must still produce exactly ONE declaration — GHC
@@ -1090,18 +1245,7 @@ mod tests {
     /// Regression guard for `StringVec` + `IcuStringVec` (both over
     /// `String`), which broke the Haskell binding build.
     fn emit_two_vecs_over_same_elem() -> String {
-        let mut ir = CodegenIR::new();
-        // The element type must be a known IR struct, otherwise it maps
-        // to the opaque `(Ptr ())` fallback and the test would no longer
-        // mirror the real `StringVec` / `IcuStringVec` output.
-        let mut string_ty = vec_struct("String", "u8");
-        string_ty.fields.truncate(1);
-        string_ty.category = TypeCategory::Regular;
-        ir.structs.push(string_ty);
-        ir.structs.push(vec_struct("StringVec", "String"));
-        ir.structs.push(vec_struct("IcuStringVec", "String"));
-        ir.functions.push(deep_copy_fn("String"));
-
+        let ir = fixture_ir();
         let config = CodegenConfig::c_header();
         let mut builder = CodeBuilder::new(&config.indent);
         emit_type_decls(&mut builder, &ir, &config).expect("emit must succeed");
@@ -1177,6 +1321,93 @@ mod tests {
             2,
             "both decoders must call the shared clone-via binding:\n{}",
             src
+        );
+    }
+
+    /// Every number a Storable instance uses is an import of the cbits
+    /// oracle: sizes, alignments and — the half the old binding lacked —
+    /// the member offsets, so padded fields are read where the C compiler
+    /// put them instead of at an unpadded running sum.
+    #[test]
+    fn storable_layout_comes_from_the_oracle() {
+        let src = emit_two_vecs_over_same_elem();
+        let u8vec = src
+            .split("instance Storable U8Vec where")
+            .nth(1)
+            .expect("U8Vec instance");
+        assert!(
+            u8vec.contains("sizeOf _ = fromIntegral c_az_hs_sizeof_u8Vec"),
+            "U8Vec size:\n{}",
+            u8vec
+        );
+        assert!(
+            u8vec.contains("peek p = U8Vec <$> peekByteOff p (fromIntegral c_az_hs_offsetof_u8Vec_ptr) <*> peekByteOff p (fromIntegral c_az_hs_offsetof_u8Vec_len) <*> peekByteOff p (fromIntegral c_az_hs_offsetof_u8Vec_cap) <*> peekByteOff p (fromIntegral c_az_hs_offsetof_u8Vec_destructor)"),
+            "U8Vec offsets:\n{}",
+            u8vec
+        );
+        assert!(
+            src.contains("foreign import ccall unsafe \"az_hs_offsetof_U8Vec_destructor\""),
+            "oracle import for the destructor offset:\n{}",
+            src
+        );
+        let dtor = src
+            .split("instance Storable U8VecDestructor where")
+            .nth(1)
+            .expect("U8VecDestructor instance");
+        assert!(
+            dtor.contains("tag <- peek (castPtr p :: Ptr Word32)"),
+            "a #[repr(C)] union reads an int-sized tag:\n{}",
+            dtor
+        );
+        assert!(
+            dtor.contains("1 -> U8VecDestructor_External <$> peekByteOff p (fromIntegral c_az_hs_offsetof_u8VecDestructor_External_payload)"),
+            "destructor payload offset:\n{}",
+            dtor
+        );
+        let dtor_u8 = src
+            .split("instance Storable IcuStringVecDestructor where")
+            .nth(1)
+            .expect("IcuStringVecDestructor instance");
+        assert!(
+            dtor_u8.contains("tag <- peek (castPtr p :: Ptr Word8)"),
+            "a #[repr(C, u8)] union reads a byte tag:\n{}",
+            dtor_u8
+        );
+        assert!(
+            !src.contains("not implemented"),
+            "no Storable instance may error out of peek/poke:\n{}",
+            src
+        );
+    }
+
+    /// The oracle table `cshim.rs` emits C definitions from must list
+    /// exactly the symbols `Azul.Types` imports.
+    #[test]
+    fn oracle_table_matches_the_imports() {
+        let ir = fixture_ir();
+        let config = CodegenConfig::c_header();
+        let src = emit_two_vecs_over_same_elem();
+        let table = layout_oracle(&ir, &config);
+        let mut symbols: Vec<String> = Vec::new();
+        for t in &table {
+            symbols.push(format!("az_hs_sizeof_{}", t.ir_name));
+            symbols.push(format!("az_hs_alignof_{}", t.ir_name));
+            for m in &t.members {
+                symbols.push(format!("az_hs_offsetof_{}_{}", t.ir_name, m.suffix));
+            }
+        }
+        for sym in &symbols {
+            assert!(
+                src.contains(&format!("\"{}\"", sym)),
+                "Azul.Types never imports oracle symbol {}",
+                sym
+            );
+        }
+        let imported = src.matches("foreign import ccall unsafe \"az_hs_").count();
+        assert_eq!(
+            imported,
+            symbols.len(),
+            "every oracle import must have a definition in the table"
         );
     }
 
