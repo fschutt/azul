@@ -3851,6 +3851,18 @@ impl RemillTranspiler {
             ir.push_str("declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)\n");
             ir.push_str("declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)\n");
             ir.push_str("declare void @llvm.memmove.p0.p0.i64(ptr, ptr, i64, i1)\n");
+            // Routed CRT math: these are ENV imports the loader backs with
+            // JS Math. Declaring them here is what lets the intercept case
+            // call them; the loader must provide every name or the Proxy
+            // zero-stubs it silently.
+            for f in ["log", "exp", "sin", "cos", "tan", "log2", "log10", "round"] {
+                ir.push_str(&format!("declare double @{f}(double)\n"));
+                ir.push_str(&format!("declare float @{f}f(float)\n"));
+            }
+            for f in ["pow", "fmod"] {
+                ir.push_str(&format!("declare double @{f}(double, double)\n"));
+                ir.push_str(&format!("declare float @{f}f(float, float)\n"));
+            }
             for intrin in ["trunc", "floor", "ceil", "fabs", "sqrt"] {
                 ir.push_str(&format!("declare double @llvm.{intrin}.f64(double)\n"));
                 ir.push_str(&format!("declare float @llvm.{intrin}.f32(float)\n"));
@@ -5160,6 +5172,21 @@ enum ImportIntercept {
     /// Single-threaded there are never waiters, so doing nothing is the correct
     /// answer, not an approximation.
     FutexWake,
+    /// A CRT math call with no single-instruction wasm equivalent, routed to an
+    /// env import the loader backs with JS `Math` (`log`, `exp`, `sin`, `cos`,
+    /// `tan`, `log2`, `log10`) — one `double` argument in XMM0, result in XMM0.
+    ///
+    /// These were deliberately left unrouted while the alternative was an
+    /// approximation. It is not: JS `Math` is IEEE double math, so the real
+    /// choice is an exact value or a hard trap, and `log` was reached for real
+    /// by the boot. The `f32` forms take and return XMM0's low half.
+    ///
+    /// Unlike [`Self::F64Unary`] this needs the loader to provide the symbol —
+    /// an unprovided one would be Proxy-zero-stubbed, which is silent and wrong.
+    F64LibCall(&'static str, bool),
+    /// A two-argument CRT math call routed the same way (`pow`, `fmod`):
+    /// arguments in XMM0 and XMM1, result in XMM0.
+    F64LibCall2(&'static str, bool),
     /// `WaitOnAddress(addr, compare, size, ms) -> BOOL` — returns TRUE.
     ///
     /// Only reachable on the CONTENDED path, which cannot occur single-threaded;
@@ -5195,6 +5222,8 @@ impl ImportIntercept {
             ImportIntercept::FutexWake => "WakeByAddress",
             ImportIntercept::FutexWait => "WaitOnAddress",
             ImportIntercept::F64Unary(n, _) => n,
+            ImportIntercept::F64LibCall(n, _) => n,
+            ImportIntercept::F64LibCall2(n, _) => n,
         }
     }
 
@@ -5309,6 +5338,35 @@ impl ImportIntercept {
             }
             // Void: write no return slot. A wake reports nothing, and the
             // Win64 ABI leaves RAX undefined across it.
+            ImportIntercept::F64LibCall(fname, is_f32) => format!(
+                "imp{l}:\n\
+                 \x20 %xp{l} = getelementptr inbounds i8, ptr %state, i64 {x0}\n\
+                 \x20 %xv{l} = load {ty}, ptr %xp{l}, align {al}\n\
+                 \x20 %xr{l} = call {ty} @{fname}({ty} %xv{l})\n\
+                 \x20 store {ty} %xr{l}, ptr %xp{l}, align {al}\n\
+                 \x20 ret ptr %memory\n",
+                l = l,
+                x0 = pcs::XMM[0],
+                fname = fname,
+                ty = if is_f32 { "float" } else { "double" },
+                al = if is_f32 { 4 } else { 8 },
+            ),
+            ImportIntercept::F64LibCall2(fname, is_f32) => format!(
+                "imp{l}:\n\
+                 \x20 %xp{l} = getelementptr inbounds i8, ptr %state, i64 {x0}\n\
+                 \x20 %xv{l} = load {ty}, ptr %xp{l}, align {al}\n\
+                 \x20 %yp{l} = getelementptr inbounds i8, ptr %state, i64 {x1}\n\
+                 \x20 %yv{l} = load {ty}, ptr %yp{l}, align {al}\n\
+                 \x20 %xr{l} = call {ty} @{fname}({ty} %xv{l}, {ty} %yv{l})\n\
+                 \x20 store {ty} %xr{l}, ptr %xp{l}, align {al}\n\
+                 \x20 ret ptr %memory\n",
+                l = l,
+                x0 = pcs::XMM[0],
+                x1 = pcs::XMM[1],
+                fname = fname,
+                ty = if is_f32 { "float" } else { "double" },
+                al = if is_f32 { 4 } else { 8 },
+            ),
             ImportIntercept::FutexWake => format!("imp{l}:\n  ret ptr %memory\n", l = l),
             ImportIntercept::FutexWait => format!(
                 "imp{l}:\n  %wp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n  \
@@ -5432,6 +5490,26 @@ fn intercepted_import_labels(cases: &[(u64, u64)]) -> Vec<(u64, ImportIntercept,
         ("KERNELBASE.dll\0", "WakeByAddressAll\0", ImportIntercept::FutexWake),
         ("KERNELBASE.dll\0", "WakeByAddressSingle\0", ImportIntercept::FutexWake),
         ("KERNELBASE.dll\0", "WaitOnAddress\0", ImportIntercept::FutexWait),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "round\0", ImportIntercept::F64LibCall("round", false)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "roundf\0", ImportIntercept::F64LibCall("roundf", true)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "log\0", ImportIntercept::F64LibCall("log", false)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "logf\0", ImportIntercept::F64LibCall("logf", true)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "exp\0", ImportIntercept::F64LibCall("exp", false)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "expf\0", ImportIntercept::F64LibCall("expf", true)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "sin\0", ImportIntercept::F64LibCall("sin", false)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "sinf\0", ImportIntercept::F64LibCall("sinf", true)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "cos\0", ImportIntercept::F64LibCall("cos", false)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "cosf\0", ImportIntercept::F64LibCall("cosf", true)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "tan\0", ImportIntercept::F64LibCall("tan", false)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "tanf\0", ImportIntercept::F64LibCall("tanf", true)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "log2\0", ImportIntercept::F64LibCall("log2", false)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "log2f\0", ImportIntercept::F64LibCall("log2f", true)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "log10\0", ImportIntercept::F64LibCall("log10", false)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "log10f\0", ImportIntercept::F64LibCall("log10f", true)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "pow\0", ImportIntercept::F64LibCall2("pow", false)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "powf\0", ImportIntercept::F64LibCall2("powf", true)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "fmod\0", ImportIntercept::F64LibCall2("fmod", false)),
+        ("api-ms-win-crt-math-l1-1-0.dll\0", "fmodf\0", ImportIntercept::F64LibCall2("fmodf", true)),
         ("bcryptprimitives.dll\0", "ProcessPrng\0", ImportIntercept::ProcessPrng),
         ("VCRUNTIME140.dll\0", "memcmp\0", ImportIntercept::Memcmp),
         ("VCRUNTIME140.dll\0", "memcpy\0", ImportIntercept::Memmove),

@@ -263,6 +263,23 @@ function azMakeMiniImports() {
         ceilf: Math.ceil, ceil: Math.ceil,
         truncf: Math.trunc, trunc: Math.trunc,
         powf: Math.pow, pow: Math.pow,
+        // The transcendentals the lift routes from the CRT import table. These
+        // were previously left unrouted on the grounds that anything needing a
+        // real libm should not be approximated - but JS Math is not an
+        // approximation, it is IEEE double math, so the choice is between an
+        // exact value here and a hard trap on an unmatched dispatch. `log` was
+        // reached for real by the boot.
+        logf: Math.log, log: Math.log,
+        expf: Math.exp, exp: Math.exp,
+        sinf: Math.sin, sin: Math.sin,
+        cosf: Math.cos, cos: Math.cos,
+        tanf: Math.tan, tan: Math.tan,
+        log2f: Math.log2, log2: Math.log2,
+        log10f: Math.log10, log10: Math.log10,
+        // C fmod truncates toward zero and keeps the dividend's sign, which is
+        // exactly JS `%` on doubles.
+        fmodf: function(a, b) { return a % b; },
+        fmod:  function(a, b) { return a % b; },
         __multi3: azMulti3,
         memset: azMemset, memcpy: azMemcpy, memmove: azMemcpy, __udivti3: azUdivti3,
     };
