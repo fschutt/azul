@@ -65,12 +65,26 @@ first() { ls -1 "$1" 2>/dev/null | head -1; }
 #   repositories { maven { url "https://azul.rs/ui/maven" } }  +  rs.azul:azul:<V>
 # --------------------------------------------------------------------------
 build_maven() {
-  local jar; jar="$(first "$ART/maven-jar/*.jar" 2>/dev/null)"
-  jar="$(ls -1 "$ART"/maven-jar/*.jar 2>/dev/null | head -1)"
-  [ -n "$jar" ] || { echo "  [maven] no jar artifact — skip"; return; }
+  # The maven job uploads THREE jars: azul-$V.jar (classes + JNA natives),
+  # azul-$V-sources.jar and azul-$V-javadoc.jar. `ls | head -1` sorted them
+  # and picked "-javadoc" ("-" < "."), so the live rs.azul:azul:0.2.0 was the
+  # javadoc jar — 0 .class files — and every Maven/Gradle/scala-cli user got a
+  # NoClassDefFoundError. Select by exact name, and refuse to publish anything
+  # that is not demonstrably the classes jar.
+  local jar="$ART/maven-jar/azul-$V.jar"
+  [ -f "$jar" ] || { echo "::error::[maven] $jar missing — the maven job must upload azul-$V.jar (classes + natives)"; return 1; }
+  if ! unzip -l "$jar" | grep -qE '\.class$'; then
+    echo "::error::[maven] $jar contains no .class files — refusing to publish it as rs.azul:azul:$V"; return 1
+  fi
+  if ! unzip -l "$jar" | grep -qE 'libazul\.so|libazul\.dylib|azul\.dll'; then
+    echo "::error::[maven] $jar carries no native library — JNA would fail at runtime; refusing to publish"; return 1
+  fi
   local dir="$SITE/ui/maven/rs/azul/azul/$V"
   mkdir -p "$dir"
   cp "$jar" "$dir/azul-$V.jar"
+  # Sources jar for IDE navigation, when the job produced one.
+  [ -f "$ART/maven-jar/azul-$V-sources.jar" ] && cp "$ART/maven-jar/azul-$V-sources.jar" "$dir/azul-$V-sources.jar"
+  echo "  [maven] published azul-$V.jar ($(unzip -l "$jar" | grep -cE '\.class$') classes)"
   # Consumer POM (declares the JNA runtime dep; matches the maven-central pom).
   cat > "$dir/azul-$V.pom" <<POM
 <?xml version="1.0" encoding="UTF-8"?>
