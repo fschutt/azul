@@ -111,7 +111,7 @@ does not list), because that one already surfaces loudly as F3.
 ## Running the drift test
 
 ```
-cargo test --release -p azul-dll --features web-transpiler --lib     provided_env_matches_loader
+cargo test --release -p azul-dll --features web-transpiler --lib provided_env_matches_loader
 ```
 
 Note the package. The test lives in crate `azul`, which is package **azul-dll** —
