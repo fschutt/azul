@@ -1529,6 +1529,27 @@ impl CssPropertyCache {
                     .is_some_and(|c| cs.iter().all(|sel| sel.matches(c)))
         };
 
+        // Both vecs are rebuilt from scratch on every restyle, so the reset has to
+        // happen UNCONDITIONALLY — outside the `!css_is_empty` guard below.
+        //
+        // It used to sit inside it, and with an empty stylesheet that skipped the
+        // reset and left `css_props` in READ phase. `sort_each_and_flatten` at the
+        // end of this function runs either way, and in read phase its `build` is
+        // empty, so it produces empty `data` AND empty `offsets` — silently WIPING
+        // the cache rather than leaving it alone. Every later per-node read then
+        // indexes a zero-length structure, which is the `panic_bounds_check` seen
+        // inside `restyle` (the trailing `generate_tag_ids` call is inlined into
+        // it, so the panic is attributed here rather than to the reader).
+        //
+        // Sized from `self.node_count`, the authoritative count that `empty()`
+        // itself uses — not from `css_props.len()`, which reports whichever phase
+        // the cache happens to be in, and not from `node_data.len()`, which
+        // `build_compact_cache_honours_node_count_over_node_data_len` pins as the
+        // wrong source.
+        let node_count = self.node_count;
+        self.css_props = FlatVecVec::new(node_count);
+        self.cascaded_props = FlatVecVec::new(node_count);
+
         if !css_is_empty {
             css.sort_by_specificity();
 
@@ -1571,9 +1592,7 @@ impl CssPropertyCache {
             // ordering css_props relies on), so a fresh build-phase vec
             // repopulates completely. The historical reason for preserving
             // was a phase-bug in the old clear, not a data dependency.
-            let node_count = self.css_props.len();
-            self.css_props = FlatVecVec::new(node_count);
-            self.cascaded_props = FlatVecVec::new(node_count);
+            // (the reset itself now happens before this block — see above)
 
             // Collect global-only rule declarations ONCE (not per-node).
             // These are stored in self.global_css_props and applied during

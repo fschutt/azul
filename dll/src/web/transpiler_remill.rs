@@ -6046,10 +6046,22 @@ impl RemillTranspiler {
         // still named the chunk's, `--gc-sections` would pull the other side back
         // in and the split would yield nothing.
         //
-        // No `--export` list: wasm-ld errors on `--export=<sym>` for a symbol the
-        // link does not define, and a chunk defines almost none of the mini's
-        // exports. The dispatcher's static `declare`+`call` of each body is what
-        // keeps the bodies alive, exactly as in the main link.
+        // The chunk exports its DISPATCHER and nothing else.
+        //
+        // Not the mini's export list: wasm-ld errors on `--export=<sym>` for a
+        // symbol the link does not define, and a chunk defines almost none of
+        // them. But an EMPTY list is worse than wrong, it is silently wrong —
+        // `--gc-sections` then has no root at all, drops the dispatcher, and with
+        // it every body the dispatcher was the only static reference to. The
+        // first attempt did exactly that and produced three "chunks" of
+        // 1,527,380 bytes each, identical to one another because all that
+        // survived was the data mirror: 512, 272 and 23 objects all linking to
+        // the same size is the tell.
+        //
+        // The main link has the same requirement and meets it by pushing
+        // `__az_indirect_dispatch` onto its exports; a chunk needs the same
+        // anchor, and only that one.
+        let chunk_exports = vec!["__az_indirect_dispatch".to_string()];
         for (i, (root, members)) in plan.lazy.iter().enumerate() {
             let n = i + 1;
             let objs: Vec<PathBuf> = object_paths
@@ -6085,7 +6097,7 @@ impl RemillTranspiler {
             let stem = format!("{}-p{}", p0_stem.trim_end_matches("-p0"), n);
             match self.link_objects_to_wasm(
                 &chunk_objs,
-                &[],
+                &chunk_exports,
                 stem.as_str(),
                 opts.memory_mode,
                 accessed_pages,
