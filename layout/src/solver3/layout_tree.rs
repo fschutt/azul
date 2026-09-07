@@ -207,6 +207,21 @@ pub struct InlineItemMetrics {
 /// 2. **Max-content measurement**: width = `MaxContent` (effectively infinite)
 /// Cached output of `collect_and_measure_inline_content` (see
 /// `LayoutNodeWarm::inline_content_cache`).
+///
+/// **This memo has a second output that is not in it.** The call it stands for
+/// does not only collect: it lays out every atomic inline-level child, and that
+/// layout is written to the TREE. So the struct is only reusable while those
+/// children are still laid out in the tree being worked on — true for repeat
+/// visits within one pass (min-content, max-content, definite), false the first
+/// time an IFC root is visited in a rebuilt tree.
+///
+/// The `subtree_fingerprint` cannot see this; it describes content, not whether
+/// anything has been laid out. `layout_ifc` therefore checks the second
+/// precondition itself, at the point of use — see
+/// `atomic_inline_children_are_laid_out` in `fc.rs`. Reuse without that check
+/// leaves the child at 0x0 while the `InlineShape` here still carries its
+/// measured size, so text flows around a box that paints and hit-tests as
+/// nothing.
 #[derive(Debug, Clone)]
 pub struct CachedInlineContent {
     /// The collected inline content (text runs, atomics, markers).

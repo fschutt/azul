@@ -3642,6 +3642,35 @@ fn layout_ifc<T: ParsedFontTrait>(
         .filter(|c| c.subtree_fingerprint == subtree_fingerprint)
         .map(|c| (c.content.clone(), c.child_map.clone(), c.content_hash_base));
 
+    // Second precondition, checked HERE because this is the only place that can.
+    //
+    // The fingerprint proves the collection is unchanged. It says nothing about
+    // the cache's other half: `collect_and_measure_inline_content` does not only
+    // collect, it LAYS OUT every atomic inline-level child, and that layout is
+    // written to the TREE, not to the cache. Reuse the collection in a tree
+    // where those children have not been laid out and the only call that would
+    // size them is skipped — they keep their 0x0 default while the cached
+    // `InlineShape` still carries the size measured in some earlier tree. The
+    // text then flows correctly around a box that paints and hit-tests as
+    // nothing.
+    let cached_collection = match cached_collection {
+        Some((content, child_map, base))
+            if atomic_inline_children_are_laid_out(tree, &content, &child_map) =>
+        {
+            Some((content, child_map, base))
+        }
+        Some(_) => {
+            debug_info!(
+                ctx,
+                "[layout_ifc] node {}: cached collection REJECTED — an atomic inline child is \
+                 not laid out in this tree; re-collecting",
+                node_index
+            );
+            None
+        }
+        None => None,
+    };
+
     // `content_hash_base` rides with the collection: hashed ONCE per rebuild,
     // reused by every subsequent visit (see CachedInlineContent::content_hash_base
     // for the 29 ms this replaces).
@@ -3944,7 +3973,20 @@ fn layout_ifc<T: ParsedFontTrait>(
                         !main_frag.items.is_empty(),
                         &mut output,
                     );
-                    // Re-position inline-block children from cached layout
+                    // Re-position inline-block children from cached layout.
+                    //
+                    // This is the discipline a memoized call with a side effect
+                    // needs: the exit REPLAYS what the full path would have
+                    // written. Note it replays POSITIONS only — the children's
+                    // sizes are assumed to be in the tree already. That holds
+                    // because this branch needs a cached `inline_layout_result`
+                    // on the node, and layout-derived state is never carried
+                    // across a tree rebuild (`try_reuse_anon_wrapper`), so this
+                    // exit is only reachable within a pass whose children have
+                    // been laid out. It is correct by a neighbouring invariant
+                    // rather than by its own check — if `inline_layout_result`
+                    // ever starts being carried, this needs the same
+                    // precondition check the collection cache now performs.
                     for positioned_item in &main_frag.items {
                         if let ShapedItem::Object { source, .. } = &positioned_item.item {
                             if let Some(&child_node_index) = child_map.get(source) {
@@ -8205,6 +8247,45 @@ fn position_table_cells<T: ParsedFontTrait>(
 /// This mapping enables efficient cursor hit-testing: when a text node is clicked,
 /// we can find its parent IFC's `inline_layout_result` via `ifc_membership.ifc_root_layout_index`.
 // +spec:display-property:63a38b - inline box boundaries and out-of-flow elements are ignored for text adjacency (white space, line-breaking, text-transform)
+/// Does every atomic inline-level child in a cached collection have a size in
+/// THIS tree?
+///
+/// `CachedInlineContent` is the memo of a call with two outputs: the collection
+/// (stored) and the layout of each atomic inline child (written to the tree, not
+/// stored). A carried collection is therefore only reusable while the second
+/// output is still present — true for repeat visits inside one layout pass
+/// (min-content, max-content, definite), false the first time an IFC root is
+/// visited in a rebuilt tree, where the children start unlaid.
+///
+/// A zero-area size counts as unlaid. It cannot be distinguished from "never
+/// measured" here, and the cost of being wrong in this direction is one extra
+/// measurement of a genuinely empty inline-block; the cost in the other
+/// direction is an element that paints and hit-tests as nothing.
+fn atomic_inline_children_are_laid_out(
+    tree: &LayoutTree,
+    content: &[crate::text3::cache::InlineContent],
+    child_map: &HashMap<ContentIndex, usize>,
+) -> bool {
+    use crate::text3::cache::InlineContent;
+
+    content.iter().enumerate().all(|(i, item)| {
+        if !matches!(item, InlineContent::Shape(_)) {
+            return true;
+        }
+        // Shapes are keyed by their position in the content array, item 0 —
+        // the same key `collect_and_measure_inline_content_impl` inserts with.
+        let key = ContentIndex {
+            run_index: i as u32,
+            item_index: 0,
+        };
+        child_map.get(&key).is_some_and(|&child| {
+            tree.get(LayoutNodeId::new(child))
+                .and_then(|n| n.used_size)
+                .is_some_and(|s| s.width > 0.0 || s.height > 0.0)
+        })
+    })
+}
+
 fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,

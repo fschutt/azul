@@ -1037,3 +1037,78 @@ fn test_whitespace_preserved_in_pre() {
         tree.nodes.len()
     );
 }
+
+/// An inline-block keeps its size when the tree is rebuilt around it.
+///
+/// The IFC's collected inline content is cached on the anonymous wrapper and
+/// carried across a rebuild (`try_reuse_anon_wrapper`), validated by the
+/// subtree fingerprint. But the call that collection memoizes,
+/// `collect_and_measure_inline_content`, has a SECOND output that is not in the
+/// cache: it lays out every atomic inline-level child, and that layout lives in
+/// the tree. Reusing the collection in a rebuilt tree therefore skipped the
+/// only call that sizes the inline-block — it kept its 0x0 default while the
+/// cached `InlineShape` still carried the size measured in the previous tree.
+///
+/// The failure is invisible in the text flow, which is what made it strange:
+/// text wraps around a correctly sized box that paints and hit-tests as
+/// nothing. `tests/e2e/hello_world_counter.json` caught it as "could not
+/// resolve the click target" on the THIRD click — the first relayout in which
+/// the wrapper was reusable.
+///
+/// The trigger is a change to a SIBLING: the inline-block's own subtree is
+/// untouched, so its fingerprint still matches and the cache is offered.
+///
+/// The DOM shape matters and is not incidental. The inline-block must be a BARE
+/// inline-level child sitting beside a block sibling, so the layout tree wraps
+/// it in an ANONYMOUS node — that wrapper is what `try_reuse_anon_wrapper`
+/// carries the collection onto, and it is carried onto a FRESH node whose
+/// children have not been laid out. Put the same inline-block inside a `<p>`
+/// and no anonymous wrapper is created, the cache is never carried this way,
+/// and the test passes with the bug fully present.
+#[test]
+fn an_inline_block_keeps_its_size_when_a_sibling_changes() {
+    fn widest_inline_block(cache: &Solver3LayoutCache) -> Option<LogicalSize> {
+        let tree = cache.tree.as_ref()?;
+        tree.nodes
+            .iter()
+            .filter_map(|n| n.used_size)
+            // The inline-block is the only 80x20 box in the document.
+            .find(|s| (s.width - 80.0).abs() < 1.0 && (s.height - 20.0).abs() < 1.0)
+    }
+
+    let page = |counter: &str| {
+        format!(
+            r#"
+    <html>
+        <head><style>
+            * {{ margin: 0; padding: 0; }}
+            div {{ font-size: 14px; }}
+            span {{ display: inline-block; width: 80px; height: 20px; }}
+        </style></head>
+        <body>
+            <div>{counter}</div>
+            <span>x</span>
+        </body>
+    </html>
+    "#
+        )
+    };
+
+    let mut env = TestEnv::new();
+    let (mut cache, _) = env.run_layout(&page("5"), 400.0, 300.0);
+    let first = widest_inline_block(&cache).expect("inline-block should be laid out on first pass");
+
+    // THREE passes, not two. The wrapper only becomes reusable once a previous
+    // pass has populated it, so the collapse appears on the SECOND relayout —
+    // which is why the e2e scenario needed a third click to catch it, and why a
+    // two-pass version of this test passes with the bug present.
+    for counter in ["6", "7"] {
+        env.run_relayout(&page(counter), &mut cache, 400.0, 300.0);
+        assert!(
+            widest_inline_block(&cache).is_some(),
+            "the inline-block lost its size on the relayout to {counter:?} (first pass had \
+             {first:?}); the cached inline-content collection was reused in a tree where the \
+             child had not been laid out"
+        );
+    }
+}

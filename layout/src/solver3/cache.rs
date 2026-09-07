@@ -571,9 +571,17 @@ pub struct LayoutCache {
         u64,
         std::sync::Arc<super::display_list::DisplayList>,
     )>,
-    /// Raw pointer of the `StyledDom` from the previous layout pass. When the
-    /// same `&StyledDom` reference is passed again AND the viewport is unchanged,
-    /// skip reconcile entirely and return the cached display list (saves ~0.8 ms).
+    /// Raw pointer of the `StyledDom` from the previous layout pass.
+    ///
+    /// DIAGNOSTICS ONLY. This used to describe a fast path — same pointer plus
+    /// same viewport means skip reconcile and return the cached display list —
+    /// and that path was removed as unsound: each `regenerate_layout` builds a
+    /// fresh `StyledDom`, and once the previous one is dropped the allocator
+    /// frequently hands the new, DIFFERENT dom the same address, so a pointer
+    /// match does not prove the content is unchanged. `layout_document`'s Step 0
+    /// carries the full reasoning. The content-based skip that replaced it is
+    /// the Step 1.1 structural-identity cache (root `subtree_hash` + viewport),
+    /// which address reuse cannot fool. Do not reintroduce a pointer fast path.
     pub prev_dom_ptr: usize,
     pub prev_viewport: LogicalRect,
 }
@@ -1421,6 +1429,16 @@ fn is_whitespace_only_inline_run(
 /// sizes, baselines) stays `None` and re-derives through the CB-size-keyed
 /// caches like any other clean node.
 ///
+/// "Self-validating" is not the whole story, and the gap is worth naming: a
+/// collection containing an atomic inline child also STANDS FOR that child's
+/// layout, because the collection call is what sizes it — and that layout is
+/// exactly the layout-derived state the line above deliberately drops. The
+/// fingerprint cannot see this; it describes content, not whether anything has
+/// been laid out. `layout_ifc` therefore re-checks that precondition where it
+/// USES the cache (`atomic_inline_children_are_laid_out`), which is the only
+/// place that can know, and the reason this function can go on carrying the
+/// cache for the case it was measured on.
+///
 /// Returns whether the wrapper matched; the caller folds `!matched` into
 /// `children_are_different` instead of flipping it unconditionally. A DIRTY
 /// child inside a matched run still invalidates through that child's own
@@ -1466,6 +1484,10 @@ fn try_reuse_anon_wrapper(
         t.warm(LayoutNodeId::new(old_anon)),
         new_tree_builder.get_mut(anon_idx),
     ) {
+        // Carried unconditionally: `layout_ifc` re-checks the cache's OTHER
+        // precondition (that the atomic inline children it stands for are laid
+        // out in this tree) at the point of use, and re-collects if they are
+        // not. See `atomic_inline_children_are_laid_out` in `fc.rs`.
         new_node
             .inline_content_cache
             .clone_from(&old_warm.inline_content_cache);
