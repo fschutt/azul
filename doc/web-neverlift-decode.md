@@ -195,6 +195,15 @@ same Proxy turns an unprovided `memcpy`/`memset` into a silent no-op — so each
 newly-imported symbol needs the same "is zero the right answer" check this one
 got.
 
+**Confirmed once lifted.** With the carve-out in place, 38 of the `sync::once`
+symbols classify `Recursable` and are lifted, `Once::call` among them (384
+bytes). Exactly two stay out, and both are right: `core::panicking::panic_fmt`
+is `NeverLift` (a panic entry point), and
+`std::sys::pal::windows::futex::futex_wait<u32>` stays `Leaf` — the contended
+wait, unreachable single-threaded. Even if it were reached, a Leaf returning 0
+reads as a spurious wake, which spins rather than corrupting anything. The
+prediction and the artifact agree.
+
 ## How to use it
 
 1. Boot traps. Read `0x40048` — `scripts/m9_e2e/tls-probe.js` prints it, and
