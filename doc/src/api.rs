@@ -520,12 +520,11 @@ pub struct LanguageInstallConfig {
     /// If this is a dialect of another language group (e.g., "cpp" for cpp23)
     #[serde(rename = "dialectOf", default, skip_serializing_if = "Option::is_none")]
     pub dialect_of: Option<String>,
-    /// Installation methods (for languages like Python with pip/uv)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub methods: Option<BTreeMap<String, MethodConfig>>,
-    /// Platform-specific installation (for C/C++)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub platforms: Option<BTreeMap<String, InstallationSteps>>,
+    /// The documented ways to install and run the hello-world, in display
+    /// order: one dropdown entry on the frontpage each, and one run of
+    /// scripts/run_install_steps.py in post-release CI each.
+    #[serde(default)]
+    pub install: Vec<InstallVariant>,
     /// Contents of this language's pre-rendered bundle
     /// (`release/<ver>/azul-<lang>-<ver>.tar.gz`): release file → path inside
     /// the archive. `"<x>.zip": "<dir>/"` unpacks that zip's tree under
@@ -537,15 +536,29 @@ pub struct LanguageInstallConfig {
     pub bundle: Option<BTreeMap<String, String>>,
 }
 
-/// Configuration for an installation method
+/// One documented installation route: "Linux (apt)", "pip (Linux / macOS)",
+/// "Windows (Scoop)". A route that is the same on several platforms is ONE
+/// entry with several `os` values rather than three copies of the same
+/// steps; a route with an OS-specific step (python vs python3) is split.
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct MethodConfig {
-    /// Display name for the method (e.g., "pip")
-    #[serde(rename = "displayName", default)]
-    pub display_name: Option<String>,
-    /// Description of the method
+pub struct InstallVariant {
+    /// Stable key (`linux-apt`); the frontpage remembers a visitor's choice
+    /// by it across the C++ dialects, which share the ids.
+    pub id: String,
+    /// Dropdown text.
+    pub label: String,
+    /// The platforms these exact steps apply to: `linux` / `macos` /
+    /// `windows`. Post-release CI runs the route on every runner OS listed.
+    pub os: Vec<String>,
+    /// Set when the steps assume a distribution the plain CI runner is not
+    /// (`fedora:40`, `archlinux:latest`, `alpine:3.20`): post-release CI runs
+    /// them inside that image, and `run_install_steps.py --platform` skips
+    /// them unless `--variant` names them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container: Option<String>,
+    /// One sentence on what the route installs and how it compiles.
     pub description: String,
-    /// Installation steps
+    /// The steps, executed literally by post-release CI.
     pub steps: Vec<InstallationStep>,
 }
 
@@ -588,39 +601,13 @@ impl Installation {
         langs
     }
 
-    /// Get installation steps for a specific language and OS
-    pub fn get_steps(&self, lang: &str, os: &str) -> Option<&InstallationSteps> {
-        let lang_config = self.languages.get(lang)?;
-
-        // If the language has platform-specific installation
-        if let Some(platforms) = &lang_config.platforms {
-            return platforms.get(os);
-        }
-
-        // If the language has methods, return the first method's steps wrapped
-        // (This is a simplified view - for methods, use get_method_steps)
-        None
-    }
-
-    /// Get the methods available for a language
-    pub fn get_methods(&self, lang: &str) -> Vec<&str> {
+    /// The documented routes for a language that apply to `os`
+    /// (`linux` / `macos` / `windows`), in display order.
+    pub fn variants_for(&self, lang: &str, os: &str) -> Vec<&InstallVariant> {
         self.languages
             .get(lang)
-            .and_then(|c| c.methods.as_ref())
-            .map(|m| m.keys().map(|s| s.as_str()).collect())
+            .map(|c| c.install.iter().filter(|v| v.os.iter().any(|o| o == os)).collect())
             .unwrap_or_default()
-    }
-
-    /// Get installation steps for a specific method
-    pub fn get_method_steps(&self, lang: &str, method: &str) -> Option<InstallationSteps> {
-        let lang_config = self.languages.get(lang)?;
-        let methods = lang_config.methods.as_ref()?;
-        let method_config = methods.get(method)?;
-
-        Some(InstallationSteps {
-            description: method_config.description.clone(),
-            steps: method_config.steps.clone(),
-        })
     }
 
     /// Get dialect configuration for a language group
@@ -643,34 +630,6 @@ impl Installation {
             .and_then(|c| c.dialect_of.as_ref())
             .map(|s| s.as_str())
     }
-}
-
-/// OS-specific installation instructions
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct OsSpecificInstallation {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub windows: Option<InstallationSteps>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub linux: Option<InstallationSteps>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub macos: Option<InstallationSteps>,
-}
-
-impl OsSpecificInstallation {
-    pub fn get_for_os(&self, os: Os) -> Option<&InstallationSteps> {
-        match os {
-            Os::Windows => self.windows.as_ref(),
-            Os::Linux => self.linux.as_ref(),
-            Os::Macos => self.macos.as_ref(),
-        }
-    }
-}
-
-/// Installation steps with description
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct InstallationSteps {
-    pub description: String,
-    pub steps: Vec<InstallationStep>,
 }
 
 /// A single installation step

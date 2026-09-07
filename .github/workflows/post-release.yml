@@ -354,6 +354,16 @@ jobs:
           ghc-version: "9.6"
           cabal-version: "3.10"
 
+      # The C / C++ tabs document a Scoop route (Chocolatey is preinstalled
+      # on the runner; Scoop is not). Installed the way its site says to.
+      - name: Scoop (Windows; the documented Scoop route needs it)
+        if: runner.os == 'Windows' && (matrix.lang == 'c' || matrix.lang == 'cpp')
+        shell: pwsh
+        run: |
+          Invoke-RestMethod get.scoop.sh -OutFile "$env:RUNNER_TEMP\install-scoop.ps1"
+          & "$env:RUNNER_TEMP\install-scoop.ps1" -RunAsAdmin
+          "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Append
+
       - name: Fetch the published api.json
         shell: bash
         run: |
@@ -361,6 +371,10 @@ jobs:
           curl -fsSL --retry 3 -o /tmp/api.json \
             "${{ needs.resolve.outputs.base_url }}/ui/release/${{ needs.resolve.outputs.version }}/api.json"
 
+      # Every route the tab documents for this OS runs, one after the other,
+      # each in its own directory (run_install_steps.py --platform). Routes
+      # that assume another distribution (`container` in api.json) run in
+      # the distros job below instead.
       - name: "Run the documented ${{ matrix.lang }} steps"
         shell: bash
         run: |
@@ -370,6 +384,43 @@ jobs:
           [ "${{ matrix.lang }}" = ocaml ] && eval "$(opam env)" || true
           python3 scripts/run_install_steps.py --api /tmp/api.json \
             --lang "${{ matrix.lang }}" --platform "$P" \
+            --base "${{ needs.resolve.outputs.base_url }}" \
+            --version "${{ needs.resolve.outputs.version }}"
+
+  # The Linux package-manager routes that are not apt (dnf / pacman / apk)
+  # assume a distribution the ubuntu runner is not, so api.json marks them
+  # with the image they expect (`container`) and they run inside it here,
+  # one route per job. Only the C / C++ tabs document such routes.
+  distros:
+    name: "steps: ${{ matrix.lang }} (${{ matrix.variant }})"
+    needs: resolve
+    if: needs.resolve.outputs.deployed == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    container:
+      image: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { lang: c,   variant: linux-dnf,    image: "fedora:40",        setup: "dnf install -y gcc gcc-c++ curl python3" }
+          - { lang: cpp, variant: linux-dnf,    image: "fedora:40",        setup: "dnf install -y gcc gcc-c++ curl python3" }
+          - { lang: c,   variant: linux-pacman, image: "archlinux:latest", setup: "pacman -Sy --noconfirm gcc curl python" }
+          - { lang: cpp, variant: linux-pacman, image: "archlinux:latest", setup: "pacman -Sy --noconfirm gcc curl python" }
+          - { lang: c,   variant: linux-apk,    image: "alpine:3.20",      setup: "apk add --no-cache bash gcc g++ musl-dev curl python3" }
+          - { lang: cpp, variant: linux-apk,    image: "alpine:3.20",      setup: "apk add --no-cache bash gcc g++ musl-dev curl python3" }
+    steps:
+      - name: Toolchain (${{ matrix.image }})
+        run: ${{ matrix.setup }}
+      - uses: actions/checkout@v7
+      - name: Fetch the published api.json
+        run: |
+          curl -fsSL --retry 3 -o /tmp/api.json \
+            "${{ needs.resolve.outputs.base_url }}/ui/release/${{ needs.resolve.outputs.version }}/api.json"
+      - name: "Run the documented ${{ matrix.variant }} steps"
+        run: |
+          python3 scripts/run_install_steps.py --api /tmp/api.json \
+            --lang "${{ matrix.lang }}" --platform linux --variant "${{ matrix.variant }}" \
             --base "${{ needs.resolve.outputs.base_url }}" \
             --version "${{ needs.resolve.outputs.version }}"
 

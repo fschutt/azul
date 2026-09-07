@@ -554,19 +554,17 @@ fn generate_installation_json(
         /// If this is a dialect of another language group
         #[serde(rename = "dialectOf", skip_serializing_if = "Option::is_none")]
         dialect_of: Option<String>,
-        /// Available methods for this language (e.g., ["pip", "uv"] for Python)
-        #[serde(skip_serializing_if = "Vec::is_empty")]
-        methods: Vec<String>,
-        /// Steps per method (if methods are available)
-        #[serde(rename = "methodSteps", skip_serializing_if = "BTreeMap::is_empty")]
-        method_steps: BTreeMap<String, Vec<StepJson>>,
-        /// Platform-specific steps
-        #[serde(skip_serializing_if = "Option::is_none")]
-        windows: Option<Vec<StepJson>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        linux: Option<Vec<StepJson>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        macos: Option<Vec<StepJson>>,
+        /// The documented routes, in dropdown order.
+        install: Vec<RouteJson>,
+    }
+
+    /// One `install[]` entry of api.json, interpolated for the frontpage.
+    #[derive(Serialize)]
+    struct RouteJson {
+        id: String,
+        label: String,
+        os: Vec<String>,
+        steps: Vec<StepJson>,
     }
 
     #[derive(Serialize, Clone)]
@@ -640,48 +638,23 @@ fn generate_installation_json(
         if !is_frontpage_language(lang_key) {
             continue;
         }
-        let methods: Vec<String> = lang_config
-            .methods
-            .as_ref()
-            .map(|m| m.keys().cloned().collect())
-            .unwrap_or_default();
-
-        let mut method_steps = BTreeMap::new();
-        if let Some(methods_map) = &lang_config.methods {
-            for (method_key, method_config) in methods_map {
-                method_steps.insert(
-                    method_key.clone(),
-                    convert_steps(&method_config.steps, hostname, version),
-                );
-            }
-        }
-
-        let (windows, linux, macos) = if let Some(platforms) = &lang_config.platforms {
-            (
-                platforms
-                    .get("windows")
-                    .map(|s| convert_steps(&s.steps, hostname, version)),
-                platforms
-                    .get("linux")
-                    .map(|s| convert_steps(&s.steps, hostname, version)),
-                platforms
-                    .get("macos")
-                    .map(|s| convert_steps(&s.steps, hostname, version)),
-            )
-        } else {
-            (None, None, None)
-        };
+        let install = lang_config
+            .install
+            .iter()
+            .map(|v| RouteJson {
+                id: v.id.clone(),
+                label: v.label.clone(),
+                os: v.os.clone(),
+                steps: convert_steps(&v.steps, hostname, version),
+            })
+            .collect();
 
         languages.insert(
             lang_key.clone(),
             LanguageInstall {
                 display_name: lang_config.display_name.clone(),
                 dialect_of: lang_config.dialect_of.clone(),
-                methods,
-                method_steps,
-                windows,
-                linux,
-                macos,
+                install,
             },
         );
     }

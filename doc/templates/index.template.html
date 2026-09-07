@@ -49,22 +49,22 @@
     var installationConfig = $$JAVASCRIPT_INSTALLATION$$;
 
     var currentLang = 'rust';
-    var currentOS = detectOS();
+    var detectedOS = detectOS();
     var currentCppVersion = 'cpp23';
-    var currentInstallMethod = {};
+    // The chosen install route per language group, by variant id
+    // (e.g. {c: 'linux-apt', python: 'windows-pip'}).
+    var currentVariant = {};
 
     // Init from localStorage
     (function() {
       var savedLang = localStorage.getItem('azul-lang');
-      var savedOS = localStorage.getItem('azul-os');
       var savedCpp = localStorage.getItem('azul-cpp-version');
-      var savedMethods = localStorage.getItem('azul-install-methods');
+      var savedVariants = localStorage.getItem('azul-install-variants');
 
       if (savedLang) currentLang = savedLang;
-      if (savedOS) currentOS = savedOS;
       if (savedCpp) currentCppVersion = savedCpp;
-      if (savedMethods) {
-        try { currentInstallMethod = JSON.parse(savedMethods); } catch(e) {}
+      if (savedVariants) {
+        try { currentVariant = JSON.parse(savedVariants); } catch(e) {}
       }
 
       // Check if savedLang is a dialect variant (will be validated after functions load)
@@ -89,16 +89,9 @@
       updateAllUI();
     }
 
-    function selectOS(os) {
-      currentOS = os;
-      localStorage.setItem('azul-os', os);
-      updateAllUI();
-    }
-
-    function selectInstallMethod(method) {
-      var baseLang = currentLang.startsWith('cpp') ? 'cpp' : currentLang;
-      currentInstallMethod[baseLang] = method;
-      localStorage.setItem('azul-install-methods', JSON.stringify(currentInstallMethod));
+    function selectInstallVariant(id) {
+      currentVariant[getBaseLang(currentLang)] = id;
+      localStorage.setItem('azul-install-variants', JSON.stringify(currentVariant));
       updateAllUI();
     }
 
@@ -123,18 +116,34 @@
       return dialectGroup; // fallback
     }
 
-    function getMethods(lang) {
-      // For dialects, check the actual language key (e.g., cpp23) for methods
+    // The documented routes of a language (a dialect such as cpp23 carries
+    // its own list, with the same ids as its siblings).
+    function getVariants(lang) {
       var langConfig = installationConfig.languages[lang];
-      if (!langConfig || !langConfig.methods) return [];
-      return langConfig.methods;
+      return (langConfig && langConfig.install) || [];
     }
 
-    function getInstallMethod(lang) {
-      var baseLang = getBaseLang(lang);
-      var methods = getMethods(lang);
-      if (methods.length === 0) return 'default';
-      return currentInstallMethod[baseLang] || methods[0];
+    // The route to show: the remembered choice if this language has it,
+    // else the first route that applies to the visitor's OS, else the first.
+    function getVariant(lang) {
+      var variants = getVariants(lang);
+      if (variants.length === 0) return null;
+      var wanted = currentVariant[getBaseLang(lang)];
+      for (var i = 0; i < variants.length; i++) {
+        if (variants[i].id === wanted) return variants[i];
+      }
+      for (var j = 0; j < variants.length; j++) {
+        if (variants[j].os.indexOf(detectedOS) !== -1) return variants[j];
+      }
+      return variants[0];
+    }
+
+    // The OS whose screenshot to show: the selected route's, when it is
+    // specific to one OS; otherwise the visitor's.
+    function screenshotOS() {
+      var v = getVariant(currentLang);
+      if (v && v.os.length === 1) return v.os[0];
+      return detectedOS;
     }
 
     // Get dialect variants for a dialect group (from dialects config)
@@ -180,24 +189,20 @@
         sel.style.display = 'none';
       });
 
-      // Update OS selects
-      document.querySelectorAll('select.os-select').forEach(function(sel) {
-        sel.value = currentOS;
-      });
-
-      // Update method selects - only show if > 1 method available for current language
-      var methods = getMethods(currentLang);
-      document.querySelectorAll('select.method-select').forEach(function(sel) {
-        if (methods.length <= 1) {
+      // The install-route dropdown: one option per documented route of the
+      // current language; hidden when there is only one.
+      var variants = getVariants(currentLang);
+      var chosen = getVariant(currentLang);
+      document.querySelectorAll('select.install-select').forEach(function(sel) {
+        if (variants.length <= 1) {
           sel.style.display = 'none';
-        } else {
-          sel.style.display = 'inline-block';
-          // Populate options
-          sel.innerHTML = methods.map(function(m) {
-            return '<option value="' + m + '">' + m + '</option>';
-          }).join('');
-          sel.value = getInstallMethod(currentLang);
+          return;
         }
+        sel.style.display = 'inline-block';
+        sel.innerHTML = variants.map(function(v) {
+          return '<option value="' + escHtml(v.id) + '">' + escHtml(v.label) + '</option>';
+        }).join('');
+        sel.value = chosen.id;
       });
 
       // Update install commands (on all sections that have install-commands visible)
@@ -219,16 +224,8 @@
         return;
       }
 
-      var steps = null;
-      // Check for method-based installation (e.g., pip vs uv for Python)
-      if (langConfig.methods && langConfig.methods.length > 0 && langConfig.methodSteps) {
-        var method = getInstallMethod(currentLang);
-        steps = langConfig.methodSteps[method];
-      }
-      // Fall back to platform-specific steps
-      if (!steps) {
-        steps = langConfig[currentOS];
-      }
+      var variant = getVariant(currentLang);
+      var steps = variant ? variant.steps : null;
 
       if (!steps || steps.length === 0) {
         container.innerHTML = '';
@@ -296,7 +293,8 @@
 
     function updateImages() {
       document.querySelectorAll('.showcase').forEach(function(img) { img.style.display = 'none'; });
-      var cls = currentOS === 'macos' ? 'mac' : currentOS;
+      var os = screenshotOS();
+      var cls = os === 'macos' ? 'mac' : os;
       document.querySelectorAll('.showcase.' + cls).forEach(function(img) { img.style.display = 'block'; });
     }
 

@@ -18,13 +18,8 @@
             $$LANGUAGE_TABS$$
           </div>
           <div class="install-controls">
-            <select class="method-select" onchange="selectInstallMethod(this.value)">
-              <!-- Populated dynamically by JavaScript -->
-            </select>
-            <select class="os-select" onchange="selectOS(this.value)">
-              <option value="linux">Linux</option>
-              <option value="macos">macOS</option>
-              <option value="windows">Windows</option>
+            <select class="install-select" onchange="selectInstallVariant(this.value)">
+              <!-- One option per documented route of the selected language; populated by JavaScript -->
             </select>
           </div>
         </div>
