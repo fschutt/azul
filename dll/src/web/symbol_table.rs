@@ -2955,6 +2955,20 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                 if name.contains("hashmap_random_keys") {
                     return FnClass::HashmapRandomKeys;
                 }
+                // `std::hash::random`'s `KEYS` lazy-static accessor must RUN, not
+                // be stubbed. A Leaf stub returns 0, and Rust's thread-local
+                // getter compiles to `test rax,rax; je panic_access_error` — so a
+                // stubbed accessor turns the FIRST HashMap construction anywhere
+                // into a panic. That is what made the boot die inside
+                // `pulldown_cmark::firstpass::run_first_pass`, which builds hash
+                // maps: `RandomState::new` → `KEYS` → `…::VAL` → 0 → panic.
+                //
+                // Lifting it is self-contained: its own dependency,
+                // `hashmap_random_keys`, already has a real body (a fixed SipHash
+                // seed), so nothing else has to change.
+                if name.contains("hash::random") || name.contains("hash..random") {
+                    return FnClass::Recursable;
+                }
                 return FnClass::Leaf;
             }
             _ => return FnClass::Recursable,
