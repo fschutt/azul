@@ -122,6 +122,60 @@ code reads them.
 Unlike `%pc`, this is immune to pc seeding: that pass rewrites a call's `pc`
 operand only, never `RETURN_PC` or the pushed return address.
 
+## Worked example — the recorder's first real use
+
+It located a boot blocker end to end, and every step was read from an artifact
+rather than inferred:
+
+```
+0x40080 = 0x34a686                      (0x40048 = 0xf058f0 — different, so the
+                                         [RSP] read works)
+  ↓ name-synth.py
+pulldown_cmark::firstpass::run_first_pass +902
+  ↓ that block's guard
+test rax, rax / je   → panic_access_error
+  ↓ where rax came from
+call_once<…KEYS::constant$0::closure_env$1>
+  ↓ which calls
+std::hash::random::…::KEYS::constant$0::closure$1::VAL   class=Leaf → returns 0
+```
+
+Two things were checked rather than assumed. `0xf058f0` is not an ICF-folded
+alias — it resolves uniquely to `panic_access_error`, and `handle_alloc_error`
+is a separate symbol. And the surprising `Vec::with_capacity` inline attribution
+did **not** mean an allocation failure: the guard is a null check on a
+thread-local getter, not `handle_alloc_error`.
+
+Note the guard shape. Rust emits **two** different ones for thread-local
+access — `cmp eax, 2 / jne` against `State::Destroyed`, and `test rax,rax / je`
+on a getter that returns null. Expect either.
+
+### The generalisation: a Leaf stub returns 0, which breaks lazy init
+
+The classification rule for crate `std` is blanket — everything except
+`hashmap_random_keys` becomes `Leaf` — and a Leaf stub writes 0 to the return
+slot. That is harmless when the result is ignored and fatal when it is a pointer
+the caller dereferences or null-checks.
+
+Auditing every `Leaf`-classified `std`/`core`/`alloc` symbol for
+accessor-shaped names (`C:\rb\std_leaf_audit.py`) finds the KEYS accessor was
+not alone:
+
+| symbol | n |
+|---|---|
+| `std::sync::once_lock::OnceLock::initialize<…>` | 6 |
+| `std::hash::random::…::KEYS::…::VAL` | 1 |
+| `std::sys::sync::once::futex::Once::call` | 1 |
+
+A stubbed `OnceLock::initialize` reports success without running the closure, so
+the subsequent `get_unchecked()` hands out an uninitialized value — one instance
+is `OnceLock<Arc<…::UnifiedLayout>>`, where that is a null `Arc`. A stubbed
+`Once::call` never runs its closure at all. So the rule does not merely miss the
+HashMap seed; **it disables lazy initialization across the board.**
+
+A Leaf is only a bug where the caller uses the result, so each needs checking
+against its call site before its classification is changed.
+
 ## How to use it
 
 1. Boot traps. Read `0x40048` — `scripts/m9_e2e/tls-probe.js` prints it, and
