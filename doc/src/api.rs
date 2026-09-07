@@ -786,6 +786,33 @@ pub struct ExampleCodePaths {
 }
 
 impl ExampleCodePaths {
+    /// Every (language, path) the example declares — the fixed fields plus
+    /// the flattened `extra` map — for checks that walk all of them.
+    pub fn all_paths(&self) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = vec![
+            ("c".to_string(), self.c.clone()),
+            ("rust".to_string(), self.rust.clone()),
+            ("python".to_string(), self.python.clone()),
+        ];
+        for (lang, p) in [
+            ("cpp", &self.cpp),
+            ("cpp03", &self.cpp03),
+            ("cpp11", &self.cpp11),
+            ("cpp14", &self.cpp14),
+            ("cpp17", &self.cpp17),
+            ("cpp20", &self.cpp20),
+            ("cpp23", &self.cpp23),
+        ] {
+            if let Some(p) = p {
+                out.push((lang.to_string(), p.clone()));
+            }
+        }
+        for (lang, p) in &self.extra {
+            out.push((lang.clone(), p.clone()));
+        }
+        out
+    }
+
     /// Get the path for a specific language
     pub fn get_path(&self, lang: Language) -> Option<&str> {
         match lang {

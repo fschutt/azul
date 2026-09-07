@@ -118,8 +118,6 @@ begin
   wco.window_state.layout_callback := layout_cb;
   wco.window_state.size.dimensions.width := 400.0;
   wco.window_state.size.dimensions.height := 300.0;
-  wco.window_state.flags.decorations := TAzWindowDecorations_NoTitleAutoInject;
-  wco.window_state.flags.background_material := TAzWindowBackgroundMaterial_Sidebar;
 
   cfg := AzAppConfig_create();
   app := AzApp_create(data, cfg);

@@ -314,7 +314,7 @@ It links the **prebuilt** libazul — nothing of azul is compiled on your machin
 
 ```sh
 # 1. the native library — from a package manager ...
-brew tap fschutt/azul https://azul.rs/ui/homebrew-azul.git && brew install fschutt/azul/azul   # macOS
+brew tap fschutt/azul https://azul.rs/ui/brew.git && brew install fschutt/azul/azul   # macOS
 echo 'deb [trusted=yes] https://azul.rs/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list && sudo apt update && sudo apt install azul   # Debian/Ubuntu
 # ... or a download next to this crate (any of libazul.dylib / libazul.so / azul.dll)
 curl -O https://azul.rs/ui/release/{version}/libazul.dylib

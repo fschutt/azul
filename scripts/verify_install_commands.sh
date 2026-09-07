@@ -102,7 +102,7 @@ entry_path() { # $1 channel, $2 version
     gems)  printf 'ui/gems/latest_specs.4.8.gz' ;;
     nuget) printf 'ui/nuget/flatcontainer/%s/%s/%s.%s.nupkg' \
                   "$DEFAULT_NUGET_ID" "$vlc" "$DEFAULT_NUGET_ID" "$vlc" ;;
-    brew)  printf 'ui/homebrew-azul.git/info/refs' ;;
+    brew)  printf 'ui/brew.git/info/refs' ;;
     apt)   printf 'ui/apt/dists/stable/Release' ;;
     maven) printf 'ui/maven/rs/azul/azul/%s/azul-%s.jar' "$v" "$v" ;;
     pacman) printf 'ui/arch/x86_64/azul.db' ;;
@@ -111,7 +111,7 @@ entry_path() { # $1 channel, $2 version
     rust)  printf 'ui/release/%s/azul-rust-%s.tar.gz' "$v" "$v" ;;
     cargo) printf 'ui/cargo/az/ul/azul' ;;
     choco) printf 'ui/nuget/flatcontainer/libazul/%s/libazul.%s.nupkg' "$vlc" "$vlc" ;;
-    scoop) printf 'ui/scoop-azul.git/info/refs' ;;
+    scoop) printf 'ui/scoop.git/info/refs' ;;
     # doclinks probes URLs, it installs nothing: no entry point to byte-match.
     *)     return 1 ;;
   esac
@@ -406,7 +406,7 @@ verify_nuget() {
 }
 
 # --------------------------------------------------------------------------
-# brew —  brew tap fschutt/azul https://azul.rs/ui/homebrew-azul.git
+# brew —  brew tap fschutt/azul https://azul.rs/ui/brew.git
 #         brew install fschutt/azul/azul
 #
 # The tap is a bare git repo served over dumb HTTP from Pages; `brew tap` with
@@ -423,8 +423,8 @@ verify_brew() {
   # A leftover tap from a previous run would hide a broken publish.
   brew untap fschutt/azul >/dev/null 2>&1 || true
   brew uninstall --force azul >/dev/null 2>&1 || true
-  run brew tap fschutt/azul "$BASE/ui/homebrew-azul.git" \
-    || fail "brew: 'brew tap fschutt/azul $BASE/ui/homebrew-azul.git' FAILED — the published tap is not clonable"
+  run brew tap fschutt/azul "$BASE/ui/brew.git" \
+    || fail "brew: 'brew tap fschutt/azul $BASE/ui/brew.git' FAILED — the published tap is not clonable"
   run brew install fschutt/azul/azul \
     || fail "brew: 'brew install fschutt/azul/azul' FAILED — the site tells every macOS user to run exactly this"
   local prefix; prefix="$(brew --prefix azul 2>/dev/null)"
@@ -739,7 +739,7 @@ verify_apk() {
 
 # --------------------------------------------------------------------------
 # choco —  choco install libazul --source https://azul.rs/ui/nuget/index.json
-# scoop —  scoop bucket add azul https://azul.rs/ui/scoop-azul.git; scoop install azul
+# scoop —  scoop bucket add azul https://azul.rs/ui/scoop.git; scoop install azul
 #
 # Windows runner (Git Bash). Both must leave azul.dll + azul.dll.lib + azul.h
 # in one directory and AZ_LINK_PATH pointing at it — what the Windows tabs
@@ -765,8 +765,8 @@ verify_scoop() {
     export PATH="$HOME/scoop/shims:$PATH"
   fi
   need_cmd scoop; need_cmd git
-  run scoop bucket add azul "$BASE/ui/scoop-azul.git" \
-    || fail "scoop: 'scoop bucket add azul $BASE/ui/scoop-azul.git' FAILED — the published bucket is not clonable"
+  run scoop bucket add azul "$BASE/ui/scoop.git" \
+    || fail "scoop: 'scoop bucket add azul $BASE/ui/scoop.git' FAILED — the published bucket is not clonable"
   run scoop install azul || fail "scoop: 'scoop install azul' FAILED"
   local dir="$HOME/scoop/apps/azul/current" f
   for f in azul.dll azul.dll.lib azul.h; do

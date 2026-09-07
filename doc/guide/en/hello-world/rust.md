@@ -64,7 +64,7 @@ Install it with your package manager (every channel is self-hosted on azul.rs):
 
 ```sh
 # macOS
-brew tap fschutt/azul https://azul.rs/ui/homebrew-azul.git
+brew tap fschutt/azul https://azul.rs/ui/brew.git
 brew install fschutt/azul/azul
 
 # Debian / Ubuntu
@@ -76,7 +76,7 @@ sudo dnf config-manager --add-repo https://azul.rs/ui/rpm/azul.repo && sudo dnf 
 
 # Arch: the [azul] repository at https://azul.rs/ui/arch  -  Alpine: https://azul.rs/ui/alpine
 # Windows: choco install libazul --source https://azul.rs/ui/nuget/index.json
-#      or: scoop bucket add azul https://azul.rs/ui/scoop-azul.git && scoop install azul
+#      or: scoop bucket add azul https://azul.rs/ui/scoop.git && scoop install azul
 ```
 
 …or download it next to your project from the

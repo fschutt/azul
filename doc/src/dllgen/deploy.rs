@@ -17,6 +17,47 @@ use crate::{api::ApiData, dllgen::{bundles, license::License}, docgen::HTML_ROOT
 pub fn verify_examples(api_data: &ApiData, examples_dir: &Path, strict: bool) -> Result<()> {
     let mut missing_files: Vec<String> = Vec::new();
 
+    // Demo filler that crept into the hello-worlds (2026-09-07 audit): a
+    // std::expected/Url::parse detour in C++23, a JSON reflection round-trip
+    // in C (+ a "not implemented" fromJson stub in FreeBASIC), a type_id_v
+    // probe in C++14, and window decoration/material flags in 17 languages
+    // that the reference (Rust) example never set. A hello-world is one
+    // canonical shape — model, layout, on_click, main — and these tokens
+    // are the shapes it must not grow back.
+    const FILLER_TOKENS: &[&str] = &[
+        "std::expected",
+        "toStdExpected",
+        "AZ_REFLECT_JSON",
+        "toJson",
+        "fromJson",
+        "type_id_v",
+        "NoTitleAutoInject",
+        "BackgroundMaterial_Sidebar",
+        "BackgroundMaterial.Sidebar",
+        "background_material",
+    ];
+    for version in api_data.get_sorted_versions() {
+        if let Some(version_data) = api_data.get_version(&version) {
+            for example in &version_data.examples {
+                if example.name != "hello-world" && !example.name.starts_with("hello") {
+                    continue;
+                }
+                for (lang, rel) in example.code.all_paths() {
+                    let path = examples_dir.join(&rel);
+                    let Ok(src) = fs::read_to_string(&path) else { continue };
+                    for tok in FILLER_TOKENS {
+                        if src.contains(tok) {
+                            missing_files.push(format!(
+                                "[{}] {} ({}): demo filler `{}` in {} — a hello-world is model/layout/on_click/main, nothing else",
+                                version, example.name, lang, tok, rel
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Get all versions and their examples
     for version in api_data.get_sorted_versions() {
         if let Some(version_data) = api_data.get_version(&version) {
@@ -1899,7 +1940,13 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     bundle_links.push(generate_asset_card(version, &assets.bindings_all));
     for (key, asset) in &assets.bindings {
         let mut labelled = asset.clone();
-        labelled.description = display_name(key);
+        // A binding outside the shipped tier is generated and downloadable
+        // — and says so. (docgen::SHIPPED_LANGUAGES is what CI gates on.)
+        labelled.description = if crate::docgen::is_shipped_language(key) {
+            display_name(key)
+        } else {
+            format!("{} (experimental: generated, not e2e-gated)", display_name(key))
+        };
         bundle_links.push(generate_asset_card(version, &labelled));
     }
     let bundle_links = bundle_links.join("\n                ");
@@ -2285,20 +2332,8 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                 {package_links}
               </div>
 
-              <h3>apt (Debian / Ubuntu)</h3>
-              <pre><code class='language-bash'># option 1: self-hosted apt repository (amd64 + arm64; unsigned, hence [trusted=yes])
-echo 'deb [trusted=yes] {HTML_ROOT}/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list
-sudo apt update
-sudo apt install azul
-
-# option 2: install the .deb straight from the GitHub release
-curl -LO https://github.com/fschutt/azul/releases/download/{version}/azul_{version}_amd64.deb
-sudo apt install ./azul_{version}_amd64.deb</code></pre>
-
-              <h3>Homebrew (macOS)</h3>
-              <pre><code class='language-bash'># self-hosted tap: a bare git repo served from azul.rs (installs libazul.dylib + azul.h)
-brew tap fschutt/azul {HTML_ROOT}/homebrew-azul.git
-brew install fschutt/azul/azul</code></pre>
+              <p>Package-manager installs (apt, dnf, pacman, apk, brew, choco, scoop) are under
+              <a href='#language-bindings'>Installation instructions</a> below.</p>
 
               <h2 id='demos'>Demos</h2>
               <p>For further instructions, see the <a href='{HTML_ROOT}/guide/deploying/mobile'>Mobile guide</a>.</p>
@@ -2321,14 +2356,28 @@ brew install fschutt/azul/azul</code></pre>
               <div class='docs-card-grid'>
                 {binding_links}
               </div>
-              <pre><code class='language-bash'># macOS - Homebrew tap (self-hosted bare git repo, see above)
-brew tap fschutt/azul {HTML_ROOT}/homebrew-azul.git
+              <pre><code class='language-bash'># macOS - Homebrew (installs libazul.dylib, azul.h, the C++ headers, azul.pc)
+brew tap fschutt/azul {HTML_ROOT}/brew.git
 brew install fschutt/azul/azul
 
 # Debian / Ubuntu - self-hosted apt repository (unsigned, hence [trusted=yes])
 echo 'deb [trusted=yes] {HTML_ROOT}/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list
 sudo apt update
 sudo apt install azul
+#   ...or the .deb / .rpm from the Linux packages above: sudo apt install ./azul_{version}_amd64.deb
+
+# Fedora / RHEL / openSUSE
+sudo dnf config-manager --add-repo {HTML_ROOT}/rpm/azul.repo && sudo dnf install azul
+
+# Arch (/etc/pacman.conf: [azul] SigLevel = Optional TrustAll / Server = {HTML_ROOT}/arch/$arch)
+sudo pacman -Sy azul
+
+# Alpine
+echo {HTML_ROOT}/alpine/x86_64 >> /etc/apk/repositories && apk add --allow-untrusted azul
+
+# Windows - Chocolatey or Scoop (azul.dll + azul.dll.lib + azul.h, sets AZ_LINK_PATH)
+choco install libazul --source {HTML_ROOT}/nuget/index.json
+scoop bucket add azul {HTML_ROOT}/scoop.git && scoop install azul
 
 # Python - self-hosted PEP 503 index (NOT pypi.org); pip fetches {HTML_ROOT}/azul/
 pip install azul --index-url {HTML_ROOT}

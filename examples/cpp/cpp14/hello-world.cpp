@@ -33,10 +33,6 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 }
 
 int main() {
-    // The address-of-static trick that backs type_id_v isn't a constant expression,
-    // so we can't static_assert; just verify at runtime.
-    if (RefAny::type_id_v<MyDataModel> == 0) return 1;
-
     MyDataModel model = { 5 };
     RefAny data = RefAny::create(std::move(model));
 

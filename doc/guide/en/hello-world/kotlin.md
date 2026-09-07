@@ -33,6 +33,15 @@ companion-object `App` factory — and the generated wrappers handle the FFI.
 
 ## Installation
 
+> **Windows: not shipped yet.** The Kotlin hello-world builds and starts on
+> Windows, but after the headless layout the JVM never terminates — a native
+> thread or an undrained native event queue keeps it alive (a known
+> JNA-on-Windows class of problem; the same-JVM **Java** binding exits
+> cleanly on Windows, and this binding passes the full e2e on Linux and
+> macOS). Until a Windows-host thread dump pins the thread, use the Java
+> binding on Windows or Kotlin on Linux/macOS. Tracked in
+> `scripts/e2e_language_matrix.sh` (`lang_kotlin`).
+
 You need **Kotlin 1.9+**, **JDK 17+**, **JNA 5.14+**, and the native `libazul` library.
 
 The Kotlin binding is one generated file, `Azul.kt` (package `com.azul`),

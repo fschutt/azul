@@ -1,5 +1,4 @@
 #include "azul17.hpp"
-#include <optional>
 #include <string>
 #include <string_view>
 
@@ -8,7 +7,6 @@ using namespace std::string_view_literals;
 
 struct MyDataModel {
     uint32_t counter;
-    std::optional<Url> last_url;
 };
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
@@ -37,7 +35,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 }
 
 int main() {
-    MyDataModel model = { 5, std::nullopt };
+    MyDataModel model = { 5 };
     RefAny data = RefAny::create(std::move(model));
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);

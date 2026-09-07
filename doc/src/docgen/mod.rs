@@ -147,44 +147,44 @@ const PRIMARY_LANGUAGES: &[&str] = &[
     "rust", "python", "c", "cpp", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml",
 ];
 
-/// Whitelist of languages that have a SOLID, working hello-world and may
-/// appear on the azul.rs frontpage install tabs. Every other binding still
-/// lives in `examples/` and in api.json's `languages` data (so the data is
-/// preserved and codegen still runs for them) — they are just NOT surfaced
-/// on the frontpage so a visitor isn't confused by a half-working binding.
+/// The SHIPPED tier: the languages the site shows install tabs for, links a
+/// guide for, and whose hello-world the CI gate (`--gate-shipped` in
+/// scripts/e2e_language_matrix.sh, SHIPPED_LANGS) must pass on every OS.
+/// ONE list, in ONE place: a language is either verified and shipped, or it
+/// is generated and downloadable but says "experimental" wherever it
+/// appears. The unit test below keeps this equal to the script's list.
 ///
-/// `cpp` is the dialect *group*; its per-standard variants (cpp03 … cpp23)
-/// are listed too because the C++ dropdown needs them in the installation
-/// JSON to populate the version selector. The variants are never rendered as
-/// their own tab (they carry `dialectOf: "cpp"`), only as dropdown options.
+/// Languages NOT here still get codegen, a bundle and a release-page tile —
+/// labelled experimental — so nothing is hidden, and nothing is claimed.
+pub const SHIPPED_LANGUAGES: &[&str] = &[
+    "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml",
+    "zig", "go", "pascal", "scala", "fortran", "haskell", "python",
+];
+
+/// True if `lang` (an api.json language or dialect-group key) is shipped.
+pub fn is_shipped_language(lang: &str) -> bool {
+    SHIPPED_LANGUAGES.contains(&lang)
+}
+
+/// Languages that may appear on the azul.rs frontpage install tabs: the
+/// shipped tier plus the C++ dialect variants (`cpp03` … `cpp23`, which the
+/// C++ dropdown needs in the installation JSON to populate the version
+/// selector; they carry `dialectOf: "cpp"` and are never a tab of their own).
+///
+/// Until 2026-09-07 this list also carried 12 "beta"/"alpha" bindings
+/// (perl, lisp, php, odin, nim, racket, red, d, crystal, v, swift, julia):
+/// generated, on the frontpage, and never gated — their hello-world guides
+/// had already been removed for exactly that reason. A visitor cannot tell
+/// a gated tab from an ungated one, so an ungated tab is a claim.
 ///
 /// This is the single source of truth: both the server-rendered tab HTML
 /// (`generate_language_tabs_html`) and the client-side installation JSON
 /// (`generate_installation_json`) filter against it, so even if api.json's
-/// `tabOrder` drifts to include a non-whitelisted language, the frontpage
-/// stays restricted to this set.
+/// `tabOrder` drifts to include another language, the frontpage stays
+/// restricted to this set.
 const FRONTPAGE_LANGUAGES: &[&str] = &[
-    "python", "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml",
-    // Promoted 2026-07-04: hello-world counter e2e green on the matrix
-    // (scripts/e2e_language_matrix.sh), install steps verified truthful,
-    // guide pages present..
-    "zig", "go", "pascal", "scala", "fortran", "haskell",
-    // Promoted 2026-07-06: counter e2e green on the merged dll (perl/lisp
-    // host-invoker; php via the ext-php-rs native extension). Truthful
-    // install steps + guides. Kept OUT of the CI gate (SHIPPED_LANGS) until
-    // their fragile toolchains — FFI::Platypus, quicklisp+cffi-libffi, the
-    // ext-php-rs build — are confirmed on the CI runners.
-    "perl", "lisp", "php",
-    // Promoted 2026-07-06 (genericity thesis): candidate bindings emitted by
-    // codegen v2 + examples + guides. Two archetypes proven — C-ABI-direct
-    // (odin, nim: real C fn-ptrs) and the host-invoker path (racket, red).
-    // "Impl blindly, validate via CI" — kept OUT of the CI gate (SHIPPED_LANGS)
-    // until their matrix rows go green cross-OS; guides marked experimental.
-    "odin", "nim", "racket", "red",
-    // More archetype-A candidates (2026-07-06): d/crystal/julia redeclare the C
-    // ABI; swift/v consume the generated azul.h. Same CI-validated, non-gating
-    // status as the row above.
-    "d", "crystal", "v", "swift", "julia",
+    "c", "cpp", "rust", "csharp", "java", "kotlin", "lua", "ruby", "node", "ocaml",
+    "zig", "go", "pascal", "scala", "fortran", "haskell", "python",
     // C++ dialect variants — dropdown options only, never standalone tabs.
     "cpp03", "cpp11", "cpp14", "cpp17", "cpp20", "cpp23",
 ];
@@ -1559,5 +1559,41 @@ mod stylesheet_contract {
             "the two dark blocks define different tokens - an explicit theme \
              choice would not match the system one"
         );
+    }
+}
+
+#[cfg(test)]
+mod shipped_tier_tests {
+    use super::*;
+
+    /// scripts/e2e_language_matrix.sh's SHIPPED_LANGS is what CI gates on;
+    /// SHIPPED_LANGUAGES is what the site claims. They must be the same set.
+    #[test]
+    fn the_site_ships_exactly_what_the_e2e_gate_gates() {
+        let script = std::fs::read_to_string(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../scripts/e2e_language_matrix.sh"),
+        )
+        .expect("scripts/e2e_language_matrix.sh next to the doc crate");
+        let start = script.find("SHIPPED_LANGS=(").expect("SHIPPED_LANGS=( in the script");
+        let end = script[start..].find("\n)").expect("closing paren") + start;
+        let mut gated: Vec<&str> = script[start + "SHIPPED_LANGS=(".len()..end]
+            .lines()
+            .map(|l| l.split('#').next().unwrap_or(""))
+            .flat_map(|l| l.split_whitespace())
+            .collect();
+        gated.sort_unstable();
+        let mut shipped: Vec<&str> = SHIPPED_LANGUAGES.to_vec();
+        shipped.sort_unstable();
+        assert_eq!(
+            shipped, gated,
+            "docgen::SHIPPED_LANGUAGES (what the site shows) != SHIPPED_LANGS in \
+             scripts/e2e_language_matrix.sh (what CI gates). Change both, or neither."
+        );
+        for l in FRONTPAGE_LANGUAGES {
+            assert!(
+                is_shipped_language(l) || l.starts_with("cpp"),
+                "frontpage tab {l} is not in the shipped tier"
+            );
+        }
     }
 }

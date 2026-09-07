@@ -270,7 +270,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
                                 },
                                 {
                                     "type": "command",
@@ -295,7 +295,7 @@
                             "steps": [
                                 {
                                     "type": "text",
-                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
@@ -451,7 +451,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
                                 },
                                 {
                                     "type": "command",
@@ -476,7 +476,7 @@
                             "steps": [
                                 {
                                     "type": "text",
-                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
@@ -549,7 +549,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
                                 },
                                 {
                                     "type": "command",
@@ -574,7 +574,7 @@
                             "steps": [
                                 {
                                     "type": "text",
-                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
@@ -647,7 +647,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
                                 },
                                 {
                                     "type": "command",
@@ -672,7 +672,7 @@
                             "steps": [
                                 {
                                     "type": "text",
-                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
@@ -745,7 +745,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
                                 },
                                 {
                                     "type": "command",
@@ -770,7 +770,7 @@
                             "steps": [
                                 {
                                     "type": "text",
-                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
@@ -843,7 +843,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
                                 },
                                 {
                                     "type": "command",
@@ -868,7 +868,7 @@
                             "steps": [
                                 {
                                     "type": "text",
-                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
@@ -941,7 +941,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
                                 },
                                 {
                                     "type": "command",
@@ -966,7 +966,7 @@
                             "steps": [
                                 {
                                     "type": "text",
-                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop-azul.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
+                                    "content": "Chocolatey: choco install libazul --source $HOSTNAME/ui/nuget/index.json — Scoop: scoop bucket add azul $HOSTNAME/ui/scoop.git && scoop install azul. Both install azul.dll + azul.dll.lib + azul.h and set AZ_LINK_PATH to that directory; then compile with /I%AZ_LINK_PATH% and link %AZ_LINK_PATH%\\azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
@@ -1859,31 +1859,11 @@
                             ]
                         },
                         "windows": {
-                            "description": "Download the prebuilt library, the generated Azul.kt binding, the hello-world source, and JNA, then compile with kotlinc and run",
+                            "description": "Not shipped on Windows yet - a documented blocker, not a missing tab",
                             "steps": [
                                 {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Azul.kt"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.kt"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -L -o jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "kotlinc -J-Xmx4g -cp jna.jar Azul.kt HelloWorld.kt -include-runtime -d hello-world.jar"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "java -Djna.library.path=. -cp hello-world.jar;jna.jar com.azul.HelloWorldKt"
+                                    "type": "text",
+                                    "content": "BLOCKER (tracked): on Windows the Kotlin hello-world builds and starts, the headless layout runs, and then the JVM never terminates - a native (libazul) thread or an undrained native event queue keeps the JVM alive after the app closes (a known JNA-on-Windows class of problem; the same-JVM Java binding exits cleanly on Windows, and this binding passes the full e2e on Linux and macOS). Until a Windows-host thread dump pins the thread, use the Java binding on Windows (its jar bundles azul.dll) or Kotlin on Linux/macOS."
                                 }
                             ]
                         }
@@ -2995,7 +2975,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/homebrew-azul.git"
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
                                 },
                                 {
                                     "type": "command",
@@ -3026,7 +3006,7 @@
                             ]
                         },
                         "windows": {
-                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories — here the DLL + its MSVC import library downloaded next to the project (`choco install libazul --source $HOSTNAME/ui/nuget/index.json` or the Scoop bucket at $HOSTNAME/ui/scoop-azul.git set AZ_LINK_PATH for you instead)",
+                            "description": "Depend on the pre-rendered `azul` crate from the self-hosted cargo registry at $HOSTNAME/ui/cargo (the generated API lives inside the crate, so rust-analyzer sees every type and nothing is generated on your machine). The crate's build.rs links the prebuilt libazul it finds in AZ_LINK_PATH, next to the project, or in the system library directories — here the DLL + its MSVC import library downloaded next to the project (`choco install libazul --source $HOSTNAME/ui/nuget/index.json` or the Scoop bucket at $HOSTNAME/ui/scoop.git set AZ_LINK_PATH for you instead)",
                             "steps": [
                                 {
                                     "type": "command",

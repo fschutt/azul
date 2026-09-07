@@ -46,8 +46,6 @@ const window = WindowCreateOptions.createWithLayout(layout).with({
         title: 'Hello World',
         size: { dimensions: { width: 400.0, height: 300.0 } },
         flags: {
-            decorations: WindowDecorations.NoTitleAutoInject,
-            background_material: WindowBackgroundMaterial.Sidebar,
         },
     },
 });

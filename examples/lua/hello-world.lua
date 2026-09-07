@@ -35,8 +35,6 @@ local window = azul.WindowCreateOptions.create(layout):with({
         title = 'Hello World',
         size = { dimensions = { width = 400.0, height = 300.0 } },
         flags = {
-            decorations         = azul.WindowDecorations.NoTitleAutoInject,
-            background_material = azul.WindowBackgroundMaterial.Sidebar,
         },
     },
 })

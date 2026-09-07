@@ -11,8 +11,8 @@
 #                                  three — yum and zypper consume dnf repodata)
 #   pacman   azul.rs/ui/arch         (repo-add db over the .pkg.tar.zst)
 #   Alpine apk  azul.rs/ui/alpine     (apk index APKINDEX.tar.gz over the .apk)
-#   Homebrew azul.rs/ui/homebrew-azul.git  (a real bare git repo = a tap)
-#   Scoop    azul.rs/ui/scoop-azul.git     (a real bare git repo = a bucket)
+#   Homebrew azul.rs/ui/brew.git  (a real bare git repo = a tap)
+#   Scoop    azul.rs/ui/scoop.git     (a real bare git repo = a bucket)
 #   Chocolatey  azul.rs/ui/nuget (the v3 feed also serves a `libazul` choco package)
 #   cargo    azul.rs/ui/cargo        (sparse registry index over release/<V>/azul-<V>.crate)
 #
@@ -551,9 +551,9 @@ REPO
 # Homebrew — a tap is just a git repo. Homebrew only DEFAULTS to GitHub for the
 # `brew tap user/name` shorthand; with an explicit URL it clones any git URL,
 # including a dumb-HTTP bare repo served by GitHub Pages. So we publish a REAL
-# bare repo at azul.rs/ui/homebrew-azul.git (stable path) whose Formula/azul.rb
+# bare repo at azul.rs/ui/brew.git (stable path) whose Formula/azul.rb
 # is regenerated each release — `brew upgrade azul` then tracks new versions.
-#   brew tap fschutt/azul https://azul.rs/ui/homebrew-azul.git
+#   brew tap fschutt/azul https://azul.rs/ui/brew.git
 #   brew install fschutt/azul/azul
 # --------------------------------------------------------------------------
 build_homebrew() {
@@ -640,22 +640,27 @@ RB
       && git -c user.email=ci@azul.rs -c user.name="azul ci" add -A \
       && git -c user.email=ci@azul.rs -c user.name="azul ci" commit -q -m "azul $V" ) || {
     echo "  [brew] git commit failed — skip"; rm -rf "$work"; return; }
-  rm -rf "$SITE/ui/homebrew-azul.git"
-  git clone -q --bare "$work" "$SITE/ui/homebrew-azul.git" || { echo "  [brew] bare clone failed"; rm -rf "$work"; return; }
-  ( cd "$SITE/ui/homebrew-azul.git" && git update-server-info )
+  rm -rf "$SITE/ui/brew.git"
+  git clone -q --bare "$work" "$SITE/ui/brew.git" || { echo "  [brew] bare clone failed"; rm -rf "$work"; return; }
+  ( cd "$SITE/ui/brew.git" && git update-server-info )
+  # Compatibility: the tap was published as ui/homebrew-azul.git until
+  # 2026-09-07 and every `brew tap` done before then has that URL as its git
+  # remote. Serve the identical bare repo there too, so their `brew upgrade`
+  # keeps working; the docs use the short path.
+  rm -rf "$SITE/ui/homebrew-azul.git" && cp -R "$SITE/ui/brew.git" "$SITE/ui/homebrew-azul.git"
   rm -rf "$work"
   # Prove the published repo is actually clonable (what `brew tap` will do,
   # minus the HTTP transport): a file:// clone of the bare repo must yield
   # Formula/azul.rb. Non-fatal — a failure only warns.
   local chk; chk="$(mktemp -d)"
-  if git clone -q "file://$(cd "$SITE/ui/homebrew-azul.git" && pwd)" "$chk/tap" \
+  if git clone -q "file://$(cd "$SITE/ui/brew.git" && pwd)" "$chk/tap" \
      && [ -f "$chk/tap/Formula/azul.rb" ]; then
     echo "  [brew] self-check: bare repo clones and contains Formula/azul.rb"
   else
-    echo "::warning::[brew] self-check clone of homebrew-azul.git FAILED"
+    echo "::warning::[brew] self-check clone of brew.git FAILED"
   fi
   rm -rf "$chk"
-  echo "  [brew] published homebrew-azul.git (formula azul $V; intel=$([ -f "$intel" ] && echo yes || echo no))"
+  echo "  [brew] published brew.git (formula azul $V; intel=$([ -f "$intel" ] && echo yes || echo no))"
 }
 
 # --------------------------------------------------------------------------
@@ -891,7 +896,7 @@ build_cargo() {
 # --------------------------------------------------------------------------
 # Scoop (Windows) — a bucket is a git repo of JSON manifests, and scoop clones
 # any git URL, so a bare repo on Pages works exactly like the Homebrew tap.
-#   scoop bucket add azul https://azul.rs/ui/scoop-azul.git
+#   scoop bucket add azul https://azul.rs/ui/scoop.git
 #   scoop install azul     (azul.dll + azul.dll.lib + azul.h; sets AZ_LINK_PATH)
 # --------------------------------------------------------------------------
 build_scoop() {
@@ -932,11 +937,12 @@ JSON
       && git -c user.email=ci@azul.rs -c user.name="azul ci" add -A \
       && git -c user.email=ci@azul.rs -c user.name="azul ci" commit -q -m "azul $V" ) || {
     echo "  [scoop] git commit failed — skip"; rm -rf "$work"; return; }
-  rm -rf "$SITE/ui/scoop-azul.git"
-  git clone -q --bare "$work" "$SITE/ui/scoop-azul.git" || { echo "  [scoop] bare clone failed"; rm -rf "$work"; return; }
-  ( cd "$SITE/ui/scoop-azul.git" && git update-server-info )
+  rm -rf "$SITE/ui/scoop.git"
+  git clone -q --bare "$work" "$SITE/ui/scoop.git" || { echo "  [scoop] bare clone failed"; rm -rf "$work"; return; }
+  ( cd "$SITE/ui/scoop.git" && git update-server-info )
+  rm -rf "$SITE/ui/scoop-azul.git" && cp -R "$SITE/ui/scoop.git" "$SITE/ui/scoop-azul.git"   # compat, see brew
   rm -rf "$work"
-  echo "  [scoop] published scoop-azul.git (manifest azul $V)"
+  echo "  [scoop] published scoop.git (manifest azul $V)"
 }
 
 # --------------------------------------------------------------------------
@@ -985,9 +991,9 @@ dotnet add package Azul.Net --version $V
 
 # Chocolatey (same feed):
 choco install libazul --source https://azul.rs/ui/nuget/index.json"
-  landing ui/homebrew-azul.git "Homebrew tap" "brew tap fschutt/azul https://azul.rs/ui/homebrew-azul.git
+  landing ui/brew.git "Homebrew tap" "brew tap fschutt/azul https://azul.rs/ui/brew.git
 brew install fschutt/azul/azul"
-  landing ui/scoop-azul.git "Scoop bucket" "scoop bucket add azul https://azul.rs/ui/scoop-azul.git
+  landing ui/scoop.git "Scoop bucket" "scoop bucket add azul https://azul.rs/ui/scoop.git
 scoop install azul"
 }
 

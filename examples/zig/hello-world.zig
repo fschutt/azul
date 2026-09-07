@@ -84,8 +84,6 @@ pub fn main() !void {
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;
 
-    window.window_state.flags.decorations = C.AzWindowDecorations_NoTitleAutoInject;
-    window.window_state.flags.background_material = C.AzWindowBackgroundMaterial_Sidebar;
 
     var app = C.AzApp_create(data, C.AzAppConfig_create());
     C.AzApp_run(&app, window);

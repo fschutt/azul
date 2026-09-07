@@ -78,8 +78,6 @@ proc main() =
   window.window_state.title = azStr("Hello World")
   window.window_state.size.dimensions.width = 400.0'f32
   window.window_state.size.dimensions.height = 300.0'f32
-  window.window_state.flags.decorations = AzWindowDecorations.NoTitleAutoInject
-  window.window_state.flags.background_material = AzWindowBackgroundMaterial.Sidebar
 
   var app = AzApp_create(data, AzAppConfig_create())
   AzApp_run(addr app, window)

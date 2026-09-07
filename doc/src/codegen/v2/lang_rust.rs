@@ -4185,6 +4185,50 @@ impl RustGenerator {
             "pub unsafe extern \"C\" fn {}Struct({}){} {}",
             func.c_name, args_struct, return_str, body
         ));
+
+        // Byref twins for all three variants. `with_on_click` takes its
+        // `AzButton` self BY VALUE (752 bytes) exactly like `AzApp_create`
+        // takes its `AzAppConfig`, so on x86-64 LuaJIT it hit the same "NYI:
+        // cannot call this C function" — and no twin existed to route to,
+        // because the pair emit never reached `emit_byref_twin` (75 of the
+        // 2,845 aggregate-taking exports, all of them these variants).
+        let self_snake = to_snake_case(&func.class_name);
+        let is_cb = |a: &FunctionArg| {
+            let is_self = a.name == "self" || a.name == self_snake;
+            !is_self && super::managed_host_invoker::is_callback_wrapper(&a.type_name)
+        };
+        let mut raw_def = func.clone();
+        raw_def.args = func
+            .args
+            .iter()
+            .map(|a| {
+                let mut a = a.clone();
+                if is_cb(&a) {
+                    a.type_name =
+                        super::managed_host_invoker::callback_typedef_for(a.type_name.trim())
+                            .to_string();
+                }
+                a
+            })
+            .collect();
+        Self::emit_byref_twin(builder, &raw_def, config, export_feature, is_export_only);
+        let mut ctx_def = raw_def.clone();
+        ctx_def.c_name = format!("{}WithCtx", func.c_name);
+        ctx_def.args = Vec::with_capacity(func.args.len() + 1);
+        for (orig, a) in func.args.iter().zip(raw_def.args.iter()) {
+            ctx_def.args.push(a.clone());
+            if is_cb(orig) {
+                let mut c = a.clone();
+                c.name = format!("{}_ctx", a.name);
+                c.type_name = "OptionRefAny".to_string();
+                c.ref_kind = ArgRefKind::Owned;
+                ctx_def.args.push(c);
+            }
+        }
+        Self::emit_byref_twin(builder, &ctx_def, config, export_feature, is_export_only);
+        let mut struct_def = func.clone();
+        struct_def.c_name = format!("{}Struct", func.c_name);
+        Self::emit_byref_twin(builder, &struct_def, config, export_feature, is_export_only);
     }
 
     /// Splice `prologue` (a sequence of `let` statements) just inside

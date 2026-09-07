@@ -916,47 +916,7 @@ impl CGenerator {
                 }
             ));
 
-            // Byref twin: owned aggregates by pointer (consumed — same
-            // ownership as the by-value call), return via out-pointer.
-            // For FFIs whose call frames cannot pass large aggregates by
-            // value (LuaJIT caps stack args at 256 bytes).
-            let is_aggregate = |arg: &FunctionArg| {
-                matches!(arg.ref_kind, ArgRefKind::Owned)
-                    && arg
-                        .type_name
-                        .chars()
-                        .next()
-                        .is_some_and(|c| c.is_ascii_uppercase())
-            };
-            if func.args.iter().any(is_aggregate) {
-                let mut byref_args: Vec<String> = Vec::with_capacity(func.args.len() + 1);
-                if func.return_type.is_some() {
-                    byref_args.push(format!("{return_type}* __ret"));
-                }
-                for arg in &func.args {
-                    let c_type = self.rust_type_to_c_with_prefix(&arg.type_name, config);
-                    let escaped_name = escape_cpp_keyword_for_c(&arg.name);
-                    if is_aggregate(arg) {
-                        byref_args.push(format!("{c_type}* {escaped_name}"));
-                    } else {
-                        let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
-                            ArgRefKind::Owned => ("", ""),
-                            ArgRefKind::Ref => ("const ", "*"),
-                            ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "*"),
-                            ArgRefKind::Ptr => ("const ", "*"),
-                        };
-                        byref_args.push(format!("{ptr_prefix}{c_type}{ptr_suffix} {escaped_name}"));
-                    }
-                }
-                builder.line(
-                    "/* Byref twin: owned aggregates by pointer (CONSUMED, like the by-value call); return via out-pointer. */",
-                );
-                builder.line(&format!(
-                    "extern DLLIMPORT void {}Byref({});",
-                    func.c_name,
-                    byref_args.join(", ")
-                ));
-            }
+            self.emit_c_byref_twin(builder, &func.c_name, &return_type, func.return_type.is_some(), &func.args, config);
             return;
         }
 
@@ -1039,6 +999,95 @@ impl CGenerator {
             return_type,
             func.c_name,
             args_struct.join(", ")
+        ));
+
+        // Byref twins for the three variants — mirrors lang_rust.rs, which
+        // exports them; the by-value `self` of `with_on_click` (an AzButton,
+        // 752 bytes) is as unpassable for LuaJIT on x86-64 as AzAppConfig.
+        let mut raw_args: Vec<FunctionArg> = Vec::with_capacity(func.args.len());
+        let mut ctx_args: Vec<FunctionArg> = Vec::with_capacity(func.args.len() + 1);
+        for arg in &func.args {
+            let is_self = arg.name == "self" || arg.name == self_snake;
+            let is_cb_wrapper =
+                !is_self && super::managed_host_invoker::is_callback_wrapper(&arg.type_name);
+            let mut a = arg.clone();
+            if is_cb_wrapper {
+                a.type_name =
+                    super::managed_host_invoker::callback_typedef_for(arg.type_name.trim())
+                        .to_string();
+            }
+            raw_args.push(a.clone());
+            ctx_args.push(a.clone());
+            if is_cb_wrapper {
+                let mut c = a;
+                c.name = format!("{}_ctx", arg.name);
+                c.type_name = "OptionRefAny".to_string();
+                c.ref_kind = ArgRefKind::Owned;
+                ctx_args.push(c);
+            }
+        }
+        let has_ret = func.return_type.is_some();
+        self.emit_c_byref_twin(builder, &func.c_name, &return_type, has_ret, &raw_args, config);
+        self.emit_c_byref_twin(builder, &format!("{}WithCtx", func.c_name), &return_type, has_ret, &ctx_args, config);
+        self.emit_c_byref_twin(builder, &format!("{}Struct", func.c_name), &return_type, has_ret, &func.args, config);
+    }
+
+    /// `<c_name>Byref`: owned aggregates by pointer (CONSUMED, like the
+    /// by-value call), return via out-pointer — for FFIs whose call frames
+    /// cannot pass large aggregates by value (LuaJIT caps stack-passed
+    /// argument bytes at 256). Emitted only when an owned aggregate is
+    /// present. The predicate matches lang_rust.rs's `emit_byref_twin`
+    /// EXACTLY — it used to pointerize `AzXxxCallbackType` fn-pointer
+    /// typedefs here while the Rust export took them by value (13 twins
+    /// declared with a signature the DLL never had).
+    fn emit_c_byref_twin(
+        &self,
+        builder: &mut CodeBuilder,
+        c_name: &str,
+        return_type: &str,
+        has_return: bool,
+        args: &[FunctionArg],
+        config: &CodegenConfig,
+    ) {
+        let is_aggregate = |arg: &FunctionArg| {
+            matches!(arg.ref_kind, ArgRefKind::Owned)
+                && arg
+                    .type_name
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_uppercase())
+                && !arg.type_name.ends_with("CallbackType")
+                && !arg.type_name.ends_with("FnType")
+        };
+        if !args.iter().any(is_aggregate) {
+            return;
+        }
+        let mut byref_args: Vec<String> = Vec::with_capacity(args.len() + 1);
+        if has_return {
+            byref_args.push(format!("{return_type}* __ret"));
+        }
+        for arg in args {
+            let c_type = self.rust_type_to_c_with_prefix(&arg.type_name, config);
+            let escaped_name = escape_cpp_keyword_for_c(&arg.name);
+            if is_aggregate(arg) {
+                byref_args.push(format!("{c_type}* {escaped_name}"));
+            } else {
+                let (ptr_prefix, ptr_suffix) = match arg.ref_kind {
+                    ArgRefKind::Owned => ("", ""),
+                    ArgRefKind::Ref => ("const ", "*"),
+                    ArgRefKind::RefMut | ArgRefKind::PtrMut => ("", "*"),
+                    ArgRefKind::Ptr => ("const ", "*"),
+                };
+                byref_args.push(format!("{ptr_prefix}{c_type}{ptr_suffix} {escaped_name}"));
+            }
+        }
+        builder.line(
+            "/* Byref twin: owned aggregates by pointer (CONSUMED, like the by-value call); return via out-pointer. */",
+        );
+        builder.line(&format!(
+            "extern DLLIMPORT void {}Byref({});",
+            c_name,
+            byref_args.join(", ")
         ));
     }
 

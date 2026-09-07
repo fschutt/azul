@@ -91,7 +91,7 @@ azul.rs - no external registry involved) installs `libazul.dylib`, `azul.h`,
 the C++ headers and a pkg-config file:
 
 ```sh
-brew tap fschutt/azul https://azul.rs/ui/homebrew-azul.git
+brew tap fschutt/azul https://azul.rs/ui/brew.git
 brew install fschutt/azul/azul
 cc $(pkg-config --cflags --libs azul) hello-world.c -o hello-world
 ```
@@ -103,7 +103,7 @@ and `azul.h` into one directory and point `AZ_LINK_PATH` at it:
 ```powershell
 choco install libazul --source https://azul.rs/ui/nuget/index.json
 # or
-scoop bucket add azul https://azul.rs/ui/scoop-azul.git
+scoop bucket add azul https://azul.rs/ui/scoop.git
 scoop install azul
 ```
 

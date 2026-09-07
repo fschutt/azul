@@ -51,8 +51,6 @@
   (set-AzLogicalSize-width! dims 400.0)
   (set-AzLogicalSize-height! dims 300.0)
   (define flags (AzFullWindowState-flags ws))
-  (set-AzWindowFlags-decorations! flags AzWindowDecorations_NoTitleAutoInject)
-  (set-AzWindowFlags-background-material! flags AzWindowBackgroundMaterial_Sidebar)
 
   (app-run app wco))
 

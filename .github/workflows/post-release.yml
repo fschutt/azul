@@ -246,6 +246,12 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-14, windows-2022]
         lang: [c, cpp, rust, csharp, java, kotlin, lua, ruby, node, ocaml, zig, go, pascal, scala, fortran, haskell, python]
+        exclude:
+          # Not shipped there, and SAID so: the Kotlin Windows tab and guide
+          # carry the blocker (JVM never terminates after the headless
+          # layout). The tab has no commands to run. Re-enable together with
+          # the fix in lang_kotlin (scripts/e2e_language_matrix.sh).
+          - { os: windows-2022, lang: kotlin }
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:

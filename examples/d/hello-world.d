@@ -123,8 +123,6 @@ void main() {
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;
 
-    window.window_state.flags.decorations = AzWindowDecorations.NoTitleAutoInject;
-    window.window_state.flags.background_material = AzWindowBackgroundMaterial.Sidebar;
 
     AzApp app = AzApp_create(data, AzAppConfig_create());
     AzApp_run(&app, window);

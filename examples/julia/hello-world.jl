@@ -109,8 +109,6 @@ function main()
             size = Azul.setfields(ws.size;
                 dimensions = Azul.setfields(ws.size.dimensions; width = 400.0f0, height = 300.0f0)),
             flags = Azul.setfields(ws.flags;
-                decorations = Azul.AzWindowDecorations_NoTitleAutoInject,
-                background_material = Azul.AzWindowBackgroundMaterial_Sidebar)))
 
     app = Ref(Azul.AzApp_create(data, Azul.AzAppConfig_create()))
     GC.@preserve app begin

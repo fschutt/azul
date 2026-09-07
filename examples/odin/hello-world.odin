@@ -122,8 +122,6 @@ main :: proc() {
 	window.window_state.size.dimensions.width = 400.0
 	window.window_state.size.dimensions.height = 300.0
 
-	window.window_state.flags.decorations = azul.AzWindowDecorations.NoTitleAutoInject
-	window.window_state.flags.background_material = azul.AzWindowBackgroundMaterial.Sidebar
 
 	app := azul.AzApp_create(data, azul.AzAppConfig_create())
 	azul.AzApp_run(&app, window)

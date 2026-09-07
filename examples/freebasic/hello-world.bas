@@ -7,9 +7,6 @@ End Type
 Sub MyDataModel_destructor Cdecl (ByVal p As Any Ptr)
 End Sub
 
-Declare Function MyDataModel_toJson Cdecl (ByVal refany As AzRefAny) As AzJson
-Declare Function MyDataModel_fromJson Cdecl (ByVal json As AzJson) As AzResultRefAnyString
-
 Function AzStr (ByRef s As Const String) As AzString
     Return AzString_copyFromBytes(StrPtr(s), 0, Len(s))
 End Function
@@ -69,14 +66,6 @@ Function layout Cdecl (ByVal data As AzRefAny, ByVal info As AzLayoutCallbackInf
     Return body
 End Function
 
-Function MyDataModel_toJson Cdecl (ByVal refany As AzRefAny) As AzJson
-    Return AzJson_null()
-End Function
-
-Function MyDataModel_fromJson Cdecl (ByVal json As AzJson) As AzResultRefAnyString
-    Return AzResultRefAnyString_err(AzStr("MyDataModel.fromJson is not implemented in the FreeBASIC example"))
-End Function
-
 Dim model As MyDataModel
 Dim modelWrapper As AzGlVoidPtrConst
 Dim data As AzRefAny
@@ -103,9 +92,6 @@ window = AzWindowCreateOptions_create(@layout)
 window.window_state.title = AzStr("Hello World")
 window.window_state.size.dimensions.width  = 400.0
 window.window_state.size.dimensions.height = 300.0
-
-window.window_state.flags.decorations = AzWindowDecorations_NoTitleAutoInject
-window.window_state.flags.background_material = AzWindowBackgroundMaterial_Sidebar
 
 app = AzApp_create(data, AzAppConfig_create())
 AzApp_run(@app, window)

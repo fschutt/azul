@@ -81,14 +81,14 @@ azul.rs) installs `libazul.dylib`, `azul.h`, all six C++ headers and a
 pkg-config file:
 
 ```sh
-brew tap fschutt/azul https://azul.rs/ui/homebrew-azul.git
+brew tap fschutt/azul https://azul.rs/ui/brew.git
 brew install fschutt/azul/azul
 c++ -std=c++17 $(pkg-config --cflags --libs azul) hello-world.cpp -o hello-world
 ```
 
 On Windows, Chocolatey (`choco install libazul --source
 https://azul.rs/ui/nuget/index.json`) or Scoop (`scoop bucket add azul
-https://azul.rs/ui/scoop-azul.git && scoop install azul`) install `azul.dll`,
+https://azul.rs/ui/scoop.git && scoop install azul`) install `azul.dll`,
 `azul.dll.lib` and `azul.h`; the C++ headers come with the bundle below.
 
 The C++ bundle holds everything the compiler needs except the library

@@ -1,5 +1,4 @@
 #include "azul23.hpp"
-#include <expected>
 #include <string>
 #include <string_view>
 
@@ -12,21 +11,10 @@ struct MyDataModel {
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
-// Wrapper payload types: the Result's toStdExpected()/operator hands
-// ownership of Url / UrlParseError to the std::expected.
-static std::expected<Url, UrlParseError> parse_homepage_url() {
-    return Url::parse("https://example.com/"sv);
-}
-static bool homepage_ok() { return parse_homepage_url().has_value(); }
-
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     auto* d = data_wrapper.downcast_ref<MyDataModel>();
     if (!d) return Dom::create_body();
-
-    String css = homepage_ok()
-        ? String(R"(body { background-color: #efefef; })")
-        : String(R"(body { background-color: #ffaaaa; })");
 
     Dom body = Dom::create_body();
     body = body.with_child(Dom::create_div()
@@ -36,7 +24,6 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         .with_button_type(ButtonType::Primary)
         .with_on_click(data_wrapper.clone(), on_click)
         .dom());
-    body = body.with_css(std::move(css));
     return std::move(body);
 }
 

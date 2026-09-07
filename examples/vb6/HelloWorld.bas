@@ -64,8 +64,6 @@ Public Declare Function AzRefAny_newC Lib "azul" Alias "AzRefAny_newC" _
 Public Const az_Update_DoNothing As Long = 0
 Public Const az_Update_RefreshDom As Long = 1
 Public Const az_ButtonType_Primary As Long = 0
-Public Const az_WindowDecorations_NoTitleAutoInject As Long = 2
-Public Const az_WindowBackgroundMaterial_Sidebar As Long = 4
 
 Public Type MyDataModel
     counter As Long

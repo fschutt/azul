@@ -96,8 +96,6 @@ window.window_state.title = LibAzul.azString_fromUtf8(title.to_unsafe, LibC::Siz
 window.window_state.size.dimensions.width = 400.0_f32
 window.window_state.size.dimensions.height = 300.0_f32
 
-window.window_state.flags.decorations = LibAzul::AzWindowDecorations::NoTitleAutoInject
-window.window_state.flags.background_material = LibAzul::AzWindowBackgroundMaterial::Sidebar
 
 app = LibAzul.azApp_create(data, LibAzul.azAppConfig_create)
 LibAzul.azApp_run(pointerof(app), window)

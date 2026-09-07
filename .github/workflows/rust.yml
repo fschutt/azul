@@ -4735,7 +4735,7 @@ jobs:
           bash scripts/build_registry_mirrors.sh website "${AZUL_VERSION}" artifacts-registry
 
           echo "=== self-hosted channel summary ==="
-          for d in website/ui/homebrew-azul.git website/ui/apt website/ui/azul \
+          for d in website/ui/brew.git website/ui/apt website/ui/azul \
                    website/ui/maven website/ui/npm website/ui/nuget \
                    website/ui/gems website/ui/rpm website/ui/arch website/ui/alpine; do
             if [ -d "$d" ]; then echo "[live] ${d#website/}"; else echo "[skip] ${d#website/}"; fi
@@ -4838,8 +4838,8 @@ jobs:
           need_file cargo    "website/ui/release/${AZUL_VERSION}/azul-${AZUL_VERSION}.crate"
           need_file cargo    website/ui/cargo/config.json
           need_file cargo    website/ui/cargo/az/ul/azul
-          need_file scoop    website/ui/scoop-azul.git/info/refs
-          need_file brew     website/ui/homebrew-azul.git/info/refs
+          need_file scoop    website/ui/scoop.git/info/refs
+          need_file brew     website/ui/brew.git/info/refs
 
           if [ -n "$missing" ]; then
             echo "::error::registry mirrors missing for:$missing"
