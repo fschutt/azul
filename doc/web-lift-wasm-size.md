@@ -1810,3 +1810,57 @@ An A/B across a rebuild cannot isolate a change smaller than the drift, and the
 drift here is ~500 KB of raw code. The mirror byte count is the number to quote
 for this change, because it is measured directly rather than differenced across
 two walks that are not the same walk.
+
+# RUN 81: THE FONT MIRROR WAS DEAD WEIGHT — CONFIRMED BY THE TEXT GATE
+
+The gate for this run was TEXT, not size: if the mirrored copy were still being
+read the failure would be silent (allsorts parses a zero-filled font, text
+measures height 0, which reads as a layout bug). It passed at the baseline
+exactly:
+
+    bootstrap complete · EXCEPTIONS (0) · DOM nodes: 318 · body text length: 585
+    unmatched dispatches : 0
+
+**So `web_fallback_font_bytes()` really does always return the JS-registered
+buffer, and the 226,812-byte mirrored copy in all 25 modules was never read.**
+`eventloop.rs` said so in a comment; now it is measured.
+
+| | run 79 (mirrored) | run 81 (off) | delta |
+|---|---|---|---|
+| mini mirror bytes | 2,049,750 | 1,683,059 | **−366,691** |
+| mini raw | 30,188,442 | 29,300,091 | −888,351 |
+| mini brotli q9 | 4,542,946 | **4,332,843** | −210,103 |
+| p0 raw | 21,707,906 | 20,813,323 | −894,583 |
+| p0 brotli q9 | 3,332,571 | **3,110,919** | −221,652 |
+
+⚠ Quote the **mirror delta**, not the brotli delta. The two runs churned 198
+functions out and 70 in, so roughly 500 KB of raw code moved for reasons that
+have nothing to do with the font. The attributable figure is −366,691 raw of
+mirror, ≈ **−136 KB compressed per module that mirrors it**.
+
+## The served corpus, measured for the first time
+
+    SERVED SET: mini 29,300,091 B + 23 other module(s) 94,359,113 B
+                = 123,659,204 B raw (123.66 MB); the mini is 23.7% of it
+
+⚠ This is the CEILING, not the first-paint download. The server cannot know
+which modules a boot fetches — that depends on which interactive nodes the
+rendered DOM contains. The measured first-paint subset is NINE modules /
+84,227,455 raw, counted from the boot log. The report was briefly mislabelled
+`FIRST-PAINT SET`, which would have overstated the download by 47%.
+
+Largest served modules, and the ordering is the point — the mini is fourth by
+size behind nothing at all, but `azwriter::layout` is 24% larger than it:
+
+| module | raw |
+|---|---|
+| layout `azwriter::layout` | 36,406,299 |
+| **azul-mini** | **29,300,091** |
+| cb `azwriter::on_pages_mounted` | 9,285,466 |
+| cb `azwriter::on_save_clicked` | 6,848,481 |
+| cb `ribbon_ui::on_toggle_bold` / `_underline` / `_italic` | 6,726,4xx each |
+| cb `azwriter::on_undo` / `on_redo` | 4,934,6xx each |
+
+Three near-identical 6.7 MB toggle callbacks and two near-identical 4.9 MB
+undo/redo callbacks is its own finding: those pairs differ by ~50 bytes and are
+almost certainly the same closure over a different constant.
