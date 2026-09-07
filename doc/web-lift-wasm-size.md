@@ -1916,3 +1916,57 @@ The mirror's compressed cost is now 627,170 (mini) and 652,945 (layout), against
 So three independent measurements now agree the mirrored font was dead weight
 worth roughly 136-141 KB compressed per module: the raw mirror delta, this
 compressed-cost fall, and the text gate that proved nothing read it.
+
+
+# THE MIRROR IS 86.7% A SECOND COPY — AND AN ADDRESS-KEYED DEDUP WOULD CORRUPT IT
+
+Every cb/layout module imports `env.memory` from the mini, so all 27 share ONE
+linear memory, and each replays its own data segments into it at instantiate.
+Measured across a whole run with content hashing:
+
+| | bytes |
+|---|---|
+| mirror shipped, all 27 modules | 17,850,947 (17.85 MB) |
+| **BYTE-IDENTICAL to an earlier module's** | **15,468,469 (86.7%)** |
+| genuinely new | 2,382,478 |
+| **CONFLICTING — same address, different content** | **281,794 in 236 segments (1.58%)** |
+
+**The conflict column is why this was measured rather than assumed.** The first
+pass compared offset and length only and reported 76-99% duplication; acting on
+that would have silently corrupted 281,794 bytes, because 236 segments genuinely
+disagree about what belongs at an address. The mirror's pointer rewriting is
+per-module, and for those segments it lands differently.
+
+So the design is settled: **a module may omit a segment exactly when an
+eagerly-loaded earlier module shipped BYTE-IDENTICAL content at that address.**
+Ordering is already guaranteed for the mini's pages — everything importing
+`env.memory` instantiates after it. That removes 86.7% of 17.85 MB.
+
+The conflicts cluster: 84,056 B in one module, 78,852 in another, then 34,012 /
+29,876 / 22,460, tailing to 104. Worth understanding before shipping the dedup,
+but they do not block it — they just have to be kept.
+
+# ⚠ THE FIRST CHUNK EMISSION WAS EMPTY, AND THE SIZES LOOKED FINE
+
+Run 82 linked p1..p3 for the first time:
+
+    p1 linked 1,527,380 raw -> 543,776 brotli, 512 object(s), 1022 case(s)
+    p2 linked 1,527,380 raw -> 543,778 brotli, 272 object(s),  542 case(s)
+    p3 linked 1,527,380 raw -> 543,776 brotli,  23 object(s),   44 case(s)
+
+543 KB per chunk is an entirely plausible number, and it is wrong. **512, 272 and
+23 objects cannot link to the same size.** The mirror alone is 1,517,615 bytes, so
+each "chunk" held about 10 KB of code: `--gc-sections` had stripped every body.
+
+Cause: the chunk links passed an EMPTY `--export` list, on the reasoning that a
+chunk defines almost none of the mini's exports and wasm-ld errors on
+`--export=<sym>` for a symbol it does not define. That reasoning is right and the
+conclusion was wrong — with no export at all there is no GC root, so the
+per-chunk dispatcher is dropped, and with it every body the dispatcher was the
+only static reference to. The main link has the same requirement and meets it by
+pushing `__az_indirect_dispatch` onto its exports; a chunk needs that one anchor
+and only that one.
+
+The general lesson is the one this document keeps relearning: **a plausible size
+is not a verified one.** What caught it was not the number but an invariant —
+three different object counts producing one identical size.
