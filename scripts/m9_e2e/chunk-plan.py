@@ -149,6 +149,44 @@ for i, (size, n, r, ex) in enumerate(chosen, start=1):
 print('')
 print('eager first paint would drop from %.2f MB to %.2f MB of objects (-%.1f%%)'
       % (tot, mb(core), 100.0 * (1 - mb(core) / max(tot, 1e-9))))
+# --emit <dir>: write the object list for each chunk, so the split can be
+# LINKED and measured instead of projected from object bytes.
+EMIT = None
+for i, a in enumerate(sys.argv):
+    if a == '--emit' and i + 1 < len(sys.argv):
+        EMIT = sys.argv[i + 1]
+if EMIT:
+    os.makedirs(EMIT, exist_ok=True)
+
+
+    def write_list(fname, names):
+        seen = set()
+        out = []
+        for n in sorted(names):
+            ex = export_of.get(n)
+            if not ex or ex in seen:
+                continue
+            p = os.path.join(SCRATCH, ex + '.o')
+            if os.path.exists(p) and os.path.getsize(p) > 0:
+                seen.add(ex)
+                out.append(p)
+        with io.open(os.path.join(EMIT, fname), 'w', encoding='utf-8',
+                     newline='\n') as fh:
+            fh.write('\n'.join(out) + '\n')
+        return len(out)
+
+
+    print('')
+    print('=== emitted object lists to %s ===' % EMIT)
+    print('  p0.txt: %d object(s)' % write_list('p0.txt', core))
+    for i, (_s, _n, _r, ex) in enumerate(chosen, start=1):
+        print('  p%d.txt: %d object(s)' % (i, write_list('p%d.txt' % i, ex)))
+    print('')
+    print('  Link one with (the mini uses --no-entry --allow-undefined')
+    print('  --gc-sections --strip-all, plus --export= per boundary symbol):')
+    print('    wasm-ld --no-entry --allow-undefined --gc-sections --strip-all \\')
+    print('            -o p0.wasm @p0.txt')
+
 print('')
 print('NOTE: object bytes, not delivered bytes. brotli shares a dictionary across')
 print('the whole module, so splitting COSTS ratio - each chunk compresses alone.')
