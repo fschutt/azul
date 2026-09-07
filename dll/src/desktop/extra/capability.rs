@@ -45,10 +45,98 @@ fn cap(available: bool, backend: &'static str, reason: &'static str) -> Platform
 }
 
 impl PlatformCapability {
-    /// Probe UDP networking (`AzUdp`). Always available — it is plain
-    /// `std::net::UdpSocket`, no device or platform feature required.
-    pub fn udp() -> PlatformCapability {
-        cap(true, "std::net::UdpSocket", "")
+    /// Probe the `WebTransport` client. Always available on native targets
+    /// (the QUIC engine is in-process); on web it is the browser's own
+    /// WebTransport API.
+    pub fn webtransport() -> PlatformCapability {
+        cap(true, "native (in-process QUIC)", "")
+    }
+
+    /// Probe user background threads (`Thread::create`). Always available on
+    /// native targets; on web there is no worker mode yet, so a created
+    /// thread reports dead-on-arrival and this probe says `false`.
+    pub fn thread() -> PlatformCapability {
+        cap(true, "std::thread", "")
+    }
+
+    /// Probe the file system (`FilePath::*`). Native: the OS file system.
+    /// Web: a virtual origin-private file system plus files the user picked.
+    pub fn file_system() -> PlatformCapability {
+        cap(true, "std::fs", "")
+    }
+
+    /// Probe native dialogs (`FileDialog`, `ColorPickerDialog`, `MsgBox`).
+    /// Desktop: `tfd`. Mobile: the OS document picker for files, no color
+    /// picker and no message boxes. Web: the browser pickers, gated on a
+    /// user gesture.
+    pub fn dialogs() -> PlatformCapability {
+        if cfg!(any(target_os = "android", target_os = "ios")) {
+            cap(
+                true,
+                "OS document picker",
+                "file pickers only: color picker and message boxes resolve as cancelled",
+            )
+        } else {
+            cap(true, "tfd", "")
+        }
+    }
+
+    /// Probe the HTTP client (`HttpRequestConfig::*`). Native: `ureq` with
+    /// rustls when the `http` feature is compiled in. Web: `fetch()`, subject
+    /// to CORS.
+    pub fn http() -> PlatformCapability {
+        if cfg!(feature = "http") {
+            cap(true, "ureq + rustls", "")
+        } else {
+            cap(
+                false,
+                "none",
+                "built without the `http` feature: every request resolves with HttpError::Other",
+            )
+        }
+    }
+
+    /// Probe multi-window support (`CallbackInfo::create_window`). Desktop:
+    /// yes. Mobile and web: one window per app / page, `create_window` is a
+    /// no-op.
+    pub fn multi_window() -> PlatformCapability {
+        if cfg!(any(target_os = "android", target_os = "ios")) {
+            cap(false, "none", "one window per app on mobile")
+        } else {
+            cap(true, "native windows", "")
+        }
+    }
+
+    /// Probe raw SQL access. Never available through the API: the `Db`
+    /// surface is a key/value + index store, and its desktop engine (turso)
+    /// is an internal detail. Reported so an app can tell "no SQL by
+    /// design" from a missing engine.
+    pub fn sql() -> PlatformCapability {
+        if cfg!(feature = "db-sqlite") {
+            cap(
+                false,
+                "turso (internal)",
+                "raw SQL is not part of the API; use Db::get / set / iterate / query_index",
+            )
+        } else {
+            cap(false, "none", "built without the `db-sqlite` feature")
+        }
+    }
+
+    /// Probe `Db` backup sync (`DbConfig::with_backup_sync_url`). Needs the
+    /// HTTP client: the row-level oplog travels over HTTPS on every target.
+    pub fn sync() -> PlatformCapability {
+        if cfg!(all(feature = "http", feature = "db-sqlite")) {
+            cap(true, "oplog over ureq", "")
+        } else if cfg!(feature = "db-sqlite") {
+            cap(
+                false,
+                "none",
+                "built without the `http` feature: the local store works, sync stays Queued",
+            )
+        } else {
+            cap(false, "none", "built without the `db-sqlite` feature")
+        }
     }
 
     /// Probe camera capture. On Linux a real check for a `/dev/video*` node;

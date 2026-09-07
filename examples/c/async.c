@@ -1,8 +1,29 @@
+/* nanosleep() needs a POSIX feature macro under strict -std=c11 */
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L
+#endif
 #include "azul.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
+/* The framework exports no blocking sleep any more (blocking is wrong on the
+ * UI thread and the browser has no such primitive); a worker thread that
+ * really wants to pace itself uses the platform primitive directly. */
+#ifdef _WIN32
+#include <windows.h>
+static void example_sleep_ms(unsigned ms) { Sleep(ms); }
+#else
+#include <time.h>
+static void example_sleep_ms(unsigned ms) {
+    struct timespec ts;
+    ts.tv_sec = ms / 1000u;
+    ts.tv_nsec = (long)(ms % 1000u) * 1000000L;
+    nanosleep(&ts, NULL);
+}
+#endif
+
 
 #define TILE_PX      256.0f
 #define CELLS        8
@@ -242,7 +263,7 @@ void tile_worker(AzRefAny initial_data, AzThreadSender sender, AzThreadReceiver 
     // joining, and ThreadSanitizer reports a thread leak in pthread_create.
     // One tile is cheap; sixteen sleeping at once is what makes it visible.
     for (int waited = 0; waited < FETCH_MS; waited += TERMINATE_POLL_MS) {
-        AzThread_sleepMs(TERMINATE_POLL_MS);
+        example_sleep_ms(TERMINATE_POLL_MS);
         AzOptionThreadSendMsg early = AzThreadReceiver_recv(&recv);
         if (early.None.tag == AzOptionThreadSendMsg_Tag_Some
             && early.Some.payload.TerminateThread.tag == AzThreadSendMsg_Tag_TerminateThread) {

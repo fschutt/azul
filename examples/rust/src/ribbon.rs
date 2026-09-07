@@ -9,7 +9,9 @@
 // Icons come from the builtin Material Icons pack via `<icon>` nodes.
 
 use azul::css::ColorU;
-use azul::dialog::{ColorPickerDialog, FileDialog, MsgBox, MsgBoxIcon, YesNo};
+use azul::dialog::{
+    ColorPickResult, ColorPickerDialog, FileDialog, FileOpenResult, MsgBox, MsgBoxIcon, YesNo,
+};
 use azul::dom::{ComboBoxOnSelectCallback, RibbonGalleryOnSelectCallback};
 use azul::option::{OptionColorU, OptionFileTypeList, OptionString};
 use azul::prelude::*;
@@ -138,7 +140,10 @@ extern "C" fn on_launcher(mut data: RefAny, _: CallbackInfo) -> Update {
         // Font dialog: pick the font colour with the system colour picker and
         // remember it on the app model.
         0 => {
-            let picked = ColorPickerDialog::open(
+            // The picker answers in `on_font_colour_picked`, a fresh
+            // activation: right after this one on desktop, whenever the
+            // browser's <input type=color> resolves on web.
+            let _request = ColorPickerDialog::open(
                 "Font Colour",
                 OptionColorU::Some(ColorU {
                     r: 192,
@@ -146,13 +151,9 @@ extern "C" fn on_launcher(mut data: RefAny, _: CallbackInfo) -> Update {
                     b: 0,
                     a: 255,
                 }),
+                app,
+                on_font_colour_picked,
             );
-            if let OptionColorU::Some(c) = picked {
-                if let Some(mut state) = app.downcast_mut::<DocState>() {
-                    state.font_color = c;
-                    return Update::RefreshDom;
-                }
-            }
             Update::DoNothing
         }
         // Paragraph dialog.
@@ -169,18 +170,40 @@ extern "C" fn on_launcher(mut data: RefAny, _: CallbackInfo) -> Update {
                 YesNo::No,
             ) == YesNo::Yes
             {
-                let picked = FileDialog::open_file(
+                let _request = FileDialog::open_file(
                     "Choose a style set",
                     OptionString::None,
                     OptionFileTypeList::None,
+                    app,
+                    on_style_set_picked,
                 );
-                if let Some(path) = picked.into_option() {
-                    println!("style set: {}", path.as_str());
-                }
             }
             Update::DoNothing
         }
     }
+}
+
+extern "C" fn on_font_colour_picked(mut app: RefAny, _: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = ColorPickResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    if let OptionColorU::Some(c) = picked.color {
+        if let Some(mut state) = app.downcast_mut::<DocState>() {
+            state.font_color = c;
+            return Update::RefreshDom;
+        }
+    }
+    Update::DoNothing
+}
+
+extern "C" fn on_style_set_picked(_app: RefAny, _: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    if let Some(path) = picked.path.into_option() {
+        println!("style set: {}", path.as_str());
+    }
+    Update::DoNothing
 }
 
 /// The styles gallery reports the picked template to the application - the

@@ -1,5 +1,7 @@
 #include "azul11.hpp"
 #include <vector>
+#include <thread>
+#include <chrono>
 #include <string>
 #include <sstream>
 
@@ -133,7 +135,7 @@ void background_thread_fn(AzRefAny initial_data, AzThreadSender sender, AzThread
             ThreadWriteBackMsg::create(on_progress, RefAny::create(update)).release()
         ));
 
-        (void)Thread::sleep_ms(50);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 }
 

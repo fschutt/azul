@@ -115,9 +115,9 @@ pub(crate) fn open_first_lib(names: &[&str]) -> Option<libloading::Library> {
 /// See `SUPER_PLAN_2.md` §0.5 — these live behind `extra/` rather than in
 /// `azul-core` / `azul-layout` so the layout closure stays dep-light.
 pub mod extra;
-/// Extra functions for file IO (for C / C++ developers)
+/// File IO for C / C++ developers: the one `FilePath` API, on every target.
 pub mod file {
-    pub use azul_layout::desktop::file::*;
+    pub use azul_layout::file::*;
 }
 /// Application / dock / taskbar icon, set at runtime from an icon-registry spec
 pub mod app_icon;

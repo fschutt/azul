@@ -9,7 +9,7 @@ pub mod decode {
     use core::fmt;
 
     use azul_core::resources::{RawImage, RawImageFormat};
-    use azul_css::{impl_result, impl_result_inner, U8Vec};
+    use azul_css::{impl_option, impl_option_inner, impl_result, impl_result_inner, U8Vec};
     use image::{
         error::{ImageError, LimitError, LimitErrorKind},
         DynamicImage,
@@ -63,10 +63,55 @@ pub mod decode {
         [Debug, Clone]
     );
 
+    /// Result of [`decode_image_bytes`] (`RawImage::decode_image_bytes` in
+    /// the API).
+    #[derive(Debug, Clone)]
+    #[repr(C)]
+    pub struct ImageDecodeResult {
+        pub result: ResultRawImageDecodeImageError,
+    }
+
+    impl_option!(
+        ImageDecodeResult,
+        OptionImageDecodeResult,
+        copy = false,
+        [Debug, Clone]
+    );
+
+    impl ImageDecodeResult {
+        /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+        #[must_use]
+        pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionImageDecodeResult {
+            result.downcast_ref::<Self>().map(|r| r.clone()).into()
+        }
+    }
+
+    /// Decodes `bytes` (any supported format, guessed from the magic header)
+    /// and resumes `on_result` with an [`ImageDecodeResult`].
+    ///
+    /// This is the fast path on web, where the browser's hardware decoders
+    /// (`createImageBitmap`) do the work; on desktop it runs the same pure
+    /// decoder as [`decode_raw_image_from_any_bytes`] and resumes right
+    /// after the current activation returns. Decoded pixels may differ per
+    /// backend (premultiplication, ICC handling), so treat the output as an
+    /// RGBA bitmap, not as a byte-exact reference.
+    #[cfg(feature = "text_layout")]
+    pub fn decode_image_bytes(
+        bytes: U8Vec,
+        data: azul_core::refany::RefAny,
+        on_result: crate::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        let result = decode_raw_image_from_any_bytes(bytes.as_ref());
+        crate::request::complete(data, on_result, ImageDecodeResult { result })
+    }
+
     /// Decodes image bytes in any supported format into a [`RawImage`].
     ///
     /// The image format is guessed from the byte contents. Returns the decoded
-    /// pixel data along with dimensions and format information.
+    /// pixel data along with dimensions and format information. Pure
+    /// compute: works on every target, but on web the resumable
+    /// [`decode_image_bytes`] uses the browser's hardware decoder and is the
+    /// faster choice for large images.
     #[must_use]
     pub fn decode_raw_image_from_any_bytes(image_bytes: &[u8]) -> ResultRawImageDecodeImageError {
         use azul_core::resources::RawImageData;

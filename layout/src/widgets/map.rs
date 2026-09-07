@@ -489,6 +489,25 @@ pub struct MapWidget {
     pub on_pin_tap: OptionMapPinTap,
 }
 
+/// The runtime-installed tile fetcher [`MapWidget::dom_with_fetch`] wires
+/// into every map it builds. Registered once at startup by the dll (the
+/// worker lives there, with the MVT / Mercator dependencies).
+static MAP_TILE_FETCHER: azul_core::sync::OnceLock<crate::thread::ThreadCallback> =
+    azul_core::sync::OnceLock::new();
+
+/// Install the framework-owned tile fetcher. The first registration wins;
+/// returns `false` when one was already installed.
+pub fn register_map_tile_fetcher(cb: crate::thread::ThreadCallback) -> bool {
+    MAP_TILE_FETCHER.set(cb).is_ok()
+}
+
+/// Whether a tile fetcher has been installed (i.e. whether
+/// [`MapWidget::dom_with_fetch`] will load tiles or render placeholders).
+#[must_use]
+pub fn has_map_tile_fetcher() -> bool {
+    MAP_TILE_FETCHER.get().is_some()
+}
+
 impl MapWidget {
     #[must_use]
     pub fn create(layer: MapTileLayer) -> Self {
@@ -654,17 +673,21 @@ impl MapWidget {
         self.build_dom(None)
     }
 
-    /// Like [`dom`](Self::dom), but wires a tile-fetch worker thread.
-    /// `cb` runs on a framework `Thread` per visible tile: it reads the
-    /// `TileFetchInit`, fetches + decodes, then
-    /// `sender.send(ThreadReceiveMsg::WriteBack(...))` a `TileReadyMsg`
-    /// targeting `map_tile_writeback`. The standard worker is
-    /// `azul_dll::desktop::extra::map::tile_fetch_worker`; wrap it in a
-    /// `ThreadCallback` to pass it here. See the recipe in
-    /// `MOBILE_SESSION_LOG.md`.
+    /// Like [`dom`](Self::dom), but wires the framework-owned tile fetcher
+    /// so tiles are actually loaded.
+    ///
+    /// The fetcher is installed by the runtime at startup
+    /// ([`register_map_tile_fetcher`]; the dll registers its
+    /// `tile_fetch_worker`, which pulls the MVT / Mercator dependency tree
+    /// this crate deliberately does not carry). On desktop it is a
+    /// background thread per visible tile that writes back through
+    /// `map_tile_writeback`; on web it is a `fetch()`-backed tile cache. An
+    /// app never supplies the worker itself, so no user code depends on a
+    /// blocking `ThreadCallback`. Without a registered fetcher this renders
+    /// placeholders, exactly like [`dom`](Self::dom).
     #[must_use]
-    pub fn dom_with_fetch(self, cb: crate::thread::ThreadCallback) -> Dom {
-        self.build_dom(Some(cb))
+    pub fn dom_with_fetch(self) -> Dom {
+        self.build_dom(MAP_TILE_FETCHER.get().cloned())
     }
 
     fn build_dom(self, fetch_cb: Option<crate::thread::ThreadCallback>) -> Dom {

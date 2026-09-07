@@ -1526,6 +1526,9 @@ pub fn regenerate_layout(
     // `FileDialog::open_file_async` dispatches to the dispatchers this
     // installs; the desktop answers the same call synchronously via tfd.
     crate::desktop::extra::file_picker::ensure_file_picker_backend();
+    // Same seam for the map tile fetcher: `MapWidget::dom_with_fetch()` wires
+    // whatever fetcher is registered here, and the worker lives in this crate.
+    crate::desktop::extra::map::ensure_map_tile_fetcher();
 
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");

@@ -14,7 +14,8 @@
 //! — see doc/SUPER_PLAN_0.2.0.md.)
 
 use azul::audio::AudioConfig;
-use azul::audio::AudioDeviceList;
+use azul::audio::{AudioDeviceList, AudioDeviceListResult};
+use azul::callbacks::CallbackInfo;
 use azul::camera::CameraConfig;
 use azul::css::{CssProperty, LayoutWidth, LogicalSize, PixelValue};
 use azul::dom::{DomNodeId, OnAudioFrameCallback, OnConsumerFrameCallback};
@@ -45,6 +46,9 @@ struct MeetState {
     /// Enumerated audio devices (shown in the settings strip).
     mics: Vec<String>,
     speakers: Vec<String>,
+    /// Device enumeration is a request (the browser's `enumerateDevices()`
+    /// is a promise); issued once from the first layout.
+    devices_requested: bool,
     /// What the remote participants' cut of our camera would have cost on
     /// the wire: frames and bytes handed to `camera_frame_for_remote`.
     remote_frames: u64,
@@ -121,6 +125,26 @@ fn device_col(title: &str, devices: &[String]) -> Dom {
     col
 }
 
+extern "C" fn on_devices_enumerated(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some(answer) = AudioDeviceListResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let mic_slice: &[AzString] = answer.devices.inputs.as_ref();
+    let mics: Vec<String> = mic_slice.iter().map(|s| s.as_str().to_string()).collect();
+    let spk_slice: &[AzString] = answer.devices.outputs.as_ref();
+    let speakers: Vec<String> = spk_slice.iter().map(|s| s.as_str().to_string()).collect();
+    eprintln!(
+        "[azmeet] {} mic(s), {} speaker(s) detected",
+        mics.len(),
+        speakers.len()
+    );
+    if let Some(mut s) = data.downcast_mut::<MeetState>() {
+        s.mics = mics;
+        s.speakers = speakers;
+    }
+    Update::RefreshDom
+}
+
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let (link, mic, cam, screen, mic_level, mics, speakers, remote) =
         match data.downcast_ref::<MeetState>() {
@@ -136,6 +160,20 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             ),
             None => return Dom::create_body(),
         };
+
+    // Ask for the device lists once. The answer lands in
+    // `on_devices_enumerated` as its own activation and refreshes the DOM.
+    let first_layout = data
+        .downcast_mut::<MeetState>()
+        .map(|mut s| {
+            let first = !s.devices_requested;
+            s.devices_requested = true;
+            first
+        })
+        .unwrap_or(false);
+    if first_layout {
+        let _request = AudioDeviceList::enumerate(data.clone(), on_devices_enumerated);
+    }
 
     // --- self tile: a live CameraWidget when on, else a grey placeholder ---
     let self_tile = if cam {
@@ -428,17 +466,11 @@ fn gen_link() -> String {
 /// stashes the window options for libazul's `android_main` to pick up.
 pub fn start() {
     let link = gen_link();
-    let devs = AudioDeviceList::enumerate();
-    let mic_slice: &[AzString] = devs.inputs.as_ref();
-    let mics: Vec<String> = mic_slice.iter().map(|s| s.as_str().to_string()).collect();
-    let spk_slice: &[AzString] = devs.outputs.as_ref();
-    let speakers: Vec<String> = spk_slice.iter().map(|s| s.as_str().to_string()).collect();
-    eprintln!(
-        "[azmeet] joined meeting {link} — {} mic(s), {} speaker(s) detected \
-         (camera/mic/screen off — toggle in the toolbar)",
-        mics.len(),
-        speakers.len()
-    );
+    // The device lists arrive through `on_devices_enumerated` once the app
+    // runs (enumeration is a resumable request); until then they are empty.
+    let mics: Vec<String> = Vec::new();
+    let speakers: Vec<String> = Vec::new();
+    eprintln!("[azmeet] joined meeting {link} (camera/mic/screen off - toggle in the toolbar)");
 
     let data = RefAny::new(MeetState {
         link,
@@ -449,6 +481,7 @@ pub fn start() {
         screen_on: false,
         mics,
         speakers,
+        devices_requested: false,
         remote_frames: 0,
         remote_bytes: 0,
     });

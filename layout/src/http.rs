@@ -241,56 +241,69 @@ impl HttpRequestConfig {
         self
     }
 
-    /// Simple HTTP GET request with default configuration
+    /// HTTP GET request using this configuration, resuming `on_result` with
+    /// an [`HttpGetResult`].
     ///
-    /// # Arguments
-    /// * `url` - The URL to request
+    /// Never blocks the calling activation in an observable way: on desktop
+    /// the request runs here (ureq is synchronous) and the callback runs
+    /// right after the current activation returns; on web `fetch()` runs and
+    /// the callback runs on a later task. `data` is handed back untouched.
     ///
-    /// # Returns
-    /// * `ResultHttpResponseHttpError` - The response or an error
-    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-    #[must_use]
-    pub fn http_get_default(url: AzString) -> ResultHttpResponseHttpError {
-        let config = Self::default();
-        http_get_with_config(url.as_str(), &config).into()
+    /// On web CORS applies and cannot be escaped: a target that does not
+    /// send `Access-Control-Allow-Origin` fails with `HttpError::Other`
+    /// naming CORS. Chromium 142+ additionally prompts for Local Network
+    /// Access on loopback / LAN targets.
+    #[cfg(feature = "text_layout")]
+    pub fn http_get(
+        &self,
+        url: AzString,
+        data: azul_core::refany::RefAny,
+        on_result: crate::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        let result = self.http_get_blocking(url);
+        crate::request::complete(data, on_result, HttpGetResult { result })
     }
 
-    /// Stub: `http` feature disabled.
-    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
-    #[must_use]
-    pub fn http_get_default(_url: AzString) -> ResultHttpResponseHttpError {
-        ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
-    }
-
-    /// HTTP GET request using this configuration
-    ///
-    /// # Arguments
-    /// * `url` - The URL to request
-    ///
-    /// # Returns
-    /// * `ResultHttpResponseHttpError` - The response or an error
+    /// The synchronous transport behind [`Self::http_get`]. Not part of the
+    /// public API (it cannot exist on web); framework-internal callers that
+    /// are already on a worker thread may use it.
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[must_use]
-    pub fn http_get(&self, url: AzString) -> ResultHttpResponseHttpError {
+    pub fn http_get_blocking(&self, url: AzString) -> ResultHttpResponseHttpError {
         http_get_with_config(url.as_str(), self).into()
     }
 
     /// Stub: `http` feature disabled.
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use]
-    pub fn http_get(&self, _url: AzString) -> ResultHttpResponseHttpError {
+    pub fn http_get_blocking(&self, _url: AzString) -> ResultHttpResponseHttpError {
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
     /// HTTP request with an arbitrary verb and an optional body, using this
-    /// configuration. An EMPTY `body` sends no body (GET/HEAD semantics);
-    /// `content_type` is only applied when a body is present.
-    ///
-    /// # Returns
-    /// * `ResultHttpResponseHttpError` - The response or an error
+    /// configuration, resuming `on_result` with an [`HttpGetResult`]. An
+    /// EMPTY `body` sends no body (GET/HEAD semantics); `content_type` is
+    /// only applied when a body is present. Same contract as
+    /// [`Self::http_get`].
+    #[cfg(feature = "text_layout")]
+    pub fn http_request(
+        &self,
+        method: HttpMethod,
+        url: AzString,
+        body: U8Vec,
+        content_type: AzString,
+        data: azul_core::refany::RefAny,
+        on_result: crate::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        let result = self.http_request_blocking(method, url, body, content_type);
+        crate::request::complete(data, on_result, HttpGetResult { result })
+    }
+
+    /// The synchronous transport behind [`Self::http_request`]; see
+    /// [`Self::http_get_blocking`].
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[must_use]
-    pub fn http_request(
+    pub fn http_request_blocking(
         &self,
         method: HttpMethod,
         url: AzString,
@@ -309,7 +322,7 @@ impl HttpRequestConfig {
     /// Stub: `http` feature disabled.
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use]
-    pub fn http_request(
+    pub fn http_request_blocking(
         &self,
         _method: HttpMethod,
         _url: AzString,
@@ -319,13 +332,26 @@ impl HttpRequestConfig {
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
-    /// HTTP POST with a body, using this configuration.
-    ///
-    /// # Returns
-    /// * `ResultHttpResponseHttpError` - The response or an error
+    /// HTTP POST with a body, using this configuration, resuming `on_result`
+    /// with an [`HttpGetResult`]. Same contract as [`Self::http_get`].
+    #[cfg(feature = "text_layout")]
+    pub fn http_post(
+        &self,
+        url: AzString,
+        body: U8Vec,
+        content_type: AzString,
+        data: azul_core::refany::RefAny,
+        on_result: crate::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        let result = self.http_post_blocking(url, body, content_type);
+        crate::request::complete(data, on_result, HttpGetResult { result })
+    }
+
+    /// The synchronous transport behind [`Self::http_post`]; see
+    /// [`Self::http_get_blocking`].
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[must_use]
-    pub fn http_post(
+    pub fn http_post_blocking(
         &self,
         url: AzString,
         body: U8Vec,
@@ -337,7 +363,7 @@ impl HttpRequestConfig {
     /// Stub: `http` feature disabled.
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use]
-    pub fn http_post(
+    pub fn http_post_blocking(
         &self,
         _url: AzString,
         _body: U8Vec,
@@ -346,77 +372,84 @@ impl HttpRequestConfig {
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
-    /// Download URL to bytes with default configuration
-    ///
-    /// # Arguments
-    /// * `url` - The URL to download
-    ///
-    /// # Returns
-    /// * `ResultU8VecHttpError` - The response body or an error
-    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-    #[must_use]
-    pub fn download_bytes_default(url: AzString) -> ResultU8VecHttpError {
-        download_bytes(url.as_str()).into()
+    /// Download a URL to bytes using this configuration, resuming
+    /// `on_result` with an [`HttpBytesResult`] (a non-2xx status is an
+    /// `HttpError::HttpStatus`). Same contract as [`Self::http_get`].
+    #[cfg(feature = "text_layout")]
+    pub fn download_bytes(
+        &self,
+        url: AzString,
+        data: azul_core::refany::RefAny,
+        on_result: crate::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        let result = self.download_bytes_blocking(url);
+        crate::request::complete(data, on_result, HttpBytesResult { result })
     }
 
-    /// Stub: `http` feature disabled.
-    #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
-    #[must_use]
-    pub fn download_bytes_default(_url: AzString) -> ResultU8VecHttpError {
-        ResultU8VecHttpError::Err(HttpError::other("http feature not enabled".into()))
-    }
-
-    /// Download URL to bytes using this configuration
-    ///
-    /// # Arguments
-    /// * `url` - The URL to download
-    ///
-    /// # Returns
-    /// * `ResultU8VecHttpError` - The response body or an error
+    /// The synchronous transport behind [`Self::download_bytes`]; see
+    /// [`Self::http_get_blocking`].
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[must_use]
-    pub fn download_bytes(&self, url: AzString) -> ResultU8VecHttpError {
+    pub fn download_bytes_blocking(&self, url: AzString) -> ResultU8VecHttpError {
         download_bytes_with_config(url.as_str(), self).into()
     }
 
     /// Stub: `http` feature disabled.
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use]
-    pub fn download_bytes(&self, _url: AzString) -> ResultU8VecHttpError {
+    pub fn download_bytes_blocking(&self, _url: AzString) -> ResultU8VecHttpError {
         ResultU8VecHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
-    /// Check if a URL is reachable (HEAD request)
+    /// Check whether a URL is reachable (a HEAD request answered with a 2xx
+    /// status), using this configuration's timeout and TLS settings, and
+    /// resume `on_result` with an [`HttpReachableResult`]. Same contract as
+    /// [`Self::http_get`].
     ///
-    /// # Arguments
-    /// * `url` - The URL to check
-    ///
-    /// # Returns
-    /// * `bool` - True if reachable (2xx status)
-    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
-    #[must_use]
-    pub fn is_url_reachable(url: AzString) -> bool {
-        is_url_reachable(url.as_str())
+    /// On web, opaque `no-cors` answers make "reachable" approximate: a
+    /// server that answers at all counts as reachable even when its status
+    /// cannot be read.
+    #[cfg(feature = "text_layout")]
+    pub fn is_url_reachable(
+        &self,
+        url: AzString,
+        data: azul_core::refany::RefAny,
+        on_result: crate::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        let (reachable, error) = self.is_url_reachable_blocking(url);
+        crate::request::complete(
+            data,
+            on_result,
+            HttpReachableResult {
+                reachable,
+                error: error.into(),
+            },
+        )
     }
 
-    /// Stub: `http` feature disabled.
-    ///
-    /// The Result-returning siblings self-describe via
-    /// `HttpError::other("http feature not enabled")`; a bare `false` is the
-    /// one answer here that reads exactly like "server down", so say the
-    /// truth once. (The `const fn` free-function twin below cannot log.)
+    /// The synchronous probe behind [`Self::is_url_reachable`]: `(reachable,
+    /// transport error)`; see [`Self::http_get_blocking`].
+    #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
+    #[must_use]
+    pub fn is_url_reachable_blocking(&self, url: AzString) -> (bool, Option<AzString>) {
+        match http_request_with_config(HttpMethod::Head, url.as_str(), None, "", self) {
+            Ok(response) => (response.is_success(), None),
+            Err(e) => (false, Some(AzString::from(e.to_string()))),
+        }
+    }
+
+    /// Stub: `http` feature disabled. The answer self-describes through the
+    /// error instead of a bare `false` that reads exactly like "server down".
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use]
-    pub fn is_url_reachable(_url: AzString) -> bool {
-        static ANNOUNCE: std::sync::Once = std::sync::Once::new();
-        ANNOUNCE.call_once(|| {
-            eprintln!(
-                "[azul][http] is_url_reachable called, but this build has no `http` \
-                 feature — it ALWAYS returns false (this is not a network result). \
-                 Rebuild azul-layout with the `http` feature"
-            );
-        });
-        false
+    pub fn is_url_reachable_blocking(&self, _url: AzString) -> (bool, Option<AzString>) {
+        (
+            false,
+            Some(AzString::from(
+                "http feature not enabled: this build has no network transport (rebuild \
+                 azul-layout with the `http` feature)",
+            )),
+        )
     }
 }
 
@@ -492,6 +525,81 @@ impl_result!(
     clone = false,
     [Debug, Clone, PartialEq, Eq]
 );
+
+// ============================================================================
+// Resumable request results
+// ============================================================================
+//
+// `HttpRequestConfig::http_get` / `http_post` / `http_request` /
+// `download_bytes` / `is_url_reachable` are request functions (see
+// `crate::request`): they return a `RequestId` and resume the caller's
+// `ResumeCallback` with one of these structs, type-erased into a `RefAny`.
+
+/// Result of [`HttpRequestConfig::http_get`], [`HttpRequestConfig::http_post`]
+/// and [`HttpRequestConfig::http_request`].
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct HttpGetResult {
+    pub result: ResultHttpResponseHttpError,
+}
+
+impl_option!(HttpGetResult, OptionHttpGetResult, copy = false, [Debug, Clone]);
+
+impl HttpGetResult {
+    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    #[must_use]
+    pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionHttpGetResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+}
+
+/// Result of [`HttpRequestConfig::download_bytes`].
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct HttpBytesResult {
+    pub result: ResultU8VecHttpError,
+}
+
+impl_option!(
+    HttpBytesResult,
+    OptionHttpBytesResult,
+    copy = false,
+    [Debug, Clone]
+);
+
+impl HttpBytesResult {
+    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    #[must_use]
+    pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionHttpBytesResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+}
+
+/// Result of [`HttpRequestConfig::is_url_reachable`]. `reachable` is `true`
+/// for a 2xx answer to a HEAD request; `error` carries the transport error
+/// when the request could not be made at all (`None` for a plain non-2xx
+/// status).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct HttpReachableResult {
+    pub reachable: bool,
+    pub error: azul_css::corety::OptionString,
+}
+
+impl_option!(
+    HttpReachableResult,
+    OptionHttpReachableResult,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
+
+impl HttpReachableResult {
+    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    #[must_use]
+    pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionHttpReachableResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+}
 
 /// Simple HTTP GET request
 ///

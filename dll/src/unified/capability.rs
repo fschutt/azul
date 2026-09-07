@@ -26,12 +26,45 @@ impl PlatformCapability {
             reason: AzString::from_const_str("no native backend on wasm"),
         }
     }
-    pub fn udp() -> PlatformCapability {
+    pub fn webtransport() -> PlatformCapability {
         PlatformCapability {
             available: false,
             backend: AzString::from_const_str("none"),
-            reason: AzString::from_const_str("UDP has no wasm backend"),
+            reason: AzString::from_const_str("WebTransport has no in-process wasm engine"),
         }
+    }
+    pub fn thread() -> PlatformCapability {
+        PlatformCapability {
+            available: false,
+            backend: AzString::from_const_str("none"),
+            reason: AzString::from_const_str("no worker mode: Thread::create is dead-on-arrival"),
+        }
+    }
+    pub fn file_system() -> PlatformCapability {
+        Self::unavailable()
+    }
+    pub fn dialogs() -> PlatformCapability {
+        Self::unavailable()
+    }
+    pub fn http() -> PlatformCapability {
+        Self::unavailable()
+    }
+    pub fn multi_window() -> PlatformCapability {
+        PlatformCapability {
+            available: false,
+            backend: AzString::from_const_str("none"),
+            reason: AzString::from_const_str("one window per page"),
+        }
+    }
+    pub fn sql() -> PlatformCapability {
+        PlatformCapability {
+            available: false,
+            backend: AzString::from_const_str("none"),
+            reason: AzString::from_const_str("raw SQL is not part of the API"),
+        }
+    }
+    pub fn sync() -> PlatformCapability {
+        Self::unavailable()
     }
     pub fn camera() -> PlatformCapability {
         Self::unavailable()

@@ -40,7 +40,8 @@ use azul::callbacks::{
 use azul::css::{
     DocumentOperation, LayoutSize, SystemStyleDependency, WindowDecorations,
 };
-use azul::dialog::FileDialog;
+use azul::dialog::{FileDialog, FileOpenResult, SaveTargetResult};
+use azul::file::FilePath;
 use azul::dom::{Callback, Dom, DomId, DomNodeId};
 use azul::widgets::SliderState;
 
@@ -467,10 +468,14 @@ fn markdown_filter() -> OptionFileTypeList {
 /// Save flow shared by the quick-access save button and the backstage
 /// Save / Save As entries. Asks for a path when there is none (or when
 /// `always_ask`), then runs the `document::save_markdown` seam.
-fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Update {
-    let (current_path, model_snapshot) = {
+/// The live model plus the path it was loaded from, for the save seams.
+fn snapshot_for_save(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+) -> Option<(Option<PathBuf>, DocumentModel)> {
+    Some({
         let Some(mut state) = data.downcast_mut::<AppState>() else {
-            return Update::DoNothing;
+            return None;
         };
         // LIVE text: fold every un-synced character edit into the IR
         // through the engine's text-sync loop (typed edits are not
@@ -483,32 +488,67 @@ fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Upda
         let mut snapshot = state.document.clone();
         snapshot.markdown = ir::to_markdown(&snapshot.ir);
         (state.document.path.clone(), snapshot)
-    };
+    })
 
-    let target: Option<PathBuf> = if current_path.is_none() || always_ask {
-        // Native save dialog (tinyfiledialogs). Blocks; fine for a shell.
-        match FileDialog::save_file(
-            AzString::from("Save As \u{2014} .md for markdown, .pdf to export"),
-            OptionString::None,
-        )
-        .into_option()
-        {
-            Some(p) => {
-                let mut path = PathBuf::from(p.as_str());
-                if path.extension().is_none() {
-                    path.set_extension("md");
-                }
-                Some(path)
-            }
-            None => None, // user cancelled
-        }
-    } else {
-        current_path
-    };
+}
 
-    let Some(path) = target else {
+fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Update {
+    let Some((current_path, model_snapshot)) = snapshot_for_save(data, info) else {
         return Update::DoNothing;
     };
+    if current_path.is_none() || always_ask {
+        // Native save dialog. The answer arrives in `on_save_target_picked`
+        // as a fresh activation - on desktop right after this one returns,
+        // in the browser whenever the picker resolves.
+        let _request = FileDialog::save_file(
+            AzString::from("Save As - .md for markdown, .pdf to export"),
+            AzString::from("document.md"),
+            data.clone(),
+            on_save_target_picked,
+        );
+        return Update::DoNothing;
+    }
+    let Some(path) = current_path else {
+        return Update::DoNothing;
+    };
+    save_snapshot_to(data, info, path, model_snapshot)
+}
+
+/// Resume half of `do_save`: the user picked a target (or cancelled).
+extern "C" fn on_save_target_picked(
+    mut data: RefAny,
+    mut info: CallbackInfo,
+    result: RefAny,
+) -> Update {
+    let Some(picked) = SaveTargetResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(target) = picked.target.into_option() else {
+        return Update::DoNothing; // user cancelled
+    };
+    // Saving a document the app keeps editing needs a real path to write
+    // to again later; a browser download target (`as_path` == None) cannot
+    // be re-saved, so export-by-bytes is the portable path for that case.
+    let Some(path) = target.as_path().into_option() else {
+        return Update::DoNothing;
+    };
+    let mut path = PathBuf::from(path.as_str());
+    if path.extension().is_none() {
+        path.set_extension("md");
+    }
+    let Some((_, model_snapshot)) = snapshot_for_save(&mut data, &mut info) else {
+        return Update::DoNothing;
+    };
+    save_snapshot_to(&mut data, &mut info, path, model_snapshot)
+}
+
+/// Write `model_snapshot` to `path` in the format the file name asks for.
+fn save_snapshot_to(
+    data: &mut RefAny,
+    info: &mut CallbackInfo,
+    path: PathBuf,
+    model_snapshot: DocumentModel,
+) -> Update {
 
     // Save writes the format the FILENAME asks for. Before this, Save always
     // wrote markdown and forced a .md extension, so typing "report.pdf" in the
@@ -872,37 +912,26 @@ pub extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Upd
         )
     };
 
-    let picked = FileDialog::save_file(
-        AzString::from("Export as PDF"),
-        OptionString::Some(AzString::from(format!("{default_name}.pdf"))),
-    );
-    let Some(path_str) = picked.into_option() else {
-        return Update::DoNothing;
-    };
-    let mut path = PathBuf::from(path_str.as_str());
-    if path.extension().is_none() {
-        path.set_extension("pdf");
-    }
-
     let bytes = pdf_bytes(&content, &mut info);
 
     if bytes.is_empty() {
         eprintln!("[azwriter] PDF export produced no bytes");
         return Update::DoNothing;
     }
-    match std::fs::write(&path, &bytes) {
-        Ok(()) => {
-            eprintln!(
-                "[azwriter] exported {} bytes to {}",
-                bytes.len(),
-                path.display()
-            );
-            Update::RefreshDom
-        }
-        Err(e) => {
-            eprintln!("[azwriter] PDF write failed: {e}");
-            Update::DoNothing
-        }
+    // Bytes in, file out: the native save dialog on desktop, a download in
+    // the browser - no path ever touches the app.
+    let name = format!("{default_name}.pdf");
+    let len = bytes.len();
+    if FileDialog::save_bytes(
+        AzString::from(name.clone()),
+        AzString::from("application/pdf"),
+        bytes,
+    ) {
+        eprintln!("[azwriter] exported {len} bytes as {name}");
+        Update::RefreshDom
+    } else {
+        eprintln!("[azwriter] PDF export cancelled");
+        Update::DoNothing
     }
 }
 
@@ -1002,13 +1031,23 @@ pub extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, idx
 }
 
 /// Backstage Open -> Browse: native *.md dialog, then the load seam.
-pub extern "C" fn on_browse_clicked(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let picked = FileDialog::open_file(
+pub extern "C" fn on_browse_clicked(data: RefAny, _info: CallbackInfo) -> Update {
+    let _request = FileDialog::open_file(
         AzString::from("Open"),
         OptionString::None,
         markdown_filter(),
+        data,
+        on_browse_picked,
     );
-    let Some(path_str) = picked.into_option() else {
+    Update::DoNothing
+}
+
+/// Resume half of `on_browse_clicked`: the picked path (if any) is loaded.
+extern "C" fn on_browse_picked(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path_str) = picked.path.into_option() else {
         return Update::DoNothing; // user cancelled
     };
     let path = Path::new(path_str.as_str());
@@ -1168,17 +1207,23 @@ extern "C" fn shot_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallb
             should_terminate: TerminateTimer::Terminate,
         };
     };
-    match info
-        .callback_info
-        .take_screenshot_to_file(root_dom_id(), cfg.path.as_str())
+    let png = match info.callback_info.take_screenshot(root_dom_id()).into_result() {
+        Ok(png) => png,
+        Err(e) => {
+            eprintln!("[azwriter] screenshot FAILED: {}", e.as_str());
+            std::process::exit(2);
+        }
+    };
+    match FilePath::from_str(cfg.path.as_str())
+        .write_bytes(png)
         .into_result()
     {
-        Ok(()) => {
+        Ok(_) => {
             eprintln!("[azwriter] screenshot written: {}", cfg.path);
             std::process::exit(0);
         }
         Err(e) => {
-            eprintln!("[azwriter] screenshot FAILED: {}", e.as_str());
+            eprintln!("[azwriter] screenshot FAILED: {}", e.message.as_str());
             std::process::exit(2);
         }
     }

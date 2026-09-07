@@ -18,6 +18,7 @@
 //! is exercisable + cross-compiles everywhere, with the real codec swapped in
 //! per OS.
 
+use azul_css::impl_option_inner;
 use core::ffi::c_void;
 
 use azul_core::video::{OptionVideoFrame, VideoFrame};
@@ -145,6 +146,9 @@ struct EncoderInner {
     #[allow(dead_code)]
     bitrate_kbps: u32,
     frames_encoded: u64,
+    /// Encoded chunks produced by `encode` and not yet pulled with
+    /// `recv_packet`.
+    packets: std::collections::VecDeque<U8Vec>,
     /// Real VideoToolbox H.264 encoder (macOS/iOS). `None` (H.265 or VT
     /// unavailable) => behaves like the stub (returns empty chunks).
     #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
@@ -155,6 +159,9 @@ struct DecoderInner {
     #[allow(dead_code)]
     h265: bool,
     frames_decoded: u64,
+    /// Decoded frames not yet pulled with `recv_frame` / `next_frame`,
+    /// whichever backend produced them.
+    ready: std::collections::VecDeque<VideoFrame>,
     /// Real Vulkan Video decoder, when one could be opened (H.264, Linux/Windows,
     /// `video-native`). `None` => behaves like the stub (no frames produced).
     #[cfg(all(
@@ -260,6 +267,7 @@ impl VideoEncoder {
             h265,
             bitrate_kbps,
             frames_encoded: 0,
+            packets: std::collections::VecDeque::new(),
             // H.265 isn't wired for VT yet (demos are H.264, same scope as
             // the Vulkan backend) — h265 keeps the stub.
             #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
@@ -286,24 +294,37 @@ impl VideoEncoder {
         !self.ptr.is_null()
     }
 
-    /// Encode one `VideoFrame` (RGBA), returning the encoded chunk (Annex-B for
-    /// H.264/H.265), or empty if buffered / not open. `force_keyframe` requests
-    /// an IDR. (Stub: counts frames + returns empty; the on-device backend
-    /// produces the bitstream.)
-    pub fn encode(&self, frame: VideoFrame, force_keyframe: bool) -> U8Vec {
-        if let Some(inner) = unsafe { (self.ptr as *mut EncoderInner).as_mut() } {
-            inner.frames_encoded = inner.frames_encoded.wrapping_add(1);
-            #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
-            if let Some(vt) = inner.vt.as_mut() {
-                let chunk = vt.encode(frame.bytes.as_ref(), force_keyframe);
-                if !chunk.is_empty() {
-                    return U8Vec::from_vec(chunk);
-                }
-                return U8Vec::from_const_slice(&[]);
+    /// Submit one `VideoFrame` (RGBA) for encoding. `force_keyframe` requests
+    /// an IDR. Returns `true` if the frame was accepted (the encoder is open);
+    /// the encoded chunks (Annex-B for H.264/H.265) come out of
+    /// [`recv_packet`](Self::recv_packet), possibly several per submitted
+    /// frame and possibly later - hardware and browser (WebCodecs) encoders
+    /// are output-callback shaped, so submit and poll are separate steps on
+    /// every target. (Stub backends accept frames and never produce a chunk.)
+    pub fn encode(&self, frame: VideoFrame, force_keyframe: bool) -> bool {
+        let Some(inner) = (unsafe { (self.ptr as *mut EncoderInner).as_mut() }) else {
+            return false;
+        };
+        inner.frames_encoded = inner.frames_encoded.wrapping_add(1);
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
+        if let Some(vt) = inner.vt.as_mut() {
+            let chunk = vt.encode(frame.bytes.as_ref(), force_keyframe);
+            if !chunk.is_empty() {
+                inner.packets.push_back(U8Vec::from_vec(chunk));
             }
-            let _ = (frame, force_keyframe);
+            return true;
         }
-        U8Vec::from_const_slice(&[])
+        let _ = (frame, force_keyframe);
+        true
+    }
+
+    /// Pull the next encoded chunk, or `None` when nothing is ready yet.
+    /// Drain in a loop after each [`encode`](Self::encode) (or from a timer).
+    pub fn recv_packet(&mut self) -> azul_css::corety::OptionU8Vec {
+        match unsafe { (self.ptr as *mut EncoderInner).as_mut() } {
+            Some(inner) => inner.packets.pop_front().into(),
+            None => azul_css::corety::OptionU8Vec::None,
+        }
     }
 
     /// Frames submitted to [`encode`](Self::encode) so far (stub progress).
@@ -464,10 +485,42 @@ impl ScreenRecorder {
             .unwrap_or(0)
     }
 
-    /// Finish: close the encoder's input so it finalizes the MP4, wait for it, and
-    /// release the handle. Returns true if gstreamer exited cleanly. (Drop does a
-    /// best-effort finalize too, if you don't call this.)
-    pub fn finish(&mut self) -> bool {
+    /// Finish the recording and resume `on_result` with a
+    /// [`ScreenRecordingResult`]: closes the encoder's input so it finalizes
+    /// the MP4, waits for it, and releases the handle. Finalizing is
+    /// asynchronous by nature (MediaRecorder's `dataavailable` on web, the
+    /// gstreamer exit here), which is why the answer is delivered as a
+    /// resume rather than returned. Same contract as every request function:
+    /// the callback never runs re-entrantly inside the requesting activation.
+    pub fn finish(
+        &mut self,
+        data: azul_core::refany::RefAny,
+        on_result: azul_layout::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        let was_recording = self.is_recording();
+        let ok = self.finish_blocking();
+        let error = if ok {
+            None
+        } else if was_recording {
+            Some(AzString::from_const_str("the encoder process did not exit cleanly"))
+        } else {
+            Some(AzString::from_const_str("no recording in progress"))
+        };
+        azul_layout::request::complete(
+            data,
+            on_result,
+            ScreenRecordingResult {
+                ok,
+                error: error.into(),
+            },
+        )
+    }
+
+    /// The synchronous finalize behind [`Self::finish`]: close the encoder's
+    /// input so it finalizes the MP4, wait for it, and release the handle.
+    /// Returns true if gstreamer exited cleanly. (Drop does a best-effort
+    /// finalize too, if you don't call this.)
+    pub fn finish_blocking(&mut self) -> bool {
         let ok = if let Some(inner) = unsafe { (self.ptr as *mut RecorderInner).as_mut() } {
             drop(inner.stdin.take()); // EOF → gst writes the moov atom + exits
             match inner.child.take() {
@@ -489,6 +542,29 @@ impl ScreenRecorder {
         }
         self.ptr = core::ptr::null_mut();
         self.run_destructor = false;
+    }
+}
+
+/// Result of [`ScreenRecorder::finish`]. `ok` is `true` when the recording
+/// was finalized; `error` says why not otherwise.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScreenRecordingResult {
+    pub ok: bool,
+    pub error: azul_css::corety::OptionString,
+}
+
+azul_css::impl_option!(
+    ScreenRecordingResult,
+    OptionScreenRecordingResult,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
+
+impl ScreenRecordingResult {
+    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionScreenRecordingResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
     }
 }
 
@@ -571,6 +647,7 @@ impl VideoDecoder {
         let inner = Box::new(DecoderInner {
             h265,
             frames_decoded: 0,
+            ready: std::collections::VecDeque::new(),
             #[cfg(all(
                 feature = "video-native",
                 target_arch = "x86_64",
@@ -610,15 +687,16 @@ impl VideoDecoder {
         !self.ptr.is_null()
     }
 
-    /// Decode one encoded chunk (Annex-B H.264), returning the next decoded
-    /// `VideoFrame` if one is ready. Extra frames produced by this chunk (decode
-    /// is pipelined / reordered) are buffered — pull them with
-    /// [`next_frame`](Self::next_frame). Returns `None` while buffering, when not
-    /// open, or where no real backend exists (the stub).
-    pub fn decode(&self, data: U8Vec) -> OptionVideoFrame {
-        let inner = match unsafe { (self.ptr as *mut DecoderInner).as_mut() } {
-            Some(i) => i,
-            None => return OptionVideoFrame::None,
+    /// Submit one encoded chunk (Annex-B H.264). Returns `true` if the chunk
+    /// was accepted (the decoder is open). Decoded frames come out of
+    /// [`recv_frame`](Self::recv_frame): decode is pipelined and B-frame
+    /// reordered, so one chunk can yield zero or several frames, possibly
+    /// later - the same output-callback shape as WebCodecs, so submit and
+    /// poll are separate steps on every target. (Stub backends accept chunks
+    /// and never produce a frame.)
+    pub fn decode(&self, data: U8Vec) -> bool {
+        let Some(inner) = (unsafe { (self.ptr as *mut DecoderInner).as_mut() }) else {
+            return false;
         };
         inner.frames_decoded = inner.frames_decoded.wrapping_add(1);
         #[cfg(all(
@@ -629,10 +707,7 @@ impl VideoDecoder {
         {
             if let Some(backend) = inner.backend.as_mut() {
                 for f in backend.decode(data.as_slice()) {
-                    inner.pending.push_back(f);
-                }
-                if let Some(f) = inner.pending.pop_front() {
-                    return OptionVideoFrame::Some(f);
+                    inner.ready.push_back(f);
                 }
             }
         }
@@ -640,21 +715,29 @@ impl VideoDecoder {
         {
             if let Some(vt) = inner.vt.as_mut() {
                 for f in vt.decode(data.as_ref()) {
-                    inner.vt_pending.push_back(f);
-                }
-                if let Some(f) = inner.vt_pending.pop_front() {
-                    return OptionVideoFrame::Some(f);
+                    inner.ready.push_back(f);
                 }
             }
         }
         let _ = data;
-        OptionVideoFrame::None
+        true
+    }
+
+    /// Pull the next decoded frame, or `None` when nothing is ready yet.
+    /// Drain in a loop after each [`decode`](Self::decode) (or from a timer).
+    pub fn recv_frame(&mut self) -> OptionVideoFrame {
+        self.next_frame()
     }
 
     /// Pull the next already-decoded frame without feeding more input. After a
     /// `decode` / `flush` there may be several frames buffered (pipelining +
     /// B-frame reordering); loop `next_frame` until it returns `None`.
     pub fn next_frame(&self) -> OptionVideoFrame {
+        if let Some(inner) = unsafe { (self.ptr as *mut DecoderInner).as_mut() } {
+            if let Some(f) = inner.ready.pop_front() {
+                return OptionVideoFrame::Some(f);
+            }
+        }
         #[cfg(all(
             feature = "video-native",
             target_arch = "x86_64",
@@ -761,7 +844,7 @@ mod screenrec_tests {
             assert!(r.write_frame(frame), "write_frame {}", f);
         }
         assert_eq!(r.frames_written(), 24);
-        assert!(r.finish(), "finish (gst exit)");
+        assert!(r.finish_blocking(), "finish (gst exit)");
         let sz = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
         assert!(sz > 0, "mp4 should be non-empty (got {} bytes)", sz);
         eprintln!("ScreenRecorder smoke: wrote {}-byte mp4", sz);

@@ -202,7 +202,7 @@ fn fetch_remote(url: &str) -> Result<Vec<u8>, FetchError> {
 
     use crate::http::HttpRequestConfig;
 
-    match HttpRequestConfig::default().http_get(AzString::from(String::from(url))) {
+    match HttpRequestConfig::default().http_get_blocking(AzString::from(String::from(url))) {
         crate::http::ResultHttpResponseHttpError::Ok(response) => {
             // A 404 body is an error page, not the image asked for. Treating a
             // non-2xx as success is how a broken URL becomes a corrupt file.

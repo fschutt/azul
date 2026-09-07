@@ -7,15 +7,21 @@
 //! anyway). The public type surface is identical on every target so
 //! consumer code keeps compiling.
 
+use azul_core::{refany::RefAny, task::RequestId};
 use azul_css::{
     corety::OptionString,
     impl_option, impl_option_inner,
     props::basic::color::{ColorU, OptionColorU},
-    AzString, OptionStringVec, StringVec,
+    AzString, OptionStringVec, StringVec, U8Vec,
 };
-
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tfd::{DefaultColorValue, MessageBoxIcon};
+
+use crate::{
+    callbacks::ResumeCallback,
+    file::{FilePath, FilePathVec, OptionFilePath},
+    request,
+};
 
 /// Static-method namespace for `tfd`-backed message-box dialogs.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -221,13 +227,25 @@ impl ColorPickerDialog {
         Self { _reserved: 0 }
     }
 
-    /// Opens the default color picker dialog. Returns `None` if cancelled.
+    /// Opens the system color picker and resumes `on_result` with a
+    /// [`ColorPickResult`] (`color` is `None` if the user cancelled).
+    ///
+    /// The callback never runs re-entrantly inside the requesting activation:
+    /// on desktop the picker is modal and the callback runs right after the
+    /// current activation returns; on web it runs on a later task. Browsers
+    /// only open the picker from a user gesture, and `<input type=color>` has
+    /// no cancel event everywhere, so a blur without a change resolves as
+    /// `None`.
     // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
-    #[must_use]
-    pub fn open(title: AzString, default_value: OptionColorU) -> OptionColorU {
+    pub fn open(
+        title: AzString,
+        default_value: OptionColorU,
+        data: RefAny,
+        on_result: ResumeCallback,
+    ) -> RequestId {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        {
+        let color = {
             let rgb = default_value
                 .into_option()
                 .map_or([0, 0, 0], |c| [c.r, c.g, c.b]);
@@ -244,13 +262,196 @@ impl ColorPickerDialog {
                 }),
                 None => OptionColorU::None,
             }
-        }
+        };
+        // No native color picker exists on mobile; the request resolves as
+        // cancelled rather than never resolving.
         #[cfg(any(target_os = "android", target_os = "ios"))]
-        {
-            let _ = title;
-            default_value
+        let color = {
+            let _ = (title, default_value);
+            OptionColorU::None
+        };
+        request::complete(data, on_result, ColorPickResult { color })
+    }
+}
+
+// ============================================================================
+// Resumable dialog results
+// ============================================================================
+//
+// Every `FileDialog` / `ColorPickerDialog` request resumes its
+// `ResumeCallback` with one of these structs, type-erased into a `RefAny`;
+// the static `downcast(result)` accessor is the binding-portable way back
+// to the typed value.
+
+/// Result of [`FileDialog::open_file`] / [`FileDialog::open_directory`].
+/// `path` is `None` if the user cancelled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct FileOpenResult {
+    pub path: OptionFilePath,
+}
+
+impl_option!(
+    FileOpenResult,
+    OptionFileOpenResult,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
+
+impl FileOpenResult {
+    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    #[must_use]
+    pub fn downcast(mut result: RefAny) -> OptionFileOpenResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+}
+
+/// Result of [`FileDialog::open_multiple_files`]. `paths` is empty if the
+/// user cancelled.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct FileOpenMultiResult {
+    pub paths: FilePathVec,
+}
+
+impl_option!(
+    FileOpenMultiResult,
+    OptionFileOpenMultiResult,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+
+impl FileOpenMultiResult {
+    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    #[must_use]
+    pub fn downcast(mut result: RefAny) -> OptionFileOpenMultiResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+}
+
+/// Result of [`ColorPickerDialog::open`]. `color` is `None` if the user
+/// cancelled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct ColorPickResult {
+    pub color: OptionColorU,
+}
+
+impl_option!(
+    ColorPickResult,
+    OptionColorPickResult,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
+
+impl ColorPickResult {
+    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    #[must_use]
+    pub fn downcast(mut result: RefAny) -> OptionColorPickResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+}
+
+/// What kind of write target a [`SaveTarget`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub enum SaveTargetKind {
+    /// A real filesystem path (`as_path` is `Some`) - desktop and mobile.
+    Path,
+    /// A browser File-System-Access handle (Chromium); writes go to the
+    /// user's chosen file, `as_path` is `None`.
+    WebHandle,
+    /// The portable browser fallback: `write_bytes` triggers a download of
+    /// the bytes under the suggested name, `as_path` is `None`.
+    Download,
+}
+
+/// An opaque write target obtained from [`FileDialog::save_file`].
+///
+/// Desktop: a real path. Web: a File-System-Access handle (Chromium) or a
+/// `Download` sentinel (Firefox / Safari, which will not ship the handle
+/// API), where [`SaveTarget::as_path`] returns `None`. Apps that only ever
+/// export bytes should call [`FileDialog::save_bytes`] instead and never
+/// touch this type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct SaveTarget {
+    pub kind: SaveTargetKind,
+    pub path: OptionFilePath,
+    /// Identifies the browser-side handle for `WebHandle` targets; `0`
+    /// otherwise.
+    pub handle_id: u64,
+}
+
+impl_option!(
+    SaveTarget,
+    OptionSaveTarget,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
+
+impl SaveTarget {
+    /// Writes `bytes` to the target. Fire-and-forget: `true` means the write
+    /// was performed (desktop) or scheduled (web); durability is not implied.
+    #[must_use]
+    pub fn write_bytes(&self, bytes: U8Vec) -> bool {
+        match self.kind {
+            SaveTargetKind::Path => match self.path.as_ref() {
+                Some(p) => crate::file::file_write(p.as_str(), bytes.as_ref()).is_ok(),
+                None => false,
+            },
+            // Browser handles are serviced by the web host, never by native code.
+            SaveTargetKind::WebHandle | SaveTargetKind::Download => false,
         }
     }
+
+    /// The real path behind the target, or `None` on the browser fallbacks.
+    #[must_use]
+    pub fn as_path(&self) -> OptionFilePath {
+        self.path.clone()
+    }
+}
+
+/// Result of [`FileDialog::save_file`]. `target` is `None` if the user
+/// cancelled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
+pub struct SaveTargetResult {
+    pub target: OptionSaveTarget,
+}
+
+impl_option!(
+    SaveTargetResult,
+    OptionSaveTargetResult,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
+
+impl SaveTargetResult {
+    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    #[must_use]
+    pub fn downcast(mut result: RefAny) -> OptionSaveTargetResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+}
+
+/// Turns a picker status into the [`FileOpenResult`] the resumable API
+/// delivers; `None` while the picker is still open. Multiple selections
+/// collapse to the first path here (single-file request).
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn open_result_from_status(status: FilePickerStatus) -> Option<RefAny> {
+    let path = match status {
+        FilePickerStatus::Pending => return None,
+        FilePickerStatus::Selected(p) => OptionFilePath::Some(FilePath::new(p)),
+        FilePickerStatus::SelectedMultiple(v) => v
+            .as_ref()
+            .first()
+            .cloned()
+            .map(FilePath::new)
+            .into(),
+        FilePickerStatus::Cancelled | FilePickerStatus::Error(_) => OptionFilePath::None,
+    };
+    Some(RefAny::new(FileOpenResult { path }))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
@@ -292,14 +493,26 @@ impl FileDialog {
         Self { _reserved: 0 }
     }
 
-    /// Open a single file. Returns `None` if the user cancelled.
+    /// Open a single file and resume `on_result` with a [`FileOpenResult`]
+    /// (`path` is `None` if the user cancelled).
+    ///
+    /// Never blocks the calling activation in an observable way: on desktop
+    /// the native modal dialog runs here and the callback runs right after
+    /// the current activation returns; on mobile the OS picker is presented
+    /// and the callback runs when its delegate answers; on web the callback
+    /// always runs on a later task. `data` is handed back untouched.
+    ///
+    /// Browsers only open a picker from a user gesture: a request issued
+    /// outside one (from a timer, for example) resolves with `path: None`.
     // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
     pub fn open_file(
         title: AzString,
         default_path: OptionString,
         filter_list: OptionFileTypeList,
-    ) -> OptionString {
+        data: RefAny,
+        on_result: ResumeCallback,
+    ) -> RequestId {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let mut dialog = tfd::FileDialog::new(title.as_str());
@@ -309,42 +522,98 @@ impl FileDialog {
             if let Some(filter) = filter_list.into_option() {
                 dialog = apply_filter(dialog, filter);
             }
-            dialog.open_file().map(AzString::from).into()
+            let path = dialog
+                .open_file()
+                .map(|p| FilePath::new(AzString::from(p)))
+                .into();
+            request::complete(data, on_result, FileOpenResult { path })
         }
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
-            let _ = (title, default_path, filter_list);
-            OptionString::None
+            match FILE_PICKER_BACKEND.get() {
+                Some(backend) => {
+                    let handle =
+                        (backend.open_file)(title, default_path, filter_patterns(filter_list), false);
+                    request::defer(
+                        data,
+                        on_result,
+                        Box::new(move || open_result_from_status(handle.poll())),
+                    )
+                }
+                // A shell that registered no picker: resolve as cancelled
+                // instead of leaving the request open forever.
+                None => request::complete(
+                    data,
+                    on_result,
+                    FileOpenResult {
+                        path: OptionFilePath::None,
+                    },
+                ),
+            }
         }
     }
 
-    /// Open a directory. Returns `None` if the user cancelled.
+    /// Open a directory and resume `on_result` with a [`FileOpenResult`]
+    /// whose `path` is the chosen directory (`None` if cancelled). Same
+    /// contract as [`Self::open_file`].
+    ///
+    /// On web only Chromium has a directory picker; the portable fallback
+    /// yields a read-only snapshot of the chosen tree, and `path` is the
+    /// virtual root that snapshot is mounted at.
     // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
-    pub fn open_directory(title: AzString, default_path: OptionString) -> OptionString {
+    pub fn open_directory(
+        title: AzString,
+        default_path: OptionString,
+        data: RefAny,
+        on_result: ResumeCallback,
+    ) -> RequestId {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let mut dialog = tfd::FileDialog::new(title.as_str());
             if let Some(path) = default_path.as_option() {
                 dialog = dialog.with_path(path.as_str());
             }
-            dialog.select_folder().map(AzString::from).into()
+            let path = dialog
+                .select_folder()
+                .map(|p| FilePath::new(AzString::from(p)))
+                .into();
+            request::complete(data, on_result, FileOpenResult { path })
         }
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
-            let _ = (title, default_path);
-            OptionString::None
+            match FILE_PICKER_BACKEND.get() {
+                Some(backend) => {
+                    let handle = (backend.open_directory)(title, default_path);
+                    request::defer(
+                        data,
+                        on_result,
+                        Box::new(move || open_result_from_status(handle.poll())),
+                    )
+                }
+                None => request::complete(
+                    data,
+                    on_result,
+                    FileOpenResult {
+                        path: OptionFilePath::None,
+                    },
+                ),
+            }
         }
     }
 
-    /// Open multiple files. Returns `None` if the user cancelled.
+    /// Open multiple files and resume `on_result` with a
+    /// [`FileOpenMultiResult`] (`paths` is empty if the user cancelled).
+    /// Same contract as [`Self::open_file`].
     // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
     pub fn open_multiple_files(
         title: AzString,
         default_path: OptionString,
         filter_list: OptionFileTypeList,
-    ) -> OptionStringVec {
+        data: RefAny,
+        on_result: ResumeCallback,
+    ) -> RequestId {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let mut dialog = tfd::FileDialog::new(title.as_str()).with_multiple_selection(true);
@@ -354,31 +623,187 @@ impl FileDialog {
             if let Some(filter) = filter_list.into_option() {
                 dialog = apply_filter(dialog, filter);
             }
-            dialog.open_files().map(StringVec::from).into()
+            let paths = dialog
+                .open_files()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| FilePath::new(AzString::from(p)))
+                .collect::<Vec<_>>();
+            request::complete(
+                data,
+                on_result,
+                FileOpenMultiResult {
+                    paths: FilePathVec::from_vec(paths),
+                },
+            )
         }
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
-            let _ = (title, default_path, filter_list);
-            OptionStringVec::None
+            match FILE_PICKER_BACKEND.get() {
+                Some(backend) => {
+                    let handle =
+                        (backend.open_file)(title, default_path, filter_patterns(filter_list), true);
+                    request::defer(
+                        data,
+                        on_result,
+                        Box::new(move || {
+                            let paths = match handle.poll() {
+                                FilePickerStatus::Pending => return None,
+                                FilePickerStatus::Selected(p) => vec![FilePath::new(p)],
+                                FilePickerStatus::SelectedMultiple(v) => v
+                                    .as_ref()
+                                    .iter()
+                                    .cloned()
+                                    .map(FilePath::new)
+                                    .collect(),
+                                FilePickerStatus::Cancelled | FilePickerStatus::Error(_) => {
+                                    Vec::new()
+                                }
+                            };
+                            Some(RefAny::new(FileOpenMultiResult {
+                                paths: FilePathVec::from_vec(paths),
+                            }))
+                        }),
+                    )
+                }
+                None => request::complete(
+                    data,
+                    on_result,
+                    FileOpenMultiResult {
+                        paths: FilePathVec::from_vec(Vec::new()),
+                    },
+                ),
+            }
         }
     }
 
-    /// Save file dialog. Returns `None` if the user cancelled.
+    /// Save-file dialog: resumes `on_result` with a [`SaveTargetResult`]
+    /// whose `target` (`None` if cancelled) is *where to write*, not a
+    /// string path - see [`SaveTarget`]. `suggested_name` is the file name
+    /// the dialog proposes, not a path.
+    ///
+    /// Decision tree: an app that only ever exports a blob of bytes (a PDF,
+    /// an image) should call [`Self::save_bytes`] and never see a target;
+    /// use `save_file` when the app needs to write the same file again later
+    /// (a document it keeps open). On web the real-path form exists only on
+    /// Chromium; Firefox and Safari resolve with a `Download` target whose
+    /// `as_path` is `None`.
     // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
-    pub fn save_file(title: AzString, default_path: OptionString) -> OptionString {
+    pub fn save_file(
+        title: AzString,
+        suggested_name: AzString,
+        data: RefAny,
+        on_result: ResumeCallback,
+    ) -> RequestId {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let mut dialog = tfd::FileDialog::new(title.as_str());
-            if let Some(path) = default_path.as_option() {
-                dialog = dialog.with_path(path.as_str());
+            if !suggested_name.as_str().is_empty() {
+                dialog = dialog.with_path(suggested_name.as_str());
             }
-            dialog.save_file().map(AzString::from).into()
+            let target = dialog.save_file().map(|p| SaveTarget {
+                kind: SaveTargetKind::Path,
+                path: OptionFilePath::Some(FilePath::new(AzString::from(p))),
+                handle_id: 0,
+            });
+            request::complete(
+                data,
+                on_result,
+                SaveTargetResult {
+                    target: target.into(),
+                },
+            )
         }
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
-            let _ = (title, default_path);
-            OptionString::None
+            match FILE_PICKER_BACKEND.get() {
+                Some(backend) => {
+                    let suggested = if suggested_name.as_str().is_empty() {
+                        OptionString::None
+                    } else {
+                        OptionString::Some(suggested_name)
+                    };
+                    let handle = (backend.save_file)(title, suggested);
+                    request::defer(
+                        data,
+                        on_result,
+                        Box::new(move || {
+                            let target = match handle.poll() {
+                                FilePickerStatus::Pending => return None,
+                                FilePickerStatus::Selected(p) => Some(SaveTarget {
+                                    kind: SaveTargetKind::Path,
+                                    path: OptionFilePath::Some(FilePath::new(p)),
+                                    handle_id: 0,
+                                }),
+                                FilePickerStatus::SelectedMultiple(v) => {
+                                    v.as_ref().first().cloned().map(|p| SaveTarget {
+                                        kind: SaveTargetKind::Path,
+                                        path: OptionFilePath::Some(FilePath::new(p)),
+                                        handle_id: 0,
+                                    })
+                                }
+                                FilePickerStatus::Cancelled | FilePickerStatus::Error(_) => None,
+                            };
+                            Some(RefAny::new(SaveTargetResult {
+                                target: target.into(),
+                            }))
+                        }),
+                    )
+                }
+                None => request::complete(
+                    data,
+                    on_result,
+                    SaveTargetResult {
+                        target: OptionSaveTarget::None,
+                    },
+                ),
+            }
+        }
+    }
+
+    /// Hand the user a file: `bytes` under `suggested_name` (a file name,
+    /// not a path) with the given MIME type. Fire-and-forget; `true` means
+    /// the export was performed (desktop: the user picked a location in the
+    /// native save dialog and the file was written) or scheduled (web: a
+    /// download was triggered). `false` means cancelled or failed.
+    ///
+    /// This is the portable "export a document" primitive: it works from
+    /// any event-driven callback chain on every target, needs no write
+    /// target and no path. Compose it with `CallbackInfo::take_screenshot`
+    /// or `Pdf::save_to_bytes` for "save this as a file".
+    // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
+    #[allow(clippy::needless_pass_by_value)]
+    #[must_use]
+    pub fn save_bytes(suggested_name: AzString, mime: AzString, bytes: U8Vec) -> bool {
+        // The MIME type only matters to the browser (the download's
+        // Content-Type); native save dialogs key off the name's extension.
+        drop(mime);
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            let mut dialog = tfd::FileDialog::new("Save");
+            if !suggested_name.as_str().is_empty() {
+                dialog = dialog.with_path(suggested_name.as_str());
+            }
+            match dialog.save_file() {
+                Some(path) => crate::file::file_write(&path, bytes.as_ref()).is_ok(),
+                None => false,
+            }
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            // No save dialog on mobile: the file lands in the app's
+            // documents directory under the suggested name.
+            let Some(dir) = FilePath::get_document_dir().or_else(FilePath::get_data_dir) else {
+                return false;
+            };
+            let name = if suggested_name.as_str().is_empty() {
+                "download"
+            } else {
+                suggested_name.as_str()
+            };
+            let target = dir.join_str(&AzString::from(name.to_string()));
+            crate::file::file_write(target.as_str(), bytes.as_ref()).is_ok()
         }
     }
 }
@@ -601,116 +1026,6 @@ pub fn has_file_picker_backend() -> bool {
 /// mobile picker displays.
 fn filter_patterns(filter_list: OptionFileTypeList) -> OptionStringVec {
     filter_list.into_option().map(|f| f.document_types).into()
-}
-
-impl FileDialog {
-    /// Open a file WITHOUT blocking: returns a [`FilePickerHandle`] to poll
-    /// from a later callback (a timer, the next event, the layout callback).
-    ///
-    /// - iOS / Android: the OS picker is presented and the handle resolves
-    ///   when its delegate / activity result fires.
-    /// - Desktop: the synchronous dialog runs here (it is modal anyway) and
-    ///   the handle comes back already answered, so the same polling code
-    ///   sees `Selected` / `Cancelled` on its first `poll`.
-    /// - A mobile build whose shell never registered a backend: `Error`,
-    ///   immediately — never a handle that stays `Pending` forever.
-    ///
-    /// `allow_multiple` resolves to `SelectedMultiple` instead of `Selected`.
-    #[must_use]
-    // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn open_file_async(
-        title: AzString,
-        default_path: OptionString,
-        filter_list: OptionFileTypeList,
-        allow_multiple: bool,
-    ) -> FilePickerHandle {
-        if let Some(backend) = FILE_PICKER_BACKEND.get() {
-            return (backend.open_file)(
-                title,
-                default_path,
-                filter_patterns(filter_list),
-                allow_multiple,
-            );
-        }
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        {
-            let status = if allow_multiple {
-                match Self::open_multiple_files(title, default_path, filter_list).into_option() {
-                    Some(paths) => FilePickerStatus::SelectedMultiple(paths),
-                    None => FilePickerStatus::Cancelled,
-                }
-            } else {
-                match Self::open_file(title, default_path, filter_list).into_option() {
-                    Some(path) => FilePickerStatus::Selected(path),
-                    None => FilePickerStatus::Cancelled,
-                }
-            };
-            FilePickerHandle::with_status(status)
-        }
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        {
-            let _ = (title, default_path, filter_list, allow_multiple);
-            FilePickerHandle::with_status(no_backend_error())
-        }
-    }
-
-    /// Save-file counterpart of [`Self::open_file_async`]; resolves to
-    /// `Selected` with the chosen path.
-    #[must_use]
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn save_file_async(title: AzString, default_path: OptionString) -> FilePickerHandle {
-        if let Some(backend) = FILE_PICKER_BACKEND.get() {
-            return (backend.save_file)(title, default_path);
-        }
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        {
-            let status = match Self::save_file(title, default_path).into_option() {
-                Some(path) => FilePickerStatus::Selected(path),
-                None => FilePickerStatus::Cancelled,
-            };
-            FilePickerHandle::with_status(status)
-        }
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        {
-            let _ = (title, default_path);
-            FilePickerHandle::with_status(no_backend_error())
-        }
-    }
-
-    /// Directory counterpart of [`Self::open_file_async`]; resolves to
-    /// `Selected` with the chosen directory.
-    #[must_use]
-    #[allow(clippy::needless_pass_by_value)]
-    pub fn open_directory_async(title: AzString, default_path: OptionString) -> FilePickerHandle {
-        if let Some(backend) = FILE_PICKER_BACKEND.get() {
-            return (backend.open_directory)(title, default_path);
-        }
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        {
-            let status = match Self::open_directory(title, default_path).into_option() {
-                Some(path) => FilePickerStatus::Selected(path),
-                None => FilePickerStatus::Cancelled,
-            };
-            FilePickerHandle::with_status(status)
-        }
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        {
-            let _ = (title, default_path);
-            FilePickerHandle::with_status(no_backend_error())
-        }
-    }
-}
-
-/// The answer on a platform with no synchronous dialog and no registered
-/// async backend. An explicit error rather than `Cancelled`: a picker the
-/// user never saw must not read as "the user declined".
-#[cfg(any(target_os = "android", target_os = "ios"))]
-fn no_backend_error() -> FilePickerStatus {
-    FilePickerStatus::Error(AzString::from(
-        "no file picker backend is registered on this platform (the shell must call \
-             register_file_picker_backend at startup)",
-    ))
 }
 
 /// Convenience shim: show a default "Info" message box.
