@@ -1523,7 +1523,7 @@ pub fn regenerate_layout(
     // the portable scaler elsewhere) — same seam, same guard.
     crate::desktop::extra::resample::ensure_frame_resampler();
     // Same seam for the async OS file picker: on iOS / Android
-    // `FileDialog::open_file_async` dispatches to the dispatchers this
+    // the resumable `FileDialog::open_file` dispatches to the dispatchers this
     // installs; the desktop answers the same call synchronously via tfd.
     crate::desktop::extra::file_picker::ensure_file_picker_backend();
     // Same seam for the map tile fetcher: `MapWidget::dom_with_fetch()` wires

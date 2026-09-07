@@ -4321,16 +4321,28 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_with_fetch_records_the_worker_in_the_dataset() {
-        let mut dom = MapWidget::create(MapTileLayer::default())
-            .dom_with_fetch(ThreadCallback::new(noop_worker));
+    fn dom_with_fetch_records_the_registered_worker_in_the_dataset() {
+        // The fetcher is a process-wide registration (first one wins), so the
+        // test accepts whichever worker is installed and only checks that
+        // `dom_with_fetch` wires it - and that `dom` never does.
+        let _ = register_map_tile_fetcher(ThreadCallback::new(noop_worker));
+        assert!(has_map_tile_fetcher());
+        let mut dom = MapWidget::create(MapTileLayer::default()).dom_with_fetch();
         let dataset = dom.root.get_dataset_mut().expect("dataset");
         let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
         let cb = cache
             .fetch_callback
             .as_ref()
-            .expect("dom_with_fetch must record the worker");
-        assert_eq!(cb.cb as usize, noop_worker as ThreadCallbackType as usize);
+            .expect("dom_with_fetch must record the registered worker");
+        assert_eq!(
+            cb.cb as usize,
+            MAP_TILE_FETCHER.get().expect("registered").cb as usize
+        );
+
+        let mut plain = MapWidget::create(MapTileLayer::default()).dom();
+        let dataset = plain.root.get_dataset_mut().expect("dataset");
+        let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
+        assert!(cache.fetch_callback.is_none(), "dom() renders placeholders only");
     }
 
     #[test]

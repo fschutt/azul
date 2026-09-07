@@ -1626,7 +1626,10 @@ mod autotest_generated {
         // Fails closed: a disabled HTTP stack must never claim a URL is reachable.
         for url in ["", "https://example.com", NASTY, huge_ascii().as_str()] {
             assert!(!is_url_reachable(url));
-            assert!(!HttpRequestConfig::is_url_reachable(AzString::from(url)));
+            let (reachable, error) =
+                HttpRequestConfig::new().is_url_reachable_blocking(AzString::from(url));
+            assert!(!reachable);
+            assert!(error.is_some(), "the stub must say why it answered false");
         }
     }
 
@@ -1638,10 +1641,12 @@ mod autotest_generated {
             .with_max_size(0);
         for url in ["", "https://example.com", NASTY] {
             let u = AzString::from(url);
-            assert!(HttpRequestConfig::http_get_default(u.clone()).is_err());
-            assert!(cfg.http_get(u.clone()).is_err());
-            assert!(HttpRequestConfig::download_bytes_default(u.clone()).is_err());
-            assert!(cfg.download_bytes(u.clone()).is_err());
+            assert!(HttpRequestConfig::new().http_get_blocking(u.clone()).is_err());
+            assert!(cfg.http_get_blocking(u.clone()).is_err());
+            assert!(HttpRequestConfig::new()
+                .download_bytes_blocking(u.clone())
+                .is_err());
+            assert!(cfg.download_bytes_blocking(u.clone()).is_err());
         }
     }
 
@@ -1683,11 +1688,49 @@ mod autotest_generated {
         let cfg = HttpRequestConfig::new().with_timeout(1);
         for url in ["", "not a url"] {
             let u = AzString::from(url);
-            assert!(HttpRequestConfig::http_get_default(u.clone()).is_err());
-            assert!(cfg.http_get(u.clone()).is_err());
-            assert!(HttpRequestConfig::download_bytes_default(u.clone()).is_err());
-            assert!(cfg.download_bytes(u.clone()).is_err());
-            assert!(!HttpRequestConfig::is_url_reachable(u.clone()));
+            assert!(HttpRequestConfig::new().http_get_blocking(u.clone()).is_err());
+            assert!(cfg.http_get_blocking(u.clone()).is_err());
+            assert!(HttpRequestConfig::new()
+                .download_bytes_blocking(u.clone())
+                .is_err());
+            assert!(cfg.download_bytes_blocking(u.clone()).is_err());
+            let (reachable, error) = cfg.is_url_reachable_blocking(u.clone());
+            assert!(!reachable);
+            assert!(error.is_some());
         }
+    }
+
+    // The resumable form parks the answer in the runtime queue instead of
+    // returning it: the request id is valid and exactly one completion
+    // carrying the typed result struct is waiting to be delivered.
+    #[cfg(all(feature = "http", not(target_arch = "wasm32"), feature = "text_layout"))]
+    #[test]
+    fn resumable_requests_park_their_result_in_the_queue() {
+        use azul_core::refany::RefAny;
+
+        extern "C" fn noop(
+            _: RefAny,
+            _: crate::callbacks::CallbackInfo,
+            _: RefAny,
+        ) -> azul_core::callbacks::Update {
+            azul_core::callbacks::Update::DoNothing
+        }
+
+        let _ = crate::request::take_completed();
+        let cfg = HttpRequestConfig::new().with_timeout(1);
+        let id = cfg.http_get(
+            AzString::from("not a url"),
+            RefAny::new(()),
+            crate::callbacks::ResumeCallback::create(noop),
+        );
+        assert!(id.is_valid());
+        let mut completed = crate::request::take_completed();
+        assert_eq!(completed.len(), 1);
+        let entry = completed.remove(0);
+        assert_eq!(entry.request_id, id);
+        let answer = HttpGetResult::downcast(entry.result)
+            .into_option()
+            .expect("an HttpGetResult");
+        assert!(answer.result.is_err());
     }
 }

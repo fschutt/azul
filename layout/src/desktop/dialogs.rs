@@ -825,7 +825,7 @@ impl FileDialog {
 // and cannot be called from here — azul-layout sits below azul-dll — so it is
 // REGISTERED, the same way the camera and microphone capture backends are:
 // the dll installs a [`FilePickerBackend`] at startup, and
-// [`FileDialog::open_file_async`] dispatches to it when one is present.
+// the resumable `FileDialog::open_file` dispatches to it when one is present.
 
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -1422,24 +1422,46 @@ mod autotest_generated {
             MsgBox::ok_cancel;
         let _yes_no: fn(AzString, AzString, MsgBoxIcon, YesNo) -> YesNo = MsgBox::yes_no;
         let _info: fn(AzString) = MsgBox::info;
-        let _color: fn(AzString, OptionColorU) -> OptionColorU = ColorPickerDialog::open;
-        let _open_file: fn(AzString, OptionString, OptionFileTypeList) -> OptionString =
-            FileDialog::open_file;
-        let _open_dir: fn(AzString, OptionString) -> OptionString = FileDialog::open_directory;
-        let _open_many: fn(AzString, OptionString, OptionFileTypeList) -> OptionStringVec =
-            FileDialog::open_multiple_files;
-        let _save_file: fn(AzString, OptionString) -> OptionString = FileDialog::save_file;
-        let _msg_box: fn(&str) = msg_box;
-        let _open_file_async: fn(
+        // The pickers are requests: they take the app's context + resume
+        // callback and answer through the runtime queue.
+        let _color: fn(AzString, OptionColorU, RefAny, ResumeCallback) -> RequestId =
+            ColorPickerDialog::open;
+        let _open_file: fn(
             AzString,
             OptionString,
             OptionFileTypeList,
-            bool,
-        ) -> FilePickerHandle = FileDialog::open_file_async;
-        let _save_file_async: fn(AzString, OptionString) -> FilePickerHandle =
-            FileDialog::save_file_async;
-        let _open_dir_async: fn(AzString, OptionString) -> FilePickerHandle =
-            FileDialog::open_directory_async;
+            RefAny,
+            ResumeCallback,
+        ) -> RequestId = FileDialog::open_file;
+        let _open_dir: fn(AzString, OptionString, RefAny, ResumeCallback) -> RequestId =
+            FileDialog::open_directory;
+        let _open_many: fn(
+            AzString,
+            OptionString,
+            OptionFileTypeList,
+            RefAny,
+            ResumeCallback,
+        ) -> RequestId = FileDialog::open_multiple_files;
+        let _save_file: fn(AzString, AzString, RefAny, ResumeCallback) -> RequestId =
+            FileDialog::save_file;
+        let _save_bytes: fn(AzString, AzString, U8Vec) -> bool = FileDialog::save_bytes;
+        let _msg_box: fn(&str) = msg_box;
+    }
+
+    extern "C" fn resume_noop(
+        _: RefAny,
+        _: crate::callbacks::CallbackInfo,
+        _: RefAny,
+    ) -> azul_core::callbacks::Update {
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    /// Drains the runtime queue and returns the result struct the one request
+    /// issued by the test resumed with.
+    fn take_single_result() -> RefAny {
+        let mut completed = crate::request::take_completed();
+        assert_eq!(completed.len(), 1, "exactly one completion expected");
+        completed.remove(0).result
     }
 
     // ---------------------------------------------------------------------
@@ -1536,41 +1558,76 @@ mod autotest_generated {
         }
     }
 
+    // No native color picker exists on mobile: the request resolves as
+    // cancelled through the runtime queue instead of never resolving.
     #[cfg(any(target_os = "android", target_os = "ios"))]
     #[test]
-    fn mobile_color_picker_echoes_the_default_back() {
+    fn mobile_color_picker_resolves_as_cancelled() {
+        let _ = crate::request::take_completed();
         let default = ColorU {
             r: 1,
             g: 2,
             b: 3,
             a: 4,
         };
-        let picked = ColorPickerDialog::open(s("t"), OptionColorU::Some(default));
-        match picked.as_option() {
-            Some(c) => {
-                assert_eq!((c.r, c.g, c.b), (1, 2, 3));
-                // NB: the mobile stub keeps the caller's alpha, while the desktop
-                // path forces ColorU::ALPHA_OPAQUE. Pinned deliberately.
-                assert_eq!(c.a, 4);
-            }
-            None => panic!("mobile stub must return the default it was given"),
-        }
-        assert!(ColorPickerDialog::open(s("t"), OptionColorU::None).is_none());
+        let id = ColorPickerDialog::open(
+            s("t"),
+            OptionColorU::Some(default),
+            RefAny::new(()),
+            ResumeCallback::create(resume_noop),
+        );
+        assert!(id.is_valid());
+        let picked = ColorPickResult::downcast(take_single_result())
+            .into_option()
+            .expect("a ColorPickResult");
+        assert!(picked.color.is_none());
     }
 
+    // A mobile build whose shell registered no picker backend resolves every
+    // file dialog as cancelled - never a request that stays open forever.
     #[cfg(any(target_os = "android", target_os = "ios"))]
     #[test]
-    fn mobile_file_dialogs_report_cancellation() {
-        assert!(
-            FileDialog::open_file(s("t"), OptionString::None, OptionFileTypeList::None).is_none()
-        );
-        assert!(FileDialog::open_directory(s("t"), OptionString::None).is_none());
-        assert!(FileDialog::save_file(s("t"), OptionString::Some(s("/tmp"))).is_none());
-        assert!(FileDialog::open_multiple_files(
+    fn mobile_file_dialogs_without_a_backend_resolve_as_cancelled() {
+        if has_file_picker_backend() {
+            return;
+        }
+        let _ = crate::request::take_completed();
+        let cb = ResumeCallback::create(resume_noop);
+
+        FileDialog::open_file(
             s("t"),
             OptionString::None,
-            OptionFileTypeList::None
-        )
-        .is_none());
+            OptionFileTypeList::None,
+            RefAny::new(()),
+            cb.clone(),
+        );
+        let open = FileOpenResult::downcast(take_single_result())
+            .into_option()
+            .expect("a FileOpenResult");
+        assert!(open.path.is_none());
+
+        FileDialog::open_directory(s("t"), OptionString::None, RefAny::new(()), cb.clone());
+        let dir = FileOpenResult::downcast(take_single_result())
+            .into_option()
+            .expect("a FileOpenResult");
+        assert!(dir.path.is_none());
+
+        FileDialog::save_file(s("t"), s("doc.md"), RefAny::new(()), cb.clone());
+        let save = SaveTargetResult::downcast(take_single_result())
+            .into_option()
+            .expect("a SaveTargetResult");
+        assert!(save.target.is_none());
+
+        FileDialog::open_multiple_files(
+            s("t"),
+            OptionString::None,
+            OptionFileTypeList::None,
+            RefAny::new(()),
+            cb,
+        );
+        let many = FileOpenMultiResult::downcast(take_single_result())
+            .into_option()
+            .expect("a FileOpenMultiResult");
+        assert!(many.paths.as_ref().is_empty());
     }
 }
