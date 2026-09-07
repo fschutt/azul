@@ -159,6 +159,11 @@ body.ui-landing {
 .ui-example-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    /* The code column spans both rows. With two auto rows its extra height
+       was split between them, which pushed the screenshot to the middle of
+       the column; `auto 1fr` gives the whole surplus to the image row, so the
+       screenshot sits directly under the heading. */
+    grid-template-rows: auto 1fr;
     grid-template-areas:
         "intro code"
         "image code";
@@ -479,6 +484,7 @@ img.showcase.windows { display: initial; }
 @media (max-width: 1024px) {
     .ui-example-grid {
         grid-template-columns: 1fr;
+        grid-template-rows: auto;
         grid-template-areas:
             "intro"
             "image"
