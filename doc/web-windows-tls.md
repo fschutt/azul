@@ -107,6 +107,29 @@ zeroed block would silently hand it 0. Pointing at the template is correct
 whether or not that `.rdata` window turns out to be mirrored; if it is not, the
 behaviour degrades to exactly the zeroed-block case rather than breaking.
 
+## Disproven: "some module's `__tls_index` is ≥ 8"
+
+The seed fills 8 slots. The obvious worry is that a component with a larger
+index would read slot 0, get `block = 0`, and turn the state read into
+`read8(888)` against low memory — which would fit every symptom while leaving
+the template block healthy.
+
+**It cannot happen here.** The lift enumerates exactly one image:
+
+```
+AzWriter.exe → synth_base=0x100000, native=[0x7ff6bc421000..0x7ff6bd68bc78] (~18 MiB)
+```
+
+One statically-linked image has one TLS directory and one `__tls_index`. There
+is no second module to carry a different index, and the probe measures the index
+as **0** directly. Seeding 8 slots is belt-and-braces, not load-bearing.
+
+So a `panic_access_error` that survives this fix is *not* explained by the block
+pointer. The remaining candidates are: a state byte read at an offset outside
+the 1177-byte template; a different thread-local access shape that does not go
+through `gs:[0x58] → index → block`; or the stub being reached from a path that
+is not this chain at all. The caller recorder at `0x40080` distinguishes them.
+
 ## Is there a second blocker of the same kind?
 
 No — GSBASE was the only one. Scanning every lifted body for `%struct.State`
