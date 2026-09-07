@@ -2526,10 +2526,16 @@ docker pull ghcr.io/fschutt/azul:{version}</code></pre>
             crate::docgen::get_search_init(crate::docgen::PageKind::Other),
             linkcheck_script
         ),
-        page_css: Some(concat!(
-            include_str!("../../templates/docs-release.css"),
-            include_str!("../../templates/docs-guide.css"),
-        )),
+        page_css: Some(crate::live_templates::join(&[
+            (
+                "docs-release.css",
+                include_str!("../../templates/docs-release.css"),
+            ),
+            (
+                "docs-guide.css",
+                include_str!("../../templates/docs-guide.css"),
+            ),
+        ])),
         main_html,
     };
     crate::docgen::azlin_page(&page, true)
@@ -2571,10 +2577,16 @@ pub fn generate_releases_index(versions: &[String]) -> String {
         title: "Releases - Azul GUI framework".to_string(),
         active_nav: "releases",
         head_extra: String::new(),
-        page_css: Some(concat!(
-            include_str!("../../templates/docs-release.css"),
-            include_str!("../../templates/docs-guide.css"),
-        )),
+        page_css: Some(crate::live_templates::join(&[
+            (
+                "docs-release.css",
+                include_str!("../../templates/docs-release.css"),
+            ),
+            (
+                "docs-guide.css",
+                include_str!("../../templates/docs-guide.css"),
+            ),
+        ])),
         main_html,
     };
     crate::docgen::azlin_page(&page, true)
@@ -2679,17 +2691,29 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     // Search panel assets. Embedded via include_str! so the binary stays
     // self-contained; we still write them out as separate static files so
     // the browser caches them independently of any HTML page.
-    const AZUL_SEARCH_JS: &str = include_str!("../../templates/azul-search.js");
-    const AZUL_SEARCH_CSS: &str = include_str!("../../templates/azul-search.css");
-    fs::write(output_dir.join("azul-search.js"), AZUL_SEARCH_JS)?;
-    fs::write(output_dir.join("azul-search.css"), AZUL_SEARCH_CSS)?;
+    let azul_search_js = crate::live_templates::get(
+        "azul-search.js",
+        include_str!("../../templates/azul-search.js"),
+    );
+    let azul_search_css = crate::live_templates::get(
+        "azul-search.css",
+        include_str!("../../templates/azul-search.css"),
+    );
+    fs::write(output_dir.join("azul-search.js"), azul_search_js.as_bytes())?;
+    fs::write(
+        output_dir.join("azul-search.css"),
+        azul_search_css.as_bytes(),
+    )?;
 
     // TEMPORARY doc-review tool (referenced from get_common_head_tags). Lets the
     // maintainer select text on any page and attach a comment persisted in the
     // browser's IndexedDB, then export every comment as one JSON. Remove this
     // write + the <script> tag + the template file in a later release.
-    const AZUL_REVIEW_JS: &str = include_str!("../../templates/azul-review.js");
-    fs::write(output_dir.join("azul-review.js"), AZUL_REVIEW_JS)?;
+    let azul_review_js = crate::live_templates::get(
+        "azul-review.js",
+        include_str!("../../templates/azul-review.js"),
+    );
+    fs::write(output_dir.join("azul-review.js"), azul_review_js.as_bytes())?;
 
     // Copy logo SVG at runtime
     fs::copy(templates_dir.join("logo.svg"), output_dir.join("logo.svg"))?;

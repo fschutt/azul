@@ -440,26 +440,32 @@ fn generate_index_html(
     // Filter examples for index display
     let index_examples: Vec<&ExampleRendered> = ex.iter().filter(|e| e.show_on_index).collect();
 
-    let index_html_template = include_str!("../../templates/index.template.html")
-        .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
-        .replace("<!-- HEAD -->", &get_landing_head_tags(inline_css))
-        .replace("<!-- NAV -->", &azlin_nav("overview"))
-        .replace("<!-- FOOTER -->", &azlin_footer())
-        .replace(
-            "<!-- PRISM_SCRIPT -->",
-            &format!(
-                "{}\n{}",
-                get_prism_script(),
-                get_search_init(PageKind::Other)
-            ),
-        );
+    let index_html_template = crate::live_templates::get(
+        "index.template.html",
+        include_str!("../../templates/index.template.html"),
+    )
+    .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
+    .replace("<!-- HEAD -->", &get_landing_head_tags(inline_css))
+    .replace("<!-- NAV -->", &azlin_nav("overview"))
+    .replace("<!-- FOOTER -->", &azlin_footer())
+    .replace(
+        "<!-- PRISM_SCRIPT -->",
+        &format!(
+            "{}\n{}",
+            get_prism_script(),
+            get_search_init(PageKind::Other)
+        ),
+    );
 
     // Generate language tabs HTML from configuration
     let language_tabs_html = generate_language_tabs_html(&latest_version.installation);
 
-    let index_example_html_template = include_str!("../../templates/index.section.template.html")
-        .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
-        .replace("$$LANGUAGE_TABS$$", &language_tabs_html);
+    let index_example_html_template = crate::live_templates::get(
+        "index.section.template.html",
+        include_str!("../../templates/index.section.template.html"),
+    )
+    .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
+    .replace("$$LANGUAGE_TABS$$", &language_tabs_html);
 
     let examples_html = index_examples
         .iter()
@@ -871,8 +877,12 @@ pub fn get_landing_head_tags(inline_css: bool) -> String {
     let base_url: &str = if inline_css { HTML_ROOT } else { UI_PATH };
 
     let css_tag = if inline_css {
-        let flora_css = include_str!("../../templates/flora.css");
-        let landing_css = include_str!("../../templates/ui-landing.css");
+        let flora_css =
+            crate::live_templates::get("flora.css", include_str!("../../templates/flora.css"));
+        let landing_css = crate::live_templates::get(
+            "ui-landing.css",
+            include_str!("../../templates/ui-landing.css"),
+        );
         format!("<style>\n{}\n{}\n</style>", flora_css, landing_css)
     } else {
         // Both files are copied to the deploy root (next to /foam.svg).
@@ -1040,11 +1050,11 @@ pub struct AzlinPage {
     /// Extra tags appended to `<head>` (search init, prism script, family
     /// stylesheet links...). May be empty.
     pub head_extra: String,
-    /// Optional page-family stylesheet CONTENT (e.g.
-    /// `include_str!("../../templates/docs-api.css")`). Inlined in prod,
-    /// and ALSO inlined in debug (family css is not copied to the deploy
-    /// root; only azul-docs.css is).
-    pub page_css: Option<&'static str>,
+    /// Optional page-family stylesheet CONTENT (resolved through
+    /// `crate::live_templates::get` / `join`, e.g. docs-api.css). Inlined in
+    /// prod, and ALSO inlined in debug (family css is not copied to the
+    /// deploy root; only azul-docs.css is).
+    pub page_css: Option<String>,
     /// Contents of `<main>` (typically `.docs-hero` + `.docs-body`).
     pub main_html: String,
 }
@@ -1083,12 +1093,16 @@ pub fn azlin_theme_toggle() -> &'static str {
 /// + Red Hat Mono), favicon, prism theme, search css, flora.css +
 /// azul-docs.css (linked in debug, inlined in prod - same rule as the /ui
 /// landing).
-pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&'static str>) -> String {
+pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&str>) -> String {
     let base_url: &str = if inline_css { HTML_ROOT } else { UI_PATH };
 
     let mut css_tag = if inline_css {
-        let flora_css = include_str!("../../templates/flora.css");
-        let docs_css = include_str!("../../templates/azul-docs.css");
+        let flora_css =
+            crate::live_templates::get("flora.css", include_str!("../../templates/flora.css"));
+        let docs_css = crate::live_templates::get(
+            "azul-docs.css",
+            include_str!("../../templates/azul-docs.css"),
+        );
         format!("<style>\n{}\n{}\n</style>", flora_css, docs_css)
     } else {
         "<link rel='stylesheet' type='text/css' href='/flora.css'>\n      \
@@ -1316,7 +1330,7 @@ pub fn azlin_page(page: &AzlinPage, inline_css: bool) -> String {
 </body>
 </html>"#,
         title = page.title,
-        head = get_docs_head_tags(inline_css, page.page_css),
+        head = get_docs_head_tags(inline_css, page.page_css.as_deref()),
         head_extra = page.head_extra,
         nav = azlin_nav(page.active_nav),
         main = page.main_html,

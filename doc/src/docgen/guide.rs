@@ -427,7 +427,13 @@ pub fn generate_guide_html(guide: &Guide, _version: &str) -> String {
         title: guide.title.clone(),
         active_nav: "guide",
         head_extra: format!("{prism_script}\n{search_script}"),
-        page_css: Some(include_str!("../../templates/docs-guide.css")),
+        page_css: Some(
+            crate::live_templates::get(
+                "docs-guide.css",
+                include_str!("../../templates/docs-guide.css"),
+            )
+            .into_owned(),
+        ),
         main_html,
     };
     crate::docgen::azlin_page(&page, false)
@@ -478,7 +484,13 @@ pub fn generate_guide_mainpage(_version: &str) -> String {
         title: "User Guide".to_string(),
         active_nav: "guide",
         head_extra: search_script,
-        page_css: Some(include_str!("../../templates/docs-guide.css")),
+        page_css: Some(
+            crate::live_templates::get(
+                "docs-guide.css",
+                include_str!("../../templates/docs-guide.css"),
+            )
+            .into_owned(),
+        ),
         main_html,
     };
     crate::docgen::azlin_page(&page, false)

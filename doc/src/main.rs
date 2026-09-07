@@ -21,6 +21,7 @@ pub mod lint_derives;
 pub mod lint_examples;
 pub mod lint_links;
 pub mod lint_orphans;
+pub mod live_templates;
 pub mod mobile;
 pub mod patch;
 pub mod print;
@@ -1962,6 +1963,13 @@ fn main() -> anyhow::Result<()> {
             let is_debug = args.len() > 2 && (args[2] == "debug" || args[2] == "with-reftests");
             let run_reftests = (args.len() > 2 && args[2] == "with-reftests")
                 || args[1] == "fast-deploy-with-reftests";
+
+            // Debug deploys read the templates from doc/templates at run
+            // time, so editing a template needs a deploy, not a rebuild.
+            if is_debug {
+                crate::live_templates::enable();
+                println!("[live-templates] templates are read from doc/templates at run time");
+            }
 
             if run_reftests {
                 println!("Starting Azul Deploy with Reftests (external CSS)...");

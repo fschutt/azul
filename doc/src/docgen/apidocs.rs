@@ -63,10 +63,13 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
         title,
         active_nav: "api",
         head_extra: format!("{prism_script}\n{search_script}\n{details_script}"),
-        page_css: Some(concat!(
-            include_str!("../../templates/docs-api.css"),
-            include_str!("../../templates/docs-guide.css"),
-        )),
+        page_css: Some(crate::live_templates::join(&[
+            ("docs-api.css", include_str!("../../templates/docs-api.css")),
+            (
+                "docs-guide.css",
+                include_str!("../../templates/docs-guide.css"),
+            ),
+        ])),
         main_html,
     };
 
@@ -604,10 +607,13 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
         title,
         active_nav: "api",
         head_extra: format!("{prism_script}\n{search_script}"),
-        page_css: Some(concat!(
-            include_str!("../../templates/docs-api.css"),
-            include_str!("../../templates/docs-guide.css"),
-        )),
+        page_css: Some(crate::live_templates::join(&[
+            ("docs-api.css", include_str!("../../templates/docs-api.css")),
+            (
+                "docs-guide.css",
+                include_str!("../../templates/docs-guide.css"),
+            ),
+        ])),
         main_html,
     };
 
