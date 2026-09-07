@@ -1574,6 +1574,9 @@ fn ingest_pe(
         .filter(|(_, a)| (text_start..text_end).contains(a))
         .cloned()
         .collect();
+    // `.pdata` extents, so a symbol folded into another function is sized to
+    // that function's real end instead of to its neighbour 16 bytes away.
+    let runtime_funcs = pe_runtime_functions(file_bytes);
     for (i, (raw_name, file_addr)) in text_syms.iter().enumerate() {
         let live_addr = file_addr.wrapping_add(slide);
         let next_addr = if i + 1 < text_syms.len() {
@@ -1581,7 +1584,18 @@ fn ingest_pe(
         } else {
             text_end
         };
-        let size = next_addr.saturating_sub(*file_addr);
+        let gap = next_addr.saturating_sub(*file_addr);
+        // The exception record that CONTAINS this symbol, which is not always
+        // the one that begins at it — that is the whole point.
+        let rva = file_addr.saturating_sub(image_base) as u32;
+        let extent = match runtime_funcs.binary_search_by(|&(b, _)| b.cmp(&rva)) {
+            Ok(k) => Some(runtime_funcs[k]),
+            Err(0) => None,
+            Err(k) => Some(runtime_funcs[k - 1]),
+        }
+        .filter(|&(b, e)| rva >= b && rva < e)
+        .map(|(_, e)| (e - rva) as usize);
+        let size = extent.unwrap_or(gap);
         if size == 0 {
             continue;
         }
@@ -1826,6 +1840,73 @@ fn detect_pe_tail_shims(
 /// data + rdata), mirroring `macho_image_text_data_range` semantics so
 /// `assign_synthetic_addresses` covers the data sections the mirror
 /// will copy.
+/// Exact function extents from `.pdata`, the PE exception directory.
+///
+/// Sizing a text symbol as the gap to the NEXT symbol is wrong whenever the
+/// linker folded two functions into one body. `<CssVec as Drop>::drop` sits 16
+/// bytes into the function at its own entry, so the outer symbol was sized 16,
+/// remill decoded only the prologue, and the fallthrough at +0x10 became a
+/// `__remill_missing_block` on an address no dispatcher case can key — it is not
+/// a function entry. The same shape truncated `__rust_dealloc` to 16 bytes.
+///
+/// Every x64 function in a PE has a RUNTIME_FUNCTION record giving its real
+/// `[begin, end)`, so a symbol INSIDE one is sized to that function's end.
+///
+/// Parsed from the file bytes rather than through goblin so the offsets do not
+/// depend on a crate version: e_lfanew at 0x3c, then data directory 3.
+fn pe_runtime_functions(file_bytes: &[u8]) -> Vec<(u32, u32)> {
+    fn u16_at(b: &[u8], o: usize) -> Option<u16> {
+        Some(u16::from_le_bytes(b.get(o..o + 2)?.try_into().ok()?))
+    }
+    fn u32_at(b: &[u8], o: usize) -> Option<u32> {
+        Some(u32::from_le_bytes(b.get(o..o + 4)?.try_into().ok()?))
+    }
+    let parse = || -> Option<Vec<(u32, u32)>> {
+        let pe_off = u32_at(file_bytes, 0x3c)? as usize;
+        let nsec = u16_at(file_bytes, pe_off + 6)? as usize;
+        let optsz = u16_at(file_bytes, pe_off + 20)? as usize;
+        let opt = pe_off + 24;
+        let exc_rva = u32_at(file_bytes, opt + 112 + 3 * 8)? as usize;
+        let exc_sz = u32_at(file_bytes, opt + 112 + 3 * 8 + 4)? as usize;
+        if exc_rva == 0 || exc_sz == 0 {
+            return None;
+        }
+        // RVA -> file offset, via the section table.
+        let mut secs: Vec<(usize, usize, usize, usize)> = Vec::with_capacity(nsec);
+        let mut o = opt + optsz;
+        for _ in 0..nsec {
+            let vsize = u32_at(file_bytes, o + 8)? as usize;
+            let vaddr = u32_at(file_bytes, o + 12)? as usize;
+            let rsize = u32_at(file_bytes, o + 16)? as usize;
+            let praw = u32_at(file_bytes, o + 20)? as usize;
+            secs.push((vaddr, vsize, praw, rsize));
+            o += 40;
+        }
+        let to_off = |rva: usize| -> Option<usize> {
+            secs.iter().find_map(|&(v, vs, p, rs)| {
+                if rva >= v && rva < v + vs.max(rs) {
+                    Some(p + (rva - v))
+                } else {
+                    None
+                }
+            })
+        };
+        let base = to_off(exc_rva)?;
+        let mut out = Vec::with_capacity(exc_sz / 12);
+        for i in 0..(exc_sz / 12) {
+            let b = u32_at(file_bytes, base + i * 12)?;
+            let e = u32_at(file_bytes, base + i * 12 + 4)?;
+            if b == 0 && e == 0 {
+                break;
+            }
+            out.push((b, e));
+        }
+        out.sort_unstable();
+        Some(out)
+    };
+    parse().unwrap_or_default()
+}
+
 fn pe_image_text_data_range(pe: &goblin::pe::PE<'_>) -> (usize, usize) {
     const IMAGE_SCN_MEM_DISCARDABLE: u32 = 0x0200_0000;
     let image_base = pe.image_base as usize;
