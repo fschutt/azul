@@ -3616,11 +3616,7 @@
                     "linux": "hello-world.mac.png",
                     "mac": "hello-world.mac.png"
                 },
-                "description": [
-                    "Build native desktop applications without the overhead of a bundled web browser.",
-                    "Write your application logic in one of 17 supported programming languages.",
-                    "Distribute a lightweight executable that starts instantly."
-                ]
+                "description": []
             },
             {
                 "name": "widgets",
