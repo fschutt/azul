@@ -2767,6 +2767,11 @@ impl RemillTranspiler {
         }
 
         let mut visited: HashSet<usize> = HashSet::new();
+        // Caller → callees, for the chunk partition (AZ_CHUNK). The walk knows
+        // this at every dep site and then throws it away; chunk-plan.py has been
+        // reconstructing it by parsing the log.
+        let mut edges: std::collections::HashMap<usize, HashSet<usize>> =
+            std::collections::HashMap::new();
         let mut queue: VecDeque<TransitiveLiftTarget> = VecDeque::new();
         // IRs produced ahead of the walk by prelift_wave: one remill process
         // per wave instead of one per function. Consumed (removed) when the
@@ -3549,6 +3554,11 @@ impl RemillTranspiler {
                     already_visited,
                     name,
                 );
+                // BEFORE the already-visited check: an edge into a node that
+                // is already visited is precisely what makes that node shared by
+                // two roots, and dropping those edges would report every node as
+                // exclusive to whichever root reached it first.
+                edges.entry(addr).or_default().insert(entry.canonical_addr);
                 if already_visited {
                     continue;
                 }
@@ -3786,6 +3796,14 @@ impl RemillTranspiler {
                     exports.push("__az_indirect_dispatch".to_string());
                 }
             }
+        }
+
+        if let Some(n) = std::env::var("AZ_CHUNK")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| *n > 0)
+        {
+            report_chunk_partition(&edges, &self.scratch_dir, &opts.output_stem, n);
         }
 
         let bytes = self.link_objects_to_wasm(
@@ -5670,6 +5688,113 @@ fn intercepted_import_labels(_cases: &[(u64, u64)]) -> Vec<(u64, ImportIntercept
 /// [`AZ_TLV_MAGIC_PC`]) and `__thread_data` (TLS initial image) ranges.
 /// Without this only the adrp'd descriptor bytes would mirror and the
 /// `offset` field at descriptor+16 would read back zero.
+/// Report the eager-core / lazy-chunk split the walk graph implies.
+///
+/// A node reachable from two or more roots has to stay resident, so the ceiling
+/// on lazy bytes is fixed by the graph. A lazy root is safe precisely when it IS
+/// a root: nothing static calls it, so it is entered only through
+/// `__az_indirect_dispatch` and the core never names it.
+///
+/// Reports only — the split itself needs a per-chunk dispatcher, without which
+/// linking a subset either saves nothing (the full dispatcher names every body)
+/// or collapses (`--gc-sections` discards what nothing static reaches).
+#[cfg(feature = "web-transpiler")]
+fn report_chunk_partition(
+    edges: &std::collections::HashMap<usize, HashSet<usize>>,
+    scratch: &std::path::Path,
+    stem: &str,
+    n_lazy: usize,
+) {
+    let mut nodes: HashSet<usize> = HashSet::new();
+    let mut callees: HashSet<usize> = HashSet::new();
+    for (c, cs) in edges {
+        nodes.insert(*c);
+        for d in cs {
+            nodes.insert(*d);
+            callees.insert(*d);
+        }
+    }
+    let roots: Vec<usize> = nodes.difference(&callees).copied().collect();
+
+    let obj_size = |a: usize| -> u64 {
+        std::fs::metadata(scratch.join(format!("__az_dep_{a:x}.o")))
+            .map(|m| m.len())
+            .unwrap_or(0)
+    };
+    let bytes = |s: &HashSet<usize>| -> u64 { s.iter().map(|a| obj_size(*a)).sum() };
+
+    let reach = |start: usize| -> HashSet<usize> {
+        let mut seen = HashSet::new();
+        let mut stack = vec![start];
+        while let Some(n) = stack.pop() {
+            if !seen.insert(n) {
+                continue;
+            }
+            if let Some(cs) = edges.get(&n) {
+                stack.extend(cs.iter().copied().filter(|c| !seen.contains(c)));
+            }
+        }
+        seen
+    };
+
+    let mut owners: std::collections::HashMap<usize, u32> =
+        std::collections::HashMap::new();
+    let mut own: std::collections::HashMap<usize, HashSet<usize>> =
+        std::collections::HashMap::new();
+    for r in &roots {
+        let s = reach(*r);
+        for n in &s {
+            *owners.entry(*n).or_insert(0) += 1;
+        }
+        own.insert(*r, s);
+    }
+    let shared: HashSet<usize> = nodes
+        .iter()
+        .copied()
+        .filter(|n| owners.get(n).copied().unwrap_or(0) >= 2)
+        .collect();
+
+    let total = bytes(&nodes);
+    let mut cands: Vec<(u64, usize, HashSet<usize>)> = roots
+        .iter()
+        .filter_map(|r| {
+            let excl: HashSet<usize> = own[r].difference(&shared).copied().collect();
+            if excl.is_empty() {
+                None
+            } else {
+                Some((bytes(&excl), *r, excl))
+            }
+        })
+        .collect();
+    cands.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+
+    eprintln!(
+        "[azul-web] AZ_CHUNK {stem}: {} nodes, {} roots, {:.2} MB objects; \
+         shared by >=2 roots {} fns / {:.2} MB",
+        nodes.len(),
+        roots.len(),
+        total as f64 / 1e6,
+        shared.len(),
+        bytes(&shared) as f64 / 1e6,
+    );
+    let mut lazy: HashSet<usize> = HashSet::new();
+    for (sz, r, ex) in cands.iter().take(n_lazy) {
+        lazy.extend(ex.iter().copied());
+        eprintln!(
+            "[azul-web] AZ_CHUNK {stem}: lazy 0x{r:x} — {} fns / {:.2} MB",
+            ex.len(),
+            *sz as f64 / 1e6,
+        );
+    }
+    let core = total - bytes(&lazy);
+    eprintln!(
+        "[azul-web] AZ_CHUNK {stem}: eager core {:.2} MB of {:.2} MB ({:+.1}%)",
+        core as f64 / 1e6,
+        total as f64 / 1e6,
+        -100.0 * (1.0 - core as f64 / total.max(1) as f64),
+    );
+}
+
 #[cfg(feature = "web-transpiler")]
 fn seed_tlv_mirror_ranges(
     table: &super::symbol_table::SymbolTable,
