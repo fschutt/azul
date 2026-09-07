@@ -25,6 +25,57 @@ never the `lifted + linked` number the log prints, which is pre-strip and about
 1.9 MB larger. `du` is not usable here either: it reports allocated size and
 overstated one log by 280×.
 
+## ⚠ THE TABLE BELOW MEASURES THE WRONG ARTIFACT — read this first
+
+Every row is the scratch's `azul-mini.wasm` at `brotli -q11`. The browser
+downloads neither of those things. Measured exactly, same run (71):
+
+| what | raw | brotli |
+|---|---|---|
+| scratch file, q11 — **what the rows below record** | 29,325,426 | 3,022,588 |
+| scratch file, q9 | 29,325,426 | 3,577,728 |
+| **the served module, q9 — what a browser actually fetches** | **31,241,003** | **4,511,585** |
+
+So the real first-boot payload is **4.51 MB brotli, 49% larger** than the number
+this document has been tracking, and the gap decomposes into two independent
+causes:
+
+| cause | cost | share of the gap |
+|---|---|---|
+| brotli q9 rather than q11 | +555,140 | 37.3% |
+| the data mirror | +933,857 | 62.7% |
+
+**The mirror.** `patch_wasm_add_data_segments` mutates the in-memory `Vec<u8>`
+after wasm-ld's output is read back and never writes it to disk, so the scratch
+file is *pre-mirror*; `server.rs` serves `state.mini_wasm`, the post-mirror
+bytes. For run 71 the mirror is 1,915,577 raw → 933,857 brotli, i.e. it
+compresses **2.05×** where code compresses 9.71×. It is 21% of the compressed
+payload and **no code-level optimization on the backlog touches it.**
+
+**The quality.** The server pre-compresses once at startup and picks q by size:
+q11 only when the module is ≤ 8 MiB, otherwise q9, so that a huge module does
+not stall startup. At 31 MB it always takes q9. Raising that threshold is a
+one-line change worth **−555 KB (−12.3%)** for some startup seconds — a real
+lever that has never been counted because every measurement here was taken
+offline at q11.
+
+**How to measure the right thing.** The server already logs it:
+
+```
+[azul-web] mini.wasm: 31241003 bytes raw -> 4511585 bytes brotli (q9, ...)
+```
+
+That line is the artifact and the quality a client actually receives. Prefer it.
+`C:\rb\served_size.sh` fetches `/az/mini.<hash>.wasm` from a live server when
+an independent check is wanted. The older note below — that the log's
+`lifted + linked` number is "pre-strip, ~1.9 MB high" — has the wrong mechanism:
+the ~1.9 MB is the data mirror, and the log is the honest number.
+
+### The pre-mirror, q11 series (kept for run-to-run comparison)
+
+Still useful as an A/B between runs, because it isolates the lifted code from
+the mirror. Just never quote it as the payload.
+
 | run | mini fns | raw | brotli | ratio | change under test |
 |---|---|---|---|---|---|
 | 61 | 4528 | 28,341,706 | 2,948,275 | 9.61× | — |
