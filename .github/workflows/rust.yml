@@ -2308,7 +2308,22 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          RESIDUAL_ALLOW='^(.*VTabModule|register_.*|time_.*|dur_.*|uuid.*|make_date|make_timestamp|to_timestamp|icon_to_char)$'
+          # Dependency `#[no_mangle]` strays. These CANNOT be hidden at link
+          # time on Linux: rustc force-exports reachable dependency
+          # `#[no_mangle]` symbols from a cdylib, which is the same mechanism
+          # that exports azul's own C ABI out of the azul-core/azul-layout
+          # rlibs — `--exclude-libs,ALL` would take the host-invoker surface
+          # (`AzRefAny_newHostHandle`, …) with it, and a second
+          # `--version-script` is rejected outright. See the long rationale in
+          # `dll/build.rs::restrict_cdylib_exports`. So the gate allow-lists
+          # them by family instead, and its job is to notice a NEW one.
+          #
+          # turso 0.7 (`db-sqlite`) added two families the old list predates:
+          # its C API (`turso_database_open`, `turso_connection_*`, …) and the
+          # SQLite aggregates that `turso_macros`' agg_derive emits
+          # (`Median_step`, `PercentileCont_finalize`, `StandardDeviation_*`),
+          # which are always `<CamelName>_(init|step|finalize|value)`.
+          RESIDUAL_ALLOW='^(.*VTabModule|register_.*|time_.*|dur_.*|uuid.*|make_date|make_timestamp|to_timestamp|icon_to_char|turso_.*|regexp|[A-Z][A-Za-z0-9]*_(init|step|finalize|value))$'
           if [ "${{ runner.os }}" = "macOS" ]; then
             LIST() { nm -gU "$1" 2>/dev/null | awk '{print $NF}'; }
             MACOS_ALLOW="$RESIDUAL_ALLOW"
@@ -2328,7 +2343,8 @@ jobs:
               || true)
             if [ -n "$STRAY" ]; then
               echo "::error::$f exports non-azul symbols:"
-              echo "$STRAY" | head -40
+              echo "$STRAY" | head -80
+              echo "(total stray symbols: $(echo "$STRAY" | wc -l))"
               rc=1
             else
               echo "OK: $f exports only the azul C API + allowed residuals"
