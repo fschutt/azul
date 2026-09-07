@@ -2981,6 +2981,25 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
                 if name.contains("hash::random") || name.contains("hash..random") {
                     return FnClass::Recursable;
                 }
+                // Same failure mode, wider: `OnceLock::initialize` and
+                // `Once::call` are the lazy-init machinery, and a Leaf stub
+                // returns 0 — which reads as "initialised successfully" while
+                // the closure never ran. The subsequent `get_unchecked()` then
+                // hands out uninitialised memory; one instance here is
+                // `OnceLock<Arc<…UnifiedLayout>>`, where that is a null `Arc`.
+                //
+                // Both `std::sync::once_lock::…` and
+                // `std::sys::sync::once::futex::Once::call` contain `sync::once`.
+                //
+                // Safe to lift: `Once::call`'s completion path reaches
+                // `futex_wake_all` → `WakeByAddressAll`, which becomes an env
+                // import the loader Proxy zero-stubs — and a no-op wake is
+                // correct single-threaded, where there are never waiters.
+                // `WaitOnAddress` sits on the contended path and is unreachable
+                // for the same reason, so this takes the uncontended CAS route.
+                if name.contains("sync::once") || name.contains("sync..once") {
+                    return FnClass::Recursable;
+                }
                 return FnClass::Leaf;
             }
             _ => return FnClass::Recursable,
