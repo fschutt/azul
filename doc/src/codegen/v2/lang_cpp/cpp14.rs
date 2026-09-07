@@ -57,6 +57,9 @@ impl CppDialect for Cpp14Generator {
         // precede the class declarations, whose method signatures use them.
         code.push_str(&generate_callback_typedef_aliases(ir, config, false));
 
+        // namespace ffi: every C type under its unprefixed name.
+        code.push_str(&generate_ffi_aliases(ir, config, false));
+
         // Template-reflection scaffolding before class declarations so
         // RefAny::create<T> can resolve detail::type_id_holder at parse time.
         code.push_str(&generate_template_reflection(std));
@@ -72,38 +75,10 @@ impl CppDialect for Cpp14Generator {
             self.generate_class_declaration(&mut code, struct_def, ir, config);
         }
 
+        // Enum holders: unit-enum constants and tagged-union discriminants +
+        // variant constructors (Option/Result got real classes above).
         for enum_def in &ir.enums {
-            if !config.should_include_type(&enum_def.name) {
-                continue;
-            }
-            if !enum_def.generic_params.is_empty() {
-                continue;
-            }
-            if matches!(
-                enum_def.category,
-                TypeCategory::Option | TypeCategory::Result | TypeCategory::DestructorOrClone
-            ) {
-                continue;
-            }
-            // Cpp11Generator owns the enum-wrapper helper, but it's not on the
-            // trait. Inline the simple alias/constants path here (must match
-            // Cpp11Generator::generate_enum_wrapper).
-            let c_type_name = config.apply_prefix(&enum_def.name);
-            if enum_def.is_union {
-                code.push_str(&format!(
-                    "// {} is a tagged union - use C API\r\n",
-                    enum_def.name
-                ));
-                code.push_str(&format!(
-                    "using {} = {};\r\n\r\n",
-                    enum_def.name, c_type_name
-                ));
-            } else {
-                // Unit enum: scoped, non-prefixed value constants
-                // (`Update::RefreshDom`). C++14 namespace-scope `constexpr`
-                // has internal linkage → template-static ODR-safe form.
-                code.push_str(&generate_enum_constants_extern(enum_def, config, false));
-            }
+            generate_enum_wrapper_shared(&mut code, enum_def, ir, config, std);
         }
 
         code.push_str("// Method implementations\r\n");

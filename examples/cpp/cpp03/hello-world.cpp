@@ -9,12 +9,12 @@ struct MyDataModel {
 
 AZ_REFLECT(MyDataModel)
 
-AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
+ffi::Update on_click(ffi::RefAny data, ffi::CallbackInfo info);
 
-AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+ffi::Dom layout(ffi::RefAny data, ffi::LayoutCallbackInfo info) {
     (void)info;
 
-    azul::RefAny data_wrapper(data);
+    RefAny data_wrapper(data);
     const MyDataModel* d = MyDataModel_downcast_ref(data_wrapper);
     if (!d) return Dom::create_body().release();
 
@@ -34,10 +34,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         .release();
 }
 
-AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
+ffi::Update on_click(ffi::RefAny data, ffi::CallbackInfo info) {
     (void)info;
 
-    azul::RefAny data_wrapper(data);
+    RefAny data_wrapper(data);
     MyDataModel* d = MyDataModel_downcast_mut(data_wrapper);
     if (!d) return Update::DoNothing;
     d->counter += 1;
@@ -47,7 +47,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
 int main() {
     MyDataModel model;
     model.counter = 5;
-    azul::RefAny data = MyDataModel_upcast(model);
+    RefAny data = MyDataModel_upcast(model);
 
     WindowCreateOptions window = WindowCreateOptions::create(layout);
     App app = App::create(data, AppConfig::default_());

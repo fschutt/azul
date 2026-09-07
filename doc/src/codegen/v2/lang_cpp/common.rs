@@ -138,6 +138,44 @@ pub fn escape_method_name(name: &str) -> String {
     }
 }
 
+/// `MouseUp` / `mouseUp` / `smallButton` -> `mouse_up` / `small_button`, with
+/// acronym runs kept together (`RGBValue` -> `rgb_value`, `translateX` ->
+/// `translate_x`). The IR spells enum-variant constructors in lowerCamelCase
+/// (`AzEventFilter_hover`, `AzRibbonItem_smallButton`) while every other
+/// method the C++ wrapper emits is snake_case from api.json; the variant
+/// constructors have to follow the wrapper's convention, not the C symbol's.
+pub fn variant_to_snake(name: &str) -> String {
+    let chars: Vec<char> = name.chars().collect();
+    let mut out = String::with_capacity(name.len() + 4);
+    for (i, &c) in chars.iter().enumerate() {
+        if c.is_ascii_uppercase() {
+            let prev_lower = i > 0 && (chars[i - 1].is_ascii_lowercase() || chars[i - 1].is_ascii_digit());
+            let acronym_end = i > 0
+                && chars[i - 1].is_ascii_uppercase()
+                && chars.get(i + 1).map(|n| n.is_ascii_lowercase()).unwrap_or(false);
+            if prev_lower || acronym_end {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// `copy_from_ptr(ptr: *const T, len: usize)` and friends take a pointer to
+/// `len` CONTIGUOUS C values, not a borrow of one wrapper object. The generic
+/// `*const T -> const Wrapper&` mapping is wrong for them: the wrapper class
+/// has an ownership flag after `inner_`, so an array of wrappers is not an
+/// array of C structs, and a caller cannot even form a `const Wrapper&` that
+/// refers into a C array. Such arguments keep the raw C pointer type.
+pub fn is_array_ptr_arg(arg: &FunctionArg, args: &[FunctionArg]) -> bool {
+    arg.name == "ptr"
+        && matches!(arg.ref_kind, ArgRefKind::Ptr)
+        && args.iter().any(|a| a.name == "len")
+}
+
 // ============================================================================
 // Function Classification Helpers
 // ============================================================================
@@ -220,6 +258,17 @@ pub fn primitive_to_c(type_name: &str) -> String {
 /// Check if a struct is a Vec type (has ptr, len, cap, destructor fields)
 pub fn is_vec_type(struct_def: &StructDef) -> bool {
     matches!(struct_def.category, TypeCategory::Vec)
+}
+
+/// Does the struct have the C Vec layout - `ptr`, `len`, `cap`, `destructor`?
+/// Broader than [`is_vec_type`]: the `Vec` category is assigned from an
+/// api.json `vec_element_type` marker that only some Vecs carry (`U8Vec`,
+/// `StringVec`), while `DomVec` or `RibbonTabVec` are categorized `Regular`
+/// yet are Vecs all the same - every `*Vec` class the C API exposes a
+/// `copyFromPtr` for has exactly these four fields.
+pub fn has_vec_layout(struct_def: &StructDef) -> bool {
+    let has = |n: &str| struct_def.fields.iter().any(|f| f.name == n);
+    struct_def.fields.len() == 4 && has("ptr") && has("len") && has("cap") && has("destructor")
 }
 
 /// Check if a struct is a String type
@@ -416,9 +465,10 @@ pub fn generate_callback_typedef_aliases(
         return String::new();
     }
     let mut code = String::new();
-    code.push_str("// Callback fn-ptr typedef aliases. These ARE the C types, so user\r\n");
-    code.push_str("// callbacks must still be defined with the raw C parameter structs\r\n");
-    code.push_str("// (function-pointer types have to match the C signature exactly).\r\n");
+    code.push_str("// Callback fn-ptr typedef aliases. These ARE the C types, so a user\r\n");
+    code.push_str("// callback is defined with the C parameter and return types - spelled\r\n");
+    code.push_str("// `ffi::RefAny`, `ffi::CallbackInfo`, `ffi::Update` (see namespace ffi) -\r\n");
+    code.push_str("// because a function-pointer type has to match the C signature exactly.\r\n");
     for cb in cbs {
         let c_name = config.apply_prefix(&cb.name);
         if use_typedef {
@@ -429,6 +479,388 @@ pub fn generate_callback_typedef_aliases(
     }
     code.push_str("\r\n");
     code
+}
+
+// ============================================================================
+// namespace azul::ffi - the raw C types under their unprefixed names
+// ============================================================================
+
+/// Every C type the header can name, as `(unprefixed, prefixed)` pairs sorted
+/// by name: structs, enums (unit and tagged), the callback fn-ptr typedefs and
+/// the type aliases lang_c emits a typedef for. Generic templates have no C
+/// type and are left out, mirroring lang_c. Shared by the header (which
+/// declares `namespace ffi`) and the module partition (which re-exports it).
+pub fn ffi_alias_pairs(ir: &CodegenIR, config: &CodegenConfig) -> Vec<(String, String)> {
+    use std::collections::BTreeMap;
+    let mut names: BTreeMap<String, String> = BTreeMap::new();
+    for s in &ir.structs {
+        if !config.should_include_type(&s.name) || !s.generic_params.is_empty() {
+            continue;
+        }
+        names.insert(s.name.clone(), config.apply_prefix(&s.name));
+    }
+    for e in &ir.enums {
+        if !config.should_include_type(&e.name) || !e.generic_params.is_empty() {
+            continue;
+        }
+        names.insert(e.name.clone(), config.apply_prefix(&e.name));
+    }
+    for cb in &ir.callback_typedefs {
+        if !config.should_include_type(&cb.name) {
+            continue;
+        }
+        names.insert(cb.name.clone(), config.apply_prefix(&cb.name));
+    }
+    for ta in &ir.type_aliases {
+        if !config.should_include_type(&ta.name) {
+            continue;
+        }
+        // lang_c emits a typedef for a monomorphized alias and for a plain
+        // one; a generic alias without a monomorphized form has no C type.
+        if ta.monomorphized_def.is_none() && (ta.target.contains('<') || ta.target.contains('>')) {
+            continue;
+        }
+        names.insert(ta.name.clone(), config.apply_prefix(&ta.name));
+    }
+    names.into_iter().collect()
+}
+
+/// Emit `namespace ffi { using RefAny = AzRefAny; ... }` inside `namespace
+/// azul`. This is what lets a program be written without a single `Az`
+/// identifier: the wrapper classes cover everything that is owned, and the
+/// C types a callback signature has to spell get their unprefixed names
+/// here. `use_typedef` switches to C++03 `typedef` syntax.
+///
+/// Guarded by `AZUL_MODULE_EXPORT` like the enum constant namespaces: the
+/// module partition re-declares the namespace in its exported purview.
+pub fn generate_ffi_aliases(ir: &CodegenIR, config: &CodegenConfig, use_typedef: bool) -> String {
+    let pairs = ffi_alias_pairs(ir, config);
+    let mut code = String::new();
+    code.push_str("// namespace azul::ffi - the raw C types under their unprefixed names\r\n");
+    code.push_str("// (`ffi::RefAny` is `AzRefAny`). A callback crosses the C ABI, so its\r\n");
+    code.push_str("// parameters and return value are the C types; spell them `ffi::` and\r\n");
+    code.push_str("// adopt them into the owning wrappers inside the body:\r\n");
+    code.push_str("//\r\n");
+    code.push_str("//     ffi::Update on_click(ffi::RefAny data, ffi::CallbackInfo info) {\r\n");
+    code.push_str("//         RefAny model(data);\r\n");
+    code.push_str("//         ...\r\n");
+    code.push_str("//         return Update::RefreshDom;\r\n");
+    code.push_str("//     }\r\n");
+    code.push_str("//\r\n");
+    code.push_str("// A wrapper converts back to its C type with `release()`, or implicitly\r\n");
+    code.push_str("// from an r-value in C++11 and later (`return Dom::create_body();`).\r\n");
+    code.push_str("#ifndef AZUL_MODULE_EXPORT\r\n");
+    code.push_str("namespace ffi {\r\n");
+    for (name, c_name) in &pairs {
+        if use_typedef {
+            code.push_str(&format!("    typedef {} {};\r\n", c_name, name));
+        } else {
+            code.push_str(&format!("    using {} = {};\r\n", name, c_name));
+        }
+    }
+    code.push_str("} // namespace ffi\r\n");
+    code.push_str("#endif // AZUL_MODULE_EXPORT\r\n\r\n");
+    code
+}
+
+// ============================================================================
+// Tagged unions: `X::Tag::Variant` discriminants + `X::variant(...)` constructors
+// ============================================================================
+
+/// The variant constructors of a tagged union, in variant order, paired with
+/// the snake_case C++ spelling each gets (`AzEventFilter_hover` -> `hover`,
+/// `AzRibbonItem_smallButton` -> `small_button`, a keyword gets its trailing
+/// underscore). Two variants that collapse to one spelling keep the first.
+pub fn union_variant_constructors<'a>(
+    enum_def: &EnumDef,
+    ir: &'a CodegenIR,
+) -> Vec<(String, &'a FunctionDef)> {
+    use std::collections::BTreeSet;
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for f in ir.functions.iter().filter(|f| {
+        f.class_name == enum_def.name && matches!(f.kind, FunctionKind::EnumVariantConstructor)
+    }) {
+        let name = escape_method_name(&variant_to_snake(&f.method_name));
+        if seen.insert(name.clone()) {
+            out.push((name, f));
+        }
+    }
+    out
+}
+
+/// One `static AzX name(args) { return AzX_name(args); }` line of a union
+/// holder (without the leading indentation and the `static`/`inline` keyword,
+/// which differ between the namespace and the template-holder forms).
+fn union_variant_constructor_signature(
+    name: &str,
+    func: &FunctionDef,
+    enum_def: &EnumDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> (String, String) {
+    let c_type = config.apply_prefix(&enum_def.name);
+    let args = generate_args_signature_ex(&func.args, ir, config, false, &enum_def.name, false);
+    let call = generate_call_args_ex(&func.args, ir, config, false, &enum_def.name, false);
+    (
+        format!("{} {}({})", c_type, name, args),
+        format!("{{ return {}({}); }}", func.c_name, call),
+    )
+}
+
+/// Emit the C++17+ form of a tagged-union holder: a namespace that carries the
+/// discriminants as `X::Tag::Variant` (typed `AzX_Tag`, so they compare with
+/// the `tag` byte of every variant struct) and the variant constructors as
+/// `X::variant(payload)` (returning the raw C union, which the wrapper methods
+/// take by value). Mirrors [`generate_enum_constants_namespace`]: `X` was a
+/// plain `using X = AzX;` before, and a namespace cannot share a name with a
+/// type, so the C type moves to `ffi::X`. `indent` prefixes every line (the
+/// module partition nests the namespace one level deeper).
+pub fn generate_union_holder_namespace(
+    enum_def: &EnumDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    indent: &str,
+) -> String {
+    let enum_name = &enum_def.name;
+    let c_type = config.apply_prefix(enum_name);
+    let mut code = String::new();
+    code.push_str(&format!("{}namespace {} {{\r\n", indent, enum_name));
+    code.push_str(&format!("{}    namespace Tag {{\r\n", indent));
+    for variant in &enum_def.variants {
+        code.push_str(&format!(
+            "{}        inline constexpr {ct}_Tag {v} = {ct}_Tag_{v};\r\n",
+            indent,
+            ct = c_type,
+            v = variant.name
+        ));
+    }
+    code.push_str(&format!("{}    }} // namespace Tag\r\n", indent));
+    for (name, func) in union_variant_constructors(enum_def, ir) {
+        let (sig, body) = union_variant_constructor_signature(&name, func, enum_def, ir, config);
+        code.push_str(&format!("{}    inline {} {}\r\n", indent, sig, body));
+    }
+    code.push_str(&format!("{}}} // namespace {}\r\n", indent, enum_name));
+    code
+}
+
+/// ODR-safe pre-C++17 form of [`generate_union_holder_namespace`], built the
+/// same way as [`generate_enum_constants_extern`]: the discriminants are
+/// static members of a nested `Tag` struct inside a class template (external
+/// linkage, one address program-wide), the variant constructors are static
+/// member functions, and `X` is a typedef/alias of the template instance.
+pub fn generate_union_holder_extern(
+    enum_def: &EnumDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    is_cpp03: bool,
+) -> String {
+    let enum_name = &enum_def.name;
+    let c_type = config.apply_prefix(enum_name);
+    let member_kw = if is_cpp03 { "static const" } else { "static constexpr" };
+    let def_kw = if is_cpp03 { "const" } else { "constexpr" };
+    let holder = format!("{}_consts_", enum_name);
+
+    let mut code = String::new();
+    code.push_str("#ifndef AZUL_MODULE_EXPORT\r\n");
+    code.push_str("namespace az_enum_detail {\r\n");
+    code.push_str(&format!("template<class = void> struct {} {{\r\n", holder));
+    code.push_str("    struct Tag {\r\n");
+    for variant in &enum_def.variants {
+        code.push_str(&format!(
+            "        {} {ct}_Tag {v} = {ct}_Tag_{v};\r\n",
+            member_kw,
+            ct = c_type,
+            v = variant.name
+        ));
+    }
+    code.push_str("    };\r\n");
+    for (name, func) in union_variant_constructors(enum_def, ir) {
+        let (sig, body) = union_variant_constructor_signature(&name, func, enum_def, ir, config);
+        code.push_str(&format!("    static {} {}\r\n", sig, body));
+    }
+    code.push_str("};\r\n");
+    for variant in &enum_def.variants {
+        code.push_str(&format!(
+            "template<class T> {} {ct}_Tag {h}<T>::Tag::{v};\r\n",
+            def_kw,
+            ct = c_type,
+            h = holder,
+            v = variant.name
+        ));
+    }
+    code.push_str("} // namespace az_enum_detail\r\n");
+    if is_cpp03 {
+        code.push_str(&format!(
+            "typedef az_enum_detail::{}<> {};\r\n",
+            holder, enum_name
+        ));
+    } else {
+        code.push_str(&format!(
+            "using {} = az_enum_detail::{}<>;\r\n",
+            enum_name, holder
+        ));
+    }
+    code.push_str("#endif // AZUL_MODULE_EXPORT\r\n\r\n");
+    code
+}
+
+/// Is this enum one the dialect header spells as a holder - i.e. neither a
+/// generic template nor an Option/Result union (those get a synthesized
+/// wrapper class instead, see `synthesize_option_result_structs`)?
+pub fn enum_gets_holder(enum_def: &EnumDef, config: &CodegenConfig) -> bool {
+    config.should_include_type(&enum_def.name)
+        && enum_def.generic_params.is_empty()
+        && !matches!(
+            enum_def.category,
+            TypeCategory::Option | TypeCategory::Result
+        )
+}
+
+/// The one enum-wrapper emission every dialect uses: a unit enum becomes its
+/// value-constant holder (`Update::RefreshDom`), a tagged union its
+/// discriminant + constructor holder (`EventFilter::Tag::Hover`,
+/// `EventFilter::hover(...)`). The C type of either is `ffi::X`.
+pub fn generate_enum_wrapper_shared(
+    code: &mut String,
+    enum_def: &EnumDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+    standard: CppStandard,
+) {
+    if !enum_gets_holder(enum_def, config) {
+        return;
+    }
+    if enum_def.is_union {
+        code.push_str(&format!(
+            "// {n} is a tagged union: ffi::{n} is the C type, {n}::Tag::V its discriminants, {n}::v(...) its variant constructors\r\n",
+            n = enum_def.name
+        ));
+        if standard >= CppStandard::Cpp17 {
+            code.push_str("#ifndef AZUL_MODULE_EXPORT\r\n");
+            code.push_str(&generate_union_holder_namespace(enum_def, ir, config, ""));
+            code.push_str("#endif // AZUL_MODULE_EXPORT\r\n\r\n");
+        } else {
+            code.push_str(&generate_union_holder_extern(
+                enum_def,
+                ir,
+                config,
+                standard == CppStandard::Cpp03,
+            ));
+        }
+    } else if standard >= CppStandard::Cpp17 {
+        code.push_str(&generate_enum_constants_namespace(
+            enum_def,
+            config,
+            "inline constexpr",
+        ));
+    } else {
+        code.push_str(&generate_enum_constants_extern(
+            enum_def,
+            config,
+            standard == CppStandard::Cpp03,
+        ));
+    }
+}
+
+// ============================================================================
+// Vec construction from a std::vector (C++11 and later)
+// ============================================================================
+
+/// The pieces of `XVec::from_std_vector`: the element's wrapper class (if it
+/// has one), its C type, and the C `copyFromPtr` symbol. `None` when the
+/// method is not emitted: a `bool` element (`std::vector<bool>` has no
+/// `data()`) or a Vec whose C API has no `copyFromPtr`.
+fn vec_from_std_vector_parts(
+    struct_def: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> Option<(Option<String>, String, String)> {
+    if !has_vec_layout(struct_def) {
+        return None;
+    }
+    let elem = get_vec_element_type(struct_def)?;
+    if elem == "bool" {
+        return None;
+    }
+    let copy_from_ptr = ir
+        .functions
+        .iter()
+        .find(|f| f.class_name == struct_def.name && f.method_name == "copy_from_ptr")?
+        .c_name
+        .clone();
+    let c_elem = if is_primitive(&elem) {
+        primitive_to_c(&elem)
+    } else {
+        config.apply_prefix(&elem)
+    };
+    let wrapper = if type_has_wrapper(&elem, ir) {
+        Some(elem)
+    } else {
+        None
+    };
+    Some((wrapper, c_elem, copy_from_ptr))
+}
+
+/// In-class declaration of `static XVec from_std_vector(const
+/// std::vector<Elem>& items)` for a Vec wrapper class (C++11 and later).
+/// The C API grows a Vec only through `copyFromPtr`, which clones `len`
+/// contiguous C values; a `std::vector` of wrapper objects is not contiguous
+/// C values (each wrapper carries its ownership flag), so the definition
+/// stages the values into a `std::vector<AzElem>` first. The wrappers keep
+/// owning their originals and free them as usual. Elements without a wrapper
+/// class (primitives, raw C enums and structs) are copied straight from the
+/// caller's buffer.
+///
+/// Declaration and definition are split like every other method: the body
+/// touches the element wrapper (`item.inner()`), which is only forward-declared
+/// where the Vec class sits - `StringVec` precedes `String`.
+pub fn generate_vec_from_std_vector_decl(
+    struct_def: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> String {
+    let (wrapper, c_elem, _) = match vec_from_std_vector_parts(struct_def, ir, config) {
+        Some(p) => p,
+        None => return String::new(),
+    };
+    let elem_ty = wrapper.unwrap_or(c_elem);
+    format!(
+        "    static {cls} from_std_vector(const std::vector<{elem}>& items);\r\n",
+        cls = struct_def.name,
+        elem = elem_ty,
+    )
+}
+
+/// Out-of-line definition matching [`generate_vec_from_std_vector_decl`];
+/// emitted with the other method implementations, after every class is
+/// complete.
+pub fn generate_vec_from_std_vector_impl(
+    struct_def: &StructDef,
+    ir: &CodegenIR,
+    config: &CodegenConfig,
+) -> String {
+    let (wrapper, c_elem, copy_from_ptr) = match vec_from_std_vector_parts(struct_def, ir, config)
+    {
+        Some(p) => p,
+        None => return String::new(),
+    };
+    let class_name = &struct_def.name;
+    match wrapper {
+        Some(elem) => format!(
+            "inline {cls} {cls}::from_std_vector(const std::vector<{elem}>& items) {{\r\n    std::vector<{celem}> raw;\r\n    raw.reserve(items.size());\r\n    for (const {elem}& item : items) raw.push_back(item.inner());\r\n    return {cls}({cfn}(raw.data(), raw.size()));\r\n}}\r\n\r\n",
+            cls = class_name,
+            elem = elem,
+            celem = c_elem,
+            cfn = copy_from_ptr,
+        ),
+        None => format!(
+            "inline {cls} {cls}::from_std_vector(const std::vector<{celem}>& items) {{\r\n    return {cls}({cfn}(items.data(), items.size()));\r\n}}\r\n\r\n",
+            cls = class_name,
+            celem = c_elem,
+            cfn = copy_from_ptr,
+        ),
+    }
 }
 
 /// Emit `toStdOptional()` (+ the implicit `operator std::optional<T>`) for an
@@ -542,10 +974,7 @@ pub fn generate_module_partition(
     // #include and are visible here. `inline constexpr` (C++20 is guaranteed
     // for the module).
     for enum_def in &ir.enums {
-        if enum_def.is_union || !enum_def.generic_params.is_empty() {
-            continue;
-        }
-        if !config.should_include_type(&enum_def.name) {
+        if enum_def.is_union || !enum_gets_holder(enum_def, config) {
             continue;
         }
         let c_type_name = config.apply_prefix(&enum_def.name);
@@ -559,6 +988,21 @@ pub fn generate_module_partition(
         }
         code.push_str(&format!("    }} // namespace {}\r\n", enum_def.name));
     }
+
+    // The tagged-union holders (`EventFilter::Tag::Hover`,
+    // `EventFilter::hover(...)`) and `namespace ffi` are suppressed in the
+    // header for the same reason and re-declared here, exported.
+    for enum_def in &ir.enums {
+        if !enum_def.is_union || !enum_gets_holder(enum_def, config) {
+            continue;
+        }
+        code.push_str(&generate_union_holder_namespace(enum_def, ir, config, "    "));
+    }
+    code.push_str("    namespace ffi {\r\n");
+    for (name, c_name) in ffi_alias_pairs(ir, config) {
+        code.push_str(&format!("        using {} = {};\r\n", name, c_name));
+    }
+    code.push_str("    } // namespace ffi\r\n");
 
     code.push_str("} // namespace azul\r\n");
     code
@@ -769,7 +1213,6 @@ pub fn type_has_wrapper(type_name: &str, ir: &CodegenIR) -> bool {
             struct_def.category,
             TypeCategory::CallbackTypedef
                 | TypeCategory::GenericTemplate
-                | TypeCategory::Recursive
                 | TypeCategory::DestructorOrClone
         ) {
             return false;
@@ -811,12 +1254,18 @@ pub fn type_needs_proxy_for_cpp03(type_name: &str, ir: &CodegenIR) -> bool {
 // ============================================================================
 
 /// Check if a struct should be skipped (callbacks, generic templates)
+///
+/// `Recursive` types (`Xml`, `XmlNode`, `XmlNodeChildVec`) are NOT skipped:
+/// the "infinite size" they cause is a Rust/Python wrapper-struct problem
+/// (a wrapper holding itself by value). A C++ wrapper holds the complete C
+/// struct `AzXml` and nothing else, and every class is forward-declared, so
+/// they get an ordinary class - which is the only way `Xml::from_str` can be
+/// spelled without the C symbol.
 pub fn should_skip_class(struct_def: &StructDef) -> bool {
     matches!(
         struct_def.category,
         TypeCategory::CallbackTypedef |
         TypeCategory::GenericTemplate |
-        TypeCategory::Recursive |
         // Note: VecRef types ARE included in C++ - they become simple wrapper classes
         // that expose ptr/len as std::span (C++20+) or raw pointers (earlier)
         TypeCategory::DestructorOrClone
@@ -1005,11 +1454,25 @@ pub fn generate_args_signature_ex(
         }
 
         let escaped_name = escape_cpp_keyword(&arg.name);
-        let cpp_type = arg_to_cpp_type_ex(arg, ir, config, substitute_callbacks);
+        let cpp_type = if is_array_ptr_arg(arg, args) {
+            array_ptr_cpp_type(arg, config)
+        } else {
+            arg_to_cpp_type_ex(arg, ir, config, substitute_callbacks)
+        };
         result.push(format!("{} {}", cpp_type, escaped_name));
     }
 
     result.join(", ")
+}
+
+/// The C++ type of an array-pointer argument (see [`is_array_ptr_arg`]):
+/// the raw `const AzT*` / `const uint8_t*`, exactly as the C API declares it.
+pub fn array_ptr_cpp_type(arg: &FunctionArg, config: &CodegenConfig) -> String {
+    if is_primitive(&arg.type_name) {
+        format!("const {}*", primitive_to_c(&arg.type_name))
+    } else {
+        format!("const {}*", config.apply_prefix(&arg.type_name))
+    }
 }
 
 /// Generate C++ function call arguments
@@ -1059,6 +1522,8 @@ pub fn generate_args_signature_sv_overload(
         let escaped_name = escape_cpp_keyword(&arg.name);
         let cpp_type = if arg.type_name == "String" && matches!(arg.ref_kind, ArgRefKind::Owned) {
             "std::string_view".to_string()
+        } else if is_array_ptr_arg(arg, args) {
+            array_ptr_cpp_type(arg, config)
         } else {
             arg_to_cpp_type_ex(arg, ir, config, substitute_callbacks)
         };
@@ -1085,6 +1550,8 @@ pub fn generate_call_args_sv_overload(
         let escaped_name = escape_cpp_keyword(&arg.name);
         if arg.type_name == "String" && matches!(arg.ref_kind, ArgRefKind::Owned) {
             result.push(format!("String({})", escaped_name));
+        } else if is_array_ptr_arg(arg, args) {
+            result.push(escaped_name);
         } else if type_has_wrapper(&arg.type_name, ir) {
             let is_pointer = matches!(
                 arg.ref_kind,
@@ -1145,7 +1612,9 @@ pub fn generate_call_args_ex(
             }
         }
 
-        if type_has_wrapper(&arg.type_name, ir) {
+        if is_array_ptr_arg(arg, args) {
+            result.push(escaped_name);
+        } else if type_has_wrapper(&arg.type_name, ir) {
             let is_pointer = matches!(
                 arg.ref_kind,
                 ArgRefKind::Ptr | ArgRefKind::PtrMut | ArgRefKind::Ref | ArgRefKind::RefMut
@@ -1189,6 +1658,13 @@ pub fn generate_header_comment(standard: CppStandard) -> String {
     code.push_str("//\r\n");
     code.push_str("// This header provides C++ wrapper classes for the Azul C API.\r\n");
     code.push_str("// All classes use RAII for memory management.\r\n");
+    code.push_str("//\r\n");
+    code.push_str("// NAMES\r\n");
+    code.push_str("//   azul::Dom, azul::RefAny ...      owning wrapper classes\r\n");
+    code.push_str("//   azul::Update::RefreshDom         the values of a C enum\r\n");
+    code.push_str("//   azul::EventFilter::hover(..)     the variant constructors of a tagged union,\r\n");
+    code.push_str("//   azul::EventFilter::Tag::Hover    and its discriminants\r\n");
+    code.push_str("//   azul::ffi::RefAny                the raw C type (AzRefAny), for callback signatures\r\n");
     code.push_str("//\r\n");
 
     code

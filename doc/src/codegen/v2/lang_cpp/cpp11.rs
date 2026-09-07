@@ -75,6 +75,9 @@ impl CppDialect for Cpp11Generator {
         // precede the class declarations, whose method signatures use them.
         code.push_str(&generate_callback_typedef_aliases(ir, config, false));
 
+        // namespace ffi: every C type under its unprefixed name.
+        code.push_str(&generate_ffi_aliases(ir, config, false));
+
         // Template-reflection scaffolding (detail::type_id_holder /
         // detail::type_destructor). Must precede the class declarations
         // because RefAny's template members reference these names at parse
@@ -93,18 +96,10 @@ impl CppDialect for Cpp11Generator {
             self.generate_class_declaration(&mut code, struct_def, ir, config);
         }
 
-        // Enum wrappers (skip Option/Result — those got real classes above).
+        // Enum holders: unit-enum constants and tagged-union discriminants +
+        // variant constructors (Option/Result got real classes above).
         for enum_def in &ir.enums {
-            if !config.should_include_type(&enum_def.name) {
-                continue;
-            }
-            if matches!(
-                enum_def.category,
-                TypeCategory::Option | TypeCategory::Result
-            ) {
-                continue;
-            }
-            self.generate_enum_wrapper(&mut code, enum_def, config);
+            generate_enum_wrapper_shared(&mut code, enum_def, ir, config, std);
         }
 
         // Method implementations
@@ -293,6 +288,8 @@ impl CppDialect for Cpp11Generator {
             }
             code.push_str("}\r\n\r\n");
         }
+
+        code.push_str(&generate_vec_from_std_vector_impl(struct_def, ir, config));
     }
 
     fn generate_destructor(
@@ -618,29 +615,6 @@ impl Cpp11Generator {
         }
     }
 
-    fn generate_enum_wrapper(&self, code: &mut String, enum_def: &EnumDef, config: &CodegenConfig) {
-        if !enum_def.generic_params.is_empty() {
-            return;
-        }
-
-        let enum_name = &enum_def.name;
-        let c_type_name = config.apply_prefix(enum_name);
-
-        if enum_def.is_union {
-            code.push_str(&format!(
-                "// {} is a tagged union - use C API\r\n",
-                enum_name
-            ));
-            code.push_str(&format!("using {} = {};\r\n\r\n", enum_name, c_type_name));
-        } else {
-            // Unit enum: scoped, non-prefixed value constants
-            // (`Update::RefreshDom`) that keep the raw C enum type. C++11/14
-            // namespace-scope `constexpr` has INTERNAL linkage, so use the
-            // template-static ODR-safe form (external linkage, one address
-            // across TUs).
-            code.push_str(&generate_enum_constants_extern(enum_def, config, false));
-        }
-    }
 }
 
 /// Emit a wrapper-class declaration for C++11+ generators (cpp11, cpp14).
@@ -748,6 +722,7 @@ pub fn emit_class_declaration_cpp11_or_later(
     if is_vec_type(struct_def) {
         gen.generate_vec_methods(code, struct_def, config);
     }
+    code.push_str(&generate_vec_from_std_vector_decl(struct_def, ir, config));
     if is_string_type(struct_def) {
         gen.generate_string_methods(code, struct_def, config);
     }

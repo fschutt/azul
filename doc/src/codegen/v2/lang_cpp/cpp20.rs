@@ -81,6 +81,9 @@ impl CppDialect for Cpp20Generator {
         // precede the class declarations, whose method signatures use them.
         code.push_str(&generate_callback_typedef_aliases(ir, config, false));
 
+        // namespace ffi: every C type under its unprefixed name.
+        code.push_str(&generate_ffi_aliases(ir, config, false));
+
         // Template-reflection scaffolding (detail::type_id_holder /
         // detail::type_destructor + ReflectableModel concept) before class
         // declarations so RefAny's template members can resolve the names.
@@ -98,18 +101,10 @@ impl CppDialect for Cpp20Generator {
             self.generate_class_declaration(&mut code, struct_def, ir, config);
         }
 
-        // Enum wrappers (skip Option/Result — those got real classes above).
+        // Enum holders: unit-enum constants and tagged-union discriminants +
+        // variant constructors (Option/Result got real classes above).
         for enum_def in &ir.enums {
-            if !config.should_include_type(&enum_def.name) {
-                continue;
-            }
-            if matches!(
-                enum_def.category,
-                TypeCategory::Option | TypeCategory::Result
-            ) {
-                continue;
-            }
-            self.generate_enum_wrapper(&mut code, enum_def, config);
+            generate_enum_wrapper_shared(&mut code, enum_def, ir, config, std);
         }
 
         // Method implementations
@@ -446,6 +441,9 @@ impl CppDialect for Cpp23Generator {
         // precede the class declarations, whose method signatures use them.
         code.push_str(&generate_callback_typedef_aliases(ir, config, false));
 
+        // namespace ffi: every C type under its unprefixed name.
+        code.push_str(&generate_ffi_aliases(ir, config, false));
+
         // Template-reflection scaffolding before class declarations.
         code.push_str(&generate_template_reflection(std));
 
@@ -458,17 +456,10 @@ impl CppDialect for Cpp23Generator {
             self.generate_class_declaration(&mut code, struct_def, ir, config);
         }
 
+        // Enum holders: unit-enum constants and tagged-union discriminants +
+        // variant constructors (Option/Result got real classes above).
         for enum_def in &ir.enums {
-            if !config.should_include_type(&enum_def.name) {
-                continue;
-            }
-            if matches!(
-                enum_def.category,
-                TypeCategory::Option | TypeCategory::Result
-            ) {
-                continue;
-            }
-            self.generate_enum_wrapper(&mut code, enum_def, config);
+            generate_enum_wrapper_shared(&mut code, enum_def, ir, config, std);
         }
 
         code.push_str("// Method implementations\r\n");
@@ -691,6 +682,7 @@ fn emit_class_declaration_cpp20_or_later(
     if is_vec_type(struct_def) {
         gen.generate_vec_methods(code, struct_def, config);
     }
+    code.push_str(&generate_vec_from_std_vector_decl(struct_def, ir, config));
     if is_string_type(struct_def) {
         gen.generate_string_methods(code, struct_def, config);
     }
@@ -860,32 +852,6 @@ impl Cpp20Generator {
     ) {
         emit_method_declarations(CppStandard::Cpp20, code, class_name, ir, config);
     }
-
-    fn generate_enum_wrapper(&self, code: &mut String, enum_def: &EnumDef, config: &CodegenConfig) {
-        if !enum_def.generic_params.is_empty() {
-            return;
-        }
-
-        let enum_name = &enum_def.name;
-        let c_type_name = config.apply_prefix(enum_name);
-
-        if enum_def.is_union {
-            code.push_str(&format!(
-                "// {} is a tagged union - use C API\r\n",
-                enum_name
-            ));
-            code.push_str(&format!("using {} = {};\r\n\r\n", enum_name, c_type_name));
-        } else {
-            // Unit enum: scoped, non-prefixed value constants
-            // (`Update::RefreshDom`) that keep the raw C enum type — see
-            // generate_enum_constants_namespace.
-            code.push_str(&generate_enum_constants_namespace(
-                enum_def,
-                config,
-                "inline constexpr",
-            ));
-        }
-    }
 }
 
 impl Cpp23Generator {
@@ -893,10 +859,6 @@ impl Cpp23Generator {
         let mut structs: Vec<&StructDef> = ir.structs.iter().collect();
         structs.sort_by_key(|s| s.sort_order);
         structs
-    }
-
-    fn generate_enum_wrapper(&self, code: &mut String, enum_def: &EnumDef, config: &CodegenConfig) {
-        Cpp20Generator.generate_enum_wrapper(code, enum_def, config);
     }
 }
 
@@ -1160,4 +1122,6 @@ fn generate_method_implementations_shared(
         }
         code.push_str("}\r\n\r\n");
     }
+
+    code.push_str(&generate_vec_from_std_vector_impl(struct_def, ir, config));
 }
