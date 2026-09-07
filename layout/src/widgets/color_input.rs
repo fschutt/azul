@@ -60,6 +60,30 @@ impl_widget_callback!(
     ColorInputOnValueChangeCallbackType
 );
 
+// The managed-FFI half of the same callback.
+//
+// `HOST_INVOKER_KINDS` in `doc/src/codegen/v2/managed_host_invoker.rs` has
+// listed `ColorInputOnValueChangeCallback` since the kind was added, so every
+// managed binding emits a lookup of the setter symbol below — but the macro
+// that DEFINES it was never applied here, so libazul never exported it. Ten
+// shipped bindings (lua, ruby, node, fortran, pascal, java, kotlin, scala,
+// ocaml, csharp) then failed to LOAD, before running a line of their own code.
+//
+// That module's doc comment states the order: apply the macro, recompile
+// libazul, then append to the list. This is the missing first step.
+azul_core::impl_managed_callback! {
+    wrapper:        ColorInputOnValueChangeCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: COLOR_INPUT_ON_VALUE_CHANGE_INVOKER,
+    invoker_ty:     AzColorInputOnValueChangeCallbackInvoker,
+    thunk_fn:       az_color_input_on_value_change_callback_thunk,
+    setter_fn:      AzApp_setColorInputOnValueChangeCallbackInvoker,
+    from_handle_fn: AzColorInputOnValueChangeCallback_createFromHostHandle,
+    extra_args:     [ state: ColorInputState ],
+}
+
 /// Wrapper around [`ColorInputState`] that includes a title and an optional value-change callback.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
