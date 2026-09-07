@@ -56,10 +56,15 @@ const READ = `(() => {
     statePtr: rd32(264704),   // 0x40A00 state pointer (new)
     noosLabel: rd32(262280),  // 0x40088 last NoOsStub label
     noosCount: rd32(262288),  // 0x40090 NoOsStub hit count
+    mbLast:   rd32(262392),   // 0x400F8 last __remill_missing_block PC
+    mbCount:  rd32(262396),   // 0x400FC live missing-block hits
+    mbRing:   [],
     ring:     [],
     slots:    [],
   };
   for (let i = 0; i < 16; i++) out.ring.push(rd32(264640 + i * 4));
+  // 0x40160, packed two 32-bit synths per 64-bit word.
+  for (let i = 0; i < 32; i++) out.mbRing.push(rd32(262496 + i * 4));
   if (out.statePtr) {
     // 2100..2500 covers the GP register file with room either side.
     for (let off = 2100; off < 2500; off += 4) {
@@ -127,6 +132,20 @@ const KNOWN = {
     console.log('last  missed PC      : 0x' + (o.lastPC >>> 0).toString(16));
     console.log('state pointer        : 0x' + (o.statePtr >>> 0).toString(16));
     console.log('no-OS stub hits      : ' + o.noosCount + (o.noosCount ? '  last label 0x' + (o.noosLabel >>> 0).toString(16) : ''));
+    // __remill_missing_block RETURNS, so every hit here is control flow that
+    // silently did nothing. This is usually a much bigger number than the
+    // unmatched-dispatch count, and nothing read it until it was found by
+    // searching memory for the trapping PC.
+    console.log('missing-block hits   : ' + o.mbCount + (o.mbCount ? '  last 0x' + (o.mbLast >>> 0).toString(16) : ''));
+    if (o.mbCount) {
+        var seen = [];
+        for (var i = 0; i < o.mbRing.length; i++) {
+            var pc = o.mbRing[i] >>> 0;
+            if (pc && seen.indexOf(pc) < 0) seen.push(pc);
+        }
+        console.log('  distinct ring PCs  : ' + seen.map(function (x) { return '0x' + x.toString(16); }).join(' '));
+        console.log('    name each: python scripts/m9_e2e/name-synth.py 0x<pc> azwriter_server.log');
+    }
     if (o.noosCount) {
         // A stub firing is not a failure, but it IS a live path answered with
         // "there is no OS" - four of the five sit in the error formatter, so a
