@@ -36,6 +36,13 @@ overstated one log by 280×.
 | 69 | 4865 | 29,288,644 | 3,017,261 | 9.71× | alias-thunk cases + lift `sync::once` |
 | 70 | 4888 | 29,325,309 | 3,023,530 | 9.70× | untruncate ICF-folded alloc shims |
 | 71 | 4888 | 29,325,426 | 3,022,588 | 9.70× | intercept ProcessPrng |
+| 72 | 4885 | — | — | — | route the CRT transcendentals — **no artifact:** the lift audit refused to serve (F3, four env imports the loader did not implement) |
+
+A run can end without a row. Run 72 lifted 4885 functions and then the audit
+stopped the server over four unimplemented env imports — which turned out to be
+the visible edge of `azCallbackImports` carrying no math table at all, so every
+math libcall in the layout and callback wasms was Proxy-zero-stubbed. A gate
+that costs a 40-minute run is cheap against shipping that.
 
 Run 69 is the largest single-change growth so far: **+587,577 raw** over run 68,
 from the `OnceLock`/`Once` carve-out pulling the lazy-init machinery into the
