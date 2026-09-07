@@ -54,6 +54,8 @@ const READ = `(() => {
     firstPC:  rd32(264624),   // 0x409B0 first missed PC
     lastPC:   rd32(264448),   // 0x40900 last missed PC
     statePtr: rd32(264704),   // 0x40A00 state pointer (new)
+    noosLabel: rd32(262280),  // 0x40088 last NoOsStub label
+    noosCount: rd32(262288),  // 0x40090 NoOsStub hit count
     ring:     [],
     slots:    [],
   };
@@ -124,6 +126,14 @@ const KNOWN = {
     console.log('first missed PC      : 0x' + (o.firstPC >>> 0).toString(16));
     console.log('last  missed PC      : 0x' + (o.lastPC >>> 0).toString(16));
     console.log('state pointer        : 0x' + (o.statePtr >>> 0).toString(16));
+    console.log('no-OS stub hits      : ' + o.noosCount + (o.noosCount ? '  last label 0x' + (o.noosLabel >>> 0).toString(16) : ''));
+    if (o.noosCount) {
+        // A stub firing is not a failure, but it IS a live path answered with
+        // "there is no OS" - four of the five sit in the error formatter, so a
+        // hit usually means something upstream already went wrong.
+        console.log('    name it: grep -a \'M12.7: IAT import\' azwriter_server.log | grep -i 0x'
+                    + (o.noosLabel >>> 0).toString(16));
+    }
     console.log('ring                 : ' + o.ring.filter(x => x).map(x => '0x' + (x >>> 0).toString(16)).join(' '));
     if (!o.statePtr) {
         console.log('');
