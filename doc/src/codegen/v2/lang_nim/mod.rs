@@ -354,6 +354,13 @@ pub fn sanitize_identifier(name: &str) -> String {
     } else {
         base.to_string()
     };
+    // `result` is not a keyword but the implicit result variable of every
+    // proc: a parameter called `result` — even stropped as `` `result` `` —
+    // is "redefinition of 'result'" (the branch's `*_downcast(result:
+    // RefAny)` functions, 2026-09-07). Rename instead of stropping.
+    if base == "result" {
+        return "resultValue".to_string();
+    }
     if is_nim_keyword(&base) {
         format!("`{}`", base)
     } else {

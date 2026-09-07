@@ -1,0 +1,14 @@
+# Keeps the SHA-pinned actions in .github/workflows fresh: every `uses:` is a
+# commit SHA with the version as a trailing comment (2026-09-07), so a moved
+# tag cannot change what CI runs; Dependabot proposes the bumps instead.
+# Container image digests in the workflows and the tool versions in the run
+# steps are refreshed by hand (they are not a Dependabot ecosystem).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

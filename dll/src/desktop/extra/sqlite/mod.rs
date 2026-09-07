@@ -24,6 +24,13 @@
 //! Sync speaks a row-level oplog over HTTPS (JSON, `POST <url>/push`,
 //! `GET <url>/pull?db=..&since=..`), the same protocol the web host uses via
 //! `fetch()`; conflicts are resolved per store (`DbConflictPolicy`).
+//! The engine gate in this file is `cfg(az_db_engine)`, emitted by
+//! dll/build.rs as `feature = "db-sqlite"` AND not 32-bit Linux: turso's
+//! turso_sync_engine 0.7.2 does not compile for i686/armv7 glibc (`pos as
+//! i64` into a 32-bit `off_t`), so those two targets ship with the feature
+//! on and the engine off — `open` fails there, which is the documented
+//! no-engine behaviour, not a crash.
+//!
 
 use core::ffi::c_void;
 use std::sync::{Arc, Mutex};
@@ -44,7 +51,7 @@ use azul_css::{
 use azul_layout::{callbacks::ResumeCallback, request};
 
 /// The engine name, for diagnostics.
-#[cfg(feature = "db-sqlite")]
+#[cfg(az_db_engine)]
 pub fn sqlite_version() -> &'static str {
     "turso 0.7"
 }
@@ -73,7 +80,7 @@ struct MergeHook {
 /// Everything behind a live `Db`; shared by every clone of the handle.
 struct DbState {
     config: DbConfig,
-    #[cfg(feature = "db-sqlite")]
+    #[cfg(az_db_engine)]
     engine: Option<engine::Handle>,
     subscriptions: Vec<Subscription>,
     status_subscriptions: Vec<StatusSubscription>,
@@ -205,9 +212,9 @@ fn auto_sync_due(s: &DbState, now: u64) -> bool {
     if s.closed || s.config.backup_sync_url.is_none() {
         return false;
     }
-    #[cfg(feature = "db-sqlite")]
+    #[cfg(az_db_engine)]
     let pending = s.engine.is_some() && engine::pending_push_ops(s) > 0;
-    #[cfg(not(feature = "db-sqlite"))]
+    #[cfg(not(az_db_engine))]
     let pending = false;
     let auto = &s.config.auto_sync;
     let by_interval = auto
@@ -383,7 +390,7 @@ impl Db {
 
     /// The synchronous half of [`Self::open`] (Rust-internal).
     pub fn open_blocking(config: DbConfig) -> Result<Db, DbError> {
-        #[cfg(not(feature = "db-sqlite"))]
+        #[cfg(not(az_db_engine))]
         {
             announce_db_stub("Db::open");
             let _ = config;
@@ -392,7 +399,7 @@ impl Db {
                 "this build has no local db engine (rebuild with --features db-sqlite)",
             ))
         }
-        #[cfg(feature = "db-sqlite")]
+        #[cfg(az_db_engine)]
         {
             let path = local_store_path(config.local_name.as_str());
             let handle = engine::open(&path).ok_or_else(|| {
@@ -480,7 +487,7 @@ impl Db {
             if s.closed {
                 return value_error("the database is closed");
             }
-            #[cfg(feature = "db-sqlite")]
+            #[cfg(az_db_engine)]
             {
                 match engine::get(s, store.as_str(), &key) {
                     Ok(value) => DbValueResult {
@@ -490,7 +497,7 @@ impl Db {
                     Err(e) => value_error(e.message),
                 }
             }
-            #[cfg(not(feature = "db-sqlite"))]
+            #[cfg(not(az_db_engine))]
             {
                 value_error("this build has no local db engine")
             }
@@ -511,7 +518,7 @@ impl Db {
                 if s.closed {
                     return false;
                 }
-                #[cfg(feature = "db-sqlite")]
+                #[cfg(az_db_engine)]
                 {
                     let ok = engine::put(s, store.as_str(), &key, Some(&value), now_ms()).is_ok();
                     if ok {
@@ -523,7 +530,7 @@ impl Db {
                     }
                     ok
                 }
-                #[cfg(not(feature = "db-sqlite"))]
+                #[cfg(not(az_db_engine))]
                 {
                     let _ = &value;
                     false
@@ -547,7 +554,7 @@ impl Db {
                 if s.closed {
                     return false;
                 }
-                #[cfg(feature = "db-sqlite")]
+                #[cfg(az_db_engine)]
                 {
                     let ok = engine::put(s, store.as_str(), &key, None, now_ms()).is_ok();
                     if ok {
@@ -558,7 +565,7 @@ impl Db {
                     }
                     ok
                 }
-                #[cfg(not(feature = "db-sqlite"))]
+                #[cfg(not(az_db_engine))]
                 {
                     false
                 }
@@ -594,7 +601,7 @@ impl Db {
             if s.closed {
                 return rows_error("the database is closed");
             }
-            #[cfg(feature = "db-sqlite")]
+            #[cfg(az_db_engine)]
             {
                 match engine::iterate(s, store.as_str(), &range, limit) {
                     Ok(rows) => DbRowsResult {
@@ -604,7 +611,7 @@ impl Db {
                     Err(e) => rows_error(e.message),
                 }
             }
-            #[cfg(not(feature = "db-sqlite"))]
+            #[cfg(not(az_db_engine))]
             {
                 let _ = (&range, limit);
                 rows_error("this build has no local db engine")
@@ -644,7 +651,7 @@ impl Db {
             if s.closed {
                 return rows_error("the database is closed");
             }
-            #[cfg(feature = "db-sqlite")]
+            #[cfg(az_db_engine)]
             {
                 match engine::query_index(s, store.as_str(), index.as_str(), &range, limit) {
                     Ok(rows) => DbRowsResult {
@@ -654,7 +661,7 @@ impl Db {
                     Err(e) => rows_error(e.message),
                 }
             }
-            #[cfg(not(feature = "db-sqlite"))]
+            #[cfg(not(az_db_engine))]
             {
                 let _ = (&range, limit);
                 rows_error("this build has no local db engine")
@@ -701,11 +708,11 @@ impl Db {
             if s.closed {
                 return Vec::new();
             }
-            #[cfg(feature = "db-sqlite")]
+            #[cfg(az_db_engine)]
             {
                 sync::run(s, scope.as_ref())
             }
-            #[cfg(not(feature = "db-sqlite"))]
+            #[cfg(not(az_db_engine))]
             {
                 let _ = &scope;
                 Vec::new()
@@ -723,7 +730,7 @@ impl Db {
             if s.closed {
                 return DbSyncStatus::disconnected();
             }
-            #[cfg(feature = "db-sqlite")]
+            #[cfg(az_db_engine)]
             {
                 let used = engine::local_bytes_used(s);
                 DbSyncStatus {
@@ -737,7 +744,7 @@ impl Db {
                     error: s.sync_error.clone().into(),
                 }
             }
-            #[cfg(not(feature = "db-sqlite"))]
+            #[cfg(not(az_db_engine))]
             {
                 DbSyncStatus::disconnected()
             }
@@ -777,7 +784,7 @@ impl Db {
             s.subscriptions.clear();
             s.status_subscriptions.clear();
             s.merge_hooks.clear();
-            #[cfg(feature = "db-sqlite")]
+            #[cfg(az_db_engine)]
             {
                 s.engine = None;
             }
@@ -825,7 +832,7 @@ impl Db {
     }
 }
 
-#[cfg(not(feature = "db-sqlite"))]
+#[cfg(not(az_db_engine))]
 fn announce_db_stub(what: &str) {
     static ANNOUNCE: std::sync::Once = std::sync::Once::new();
     ANNOUNCE.call_once(|| {
@@ -841,7 +848,7 @@ fn announce_db_stub(what: &str) {
 // turso engine
 // ============================================================================
 
-#[cfg(feature = "db-sqlite")]
+#[cfg(az_db_engine)]
 mod engine {
     use core::{
         future::Future,
@@ -1390,7 +1397,7 @@ mod engine {
 // Row-level oplog sync over HTTPS
 // ============================================================================
 
-#[cfg(feature = "db-sqlite")]
+#[cfg(az_db_engine)]
 mod sync {
     use azul_core::json::Json;
 
@@ -1729,7 +1736,7 @@ mod sync {
     }
 }
 
-#[cfg(all(test, feature = "db-sqlite"))]
+#[cfg(all(test, az_db_engine))]
 mod tests {
     use azul_core::db::{DbIndexSchema, DbIndexSchemaVec, DbSchema, DbStoreSchema, DbStoreSchemaVec};
 

@@ -33,7 +33,7 @@ jobs:
     name: Workflow files must stay under GitHub's size limit
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check every workflow file against the 512,000-byte limit
         shell: bash
         run: |
@@ -63,16 +63,16 @@ jobs:
     name: cargo-vet + publish-age cooldown
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Fetch full history so the cooldown check can diff Cargo.lock against the base ref.
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
       - name: Install cargo-vet
-        run: cargo install cargo-vet --locked || cargo install cargo-vet
+        run: cargo install cargo-vet --version 0.10.2 --locked || cargo install cargo-vet --version 0.10.2
 
       # --locked uses the audit set and imports.lock as committed, preventing network refreshes.
       - name: cargo vet
@@ -123,12 +123,12 @@ jobs:
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked || cargo install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked || cargo install cargo-audit --version 0.22.2
       - name: cargo audit
         shell: bash
         run: |
@@ -140,7 +140,7 @@ jobs:
             echo '```'; tail -120 stats/cargo-audit.txt; echo '```'
             echo '</details>'
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stats-cargo-audit
           path: stats/cargo-audit.txt

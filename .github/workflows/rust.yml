@@ -69,8 +69,8 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
       - uses: ./.github/actions/supply-chain-preflight
@@ -84,7 +84,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Release contracts (naming, widget wiring, sparse checkout, api.json)
         run: python3 scripts/preflight_contracts.py
@@ -149,13 +149,13 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Fetch docproof at a pinned commit
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: melbinjp/docproof
           ref: 8b135f6ca2ce18cd2ea5298fc48111e4b7e21e9e
@@ -174,7 +174,7 @@ jobs:
           echo "docproof pinned at $got"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
 
@@ -221,16 +221,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
       - name: Cache the azul-doc binary
         id: doc-bin-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target/release/azul-doc
@@ -243,7 +243,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/codegen
           key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -339,7 +339,7 @@ jobs:
 
 
       - name: Upload the azul-doc binary
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-doc-bin-${{ runner.os }}
           path: |
@@ -349,7 +349,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload the generated bindings
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -364,16 +364,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
       - name: Cache the azul-doc binary
         id: doc-bin-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target/release/azul-doc
@@ -386,7 +386,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/codegen
           key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -404,7 +404,7 @@ jobs:
           fi
 
       - name: Upload the azul-doc binary
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-doc-bin-${{ runner.os }}
           path: |
@@ -414,7 +414,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload the generated bindings
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -429,16 +429,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
       - name: Cache the azul-doc binary
         id: doc-bin-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target/release/azul-doc
@@ -451,7 +451,7 @@ jobs:
 
       - name: Cache codegen output
         id: codegen-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/codegen
           key: codegen-v2-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/src/**/*.rs', 'doc/Cargo.toml', 'api.json') }}
@@ -469,7 +469,7 @@ jobs:
           fi
 
       - name: Upload the azul-doc binary
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-doc-bin-${{ runner.os }}
           path: |
@@ -479,7 +479,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload the generated bindings
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -495,10 +495,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -523,10 +523,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -534,7 +534,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libv4l-dev
 
       - name: Download the azul-doc binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-doc-bin-${{ runner.os }}
           path: .azul-doc-bin
@@ -576,10 +576,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -590,7 +590,7 @@ jobs:
           ./scripts/zero_test_guard.sh --strict azul-doc-tests.txt
 
       - name: Download the azul-doc binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-doc-bin-${{ runner.os }}
           path: .azul-doc-bin
@@ -612,10 +612,10 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -630,7 +630,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libv4l-dev fonts-dejavu-core
 
       - name: Download generated bindings (built once by codegen_linux)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -699,10 +699,10 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -710,7 +710,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libv4l-dev
 
       - name: Download generated bindings (built once by codegen_linux)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -729,15 +729,15 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -788,15 +788,15 @@ jobs:
     runs-on: windows-2022
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -863,16 +863,16 @@ jobs:
             check_build_dll: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
           targets: ${{ matrix.target }}
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -959,11 +959,11 @@ jobs:
             nfpm_arch: riscv64
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check cross-build artifact cache
         id: build-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target/${{ matrix.target }}/prod-release
@@ -992,16 +992,16 @@ jobs:
 
       - name: Install Rust
         if: steps.cache-valid.outputs.skip != 'true'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
           targets: ${{ matrix.target }}
       - name: Install cross (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.use_cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        run: cargo install cross --git https://github.com/cross-rs/cross --rev 8c1a8aa4b661711f4b7b6ac07c2e8929ce2f7d27 --locked  # v0.2.5 tree, the rev CI resolved on 2026-09-07
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -1039,7 +1039,7 @@ jobs:
 
       - name: Upload Artifacts
         if: ${{ success() || matrix.experimental }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact_name }}
           path: |
@@ -1068,12 +1068,12 @@ jobs:
       RUST9X_ASSET: rust9x-stage1-x86_64-pc-windows-msvc.tar.gz
     steps:
       - name: Checkout azul
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: azul
 
       - name: Install Rust (for bootstrap + rustup)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -1111,13 +1111,13 @@ jobs:
 
       - name: Install Python (for x.py)
         if: steps.rust9x_asset.outputs.found != 'true'
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install Ninja (for the LLVM source build)
         if: steps.rust9x_asset.outputs.found != 'true'
-        run: choco install ninja -y
+        run: choco install ninja --version 1.13.2 -y
 
       - name: Build rust9x stage1 (asset missing)
         if: steps.rust9x_asset.outputs.found != 'true'
@@ -1170,7 +1170,7 @@ jobs:
         run: rustup toolchain link rust9x "$(pwd)/rust9x/build/x86_64-pc-windows-msvc/stage1"
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: azul/target/codegen
@@ -1184,7 +1184,7 @@ jobs:
             -p azul-dll --features="build-dll"
 
       - name: Upload rust9x artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-windows-i686-rust9x
           path: |
@@ -1201,15 +1201,15 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
       - name: Rust build cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -1255,29 +1255,29 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
       - name: Install Miri
         run: |
-          rustup toolchain install nightly --component miri
-          cargo +nightly miri setup
+          rustup toolchain install nightly-2026-09-03 --component miri
+          cargo +nightly-2026-09-03 miri setup
 
       - name: Run Miri tests
         run: |
-          cargo +nightly miri test --lib -p azul-core -- refany::
+          cargo +nightly-2026-09-03 miri test --lib -p azul-core -- refany::
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
 
       - name: Download the azul-doc binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-doc-bin-${{ runner.os }}
           path: .azul-doc-bin
@@ -1298,12 +1298,12 @@ jobs:
           done
 
       - name: Setup Chrome
-        uses: browser-actions/setup-chrome@v2
+        uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2.2.0
         with:
           chrome-version: "150"
 
       - name: Cache Chrome reference images
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: doc/target/reftest/reftest_img/*_chrome.webp
           key: reftest-chrome-images-chrome150-${{ env.CACHE_BUST }}-${{ hashFiles('doc/working/*.xht') }}
@@ -1314,7 +1314,7 @@ jobs:
         run: azul-doc reftest
 
       - name: Upload reftest results
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: reftest-results
@@ -1336,14 +1336,14 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
       - name: Rust build cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -1360,7 +1360,7 @@ jobs:
       - name: Install coverage tools
         run: |
           rustup component add llvm-tools-preview
-          cargo install grcov
+          cargo install grcov --version 0.10.7 --locked
 
       - name: Run coverage
         run: bash scripts/coverage.sh --skip-install
@@ -1370,7 +1370,7 @@ jobs:
         run: python3 scripts/analyze_coverage.py coverage.txt | tee coverage_analysis.txt
 
       - name: Upload coverage HTML report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: coverage-report
@@ -1397,10 +1397,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
       - name: Install dependencies (Ubuntu)
@@ -1413,11 +1413,11 @@ jobs:
 
       - name: Install Miri
         run: |
-          rustup toolchain install nightly --component miri
-          cargo +nightly miri setup
+          rustup toolchain install nightly-2026-09-03 --component miri
+          cargo +nightly-2026-09-03 miri setup
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -1465,7 +1465,7 @@ jobs:
         env:
           MIRIFLAGS: -Zmiri-disable-isolation
         run: |
-          cargo +nightly miri test --lib -p azul-dll -- --nocapture \
+          cargo +nightly-2026-09-03 miri test --lib -p azul-dll -- --nocapture \
             --skip desktop::extra \
             --skip desktop::shell2 \
             --skip desktop::display \
@@ -1492,11 +1492,11 @@ jobs:
             run: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check ICU parity cache
         id: icu-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/icu-parity-done-${{ matrix.backend.feature }}
           key: icu-parity-${{ env.CACHE_BUST }}-${{ matrix.backend.os }}-${{ matrix.backend.feature }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('layout/src/**/*.rs', 'layout/tests/**/*.rs', 'layout/Cargo.toml') }}
@@ -1506,7 +1506,7 @@ jobs:
 
       - name: Install Rust
         if: steps.icu-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -1542,10 +1542,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -1555,10 +1555,10 @@ jobs:
 
       - name: Set up MSVC (Windows)
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -1603,10 +1603,10 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -1616,7 +1616,7 @@ jobs:
           sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libxext-dev python3
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -1650,11 +1650,11 @@ jobs:
         os: [ubuntu-22.04, macos-14, windows-2022]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check build artifact cache
         id: build-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target/prod-release
@@ -1686,7 +1686,7 @@ jobs:
 
       - name: Install Rust
         if: steps.cache-valid.outputs.skip != 'true'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -1708,7 +1708,7 @@ jobs:
             exit 0
           fi
           for attempt in 1 2 3; do
-            if choco install mingw -y --no-progress; then exit 0; fi
+            if choco install mingw --version 16.1.0 -y --no-progress; then exit 0; fi
             echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
             sleep 15
           done
@@ -1720,7 +1720,7 @@ jobs:
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -1903,7 +1903,7 @@ jobs:
           done
 
       - name: Upload Screenshots
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         continue-on-error: true
         with:
           name: screenshots-${{ matrix.os }}
@@ -1912,7 +1912,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload the lean libazul
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-lib-${{ matrix.os }}
           path: |
@@ -1927,7 +1927,7 @@ jobs:
 
       - name: Upload Headers (Linux only)
         if: matrix.os == 'ubuntu-22.04'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-headers
           path: |
@@ -1954,11 +1954,11 @@ jobs:
         os: [ubuntu-22.04, macos-14, windows-2022]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check build artifact cache
         id: build-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target/azuldbg/prod-release
@@ -1974,7 +1974,7 @@ jobs:
 
       - name: Install Rust
         if: steps.cache-valid.outputs.skip != 'true'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -1996,7 +1996,7 @@ jobs:
             exit 0
           fi
           for attempt in 1 2 3; do
-            if choco install mingw -y --no-progress; then exit 0; fi
+            if choco install mingw --version 16.1.0 -y --no-progress; then exit 0; fi
             echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
             sleep 15
           done
@@ -2008,7 +2008,7 @@ jobs:
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -2034,7 +2034,7 @@ jobs:
           fi
 
       - name: Upload the azuldbg swap-in
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-dbg-${{ matrix.os }}
           path: dist-dbg
@@ -2054,11 +2054,11 @@ jobs:
         os: [ubuntu-22.04, macos-14, windows-2022]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check build artifact cache
         id: build-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target/pyext/prod-release
@@ -2074,7 +2074,7 @@ jobs:
 
       - name: Install Rust
         if: steps.cache-valid.outputs.skip != 'true'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -2096,7 +2096,7 @@ jobs:
             exit 0
           fi
           for attempt in 1 2 3; do
-            if choco install mingw -y --no-progress; then exit 0; fi
+            if choco install mingw --version 16.1.0 -y --no-progress; then exit 0; fi
             echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
             sleep 15
           done
@@ -2108,7 +2108,7 @@ jobs:
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -2162,7 +2162,7 @@ jobs:
           fi
 
       - name: Upload the Python extension
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-pyext-${{ matrix.os }}
           path: dist-pyext
@@ -2205,32 +2205,32 @@ jobs:
               target/prod-release/azul.pyd
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install clang (Linux)
         if: matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
 
       - name: Download the lean libazul
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-lib-${{ matrix.os }}
           path: target/prod-release
 
       - name: Download the azuldbg swap-in
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-dbg-${{ matrix.os }}
           path: target/prod-release
 
       - name: Download the Python extension
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-pyext-${{ matrix.os }}
           path: target/prod-release
@@ -2379,7 +2379,7 @@ jobs:
             target/prod-release/azul.lib target/prod-release/azul.pyd
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
@@ -2416,10 +2416,10 @@ jobs:
             dll_artifact: azul-windows-amd64
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -2441,7 +2441,7 @@ jobs:
             exit 0
           fi
           for attempt in 1 2 3; do
-            if choco install mingw -y --no-progress; then exit 0; fi
+            if choco install mingw --version 16.1.0 -y --no-progress; then exit 0; fi
             echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
             sleep 15
           done
@@ -2453,13 +2453,13 @@ jobs:
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
 
       - name: Download prebuilt libazul (static .a for self-contained demos)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ matrix.dll_artifact }}
           path: libazul-prebuilt
@@ -2591,7 +2591,7 @@ jobs:
           python3 -c 'import json,sys; out=sys.argv[1]; e=dict(l.strip().split("=",1) for l in open(sys.argv[2]) if "=" in l); json.dump(e, open(out,"w"), indent=2, sort_keys=True); print("wrote", out, len(e), "fingerprints")' "demos-staging/demo-build-manifest-${{ matrix.os_suffix }}.json" "$manifest_lines"
 
       - name: Upload demo binaries
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.artifact_name }}
           path: demos-staging/*
@@ -2611,11 +2611,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check E2E DLL artifact cache
         id: build-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target/release
@@ -2649,7 +2649,7 @@ jobs:
 
       - name: Install Rust
         if: steps.cache-valid.outputs.skip != 'true'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -2658,7 +2658,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -2667,6 +2667,12 @@ jobs:
         if: steps.cache-valid.outputs.skip != 'true'
         run: cargo build --release -p azul-dll --features build-dll,debug-server
 
+      # Same Python as the e2e leg's `Set up Python` (the extension is built
+      # against this interpreter; the image default moves between image releases).
+      - name: Set up Python 3.12 (for the e2e python extension)
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
       - name: Build python extension (debug-server, for e2e)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os != 'windows-2022'
         run: cargo build --release -p azul-dll --lib --features python-extension,debug-server --target-dir target/pyext-e2e
@@ -2696,7 +2702,7 @@ jobs:
           ls -la e2e-dll/release/
 
       - name: Upload E2E DLL + codegen
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-e2e-dll-${{ matrix.os }}
           path: e2e-dll
@@ -2714,10 +2720,10 @@ jobs:
       AZ_BACKEND: headless
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -2725,7 +2731,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev fonts-dejavu-core
 
       - name: Rust build cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -2739,7 +2745,7 @@ jobs:
             e2e-headless-${{ env.CACHE_BUST }}-ubuntu-22.04-
 
       - name: Download the headless e2e runner (azul-doc, prebuilt)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-doc-bin-${{ runner.os }}
           path: target/release
@@ -2798,7 +2804,7 @@ jobs:
 
       - name: Upload damage PNGs
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-headless-damage-pngs
           path: target/e2e/
@@ -2842,16 +2848,16 @@ jobs:
       SCRIPTING: ${{ startsWith(matrix.family.key, 'scripting') }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
       - name: Rust build cache
         if: matrix.family.key == 'rust'
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -2882,7 +2888,7 @@ jobs:
             exit 0
           fi
           for attempt in 1 2 3; do
-            if choco install mingw -y --no-progress; then exit 0; fi
+            if choco install mingw --version 16.1.0 -y --no-progress; then exit 0; fi
             echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
             sleep 15
           done
@@ -2892,7 +2898,7 @@ jobs:
       - name: Set up OCaml (Linux/macOS)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && matrix.os != 'windows-2022'
         continue-on-error: true
-        uses: ocaml/setup-ocaml@v3
+        uses: ocaml/setup-ocaml@e89b2ded52a6e13f50162220cf5fe47290162032 # v3.8.0
         with:
           ocaml-compiler: "5.2"
 
@@ -2900,11 +2906,11 @@ jobs:
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && matrix.os != 'windows-2022'
         continue-on-error: true
         shell: bash
-        run: opam install -y dune ctypes ctypes-foreign
+        run: opam install -y dune.3.24.2 ctypes.0.24.0 ctypes-foreign.0.24.0
 
       - name: Set up JDK 17 (JVM bindings)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '17'
@@ -2912,15 +2918,15 @@ jobs:
       - name: Set up Odin
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: laytan/setup-odin@v2
+        uses: laytan/setup-odin@8536d8fa450ec6f1bd9ddc84bbaaf16296c0051d # v2 branch, 2026-09-07
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          release: latest
+          release: dev-2026-09
 
       - name: Set up Nim
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
         continue-on-error: true
-        uses: jiro4989/setup-nim-action@v2
+        uses: jiro4989/setup-nim-action@cb1fc1270b117457dd0d9f610ec981fad3369cec # v2.3.0
         with:
           nim-version: '2.0.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -2928,28 +2934,28 @@ jobs:
       - name: Set up D (dmd)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: dlang-community/setup-dlang@v2
+        uses: dlang-community/setup-dlang@24602affb586decd94d482316b9efd2d63108bbb # v2 branch, 2026-09-07
         with:
-          compiler: dmd-latest
+          compiler: dmd-2.113.0
 
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: Bogdanp/setup-racket@v1.11
+        uses: Bogdanp/setup-racket@0094a9d8bd157633293a2210f373bb542687fa6d # v1.11
         with:
-          version: 'stable'
+          version: '9.3'
 
       - name: Set up Swift (Linux)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'ubuntu-22.04'
         continue-on-error: true
-        uses: swift-actions/setup-swift@v2
+        uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
         with:
           swift-version: '5.10'
 
       - name: Set up Swift (Windows)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'windows-2022'
         continue-on-error: true
-        uses: compnerd/gha-setup-swift@v0.4.0
+        uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5 # v0.4.0
         with:
           branch: swift-5.10-release
           tag: 5.10-RELEASE
@@ -2957,7 +2963,7 @@ jobs:
       - name: Set up Zig
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
         continue-on-error: true
-        uses: mlugg/setup-zig@v1
+        uses: mlugg/setup-zig@53fc45b17fe98b52f92ee5ea08ff48a85a3e7eb7 # v1.2.2
         with:
           version: "0.14.1"
 
@@ -3008,25 +3014,63 @@ jobs:
           mv "$RUNNER_TEMP/get_zig.dedent.py" "$RUNNER_TEMP/get_zig.py"
           python3 "$RUNNER_TEMP/get_zig.py" "$RUNNER_TEMP"
 
-      - name: Set up Go (macOS)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b' && matrix.os == 'macos-14'
+      # Every toolchain a SHIPPED binding needs is pinned here, on every OS: the
+      # runner image's preinstalled node / python / ruby / dotnet / kotlin / go
+      # are a moving target (the Haskell lane died on an image bump, 2026-09-07).
+      - name: Set up Go
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
         continue-on-error: true
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.22'
+      - name: Set up Node
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
+        continue-on-error: true
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: Set up Python
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
+        continue-on-error: true
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Set up Ruby
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
+        continue-on-error: true
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1 branch, 2026-09-07
+        with:
+          ruby-version: '3.3'
+      - name: Set up .NET
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
+        continue-on-error: true
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '8.0.x'
+      - name: Set up Kotlin
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
+        continue-on-error: true
+        uses: fwilhe2/setup-kotlin@c061b2b2664e466684327ec98bd4e6f9aa9c2048 # v1 branch, 2026-09-07
+        with:
+          version: '2.3.10'
 
       - name: Set up Scala (coursier)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: coursier/setup-action@v1
+        uses: coursier/setup-action@039f736548afa5411c1382f40a5bd9c2d30e0383 # v1.3.9
         with:
           jvm: temurin:17
-          apps: scala scalac
+          apps: scala:3.9.0 scalac:3.9.0
 
       - name: Set up Haskell (macOS)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && matrix.os == 'macos-14'
+        # ubuntu too, not only macOS: the runner image's preinstalled GHC is a
+        # moving target (9.14.1 on the 2026-08-31 image), and the hello-world
+        # segfaulted at the first callback into Haskell there while GHC 9.6 on
+        # macOS — and the older image on the last green run — worked. A shipped
+        # binding gates the deploy; its toolchain has to be pinned.
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && (matrix.os == 'macos-14' || matrix.os == 'ubuntu-22.04')
         continue-on-error: true
-        uses: haskell-actions/setup@v2
+        uses: haskell-actions/setup@6037f33647c3f17758a2356c80fc4a53d7e0685d # v2.12.0
         with:
           ghc-version: '9.6'
           cabal-version: '3.10'
@@ -3034,24 +3078,25 @@ jobs:
       - name: Set up Crystal
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os != 'windows-2022'
         continue-on-error: true
-        uses: crystal-lang/install-crystal@v1
+        uses: crystal-lang/install-crystal@d8ef131ecec0352ce0e39b81b0a6d95def58fe2f # v1 branch, 2026-09-07
 
       - name: Set up V (vlang)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: vlang/setup-v@v1.4
+        uses: vlang/setup-v@51668e85beab02cce1907b99b6ad039e71d98994 # v1.4
         with:
-          check-latest: true
+          version: 0.5.2
+          check-latest: false
 
       - name: Set up Julia
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: julia-actions/setup-julia@v2
+        uses: julia-actions/setup-julia@4c0cb0fce8556fdb04a90347310e5db8b1f98fb9 # v2.7.0
         with:
           version: '1.10'
 
       - name: Download prebuilt E2E DLL + codegen
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-e2e-dll-${{ matrix.os }}
           path: e2e-dll
@@ -3100,7 +3145,7 @@ jobs:
 
       - name: Upload language binding board
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stats-language-board-${{ matrix.os }}-${{ matrix.family.key }}
           path: stats/language-bindings-*.txt
@@ -3137,16 +3182,16 @@ jobs:
                 || github.event_name == 'workflow_dispatch') }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
       - name: Rust build cache
         if: matrix.family.key == 'rust'
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -3177,7 +3222,7 @@ jobs:
             exit 0
           fi
           for attempt in 1 2 3; do
-            if choco install mingw -y --no-progress; then exit 0; fi
+            if choco install mingw --version 16.1.0 -y --no-progress; then exit 0; fi
             echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
             sleep 15
           done
@@ -3187,7 +3232,7 @@ jobs:
       - name: Set up OCaml (Linux/macOS)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && matrix.os != 'windows-2022'
         continue-on-error: true
-        uses: ocaml/setup-ocaml@v3
+        uses: ocaml/setup-ocaml@e89b2ded52a6e13f50162220cf5fe47290162032 # v3.8.0
         with:
           ocaml-compiler: "5.2"
 
@@ -3195,11 +3240,11 @@ jobs:
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && matrix.os != 'windows-2022'
         continue-on-error: true
         shell: bash
-        run: opam install -y dune ctypes ctypes-foreign
+        run: opam install -y dune.3.24.2 ctypes.0.24.0 ctypes-foreign.0.24.0
 
       - name: Set up JDK 17 (JVM bindings)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '17'
@@ -3207,15 +3252,15 @@ jobs:
       - name: Set up Odin
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: laytan/setup-odin@v2
+        uses: laytan/setup-odin@8536d8fa450ec6f1bd9ddc84bbaaf16296c0051d # v2 branch, 2026-09-07
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          release: latest
+          release: dev-2026-09
 
       - name: Set up Nim
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
         continue-on-error: true
-        uses: jiro4989/setup-nim-action@v2
+        uses: jiro4989/setup-nim-action@cb1fc1270b117457dd0d9f610ec981fad3369cec # v2.3.0
         with:
           nim-version: '2.0.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -3223,28 +3268,28 @@ jobs:
       - name: Set up D (dmd)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: dlang-community/setup-dlang@v2
+        uses: dlang-community/setup-dlang@24602affb586decd94d482316b9efd2d63108bbb # v2 branch, 2026-09-07
         with:
-          compiler: dmd-latest
+          compiler: dmd-2.113.0
 
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: Bogdanp/setup-racket@v1.11
+        uses: Bogdanp/setup-racket@0094a9d8bd157633293a2210f373bb542687fa6d # v1.11
         with:
-          version: 'stable'
+          version: '9.3'
 
       - name: Set up Swift (Linux)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'ubuntu-22.04'
         continue-on-error: true
-        uses: swift-actions/setup-swift@v2
+        uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
         with:
           swift-version: '5.10'
 
       - name: Set up Swift (Windows)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'windows-2022'
         continue-on-error: true
-        uses: compnerd/gha-setup-swift@v0.4.0
+        uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5 # v0.4.0
         with:
           branch: swift-5.10-release
           tag: 5.10-RELEASE
@@ -3252,7 +3297,7 @@ jobs:
       - name: Set up Zig
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
         continue-on-error: true
-        uses: mlugg/setup-zig@v1
+        uses: mlugg/setup-zig@53fc45b17fe98b52f92ee5ea08ff48a85a3e7eb7 # v1.2.2
         with:
           version: "0.14.1"
 
@@ -3303,25 +3348,63 @@ jobs:
           mv "$RUNNER_TEMP/get_zig.dedent.py" "$RUNNER_TEMP/get_zig.py"
           python3 "$RUNNER_TEMP/get_zig.py" "$RUNNER_TEMP"
 
-      - name: Set up Go (macOS)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b' && matrix.os == 'macos-14'
+      # Every toolchain a SHIPPED binding needs is pinned here, on every OS: the
+      # runner image's preinstalled node / python / ruby / dotnet / kotlin / go
+      # are a moving target (the Haskell lane died on an image bump, 2026-09-07).
+      - name: Set up Go
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
         continue-on-error: true
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.22'
+      - name: Set up Node
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
+        continue-on-error: true
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: Set up Python
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
+        continue-on-error: true
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Set up Ruby
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
+        continue-on-error: true
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1 branch, 2026-09-07
+        with:
+          ruby-version: '3.3'
+      - name: Set up .NET
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
+        continue-on-error: true
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '8.0.x'
+      - name: Set up Kotlin
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
+        continue-on-error: true
+        uses: fwilhe2/setup-kotlin@c061b2b2664e466684327ec98bd4e6f9aa9c2048 # v1 branch, 2026-09-07
+        with:
+          version: '2.3.10'
 
       - name: Set up Scala (coursier)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: coursier/setup-action@v1
+        uses: coursier/setup-action@039f736548afa5411c1382f40a5bd9c2d30e0383 # v1.3.9
         with:
           jvm: temurin:17
-          apps: scala scalac
+          apps: scala:3.9.0 scalac:3.9.0
 
       - name: Set up Haskell (macOS)
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && matrix.os == 'macos-14'
+        # ubuntu too, not only macOS: the runner image's preinstalled GHC is a
+        # moving target (9.14.1 on the 2026-08-31 image), and the hello-world
+        # segfaulted at the first callback into Haskell there while GHC 9.6 on
+        # macOS — and the older image on the last green run — worked. A shipped
+        # binding gates the deploy; its toolchain has to be pinned.
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && (matrix.os == 'macos-14' || matrix.os == 'ubuntu-22.04')
         continue-on-error: true
-        uses: haskell-actions/setup@v2
+        uses: haskell-actions/setup@6037f33647c3f17758a2356c80fc4a53d7e0685d # v2.12.0
         with:
           ghc-version: '9.6'
           cabal-version: '3.10'
@@ -3329,24 +3412,25 @@ jobs:
       - name: Set up Crystal
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os != 'windows-2022'
         continue-on-error: true
-        uses: crystal-lang/install-crystal@v1
+        uses: crystal-lang/install-crystal@d8ef131ecec0352ce0e39b81b0a6d95def58fe2f # v1 branch, 2026-09-07
 
       - name: Set up V (vlang)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: vlang/setup-v@v1.4
+        uses: vlang/setup-v@51668e85beab02cce1907b99b6ad039e71d98994 # v1.4
         with:
-          check-latest: true
+          version: 0.5.2
+          check-latest: false
 
       - name: Set up Julia
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: julia-actions/setup-julia@v2
+        uses: julia-actions/setup-julia@4c0cb0fce8556fdb04a90347310e5db8b1f98fb9 # v2.7.0
         with:
           version: '1.10'
 
       - name: Download prebuilt E2E DLL + codegen
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-e2e-dll-${{ matrix.os }}
           path: e2e-dll
@@ -3395,7 +3479,7 @@ jobs:
 
       - name: Upload language binding board
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stats-language-board-${{ matrix.os }}-${{ matrix.family.key }}
           path: stats/language-bindings-*.txt
@@ -3424,14 +3508,14 @@ jobs:
     env:
       MOBILE_FEATURES: "std,logging,link-static,a11y"
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
           targets: ${{ matrix.target }}
       - name: Check mobile build artifact cache
         id: build-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             target/${{ matrix.target }}/release
@@ -3459,19 +3543,19 @@ jobs:
           fi
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
 
       - name: Set up Android NDK
         if: steps.cache-valid.outputs.skip != 'true' && startsWith(matrix.label, 'android')
-        uses: nttld/setup-ndk@v1
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         with:
           ndk-version: r27
       - name: Install cargo-ndk
         if: steps.cache-valid.outputs.skip != 'true' && startsWith(matrix.label, 'android')
-        run: cargo install cargo-ndk --locked
+        run: cargo install cargo-ndk --version 4.1.2 --locked
       - name: Build libazul (Android)
         if: steps.cache-valid.outputs.skip != 'true' && startsWith(matrix.label, 'android')
         run: |
@@ -3535,7 +3619,7 @@ jobs:
           ls -lR "$OUT"
 
       - name: Upload mobile libazul
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-mobile-${{ matrix.label }}
           path: mobile/${{ matrix.label }}
@@ -3555,13 +3639,13 @@ jobs:
     env:
       HAVE_APPLE_CERT: ${{ secrets.APPLE_CERT_P12 != '' }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
           targets: aarch64-apple-ios, aarch64-apple-ios-sim
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -3679,7 +3763,7 @@ jobs:
             exit 1
           fi
       - name: Upload mobile demo apps
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-mobile-apps-ios
           path: mobile-apps
@@ -3696,24 +3780,26 @@ jobs:
           || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
           targets: aarch64-linux-android, x86_64-linux-android
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          cmdline-tools-version: 12266719
       - name: Install SDK build-tools + platform
         run: sdkmanager "build-tools;34.0.0" "platforms;android-34"
-      - uses: nttld/setup-ndk@v1
+      - uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         id: ndk
         with:
           ndk-version: r27
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -3762,7 +3848,7 @@ jobs:
           cp "$APK" "mobile-apps/azul-self-test-android-x86_64.apk"
           ls -l mobile-apps
       - name: Upload mobile demo apps (Android)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-mobile-apps-android
           path: mobile-apps
@@ -3776,44 +3862,44 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Download Linux binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-linux-amd64
           path: artifacts
 
       - name: Download Linux aarch64 binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-aarch64
           path: artifacts-arch/arm64
 
       - name: Download Linux ppc64 binaries (experimental)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-ppc64
           path: artifacts-arch/ppc64
 
       - name: Download Linux s390x binaries (experimental)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-s390x
           path: artifacts-arch/s390x
 
       - name: Download Linux riscv64 binaries (experimental)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-riscv64
           path: artifacts-arch/riscv64
 
       - name: Download NFPM config
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: nfpm-config
           path: nfpm-config
@@ -3856,7 +3942,7 @@ jobs:
           tree target/packages/ 2>/dev/null || ls -la target/packages/
 
       - name: Upload .deb package
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-linux-amd64-deb
           path: target/packages/*.deb
@@ -3864,7 +3950,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload .rpm package
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-linux-amd64-rpm
           path: target/packages/*.rpm
@@ -3874,7 +3960,7 @@ jobs:
       # The deploy job already downloads these two names into
       # artifacts-registry/artifacts-{arch,apk} for the mirrors script.
       - name: Upload Arch package
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-linux-amd64-arch
           path: target/packages/*.pkg.tar.zst
@@ -3882,7 +3968,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload Alpine package
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-linux-amd64-apk
           path: target/packages/*.apk
@@ -3926,7 +4012,7 @@ jobs:
 
       - name: Upload per-arch aarch64 packages
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-linux-aarch64-packages
           path: |
@@ -3937,7 +4023,7 @@ jobs:
 
       - name: Upload per-arch ppc64 packages (experimental)
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-linux-ppc64-packages
           path: |
@@ -3948,7 +4034,7 @@ jobs:
 
       - name: Upload per-arch s390x packages (experimental)
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-linux-s390x-packages
           path: |
@@ -3959,7 +4045,7 @@ jobs:
 
       - name: Upload per-arch riscv64 packages (experimental)
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-linux-riscv64-packages
           path: |
@@ -4015,7 +4101,7 @@ jobs:
 
       - name: Upload apt mirror
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: apt-repo
           path: apt-repo
@@ -4030,21 +4116,21 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
 
       - name: Download the azul-doc binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-doc-bin-${{ runner.os }}
           path: .azul-doc-bin
@@ -4089,7 +4175,7 @@ jobs:
           tree doc/target/deploy/ 2>/dev/null | head -100 || ls -laR doc/target/deploy/ | head -100
 
       - name: Upload website skeleton
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: website-skeleton
           path: doc/target/deploy/
@@ -4097,7 +4183,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload NFPM config and headers
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nfpm-config
           path: |
@@ -4134,7 +4220,7 @@ jobs:
           echo "After:"; df -h / | tail -1
 
       - name: Checkout repository (for fallback assets + the mirror builder)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: |
             examples/assets/screenshots
@@ -4145,330 +4231,330 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Download website skeleton
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: website-skeleton
           path: website
 
       - name: Download Linux binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-amd64
           path: artifacts-linux
 
       - name: Download macOS binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-macos-amd64
           path: artifacts-macos
 
       - name: Download Windows binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-windows-amd64
           path: artifacts-windows
 
       - name: Download Linux i686 binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-i686
           path: artifacts-linux-i686
 
       - name: Download Linux aarch64 binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-aarch64
           path: artifacts-linux-aarch64
 
       - name: Download Linux armv7 binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-armv7
           path: artifacts-linux-armv7
 
       - name: Download Linux ppc64 binaries (experimental)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-ppc64
           path: artifacts-linux-ppc64
 
       - name: Download Linux s390x binaries (experimental)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-s390x
           path: artifacts-linux-s390x
 
       - name: Download Linux riscv64 binaries (experimental)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-riscv64
           path: artifacts-linux-riscv64
 
       - name: Download Windows i686 binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-windows-i686
           path: artifacts-windows-i686
 
       - name: Download macOS x86_64 binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-macos-x86_64
           path: artifacts-macos-x86_64
 
       - name: Download rust9x binaries (experimental)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-windows-i686-rust9x
           path: artifacts-windows-rust9x
 
       - name: Download .deb package
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-amd64-deb
           path: artifacts-deb
 
       - name: Download .rpm package
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-amd64-rpm
           path: artifacts-rpm
 
       - name: Download aarch64 packages
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-aarch64-packages
           path: artifacts-pkg-aarch64
 
       - name: Download ppc64 packages (experimental)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-ppc64-packages
           path: artifacts-pkg-ppc64
 
       - name: Download s390x packages (experimental)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-s390x-packages
           path: artifacts-pkg-s390x
 
       - name: Download riscv64 packages (experimental)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-riscv64-packages
           path: artifacts-pkg-riscv64
 
       - name: Download headers
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-headers
           path: artifacts-headers
 
       - name: Download reftest results
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: reftest-results
           path: artifacts-reftest
 
       - name: Download Linux screenshots
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: screenshots-ubuntu-22.04
           path: artifacts-screenshots-linux
 
       - name: Download macOS screenshots
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: screenshots-macos-14
           path: artifacts-screenshots-macos
 
       - name: Download Windows screenshots
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: screenshots-windows-2022
           path: artifacts-screenshots-windows
 
       - name: Download Linux demo binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-demos-ubuntu
           path: artifacts-demos-linux
 
       - name: Download macOS demo binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-demos-macos
           path: artifacts-demos-macos
 
       - name: Download Windows demo binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-demos-windows
           path: artifacts-demos-windows
 
       - name: Download coverage report
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: coverage-report
           path: artifacts-coverage
 
       - name: Download docs PDF
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-documentation-pdf
           path: artifacts-pdf
 
       - name: Download apt mirror
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: apt-repo
           path: artifacts-apt
 
       - name: Download cargo-deny report
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: stats-cargo-deny
           path: artifacts-stats
       - name: Download cargo-geiger report
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: stats-cargo-geiger
           path: artifacts-stats
       - name: Download clippy report
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: stats-clippy
           path: artifacts-stats
       - name: Download sanitizers report
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: stats-sanitizers
           path: artifacts-stats
       - name: Download language boards (all families/OSes)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           pattern: stats-language-board-*
           merge-multiple: true
           path: artifacts-stats-board
       - name: Download dependency trees (Linux)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: dependency-trees-ubuntu-22.04
           path: artifacts-deptree-ubuntu
       - name: Download dependency trees (macOS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: dependency-trees-macos-14
           path: artifacts-deptree-macos
       - name: Download dependency trees (Windows)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: dependency-trees-windows-2022
           path: artifacts-deptree-windows
 
       - name: Download maven jar
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: maven-jar
           path: artifacts-registry/maven-jar
       - name: Download pypi dist
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: pypi-dist
           path: artifacts-registry/pypi-dist
       - name: Download npm package
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: npm-package
           path: artifacts-registry/npm-package
       - name: Download nuget package
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: nuget-package
           path: artifacts-registry/nuget-package
       - name: Download ruby gem
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: ruby-gem
           path: artifacts-registry/ruby-gem
       - name: Download alpine apk package
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-amd64-apk
           path: artifacts-registry/artifacts-apk
       - name: Download archlinux package
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-amd64-arch
           path: artifacts-registry/artifacts-arch
 
       - name: Download mobile libazul
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           pattern: azul-mobile-android-*
           path: artifacts-mobile
 
       - name: Download mobile libazul (iOS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           pattern: azul-mobile-ios-*
           path: artifacts-mobile
 
       - name: Download mobile demo apps
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-mobile-apps-ios
           path: artifacts-mobile-apps
 
       - name: Download mobile demo apps (Android)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-mobile-apps-android
@@ -4719,9 +4805,9 @@ jobs:
           ls -la "$RELEASE_DIR/"
 
       - name: Set up Ruby (RubyGems mirror index + its install self-check)
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1 branch, 2026-09-07
         with:
-          ruby-version: "3.2"
+          ruby-version: "3.3"
 
       - name: Build self-hosted package channels (brew tap, apt, registry mirrors)
         env:
@@ -4974,7 +5060,7 @@ jobs:
         run: tree website/ 2>/dev/null | head -100 || ls -laR website/ | head -100
 
       - name: Setup Pages
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Host large assets on the GitHub Release + trim them from the Pages artifact
         env:
@@ -5164,13 +5250,13 @@ jobs:
           fi
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: 'website'
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
       # Triggers azul-web-base docker build after the site deploys.
       - name: Trigger azul-web-base docker build
@@ -5200,32 +5286,32 @@ jobs:
       matrix:
         include:
           - channel: pypi
-            image: python:3.11-slim
+            image: python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534
           - channel: npm
-            image: node:20-slim
+            image: node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
           - channel: gems
-            image: ruby:3.2-slim
+            image: ruby:3.2-slim@sha256:84184c9e2c368885a1d0c93ad1953c33d81081058d274b87b4aa6f3e209e5d16
           - channel: nuget
-            image: mcr.microsoft.com/dotnet/sdk:10.0
+            image: mcr.microsoft.com/dotnet/sdk:8.0@sha256:bb32ba3ba3ea36e38572d9d8db76fa15f7cbf722f3f886e06bca6d528bd4fba8
           - channel: apt
-            image: debian:bookworm
+            image: debian:bookworm@sha256:6ebd97fa83deb272194a2cf015b3d26a4d538e9ad3a7a79d544c8af5b0a01443
           # The channels below run the documented command AND, where the tab
           # then says "compile and run", build the hello-world and run it
           # headless through the counter e2e (tests/e2e/ is checked out too).
           - channel: maven
-            image: maven:3.9-eclipse-temurin-17
+            image: maven:3.9-eclipse-temurin-17@sha256:a8746f15d5bb26b5b8bacb056cc76211553850f4c71d16aff845cfa004cbc197
           - channel: pacman
-            image: archlinux:base
+            image: archlinux:base@sha256:82b1b08faae9d61e3e7e13d562f4d09114d939105b0d59ff34140f3bd418593a
           - channel: apk
-            image: alpine:3.20
+            image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
           - channel: bindings
-            image: python:3.12-bookworm
+            image: python:3.12-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970
           - channel: rust
-            image: rust:1.90-bookworm
+            image: rust:1.90-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f
           - channel: cargo
-            image: rust:1.90-bookworm
+            image: rust:1.90-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f
           - channel: doclinks
-            image: python:3.12-bookworm
+            image: python:3.12-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970
     steps:
       - name: Install the harness prerequisites
         shell: sh
@@ -5242,7 +5328,7 @@ jobs:
           fi
 
       - name: Checkout the verifier
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: |
             scripts/verify_install_commands.sh
@@ -5270,7 +5356,7 @@ jobs:
       HOMEBREW_NO_ANALYTICS: "1"
     steps:
       - name: Checkout the verifier
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: |
             scripts/verify_install_commands.sh
@@ -5284,7 +5370,7 @@ jobs:
           printf '%s\n' "$AZUL_CHANNEL_DIGESTS" > "$RUNNER_TEMP/channel-digests.tsv"
           bash scripts/verify_install_commands.sh \
             brew https://azul.rs "${AZUL_VERSION}" "$RUNNER_TEMP/channel-digests.tsv"
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: The macOS wheel (pip install azul --index-url) installs and imports
@@ -5307,13 +5393,13 @@ jobs:
         channel: [choco, scoop, pypi]
     steps:
       - name: Checkout the verifier
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: |
             scripts/verify_install_commands.sh
             tests/e2e/hello_world_counter.json
           sparse-checkout-cone-mode: false
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: matrix.channel == 'pypi'
         with:
           python-version: "3.12"
@@ -5351,12 +5437,12 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
       - name: Install cargo-deny
-        run: cargo install cargo-deny --locked || cargo install cargo-deny
+        run: cargo install cargo-deny --version 0.20.2 --locked || cargo install cargo-deny --version 0.20.2
 
       - name: cargo-deny + summary
         shell: bash
@@ -5395,7 +5481,7 @@ jobs:
           fi
 
       - name: Upload cargo-deny report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stats-cargo-deny
           path: stats/cargo-deny.txt
@@ -5409,18 +5495,18 @@ jobs:
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
 
       - name: Install cargo-geiger
-        run: cargo install cargo-geiger --locked || cargo install cargo-geiger
+        run: cargo install cargo-geiger --version 0.13.0 --locked || cargo install cargo-geiger --version 0.13.0
       - name: cargo-geiger + summary
         shell: bash
         run: |
@@ -5466,7 +5552,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload cargo-geiger report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stats-cargo-geiger
           path: stats/cargo-geiger.txt
@@ -5479,8 +5565,8 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
           components: clippy
@@ -5511,7 +5597,7 @@ jobs:
 
       - name: Upload clippy report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stats-clippy
           path: stats/clippy.txt
@@ -5527,8 +5613,8 @@ jobs:
     env:
       AZ_BACKEND: headless
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
       # PINNED, AND PINNED TOGETHER WITH THE NIGHTLY BELOW.
@@ -5552,7 +5638,7 @@ jobs:
           sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
           clang --version | head -1
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -5676,7 +5762,7 @@ jobs:
           fi
 
       - name: Upload sanitizers report
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stats-sanitizers
           path: stats/sanitizers.txt
@@ -5697,12 +5783,12 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-14, windows-2022]
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -5726,7 +5812,7 @@ jobs:
           gen azul-dll    -p azul-dll --features build-dll
       - name: Upload dependency trees
         continue-on-error: true
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dependency-trees-${{ matrix.os }}
           path: deptree/
@@ -5743,13 +5829,13 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
       - name: Check docs PDF cache
         id: pdf-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/azul-documentation.pdf
           key: docs-pdf-${{ env.CACHE_BUST }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('doc/working/**', 'doc/guide/**', 'doc/src/docgen/**/*.rs', 'doc/src/main.rs', 'scripts/docs_to_pdf.sh') }}
@@ -5759,13 +5845,15 @@ jobs:
 
       - name: Install Node 24
         if: steps.pdf-cache.outputs.cache-hit != 'true'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
       - name: Install Chrome
         if: steps.pdf-cache.outputs.cache-hit != 'true'
         id: setup_chrome
-        uses: browser-actions/setup-chrome@v2
+        uses: browser-actions/setup-chrome@48ad923757ca74d66703209fe939badbdf80f2f4 # v2.2.0
+        with:
+          chrome-version: "150"
       - name: Install pdfunite (poppler-utils)
         if: steps.pdf-cache.outputs.cache-hit != 'true'
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
@@ -5775,7 +5863,7 @@ jobs:
           CHROME_BIN: ${{ steps.setup_chrome.outputs.chrome-path }}
         run: bash scripts/docs_to_pdf.sh --no-open
       - name: Upload docs PDF
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-documentation-pdf
           path: target/azul-documentation.pdf
@@ -5787,8 +5875,10 @@ jobs:
     name: Publish safety (no [patch] on published deps)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.90.0
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
@@ -5892,12 +5982,12 @@ jobs:
     needs: publish_safety
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -5914,7 +6004,7 @@ jobs:
       - name: Authenticate to crates.io (Trusted Publishing)
         id: crates_auth
         continue-on-error: true
-        uses: rust-lang/crates-io-auth-action@v1
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1 branch, 2026-09-07
 
       - name: Publish to crates.io
         env:
@@ -5929,25 +6019,25 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
@@ -5959,7 +6049,7 @@ jobs:
           cp packaging/pypi/README.md ./README.md
 
       - name: Build wheels (cibuildwheel)
-        uses: pypa/cibuildwheel@v2.21.3
+        uses: pypa/cibuildwheel@7940a4c0e76eb2030e473a5f864f291f63ee879b # v2.21.3
         env:
           CIBW_BUILD_FRONTEND: "build"
           CIBW_BUILD: "cp310-*"
@@ -5987,7 +6077,7 @@ jobs:
         run: ls -la dist/ || echo "no dist/"
 
       - name: Upload built wheels (artifact)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pypi-dist
           path: dist/*
@@ -6007,7 +6097,7 @@ jobs:
 
       - name: Upload to PyPI (gh-action-pypi-publish)
         if: env.PUBLISH_PYPI == '1'
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1 branch, 2026-09-07
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
           packages-dir: dist
@@ -6023,18 +6113,18 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
 
       - name: Download the Linux native lib (x64)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-lib-ubuntu-22.04
           path: native-linux
@@ -6051,13 +6141,13 @@ jobs:
           cp native-linux/libazul.so dll-share/libazul.so
 
       - name: Download macOS native lib (arm64)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-lib-macos-14
           path: native-macos
       - name: Download Windows native lib (x64)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-lib-windows-2022
@@ -6079,7 +6169,7 @@ jobs:
           fi
 
       - name: Upload shared libazul + codegen
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-dll-linux
           path: dll-share
@@ -6094,18 +6184,18 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
       - name: Download shared libazul + codegen
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-dll-linux
           path: dll-share
@@ -6142,7 +6232,7 @@ jobs:
         run: npm pack
 
       - name: Upload npm tarball (artifact)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-package
           path: target/package/npm/*.tgz
@@ -6170,17 +6260,17 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
       - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1 branch, 2026-09-07
         with:
-          ruby-version: "3.2"
+          ruby-version: "3.3"
 
       - name: Download shared libazul + codegen
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-dll-linux
           path: dll-share
@@ -6219,7 +6309,7 @@ jobs:
         run: gem build azul.gemspec
 
       - name: Upload gem (artifact)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ruby-gem
           path: target/package/ruby/*.gem
@@ -6250,17 +6340,17 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: "8.0.x"
 
       - name: Download shared libazul + codegen
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-dll-linux
           path: dll-share
@@ -6289,7 +6379,7 @@ jobs:
         run: dotnet pack Azul.csproj -c Release -p:Version="${AZUL_VERSION}" -o ./out
 
       - name: Upload nupkg (artifact)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nuget-package
           path: target/package/nuget/out/*.nupkg
@@ -6320,18 +6410,18 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
       - name: Set up JDK
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Download shared libazul + codegen
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: azul-dll-linux
           path: dll-share
@@ -6450,7 +6540,7 @@ jobs:
         run: mvn -B -ntp package
 
       - name: Upload JAR (artifact)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: maven-jar
           path: target/package/maven/target/*.jar
@@ -6476,7 +6566,7 @@ jobs:
 
       - name: Re-configure JDK with OSSRH server + GPG
         if: steps.mvncheck.outputs.ready == '1'
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: "17"
@@ -6503,7 +6593,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Stamp PKGBUILD version
         run: |
@@ -6516,7 +6606,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Upload PKGBUILD (artifact)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aur-pkgbuild
           path: target/package/aur/PKGBUILD
@@ -6537,7 +6627,7 @@ jobs:
 
       - name: Publish to the AUR
         if: steps.aurcheck.outputs.ready == '1'
-        uses: KSXGitHub/github-actions-deploy-aur@v3.0.1
+        uses: KSXGitHub/github-actions-deploy-aur@a97f56a8425a7a7f3b8c58607f769c69b089cadb # v3.0.1
         with:
           pkgname: azul
           pkgbuild: target/package/aur/PKGBUILD
@@ -6556,12 +6646,12 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
 
@@ -6569,7 +6659,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev lua5.1 luarocks
 
       - name: Download generated bindings (built once per OS)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen

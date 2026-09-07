@@ -682,7 +682,10 @@ _apt_remove() {
   sudo apt-get autoremove -y 2>/dev/null || true
 }
 
-# _brew_install <pkg...>: serialized brew install (macOS only).
+# _brew_install <pkg...>: serialized brew install (macOS only). Homebrew has
+# no version pins — a formula IS its current version — so these macOS extras
+# (fpc, luajit, gcc, llvm, ...) track Homebrew; apt is frozen by the 22.04
+# repos and choco takes `name=version`.
 _brew_install() {
   [ "$IS_MACOS" = 1 ] || return 0
   _pkg_lock; trap _pkg_unlock RETURN
@@ -706,16 +709,19 @@ _brew_remove() {
   return 0
 }
 
-# _choco_install <pkg...>: serialized choco install (Windows only).
+# _choco_install <pkg[=version]...>: serialized choco install (Windows only).
+# `name=version` pins the package (choco --version); a bare name takes the
+# current package, which only the non-gating beta lanes still do.
 _choco_install() {
   [ "$IS_WINDOWS" = 1 ] || return 0
   _pkg_lock; trap _pkg_unlock RETURN
-  local pkg todo=""
-  for pkg in "$@"; do
-    if choco list --exact --limit-output "$pkg" 2>/dev/null | grep -qi "^$pkg|"; then _pkg_mark_preinstalled "$pkg"; else todo="$todo $pkg"; fi
+  local spec pkg ver
+  for spec in "$@"; do
+    pkg="${spec%%=*}"; ver=""; [ "$spec" != "$pkg" ] && ver="${spec#*=}"
+    if choco list --exact --limit-output "$pkg" 2>/dev/null | grep -qi "^$pkg|"; then _pkg_mark_preinstalled "$pkg"; continue; fi
+    if [ -n "$ver" ]; then choco install "$pkg" --version "$ver" -y 2>/dev/null || true
+    else choco install "$pkg" -y 2>/dev/null || true; fi
   done
-  # shellcheck disable=SC2086
-  [ -n "$todo" ] && { choco install $todo -y 2>/dev/null || true; }
   return 0
 }
 
@@ -723,8 +729,8 @@ _choco_install() {
 _choco_remove() {
   [ "$IS_WINDOWS" = 1 ] || return 0
   _pkg_lock; trap _pkg_unlock RETURN
-  local pkg todo=""
-  for pkg in "$@"; do _pkg_was_preinstalled "$pkg" || todo="$todo $pkg"; done
+  local spec pkg todo=""
+  for spec in "$@"; do pkg="${spec%%=*}"; _pkg_was_preinstalled "$pkg" || todo="$todo $pkg"; done
   # shellcheck disable=SC2086
   [ -n "$todo" ] && { choco uninstall $todo -y 2>/dev/null || true; }
   return 0
@@ -742,7 +748,7 @@ lang_deps_install() {
       _apt_install php-cli llvm-dev libclang-dev clang
       _brew_install php llvm
       # Windows: php is preinstalled; llvm for the extension build
-      _choco_install llvm
+      _choco_install llvm=22.1.7
       ;;
     fortran)
       _apt_install gfortran
@@ -756,12 +762,12 @@ lang_deps_install() {
     pascal)
       _apt_install fp-compiler
       _brew_install fpc
-      _choco_install freepascal
+      _choco_install freepascal=3.2.2
       ;;
     lisp)
       _apt_install sbcl libffi-dev
       _brew_install sbcl libffi
-      _choco_install sbcl
+      _choco_install sbcl=2.6.8
       # Bootstrap quicklisp if needed
       if command -v sbcl >/dev/null 2>&1 && [ ! -f "$HOME/quicklisp/setup.lisp" ]; then
         curl -sO https://beta.quicklisp.org/quicklisp.lisp \
@@ -796,8 +802,8 @@ lang_deps_install() {
       ;;
     ruby)
       # Ruby FFI gem (ruby itself is preinstalled)
-      gem install ffi --no-document 2>/dev/null \
-        || sudo gem install ffi --no-document 2>/dev/null || true
+      gem install ffi -v 1.17.4 --no-document 2>/dev/null \
+        || sudo gem install ffi -v 1.17.4 --no-document 2>/dev/null || true
       ;;
     racket)
       # libffi-dev needed for racket FFI trampolines
@@ -1196,7 +1202,7 @@ lang_node() {
     cp "$LIB_PATH" "$REPO_ROOT/examples/node/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/node" || exit 1
     # koffi is the FFI backend; install if the example doesn't already have it.
-    [ -d node_modules/koffi ] || npm install --no-audit --no-fund koffi >/dev/null 2>&1 || true
+    [ -d node_modules/koffi ] || npm install --no-audit --no-fund koffi@2.16.3 >/dev/null 2>&1 || true
     # NOTE (macOS): azul.js calls koffi.load('azul') with a bare name and has no
     # env hook for an explicit path. macOS SIP strips DYLD_* from the hardened
     # node binary, so the loader can't find a bare-named lib -> this FAILS on

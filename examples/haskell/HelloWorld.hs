@@ -9,17 +9,17 @@ import Foreign.C.Types (CSize)
 import Foreign.Marshal.Alloc (alloca, allocaBytes, mallocBytes)
 import Foreign.Marshal.Utils (fillBytes)
 import Foreign.Ptr (Ptr, FunPtr, castPtr)
-import Foreign.Storable (poke)
+import Foreign.Storable (poke, sizeOf)
 
 szRefAny, szString, szDom, szButton, szWco, szAppConfig, szApp, szOnClickCb :: Int
 szRefAny    = 32
-szString    = 48
-szDom       = 512
-szButton    = 512
-szWco       = 2048
-szAppConfig = 2048
-szApp       = 64
-szOnClickCb = 64
+szString    = sizeOf (undefined :: T.AzString)
+szDom       = sizeOf (undefined :: T.Dom)
+szButton    = sizeOf (undefined :: T.Button)
+szWco       = sizeOf (undefined :: T.WindowCreateOptions)
+szAppConfig = sizeOf (undefined :: T.AppConfig)
+szApp       = sizeOf (undefined :: T.App)
+szOnClickCb = sizeOf (undefined :: T.ButtonOnClickCallback)
 
 mkAzString :: String -> Ptr T.AzString -> IO ()
 mkAzString s out =

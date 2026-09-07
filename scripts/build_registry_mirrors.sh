@@ -823,7 +823,7 @@ build_pacman() {
   if command -v repo-add >/dev/null 2>&1; then
     ( cd "$arch_dir" && bash -c "$cmd" >/dev/null 2>&1 )
   else
-    in_distro archlinux:base "$arch_dir" bash -c "$cmd" >/dev/null 2>&1
+    in_distro archlinux:base@sha256:82b1b08faae9d61e3e7e13d562f4d09114d939105b0d59ff34140f3bd418593a "$arch_dir" bash -c "$cmd" >/dev/null 2>&1
   fi
   local rc=$?
   rm -f "$arch_dir/.signing-key.asc"
@@ -868,7 +868,7 @@ build_apk() {
     # abuild-sign needs root inside the container for `apk add`; the files it
     # writes are chowned back below.
     if [ -n "${AZUL_APK_SIGN_KEY:-}" ]; then
-      docker run --rm -v "$(cd "$apk_dir" && pwd):/repo" -w /repo alpine:3.20 sh -c "$cmd" >/dev/null 2>&1
+      docker run --rm -v "$(cd "$apk_dir" && pwd):/repo" -w /repo alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc sh -c "$cmd" >/dev/null 2>&1
     else
       in_distro alpine:3.20 "$apk_dir" sh -c "$cmd" >/dev/null 2>&1
     fi
