@@ -1462,6 +1462,43 @@ pub fn run_web(
         br
     };
 
+    // WHAT FIRST PAINT ACTUALLY COSTS. Every size number in this effort has been
+    // about the mini alone, but a boot fetches the layout module and a callback
+    // module per interactive node too, and each of those carries its own data
+    // mirror — including a forced copy of the 226 KiB fallback font. Nobody has
+    // ever measured the total, so the "payload" figure being optimised may be a
+    // fraction of what a browser downloads.
+    //
+    // Raw only: compressing ~25 modules at q9 would add minutes to startup for a
+    // diagnostic. The mini's own ratio above is the scale factor to apply.
+    {
+        let mut mods: Vec<(usize, String)> = Vec::new();
+        for c in &cb_wasms {
+            mods.push((c.wasm_bytes.len(), format!("cb {}", c.name)));
+        }
+        for l in &layout_wasms {
+            mods.push((l.wasm_bytes.len(), format!("layout {}", l.name)));
+        }
+        for b in &boundary_wasms {
+            mods.push((b.wasm_bytes.len(), format!("boundary {}", b.canonical_name)));
+        }
+        let other: usize = mods.iter().map(|(n, _)| *n).sum();
+        mods.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+        eprintln!(
+            "[azul-web] FIRST-PAINT SET: mini {} B + {} other module(s) {} B = {} B raw \
+             ({:.2} MB); the mini is {:.1}% of it",
+            mini_wasm.len(),
+            mods.len(),
+            other,
+            mini_wasm.len() + other,
+            (mini_wasm.len() + other) as f64 / 1e6,
+            100.0 * mini_wasm.len() as f64 / (mini_wasm.len() + other).max(1) as f64,
+        );
+        for (n, name) in mods.iter().take(10) {
+            eprintln!("[azul-web]   FIRST-PAINT {:>10} B  {}", n, name);
+        }
+    }
+
     let state = server::WebServerState {
         app_data: Arc::new(Mutex::new(app_data)),
         config,

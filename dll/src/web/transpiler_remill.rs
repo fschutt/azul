@@ -4947,10 +4947,37 @@ fn inject_user_binary_data_segments(
     // const spans so collect_synth_data_pages mirrors the whole TTF at its synth offset.
     // (head/hhea metric fields are small non-pointer values, so the per-chunk pointer
     // translation in collect_synth_data_pages leaves them intact.)
+    // ...AND THAT FIX WAS SUPERSEDED, but the forcing stayed. `eventloop.rs`
+    // records why: force-mirroring "lands at a synth base that differs from where
+    // the lifted code reads (a deep lift-internals mismatch)", so the JS harness
+    // now writes the TTF into wasm memory itself and registers it through
+    // `AzStartup_setFallbackFont` — and `web_fallback_font_bytes()` prefers that
+    // buffer whenever one is set, which every boot does. The mirrored copy is
+    // therefore never the one read.
+    //
+    // It is not free. The font is forced into EVERY module: 25 of them in a
+    // normal run, 9 of which a first paint downloads, at 226,812 bytes each —
+    // 2,041,308 raw / roughly 810 KB compressed of duplicated font per first
+    // paint, for bytes nothing reads. In the smallest callback modules the font
+    // is about half the entire data mirror.
+    //
+    // Off by default; `AZ_FONT_MIRROR=1` restores it. The env var stays until a
+    // run confirms text still renders without it, because the failure mode is
+    // silent and specific — allsorts parses a zero-filled font and text measures
+    // height 0, which looks like a layout bug rather than a missing mirror.
+    let force_font_mirror = std::env::var("AZ_FONT_MIRROR")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     let mut accessed_pages_owned = accessed_pages.clone();
     {
         let (font_ptr, font_len) = super::eventloop::az_web_fallback_font_native();
-        if font_ptr != 0 && font_len != 0 {
+        if !force_font_mirror {
+            eprintln!(
+                "[azul-web] FONT-MIRROR: NOT forcing the {} B fallback font into {} \
+                 (the JS-registered buffer is what gets read; AZ_FONT_MIRROR=1 restores it)",
+                font_len, output_stem,
+            );
+        } else if font_ptr != 0 && font_len != 0 {
             let mut p = font_ptr & !0xFFF;
             let end = font_ptr.saturating_add(font_len);
             let mut added = 0usize;
