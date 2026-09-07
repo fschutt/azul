@@ -95,6 +95,7 @@ the mirror. Just never quote it as the payload.
 | 71 | 4888 | 29,325,426 | 3,022,588 | 9.70× | intercept ProcessPrng |
 | 72 | 4885 | 29,322,716 | 3,024,434 | 9.70× | route the CRT transcendentals — **never served:** the lift audit refused (F3, four env imports the loader did not implement) |
 | 73 | 4808 | 29,055,785 | 3,004,149 | 9.67× | 11 no-OS interceptions + the shared math table. **Served: 30,988,418 raw / 4,476,910 br(q9)** — the mirror is 1,932,629 B of it |
+| 74 | 4811 | 29,029,656 | — | — | per-module bump force-enqueue. **Served: 30,960,360 raw / 4,475,296 br(q9)** — flat, so the shims cost the mini nothing |
 
 A run can end without ever serving, and still be measurable. Run 72 linked its
 mini and then the audit stopped the server over four unimplemented env imports — which turned out to be
