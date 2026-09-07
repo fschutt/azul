@@ -64,7 +64,46 @@ pub fn generate_c_shims(ir: &CodegenIR, config: &CodegenConfig) -> String {
         }
         emit_inbound_trampoline(&mut out, cb);
     }
+
+    // Layout oracle: `Azul.Types`' Storable instances take `sizeOf` and
+    // `alignment` from the C compiler instead of guessing. The generated
+    // Haskell used to sum the fields' sizes (no padding: AzApp came out as 9
+    // bytes, sizeof is 16) and to give every tagged union a fixed
+    // `8 + 64` (AzOptionDom is 288 bytes). Anything that `alloca`s a struct
+    // through those instances — the hello-world's buffers included — was
+    // under-allocated and overflowed the stack (2026-09-07). Every struct and
+    // tagged union that gets a real Storable instance (types::should_emit_*)
+    // gets one sizeof/alignof pair here; the header is the single source.
+    out.push_str(
+        "\n\
+         /* ============================================================ */\n\
+         /* Layout oracle for Azul.Types (Storable sizeOf / alignment).   */\n\
+         /* sizeof/_Alignof of every struct and tagged union the Haskell  */\n\
+         /* module declares, so the instances match the C ABI exactly.    */\n\
+         /* ============================================================ */\n\n\
+         #include <stddef.h>\n\n",
+    );
+    for s in &ir.structs {
+        if super::types::should_emit_struct(s, config) && !s.fields.is_empty() {
+            emit_layout_oracle(&mut out, &s.name);
+        }
+    }
+    for e in &ir.enums {
+        if super::types::should_emit_enum(e, config) {
+            emit_layout_oracle(&mut out, &e.name);
+        }
+    }
     out
+}
+
+/// `size_t az_hs_sizeof_<T>(void)` / `size_t az_hs_alignof_<T>(void)` for one
+/// C type `Az<T>` — see the layout-oracle note in `generate_c_shims`.
+fn emit_layout_oracle(out: &mut String, ir_name: &str) {
+    out.push_str(&format!(
+        "size_t az_hs_sizeof_{n}(void) {{ return sizeof(Az{n}); }}\n\
+         size_t az_hs_alignof_{n}(void) {{ return _Alignof(Az{n}); }}\n",
+        n = ir_name
+    ));
 }
 
 /// True if a callback typedef needs an inbound trampoline. We emit one
