@@ -248,7 +248,7 @@
             '<button class="copy-btn" onclick="copyText(\'' + escJs(step.content) + '\')">Copy</button>' +
             '</div>';
         } else if (step.type === 'text') {
-          html += '<div class="install-step"><span class="command" style="color:#888;">' + escHtml(step.content) + '</span></div>';
+          html += '<div class="install-step"><span class="command note" style="color:#888;">' + escHtml(step.content) + '</span></div>';
         }
       });
 

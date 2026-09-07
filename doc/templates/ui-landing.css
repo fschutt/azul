@@ -388,37 +388,39 @@ img.showcase.windows { display: initial; }
     color: var(--fl-code-fg);
     border-bottom: 1px solid var(--fl-code-bd);
     padding: 14px 16px;
-    overflow-x: auto;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    /* The block itself never scrolls: each command row does, on its own.
+       Scrolling the block moved every row at once, so a short command
+       disappeared off the left edge together with its Copy button while
+       a long one was being read. */
+    overflow: hidden;
 }
-.install-commands::-webkit-scrollbar { display: none; width: 0; height: 0; }
-.install-commands { overscroll-behavior-x: contain; }
 .install-step {
     display: flex;
     align-items: center;
     gap: 8px;
     margin-bottom: 6px;
-    white-space: nowrap;
-    /* Grow to the command's natural width so the Copy button sits AFTER the
-       text rather than on top of it; .install-commands scrolls to reach it. */
-    width: max-content;
-    min-width: 100%;
+    min-width: 0;
 }
 .install-step:last-child { margin-bottom: 0; }
-.install-step .command { flex: 1 0 auto; }
-/* The row scrolls; the button rides the right edge so it never sails off.
-   It has to be opaque, or the command scrolling underneath reads straight
-   through it. */
-.install-step .copy-btn {
-    position: sticky;
-    right: 0;
-    margin-left: auto;
-    background: var(--fl-code-bg);
-    box-shadow: -10px 0 10px -4px var(--fl-code-bg);
-    opacity: 1;
+/* The command is the scrolling part - one line, no scrollbar - and the
+   Copy button is an ordinary flex item after it, so it stays at the right
+   edge no matter how far the command has been scrolled. */
+.install-step .command,
+.install-step pre {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
-.install-step .copy-btn:hover { background: var(--fl-code-bd); }
+.install-step .command { white-space: nowrap; }
+.install-step .command::-webkit-scrollbar,
+.install-step pre::-webkit-scrollbar { display: none; width: 0; height: 0; }
+/* Explanatory text (no Copy button) wraps instead of scrolling. */
+.install-step .note { white-space: normal; overflow: visible; }
+.install-step .copy-btn { flex: 0 0 auto; margin-left: auto; }
 
 
 .example-code {
