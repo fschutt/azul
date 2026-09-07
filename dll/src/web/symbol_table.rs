@@ -262,7 +262,19 @@ impl FnClass {
     /// bump/noop body. The web force-enqueue lifts these so indirect
     /// calls to them (Drop glue) get a dispatcher `switch` case.
     pub fn is_bump_alloc(self) -> bool {
-        matches!(self, FnClass::BumpAlloc | FnClass::BumpAllocWinHeap)
+        // `BumpDealloc`/`BumpRealloc` belong here too, and their absence was a
+        // live bug: the force-enqueue this predicate gates exists precisely so
+        // Drop glue's INDIRECT call to `__rust_dealloc` finds a dispatcher case,
+        // and `__rust_dealloc` is classified `BumpDealloc` — so the one symbol
+        // the mechanism was written for was the one it skipped. The result was
+        // an unmatched dispatch at its synth PC and a fatal `unreachable`.
+        matches!(
+            self,
+            FnClass::BumpAlloc
+                | FnClass::BumpAllocWinHeap
+                | FnClass::BumpRealloc
+                | FnClass::BumpDealloc
+        )
     }
 
     /// M10-D: whether this symbol ships as its own per-fn wasm shard.
