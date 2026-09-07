@@ -5109,6 +5109,12 @@ const AZ_TLV_MAGIC_PC: u64 = 0xA271_C0DE;
 #[cfg(feature = "web-transpiler")]
 const AZ_FAKE_HEAP_HANDLE: u64 = 0x00A2_0000;
 
+/// Byte `ProcessPrng` fills its buffer with. Non-zero on purpose: an all-zero
+/// "random" buffer is a shape some callers treat as a failed draw, and zero is
+/// also what an unprovided import would yield — so a distinctive value keeps
+/// the intercepted path telling apart from the un-intercepted one.
+const AZ_PRNG_FILL_BYTE: u8 = 0x5A;
+
 /// How an intercepted Win32 import is emulated inside the dispatcher.
 ///
 /// The shapes are Win64 ABI, NOT the Rust wrapper shapes: `HeapAlloc(hHeap,
@@ -5134,6 +5140,20 @@ enum ImportIntercept {
     Memmove,
     /// `memset(dst, c, n)`.
     Memset,
+    /// `ProcessPrng(pbData, cbData) -> BOOL` — the Windows entropy source
+    /// `std`'s random seeding reaches through `bcryptprimitives.dll`.
+    ///
+    /// Without a case the lifted code reads the raw IAT slot (the mirror stores
+    /// native pointers, not synth ones) and dispatches to a native address that
+    /// no case can match, which presents as an unmatched dispatch on a PC far
+    /// outside the synth band.
+    ///
+    /// Fills the buffer with a fixed byte and returns TRUE. The bytes need not
+    /// be random, only present and consistent — the same reasoning as
+    /// `HashmapRandomKeys`' fixed SipHash seed: single-threaded wasm with no
+    /// HashDoS threat. Returning FALSE (or the Proxy's 0) would make `std`
+    /// treat seeding as failed.
+    ProcessPrng,
     /// A one-argument `double -> double` CRT math call whose LLVM intrinsic
     /// lowers to a single wasm instruction, so it needs no env import: the
     /// argument arrives in XMM0 and the result goes back to XMM0.
@@ -5158,6 +5178,7 @@ impl ImportIntercept {
             ImportIntercept::Memcmp => "memcmp",
             ImportIntercept::Memmove => "memmove",
             ImportIntercept::Memset => "memset",
+            ImportIntercept::ProcessPrng => "ProcessPrng",
             ImportIntercept::F64Unary(n, _) => n,
         }
     }
@@ -5271,6 +5292,27 @@ impl ImportIntercept {
                     l = l, a0 = a0, a1 = a1, a2 = a2, ret = ret, mid = mid,
                 )
             }
+            ImportIntercept::ProcessPrng => format!(
+                // ProcessPrng(pbData ARG[0], cbData ARG[1]) -> BOOL in RAX.
+                // Fill the buffer with a fixed byte and report success; the
+                // bytes need only be present and consistent, not random.
+                "imp{l}:\n\
+                 \x20 %ap{l} = getelementptr inbounds i8, ptr %state, i64 {a0}\n\
+                 \x20 %a{l} = load i64, ptr %ap{l}, align 8\n\
+                 \x20 %a32{l} = trunc i64 %a{l} to i32\n\
+                 \x20 %dst{l} = inttoptr i32 %a32{l} to ptr\n\
+                 \x20 %np{l} = getelementptr inbounds i8, ptr %state, i64 {a1}\n\
+                 \x20 %n{l} = load i64, ptr %np{l}, align 8\n\
+                 \x20 call void @llvm.memset.p0.i64(ptr %dst{l}, i8 {fill}, i64 %n{l}, i1 false)\n\
+                 \x20 %rp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n\
+                 \x20 store i64 1, ptr %rp{l}, align 8\n\
+                 \x20 ret ptr %memory\n",
+                l = l,
+                a0 = a0,
+                a1 = a1,
+                ret = ret,
+                fill = AZ_PRNG_FILL_BYTE,
+            ),
             ImportIntercept::F64Unary(intrin, is_f32) => format!(
                 // Argument and result both live in XMM0 (the f32 forms use its
                 // low half). llvm.trunc/floor/ceil/fabs/sqrt each lower to a
@@ -5361,6 +5403,7 @@ fn intercepted_import_labels(cases: &[(u64, u64)]) -> Vec<(u64, ImportIntercept,
         ("ntdll.dll\0", "RtlAllocateHeap\0", ImportIntercept::HeapAlloc),
         ("ntdll.dll\0", "RtlFreeHeap\0", ImportIntercept::HeapFree),
         ("ntdll.dll\0", "RtlReAllocateHeap\0", ImportIntercept::HeapReAlloc),
+        ("bcryptprimitives.dll\0", "ProcessPrng\0", ImportIntercept::ProcessPrng),
         ("VCRUNTIME140.dll\0", "memcmp\0", ImportIntercept::Memcmp),
         ("VCRUNTIME140.dll\0", "memcpy\0", ImportIntercept::Memmove),
         ("VCRUNTIME140.dll\0", "memmove\0", ImportIntercept::Memmove),
