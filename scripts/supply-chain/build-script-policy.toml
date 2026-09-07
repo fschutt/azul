@@ -1057,13 +1057,6 @@ review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
 reviewed = ["0.1.4:d98857de0cff6d6001346ba80bb2b0475f84d4f6926d635e773dc3be31cabbef", "0.2.2:04fd8dc70ff8de6633fd8985b757b67c7e0dd5ad528c3d25b8242b32e04b9cd8"]
 
-[crate."io-uring"]  # build-script
-allow = true
-risk = "low"
-review = "audited"
-reason = "optionally runs bindgen over linux/io_uring.h; by default only emits rustc-check-cfg lines"
-reviewed = ["0.7.14:afa1c9a2a184b1dde37eed5bbeda03003b6ef0d3388ca487d1bd7258380cd315"]
-
 [crate."itertools"]  # build-dependency
 allow = true
 risk = "low"
@@ -1995,6 +1988,13 @@ review = "audited"
 reason = "#[instrument] rewrites fn bodies to open tracing spans; syn/quote only"
 reviewed = ["0.1.31:9db0393d52624760ac8a29f35e261a949c3da0cb6e8c7431357696ca18e6cbc0"]
 
+[crate."turso-sdk-kit-azul"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "The azul fork of turso_sdk_kit 0.7.2 (io_uring/win_iocp as opt-in features); its build.rs is byte-identical to upstream's, and the pinned digest is the same. Windows-only: writes a VERSIONINFO .rc into OUT_DIR and runs rc.exe/windres on it; returns immediately on every other target"
+reviewed = ["0.7.2:f0b6e90d4258499924ed17f50a21ce45ca60a1890a4ea485fb692f124e43db0c"]
+
 [crate."turso_core"]  # build-script
 allow = true
 risk = "low"
@@ -2015,13 +2015,6 @@ risk = "low"
 review = "audited"
 reason = "proc-macro deriving turso extension/vtab/vfs FFI glue; pure syn/quote"
 reviewed = ["0.7.2:ecf811b48a25e8fd29214128adf7464565864e274f0f26ac0d57581a036c0d6a"]
-
-[crate."turso_sdk_kit"]  # build-script
-allow = true
-risk = "low"
-review = "audited"
-reason = "Windows-only: writes a VERSIONINFO .rc into OUT_DIR and runs rc.exe/windres on it; returns immediately on every other target"
-reviewed = ["0.7.2:f0b6e90d4258499924ed17f50a21ce45ca60a1890a4ea485fb692f124e43db0c"]
 
 [crate."turso_sdk_kit_macros"]  # proc-macro
 allow = true
@@ -2294,7 +2287,7 @@ allow = true
 risk = "high"
 review = "audited"
 reason = "no build-time code; extern fn/struct/const declarations only, no call sites"
-reviewed = ["0.45.0:19fe52ab7ed3b640e070cd7cd494c5a34563ec598d544797902510dd1de78791", "0.52.0:5609e644746dea161a49250ff7db316b069e3cd755323337b8ae08e32efdf146", "0.59.0:abefe9f04b42d1dc9982f4f2983b5b4b6e3a66f8fe3d8f2a704e5ab1377db218", "0.61.2:a15dc306533053e9069513f761f532a8d21e2c35c0b04e08368904a087587239"]
+reviewed = ["0.45.0:19fe52ab7ed3b640e070cd7cd494c5a34563ec598d544797902510dd1de78791", "0.52.0:5609e644746dea161a49250ff7db316b069e3cd755323337b8ae08e32efdf146", "0.61.2:a15dc306533053e9069513f761f532a8d21e2c35c0b04e08368904a087587239"]
 
 [crate."windows-targets"]  # build-dependency
 allow = true

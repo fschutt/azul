@@ -180,7 +180,10 @@ nom_locate = "Span-tracking wrapper over nom for lopdf's parser."
 bytecount = "Fast newline/byte counting for nom_locate span tracking (lopdf)."
 
 # === Embedded SQLite (turso / db-sqlite feature) ===
-turso = "Embedded SQLite-compatible database engine (azul fork of Turso/Limbo)."
+turso = "Embedded SQLite-compatible database engine (upstream name; consumed as turso-azul below)."
+turso-azul = "The turso 0.7.2 Rust API, published from fschutt/turso with the io_uring/win_iocp backends as opt-in features; consumed by dll/ via `package = \"turso-azul\"`. Upstream forces io_uring on through turso_sdk_kit, and io-uring's prebuilt bindings do not build on 32-bit Linux."
+turso-sdk-kit-azul = "turso_sdk_kit 0.7.2 with the IO backends forwarded as features instead of forced on (the fix itself); pulled by turso-azul. Same build.rs as upstream (byte-identical)."
+turso-sync-sdk-kit-azul = "turso_sync_sdk_kit 0.7.2 rebuilt against turso-sdk-kit-azul, so the sync kit cannot drag upstream's io_uring-forcing sdk kit back into the tree; pulled by turso-azul."
 turso_core = "Core query/storage engine of turso."
 turso_ext = "Extension/virtual-table interface for turso."
 turso_macros = "proc-macros for turso extension authoring."
