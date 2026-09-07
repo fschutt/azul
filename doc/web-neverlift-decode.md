@@ -74,17 +74,53 @@ The symbol alone rarely locates the bug: `unwrap_failed` has 1815 callers. So
 the stub also records who reached it, at **`0x40080`**.
 
 The first attempt recorded the stub's `%pc` argument and was **wrong** — a run
-measured `0x40048` and `0x40080` as the *same* value, `0xf05880`. The reason is
-remill's own contract: a lifted body's `pc` argument **is its own lift address**
-(the invariant the direct-call pc seeding depends on), and the caller sets `%PC`
-to the call *target* immediately before calling. `%pc` inside a stub therefore
-names the stub, never the caller.
+measured `0x40048` and `0x40080` as the *same* value, `0xf05880`.
+
+The cause is an interaction between two of our own changes, and it is worth
+spelling out because the raw lifter output looks like `%pc` *would* work. remill
+emits the call site there:
+
+```llvm
+%540 = load i64, ptr %NEXT_PC
+store i64 %540, ptr %PC          ; PC = the CALL instruction's address
+...
+%548 = load i64, ptr %PC
+%549 = call ptr @sub_f0693e(ptr %state, i64 %548, ptr %547)
+```
+
+But `seed_direct_calls_with_callee_pc` (see `web-lifted-pc-seeding.md`) then
+rewrites that operand to the callee's own address, because a lifted body seeds
+its entire PC chain from its `pc` argument and must receive *its own* lift
+address. The linked IR carries a constant:
+
+```llvm
+%119 = load i64, ptr %PC          ; now dead
+%120 = call ptr @sub_f06927(ptr %state, i64 15755559, ptr %118)
+```
+
+`15755559` is `0xF06927` — `sub_f06927` itself. So after pc seeding, `%pc`
+inside any stub names the stub. This is correct behaviour, not a bug; it just
+makes `%pc` unusable for identifying a caller.
 
 The caller's identity is the **return address at `[RSP]`**, which the lifted
-caller pushes before the call. The stub reads `State.RSP` and loads from it.
-That load carries the guest alias scope — it reads guest memory a lifted caller
-wrote — while the recorder *stores* stay untagged-volatile, since no lifted code
-reads them.
+caller pushes before the call. Verified in the emitted IR — the caller writes it
+and updates `State.RSP` *before* the call, so both are in place at stub entry:
+
+```llvm
+%546 = load i64, ptr %rsp.i137
+%sub.i.i138 = add i64 %546, -8
+call ptr @__remill_write_memory_64(mem, %sub.i.i138, %544)  ; %544 = return addr
+store i64 %sub.i.i138, ptr %rsp.i137                        ; State.RSP updated
+```
+
+The stub therefore reads `State.RSP` and loads from it. That load carries the
+**guest** alias scope — it reads guest memory a lifted caller wrote, and an
+untagged store here would be stamped host and could be proven disjoint from it
+— while the recorder *stores* stay host-tagged and `volatile`, since no lifted
+code reads them.
+
+Unlike `%pc`, this is immune to pc seeding: that pass rewrites a call's `pc`
+operand only, never `RETURN_PC` or the pushed return address.
 
 ## How to use it
 
