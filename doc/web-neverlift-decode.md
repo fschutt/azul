@@ -182,13 +182,23 @@ Windows system images are deliberately skipped (`is_system_image`), so that
 would become a *new* `env` import — and a missing import fails instantiation
 outright, which is worse than the current bug.
 
-It holds up. The loader carries a Proxy that zero-stubs unprovided imports
-(`loader_js.rs`), so the import resolves, and a no-op `WakeByAddressAll` is
-*correct* here: single-threaded, there are never waiters to wake.
-`WaitOnAddress` sits on the contended path and is unreachable for the same
-reason, so `Once::call` takes the uncontended CAS route — INCOMPLETE → RUNNING →
-run the closure → COMPLETE. `lift_audit` reports Proxy zero-stubs, so a wrong
-one would surface rather than rot silently.
+**The first version of this argument was wrong.** It claimed the loader's Proxy
+zero-stubs `WakeByAddressAll`, so the import resolves harmlessly. That applies to
+*env imports* — but `WakeByAddressAll` is an **IAT import**
+(`api-ms-win-core-synch-l1-2-0.dll`), and the mirror stores raw native pointers
+in IAT slots. A lifted `Once::call` reaching it therefore produces an **unmatched
+dispatch at a native address**, exactly like `ProcessPrng` did — not a Proxy
+stub. The two paths are not interchangeable, and which one a symbol takes has to
+be checked rather than assumed.
+
+The *conclusion* still holds, for a different reason: single-threaded there are
+never waiters, so `Once::call` takes the uncontended CAS route — INCOMPLETE →
+RUNNING → run the closure → COMPLETE — and never reaches the wake. But that is a
+reachability argument, not a safety net, so the futex trio
+(`WaitOnAddress`, `WakeByAddressAll`, `WakeByAddressSingle`) belongs in the
+interception table regardless: a no-op wake and a "woken" return are the correct
+single-threaded answers, and an interception turns a latent trap into a defined
+one.
 
 The general caution still applies: a zero-stub is *not* universally safe — the
 same Proxy turns an unprovided `memcpy`/`memset` into a silent no-op — so each

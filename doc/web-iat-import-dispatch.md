@@ -108,3 +108,35 @@ Two consequences worth keeping:
   function was lifted to its full extent before suspecting the interception
   table. `scripts/m9_e2e/dump_dealloc.py` decodes a function from a confirmed
   entry for exactly this.
+
+## The interception table covers 15 of 248 imports
+
+Measured with `scripts/m9_e2e/import_gap.py`, which resolves every PE import
+*and* every entry of the interception list to an address and compares those —
+the same thing `intercepted_import_labels` does.
+
+Comparing DLL **names** instead gives a wrong answer: the image imports `trunc`
+from `api-ms-win-crt-math-l1-1-0.dll` while the list names `ucrtbase.dll`. API
+sets forward, so both resolve to the same ucrtbase function and the interception
+does fire — name-matching reported ~20 false gaps.
+
+Every un-intercepted import that lifted code reaches becomes an unmatched
+dispatch at a raw native address. The list is name-based and incomplete by
+construction, so this is a standing source of one-blocker-per-run. Currently
+flagged as plausibly reachable from lifted `std`:
+
+| DLL | names |
+|---|---|
+| `api-ms-win-core-synch-l1-2-0` | `WaitOnAddress`, `WakeByAddressAll`, `WakeByAddressSingle` |
+| `KERNEL32` | `QueryPerformanceCounter`, `GetSystemTimeAsFileTime`, `GetSystemTimePreciseAsFileTime`, `Sleep`, `VirtualProtect`, `GlobalAlloc`/`GlobalLock`/`GlobalFree` |
+| `api-ms-win-crt-math-l1-1-0` | `pow`, `exp`, `log`, `fmod`, `round`, `sin`, `cos`, `tan` (+ `f` forms) |
+| `api-ms-win-crt-string-l1-1-0` | `strlen` |
+
+The math names are the ones deliberately left out — anything needing a real
+libm is excluded rather than approximated — so they are known traps, not
+oversights. The futex trio matters most: `Once::call` is lifted, and its
+completion path calls `WakeByAddressAll`.
+
+A name here is a **candidate, not a bug**. It only matters once lifted code
+actually reaches it, and each needs its own judgement about what the right
+answer is — a zero-stub is correct for a wake and wrong for `memcpy`.
