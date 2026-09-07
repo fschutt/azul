@@ -245,6 +245,27 @@ impl ColorPickerDialog {
         data: RefAny,
         on_result: ResumeCallback,
     ) -> RequestId {
+        match request::mock::take_color_pick() {
+            request::mock::Answer::NotArmed => {}
+            request::mock::Answer::Mocked(color) => {
+                return request::complete(
+                    data,
+                    on_result,
+                    ColorPickResult {
+                        color: color.into(),
+                    },
+                );
+            }
+            request::mock::Answer::Unmocked => {
+                return request::complete(
+                    data,
+                    on_result,
+                    ColorPickResult {
+                        color: OptionColorU::None,
+                    },
+                );
+            }
+        }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         let color = {
             let rgb = default_value
@@ -515,6 +536,29 @@ impl FileDialog {
         data: RefAny,
         on_result: ResumeCallback,
     ) -> RequestId {
+        // Under an e2e run the picker is answered from the mock store (or
+        // resolves as cancelled, loudly); a real dialog would hang the test.
+        match request::mock::take_file_open("FileDialog::open_file") {
+            request::mock::Answer::NotArmed => {}
+            request::mock::Answer::Mocked(path) => {
+                return request::complete(
+                    data,
+                    on_result,
+                    FileOpenResult {
+                        path: path.map(FilePath::new).into(),
+                    },
+                );
+            }
+            request::mock::Answer::Unmocked => {
+                return request::complete(
+                    data,
+                    on_result,
+                    FileOpenResult {
+                        path: OptionFilePath::None,
+                    },
+                );
+            }
+        }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let mut dialog = tfd::FileDialog::new(title.as_str());
@@ -571,6 +615,27 @@ impl FileDialog {
         data: RefAny,
         on_result: ResumeCallback,
     ) -> RequestId {
+        match request::mock::take_file_open("FileDialog::open_directory") {
+            request::mock::Answer::NotArmed => {}
+            request::mock::Answer::Mocked(path) => {
+                return request::complete(
+                    data,
+                    on_result,
+                    FileOpenResult {
+                        path: path.map(FilePath::new).into(),
+                    },
+                );
+            }
+            request::mock::Answer::Unmocked => {
+                return request::complete(
+                    data,
+                    on_result,
+                    FileOpenResult {
+                        path: OptionFilePath::None,
+                    },
+                );
+            }
+        }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let mut dialog = tfd::FileDialog::new(title.as_str());
@@ -618,6 +683,28 @@ impl FileDialog {
         data: RefAny,
         on_result: ResumeCallback,
     ) -> RequestId {
+        match request::mock::take_file_open_multi() {
+            request::mock::Answer::NotArmed => {}
+            request::mock::Answer::Mocked(paths) => {
+                let paths = paths.into_iter().map(FilePath::new).collect::<Vec<_>>();
+                return request::complete(
+                    data,
+                    on_result,
+                    FileOpenMultiResult {
+                        paths: FilePathVec::from_vec(paths),
+                    },
+                );
+            }
+            request::mock::Answer::Unmocked => {
+                return request::complete(
+                    data,
+                    on_result,
+                    FileOpenMultiResult {
+                        paths: FilePathVec::from_vec(Vec::new()),
+                    },
+                );
+            }
+        }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let mut dialog = tfd::FileDialog::new(title.as_str()).with_multiple_selection(true);
@@ -701,6 +788,32 @@ impl FileDialog {
         data: RefAny,
         on_result: ResumeCallback,
     ) -> RequestId {
+        match request::mock::take_save_file() {
+            request::mock::Answer::NotArmed => {}
+            request::mock::Answer::Mocked(path) => {
+                let target = path.map(|p| SaveTarget {
+                    kind: SaveTargetKind::Path,
+                    path: OptionFilePath::Some(FilePath::new(p)),
+                    handle_id: 0,
+                });
+                return request::complete(
+                    data,
+                    on_result,
+                    SaveTargetResult {
+                        target: target.into(),
+                    },
+                );
+            }
+            request::mock::Answer::Unmocked => {
+                return request::complete(
+                    data,
+                    on_result,
+                    SaveTargetResult {
+                        target: OptionSaveTarget::None,
+                    },
+                );
+            }
+        }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let mut dialog = tfd::FileDialog::new(title.as_str());
@@ -781,6 +894,13 @@ impl FileDialog {
     #[allow(clippy::needless_pass_by_value)]
     #[must_use]
     pub fn save_bytes(suggested_name: AzString, mime: AzString, bytes: U8Vec) -> bool {
+        // An e2e run records the export instead of showing a dialog; the
+        // scenario reads it back with `assert_saved_file`.
+        if let Some(accepted) =
+            request::mock::record_saved_file(&suggested_name, &mime, bytes.as_ref())
+        {
+            return accepted;
+        }
         // The MIME type only matters to the browser (the download's
         // Content-Type); native save dialogs key off the name's extension.
         drop(mime);

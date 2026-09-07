@@ -350,6 +350,23 @@ impl AudioDeviceList {
     /// `enumerate` is the API on every target because the browser's
     /// `enumerateDevices()` is asynchronous).
     pub fn enumerate_blocking() -> AudioDeviceList {
+        // Deterministic under e2e: the mock store's lists, or empty lists
+        // (recorded as unmocked) - never the machine's real devices.
+        match azul_layout::request::mock::take_audio_devices() {
+            azul_layout::request::mock::Answer::NotArmed => {}
+            azul_layout::request::mock::Answer::Mocked((outputs, inputs)) => {
+                return AudioDeviceList {
+                    outputs: StringVec::from_vec(outputs),
+                    inputs: StringVec::from_vec(inputs),
+                };
+            }
+            azul_layout::request::mock::Answer::Unmocked => {
+                return AudioDeviceList {
+                    outputs: StringVec::from_vec(Vec::new()),
+                    inputs: StringVec::from_vec(Vec::new()),
+                };
+            }
+        }
         #[cfg(target_os = "linux")]
         {
             AudioDeviceList {

@@ -206,6 +206,49 @@ impl Default for HttpRequestConfig {
     }
 }
 
+/// The e2e mock store's answer for `url`, if the store is armed. `None` =
+/// not an e2e run, perform the real transfer.
+#[cfg(feature = "text_layout")]
+fn mocked_http(url: &str) -> Option<ResultHttpResponseHttpError> {
+    use crate::request::mock::{Answer, MockHttp};
+    match crate::request::mock::take_http(url) {
+        Answer::NotArmed => None,
+        Answer::Mocked(MockHttp::Response(r)) => {
+            let content_length = r.body.len() as u64;
+            Some(ResultHttpResponseHttpError::Ok(HttpResponse {
+                status_code: r.status,
+                body: U8Vec::from_vec(r.body),
+                content_type: r.content_type,
+                content_length,
+                headers: HttpHeaderVec::from_const_slice(&[]),
+            }))
+        }
+        Answer::Mocked(MockHttp::Error(message)) => {
+            Some(ResultHttpResponseHttpError::Err(HttpError::other(message)))
+        }
+        Answer::Unmocked => Some(ResultHttpResponseHttpError::Err(HttpError::other(
+            AzString::from(format!("unmocked http request under e2e: {url}")),
+        ))),
+    }
+}
+
+/// [`mocked_http`] narrowed to the byte body: a non-2xx status is an
+/// `HttpError::HttpStatus`, like `download_bytes_with_config`.
+#[cfg(feature = "text_layout")]
+fn mocked_download(url: &str) -> Option<ResultU8VecHttpError> {
+    match mocked_http(url)? {
+        ResultHttpResponseHttpError::Ok(response) => Some(if response.status_code >= 400 {
+            ResultU8VecHttpError::Err(HttpError::http_status(
+                response.status_code,
+                AzString::from(format!("HTTP error {}", response.status_code)),
+            ))
+        } else {
+            ResultU8VecHttpError::Ok(response.body)
+        }),
+        ResultHttpResponseHttpError::Err(e) => Some(ResultU8VecHttpError::Err(e)),
+    }
+}
+
 impl HttpRequestConfig {
     /// Create a new config with default values
     #[must_use]
@@ -271,6 +314,10 @@ impl HttpRequestConfig {
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[must_use]
     pub fn http_get_blocking(&self, url: AzString) -> ResultHttpResponseHttpError {
+        #[cfg(feature = "text_layout")]
+        if let Some(mocked) = mocked_http(url.as_str()) {
+            return mocked;
+        }
         http_get_with_config(url.as_str(), self).into()
     }
 
@@ -278,6 +325,10 @@ impl HttpRequestConfig {
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use]
     pub fn http_get_blocking(&self, _url: AzString) -> ResultHttpResponseHttpError {
+        #[cfg(feature = "text_layout")]
+        if let Some(mocked) = mocked_http(_url.as_str()) {
+            return mocked;
+        }
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
@@ -312,6 +363,10 @@ impl HttpRequestConfig {
         body: U8Vec,
         content_type: AzString,
     ) -> ResultHttpResponseHttpError {
+        #[cfg(feature = "text_layout")]
+        if let Some(mocked) = mocked_http(url.as_str()) {
+            return mocked;
+        }
         let body_ref = body.as_ref();
         let body_opt = if body_ref.is_empty() {
             None
@@ -331,6 +386,10 @@ impl HttpRequestConfig {
         _body: U8Vec,
         _content_type: AzString,
     ) -> ResultHttpResponseHttpError {
+        #[cfg(feature = "text_layout")]
+        if let Some(mocked) = mocked_http(_url.as_str()) {
+            return mocked;
+        }
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
@@ -360,6 +419,10 @@ impl HttpRequestConfig {
         body: U8Vec,
         content_type: AzString,
     ) -> ResultHttpResponseHttpError {
+        #[cfg(feature = "text_layout")]
+        if let Some(mocked) = mocked_http(url.as_str()) {
+            return mocked;
+        }
         http_post_with_config(url.as_str(), body.as_ref(), content_type.as_str(), self).into()
     }
 
@@ -372,6 +435,10 @@ impl HttpRequestConfig {
         _body: U8Vec,
         _content_type: AzString,
     ) -> ResultHttpResponseHttpError {
+        #[cfg(feature = "text_layout")]
+        if let Some(mocked) = mocked_http(_url.as_str()) {
+            return mocked;
+        }
         ResultHttpResponseHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
@@ -395,6 +462,10 @@ impl HttpRequestConfig {
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[must_use]
     pub fn download_bytes_blocking(&self, url: AzString) -> ResultU8VecHttpError {
+        #[cfg(feature = "text_layout")]
+        if let Some(mocked) = mocked_download(url.as_str()) {
+            return mocked;
+        }
         download_bytes_with_config(url.as_str(), self).into()
     }
 
@@ -402,6 +473,10 @@ impl HttpRequestConfig {
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use]
     pub fn download_bytes_blocking(&self, _url: AzString) -> ResultU8VecHttpError {
+        #[cfg(feature = "text_layout")]
+        if let Some(mocked) = mocked_download(_url.as_str()) {
+            return mocked;
+        }
         ResultU8VecHttpError::Err(HttpError::other("http feature not enabled".into()))
     }
 
@@ -437,6 +512,13 @@ impl HttpRequestConfig {
     #[cfg(all(feature = "http", not(target_arch = "wasm32")))]
     #[must_use]
     pub fn is_url_reachable_blocking(&self, url: AzString) -> (bool, Option<AzString>) {
+        #[cfg(feature = "text_layout")]
+        if let Some(mocked) = mocked_http(url.as_str()) {
+            return match mocked {
+                ResultHttpResponseHttpError::Ok(response) => (response.is_success(), None),
+                ResultHttpResponseHttpError::Err(e) => (false, Some(AzString::from(e.to_string()))),
+            };
+        }
         match http_request_with_config(HttpMethod::Head, url.as_str(), None, "", self) {
             Ok(response) => (response.is_success(), None),
             Err(e) => (false, Some(AzString::from(e.to_string()))),
@@ -448,6 +530,13 @@ impl HttpRequestConfig {
     #[cfg(any(not(feature = "http"), target_arch = "wasm32"))]
     #[must_use]
     pub fn is_url_reachable_blocking(&self, _url: AzString) -> (bool, Option<AzString>) {
+        #[cfg(feature = "text_layout")]
+        if let Some(mocked) = mocked_http(_url.as_str()) {
+            return match mocked {
+                ResultHttpResponseHttpError::Ok(response) => (response.is_success(), None),
+                ResultHttpResponseHttpError::Err(e) => (false, Some(AzString::from(e.to_string()))),
+            };
+        }
         (
             false,
             Some(AzString::from(

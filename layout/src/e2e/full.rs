@@ -2436,6 +2436,33 @@ pub enum DebugEvent {
     Wait {
         ms: u64,
     },
+    /// `{ "op": "mock", "set": { ... } }` - queue deterministic answers for the
+    /// resumable request functions (`azul_layout::request::mock`), so a
+    /// scenario can drive "open a file" -> resume with canned data without a
+    /// native picker ever appearing. Keys of `set`:
+    ///
+    /// * `file_open`: `{"path": "..."}` or `null` (cancelled) - the next
+    ///   `FileDialog::open_file` / `open_directory`
+    /// * `file_open_multi`: `{"paths": ["..", ".."]}`
+    /// * `color_pick`: `{"r": 0, "g": 0, "b": 0}` or `null`
+    /// * `save_file`: `{"path": "..."}` or `null`
+    /// * `save_bytes`: `{"accept": true}` - what `save_bytes` returns (the
+    ///   bytes are recorded either way, see `assert_saved_file`)
+    /// * `file_read`: `{"<path>": {"text": "..."} | {"b64": "..."}}` - canned
+    ///   documents served by `FilePath::read_bytes` / `read_string`
+    /// * `http`: `{"<url | prefix* | *>": {"status": 200, "text" | "b64": "...",
+    ///   "content_type": "..."} | {"error": "..."}}`
+    /// * `audio_devices`: `{"outputs": [".."], "inputs": [".."]}`
+    /// * `video_decode`: `{"none": true}`
+    /// * `reset`: `true` forgets every queued answer and record first
+    ///
+    /// Under an e2e run a request with no answer queued resolves as cancelled
+    /// and is recorded; `assert_no_unmocked_requests` turns that into a
+    /// failure. The browser lane maps this op onto `window.__az_e2e_mock`.
+    Mock {
+        #[serde(default)]
+        set: serde_json::Value,
+    },
 
     /// `{ "op": "print", "text": "..." }` - write a line to the run's output.
     ///
@@ -4467,6 +4494,10 @@ pub fn evaluate_assertion(
         "assert_composition" => eval_assert_composition(params, callback_info),
         "assert_damage_sound" => eval_assert_damage_sound(params, callback_info),
         "assert_stderr" => eval_assert_stderr(params),
+        // Resumable-API mock store (the `mock` op)
+        "assert_saved_file" => eval_assert_saved_file(params),
+        "assert_no_unmocked_requests" => eval_assert_no_unmocked_requests(params),
+        "assert_unmocked_request" => eval_assert_unmocked_request(params),
         other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
     };
     if result.passed {
@@ -5892,6 +5923,269 @@ fn reject_unknown_params(
 /// The point of `not_contains` is regression pressure: a scenario that provokes
 /// the conditions of a lint and asserts the lint stays quiet is a test that the
 /// underlying bug has not come back.
+// ==================== Resumable-API mock store (the `mock` op) ====================
+
+/// Decodes standard or URL-safe base64 (padding optional).
+fn e2e_b64_decode(input: &str) -> Option<Vec<u8>> {
+    fn val(c: u8) -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => u32::from(c - b'A'),
+            b'a'..=b'z' => u32::from(c - b'a') + 26,
+            b'0'..=b'9' => u32::from(c - b'0') + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            _ => return None,
+        })
+    }
+    let mut out = Vec::with_capacity(input.len() * 3 / 4);
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for &c in input.as_bytes() {
+        if c == b'=' || c == b'\n' || c == b'\r' || c == b' ' {
+            continue;
+        }
+        acc = (acc << 6) | val(c)?;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((acc >> bits) & 0xff) as u8);
+        }
+    }
+    Some(out)
+}
+
+/// `{"text": ".."}` or `{"b64": ".."}` -> bytes.
+fn e2e_mock_bytes(v: &serde_json::Value, what: &str) -> Result<Vec<u8>, String> {
+    if let Some(text) = v.get("text").and_then(serde_json::Value::as_str) {
+        return Ok(text.as_bytes().to_vec());
+    }
+    if let Some(b64) = v.get("b64").and_then(serde_json::Value::as_str) {
+        return e2e_b64_decode(b64).ok_or_else(|| format!("mock {what}: invalid base64"));
+    }
+    Err(format!("mock {what}: expected `text` or `b64`"))
+}
+
+fn e2e_mock_string_list(v: Option<&serde_json::Value>, what: &str) -> Result<Vec<azul_css::AzString>, String> {
+    let Some(arr) = v.and_then(serde_json::Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    arr.iter()
+        .map(|s| {
+            s.as_str()
+                .map(azul_css::AzString::from)
+                .ok_or_else(|| format!("mock {what}: every entry must be a string"))
+        })
+        .collect()
+}
+
+/// Applies one `{"op": "mock", "set": {...}}` step to the request mock store.
+fn apply_mock_set(set: &serde_json::Value) -> Result<(), String> {
+    use azul_layout::request::mock;
+
+    let Some(obj) = set.as_object() else {
+        return Err("mock: `set` must be an object".to_string());
+    };
+    mock::arm();
+    if obj.get("reset").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+        mock::reset();
+    }
+    for (key, value) in obj {
+        match key.as_str() {
+            "reset" => {}
+            "file_open" => mock::push_file_open(
+                value
+                    .get("path")
+                    .and_then(serde_json::Value::as_str)
+                    .map(azul_css::AzString::from),
+            ),
+            "file_open_multi" => mock::push_file_open_multi(e2e_mock_string_list(
+                value.get("paths"),
+                "file_open_multi.paths",
+            )?),
+            "color_pick" => {
+                let color = if value.is_null() {
+                    None
+                } else {
+                    let channel = |k: &str| -> Result<u8, String> {
+                        value
+                            .get(k)
+                            .and_then(serde_json::Value::as_u64)
+                            .and_then(|n| u8::try_from(n).ok())
+                            .ok_or_else(|| format!("mock color_pick: `{k}` must be 0..=255"))
+                    };
+                    Some(azul_css::props::basic::color::ColorU {
+                        r: channel("r")?,
+                        g: channel("g")?,
+                        b: channel("b")?,
+                        a: azul_css::props::basic::color::ColorU::ALPHA_OPAQUE,
+                    })
+                };
+                mock::push_color_pick(color);
+            }
+            "save_file" => mock::push_save_file(
+                value
+                    .get("path")
+                    .and_then(serde_json::Value::as_str)
+                    .map(azul_css::AzString::from),
+            ),
+            "save_bytes" => mock::set_save_bytes_accept(
+                value
+                    .get("accept")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(true),
+            ),
+            "file_read" => {
+                let Some(docs) = value.as_object() else {
+                    return Err("mock file_read: expected an object keyed by path".to_string());
+                };
+                for (path, content) in docs {
+                    mock::set_file_read(path.clone(), e2e_mock_bytes(content, "file_read")?);
+                }
+            }
+            "http" => {
+                let Some(routes) = value.as_object() else {
+                    return Err("mock http: expected an object keyed by url".to_string());
+                };
+                for (pattern, answer) in routes {
+                    let mocked = if let Some(err) = answer.get("error").and_then(serde_json::Value::as_str) {
+                        mock::MockHttp::Error(azul_css::AzString::from(err))
+                    } else {
+                        let status = answer
+                            .get("status")
+                            .and_then(serde_json::Value::as_u64)
+                            .and_then(|n| u16::try_from(n).ok())
+                            .unwrap_or(200);
+                        let body = if answer.get("text").is_some() || answer.get("b64").is_some() {
+                            e2e_mock_bytes(answer, "http")?
+                        } else {
+                            Vec::new()
+                        };
+                        let content_type = answer
+                            .get("content_type")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("application/octet-stream");
+                        mock::MockHttp::Response(mock::MockHttpResponse {
+                            status,
+                            body,
+                            content_type: azul_css::AzString::from(content_type),
+                        })
+                    };
+                    mock::add_http(pattern.clone(), mocked);
+                }
+            }
+            "audio_devices" => mock::set_audio_devices(
+                e2e_mock_string_list(value.get("outputs"), "audio_devices.outputs")?,
+                e2e_mock_string_list(value.get("inputs"), "audio_devices.inputs")?,
+            ),
+            "video_decode" => mock::set_video_decode_none(
+                value
+                    .get("none")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(true),
+            ),
+            other => return Err(format!("mock: unknown key `{other}`")),
+        }
+    }
+    Ok(())
+}
+
+/// `assert_saved_file`: an export recorded by `FileDialog::save_bytes` under
+/// the mock store matches. Params: `name` (exact) or `name_ends_with`,
+/// `mime`, `min_len`, `contains` (text); the newest matching export wins.
+fn eval_assert_saved_file(params: &serde_json::Value) -> AssertionResult {
+    const CONSTRAINTS: &[&str] = &["name", "name_ends_with", "mime", "min_len", "contains"];
+    if let Some(bad) = reject_unknown_params("assert_saved_file", params, CONSTRAINTS) {
+        return bad;
+    }
+    let name = params.get("name").and_then(serde_json::Value::as_str);
+    let ends = params.get("name_ends_with").and_then(serde_json::Value::as_str);
+    let mime = params.get("mime").and_then(serde_json::Value::as_str);
+    let min_len = params.get("min_len").and_then(serde_json::Value::as_u64).unwrap_or(0) as usize;
+    let contains = params.get("contains").and_then(serde_json::Value::as_str);
+
+    let saved = azul_layout::request::mock::saved_files();
+    let names: Vec<String> = saved.iter().map(|f| f.name.as_str().to_string()).collect();
+    let candidate = saved.iter().rev().find(|f| {
+        name.is_none_or(|n| f.name.as_str() == n)
+            && ends.is_none_or(|e| f.name.as_str().ends_with(e))
+    });
+    let Some(file) = candidate else {
+        return AssertionResult::fail_with(
+            "no export recorded with that name (was `FileDialog::save_bytes` called under an armed mock store?)",
+            format!("name={name:?} name_ends_with={ends:?}"),
+            format!("{} export(s): {names:?}", saved.len()),
+        );
+    };
+    if let Some(m) = mime {
+        if file.mime.as_str() != m {
+            return AssertionResult::fail_with("exported mime type differs", m, file.mime.as_str());
+        }
+    }
+    if file.bytes.len() < min_len {
+        return AssertionResult::fail_with(
+            "exported file is shorter than `min_len`",
+            format!(">= {min_len} bytes"),
+            format!("{} bytes", file.bytes.len()),
+        );
+    }
+    if let Some(needle) = contains {
+        let text = String::from_utf8_lossy(&file.bytes);
+        if !text.contains(needle) {
+            return AssertionResult::fail_with(
+                "exported bytes do not contain `contains`",
+                needle,
+                format!("{} bytes starting {:?}", file.bytes.len(), text.chars().take(80).collect::<String>()),
+            );
+        }
+    }
+    AssertionResult::pass(format!(
+        "export {:?} ({} bytes, {}) matches",
+        file.name.as_str(),
+        file.bytes.len(),
+        file.mime.as_str()
+    ))
+}
+
+/// `assert_no_unmocked_requests`: every request function that ran since the
+/// last `mock` reset had a canned answer.
+fn eval_assert_no_unmocked_requests(params: &serde_json::Value) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_no_unmocked_requests", params, &[]) {
+        return bad;
+    }
+    let unmocked = azul_layout::request::mock::unmocked_requests();
+    if unmocked.is_empty() {
+        AssertionResult::pass("every request had a mocked answer")
+    } else {
+        AssertionResult::fail_with(
+            "request functions ran without a mocked answer (they resolved as cancelled)",
+            "none",
+            format!("{unmocked:?}"),
+        )
+    }
+}
+
+/// `assert_unmocked_request`: a request with no canned answer was recorded
+/// (proves the loud-failure path). Param: `request` (substring of the
+/// record, e.g. `"FileDialog::open_file"`).
+fn eval_assert_unmocked_request(params: &serde_json::Value) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_unmocked_request", params, &["request"]) {
+        return bad;
+    }
+    let Some(op) = params.get("request").and_then(serde_json::Value::as_str) else {
+        return AssertionResult::fail("assert_unmocked_request needs `request`");
+    };
+    let unmocked = azul_layout::request::mock::unmocked_requests();
+    if unmocked.iter().any(|u| u.contains(op)) {
+        AssertionResult::pass(format!("{op:?} ran unmocked, as expected"))
+    } else {
+        AssertionResult::fail_with(
+            "no unmocked request matches `op`",
+            op,
+            format!("{unmocked:?}"),
+        )
+    }
+}
+
 fn eval_assert_stderr(params: &serde_json::Value) -> AssertionResult {
     const CONSTRAINTS: &[&str] = &["contains", "not_contains", "clear"];
 
@@ -14198,6 +14492,10 @@ pub fn process_debug_event(
             std::thread::sleep(std::time::Duration::from_millis(*ms));
             send_ok(request, None, None);
         }
+        DebugEvent::Mock { set } => match apply_mock_set(set) {
+            Ok(()) => send_ok(request, None, None),
+            Err(e) => send_err(request, e),
+        },
 
         DebugEvent::TakeScreenshot => {
             log(

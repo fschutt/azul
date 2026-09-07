@@ -82,6 +82,16 @@ pub fn decode_mp4_h264(
     data: azul_core::refany::RefAny,
     on_result: azul_layout::callbacks::ResumeCallback,
 ) -> azul_core::task::RequestId {
+    // An e2e scenario can ask for a codec-free answer.
+    if azul_layout::request::mock::video_decode_mocked() {
+        return azul_layout::request::complete(
+            data,
+            on_result,
+            VideoDecodeResult {
+                video: OptionDecodedVideo::None,
+            },
+        );
+    }
     let video = match decode_mp4_h264_bytes(bytes.as_ref()) {
         Ok(d) => OptionDecodedVideo::Some(d),
         Err(_) => OptionDecodedVideo::None,

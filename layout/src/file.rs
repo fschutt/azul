@@ -1151,6 +1151,12 @@ impl FilePath {
     ///
     /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
     pub fn read_bytes_blocking(&self) -> Result<U8Vec, FileError> {
+        // Canned e2e documents (`e2e://...`) are served from the mock store;
+        // every other path is a real file.
+        #[cfg(feature = "text_layout")]
+        if let Some(bytes) = crate::request::mock::take_file_read(self.inner.as_str()) {
+            return Ok(U8Vec::from_vec(bytes));
+        }
         file_read(self.inner.as_str())
     }
 
@@ -1161,6 +1167,15 @@ impl FilePath {
     ///
     /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
     pub fn read_string_blocking(&self) -> Result<AzString, FileError> {
+        #[cfg(feature = "text_layout")]
+        if let Some(bytes) = crate::request::mock::take_file_read(self.inner.as_str()) {
+            return alloc::string::String::from_utf8(bytes)
+                .map(AzString::from)
+                .map_err(|_| FileError {
+                    message: AzString::from_const_str("canned e2e document is not UTF-8"),
+                    kind: FileErrorKind::Other,
+                });
+        }
         file_read_string(self.inner.as_str())
     }
 
