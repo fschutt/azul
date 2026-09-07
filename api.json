@@ -480,24 +480,20 @@
                             ]
                         },
                         {
-                            "id": "windows-manual",
-                            "label": "Windows (manual download)",
+                            "id": "windows-choco",
+                            "label": "Windows (Chocolatey)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and azul.h, then compile with MSVC (cl) in a Developer Command Prompt",
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
+                                    "content": "call refreshenv"
                                 },
                                 {
                                     "type": "command",
@@ -505,7 +501,11 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /I. hello-world.c azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cl /I%AZ_LINK_PATH% hello-world.c %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -548,20 +548,24 @@
                             ]
                         },
                         {
-                            "id": "windows-choco",
-                            "label": "Windows (Chocolatey)",
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
+                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and azul.h, then compile with MSVC (cl) in a Developer Command Prompt",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "call refreshenv"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.h"
                                 },
                                 {
                                     "type": "command",
@@ -569,11 +573,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cl /I%AZ_LINK_PATH% hello-world.c %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /I. hello-world.c azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -912,32 +912,36 @@
                             ]
                         },
                         {
-                            "id": "windows-manual",
-                            "label": "Windows (manual download)",
+                            "id": "windows-choco",
+                            "label": "Windows (Chocolatey)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
+                                    "content": "call refreshenv"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul03.hpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -984,36 +988,32 @@
                             ]
                         },
                         {
-                            "id": "windows-choco",
-                            "label": "Windows (Chocolatey)",
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
+                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "call refreshenv"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul03.hpp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1254,32 +1254,36 @@
                             ]
                         },
                         {
-                            "id": "windows-manual",
-                            "label": "Windows (manual download)",
+                            "id": "windows-choco",
+                            "label": "Windows (Chocolatey)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
+                                    "content": "call refreshenv"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul11.hpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1326,36 +1330,32 @@
                             ]
                         },
                         {
-                            "id": "windows-choco",
-                            "label": "Windows (Chocolatey)",
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
+                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "call refreshenv"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul11.hpp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1596,32 +1596,36 @@
                             ]
                         },
                         {
-                            "id": "windows-manual",
-                            "label": "Windows (manual download)",
+                            "id": "windows-choco",
+                            "label": "Windows (Chocolatey)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
+                                    "content": "call refreshenv"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul14.hpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++14 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1668,36 +1672,32 @@
                             ]
                         },
                         {
-                            "id": "windows-choco",
-                            "label": "Windows (Chocolatey)",
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
+                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "call refreshenv"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul14.hpp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cl /std:c++14 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++14 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -1938,32 +1938,36 @@
                             ]
                         },
                         {
-                            "id": "windows-manual",
-                            "label": "Windows (manual download)",
+                            "id": "windows-choco",
+                            "label": "Windows (Chocolatey)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
+                                    "content": "call refreshenv"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul17.hpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++17 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cl /std:c++17 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2010,36 +2014,32 @@
                             ]
                         },
                         {
-                            "id": "windows-choco",
-                            "label": "Windows (Chocolatey)",
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
+                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "call refreshenv"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul17.hpp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cl /std:c++17 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++17 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2280,32 +2280,36 @@
                             ]
                         },
                         {
-                            "id": "windows-manual",
-                            "label": "Windows (manual download)",
+                            "id": "windows-choco",
+                            "label": "Windows (Chocolatey)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
+                                    "content": "call refreshenv"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul20.hpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++20 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cl /std:c++20 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2352,36 +2356,32 @@
                             ]
                         },
                         {
-                            "id": "windows-choco",
-                            "label": "Windows (Chocolatey)",
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
+                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "call refreshenv"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul20.hpp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cl /std:c++20 /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++20 /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2622,32 +2622,36 @@
                             ]
                         },
                         {
-                            "id": "windows-manual",
-                            "label": "Windows (manual download)",
+                            "id": "windows-choco",
+                            "label": "Windows (Chocolatey)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
+                                    "content": "call refreshenv"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul23.hpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "cl /std:c++latest /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cl /std:c++latest /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2694,36 +2698,32 @@
                             ]
                         },
                         {
-                            "id": "windows-choco",
-                            "label": "Windows (Chocolatey)",
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed; the package sets AZ_LINK_PATH to the install directory, which the compile line uses",
+                            "description": "Download azul.dll, the MSVC import library azul.dll.lib and the C and C++ headers, then compile with MSVC (cl) in a Developer Command Prompt",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "call refreshenv"
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul23.hpp"
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.cpp"
+                                    "content": "tar xzf azul-cpp-$VERSION.tar.gz"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "cl /std:c++latest /I. /I%AZ_LINK_PATH% hello-world.cpp %AZ_LINK_PATH%\\azul.dll.lib /Fe:hello-world.exe"
+                                    "content": "cl /std:c++latest /I. hello-world.cpp azul.dll.lib /Fe:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -2989,8 +2989,42 @@
                     "displayName": "Fortran",
                     "install": [
                         {
-                            "id": "linux-gfortran",
-                            "label": "Linux (gfortran)",
+                            "id": "linux-apt",
+                            "label": "Linux (apt)",
+                            "os": [
+                                "linux"
+                            ],
+                            "description": "Debian / Ubuntu: install libazul from the self-hosted apt repository, unpack the generated module + Makefile, and build with the library taken from /usr/lib",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "sudo apt update && sudo apt install azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-fortran-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-fortran-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "make LDFLAGS=\"\""
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "./hello_world"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "linux-manual",
+                            "label": "Linux (manual download)",
                             "os": [
                                 "linux"
                             ],
@@ -3019,8 +3053,42 @@
                             ]
                         },
                         {
-                            "id": "macos-gfortran",
-                            "label": "macOS (gfortran)",
+                            "id": "macos-brew",
+                            "label": "macOS (Homebrew)",
+                            "os": [
+                                "macos"
+                            ],
+                            "description": "Install libazul.dylib from the self-hosted Homebrew tap, unpack the generated module + Makefile, and build against the Homebrew lib directory",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "brew install fschutt/azul/azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-fortran-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-fortran-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "make LDFLAGS=\"-L$(brew --prefix)/lib\""
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "./hello_world"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "macos-manual",
+                            "label": "macOS (manual download)",
                             "os": [
                                 "macos"
                             ],
@@ -3049,8 +3117,8 @@
                             ]
                         },
                         {
-                            "id": "windows-gfortran",
-                            "label": "Windows (gfortran)",
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
@@ -3188,8 +3256,42 @@
                     "displayName": "Go",
                     "install": [
                         {
-                            "id": "linux-go-build",
-                            "label": "Linux (go build)",
+                            "id": "linux-apt",
+                            "label": "Linux (apt)",
+                            "os": [
+                                "linux"
+                            ],
+                            "description": "Debian / Ubuntu: install libazul and azul.h from the self-hosted apt repository (into /usr/lib and /usr/include, where cgo finds them), then build the cgo hello-world",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "sudo apt update && sudo apt install azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/main.go"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "go mod init hello-world"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "CGO_LDFLAGS=\"-lazul -lpthread -lm -ldl\" go build -o hello-world ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "./hello-world"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "linux-manual",
+                            "label": "Linux (manual download)",
                             "os": [
                                 "linux"
                             ],
@@ -3222,8 +3324,42 @@
                             ]
                         },
                         {
-                            "id": "macos-go-build",
-                            "label": "macOS (go build)",
+                            "id": "macos-brew",
+                            "label": "macOS (Homebrew)",
+                            "os": [
+                                "macos"
+                            ],
+                            "description": "Install libazul.dylib and azul.h from the self-hosted Homebrew tap, then build the cgo hello-world against the Homebrew prefix",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "brew install fschutt/azul/azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/main.go"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "go mod init hello-world"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "CGO_CFLAGS=\"-I$(brew --prefix)/include\" CGO_LDFLAGS=\"-L$(brew --prefix)/lib -lazul -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -framework CoreFoundation\" go build -o hello-world ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "./hello-world"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "macos-manual",
+                            "label": "macOS (manual download)",
                             "os": [
                                 "macos"
                             ],
@@ -3256,8 +3392,124 @@
                             ]
                         },
                         {
-                            "id": "windows-go-build",
-                            "label": "Windows (go build)",
+                            "id": "windows-choco",
+                            "label": "Windows (Chocolatey)",
+                            "os": [
+                                "windows"
+                            ],
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted NuGet feed, copy them next to main.go, then build the cgo hello-world with MSVC's import library",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "call refreshenv"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll.lib\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.h\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/main.go"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "go mod init hello-world"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "set CGO_ENABLED=1"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "set CGO_CFLAGS=-I."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "set CGO_LDFLAGS=azul.dll.lib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "go build -o hello-world.exe ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "hello-world.exe"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "windows-scoop",
+                            "label": "Windows (Scoop)",
+                            "os": [
+                                "windows"
+                            ],
+                            "description": "Install azul.dll, azul.dll.lib and azul.h from the self-hosted Scoop bucket, copy them next to main.go, then build the cgo hello-world",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "scoop bucket add azul $HOSTNAME/ui/scoop.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "scoop install azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll.lib\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%USERPROFILE%\\scoop\\apps\\azul\\current\\azul.h\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/main.go"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "go mod init hello-world"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "set CGO_ENABLED=1"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "set CGO_CFLAGS=-I."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "set CGO_LDFLAGS=azul.dll.lib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "go build -o hello-world.exe ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "hello-world.exe"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
@@ -3315,8 +3567,46 @@
                     "displayName": "Haskell",
                     "install": [
                         {
-                            "id": "linux-cabal",
-                            "label": "Linux (cabal)",
+                            "id": "linux-apt",
+                            "label": "Linux (apt)",
+                            "os": [
+                                "linux"
+                            ],
+                            "description": "Debian / Ubuntu: install libazul from the self-hosted apt repository, unpack the generated cabal package, and build (extra-libraries: azul resolves from /usr/lib)",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "sudo apt update && sudo apt install azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-haskell-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-haskell-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "printf 'packages: .\\n          ./azul-haskell\\n' > cabal.project"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cabal build"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cabal run hello-world"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "linux-manual",
+                            "label": "Linux (manual download)",
                             "os": [
                                 "linux"
                             ],
@@ -3349,8 +3639,46 @@
                             ]
                         },
                         {
-                            "id": "macos-cabal",
-                            "label": "macOS (cabal)",
+                            "id": "macos-brew",
+                            "label": "macOS (Homebrew)",
+                            "os": [
+                                "macos"
+                            ],
+                            "description": "Install libazul.dylib from the self-hosted Homebrew tap, unpack the generated cabal package, and build against the Homebrew lib directory",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "brew install fschutt/azul/azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-haskell-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-haskell-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "printf 'packages: .\\n          ./azul-haskell\\n' > cabal.project"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cabal build --extra-lib-dirs=\"$(brew --prefix)/lib\""
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "cabal run hello-world"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "macos-manual",
+                            "label": "macOS (manual download)",
                             "os": [
                                 "macos"
                             ],
@@ -3383,8 +3711,8 @@
                             ]
                         },
                         {
-                            "id": "windows-cabal",
-                            "label": "Windows (cabal)",
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
@@ -3582,8 +3910,46 @@
                     "displayName": "Kotlin",
                     "install": [
                         {
-                            "id": "linux-kotlinc",
-                            "label": "Linux (kotlinc)",
+                            "id": "linux-apt",
+                            "label": "Linux (apt)",
+                            "os": [
+                                "linux"
+                            ],
+                            "description": "Debian / Ubuntu: install libazul from the self-hosted apt repository (JNA loads libazul.so from /usr/lib), then compile the generated binding and the hello-world with kotlinc",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "sudo apt update && sudo apt install azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Azul.kt"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.kt"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -L -o jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "kotlinc -J-Xmx4g -cp jna.jar Azul.kt HelloWorld.kt -include-runtime -d hello-world.jar"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "java -cp hello-world.jar:jna.jar com.azul.HelloWorldKt"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "linux-manual",
+                            "label": "Linux (manual download)",
                             "os": [
                                 "linux"
                             ],
@@ -3616,8 +3982,46 @@
                             ]
                         },
                         {
-                            "id": "macos-kotlinc",
-                            "label": "macOS (kotlinc)",
+                            "id": "macos-brew",
+                            "label": "macOS (Homebrew)",
+                            "os": [
+                                "macos"
+                            ],
+                            "description": "Install libazul.dylib from the self-hosted Homebrew tap, compile with kotlinc, and point JNA's library path at the Homebrew prefix",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "brew install fschutt/azul/azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/Azul.kt"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.kt"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -L -o jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "kotlinc -J-Xmx4g -cp jna.jar Azul.kt HelloWorld.kt -include-runtime -d hello-world.jar"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "java -XstartOnFirstThread -Djna.library.path=\"$(brew --prefix)/lib\" -cp hello-world.jar:jna.jar com.azul.HelloWorldKt"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "macos-manual",
+                            "label": "macOS (manual download)",
                             "os": [
                                 "macos"
                             ],
@@ -3748,8 +4152,38 @@
                     "displayName": "Lua",
                     "install": [
                         {
-                            "id": "linux-luajit",
-                            "label": "Linux (LuaJIT)",
+                            "id": "linux-apt",
+                            "label": "Linux (apt)",
+                            "os": [
+                                "linux"
+                            ],
+                            "description": "Debian / Ubuntu: install libazul from the self-hosted apt repository (LuaJIT's ffi.load finds libazul.so in /usr/lib), then run the hello-world with LuaJIT",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "sudo apt update && sudo apt install azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.lua"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.lua"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "luajit hello-world.lua"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "linux-manual",
+                            "label": "Linux (manual download)",
                             "os": [
                                 "linux"
                             ],
@@ -3774,8 +4208,38 @@
                             ]
                         },
                         {
-                            "id": "macos-luajit",
-                            "label": "macOS (LuaJIT)",
+                            "id": "macos-brew",
+                            "label": "macOS (Homebrew)",
+                            "os": [
+                                "macos"
+                            ],
+                            "description": "Install libazul.dylib from the self-hosted Homebrew tap and run with LuaJIT; ffi.load looks the library up by name, so the run points DYLD_LIBRARY_PATH at the Homebrew prefix",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "brew install fschutt/azul/azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.lua"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.lua"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "DYLD_LIBRARY_PATH=\"$(brew --prefix)/lib\" luajit hello-world.lua"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "macos-manual",
+                            "label": "macOS (manual download)",
                             "os": [
                                 "macos"
                             ],
@@ -3800,8 +4264,76 @@
                             ]
                         },
                         {
-                            "id": "windows-luajit",
-                            "label": "Windows (LuaJIT)",
+                            "id": "windows-choco",
+                            "label": "Windows (Chocolatey)",
+                            "os": [
+                                "windows"
+                            ],
+                            "description": "Install azul.dll from the self-hosted NuGet feed (the package sets AZ_LINK_PATH), copy it next to the script, and run with LuaJIT",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "call refreshenv"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.lua"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.lua"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "luajit hello-world.lua"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "windows-scoop",
+                            "label": "Windows (Scoop)",
+                            "os": [
+                                "windows"
+                            ],
+                            "description": "Install azul.dll from the self-hosted Scoop bucket, copy it next to the script, and run with LuaJIT",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "scoop bucket add azul $HOSTNAME/ui/scoop.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "scoop install azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.lua"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.lua"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "luajit hello-world.lua"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
@@ -4091,20 +4623,24 @@
                             ]
                         },
                         {
-                            "id": "windows-manual",
-                            "label": "Windows (manual download)",
+                            "id": "windows-choco",
+                            "label": "Windows (Chocolatey)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install ctypes, download the prebuilt DLL, generate the azul bindings, then build with Dune (under MSYS2 / Cygwin OCaml)",
+                            "description": "Install azul.dll from the self-hosted NuGet feed (the package sets AZ_LINK_PATH), install ctypes with opam, build with dune, and copy azul.dll next to the executable",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "opam install ctypes ctypes-foreign dune"
+                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
                                 },
                                 {
                                     "type": "command",
-                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                                    "content": "call refreshenv"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "opam install ctypes ctypes-foreign dune"
                                 },
                                 {
                                     "type": "command",
@@ -4113,6 +4649,10 @@
                                 {
                                     "type": "command",
                                     "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
                                 },
                                 {
                                     "type": "command",
@@ -4159,24 +4699,20 @@
                             ]
                         },
                         {
-                            "id": "windows-choco",
-                            "label": "Windows (Chocolatey)",
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
-                            "description": "Install azul.dll from the self-hosted NuGet feed (the package sets AZ_LINK_PATH), install ctypes with opam, build with dune, and copy azul.dll next to the executable",
+                            "description": "Install ctypes, download the prebuilt DLL, generate the azul bindings, then build with Dune (under MSYS2 / Cygwin OCaml)",
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "call refreshenv"
-                                },
-                                {
-                                    "type": "command",
                                     "content": "opam install ctypes ctypes-foreign dune"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
                                 },
                                 {
                                     "type": "command",
@@ -4185,10 +4721,6 @@
                                 {
                                     "type": "command",
                                     "content": "tar xzf azul-ocaml-$VERSION.tar.gz"
-                                },
-                                {
-                                    "type": "command",
-                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
                                 },
                                 {
                                     "type": "command",
@@ -4308,8 +4840,42 @@
                     "displayName": "Pascal",
                     "install": [
                         {
-                            "id": "linux-fpc",
-                            "label": "Linux (fpc)",
+                            "id": "linux-apt",
+                            "label": "Linux (apt)",
+                            "os": [
+                                "linux"
+                            ],
+                            "description": "Debian / Ubuntu: install libazul from the self-hosted apt repository, then compile the generated unit and the hello-world with fpc (the unit links `azul` by name, resolved from /usr/lib)",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "sudo apt update && sudo apt install azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "fpc -Mobjfpc -Sh hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "./hello-world"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "linux-manual",
+                            "label": "Linux (manual download)",
                             "os": [
                                 "linux"
                             ],
@@ -4338,8 +4904,42 @@
                             ]
                         },
                         {
-                            "id": "macos-fpc",
-                            "label": "macOS (fpc)",
+                            "id": "macos-brew",
+                            "label": "macOS (Homebrew)",
+                            "os": [
+                                "macos"
+                            ],
+                            "description": "Install libazul.dylib from the self-hosted Homebrew tap, then compile with fpc against the Homebrew lib directory",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "brew install fschutt/azul/azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "fpc -Mobjfpc -Sh -Fl\"$(brew --prefix)/lib\" hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "./hello-world"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "macos-manual",
+                            "label": "macOS (manual download)",
                             "os": [
                                 "macos"
                             ],
@@ -4368,8 +4968,84 @@
                             ]
                         },
                         {
-                            "id": "windows-fpc",
-                            "label": "Windows (fpc)",
+                            "id": "windows-choco",
+                            "label": "Windows (Chocolatey)",
+                            "os": [
+                                "windows"
+                            ],
+                            "description": "Install azul.dll from the self-hosted NuGet feed, copy it next to the source, then compile with fpc (Windows resolves the `azul` import at load time)",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "call refreshenv"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "fpc -Mobjfpc -Sh hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "hello-world.exe"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "windows-scoop",
+                            "label": "Windows (Scoop)",
+                            "os": [
+                                "windows"
+                            ],
+                            "description": "Install azul.dll from the self-hosted Scoop bucket, copy it next to the source, then compile with fpc",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "scoop bucket add azul $HOSTNAME/ui/scoop.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "scoop install azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "fpc -Mobjfpc -Sh hello-world.pas"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "hello-world.exe"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
@@ -5464,8 +6140,38 @@
                     "displayName": "Zig",
                     "install": [
                         {
-                            "id": "linux-zig-build",
-                            "label": "Linux (zig build)",
+                            "id": "linux-apt",
+                            "label": "Linux (apt)",
+                            "os": [
+                                "linux"
+                            ],
+                            "description": "Debian / Ubuntu: install libazul and azul.h from the self-hosted apt repository, unpack the generated azul.zig + build.zig, then `zig build run` links -lazul from /usr/lib",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "echo 'deb [trusted=yes] $HOSTNAME/ui/apt stable main' | sudo tee /etc/apt/sources.list.d/azul.list"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "sudo apt update && sudo apt install azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-zig-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-zig-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "zig build run"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "linux-manual",
+                            "label": "Linux (manual download)",
                             "os": [
                                 "linux"
                             ],
@@ -5490,8 +6196,42 @@
                             ]
                         },
                         {
-                            "id": "macos-zig-build",
-                            "label": "macOS (zig build)",
+                            "id": "macos-brew",
+                            "label": "macOS (Homebrew)",
+                            "os": [
+                                "macos"
+                            ],
+                            "description": "Install libazul.dylib from the self-hosted Homebrew tap and link it into the project directory, where the generated build.zig looks for it",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "brew tap fschutt/azul $HOSTNAME/ui/brew.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "brew install fschutt/azul/azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-zig-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-zig-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "ln -sf \"$(brew --prefix)/lib/libazul.dylib\" libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "zig build run"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "macos-manual",
+                            "label": "macOS (manual download)",
                             "os": [
                                 "macos"
                             ],
@@ -5516,8 +6256,76 @@
                             ]
                         },
                         {
-                            "id": "windows-zig-build",
-                            "label": "Windows (zig build)",
+                            "id": "windows-choco",
+                            "label": "Windows (Chocolatey)",
+                            "os": [
+                                "windows"
+                            ],
+                            "description": "Install azul.dll from the self-hosted NuGet feed, copy it into the project directory (where the generated build.zig looks for it), then `zig build run`",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "choco install libazul -y --source $HOSTNAME/ui/nuget/index.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "call refreshenv"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-zig-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-zig-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%AZ_LINK_PATH%\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "zig build run"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "windows-scoop",
+                            "label": "Windows (Scoop)",
+                            "os": [
+                                "windows"
+                            ],
+                            "description": "Install azul.dll from the self-hosted Scoop bucket, copy it into the project directory, then `zig build run`",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "scoop bucket add azul $HOSTNAME/ui/scoop.git"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "scoop install azul"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -LO $HOSTNAME/ui/release/$VERSION/azul-zig-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "tar xzf azul-zig-$VERSION.tar.gz"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "copy \"%USERPROFILE%\\scoop\\apps\\azul\\current\\azul.dll\" ."
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "zig build run"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "windows-manual",
+                            "label": "Windows (manual download)",
                             "os": [
                                 "windows"
                             ],
