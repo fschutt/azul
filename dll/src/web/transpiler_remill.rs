@@ -5154,6 +5154,19 @@ enum ImportIntercept {
     /// HashDoS threat. Returning FALSE (or the Proxy's 0) would make `std`
     /// treat seeding as failed.
     ProcessPrng,
+    /// `WakeByAddressAll` / `WakeByAddressSingle` — a no-op returning nothing.
+    ///
+    /// `Once::call`'s completion path calls the wake after running the closure.
+    /// Single-threaded there are never waiters, so doing nothing is the correct
+    /// answer, not an approximation.
+    FutexWake,
+    /// `WaitOnAddress(addr, compare, size, ms) -> BOOL` — returns TRUE.
+    ///
+    /// Only reachable on the CONTENDED path, which cannot occur single-threaded;
+    /// `Once::call` takes the uncontended CAS route instead. TRUE means "the
+    /// value changed", so if it ever were reached the caller re-checks and makes
+    /// progress rather than spinning on a FALSE timeout.
+    FutexWait,
     /// A one-argument `double -> double` CRT math call whose LLVM intrinsic
     /// lowers to a single wasm instruction, so it needs no env import: the
     /// argument arrives in XMM0 and the result goes back to XMM0.
@@ -5179,6 +5192,8 @@ impl ImportIntercept {
             ImportIntercept::Memmove => "memmove",
             ImportIntercept::Memset => "memset",
             ImportIntercept::ProcessPrng => "ProcessPrng",
+            ImportIntercept::FutexWake => "WakeByAddress",
+            ImportIntercept::FutexWait => "WaitOnAddress",
             ImportIntercept::F64Unary(n, _) => n,
         }
     }
@@ -5292,6 +5307,14 @@ impl ImportIntercept {
                     l = l, a0 = a0, a1 = a1, a2 = a2, ret = ret, mid = mid,
                 )
             }
+            // Void: write no return slot. A wake reports nothing, and the
+            // Win64 ABI leaves RAX undefined across it.
+            ImportIntercept::FutexWake => format!("imp{l}:\n  ret ptr %memory\n", l = l),
+            ImportIntercept::FutexWait => format!(
+                "imp{l}:\n  %wp{l} = getelementptr inbounds i8, ptr %state, i64 {ret}\n  \
+                 store i64 1, ptr %wp{l}, align 8\n  ret ptr %memory\n",
+                l = l, ret = ret,
+            ),
             ImportIntercept::ProcessPrng => format!(
                 // ProcessPrng(pbData ARG[0], cbData ARG[1]) -> BOOL in RAX.
                 // Fill the buffer with a fixed byte and report success; the
@@ -5403,6 +5426,12 @@ fn intercepted_import_labels(cases: &[(u64, u64)]) -> Vec<(u64, ImportIntercept,
         ("ntdll.dll\0", "RtlAllocateHeap\0", ImportIntercept::HeapAlloc),
         ("ntdll.dll\0", "RtlFreeHeap\0", ImportIntercept::HeapFree),
         ("ntdll.dll\0", "RtlReAllocateHeap\0", ImportIntercept::HeapReAlloc),
+        ("api-ms-win-core-synch-l1-2-0.dll\0", "WakeByAddressAll\0", ImportIntercept::FutexWake),
+        ("api-ms-win-core-synch-l1-2-0.dll\0", "WakeByAddressSingle\0", ImportIntercept::FutexWake),
+        ("api-ms-win-core-synch-l1-2-0.dll\0", "WaitOnAddress\0", ImportIntercept::FutexWait),
+        ("KERNELBASE.dll\0", "WakeByAddressAll\0", ImportIntercept::FutexWake),
+        ("KERNELBASE.dll\0", "WakeByAddressSingle\0", ImportIntercept::FutexWake),
+        ("KERNELBASE.dll\0", "WaitOnAddress\0", ImportIntercept::FutexWait),
         ("bcryptprimitives.dll\0", "ProcessPrng\0", ImportIntercept::ProcessPrng),
         ("VCRUNTIME140.dll\0", "memcmp\0", ImportIntercept::Memcmp),
         ("VCRUNTIME140.dll\0", "memcpy\0", ImportIntercept::Memmove),
