@@ -123764,8 +123764,8 @@
                             "share the store; it closes when the last clone is dropped or `close` is called.",
                             "Desktop keeps a pure-Rust SQLite engine as a hidden implementation detail, web uses",
                             "IndexedDB; raw SQL is not part of the API on any target.",
-                            "On 32-bit Linux (i686, armv7) the 0.2.0 builds ship without the bundled engine —",
-                            "turso_sync_engine 0.7.2 does not compile for a 32-bit `off_t` — so `open` fails there",
+                            "On 32-bit Linux (i686, armv7) the 0.2.0 builds ship without the bundled engine, because",
+                            "turso_sync_engine 0.7.2 does not compile for a 32-bit `off_t`; `open` fails there",
                             "exactly as in a build without the `db-sqlite` feature."
                         ],
                         "external": "azul_dll::unified::sqlite::Db",
