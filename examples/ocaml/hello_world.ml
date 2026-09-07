@@ -4,10 +4,10 @@ let model = { counter = 5 }
 let on_click (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr) : int =
   let ref_ptr = Ctypes.from_voidp Azul.az_ref_any data_ptr in
   match Azul.azul_refany_get ref_ptr with
-  | None -> 0
+  | None -> Azul.Update.do_nothing
   | Some (m : my_data_model) ->
       m.counter <- m.counter + 1;
-      1
+      Azul.Update.refresh_dom
 
 let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
   : Azul.az_dom Ctypes.structure =
@@ -29,7 +29,7 @@ let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
       in
       let button_dom =
         Azul.Button.create "Increase counter"
-        |> as_btn_type 1
+        |> as_btn_type Azul.ButtonType.primary
         |> on_click_ click_data click_cb
         |> Azul.Button.dom
       in
