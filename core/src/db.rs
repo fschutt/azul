@@ -21,9 +21,13 @@ use crate::refany::{OptionRefAny, RefAny};
 /// Mirrors `SQLite`'s storage classes (Null / Integer / Real / Text / Blob)
 /// but names nothing engine-specific.
 #[repr(C, u8)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum DbValue {
-    /// SQL `NULL`.
+    /// SQL `NULL`. Also the `Default`: the Python binding's callback
+    /// trampolines return `<ReturnType>::default()` when the Python side
+    /// cannot be reached, and a callback that yields a `DbValue` has to have
+    /// one — without it `python_api.rs` failed to compile on all three OSes.
+    #[default]
     Null,
     /// 64-bit signed integer.
     Integer(i64),

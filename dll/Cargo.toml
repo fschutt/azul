@@ -206,8 +206,16 @@ tfd = { version = "0.1.0", default-features = false, optional = true }
 gilrs = { package = "gilrs-azul", version = "0.11.3", optional = true }
 
 
-[target.'cfg(target_os = "linux")'.dependencies]
+# `libc` is declared for every unix, not only linux: the sqlite free-space
+# probe (`extra/sqlite/mod.rs`, `statvfs`) is gated on
+# `all(unix, feature = "libc")`, and with the crate in a linux-only table the
+# FEATURE was still on for macOS while the CRATE was not — "unresolved module
+# or unlinked crate `libc`" in every macOS dll build (C FFI Compile, azuldbg
+# swap-in, FFI Safety Tests, Build E2E DLL).
+[target.'cfg(unix)'.dependencies]
 libc = { version = "0.2", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
 x11-clipboard = { version = "0.9.3", optional = true }
 accesskit_unix = { version = "0.21", optional = true }
 # GeoClue2 D-Bus client for the Linux geolocation backend. Pure-Rust (no system

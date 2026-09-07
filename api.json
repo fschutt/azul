@@ -124164,7 +124164,8 @@
                         "derive": [
                             "Debug",
                             "Clone",
-                            "PartialEq"
+                            "PartialEq",
+                            "Default"
                         ],
                         "enum_fields": [
                             {

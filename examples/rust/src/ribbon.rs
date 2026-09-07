@@ -201,7 +201,7 @@ extern "C" fn on_style_set_picked(_app: RefAny, _: CallbackInfo, result: RefAny)
         return Update::DoNothing;
     };
     if let Some(path) = picked.path.into_option() {
-        println!("style set: {}", path.as_str());
+        println!("style set: {}", path.as_string());
     }
     Update::DoNothing
 }

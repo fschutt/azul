@@ -401,6 +401,12 @@ const OP_POLICY: &[(&str, Option<DenyReason>)] = &[
     // scenario can advance an animation without sampling the wall clock, which
     // is what would otherwise make every mid-flight assertion flaky.
     ("tick_animations", None),
+    // ALLOW: queues the answers the engine's host requests (file dialogs,
+    // http, audio/video devices) will receive, so a scenario that opens a
+    // file or fetches a URL is deterministic instead of blocking on a real
+    // dialog. Same reasoning as tick_animations: it exists so a generated
+    // scenario can drive a flow that would otherwise depend on the host.
+    ("mock", None),
     // -- ALLOW: MOCK INPUT — the primary drive surface ----------------------
     ("mouse_move",                None),
     ("mouse_down",                None),
