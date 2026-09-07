@@ -43,6 +43,17 @@ program that uses the unit (the example below has them):
   passed by value match the Rust `extern "C"` ABI exactly. Without it,
   field offsets silently differ and calls corrupt memory.
 
+One thing the unit does for you: its `initialization` block masks all
+FPU exceptions (`SetExceptionMask`). The Free Pascal runtime unmasks
+InvalidOp, ZeroDivide and Overflow at program start, but libazul is
+Rust and C code written for the IEEE-754 default environment, where
+NaN and ±inf are ordinary values — layout code computes `inf - inf`
+on purpose. With FPC's traps armed, the first such operation inside
+the library dies, and on macOS/aarch64 the kernel reports it as
+`EAccessViolation` although no memory access is wrong. If you need
+FP traps in your own numeric code, enable them only around code that
+never calls into azul, and mask them again before the next call.
+
 ## Installation
 
 You need the Free Pascal Compiler (`fpc`, 3.2+ — `apt install
