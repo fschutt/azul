@@ -77,3 +77,34 @@ Then close the detection gap: any mirrored 8-byte value that lands inside a
 *loaded module other than a tracked image* and is not one of the routed
 imports should be an audit finding, not silence. Reaching one at runtime is a
 wrong answer by construction.
+
+## The interceptions only fire if the whole function is lifted
+
+`ImportIntercept::{ProcessHeap, HeapAlloc, HeapFree, HeapReAlloc}` are what make
+the Rust allocator shims work on the bump heap: the shim is lifted *for real*,
+and its two indirect transfers land on the intercepted imports rather than on
+Windows.
+
+`__rust_dealloc` is a 44-byte body of exactly that shape:
+
+```
++0x12  ff 15 98 ba 08 00  call [rip+0x8ba98]   -> GetProcessHeap
++0x25  48 ff 25 94 ba 08  jmp  [rip+0x8ba94]   -> HeapFree
+```
+
+So a truncated lift breaks the interception silently. When the symbol size was
+wrong (16 for a 44-byte function, because `__rdl_dealloc` and `__rust_dealloc`
+are ICF-folded and the gap-to-next-symbol heuristic landed mid-instruction), the
+body stopped at `+0x12` — *before* either transfer — and emitted a missing block
+there instead. It presented as an unmatched dispatch at `entry+0x12` that no
+dispatcher case could ever satisfy, because the problem was not a missing case.
+
+Two consequences worth keeping:
+
+* the force-enqueued allocator shims read `max(e.size, LIFT_READ_WINDOW)`, not
+  `e.size` — a larger window is safe because remill follows control flow from
+  the entry and stops at the terminator;
+* if an intercepted import ever appears not to fire, check that the calling
+  function was lifted to its full extent before suspecting the interception
+  table. `scripts/m9_e2e/dump_dealloc.py` decodes a function from a confirmed
+  entry for exactly this.
