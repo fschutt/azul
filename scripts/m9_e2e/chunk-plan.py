@@ -131,6 +131,27 @@ print('top lazy candidates (exclusive, non-boot roots):')
 for size, n, r, _ in lazy_cands[:10]:
     print('   %8.3f MB  %5d fns  %s' % (size, n, r[:66]))
 
+# THE CEILING on the whole lever. Every byte owned by exactly one non-boot root
+# is a lazy candidate and nothing else ever can be: shared nodes must stay
+# resident by definition, and a boot root's subtree is entered by the loader
+# directly. Reporting only the top N hides whether the rest is worth a chunk --
+# a long tail of small chunks costs a fetch each and saves almost nothing -- and
+# hides whether this lever can reach the target at all.
+tot_all = mb(total_nodes)
+ceiling = sum(t[0] for t in lazy_cands)
+print('')
+print('LAZY CEILING: %.2f MB of %.2f MB (-%.1f%%) over %d candidate root(s); '
+      '%d boot root(s) excluded'
+      % (ceiling, tot_all, 100.0 * ceiling / max(tot_all, 1e-9),
+         len(lazy_cands), len(boot_roots)))
+cum = 0.0
+for i, (size, _n, _r, _ex) in enumerate(lazy_cands, start=1):
+    cum += size
+    if i in (1, 3, 10, 30, 100, 300) or i == len(lazy_cands):
+        print('   top-%-4d %8.2f MB  (-%.1f%%)   [%.1f%% of the ceiling]'
+              % (i, cum, 100.0 * cum / max(tot_all, 1e-9),
+                 100.0 * cum / max(ceiling, 1e-9)))
+
 chosen = lazy_cands[:NLAZY]
 lazy_all = set()
 for _s, _n, _r, ex in chosen:
