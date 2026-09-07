@@ -1348,3 +1348,73 @@ its original const pointer - not about the loader.
 * p0 takes a non-mini stack relocation (`SP 66576 -> 327680`) because the stem is
   not "azul-mini". Harmless for a measurement, wrong for a p0 that actually
   replaces the mini - fix it when the split ships.
+
+## The mirror figure is corroborated to 0.04%
+
+The 768,200-byte mirror cost was derived from p0 alone (its post-mirror brotli
+minus its pre-mirror brotli). The run then printed the full module's served size
+independently:
+
+    mini.wasm: 30188442 bytes raw -> 4542946 bytes brotli (q9)
+
+Predicted from the p0-derived parts: 3,772,871 (mini code, CLI q9) + 768,200
+(mirror) = **4,541,071**. Measured: **4,542,946**. Off by 1,875 bytes, **0.04%**.
+
+That settles two things at once - the brotli CLI at `-q 9 -w 22` is equivalent to
+the Rust `CompressorWriter(_, 4096, 9, 22)` for this purpose, and the mirror
+really does cost the same in both modules.
+
+| | raw | brotli q9 |
+|---|---|---|
+| full mini, served | 30,188,442 | 4,542,946 |
+| p0, served equivalent | 21,707,906 | 3,332,571 |
+| **chunking saves** | 8,480,536 | **1,210,375 = -26.6%** |
+
+## q11 on p0: -14.1%, measured not projected
+
+    p0 code only: 19,638,084 raw -> q9 2,564,371 -> q11 2,201,690
+
+-362,681 bytes for the code half alone. The server picks q by size (q11 only at
+<= 8 MiB), and p0 is 21.7 MB, so it takes q9 today. Still the cheapest unspent
+item on the list.
+
+## What p0 is actually made of (wasm-ld --Map, post-gc-sections)
+
+Object-file bytes were the wrong unit: they carry relocations and symbol tables
+the linker drops, and they count code `--gc-sections` discards. The map reports
+what survived. 98.7% of p0's bytes join to a name.
+
+| crate | full mini | p0 | delta |
+|---|---|---|---|
+| azul_layout | 6.986 | 3.589 | -3.397 |
+| core | 4.874 | 4.020 | -0.854 |
+| alloc | 4.143 | 3.475 | -0.668 |
+| azul_css | 3.435 | 2.499 | -0.936 |
+| azul_core | 2.244 | 1.865 | -0.379 |
+| hashbrown | 0.764 | 0.501 | -0.263 |
+| taffy | 0.757 | **0** | -0.757 |
+| serde_json | 0.691 | 0.486 | -0.205 |
+| pulldown_cmark | 0.533 | **0** | -0.533 |
+| rust_fontconfig | 0.727 | 0.722 | -0.005 |
+| allsorts | 0.665 | 0.665 | 0 |
+| **total linked** | **28.111** | **19.632** | **-8.479 (-30.2%)** |
+
+Two whole crates leave: `taffy` (the grid/flex solver, reached only through the
+measure trampoline) and `pulldown_cmark` (markdown, app payload). That is the
+partition behaving exactly as designed.
+
+The composition of what REMAINS is the more useful half:
+
+* **generic Rust machinery 8.00 MB / 40.7%** (core 4.02, alloc 3.48,
+  hashbrown 0.50)
+* **engine logic 7.95 MB / 40.5%** (azul_layout 3.59, azul_css 2.50,
+  azul_core 1.87)
+
+So after chunking, two fifths of the first-paint payload is still generic Rust
+machinery rather than anything specific to laying out a document. That is what
+the C-series source refactors target, and it is where the remaining code-side
+mass actually is.
+
+Biggest single survivors, for reference: `layout_dom_recursive_impl` 0.217 MB,
+`ParsedFont::from_bytes_internal` 0.194, `text3::cache::create_logical_items`
+0.184, `parse_css_property` 0.170.
