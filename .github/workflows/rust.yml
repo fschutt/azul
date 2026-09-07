@@ -4141,6 +4141,7 @@ jobs:
             scripts/build_registry_mirrors.sh
             scripts/verify_install_commands.sh
             scripts/prune_dead_release_links.py
+            scripts/publish_upstream.sh
           sparse-checkout-cone-mode: false
 
       - name: Download website skeleton
