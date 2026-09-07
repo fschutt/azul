@@ -1778,3 +1778,35 @@ themselves: `on_save_clicked` eager core −2.6%, `on_undo` −3.4%, `on_redo` �
 with lazy ceilings of −26.6%, −11.2% and −11.2% spread over 600+ roots at ~0.10 MB
 each. That is a fetch per chunk for nothing, and it confirms the
 `AZ_CHUNK_LINK_MIN_MB` gate rather than merely assuming it.
+
+## ⚠ CORRECTION: the font A/B is contaminated by swept-in drift
+
+`mini_walk_diff.py` on run 79 vs run 81 answers the "-131 functions" question,
+and the answer kills the hypothesis attached to it:
+
+    only in B (added): 70      only in A (removed): 198
+
+Churn in BOTH directions, and neither side is font-shaped. Added: core 37,
+alloc 9, webrender 8, webrender_api 4, wr_azul_glyph_rasterizer 4, euclid 2.
+Removed: core 44, std 39, azul 34, **cpal 18** (audio), windows 11,
+windows_result 7, **pollster 4** (async). That is the desktop/platform sweep
+moving, which the record already notes is occasional rather than per-rebuild.
+
+**So the font force-mirror was NOT seeding phantom fn-pointer roots.** Good: the
+hypothesis was recorded as unverified and is now disproved rather than quietly
+inherited.
+
+It also means **p0's -221,652 brotli is not the font's number.** Only the mirror
+delta is attributable:
+
+| | run 79 | run 81 | delta |
+|---|---|---|---|
+| mini mirror bytes | 2,049,750 | 1,683,059 | **-366,691 raw** |
+
+At the mirror's measured 2.69x that is roughly **-136 KB compressed** for the
+mini; the remaining ~85 KB of the p0 delta is drift (198 functions out, 70 in).
+
+An A/B across a rebuild cannot isolate a change smaller than the drift, and the
+drift here is ~500 KB of raw code. The mirror byte count is the number to quote
+for this change, because it is measured directly rather than differenced across
+two walks that are not the same walk.
