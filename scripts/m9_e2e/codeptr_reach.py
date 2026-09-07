@@ -27,6 +27,7 @@ import io
 import os
 import re
 import struct
+import subprocess
 import sys
 
 EXE = (r'C:\Users\felix\Development\azul\target\x86_64-pc-windows-msvc'
@@ -202,9 +203,40 @@ print('%s: %d, of which NOT walked: %d'
          len(cand), len(missing)))
 print('')
 
-# Names come from the lift log, not the scratch: an un-walked target has no .ll
-# file by definition. Without them 119 addresses is a list, not a finding - the
-# names are what separate a deliberate exclusion from a gap.
+# An un-walked target has no .ll file by definition, and the lift log names only
+# functions something CALLED - so neither source can name these. The PDB can.
+# llvm-symbolizer answers for any address in the image and returns the source
+# location too; addresses go in at the PREFERRED base, since it reads the file
+# on disk rather than a running process.
+SYMBOLIZER = (r'C:\Users\felix\Development\azul\third_party\remill'
+              r'\dependencies\install\bin\llvm-symbolizer.exe')
+
+
+def symbolize(rvas):
+    if not rvas or not os.path.exists(SYMBOLIZER):
+        return {}
+    stdin = '\n'.join('0x%x' % (pref_base + r) for r in rvas) + '\n'
+    try:
+        p = subprocess.run(
+            [SYMBOLIZER, '--obj=' + EXE, '--functions=short'],
+            input=stdin, capture_output=True, text=True, timeout=300)
+    except Exception as exc:
+        print('  (symbolizer failed: %s)' % exc)
+        return {}
+    out = {}
+    # Each address answers with a name line, a location line, then a blank.
+    blocks = p.stdout.replace('\r\n', '\n').split('\n\n')
+    for r, blk in zip(rvas, blocks):
+        lines = [x for x in blk.split('\n') if x.strip()]
+        if not lines:
+            continue
+        name = lines[0].strip()
+        loc = lines[1].strip() if len(lines) > 1 else ''
+        if name and name != '??':
+            out[r] = (name, loc)
+    return out
+
+
 log_names = {}
 LOG = os.environ.get('AZ_LIFT_LOG', r'C:\rb\azwriter_server.log')
 if os.path.exists(LOG):
@@ -213,8 +245,7 @@ if os.path.exists(LOG):
         m = pr.search(line)
         if m:
             log_names.setdefault(int(m.group(2), 16) - base, m.group(1))
-    print('names recovered from %s: %d' % (LOG, len(log_names)))
-    print('')
+    print('names recovered from the lift log: %d' % len(log_names))
 
 # A target that is not even a .pdata begin is data misread as a pointer far more
 # often than it is a real entry point, so separate the two.
@@ -222,8 +253,16 @@ real = sorted(t for t in missing if t in bstart)
 odd = sorted(t for t in missing if t not in bstart)
 print('=== NOT walked, and a real function entry: %d  <-- these can miss ==='
       % len(real))
-named = [(t, log_names.get(t, '')) for t in real]
-for t, nm in sorted(named, key=lambda r: (r[1] == '', r[1])):
-    print('  0x%-8x  %d site(s)  %s' % (t, len(missing[t]), nm or '(no name in log)'))
+sym = symbolize(real)
+print('names recovered from the PDB: %d of %d' % (len(sym), len(real)))
+print('')
+rows = []
+for t in real:
+    nm, loc = sym.get(t, (log_names.get(t, ''), ''))
+    rows.append((nm or '(unnamed)', loc, t))
+for nm, loc, t in sorted(rows):
+    print('  %-64s %d site(s)  0x%x' % (nm[:64], len(missing[t]), t))
+    if loc:
+        print('        %s' % loc)
 print('')
 print('=== NOT walked and not a .pdata begin (likely not a pointer): %d ===' % len(odd))
