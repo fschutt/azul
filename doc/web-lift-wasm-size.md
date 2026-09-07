@@ -1478,3 +1478,74 @@ already measured -54.8% on a single function - and the mirror, which is a hard
 link. The real saving can be larger (the caller code that sets up a sort goes
 too) or smaller (something else keeps a callee alive). It bounds the lever, it
 does not replace building it.
+
+
+# ⚠ THE ARTIFACT BEING OPTIMISED IS A THIRD OF WHAT FIRST PAINT DOWNLOADS
+
+Every size number in this document, and every lever ranked in the backlog, is
+about `azul-mini`. A boot does not fetch only azul-mini. It fetches the layout
+module and one callback module per interactive node, and each of those is lifted
+the same way, with its own data mirror.
+
+Run 79's boot fetched **nine** modules:
+
+| module | raw | note |
+|---|---|---|
+| **azwriter::layout** | **37,309,938** | **larger than the mini** |
+| azul-mini | 30,188,442 | the only one ever measured |
+| azwriter::on_pages_mounted | 10,537,771 | |
+| ribbon::on_ribbon_gallery_cell_click | 1,454,289 | |
+| ribbon::on_ribbon_gallery_more_click | 1,082,577 | |
+| slider::on_slider_pointer_down | 1,010,545 | |
+| azwriter::on_zoom_out | 880,426 | |
+| azwriter::on_zoom_in | 880,420 | |
+| statusbar::on_status_bar_view_click | 883,047 | |
+| **total** | **84,227,455** | mini is **35.8%** |
+
+The layout module compresses to **4,114,662** at q9 before its own 2,163,616-byte
+mirror, so it delivers around **4.9 MB** - against the mini's 4,542,946. **The
+single largest thing a browser downloads at first paint is not the module this
+work has been shrinking.**
+
+At the mini's ratio the whole first-paint set is roughly **12 MB brotli**. So
+chunking the mini from 4.54 to 3.33 MB is **-1.21 MB of ~12 MB, about -10%**, not
+the -26.6% it is against the mini alone. Both numbers are true; only one of them
+is what a user waits for.
+
+`FIRST-PAINT SET` now logs every served module's raw size at startup so this
+cannot go unnoticed again.
+
+## The mirror is duplicated across all of them
+
+Each module mirrors the const pages its own code reads, and those sets overlap
+heavily. Across all 25 lifted modules the mirror totals **22,677,937 bytes**; the
+nine first-paint modules carry **9,108,936** of it, roughly 3.4 MB compressed.
+
+In the smallest callback modules the mirror is most of the module: 462,597 bytes
+of mirror inside an 880,426-byte module.
+
+### The fallback font was in every one of them, and nothing reads it
+
+`FONT-MIRROR` forced the full 226,812-byte TTF into all 25 modules. `eventloop.rs`
+already records that this approach was superseded:
+
+> the embedded font const can't be reliably mirrored into the lifted wasm - it's
+> read by dynamic index so only its header lands, and force-mirroring it lands at
+> a synth base that differs from where the lifted code reads (a deep
+> lift-internals mismatch). The robust fix: the JS harness allocates a wasm
+> buffer, writes the TTF bytes into wasm linear memory, and registers it via
+> AzStartup_setFallbackFont.
+
+`web_fallback_font_bytes()` returns that JS buffer whenever one is set, and every
+boot log carries `fallback font registered (226812 bytes)`. So the mirrored copy
+is never the one read - while costing 226,812 bytes in each of the nine
+first-paint modules: **2,041,308 raw, roughly 810 KB compressed, of duplicated
+dead font.**
+
+Measured, correcting an earlier estimate that called a TTF "largely
+incompressible" and put it at 120-150 KB: **226,812 -> 90,823 at q9 (2.50x)**.
+
+Now off by default behind `AZ_FONT_MIRROR=1`. The env var stays until a run
+confirms text still renders, because the failure mode is silent and specific -
+allsorts parses a zero-filled font and text measures height 0, which reads as a
+layout bug rather than a missing mirror.
