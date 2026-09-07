@@ -108,6 +108,26 @@ be silent — the audit claiming something the loader does not bind.
 It does **not** catch the other direction (the loader binds something the audit
 does not list), because that one already surfaces loudly as F3.
 
+## Running the drift test
+
+```
+cargo test --release -p azul-dll --features web-transpiler --lib     provided_env_matches_loader
+```
+
+Note the package. The test lives in crate `azul`, which is package **azul-dll** —
+running it against `-p AzWriter` prints
+
+```
+test result: ok. 0 passed; 0 failed; 0 ignored; 42 filtered out
+```
+
+because the filter matches nothing in AzWriter's own lib. **"0 passed" is a
+failure**, not a pass, and it looks exactly like success in a scrollback. Also do
+not pass `--no-default-features`: azul-layout then loses the feature that
+provides `azul_layout::icu` and the build fails before any test runs.
+
+Passing looks like `1 passed; 0 failed; ...; 2154 filtered out`.
+
 ## Checking a module by hand
 
 `scripts/m9_e2e/wasm-imports.py <file.wasm> [...]` lists a module's imports,
