@@ -14,7 +14,7 @@
 //! — see doc/SUPER_PLAN_0.2.0.md.)
 
 use azul::audio::AudioConfig;
-use azul::audio::{AudioDeviceList, AudioDeviceListResult};
+use azul::audio::{AudioDeviceList, AudioDeviceListResult, AudioFrame};
 use azul::callbacks::CallbackInfo;
 use azul::camera::CameraConfig;
 use azul::css::{CssProperty, LayoutWidth, LogicalSize, PixelValue};
@@ -24,7 +24,7 @@ use azul::prelude::*;
 use azul::screen::ScreenCaptureConfig;
 use azul::str::String as AzString;
 use azul::widgets::{
-    AudioFrame, CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget, ProgressBar,
+    CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget, ProgressBar,
     ScreenCaptureWidget,
 };
 

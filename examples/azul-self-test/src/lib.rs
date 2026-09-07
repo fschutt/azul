@@ -34,7 +34,8 @@ use azul::prelude::*;
 use azul::sensor::SensorKind;
 use azul::task::TerminateTimer;
 use azul::vec::U8Vec;
-use azul::widgets::{AudioFrame, CameraWidget, MicrophoneWidget};
+use azul::audio::AudioFrame;
+use azul::widgets::{CameraWidget, MicrophoneWidget};
 use azul::window::PlatformCapability;
 
 /// How long the windowed (event-loop) probe phase runs before auto-closing.

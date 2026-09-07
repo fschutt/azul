@@ -1811,7 +1811,7 @@ extern "C" fn on_export_target(mut data: RefAny, _info: CallbackInfo, result: Re
         return Update::DoNothing;
     };
     match data.downcast_mut::<PaintState>() {
-        Some(mut s) => s.request_export(path.as_str().to_string()),
+        Some(mut s) => s.request_export(path.as_string().as_str().to_string()),
         None => return Update::DoNothing,
     }
     Update::RefreshDom
