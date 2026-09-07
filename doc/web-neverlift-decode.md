@@ -176,6 +176,25 @@ HashMap seed; **it disables lazy initialization across the board.**
 A Leaf is only a bug where the caller uses the result, so each needs checking
 against its call site before its classification is changed.
 
+**Is lifting the `Once`/`OnceLock` machinery safe?** The objection is that
+`Once::call`'s completion path calls `futex_wake_all` → `WakeByAddressAll`, and
+Windows system images are deliberately skipped (`is_system_image`), so that
+would become a *new* `env` import — and a missing import fails instantiation
+outright, which is worse than the current bug.
+
+It holds up. The loader carries a Proxy that zero-stubs unprovided imports
+(`loader_js.rs`), so the import resolves, and a no-op `WakeByAddressAll` is
+*correct* here: single-threaded, there are never waiters to wake.
+`WaitOnAddress` sits on the contended path and is unreachable for the same
+reason, so `Once::call` takes the uncontended CAS route — INCOMPLETE → RUNNING →
+run the closure → COMPLETE. `lift_audit` reports Proxy zero-stubs, so a wrong
+one would surface rather than rot silently.
+
+The general caution still applies: a zero-stub is *not* universally safe — the
+same Proxy turns an unprovided `memcpy`/`memset` into a silent no-op — so each
+newly-imported symbol needs the same "is zero the right answer" check this one
+got.
+
 ## How to use it
 
 1. Boot traps. Read `0x40048` — `scripts/m9_e2e/tls-probe.js` prints it, and
