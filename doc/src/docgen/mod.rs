@@ -895,7 +895,7 @@ pub fn get_landing_head_tags(inline_css: bool) -> String {
       <meta charset='utf-8'/>
       <meta name='viewport' content='width=device-width, initial-scale=1'>
       <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
-      <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
+      <meta name='description' content='Azul is a standalone GUI library working on six platforms (desktop, mobile, web), seventeen programming languages, two rendering modes (CPU / GPU) and zero external dependencies.'>
       <meta name='keywords' content='gui, rust, user interface'>
 
       {theme_boot}
@@ -1117,7 +1117,7 @@ pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&str>) -> String {
       <meta charset='utf-8'/>
       <meta name='viewport' content='width=device-width, initial-scale=1'>
       <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
-      <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
+      <meta name='description' content='Azul is a standalone GUI library working on six platforms (desktop, mobile, web), seventeen programming languages, two rendering modes (CPU / GPU) and zero external dependencies.'>
       <meta name='keywords' content='gui, rust, user interface'>
 
       {theme_boot}
