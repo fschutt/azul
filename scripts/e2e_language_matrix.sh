@@ -2163,6 +2163,9 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
   local LANG_TIMEOUT="$LANG_TIMEOUT"
   case "$lang" in
     racket) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
+    # dune compiles the 7.8 MB azul.ml (ocaml) and cabal the three generated
+    # Haskell modules from scratch on the first run: minutes, not a hang.
+    ocaml|haskell) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
   esac
   # NB: capture the exit code via `&&` short-circuit, NOT `if …; then return; fi`.
   # A bare `if <cmd>; then return 0; fi` whose condition is FALSE leaves the `if`

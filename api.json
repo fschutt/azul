@@ -2949,8 +2949,8 @@
                                 {
                                     "type": "code",
                                     "language": "toml",
-                                    "file": ".cargo/config.toml",
-                                    "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }"
+                                    "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }",
+                                    "file": ".cargo/config.toml"
                                 },
                                 {
                                     "type": "command",
@@ -2988,8 +2988,8 @@
                                 {
                                     "type": "code",
                                     "language": "toml",
-                                    "file": ".cargo/config.toml",
-                                    "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }"
+                                    "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }",
+                                    "file": ".cargo/config.toml"
                                 },
                                 {
                                     "type": "command",
@@ -3015,8 +3015,8 @@
                                 {
                                     "type": "code",
                                     "language": "toml",
-                                    "file": ".cargo/config.toml",
-                                    "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }"
+                                    "content": "# .cargo/config.toml (in the project or in ~/.cargo)\n[registries]\nazul = { index = \"sparse+$HOSTNAME/ui/cargo/\" }",
+                                    "file": ".cargo/config.toml"
                                 },
                                 {
                                     "type": "command",

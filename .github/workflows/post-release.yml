@@ -280,10 +280,16 @@ jobs:
       - name: Linux packages (lua)
         if: runner.os == 'Linux' && matrix.lang == 'lua'
         run: sudo apt-get install -y -qq luajit >/dev/null
-      - name: Windows packages (lua)
+      - name: MSVC (LuaJIT build on Windows)
         if: runner.os == 'Windows' && matrix.lang == 'lua'
-        shell: bash
-        run: choco install luajit -y --no-progress
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: LuaJIT (Windows; no choco package exists - built from source, ~1 min)
+        if: runner.os == 'Windows' && matrix.lang == 'lua'
+        shell: cmd
+        run: |
+          git clone --depth 1 https://github.com/LuaJIT/LuaJIT.git %RUNNER_TEMP%\LuaJIT
+          cd %RUNNER_TEMP%\LuaJIT\src && msvcbuild.bat
+          echo %RUNNER_TEMP%\LuaJIT\src>> %GITHUB_PATH%
       - name: MSVC (C / C++ on Windows)
         if: runner.os == 'Windows' && (matrix.lang == 'c' || matrix.lang == 'cpp')
         uses: ilammy/msvc-dev-cmd@v1
