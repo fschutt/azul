@@ -3558,7 +3558,20 @@ impl RemillTranspiler {
                 // is already visited is precisely what makes that node shared by
                 // two roots, and dropping those edges would report every node as
                 // exclusive to whichever root reached it first.
-                edges.entry(addr).or_default().insert(entry.canonical_addr);
+                //
+                // NeverLift and BoundaryImport are excluded, matching
+                // chunk-plan.py: neither is a lifted body in this bundle — a
+                // NeverLift is a panic entry point and a BoundaryImport ships as
+                // its own shard — so counting them as graph edges changes what
+                // each root reaches and inflates the exclusive subtrees. Without
+                // this the two derivations disagreed (4737 vs 4299 nodes,
+                // -53.2% vs -29.1% eager saving).
+                if !matches!(
+                    entry.classification,
+                    SymFnClass::NeverLift | SymFnClass::BoundaryImport
+                ) {
+                    edges.entry(addr).or_default().insert(entry.canonical_addr);
+                }
                 if already_visited {
                     continue;
                 }
@@ -5742,9 +5755,13 @@ impl RemillTranspiler {
             .dispatcher_csynths(visited)
             .into_iter()
             .filter(|(_label, body)| {
+                // `resolve_synth` returns a SYNTH address (it walks the synth
+                // chain); `core` is keyed by NATIVE canonical addresses. Comparing
+                // the two matched nothing and filtered every case away, which
+                // silently reproduced the "no dispatcher" link.
                 symbol_table::get()
-                    .and_then(|t| t.resolve_synth(*body as usize))
-                    .map(|a| core.contains(&a))
+                    .and_then(|t| t.lookup_by_synth(*body as usize))
+                    .map(|e| core.contains(&e.canonical_addr))
                     .unwrap_or(true)
             })
             .collect();
