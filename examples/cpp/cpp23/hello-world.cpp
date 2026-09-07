@@ -16,14 +16,17 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     auto* d = data_wrapper.downcast_ref<MyDataModel>();
     if (!d) return Dom::create_body();
 
-    Dom body = Dom::create_body();
-    body = body.with_child(Dom::create_div()
-        .with_css("font-size: 32px;"sv)
-        .with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))));
-    body = body.with_child(Button::create("Increase counter"sv)
+    Dom label = Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))
+        .with_css("font-size: 32px;"sv);
+
+    Dom button = Button::create("Increase counter"sv)
         .with_button_type(ButtonType::Primary)
         .with_on_click(data_wrapper.clone(), on_click)
-        .dom());
+        .dom();
+
+    Dom body = Dom::create_body();
+    body = body.with_child(std::move(label));
+    body = body.with_child(std::move(button));
     return std::move(body);
 }
 

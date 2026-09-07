@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#define AZ_STR(s) AzString_copyFromBytes((const uint8_t*)(s), 0, strlen(s))
+static AzString str(const char* s) {
+    return AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s));
+}
 
 typedef struct { uint32_t counter; } MyDataModel;
 void MyDataModel_destructor(void* m) { }
@@ -18,18 +20,18 @@ AzJson MyDataModel_toJson(AzRefAny refany) {
     }
     int64_t counter = (int64_t)ref.ptr->counter;
     MyDataModelRef_delete(&ref);
-    AzJsonKeyValue kv = AzJsonKeyValue_create(AZ_STR("counter"), AzJson_int(counter));
+    AzJsonKeyValue kv = AzJsonKeyValue_create(str("counter"), AzJson_int(counter));
     return AzJson_object(AzJsonKeyValueVec_fromItem(kv));
 }
 
 AzResultRefAnyString MyDataModel_fromJson(AzJson json) {
-    AzOptionJson field = AzJson_getKey(&json, AZ_STR("counter"));
+    AzOptionJson field = AzJson_getKey(&json, str("counter"));
     if (field.None.tag == AzOptionJson_Tag_None) {
-        return AzResultRefAnyString_err(AZ_STR("Expected object with 'counter'"));
+        return AzResultRefAnyString_err(str("Expected object with 'counter'"));
     }
     AzOptionI64 counter_opt = AzJson_asInt(&field.Some.payload);
     if (counter_opt.None.tag == AzOptionI64_Tag_None) {
-        return AzResultRefAnyString_err(AZ_STR("'counter' is not an integer"));
+        return AzResultRefAnyString_err(str("'counter' is not an integer"));
     }
     MyDataModel model = { .counter = (uint32_t)counter_opt.Some.payload };
     return AzResultRefAnyString_ok(MyDataModel_upcast(model));
@@ -52,26 +54,20 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     }
 
     char buffer[20];
-    int written = snprintf(buffer, 20, "%d", d.ptr->counter);
+    snprintf(buffer, sizeof(buffer), "%d", d.ptr->counter);
     MyDataModelRef_delete(&d);
 
-    AzString label_text = AzString_copyFromBytes((const uint8_t*)buffer, 0, written);
+    AzDom label = AzDom_createPWithText(str(buffer));
+    AzDom_setCss(&label, str("font-size: 32px;"));
 
-    AzDom label = AzDom_createSpanWithText(label_text);
-    AzDom label_wrapper = AzDom_createDiv();
-    AzDom_addCssProperty(&label_wrapper, AzCssPropertyWithConditions_simple(
-        AzCssProperty_fontSize(AzStyleFontSize_px(32.0))
-    ));
-    AzDom_addChild(&label_wrapper, label);
-
-    AzButton button = AzButton_create(AZ_STR("Increase counter"));
+    AzButton button = AzButton_create(str("Increase counter"));
     AzButton_setButtonType(&button, AzButtonType_Primary);
     AzRefAny data_clone = AzRefAny_clone(&data);
     AzButton_setOnClick(&button, data_clone, on_click);
     AzDom button_dom = AzButton_dom(button);
 
     AzDom body = AzDom_createBody();
-    AzDom_addChild(&body, label_wrapper);
+    AzDom_addChild(&body, label);
     AzDom_addChild(&body, button_dom);
 
     return body;
@@ -82,7 +78,7 @@ int main() {
     AzRefAny data = MyDataModel_upcast(model);
 
     AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
-    window.window_state.title = AZ_STR("Hello World");
+    window.window_state.title = str("Hello World");
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;
 

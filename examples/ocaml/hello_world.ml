@@ -23,10 +23,9 @@ let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
       let as_btn_type t b       = Azul.Button.with_button_type b t in
       let on_click_ data cb b   = Azul.Button.with_on_click b data cb in
 
-      let label_div =
-        Azul.Dom.create_div ()
+      let label =
+        Azul.Dom.create_p_with_text (string_of_int m.counter)
         |> with_css "font-size: 32px;"
-        |> with_child (Azul.raw_dom (Azul.Dom.create_span_with_text (string_of_int m.counter)))
       in
       let button_dom =
         Azul.Button.create "Increase counter"
@@ -35,7 +34,7 @@ let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
         |> Azul.Button.dom
       in
       Azul.Dom.create_body ()
-      |> with_child (Azul.raw_dom label_div)
+      |> with_child (Azul.raw_dom label)
       |> with_child button_dom
       |> Azul.raw_dom
 

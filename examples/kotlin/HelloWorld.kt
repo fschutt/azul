@@ -17,9 +17,8 @@ private val layout = AzulHostInvoker.LayoutCallback { _, dataPtr, _ ->
     if (m !is MyDataModel) {
         Dom.createBody()
     } else {
-        val label = Dom.createDiv()
+        val label = Dom.createPWithText(m.counter.toString())
             .withCss("font-size: 32px;")
-            .withChild(Dom.createSpanWithText(m.counter.toString()))
         val buttonDom = Button.create("Increase counter")
             .withButtonType(ButtonType.Primary.value)
             .onClick(m, onClick)

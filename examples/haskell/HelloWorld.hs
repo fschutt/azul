@@ -44,17 +44,14 @@ buildLayout counter master clickCb _data _info outPtr = do
   n <- readIORef counter
   c_AzDom_createBody_via outPtr
 
-  allocaBytes szDom $ \divBuf -> do
-    c_AzDom_createDiv_via divBuf
+  allocaBytes szDom $ \labelDom -> do
+    allocaBytes szString $ \text -> do
+      mkAzString (show n) text
+      c_AzDom_createPWithText_via text labelDom
     allocaBytes szString $ \css -> do
       mkAzString "font-size: 32px;" css
-      c_AzDom_setCss_via divBuf css
-    allocaBytes szDom $ \txt ->
-      allocaBytes szString $ \label -> do
-        mkAzString (show n) label
-        c_AzDom_createTextDoNotUseWithoutBlockLevelWrapper_via label txt
-        c_AzDom_addChild_via divBuf txt
-    c_AzDom_addChild_via outPtr divBuf
+      c_AzDom_setCss_via labelDom css
+    c_AzDom_addChild_via outPtr labelDom
 
   allocaBytes szButton $ \btn -> do
     allocaBytes szString $ \label -> do

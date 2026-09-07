@@ -93,14 +93,9 @@ func goLayout(data C.AzRefAny, _ C.AzLayoutCallbackInfo) C.AzDom {
 
 	counterStr := []byte(fmt.Sprintf("%d", m.counter))
 	counterAz := C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&counterStr[0])), C.size_t(len(counterStr)))
-	label := C.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counterAz)
-
-	labelWrapper := C.AzDom_createDiv()
-	fontSize := C.AzStyleFontSize_px(C.float(32.0))
-	cssProp := C.AzCssProperty_fontSize(fontSize)
-	cond := C.AzCssPropertyWithConditions_simple(cssProp)
-	C.AzDom_addCssProperty(&labelWrapper, cond)
-	C.AzDom_addChild(&labelWrapper, label)
+	label := C.AzDom_createPWithText(counterAz)
+	cssBytes := []byte("font-size: 32px;")
+	C.AzDom_setCss(&label, C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&cssBytes[0])), C.size_t(len(cssBytes))))
 
 	btnLabelBytes := []byte("Increase counter")
 	btnLabel := C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&btnLabelBytes[0])), C.size_t(len(btnLabelBytes)))
@@ -111,7 +106,7 @@ func goLayout(data C.AzRefAny, _ C.AzLayoutCallbackInfo) C.AzDom {
 	buttonDom := C.AzButton_dom(button)
 
 	body := C.AzDom_createBody()
-	C.AzDom_addChild(&body, labelWrapper)
+	C.AzDom_addChild(&body, label)
 	C.AzDom_addChild(&body, buttonDom)
 	return body
 }

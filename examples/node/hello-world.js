@@ -3,9 +3,7 @@
 let azul;
 try { azul = require('azul'); } catch (_) { azul = require('./azul.js'); }
 const {
-    App, AppConfig, Button, ButtonType, Dom,
-    CssProperty, CssPropertyWithConditions, StyleFontSize,
-    Update, WindowBackgroundMaterial, WindowCreateOptions, WindowDecorations,
+    App, AppConfig, Button, ButtonType, Dom, Update, WindowCreateOptions,
     refanyCreate, refanyGet,
 } = azul;
 const model = { counter: 5 };
@@ -21,11 +19,8 @@ function layout(dataPtr, _info) {
     const m = refanyGet(dataPtr);
     if (m == null) return Dom.create_body();
 
-    const label = Dom.create_div()
-        .with_css_property(
-            CssPropertyWithConditions.simple(
-                CssProperty.font_size(StyleFontSize.px(32.0))))
-        .with_child(Dom.create_text_do_not_use_without_block_level_wrapper(String(m.counter)));
+    const label = Dom.create_p_with_text(String(m.counter))
+        .with_css('font-size: 32px;');
 
     const button = Button.create('Increase counter')
         .with_button_type(ButtonType.Primary)

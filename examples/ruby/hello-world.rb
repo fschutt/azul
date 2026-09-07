@@ -19,9 +19,8 @@ layout = lambda do |data_ptr, _info|
   m = Azul::RefAny.unwrap(data_ptr)
   next Azul::Dom.create_body if m.nil?
 
-  label = Azul::Dom.create_div
+  label = Azul::Dom.create_p_with_text(m.counter.to_s)
     .with_css('font-size: 32px;')
-    .with_child(Azul::Dom.create_text_do_not_use_without_block_level_wrapper(m.counter.to_s))
 
   button = Azul::Button.create('Increase counter')
     .with_button_type(Azul::ButtonType::Primary)

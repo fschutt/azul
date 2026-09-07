@@ -29,9 +29,8 @@ public final class HelloWorld {
                 return Dom.createBody();
             }
             MyDataModel m = (MyDataModel) recovered;
-            Dom label = Dom.createDiv()
-                .withCss("font-size: 32px;")
-                .withChild(Dom.createSpanWithText(String.valueOf(m.counter)));
+            Dom label = Dom.createPWithText(String.valueOf(m.counter))
+                .withCss("font-size: 32px;");
             Dom buttonDom = Button.create("Increase counter")
                 .withButtonType(ButtonType.Primary.value)
                 .onClick(m, ON_CLICK)

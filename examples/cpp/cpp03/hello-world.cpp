@@ -21,9 +21,8 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     char buffer[20];
     std::snprintf(buffer, sizeof(buffer), "%u", d->counter);
 
-    Dom label = Dom::create_div()
-        .with_css(String("font-size: 32px;"))
-        .with_child(Dom::create_p_with_text(String(buffer)));
+    Dom label = Dom::create_p_with_text(String(buffer))
+        .with_css(String("font-size: 32px;"));
 
     Button button = Button::create(String("Increase counter"))
         .with_button_type(ButtonType::Primary)

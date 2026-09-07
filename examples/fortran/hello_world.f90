@@ -44,7 +44,7 @@ contains
     type(c_ptr) :: praw
     type(t_model), pointer :: m
     type(AzDom), pointer :: dom_out
-    type(AzDom) :: body, label_wrap
+    type(AzDom) :: body, label_dom
     type(AzButton) :: btn
     type(AzButtonOnClickCallback) :: click_cb
     type(AzRefAny) :: click_data
@@ -55,10 +55,8 @@ contains
       call c_f_pointer(praw, m)
       write (num, '(I0)') m%counter
 
-      label_wrap = az_dom_create_div()
-      label_wrap = az_dom_with_css(label_wrap, mk_str('font-size: 32px;'))
-      label_wrap = az_dom_with_child(label_wrap, &
-                                     az_dom_create_text_do_not_use_without_block_level_wrapper(mk_str(trim(num))))
+      label_dom = az_dom_create_p_with_text(mk_str(trim(num)))
+      label_dom = az_dom_with_css(label_dom, mk_str('font-size: 32px;'))
 
       click_cb = azul_register_buttononclickcallback(my_on_click)
       click_data = azul_refany_create(c_loc(model))
@@ -66,7 +64,7 @@ contains
       btn = az_button_with_button_type(btn, AzButtonType_Primary)
       btn = az_button_with_on_click(btn, click_data, click_cb)
 
-      body = az_dom_with_child(body, label_wrap)
+      body = az_dom_with_child(body, label_dom)
       body = az_dom_with_child(body, az_button_dom(btn))
     end if
     if (c_associated(out_ptr)) then
