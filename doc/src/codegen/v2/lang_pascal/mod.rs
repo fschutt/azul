@@ -345,7 +345,7 @@ fn is_pascal_method_shadow(name: &str) -> bool {
 
 /// Pascal reserved words (FPC + Object Pascal). Subset that's likely to
 /// collide with field/argument names in api.json.
-fn is_pascal_reserved(name: &str) -> bool {
+pub(super) fn is_pascal_reserved(name: &str) -> bool {
     matches!(
         name,
         "absolute"
