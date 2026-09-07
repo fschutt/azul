@@ -124087,6 +124087,10 @@
                         "repr": "C"
                     },
                     "DbRows": {
+                        "doc": [
+                            "A column-named, row-major value grid: the rows of an `iterate` / `query_index`",
+                            "answer (`key`, `value` columns). Cell `(row, col)` is `values[row * num_columns + col]`."
+                        ],
                         "external": "azul_core::db::DbRows",
                         "derive": [
                             "Debug",
@@ -124103,6 +124107,56 @@
                                 }
                             }
                         ],
+                        "functions": {
+                            "num_columns": {
+                                "doc": [
+                                    "Number of columns."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.num_columns()"
+                            },
+                            "num_rows": {
+                                "doc": [
+                                    "Number of rows (`0` when there are no columns)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.num_rows()"
+                            },
+                            "get": {
+                                "doc": [
+                                    "The cell at `(row, col)`, or `None` if out of range."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "row": "usize"
+                                    },
+                                    {
+                                        "col": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDbValue"
+                                },
+                                "fn_body": "object.get(row, col).cloned().into()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "DbValue": {
