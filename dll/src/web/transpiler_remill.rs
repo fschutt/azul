@@ -3821,7 +3821,13 @@ impl RemillTranspiler {
         let chunk_core = chunk_n
             .filter(|_| opts.output_stem == "azul-mini")
             .and_then(|n| {
-                report_chunk_partition(&edges, &self.scratch_dir, &opts.output_stem, n)
+                report_chunk_partition(
+                    &edges,
+                    &self.scratch_dir,
+                    &opts.output_stem,
+                    n,
+                    &object_paths,
+                )
             });
 
         let bytes = self.link_objects_to_wasm(
@@ -5832,7 +5838,23 @@ fn report_chunk_partition(
     scratch: &std::path::Path,
     stem: &str,
     n_lazy: usize,
+    object_paths: &[PathBuf],
 ) -> Option<HashSet<usize>> {
+    // Objects that are not `__az_dep_<hex>.o` — the AzStartup_* wrappers, bump
+    // helpers, callback shim, dispatcher — carry no address in their name, so
+    // the per-address size lookup below reports them as 0. They are always in
+    // the core, so add them to both sides rather than dropping them: leaving
+    // them out made the saving percentage read higher than it is.
+    let infra_bytes: u64 = object_paths
+        .iter()
+        .filter(|p| {
+            !p.file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.starts_with("__az_dep_"))
+                .unwrap_or(false)
+        })
+        .filter_map(|p| std::fs::metadata(p).ok().map(|m| m.len()))
+        .sum();
     let mut nodes: HashSet<usize> = HashSet::new();
     let mut callees: HashSet<usize> = HashSet::new();
     for (c, cs) in edges {
@@ -5899,7 +5921,7 @@ fn report_chunk_partition(
             .unwrap_or(false)
     };
 
-    let total = bytes(&nodes);
+    let total = bytes(&nodes) + infra_bytes;
     let mut cands: Vec<(u64, usize, HashSet<usize>)> = roots
         .iter()
         .filter(|r| !is_boot_root(**r))
@@ -5933,6 +5955,11 @@ fn report_chunk_partition(
         );
     }
     let core_bytes = total - bytes(&lazy);
+    eprintln!(
+        "[azul-web] AZ_CHUNK {stem}: infrastructure (non-__az_dep objects) {:.2} MB, \
+         always eager",
+        infra_bytes as f64 / 1e6,
+    );
     eprintln!(
         "[azul-web] AZ_CHUNK {stem}: eager core {:.2} MB of {:.2} MB ({:+.1}%)",
         core_bytes as f64 / 1e6,
