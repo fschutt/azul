@@ -97,6 +97,7 @@ the mirror. Just never quote it as the payload.
 | 73 | 4808 | 29,055,785 | 3,004,149 | 9.67× | 11 no-OS interceptions + the shared math table. **Served: 30,988,418 raw / 4,476,910 br(q9)** — the mirror is 1,932,629 B of it |
 | 74 | 4811 | 29,029,656 | — | — | per-module bump force-enqueue. **Served: 30,960,360 raw / 4,475,296 br(q9)** — flat, so the shims cost the mini nothing |
 | 75 | 4781 | 27,515,438 | — | — | **size text symbols from `.pdata`.** Served: **29,357,260 raw / 4,391,624 br(q9)** — **−1,603,100 raw / −83,672 brotli** vs run 74, because over-reads fell 2,072 → 5: the lift stops at each function's real end instead of running past it |
+| 76 | 4699 | — | — | — | **canonical size, not thunk size.** Served: **29,078,070 raw / 4,340,113 br(q9)**. TRUNCATED 0 across the whole run. Cumulative vs run 74: **−1,882,290 raw / −135,183 brotli** |
 
 A run can end without ever serving, and still be measurable. Run 72 linked its
 mini and then the audit stopped the server over four unimplemented env imports — which turned out to be
