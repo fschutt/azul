@@ -32,6 +32,19 @@ overstated one log by 280×.
 | 65 | 4629 | 28,597,541 | 2,962,946 | 9.65× | NeverLift caller recorder (`%pc`) |
 | 66 | 4629 | 28,610,990 | 2,962,847 | 9.66× | caller recorder via `[RSP]` |
 | 67 | 4644 | 28,700,051 | 2,968,550 | 9.67× | lift `std::hash::random` KEYS accessor |
+| 68 | 4646 | 28,701,067 | 2,969,896 | 9.66× | force-enqueue dealloc/realloc |
+| 69 | 4865 | 29,288,644 | 3,017,261 | 9.71× | alias-thunk cases + lift `sync::once` |
+
+Run 69 is the largest single-change growth so far: **+587,577 raw** over run 68,
+from the `OnceLock`/`Once` carve-out pulling the lazy-init machinery into the
+walk (+219 functions). It is a correctness fix, so the cost is accepted — but it
+moves *away* from the size target, and that machinery is a candidate to push out
+of the eager core once chunking starts.
+
+It also gives a third data point for the linked-vs-artifact rule: the `lifted +
+linked` figure grew **665,571** while the stripped artifact grew **587,577**.
+The linked number has now over-predicted every time it was checked, so it must
+not be quoted as a change's cost.
 
 +0.77% raw from 61 to 64, which the swept-in drift alone accounts for (see
 below). The brotli ratio stays flat at ~9.6×, consistent with the measured
