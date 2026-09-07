@@ -327,8 +327,16 @@ fn emit_static_system_deps(target: &str) {
         }
     } else if target.contains("linux") {
         // The X11/Wayland/EGL entry points are dlopen'd at runtime, so only the
-        // libc-adjacent ones are needed at link time.
-        for lib in ["dl", "pthread", "m"] {
+        // libc-adjacent ones are needed at link time — plus the C++ runtime:
+        // the archive carries C++ objects (the Vulkan memory allocator wrapper
+        // behind the video path, compiled with exceptions), and their
+        // `__gxx_personality_v0` reference is satisfied by libstdc++. As a
+        // cargo dependency the `cc` crate emits that link for us; a prebuilt
+        // `.a` has no such metadata, so every Linux demo died in rust-lld with
+        // "undefined symbol: __gxx_personality_v0 ... wrapper.cpp" (PR 469 run
+        // 34152799415). libazul.so itself already NEEDs libstdc++, so this adds
+        // no new runtime requirement.
+        for lib in ["dl", "pthread", "m", "stdc++"] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }
     }
