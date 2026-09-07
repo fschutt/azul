@@ -3815,9 +3815,14 @@ impl RemillTranspiler {
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|n| *n > 0);
-        let chunk_core = chunk_n.and_then(|n| {
-            report_chunk_partition(&edges, &self.scratch_dir, &opts.output_stem, n)
-        });
+        // The mini only: the chunk design is about the first-paint payload, and
+        // the per-callback modules are already separate downloads. Running it for
+        // all 24 cost 23 wasted links a run.
+        let chunk_core = chunk_n
+            .filter(|_| opts.output_stem == "azul-mini")
+            .and_then(|n| {
+                report_chunk_partition(&edges, &self.scratch_dir, &opts.output_stem, n)
+            });
 
         let bytes = self.link_objects_to_wasm(
             &object_paths,
@@ -5788,11 +5793,21 @@ impl RemillTranspiler {
             accessed_pages,
             accessed_ranges,
         ) {
-            Ok(b) => eprintln!(
-                "[azul-web] AZ_CHUNK {}: p0 linked {} bytes",
-                opts.output_stem,
-                b.len(),
-            ),
+            Ok(b) => {
+                // brotli at q9 — the quality the server uses for a module this
+                // size — so the number is comparable with its own
+                // `mini.wasm: N raw -> M brotli (q9)` line rather than with an
+                // offline q11 measurement of a different artifact.
+                let br = super::server::brotli_compress(&b, 9)
+                    .map(|c| c.len().to_string())
+                    .unwrap_or_else(|| "?".to_string());
+                eprintln!(
+                    "[azul-web] AZ_CHUNK {}: p0 linked {} bytes raw -> {} brotli (q9)",
+                    opts.output_stem,
+                    b.len(),
+                    br,
+                );
+            }
             Err(e) => eprintln!(
                 "[azul-web] AZ_CHUNK {}: p0 link FAILED: {}",
                 opts.output_stem, e.reason,
