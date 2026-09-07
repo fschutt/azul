@@ -865,7 +865,13 @@ lang_deps_cleanup() {
       ;;
     fortran)
       rm -f "$REPO_ROOT/examples/fortran/hello_world" "$REPO_ROOT/examples/fortran/"*.o "$REPO_ROOT/examples/fortran/"*.mod
-      rm -f "$REPO_ROOT/examples/fortran/azul.f90" "$REPO_ROOT/examples/fortran/Makefile"
+      rm -f "$REPO_ROOT/examples/fortran/azul.f90"
+      # examples/fortran/Makefile is TRACKED (the release ships it as the
+      # documented `Makefile`); the recipe overwrote it with the codegen copy
+      # and this line then deleted it, so every local e2e run left a deleted
+      # tracked file behind (it was committed by accident once). Restore it.
+      ( cd "$REPO_ROOT" && git checkout -- examples/fortran/Makefile 2>/dev/null ) \
+        || rm -f "$REPO_ROOT/examples/fortran/Makefile"
       rm -f "$REPO_ROOT/examples/fortran/$(basename "$LIB_PATH")"
       _apt_remove gfortran
       _brew_remove gcc
