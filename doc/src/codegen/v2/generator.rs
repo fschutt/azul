@@ -95,6 +95,17 @@ impl GenerationTargets {
     pub fn generate_all(ir: &CodegenIR, project_root: &Path) -> Result<()> {
         let codegen_dir = project_root.join("target").join("codegen");
 
+        // `codegen all` REPLACES target/codegen. Every file below is
+        // regenerated from api.json; anything else in there is a leftover —
+        // a binding that was renamed, or the other branch's output (the
+        // directory belongs to whichever checkout ran codegen last). The
+        // per-directory writers (java/, haskell/, go/, node/) replace their
+        // directory for the same reason; this covers the single-file outputs.
+        if codegen_dir.is_dir() {
+            fs::remove_dir_all(&codegen_dir)?;
+        }
+        fs::create_dir_all(&codegen_dir)?;
+
         // 1. DLL internal API (types + C-ABI function bodies, #[no_mangle] gated via cfg_attr)
         //    Used by both build-dll (with cabi_export) and link-static (without cabi_export)
         println!("[1/35] Generating DLL internal API...");
@@ -556,6 +567,15 @@ impl GenerationTargets {
         end_marker: &str,
         base_dir: &Path,
     ) -> Result<()> {
+        // The directory is REPLACED, not merged into. A type that leaves
+        // api.json (or a branch switch: target/codegen belongs to whichever
+        // checkout ran codegen last) left its old file behind, and the Java
+        // build compiles the whole directory — 7,016 of 8,106 files in
+        // target/codegen/java were stale on 2026-09-07 and `mvn package` died
+        // with 279 "cannot find symbol" errors for natives the C API never had.
+        if base_dir.is_dir() {
+            fs::remove_dir_all(base_dir)?;
+        }
         let mut current_path: Option<String> = None;
         let mut buffer = String::new();
         let mut wrote_any = false;
