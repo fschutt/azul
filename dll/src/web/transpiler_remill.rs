@@ -2489,6 +2489,17 @@ impl RemillTranspiler {
             // crosses .o boundaries also gets DCE'd.
             "--gc-sections".to_string(),
         ];
+        // A side-car symbol map, not a fatter artifact: the served module is
+        // byte-identical with or without it. AZ_UNK_TRAP promises "stack names
+        // the caller" and the boot does print a ten-frame trace, but
+        // --strip-all removes the name section, so every frame is a bare index.
+        //
+        // Deriving the mapping does not work: `defined - exports == walk
+        // entries` holds exactly, yet the size correlation between native and
+        // wasm bodies is 0.398, not ~1 — --gc-sections reorders and drops, so
+        // the alignment drifts and derived names are confidently wrong.
+        let map_path = self.scratch_dir.join(format!("{output_stem}.map"));
+        args.push(format!("--Map={}", map_path.display()));
         if !debug_link {
             args.push("--strip-all".to_string());
             // M10-F2: --lto-O3 enables LTO with size-aware codegen.
