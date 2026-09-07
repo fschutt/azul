@@ -1626,3 +1626,17 @@ Ranked by measured delivered bytes, the whole board now reads:
 
 The two biggest items are both packaging, both already understood, and neither
 requires touching the lifter or azul's source.
+
+### The other seam keeps almost nothing
+
+`theme_format_scheme` is reached from the layout path directly, so its closure is
+SHARED and stays eager whatever happens to the browse subtree. The obvious
+objection is that this alone might keep the parser resident. It does not:
+
+| | parser fns | MB objects |
+|---|---|---|
+| stay eager in the core | 60 | 0.897 |
+| leave with `on_browse_clicked` | 498 | 16.700 |
+
+**94.9% of the parser mass is exclusive to the browse subtree.** The residue is a
+theme/colour-scheme lookup, which is what a layout callback plausibly does need.
