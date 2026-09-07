@@ -38,11 +38,12 @@ if [ ! -f "$RELEASE/$LIBNAME" ]; then
 fi
 
 # ── Step 1: build a C host that renders a small page ────────────────────────
-# Reuse the existing hello-world.c host (a label + button) as the live UI.
+# The JSON-reflecting counter host (a label + button) is the live UI; the
+# shipped examples/c/hello-world.c carries no JSON hooks on purpose.
 echo "=== Build C host ==="
-$CC -o "$HOST_BIN" "$ROOT/examples/c/hello-world.c" \
+$CC -o "$HOST_BIN" "$ROOT/tests/e2e/counter_host.c" \
   -I "$CODEGEN" -L "$RELEASE" -lazul $RPATH_FLAGS -lpthread -lm -ldl 2>/dev/null \
-  || $CC -o "$HOST_BIN" "$ROOT/examples/c/hello-world.c" -I "$CODEGEN" -L "$RELEASE" -lazul $RPATH_FLAGS
+  || $CC -o "$HOST_BIN" "$ROOT/tests/e2e/counter_host.c" -I "$CODEGEN" -L "$RELEASE" -lazul $RPATH_FLAGS
 echo "  -> $HOST_BIN"
 
 # ── Step 2: launch under AZ_DEBUG (headless) ────────────────────────────────

@@ -16,6 +16,10 @@ use crate::{api::ApiData, dllgen::{bundles, license::License}, docgen::HTML_ROOT
 /// Use `strict` mode to fail the build, or non-strict to just print warnings.
 pub fn verify_examples(api_data: &ApiData, examples_dir: &Path, strict: bool) -> Result<()> {
     let mut missing_files: Vec<String> = Vec::new();
+    // Filler in a hello-world fails every deploy, strict or not: the
+    // examples are clean now (2026-09-08) and a warning in a build log is
+    // how the JSON reflection crept back into hello-world.c the last time.
+    let mut filler: Vec<String> = Vec::new();
 
     // Demo filler that crept into the hello-worlds (2026-09-07 audit): a
     // std::expected/Url::parse detour in C++23, a type_id_v probe in C++14,
@@ -46,7 +50,7 @@ pub fn verify_examples(api_data: &ApiData, examples_dir: &Path, strict: bool) ->
                     let Ok(src) = fs::read_to_string(&path) else { continue };
                     for tok in FILLER_TOKENS {
                         if src.contains(tok) {
-                            missing_files.push(format!(
+                            filler.push(format!(
                                 "[{}] {} ({}): demo filler `{}` in {} — a hello-world is model/layout/on_click/main, nothing else",
                                 version, example.name, lang, tok, rel
                             ));
@@ -162,6 +166,14 @@ pub fn verify_examples(api_data: &ApiData, examples_dir: &Path, strict: bool) ->
                 }
             }
         }
+    }
+
+    if !filler.is_empty() {
+        anyhow::bail!(
+            "{} hello-world example(s) carry demo filler:\n  {}",
+            filler.len(),
+            filler.join("\n  ")
+        );
     }
 
     if missing_files.is_empty() {
