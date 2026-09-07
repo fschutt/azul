@@ -1263,9 +1263,15 @@ pub fn azlin_footer() -> String {
   <script>document.querySelectorAll('.mobile-menu a, .nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>
   <script>
   // Explicit "Copy" button on every code block (same affordance as the
-  // /ui landing examples).
+  // /ui landing examples). The button goes into a wrapper AROUND the pre,
+  // not inside it: an absolutely positioned child of a scrolling box
+  // scrolls with the code, so on a long line it rode off to the right.
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.docs-content pre').forEach(function (pre) {
+      var wrap = document.createElement('div');
+      wrap.className = 'docs-pre';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
       var btn = document.createElement('button');
       btn.className = 'docs-copy-btn';
       btn.type = 'button';
@@ -1277,7 +1283,7 @@ pub fn azlin_footer() -> String {
           setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
         });
       });
-      pre.appendChild(btn);
+      wrap.appendChild(btn);
     });
   });
   </script>"#
