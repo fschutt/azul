@@ -44,6 +44,18 @@ for ln in io.open(LOG, encoding='utf-8', errors='replace'):
         if e:
             name_of.setdefault(e.group(1), m.group(1))
 
+# `@<file>` instead of a name prefix: a graph subtree is not a name prefix, so a
+# chunk's cost can only be measured from its object LIST. chunk-plan.py --emit
+# writes exactly that.
+OBJ_SET = None
+if PREFIX.startswith('@'):
+    OBJ_SET = set()
+    for ln in io.open(PREFIX[1:], encoding='utf-8', errors='replace'):
+        ln = ln.strip()
+        if ln:
+            OBJ_SET.add(os.path.splitext(os.path.basename(ln))[0])
+    print('object list %s: %d object(s)' % (PREFIX[1:], len(OBJ_SET)))
+
 ROW = re.compile(r'^\s*\S+\s+([0-9a-f]+)\s+([0-9a-f]+)\s+.*?([A-Za-z0-9_]+)\.o:\(')
 hit, allr = [], []
 for ln in io.open(MAP, encoding='utf-8', errors='replace'):
@@ -52,7 +64,13 @@ for ln in io.open(MAP, encoding='utf-8', errors='replace'):
         continue
     off, size, obj = int(m.group(1), 16), int(m.group(2), 16), m.group(3)
     allr.append((off, size))
-    if name_of.get(obj, '').startswith(PREFIX):
+    if OBJ_SET is not None:
+        if obj in OBJ_SET:
+            hit.append((off, size))
+    # Comma-separated prefixes: families are often removed together (two crates
+    # that only exist to serve each other), and measuring them one at a time
+    # under-counts, because each still shares a dictionary with the other.
+    elif name_of.get(obj, '').startswith(tuple(p.strip() for p in PREFIX.split(','))):
         hit.append((off, size))
 
 blob = io.open(WASM, 'rb').read()

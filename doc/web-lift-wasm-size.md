@@ -1549,3 +1549,80 @@ Now off by default behind `AZ_FONT_MIRROR=1`. The env var stays until a run
 confirms text still renders, because the failure mode is silent and specific -
 allsorts parses a zero-filled font and text measures height 0, which reads as a
 layout bug rather than a missing mirror.
+
+
+# THE BIGGEST LEVER IS IN azwriter::layout, AND IT IS THE ONE ALREADY BUILT
+
+`azwriter::layout` is the largest module a first paint downloads - 37,309,938 raw,
+about 4.9 MB delivered, against azul-mini's 4.54 - and nothing had ever looked
+inside it. Its map says:
+
+| crate | linked MB | % |
+|---|---|---|
+| **ooxml_common** | **5.669** | **16.1%** |
+| **docx_parser** | **5.497** | **15.6%** |
+| core | 5.046 | 14.4% |
+| azul_css | 3.771 | 10.7% |
+| alloc | 3.345 | 9.5% |
+| azul_layout | 2.436 | 6.9% |
+| azul_core | 1.503 | 4.3% |
+| azwriter | 1.228 | 3.5% |
+
+**Nearly a third of it is DOCX/OOXML parsing.** The biggest single functions are
+chart parsers: `ooxml_common::chart::parse_chart_part_with_references_style_parts_and_images`
+at 0.455 MB, `parse_chartex_part_...` at 0.370, then
+`docx_parser::parser::parse_table_with_diagnostics`, `parse_run_inner`,
+`parse_vml_pict`. A layout callback does not parse .docx files.
+
+## Three seams, and one of them is a button
+
+Every edge from outside the parser world into it, over the whole walk:
+
+    azwriter::ir::from_docx_bytes        -> docx_parser::parse_docx_native
+    azwriter::ir::from_docx_bytes        -> docx_parser::to_markdown_native
+    azwriter::map_node_to_block          -> docx_parser::parser::impl$9::theme_format_scheme
+    azwriter::sync_ir_text_from_engine   -> docx_parser::parser::impl$9::theme_format_scheme
+
+Running the chunk partition over the layout module's own walk (log lines
+94576-142958) names the owner:
+
+| root | fns | MB obj |
+|---|---|---|
+| **`azwriter::on_browse_clicked`** | **1433** | **27.104** |
+| `azwriter::layout` (the boot root - must stay) | 387 | 6.716 |
+| `FnOnce::call_once<text3::cache::…>` | 85 | 1.710 |
+
+**The entire document-parsing world is exclusively reachable from the file-open
+button handler**, and that handler is a ROOT: nothing statically calls it, so by
+the chunk design's own criterion it is a safe lazy chunk.
+
+Measured in delivered bytes, not projected:
+
+    matched @p1.txt: 1403 object range(s), 13,612,043 bytes (38.7% of the module)
+    whole module         35,146,322 raw ->  4,114,662 br(q9)
+    without the family   21,534,279 raw ->  2,428,158 br(q9)
+    => removing it saves 1,686,504 compressed bytes (41.0% of the module)
+
+**1,686,504 bytes - larger than the entire azul-mini chunking win of 1,210,375.**
+
+## What this changes
+
+The chunk machinery already exists and is already proven on the mini. It is
+gated to `opts.output_stem == "azul-mini"`, with the reasoning that "the
+per-callback modules are already separate downloads". That is true and
+insufficient: being a separate download does not help when it is downloaded at
+first paint anyway, which the boot log shows the layout module is.
+
+Ranked by measured delivered bytes, the whole board now reads:
+
+| lever | delivered | state |
+|---|---|---|
+| **layout: lazy-chunk `on_browse_clicked`** | **1,686,504** | machinery exists, gated off |
+| mini: chunk to p0, 3 lazy roots | 1,210,375 | built and measured |
+| font mirror, 9 first-paint modules | ~810,000 | now off by default, unverified |
+| q11 rather than q9 (mini code half) | 362,681 | one line, unspent |
+| C1 `core::slice::sort` | 244,392 | source refactor |
+| C2 `alloc::collections::btree` | 229,226 | source refactor |
+
+The two biggest items are both packaging, both already understood, and neither
+requires touching the lifter or azul's source.
