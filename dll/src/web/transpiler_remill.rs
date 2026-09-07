@@ -2785,6 +2785,22 @@ impl RemillTranspiler {
         // Returned via `WasmModule.used_boundaries`; orchestrator
         // unions across every lift + runs the boundary-lift pass.
         let mut used_boundaries: HashSet<usize> = HashSet::new();
+        // `(tail-call target, its canonical)` for targets that are ALIASES — a
+        // thunk whose real body lives elsewhere.
+        //
+        // The dispatcher already intends to key such a target by BOTH synths
+        // (see `dispatcher_csynths`: a tail-call arrives with the RAW synth, an
+        // fn-ptr with the CANONICAL, so emit a case for both) — but it derives
+        // both from the addresses in `visited`, and `visited` holds only
+        // CANONICALS. An alias's own synth is therefore never seen and gets no
+        // case, so an indirect call landing on the thunk falls into the `unk`
+        // arm and traps.
+        //
+        // Observed as a permanent unmatched dispatch on `__rust_dealloc`'s thunk
+        // (synth 0x101cb0) while its canonical was force-enqueued, lifted and
+        // `visited=true` — the fix for which had no effect precisely because the
+        // missing case was the alias's, not the canonical's.
+        let mut tail_alias_pairs: HashSet<(usize, usize)> = HashSet::new();
         // M10-D: extra exports per root, flattened — appended to
         // wasm-ld's `--export` list so the boundary lift can expose
         // its raw `sub_<canonical_hex>` body alongside the wrapper.
@@ -3119,6 +3135,16 @@ impl RemillTranspiler {
                                 let recursable = e.classification.is_recursable();
                                 let seen = visited.contains(&e.canonical_addr);
                                 let canon_differs = e.canonical_addr != target;
+                                // The branch targets a THUNK, not the body. Record
+                                // the pair so the dispatcher can key the thunk's
+                                // own synth to the canonical's body; without it the
+                                // alias has no case at all. Filtered later against
+                                // `visited` — the canonical may not be lifted yet
+                                // (or ever), and a case calling a body that does not
+                                // exist would fail the link.
+                                if canon_differs {
+                                    tail_alias_pairs.insert((target, e.canonical_addr));
+                                }
                                 if !recursable || canon_differs {
                                     eprintln!(
                                         "[azul-web]   tail-call 0x{:x} -> {} canonical=0x{:x} \
@@ -3662,7 +3688,41 @@ impl RemillTranspiler {
         // and `visited` is populated on the sequential path, so it belongs
         // here too.) AZ_NO_INDIRECT_DISPATCH=1 disables.
         if !super::lift_env::lift_env().no_indirect_dispatch {
-            let cs = self.dispatcher_csynths(visited.iter().copied());
+            let mut cs = self.dispatcher_csynths(visited.iter().copied());
+            // Add a case per ALIAS thunk, keyed by the thunk's own synth and
+            // calling the canonical's body. `dispatcher_csynths` cannot produce
+            // these: it is fed `visited`, which holds canonicals only, so the
+            // thunk's synth never reaches it.
+            if let Some(tbl) = symbol_table::get() {
+                let have: HashSet<u64> = cs.iter().map(|(label, _)| *label).collect();
+                let mut alias_cases = 0usize;
+                for (alias, canon) in &tail_alias_pairs {
+                    // Only when the canonical really has a body in this bundle —
+                    // a case calling a missing `@sub_<c>` would fail the link.
+                    if !visited.contains(canon) {
+                        continue;
+                    }
+                    let (Some(a_synth), Some(c_synth)) =
+                        (tbl.native_to_synth(*alias), tbl.native_to_synth(*canon))
+                    else {
+                        continue;
+                    };
+                    let body = tbl.resolve_synth(c_synth).unwrap_or(c_synth) as u64;
+                    let label = a_synth as u64;
+                    if label == 0 || body == 0 || have.contains(&label) {
+                        continue;
+                    }
+                    cs.push((label, body));
+                    alias_cases += 1;
+                }
+                if alias_cases > 0 {
+                    eprintln!(
+                        "[azul-web] M12.7: +{} alias-thunk dispatcher case(s) \
+                         (tail-call targets whose canonical body lives elsewhere)",
+                        alias_cases,
+                    );
+                }
+            }
             if let Some(o) = self.emit_indirect_dispatcher_obj(&cs) {
                 object_paths.push(o);
                 // Export so the strong def is kept (not gc-stripped) and
