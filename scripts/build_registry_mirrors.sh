@@ -98,8 +98,11 @@ build_maven() {
   local dir="$SITE/ui/maven/rs/azul/azul/$V"
   mkdir -p "$dir"
   cp "$jar" "$dir/azul-$V.jar"
-  # Sources jar for IDE navigation, when the job produced one.
-  [ -f "$ART/maven-jar/azul-$V-sources.jar" ] && cp "$ART/maven-jar/azul-$V-sources.jar" "$dir/azul-$V-sources.jar"
+  # NO sources jar. It is 61 MB — the single largest thing the mirror hosted —
+  # and Maven only fetches it when a human asks an IDE to attach sources, which
+  # degrades to "sources not available" exactly as it does for the many Central
+  # artifacts that publish none. The Pages artifact is capped at 1 GB and was
+  # at 917 MB (2026-09-08); the binding jar users actually resolve stays.
   echo "  [maven] published azul-$V.jar ($(unzip -l "$jar" | grep -cE '\.class$') classes)"
   # Consumer POM (declares the JNA runtime dep; matches the maven-central pom).
   cat > "$dir/azul-$V.pom" <<POM
