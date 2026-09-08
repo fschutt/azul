@@ -188,6 +188,12 @@ const LINEAR_COLOR_STOP_10827796861537038040_ITEMS: &[NormalizedLinearColorStop]
 ];
 
 const CSS_MATCH_1085706216385961159_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul_native-list-header-arrow-down
     CssPropertyWithConditions::simple(CssProperty::Transform(StyleTransformVecValue::Exact(
         StyleTransformVec::from_const_slice(STYLE_TRANSFORM_6162542744002865382_ITEMS),
@@ -226,6 +232,12 @@ const CSS_MATCH_1085706216385961159: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_1085706216385961159_PROPERTIES);
 
 const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul_native-list-header-item:hover
     CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -473,6 +485,15 @@ const CSS_MATCH_12498280255863106397: CssPropertyWithConditionsVec =
 
 const CSS_MATCH_12980082330151137475_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul_native-list-rows-row-cell
+    // A cell holds one line of a record, like a table cell: it clips rather
+    // than wrapping, so a row keeps the height the list gave it and a long
+    // value cannot push the rows below it out of place.
+    CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
+        StyleWhiteSpace::Nowrap,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::OverflowX(LayoutOverflowValue::Exact(
+        LayoutOverflow::Hidden,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
         LayoutPaddingLeft {
             inner: PixelValue::const_px(7),
@@ -529,6 +550,12 @@ const CSS_MATCH_15295293133676720691: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15295293133676720691_PROPERTIES);
 
 const CSS_MATCH_15315949193378715186_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul_native-list-header
     CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
         LayoutHeight::Px(PixelValue::const_px(25)),
@@ -735,6 +762,12 @@ const CSS_MATCH_2883986488332352590: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_2883986488332352590_PROPERTIES);
 
 const CSS_MATCH_4852927511892172364_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul_native-list-rows
     CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
         LayoutFlexDirection::Column,
@@ -761,6 +794,12 @@ const CSS_MATCH_6002662151290653203: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_6002662151290653203_PROPERTIES);
 
 const CSS_MATCH_6827198030119836081_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul_native-list-rows-row.selected
     CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -1047,6 +1086,12 @@ const CSS_MATCH_6827198030119836081: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_6827198030119836081_PROPERTIES);
 
 const CSS_MATCH_7894335449545988724_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul_native-list-rows-row.focused
     CssPropertyWithConditions::on_focus(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {

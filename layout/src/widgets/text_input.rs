@@ -179,6 +179,17 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::ScrollbarWidth(
         LayoutScrollbarWidthValue::Exact(LayoutScrollbarWidth::None),
     )),
+    // The value line is centred in the field's `min-height` — which needs the
+    // field to BE a flex container. Without this the box laid out as a block,
+    // `justify-content` did nothing, and the value sat at the top edge with the
+    // bottom border a line's height below it (the number input on the frontpage
+    // screenshot looked like it had a rule drawn through it).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
+        LayoutFlexDirection::Column,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
@@ -298,6 +309,17 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
+    // The value line is centred in the field's `min-height` — which needs the
+    // field to BE a flex container. Without this the box laid out as a block,
+    // `justify-content` did nothing, and the value sat at the top edge with the
+    // bottom border a line's height below it (the number input on the frontpage
+    // screenshot looked like it had a rule drawn through it).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
+        LayoutFlexDirection::Column,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
@@ -419,6 +441,17 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_overflow_x(LayoutOverflow::Hidden)),
     CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Hidden)),
     CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
+    // The value line is centred in the field's `min-height` — which needs the
+    // field to BE a flex container. Without this the box laid out as a block,
+    // `justify-content` did nothing, and the value sat at the top edge with the
+    // bottom border a line's height below it (the number input on the frontpage
+    // screenshot looked like it had a rule drawn through it).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
+        LayoutFlexDirection::Column,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_justify_content(
         LayoutJustifyContent::Center,
     )),
