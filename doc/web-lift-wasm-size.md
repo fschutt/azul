@@ -2014,3 +2014,38 @@ because the failure mode is silent: a dropped segment the guest still reads
 returns zeros, which surfaces as wrong layout or a bad pointer far from the
 mirror, never as a load error. Conflicts — 236 segments / 281,794 bytes that
 genuinely differ at the same address — are never dropped.
+
+
+# RESOLVED: "non-Az swept-in roots 21.37 MB / 41%" IS THE LAZY CEILING
+
+That figure has sat on the backlog as an unquantified lever, flagged as needing
+re-measurement because it was computed on a corpus that still contained the
+decoder spillover. It does not need re-measuring: it is the same quantity the
+chunk ceiling reports, and three independent derivations agree.
+
+| derivation | bytes | share |
+|---|---|---|
+| the original root-cost analysis | 21.37 MB | 41% |
+| `chunk-plan.py --lazy`, offline on run 79 | 21.79 MB | 41.7% |
+| the in-pipeline `lazy CEILING` report, run 81 | 22.13 MB | 40.2% |
+
+They are computed differently — one from per-root cost attribution, one from the
+exclusive-subtree partition of the walk graph — and they measure the same thing:
+**bytes reachable only from roots that are not boot entry points.** Agreement to
+within the per-build drift that moves 30-100 functions.
+
+## Two consequences
+
+**They must not be added together.** A plan that credits "chunking -26%" and
+"cut the non-Az swept-in roots -41%" as separate wins is double-counting one
+lever. The -26% is what the top THREE chunks deliver; the -41% is what ALL 1,067
+candidate roots would deliver, and the curve between them is flat: top-10 is
+-30.1%, top-100 -34.8%.
+
+**It also settles the "policy question about vtables nothing calls".** The
+earlier note framed this as a question about which roots deserve lifting at all.
+The chunk partition answers it operationally instead: a root nothing statically
+calls does not have to be *dropped* to stop costing first-paint bytes, it has to
+be *deferred*. Dropping it would break any path that does reach it through the
+dispatcher; deferring it costs a fetch and nothing else. So the lever is real,
+its size is known, and the mechanism for taking it is the one already built.
