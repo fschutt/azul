@@ -75,9 +75,19 @@ stay within F2003/F2008 core):
   README, `tests/memtest/mem_test.f90` (old names; not in CI). No api.json
   route change needed (`make` + `./hello_world`).
 
-### JavaScript, Deno / Bun (worktree `agent-a55aec8e4b979d4e7`; no code changes were made)
+### JavaScript, Deno / Bun — DONE (merged into this branch)
 
-Root causes found:
+The binding runs under Node, Bun and Deno; Bun and Deno are documented
+routes, verified verbatim with `scripts/run_install_steps.py` against a
+local release mirror. Three defects, one per layer: the Deno adapter
+collapsed every non-primitive to `'pointer'` (now a by-value type layer
+with real struct descriptors); struct-returning callbacks wrote their
+result with `koffi.encode` behind a node-only gate (now the adapter's
+`encodeInto`, implemented by all three runtimes); and the example asked
+for `require('azul')` first, which made Bun auto-install an unrelated npm
+package instead of falling back to `./azul.js`.
+
+Original analysis, kept for context:
 - **Bun**: `require('azul')` in `examples/node/hello-world.js` made Bun
   auto-install an unrelated `azul` package from npm (no `node_modules`
   present), so the `./azul.js` fallback never ran — hence
@@ -110,7 +120,11 @@ Root causes found:
   under the hood, emit typed callback interfaces (`Update onClick(M model,
   CallbackInfo info)`) so no `Pointer`/`outPtr`/`refanyGet` appears in user
   code; mechanism cannot vanish for JNA (no struct-by-value callbacks).
-- Fortran usable layer (above), Deno by-value layer, Bun route.
+- Fortran usable layer (above). Its `wrappers.rs` half is committed on
+  branch `worktree-agent-a88922446c0dfa144` as a WIP commit that does NOT
+  compile: it calls helpers (`ISO_C_REEXPORTS`, `managed::{reserved_names,
+  iface_name, register_name, REF_ANY_GET}`, `should_emit_function` as
+  `pub(crate)`) that the managed.rs half was to provide.
 
 ## Resuming
 
