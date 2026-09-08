@@ -820,6 +820,26 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, Hash]
 );
 
+
+/// `AZ_THEME=light|dark`, for deterministic rendering (screenshots, reftests,
+/// CI). Returns `None` when unset or unrecognised, and is a no-op without
+/// `std`.
+#[must_use]
+fn option_env_theme() -> Option<ThemeCondition> {
+    #[cfg(feature = "std")]
+    {
+        match std::env::var("AZ_THEME").ok()?.trim().to_ascii_lowercase().as_str() {
+            "light" => Some(ThemeCondition::Light),
+            "dark" => Some(ThemeCondition::Dark),
+            _ => None,
+        }
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        None
+    }
+}
+
 impl ThemeCondition {
     /// Convert from `css::system::Theme`
     #[must_use]
@@ -1071,7 +1091,16 @@ impl DynamicSelectorContext {
         } else {
             OptionLinuxDesktopEnv::None
         };
-        let theme = ThemeCondition::from_system_theme(system_style.theme);
+        // `AZ_THEME=light|dark` pins the theme. Everything that has to render
+        // the SAME pixels on every machine needs this: the frontpage
+        // screenshots took whatever theme the Mac they ran on happened to be
+        // in, so a widget with `@theme dark` rules came out dark on the site
+        // while every other widget stayed light. Unset (the normal case) keeps
+        // the OS theme.
+        let theme = match option_env_theme() {
+            Some(pinned) => pinned,
+            None => ThemeCondition::from_system_theme(system_style.theme),
+        };
 
         Self {
             os,

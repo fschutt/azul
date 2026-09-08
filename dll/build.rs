@@ -51,6 +51,27 @@ fn main() {
     // the engine is OFF, and `Db::open` returns an invalid handle exactly as
     // it does without the feature. Drop the target clause once the fork
     // (fschutt/turso) ships a sync engine with `pos as libc::off_t`.
+    // `az_gpu_video`: the Vulkan Video decoder (`gpu-video`, which pulls the
+    // C++ `vk-mem`) is compiled in. ONE definition for both halves — the
+    // dependency's target cfg in Cargo.toml and the `mod decode_vulkan` that
+    // uses it — because stating the same condition twice is how they drifted:
+    // narrowing the manifest to glibc left the module compiled on musl, where
+    // `use gpu_video::…` then failed to resolve (CI 2026-09-08).
+    println!("cargo:rustc-check-cfg=cfg(az_gpu_video)");
+    {
+        let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+        let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+        let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+        // Keep in step with dll/Cargo.toml's `[target.'cfg(...)'.dependencies]`
+        // for `gpu-video`: x86_64 desktop, and on Linux only glibc (no musl C++
+        // toolchain in the cross-compile checks).
+        let dep_present = arch == "x86_64"
+            && ((os == "linux" && target_env == "gnu") || os == "windows");
+        if env::var("CARGO_FEATURE_VIDEO_NATIVE").is_ok() && dep_present {
+            println!("cargo:rustc-cfg=az_gpu_video");
+        }
+    }
+
     println!("cargo:rustc-check-cfg=cfg(az_db_engine)");
     {
         let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
