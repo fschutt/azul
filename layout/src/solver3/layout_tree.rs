@@ -4350,7 +4350,7 @@ fn blockify_flex_item_if_table_internal(nodes: &mut [LayoutNode], node_idx: usiz
 /// Replaced elements (img, canvas, embed, object, audio, video, input, textarea,
 /// select, br, wbr, meter, progress, virtual views) cannot be un-boxed by
 /// `display: contents` and always establish an independent formatting context.
-const fn is_replaced_element(node_data: &NodeData) -> bool {
+pub(crate) const fn is_replaced_element(node_data: &NodeData) -> bool {
     matches!(
         node_data.get_node_type(),
         NodeType::Image(_)
@@ -4506,8 +4506,24 @@ fn determine_formatting_context_for_display(
             establishes_new_context: true,
         },
         LayoutDisplay::Block | LayoutDisplay::ListItem => {
-            if has_only_inline_children(styled_dom, node_id)
-                || is_empty_editing_host_line(styled_dom, node_id)
+            // A REPLACED element is never a block *container*: its content is the
+            // replaced object (an image, a video, a canvas), not a flow of boxes,
+            // so it cannot establish an IFC no matter what its children look like.
+            // azul lets a replaced element carry overlay children — the frontpage
+            // `opengl` example composits a `Button` over its canvas — and they are
+            // laid out by an interior run, not by an inline formatting context.
+            //
+            // Without this guard the classification depended on something entirely
+            // unrelated: an `<img>` keeps `display: inline-block` (and so an
+            // independent FC) in normal flow, but as a FLEX ITEM it is blockified
+            // to `Block`, fell into the branch below, and became `Inline`. Its
+            // overlay child was then painted twice — once as an inline shape of
+            // that bogus IFC and once by the ordinary node walk — and the interior
+            // run dropped the child's margin, so the two copies disagreed about
+            // where the child was.
+            if !is_replaced_element(node_data)
+                && (has_only_inline_children(styled_dom, node_id)
+                    || is_empty_editing_host_line(styled_dom, node_id))
             {
                 #[cfg(feature = "web_lift")]
                 unsafe {

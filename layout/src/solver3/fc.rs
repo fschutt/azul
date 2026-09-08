@@ -8350,6 +8350,27 @@ fn atomic_inline_auto_height(
     }
 }
 
+/// Publish the positions an interior layout run produced into the tree, where
+/// the rest of the engine can see them.
+///
+/// A nested run (the one that lays out an atomic inline's own contents) reports
+/// its result in `LayoutOutput::positions`, keyed by layout-node index. But
+/// every later consumer — `position_bfc_child_descendants`, absolute
+/// positioning, painting — reads `LayoutNodeWarm::relative_position`. Until the
+/// two are joined the children are laid out correctly and then positioned as if
+/// they were all at their parent's content-box origin, which shows up as every
+/// margin inside the atomic inline being ignored.
+///
+/// The absolutely-positioned path does this in `positioning.rs` and the flex
+/// path in `taffy_bridge.rs`; this is the same join for the inline path.
+fn publish_interior_positions(tree: &mut LayoutTree, output: &LayoutOutput) {
+    for (child_idx, child_pos) in &output.positions {
+        if let Some(w) = tree.warm_mut(LayoutNodeId::new(*child_idx)) {
+            w.relative_position = Some(*child_pos);
+        }
+    }
+}
+
 fn atomic_inline_baseline_offset(
     baseline_from_content_top: Option<f32>,
     border_box_height: f32,
@@ -8741,6 +8762,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     &mut empty_float_cache,
                 )?;
 
+                publish_interior_positions(tree, &layout_result.output);
                 let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
 
                 // Replaced elements (image / VirtualView) have no flow content, so the
@@ -9272,6 +9294,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 &mut empty_float_cache,
             )?;
 
+            publish_interior_positions(tree, &layout_result.output);
             let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
 
             // Replaced elements (image / VirtualView) have no flow content, so the

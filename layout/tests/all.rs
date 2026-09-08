@@ -214,6 +214,11 @@ mod hover_manager;
 mod icon_pipeline;
 #[path = "ifc_caching.rs"]
 mod ifc_caching;
+#[path = "atomic_inline_paint_once.rs"]
+mod atomic_inline_paint_once;
+
+#[path = "image_child_paint.rs"]
+mod image_child_paint;
 #[path = "image_flex_grow.rs"]
 mod image_flex_grow;
 #[path = "incremental_rendering.rs"]
