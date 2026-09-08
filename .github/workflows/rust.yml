@@ -5445,14 +5445,28 @@ jobs:
             apk add -q bash curl git coreutils
           fi
 
+      # Cloned with git rather than actions/checkout ON PURPOSE. This job runs
+      # inside a container, and `actions/checkout` is a JavaScript action:
+      # GitHub refuses to run those in an ALPINE container on an arm runner
+      # ("JavaScript Actions in Alpine containers are only supported on x64
+      # Linux runners"), which is exactly the apk_aarch64 row. A sparse clone
+      # needs nothing the prerequisites step has not already installed, and it
+      # behaves the same on every image in the matrix.
       - name: Checkout the verifier
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: |
-            scripts/verify_install_commands.sh
-            tests/e2e/hello_world_counter.json
-            doc/guide/en/hello-world
-          sparse-checkout-cone-mode: false
+        shell: sh
+        run: |
+          set -eu
+          git init -q .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          git config core.sparseCheckout true
+          git config core.sparseCheckoutCone false
+          printf '%s\n' \
+            'scripts/verify_install_commands.sh' \
+            'tests/e2e/hello_world_counter.json' \
+            'doc/guide/en/hello-world/*' \
+            > .git/info/sparse-checkout
+          git -c protocol.version=2 fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout -q FETCH_HEAD
 
       - name: Run the command the site tells ${{ matrix.channel }} users to run
         env:
@@ -5478,6 +5492,8 @@ jobs:
         with:
           sparse-checkout: |
             scripts/verify_install_commands.sh
+            tests/e2e/hello_world_counter.json
+            doc/guide/en/hello-world
           sparse-checkout-cone-mode: false
 
       - name: Run the command the site tells macOS users to run
