@@ -11,26 +11,27 @@ struct MyDataModel {
 
 static_assert(ReflectableModel<MyDataModel>);
 
-AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
+ffi::Update on_click(ffi::RefAny data, ffi::CallbackInfo info);
 
-AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
+ffi::Dom layout(ffi::RefAny data, ffi::LayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     auto* d = data_wrapper.downcast_ref<MyDataModel>();
     if (!d) return Dom::create_body();
 
+    Dom label = Dom::create_p_with_text(String(std::to_string(d->counter)))
+        .with_css("font-size: 32px;"sv);
+
+    Dom button = Button::create("Increase counter"sv)
+        .with_button_type(ButtonType::Primary)
+        .with_on_click(data_wrapper.clone(), on_click)
+        .dom();
+
     return Dom::create_body()
-        .with_child(Dom::create_div()
-            .with_css("font-size: 32px;"sv)
-            .with_child(Dom::create_p_with_text(String(std::to_string(d->counter).c_str()))))
-        .with_child(Button::create("Increase counter"sv)
-            .with_button_type(ButtonType::Primary)
-            .with_on_click(data_wrapper.clone(), on_click)
-            .dom());
+        .with_child(std::move(label))
+        .with_child(std::move(button));
 }
 
-// The signature is fixed by the C fn-ptr typedef (azul::CallbackType), so the
-// parameters/return stay raw C types — the enum CONSTANTS are namespaced.
-AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
+ffi::Update on_click(ffi::RefAny data, ffi::CallbackInfo info) {
     RefAny data_wrapper(data);
     auto* d = data_wrapper.downcast_mut<MyDataModel>();
     if (!d) return Update::DoNothing;

@@ -25,9 +25,8 @@ namespace HelloWorld
         {
             var m = HostInvoker.RefanyGet(dataPtr) as MyDataModel;
             if (m == null) return Dom.CreateBody();
-            var label = Dom.CreateDiv()
-                .WithCss("font-size: 32px;")
-                .WithChild(Dom.CreateTextDoNotUseWithoutBlockLevelWrapper(m.Counter.ToString()));
+            var label = Dom.CreatePWithText(m.Counter.ToString())
+                .WithCss("font-size: 32px;");
             var buttonDom = Button.Create("Increase counter")
                 .WithButtonType(ButtonType.Primary)
                 .OnClick(m, new Func<IntPtr, IntPtr, int>(OnClick))

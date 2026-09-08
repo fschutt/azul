@@ -21,6 +21,7 @@ pub mod lint_derives;
 pub mod lint_examples;
 pub mod lint_links;
 pub mod lint_orphans;
+pub mod live_templates;
 pub mod mobile;
 pub mod patch;
 pub mod print;
@@ -1963,6 +1964,13 @@ fn main() -> anyhow::Result<()> {
             let run_reftests = (args.len() > 2 && args[2] == "with-reftests")
                 || args[1] == "fast-deploy-with-reftests";
 
+            // Debug deploys read the templates from doc/templates at run
+            // time, so editing a template needs a deploy, not a rebuild.
+            if is_debug {
+                crate::live_templates::enable();
+                println!("[live-templates] templates are read from doc/templates at run time");
+            }
+
             if run_reftests {
                 println!("Starting Azul Deploy with Reftests (external CSS)...");
             } else if is_debug {
@@ -2210,6 +2218,10 @@ fn main() -> anyhow::Result<()> {
             fs::copy(templates_dir.join("flora.css"), root_dir.join("flora.css"))?;
             // Brand logo for the marketing nav (same asset the /ui docs use).
             fs::copy(templates_dir.join("logo.svg"), root_dir.join("logo.svg"))?;
+            // Browsers ask for /favicon.ico whenever a page carries no icon
+            // link (the marketing landing, /os, /ws, every 404 page); the
+            // docs under /ui link their own copy.
+            fs::copy(templates_dir.join("favicon.ico"), root_dir.join("favicon.ico"))?;
             // Animated foam decoration for the landing hero (copied from the
             // erp-site design; that repo ships no hero video, so only the SVG).
             fs::copy(templates_dir.join("foam.svg"), root_dir.join("foam.svg"))?;

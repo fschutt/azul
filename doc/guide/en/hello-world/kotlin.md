@@ -42,12 +42,26 @@ companion-object `App` factory — and the generated wrappers handle the FFI.
 > binding on Windows or Kotlin on Linux/macOS. Tracked in
 > `scripts/e2e_language_matrix.sh` (`lang_kotlin`).
 
-You need **Kotlin 1.9+**, **JDK 17+**, **JNA 5.14+**, and the native `libazul` library.
+You need **JDK 17+** and **Maven** (or Kotlin 1.9+ and JNA 5.14+ for the
+manual route below).
 
-The Kotlin binding is one generated file, `Azul.kt` (package `com.azul`),
-compiled together with your program — the example below is written against
-it. Download it, the counter example and the native library, then compile
-with `kotlinc` against JNA:
+The binding is published as `rs.azul:azul-kotlin` on the self-hosted Maven
+repository at `https://azul.rs/ui/maven`: the compiled `Azul.kt` with
+`libazul` for Linux, macOS and Windows bundled as JNA resources, so nothing
+native has to be downloaded. The example project is a `pom.xml` that depends
+on it and shades everything into one runnable jar:
+
+```sh
+curl -o pom.xml https://azul.rs/ui/release/$VERSION/pom-kotlin.xml
+curl -O https://azul.rs/ui/release/$VERSION/HelloWorld.kt
+mvn -q package
+java -jar target/hello-world-1.0.0.jar
+# macOS: java -XstartOnFirstThread -jar target/hello-world-1.0.0.jar
+```
+
+Without Maven, the binding is one generated file, `Azul.kt` (package
+`com.azul`), compiled together with your program. Download it, the counter
+example and the native library, then compile with `kotlinc` against JNA:
 
 ```sh
 curl -O https://azul.rs/ui/release/$VERSION/Azul.kt

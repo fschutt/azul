@@ -1458,6 +1458,19 @@ fn emit_enum_modules(
         ) {
             continue;
         }
+        // Unit-only enums are emitted HERE, not in `types.rs`, and the reason
+        // is ordering: their capabilities call the `foreign` bindings, which
+        // are declared ~42k lines above this point, and OCaml is
+        // order-sensitive. Emitting the module early and the capabilities late
+        // would need two `module X`, which is a duplicate. So the whole module
+        // - variant constants included - lives here, and it is emitted even
+        // for an enum that declares no capability at all: the variant
+        // constants (`Azul.Update.refresh_dom`) are the module's reason to
+        // exist, not the derives.
+        if !e.is_union {
+            emit_unit_enum_module(builder, e, ir, interface);
+            continue;
+        }
         let caps: Vec<&FunctionDef> = ir
             .functions_for_class(&e.name)
             .filter(|f| {
@@ -1474,17 +1487,6 @@ fn emit_enum_modules(
             })
             .collect();
         if caps.is_empty() {
-            continue;
-        }
-
-        // Unit-only enums are emitted HERE, not in `types.rs`, and the reason
-        // is ordering: their capabilities call the `foreign` bindings, which
-        // are declared ~42k lines above this point, and OCaml is
-        // order-sensitive. Emitting the module early and the capabilities late
-        // would need two `module X`, which is a duplicate. So the whole module
-        // - variant constants included - lives here.
-        if !e.is_union {
-            emit_unit_enum_module(builder, e, ir, interface);
             continue;
         }
         let module = ocaml_module_name(&e.name);
@@ -1783,8 +1785,31 @@ fn emit_unit_enum_module(
     }
     builder.indent();
 
+    // The capability functions emitted below (`equal`, `hash`, `to_string`,
+    // `compare`, `partial_compare`, `default`) share the module with the
+    // variant constants. A variant named like one of them - `ButtonType::Default`
+    // next to a `Default` derive - would be shadowed by the function (OCaml
+    // keeps the LAST `val` of a name), leaving the constant unreachable. Such
+    // a constant gets the binding's usual trailing underscore (`default_`),
+    // the same mangling a keyword-named variant already gets.
+    let capability_names: std::collections::HashSet<&str> = ir
+        .functions_for_class(&e.name)
+        .filter_map(|f| match f.kind {
+            FunctionKind::PartialEq => Some("equal"),
+            FunctionKind::Hash => Some("hash"),
+            FunctionKind::DebugToString => Some("to_string"),
+            FunctionKind::Cmp => Some("compare"),
+            FunctionKind::PartialCmp => Some("partial_compare"),
+            FunctionKind::Default => Some("default"),
+            _ => None,
+        })
+        .collect();
+
     for (idx, v) in e.variants.iter().enumerate() {
-        let lit = sanitize_identifier(&to_snake_case(&v.name));
+        let mut lit = sanitize_identifier(&to_snake_case(&v.name));
+        if capability_names.contains(lit.as_str()) {
+            lit.push('_');
+        }
         if interface {
             builder.line(&format!("val {} : int", lit));
         } else {

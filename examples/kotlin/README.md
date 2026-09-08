@@ -8,14 +8,26 @@ Kotlin bindings for the [Azul](https://azul.rs) GUI framework via JNA.
 
 ## Requirements
 
-- Kotlin 1.9+ (compiler `kotlinc`), or Gradle 9.x — recommended;
-  `build.gradle.kts` pins Kotlin Gradle plugin 2.3.21
-- JDK 17+
-- JNA 5.14+ (fetched automatically by the Gradle build)
+- JDK 17+ and Maven (the published route), or
+- Kotlin 1.9+ (compiler `kotlinc`) / Gradle 9.x — `build.gradle.kts` pins
+  Kotlin Gradle plugin 2.3.21 — plus JNA 5.14+ (fetched by the builds)
 
 ## Build + Run
 
-Recommended: the Gradle project in this directory. `gradle run`
+Published route: `pom.xml` in this directory depends on
+`rs.azul:azul-kotlin` from `https://azul.rs/ui/maven` (the compiled
+binding with libazul for Linux, macOS and Windows bundled as JNA
+resources) and shades it into one runnable jar:
+
+```sh
+mvn -q package
+java -jar target/hello-world-1.0.0.jar        # macOS: java -XstartOnFirstThread -jar ...
+```
+
+Against a fresh `target/codegen/kotlin/Azul.kt` instead of the published
+jar: `MAVEN_OPTS=-Xmx4g mvn -q package -Dazul.codegen.dir=../../target/codegen/kotlin`.
+
+Gradle: the project in this directory. `gradle run`
 copies the generated `Azul.kt` from `../../target/codegen/kotlin/`,
 compiles with daemon caching (4 GB compiler heap preset in
 `gradle.properties`), pulls JNA from Maven Central, and wires

@@ -856,14 +856,10 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     and independent, and any ordinary method returning a string needs it.
 ///     LESSON: a name-presence gate cannot see a compile error. For a target
 ///     nothing builds, the gate is not evidence.
-///   * `haskell` (10) - the recursive-type carve-out moved it 11 -> 10, so its
-///     `_partialEq` / `_cmp` / `_hash` now reach the artifact. The remaining
-///     Debug / Clone / Default do NOT, for a different reason: Haskell routes
-///     Show and Eq through a per-struct `Az{T}_toDbgString_via` C SHIM, and
-///     the shim generator has its own filter (see the `*VecDestructor` note in
-///     `cshim.rs`). The four XML types are enums or excluded structs, so no
-///     shim is generated and the instance has nothing to call. Closing it
-///     means extending the shim generator, not the function filter.
+///   * `haskell` - was 10 (the four XML types were enums or excluded structs,
+///     so no `Az{T}_toDbgString_via` shim existed for their Show instances);
+///     0 since Azul.Types declares every non-generic type and the shim
+///     generator shares the import filter, so it no longer needs a baseline.
 ///   * `ocaml` enums - the interface loop iterates `ir.structs` only, so a
 ///     tagged union like `AccessibilityAction` gets NO module at all. That is
 ///     the whole of ocaml's 272, and it is the same shape C++, zig and go each
@@ -911,7 +907,6 @@ pub const BASELINE: &[(&str, usize)] = &[
     ("zig", 13),
     ("php-ext", 134),
     ("ocaml", 11),
-    ("haskell", 10),
     ("go", 13),
 ];
 

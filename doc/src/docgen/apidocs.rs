@@ -8,7 +8,7 @@ use crate::{
             analyze_type, enum_is_union, has_recursive_destructor, is_primitive_arg,
             search_for_class_by_class_name,
         },
-        string::format_doc_lines,
+        string::render_doc_block,
     },
 };
 
@@ -63,10 +63,13 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
         title,
         active_nav: "api",
         head_extra: format!("{prism_script}\n{search_script}\n{details_script}"),
-        page_css: Some(concat!(
-            include_str!("../../templates/docs-api.css"),
-            include_str!("../../templates/docs-guide.css"),
-        )),
+        page_css: Some(crate::live_templates::join(&[
+            ("docs-api.css", include_str!("../../templates/docs-api.css")),
+            (
+                "docs-guide.css",
+                include_str!("../../templates/docs-guide.css"),
+            ),
+        ])),
         main_html,
     };
 
@@ -249,7 +252,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
     for (module_name, module) in by_priority(&version_data.api, |m| m.priority.unwrap_or(0.0)) {
         let mut body = String::new();
         if let Some(doc) = &module.doc {
-            body.push_str(&format!("<p class=\"m doc\">{}</p>", format_doc_lines(doc)));
+            body.push_str(&render_doc_block("m", doc));
         }
         body.push_str("<ul>");
         for (class_name, class_data) in by_priority(&module.classes, |c| c.priority.unwrap_or(0.0))
@@ -304,7 +307,7 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
             for (variant_name, variant_data) in variant_map {
                 count += 1;
                 if let Some(doc) = &variant_data.doc {
-                    rows.push_str(&format!("<p class=\"v doc\">{}</p>", format_doc_lines(doc)));
+                    rows.push_str(&render_doc_block("v", doc));
                 }
                 let id = format!("v.{class_name}.{variant_name}");
                 match &variant_data.r#type {
@@ -336,7 +339,7 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
             for (field_name, field_data) in field_map {
                 count += 1;
                 if let Some(doc) = &field_data.doc {
-                    rows.push_str(&format!("<p class=\"f doc\">{}</p>", format_doc_lines(doc)));
+                    rows.push_str(&render_doc_block("f", doc));
                 }
                 rows.push_str(&format!(
                     "<p class=\"f\" id=\"f.{class_name}.{field_name}\">{field_name}: {}</p>",
@@ -350,10 +353,7 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
         let mut rows = String::new();
         for arg in &callback_typedef.fn_args {
             if let Some(doc) = &arg.doc {
-                rows.push_str(&format!(
-                    "<p class=\"arg doc\">{}</p>",
-                    format_doc_lines(doc)
-                ));
+                rows.push_str(&render_doc_block("arg", doc));
             }
             let (_, type_name, _) = analyze_type(&arg.r#type);
             let ref_prefix = arg.ref_kind.to_rust_prefix();
@@ -368,10 +368,7 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
         }
         if let Some(returns) = &callback_typedef.returns {
             if let Some(doc) = &returns.doc {
-                rows.push_str(&format!(
-                    "<p class=\"ret doc\">{}</p>",
-                    format_doc_lines(doc)
-                ));
+                rows.push_str(&render_doc_block("ret", doc));
             }
             rows.push_str(&format!(
                 "<p class=\"fnty ret\">-&gt;&nbsp;{}</p>",
@@ -389,10 +386,7 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
 
     let mut inner = String::new();
     if let Some(doc) = &class_data.doc {
-        inner.push_str(&format!(
-            "<p class=\"class doc\">{}</p>",
-            format_doc_lines(doc)
-        ));
+        inner.push_str(&render_doc_block("class", doc));
     }
     inner.push_str(&body);
 
@@ -457,10 +451,7 @@ fn render_member(
 ) -> String {
     let mut out = String::new();
     if let Some(doc) = &member.doc {
-        out.push_str(&format!(
-            "<p class=\"{css_class} doc\">{}</p>",
-            format_doc_lines(doc)
-        ));
+        out.push_str(&render_doc_block(css_class, doc));
     }
     out.push_str(&format!(
         "<li class=\"{css_class}\" id=\"{class_name}.{member_name}\">\
@@ -501,10 +492,7 @@ fn render_member(
         Some(returns) => {
             out.push_str("<li>");
             if let Some(doc) = &returns.doc {
-                out.push_str(&format!(
-                    "<p class=\"ret doc\">{}</p>",
-                    format_doc_lines(doc)
-                ));
+                out.push_str(&render_doc_block("ret", doc));
             }
             out.push_str(&format!(
                 "<p class=\"{css_class} ret\">-&gt;&nbsp;{}</p>",
@@ -604,10 +592,13 @@ pub fn generate_api_index(api_data: &ApiData) -> String {
         title,
         active_nav: "api",
         head_extra: format!("{prism_script}\n{search_script}"),
-        page_css: Some(concat!(
-            include_str!("../../templates/docs-api.css"),
-            include_str!("../../templates/docs-guide.css"),
-        )),
+        page_css: Some(crate::live_templates::join(&[
+            ("docs-api.css", include_str!("../../templates/docs-api.css")),
+            (
+                "docs-guide.css",
+                include_str!("../../templates/docs-guide.css"),
+            ),
+        ])),
         main_html,
     };
 

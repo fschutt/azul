@@ -3,7 +3,8 @@
 //! The output is a single deterministic string — no IR-driven content
 //! is needed because the library shape is fixed (one library exposing
 //! `Azul`, `Azul.Internal.FFI`, and `Azul.Types`, depending on
-//! `base` only).
+//! `base` and `containers` — the host-handle table in `Azul` is a
+//! `Data.Map`).
 //!
 //! Notes:
 //! - We declare `extra-libraries: azul` so GHC links the prebuilt
@@ -64,12 +65,18 @@ library
     include-dirs:       cbits
     -- Wide base range: GHC 8.10 ships base 4.14, latest GHC 9.14 ships
     -- base 4.22. We don't depend on anything base-API-specific so any
-    -- recent version works.
+    -- recent version works. `containers` is a GHC boot package (the
+    -- handle table behind refAnyCreate is a Data.Map).
     build-depends:      base >= 4.14 && < 5
+                      , containers >= 0.6 && < 0.9
     default-language:   Haskell2010
     extra-libraries:    azul
     -- extra-lib-dirs:  /path/to/libazul
-    ghc-options:        -Wall -Wno-unused-imports -Wno-unused-matches
+    -- -O0: the binding is a thin FFI layer (every function is a C call) and
+    -- gains nothing from optimisation, while GHC needs more than twenty
+    -- minutes for the multi-megabyte Azul.Types at -O1 against three and a
+    -- half for the whole package at -O0. Your own modules keep their flags.
+    ghc-options:        -O0 -Wall -Wno-unused-imports -Wno-unused-matches
 "#
     );
     s.to_string()

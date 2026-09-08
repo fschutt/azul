@@ -3,7 +3,7 @@
 # undo-redo.sh — E2E test for the app-state undo/redo (mini-git) system.
 #
 # Mirrors tests/e2e/test_export_code.sh:
-#   1. Builds the JSON-serializable counter app (examples/c/hello-world.c)
+#   1. Builds the JSON-serializable counter host (tests/e2e/counter_host.c)
 #      against the DLL.
 #   2. Launches it with AZ_DEBUG on a free port.
 #   3. POSTs run_e2e_tests with tests/e2e/undo_redo.json (set_app_state +
@@ -11,10 +11,13 @@
 #   4. Verifies every test + every step passed.
 #
 # The app must be JSON-serializable (AZ_REFLECT_JSON) for set/assert/undo to
-# work — hello-world.c serializes its model as { "counter": N }.
+# work — counter_host.c serializes its model as { "counter": N }. The shipped
+# examples/c/hello-world.c deliberately carries no JSON hooks.
 #
-# Requirements: a built DLL in target/release (libazul + dll/azul.h), curl, jq,
-# python3, a C compiler.
+# Requirements: a built DLL in target/release (libazul) plus the generated
+# header in target/codegen (put FIRST on the include path: a stale, ignored
+# dll/azul.h may exist locally and would shadow it), curl, jq, python3, a C
+# compiler.
 #
 # Usage:    bash tests/e2e/undo-redo.sh
 # Exit:     0 = all passed, 1 = a failure (or the suite did not run)
@@ -29,8 +32,7 @@ TEST_JSON="$ROOT/tests/e2e/undo_redo.json"
 
 echo "=== Step 1: Build the serializable counter app ==="
 cc -o "$HELLO_BIN" \
-    "$ROOT/examples/c/hello-world.c" \
-    -I "$ROOT/dll/" \
+    "$ROOT/tests/e2e/counter_host.c" \
     -I "$ROOT/target/codegen" \
     -L "$ROOT/target/release" \
     -lazul \

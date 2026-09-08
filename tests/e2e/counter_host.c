@@ -1,3 +1,8 @@
+/* The counter app with JSON reflection (AZ_REFLECT_JSON + toJson/fromJson).
+ * The undo/redo e2e (undo-redo.sh) and the Export-Code e2e (test_export_code.sh)
+ * drive the app state by field name through the debug server, which needs the
+ * serialize/deserialize hooks; the shipped examples/c/hello-world.c does not
+ * carry them, so this host does. Keep it the same program otherwise. */
 #include "azul.h"
 #include <stdio.h>
 #include <string.h>
@@ -8,7 +13,34 @@ static AzString str(const char* s) {
 
 typedef struct { uint32_t counter; } MyDataModel;
 void MyDataModel_destructor(void* m) { }
-AZ_REFLECT(MyDataModel, MyDataModel_destructor);
+
+AzJson MyDataModel_toJson(AzRefAny refany);
+AzResultRefAnyString MyDataModel_fromJson(AzJson json);
+AZ_REFLECT_JSON(MyDataModel, MyDataModel_destructor, MyDataModel_toJson, MyDataModel_fromJson);
+
+AzJson MyDataModel_toJson(AzRefAny refany) {
+    MyDataModelRef ref = MyDataModelRef_create(&refany);
+    if (!MyDataModel_downcastRef(&refany, &ref)) {
+        return AzJson_null();
+    }
+    int64_t counter = (int64_t)ref.ptr->counter;
+    MyDataModelRef_delete(&ref);
+    AzJsonKeyValue kv = AzJsonKeyValue_create(str("counter"), AzJson_int(counter));
+    return AzJson_object(AzJsonKeyValueVec_fromItem(kv));
+}
+
+AzResultRefAnyString MyDataModel_fromJson(AzJson json) {
+    AzOptionJson field = AzJson_getKey(&json, str("counter"));
+    if (field.None.tag == AzOptionJson_Tag_None) {
+        return AzResultRefAnyString_err(str("Expected object with 'counter'"));
+    }
+    AzOptionI64 counter_opt = AzJson_asInt(&field.Some.payload);
+    if (counter_opt.None.tag == AzOptionI64_Tag_None) {
+        return AzResultRefAnyString_err(str("'counter' is not an integer"));
+    }
+    MyDataModel model = { .counter = (uint32_t)counter_opt.Some.payload };
+    return AzResultRefAnyString_ok(MyDataModel_upcast(model));
+}
 
 AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     MyDataModelRefMut d = MyDataModelRefMut_create(&data);

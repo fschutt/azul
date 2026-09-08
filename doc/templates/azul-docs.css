@@ -164,7 +164,10 @@ body.docs {
     color: var(--fl-code-fg);
     border: 1px solid var(--fl-code-bd);
     border-radius: var(--fl-r);
-    padding: 18px 20px;
+    /* azlin_footer() drops an absolute Copy button into the top-right corner
+       of every pre (.docs-copy-btn); the right padding keeps the first line
+       from running under it. */
+    padding: 18px 84px 18px 20px;
     overflow-x: auto;
     margin: 0 0 24px;
     box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4), var(--fl-shadow-1);
@@ -183,9 +186,20 @@ body.docs {
 .docs-content pre[class*="language-"] {
     background: var(--fl-code-bg);
     margin: 0 0 24px;
-    padding: 18px 20px;
+    padding: 18px 84px 18px 20px;
 }
 .docs-content code[class*="language-"] { background: transparent; }
+/* azlin_footer() wraps every pre in .docs-pre and puts the Copy button in
+   the wrapper, so it stays in the corner while the code scrolls under it;
+   the button is opaque so the code does not read through it. */
+.docs-content .docs-pre { position: relative; margin: 0 0 24px; }
+.docs-content .docs-pre pre,
+.docs-content .docs-pre pre[class*="language-"] { margin: 0; }
+.docs-content .docs-pre .docs-copy-btn {
+    opacity: 1;
+    background: var(--fl-code-bg);
+    box-shadow: -10px 0 10px -4px var(--fl-code-bg), var(--fl-shadow-1);
+}
 .docs-content .token.operator,
 .docs-content .token.entity,
 .docs-content .token.url {

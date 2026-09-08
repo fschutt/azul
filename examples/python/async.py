@@ -11,20 +11,17 @@ TERRAIN = ["#8fbcd4", "#aad3df", "#efe6c9", "#f2efe9",
 
 CLICK = EventFilter.Hover(HoverEventFilter.MouseUp)
 
-
 class MapState:
     def __init__(self):
         self.tile_x = 21
         self.tile_y = 24
         self.zoom = 6
 
-
 def lattice(x, y):
     h = (x * 374761393 + y * 668265263) & 0xFFFFFFFF
     h = ((h ^ (h >> 13)) * 1274126177) & 0xFFFFFFFF
     h ^= h >> 16
     return (h & 0xFFFFFF) / float(0xFFFFFF)
-
 
 def value_noise(x, y):
     x0 = int(x // 1)
@@ -39,7 +36,6 @@ def value_noise(x, y):
     d = lattice(x0 + 1, y0 + 1)
     return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy
 
-
 def terrain_at(u, v):
     t = (0.62 * value_noise(u * 0.18, v * 0.18)
          + 0.28 * value_noise(u * 0.55, v * 0.55)
@@ -49,7 +45,6 @@ def terrain_at(u, v):
             return index
     return 6
 
-
 def cell_terrain(zoom, tile_x, tile_y, i, j):
     span = 64.0 / (1 << zoom)
     t = terrain_at((tile_x + i / float(CELLS)) * span, (tile_y + j / float(CELLS)) * span)
@@ -58,7 +53,6 @@ def cell_terrain(zoom, tile_x, tile_y, i, j):
     if (tile_x * CELLS + i) % 9 == 4 or (tile_y * CELLS + j) % 11 == 6:
         return 7
     return t
-
 
 def tile_dom(zoom, tile_x, tile_y):
     tile = Dom.create_div().with_css(
@@ -73,7 +67,6 @@ def tile_dom(zoom, tile_x, tile_y):
         tile = tile.with_child(row)
     return tile
 
-
 def control(text, data, callback):
     return (Dom.create_div()
             .with_css("width:28px;height:28px;line-height:28px;text-align:center;"
@@ -82,29 +75,23 @@ def control(text, data, callback):
             .with_child(Dom.create_p_with_text(text))
             .with_callback(CLICK, data, callback))
 
-
 def pan(data, dx, dy):
     count = 1 << data.zoom
     data.tile_x = (data.tile_x + dx) % count
     data.tile_y = max(0, min(count - ROWS, data.tile_y + dy))
     return Update.RefreshDom
 
-
 def on_west(data, info):
     return pan(data, -1, 0)
-
 
 def on_east(data, info):
     return pan(data, 1, 0)
 
-
 def on_north(data, info):
     return pan(data, 0, -1)
 
-
 def on_south(data, info):
     return pan(data, 0, 1)
-
 
 def on_zoom_in(data, info):
     if data.zoom >= 12:
@@ -114,7 +101,6 @@ def on_zoom_in(data, info):
     data.tile_y *= 2
     return Update.RefreshDom
 
-
 def on_zoom_out(data, info):
     if data.zoom <= 1:
         return Update.DoNothing
@@ -122,7 +108,6 @@ def on_zoom_out(data, info):
     data.tile_x //= 2
     data.tile_y //= 2
     return Update.RefreshDom
-
 
 def layout(data, info):
     grid = Dom.create_div().with_css("display:flex;flex-direction:column;")
@@ -172,7 +157,6 @@ def layout(data, info):
             .with_child(header)
             .with_child(stage)
             .with_child(footer))
-
 
 state = MapState()
 window = WindowCreateOptions.create(layout)

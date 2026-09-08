@@ -116,7 +116,7 @@ const CPP_RESERVED_KEYWORDS: &[&str] = &[
 
 /// Escape C++ reserved keywords by appending an underscore
 /// This ensures C headers can be included from C++ code
-fn escape_cpp_keyword_for_c(name: &str) -> String {
+pub(crate) fn escape_cpp_keyword_for_c(name: &str) -> String {
     if CPP_RESERVED_KEYWORDS.contains(&name) {
         format!("{}_", name)
     } else {

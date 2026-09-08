@@ -536,6 +536,26 @@ verify_maven() {
   [ -s target/hello-world-1.0.0.jar ] || fail "maven: no target/hello-world-1.0.0.jar after 'mvn package'"
   e2e_run "maven" java -jar target/hello-world-1.0.0.jar
   log "maven: the documented pom + 'mvn package' + 'java -jar' run the counter e2e against $BASE/ui/maven"
+
+  # The Kotlin tab: pom-kotlin.xml (as pom.xml) + HelloWorld.kt, mvn package,
+  # java -jar, resolving rs.azul:azul-kotlin (the compiled Azul.kt + natives).
+  local wk; wk="$(mktemp -d)"; cd "$wk" || fail "maven(kotlin): cannot enter $wk"
+  fetch "$(rel pom-kotlin.xml)" pom.xml; fetch "$(rel HelloWorld.kt)"
+  sed -i.bak "s#https://azul.rs/ui/maven#$BASE/ui/maven#g" pom.xml && rm -f pom.xml.bak
+  run mvn -q -B package \
+    || fail "maven(kotlin): 'mvn -q package' FAILED — the site tells every Kotlin user to run exactly this against $BASE/ui/maven"
+  local kjar="$HOME/.m2/repository/rs/azul/azul-kotlin/$VERSION/azul-kotlin-$VERSION.jar"
+  [ -s "$kjar" ] || fail "maven(kotlin): mvn reported success but $kjar was not resolved from the mirror"
+  local kclasses; kclasses="$(unzip -l "$kjar" | grep -cE '\.class$')"
+  [ "$kclasses" -gt 1000 ] || fail "maven(kotlin): rs.azul:azul-kotlin:$VERSION has $kclasses .class files — that is not the binding"
+  for native in linux-x86-64/libazul.so darwin-aarch64/libazul.dylib win32-x86-64/azul.dll; do
+    unzip -l "$kjar" | grep -q "$native" \
+      || fail "maven(kotlin): rs.azul:azul-kotlin:$VERSION carries no $native — the Kotlin tab promises the jar bundles every platform's libazul"
+  done
+  note "rs.azul:azul-kotlin:$VERSION: $kclasses classes + natives for linux/macos/windows"
+  [ -s target/hello-world-1.0.0.jar ] || fail "maven(kotlin): no target/hello-world-1.0.0.jar after 'mvn package'"
+  e2e_run "maven(kotlin)" java -jar target/hello-world-1.0.0.jar
+  log "maven(kotlin): the documented pom + 'mvn package' + 'java -jar' run the counter e2e against $BASE/ui/maven"
 }
 
 # --------------------------------------------------------------------------

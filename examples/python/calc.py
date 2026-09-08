@@ -1,6 +1,5 @@
 from azul import *
 
-
 class Calculator:
     def __init__(self):
         self.display = "0"
@@ -72,7 +71,6 @@ class Calculator:
         self.current_value /= 100.0
         self.display = str(self.current_value)
 
-
 CALC_STYLE = ("height:100%;display:flex;flex-direction:column;"
               "font-family:sans-serif;")
 DISPLAY_STYLE = ("background-color:#2d2d2d;color:white;font-size:48px;"
@@ -89,7 +87,6 @@ OP_STYLE = ("background-color:#ff9f0a;color:white;font-size:24px;"
 ZERO_STYLE = ("background-color:#d1d1d6;color:#1d1d1f;font-size:24px;"
               "display:flex;align-items:center;justify-content:flex-start;"
               "padding-left:28px;grid-column:span 2;")
-
 
 def make_callback(calc, event_type, event_data):
     def cb(data, info):
@@ -108,7 +105,6 @@ def make_callback(calc, event_type, event_data):
         return Update.RefreshDom
     return cb
 
-
 def button(calc, label, event_type, event_data, style):
     return (Dom.create_div()
             .with_css(style)
@@ -117,7 +113,6 @@ def button(calc, label, event_type, event_data, style):
                 EventFilter.Hover(HoverEventFilter.MouseUp),
                 calc,
                 make_callback(calc, event_type, event_data)))
-
 
 def layout(data, info):
     display = (Dom.create_div()
@@ -157,13 +152,11 @@ def layout(data, info):
 
     return body
 
-
 def main():
     calc = Calculator()
     app = App.create(calc, AppConfig.create())
     window = WindowCreateOptions.create(layout)
     app.run(window)
-
 
 if __name__ == "__main__":
     main()

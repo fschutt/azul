@@ -374,7 +374,7 @@ impl ExampleRendered {
 
         ExampleRendered {
             id: name.clone(),
-            title: e.title.join("<br>"), // Join multiline titles with <br>
+            title: e.title.join(" "), // One line: "Native Multithreading", not two
             description: comrak::markdown_to_html(
                 &guide::transform_german_quotes(&e.description.join("\r\n")),
                 &comrak::Options::default(),
@@ -440,26 +440,32 @@ fn generate_index_html(
     // Filter examples for index display
     let index_examples: Vec<&ExampleRendered> = ex.iter().filter(|e| e.show_on_index).collect();
 
-    let index_html_template = include_str!("../../templates/index.template.html")
-        .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
-        .replace("<!-- HEAD -->", &get_landing_head_tags(inline_css))
-        .replace("<!-- NAV -->", &azlin_nav("overview"))
-        .replace("<!-- FOOTER -->", &azlin_footer())
-        .replace(
-            "<!-- PRISM_SCRIPT -->",
-            &format!(
-                "{}\n{}",
-                get_prism_script(),
-                get_search_init(PageKind::Other)
-            ),
-        );
+    let index_html_template = crate::live_templates::get(
+        "index.template.html",
+        include_str!("../../templates/index.template.html"),
+    )
+    .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
+    .replace("<!-- HEAD -->", &get_landing_head_tags(inline_css))
+    .replace("<!-- NAV -->", &azlin_nav("overview"))
+    .replace("<!-- FOOTER -->", &azlin_footer())
+    .replace(
+        "<!-- PRISM_SCRIPT -->",
+        &format!(
+            "{}\n{}",
+            get_prism_script(),
+            get_search_init(PageKind::Other)
+        ),
+    );
 
     // Generate language tabs HTML from configuration
     let language_tabs_html = generate_language_tabs_html(&latest_version.installation);
 
-    let index_example_html_template = include_str!("../../templates/index.section.template.html")
-        .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
-        .replace("$$LANGUAGE_TABS$$", &language_tabs_html);
+    let index_example_html_template = crate::live_templates::get(
+        "index.section.template.html",
+        include_str!("../../templates/index.section.template.html"),
+    )
+    .replace("$$ROOT_RELATIVE$$", "https://azul.rs")
+    .replace("$$LANGUAGE_TABS$$", &language_tabs_html);
 
     let examples_html = index_examples
         .iter()
@@ -548,19 +554,17 @@ fn generate_installation_json(
         /// If this is a dialect of another language group
         #[serde(rename = "dialectOf", skip_serializing_if = "Option::is_none")]
         dialect_of: Option<String>,
-        /// Available methods for this language (e.g., ["pip", "uv"] for Python)
-        #[serde(skip_serializing_if = "Vec::is_empty")]
-        methods: Vec<String>,
-        /// Steps per method (if methods are available)
-        #[serde(rename = "methodSteps", skip_serializing_if = "BTreeMap::is_empty")]
-        method_steps: BTreeMap<String, Vec<StepJson>>,
-        /// Platform-specific steps
-        #[serde(skip_serializing_if = "Option::is_none")]
-        windows: Option<Vec<StepJson>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        linux: Option<Vec<StepJson>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        macos: Option<Vec<StepJson>>,
+        /// The documented routes, in dropdown order.
+        install: Vec<RouteJson>,
+    }
+
+    /// One `install[]` entry of api.json, interpolated for the frontpage.
+    #[derive(Serialize)]
+    struct RouteJson {
+        id: String,
+        label: String,
+        os: Vec<String>,
+        steps: Vec<StepJson>,
     }
 
     #[derive(Serialize, Clone)]
@@ -634,48 +638,23 @@ fn generate_installation_json(
         if !is_frontpage_language(lang_key) {
             continue;
         }
-        let methods: Vec<String> = lang_config
-            .methods
-            .as_ref()
-            .map(|m| m.keys().cloned().collect())
-            .unwrap_or_default();
-
-        let mut method_steps = BTreeMap::new();
-        if let Some(methods_map) = &lang_config.methods {
-            for (method_key, method_config) in methods_map {
-                method_steps.insert(
-                    method_key.clone(),
-                    convert_steps(&method_config.steps, hostname, version),
-                );
-            }
-        }
-
-        let (windows, linux, macos) = if let Some(platforms) = &lang_config.platforms {
-            (
-                platforms
-                    .get("windows")
-                    .map(|s| convert_steps(&s.steps, hostname, version)),
-                platforms
-                    .get("linux")
-                    .map(|s| convert_steps(&s.steps, hostname, version)),
-                platforms
-                    .get("macos")
-                    .map(|s| convert_steps(&s.steps, hostname, version)),
-            )
-        } else {
-            (None, None, None)
-        };
+        let install = lang_config
+            .install
+            .iter()
+            .map(|v| RouteJson {
+                id: v.id.clone(),
+                label: v.label.clone(),
+                os: v.os.clone(),
+                steps: convert_steps(&v.steps, hostname, version),
+            })
+            .collect();
 
         languages.insert(
             lang_key.clone(),
             LanguageInstall {
                 display_name: lang_config.display_name.clone(),
                 dialect_of: lang_config.dialect_of.clone(),
-                methods,
-                method_steps,
-                windows,
-                linux,
-                macos,
+                install,
             },
         );
     }
@@ -871,8 +850,12 @@ pub fn get_landing_head_tags(inline_css: bool) -> String {
     let base_url: &str = if inline_css { HTML_ROOT } else { UI_PATH };
 
     let css_tag = if inline_css {
-        let flora_css = include_str!("../../templates/flora.css");
-        let landing_css = include_str!("../../templates/ui-landing.css");
+        let flora_css =
+            crate::live_templates::get("flora.css", include_str!("../../templates/flora.css"));
+        let landing_css = crate::live_templates::get(
+            "ui-landing.css",
+            include_str!("../../templates/ui-landing.css"),
+        );
         format!("<style>\n{}\n{}\n</style>", flora_css, landing_css)
     } else {
         // Both files are copied to the deploy root (next to /foam.svg).
@@ -885,12 +868,13 @@ pub fn get_landing_head_tags(inline_css: bool) -> String {
       <meta charset='utf-8'/>
       <meta name='viewport' content='width=device-width, initial-scale=1'>
       <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
-      <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
+      <meta name='description' content='Azul is a standalone GUI library working on six platforms (desktop, mobile, web), seventeen programming languages, two rendering modes (CPU / GPU) and zero external dependencies.'>
       <meta name='keywords' content='gui, rust, user interface'>
 
       {theme_boot}
       <link rel='preload' as='font' href='{base_url}/fonts/EBGaramond-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
       <link rel='preload' as='font' href='{base_url}/fonts/GrenzeGotisch-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
+      <link rel='icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='{base_url}/prism/prism.min.css'>
       <link rel='stylesheet' href='{base_url}/azul-search.css'>
@@ -1040,11 +1024,11 @@ pub struct AzlinPage {
     /// Extra tags appended to `<head>` (search init, prism script, family
     /// stylesheet links...). May be empty.
     pub head_extra: String,
-    /// Optional page-family stylesheet CONTENT (e.g.
-    /// `include_str!("../../templates/docs-api.css")`). Inlined in prod,
-    /// and ALSO inlined in debug (family css is not copied to the deploy
-    /// root; only azul-docs.css is).
-    pub page_css: Option<&'static str>,
+    /// Optional page-family stylesheet CONTENT (resolved through
+    /// `crate::live_templates::get` / `join`, e.g. docs-api.css). Inlined in
+    /// prod, and ALSO inlined in debug (family css is not copied to the
+    /// deploy root; only azul-docs.css is).
+    pub page_css: Option<String>,
     /// Contents of `<main>` (typically `.docs-hero` + `.docs-body`).
     pub main_html: String,
 }
@@ -1083,12 +1067,16 @@ pub fn azlin_theme_toggle() -> &'static str {
 /// + Red Hat Mono), favicon, prism theme, search css, flora.css +
 /// azul-docs.css (linked in debug, inlined in prod - same rule as the /ui
 /// landing).
-pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&'static str>) -> String {
+pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&str>) -> String {
     let base_url: &str = if inline_css { HTML_ROOT } else { UI_PATH };
 
     let mut css_tag = if inline_css {
-        let flora_css = include_str!("../../templates/flora.css");
-        let docs_css = include_str!("../../templates/azul-docs.css");
+        let flora_css =
+            crate::live_templates::get("flora.css", include_str!("../../templates/flora.css"));
+        let docs_css = crate::live_templates::get(
+            "azul-docs.css",
+            include_str!("../../templates/azul-docs.css"),
+        );
         format!("<style>\n{}\n{}\n</style>", flora_css, docs_css)
     } else {
         "<link rel='stylesheet' type='text/css' href='/flora.css'>\n      \
@@ -1103,12 +1091,13 @@ pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&'static str>) -> S
       <meta charset='utf-8'/>
       <meta name='viewport' content='width=device-width, initial-scale=1'>
       <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
-      <meta name='description' content='Cross-platform MIT-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine'>
+      <meta name='description' content='Azul is a standalone GUI library working on six platforms (desktop, mobile, web), seventeen programming languages, two rendering modes (CPU / GPU) and zero external dependencies.'>
       <meta name='keywords' content='gui, rust, user interface'>
 
       {theme_boot}
       <link rel='preload' as='font' href='{base_url}/fonts/EBGaramond-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
       <link rel='preload' as='font' href='{base_url}/fonts/GrenzeGotisch-Variable.woff2' type='font/woff2' crossorigin='anonymous'>
+      <link rel='icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='shortcut icon' type='image/x-icon' href='{base_url}/favicon.ico'>
       <link rel='stylesheet' href='{base_url}/prism/prism.min.css'>
       <link rel='stylesheet' href='{base_url}/azul-search.css'>
@@ -1270,15 +1259,21 @@ pub fn azlin_orb() -> &'static str {
 pub fn azlin_footer() -> String {
     r#"<footer role="contentinfo" class="docs-footer">
     <div class="container">
-      <p><a href="https://en.wikipedia.org/wiki/Ad_maiorem_Dei_gloriam" target="_blank" rel="noopener noreferrer">A.M.D.G.</a> &mdash; Azlin Project 2026</p>
+      <p><a href="https://en.wikipedia.org/wiki/Ad_maiorem_Dei_gloriam" target="_blank" rel="noopener noreferrer">A.M.D.G.</a> - Azlin Project 2026</p>
     </div>
   </footer>
   <script>document.querySelectorAll('.mobile-menu a, .nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>
   <script>
   // Explicit "Copy" button on every code block (same affordance as the
-  // /ui landing examples).
+  // /ui landing examples). The button goes into a wrapper AROUND the pre,
+  // not inside it: an absolutely positioned child of a scrolling box
+  // scrolls with the code, so on a long line it rode off to the right.
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.docs-content pre').forEach(function (pre) {
+      var wrap = document.createElement('div');
+      wrap.className = 'docs-pre';
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
       var btn = document.createElement('button');
       btn.className = 'docs-copy-btn';
       btn.type = 'button';
@@ -1290,7 +1285,7 @@ pub fn azlin_footer() -> String {
           setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
         });
       });
-      pre.appendChild(btn);
+      wrap.appendChild(btn);
     });
   });
   </script>"#
@@ -1316,7 +1311,7 @@ pub fn azlin_page(page: &AzlinPage, inline_css: bool) -> String {
 </body>
 </html>"#,
         title = page.title,
-        head = get_docs_head_tags(inline_css, page.page_css),
+        head = get_docs_head_tags(inline_css, page.page_css.as_deref()),
         head_extra = page.head_extra,
         nav = azlin_nav(page.active_nav),
         main = page.main_html,

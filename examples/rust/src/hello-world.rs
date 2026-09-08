@@ -11,18 +11,17 @@ extern "C" fn my_layout_func(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         None => return Dom::create_body(),
     };
 
-    let label = Dom::create_div()
-        .with_css("font-size: 32px")
-        // A counter display is a LABEL, not prose: a <span> carries no UA
-        // paragraph margin (a <p> here grew the line by two font-sizes).
-        .with_child(Dom::create_span_with_text(counter.as_str()));
+    let label = Dom::create_p_with_text(counter.as_str())
+        .with_css("font-size: 32px;");
 
     let mut button = Button::create("Increase counter");
     button.set_on_click(data.clone(), my_on_click);
-    let mut button = button.dom();
-    button.set_css("flex-grow: 1");
+    let button = button.dom()
+        .with_css("flex-grow: 1;");
 
-    Dom::create_body().with_child(label).with_child(button)
+    Dom::create_body()
+        .with_child(label)
+        .with_child(button)
 }
 
 extern "C" fn my_on_click(mut data: RefAny, _: CallbackInfo) -> Update {

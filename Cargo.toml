@@ -162,6 +162,20 @@ panic = "abort"   # Removes stack unwinding code (drastic size reduction).
 # disrupts the lift broadly. Conclusion: opt-level tuning is not the fix — the real fix is in
 # the transpiler's memory-lowering/opt of the (correct) remill IR. Keep at opt-3 (release default).
 
+# azul-doc is the docs/codegen/deploy tool, not a shipped library: its own
+# crate is the largest single compile in the workspace and gains nothing from
+# -O3 with debuginfo, while everything heavy it drives (layout, rendering,
+# fonts) lives in the engine crates, which keep the settings above. Compiling
+# just this crate at -O1 without debuginfo and with incremental codegen turns
+# the five-minute rebuild after every docgen edit into seconds. The generated
+# site is byte-identical either way. (The g140 note above is about the crates
+# the web lift transpiles; azul-doc is never lifted.)
+[profile.release.package.azul-doc]
+opt-level = 1
+debug = false
+incremental = true
+codegen-units = 256
+
 # CI / distribution profile: maximum optimization, slow to build.
 #   cargo build --profile prod-release -p azul-dll --features build-dll
 [profile.prod-release]

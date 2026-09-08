@@ -68,6 +68,9 @@ impl CppDialect for Cpp03Generator {
         // precede the class declarations, whose method signatures use them.
         code.push_str(&generate_callback_typedef_aliases(ir, config, true));
 
+        // namespace ffi: every C type under its unprefixed name.
+        code.push_str(&generate_ffi_aliases(ir, config, true));
+
         // Class declarations
         code.push_str("// Wrapper class declarations\r\n\r\n");
         for struct_def in &all_structs {
@@ -77,18 +80,10 @@ impl CppDialect for Cpp03Generator {
             self.generate_class_declaration(&mut code, struct_def, ir, config);
         }
 
-        // Enum wrappers (skip Option/Result — those got real classes above).
+        // Enum holders: unit-enum constants and tagged-union discriminants +
+        // variant constructors (Option/Result got real classes above).
         for enum_def in &ir.enums {
-            if !config.should_include_type(&enum_def.name) {
-                continue;
-            }
-            if matches!(
-                enum_def.category,
-                TypeCategory::Option | TypeCategory::Result
-            ) {
-                continue;
-            }
-            self.generate_enum_wrapper(&mut code, enum_def, config);
+            generate_enum_wrapper_shared(&mut code, enum_def, ir, config, std);
         }
 
         // Method implementations
@@ -691,26 +686,4 @@ impl Cpp03Generator {
         }
     }
 
-    fn generate_enum_wrapper(&self, code: &mut String, enum_def: &EnumDef, config: &CodegenConfig) {
-        if !enum_def.generic_params.is_empty() {
-            return;
-        }
-
-        let enum_name = &enum_def.name;
-        let c_type_name = config.apply_prefix(enum_name);
-
-        if enum_def.is_union {
-            code.push_str(&format!(
-                "// {} is a tagged union - use C API\r\n",
-                enum_name
-            ));
-            code.push_str(&format!("typedef {} {};\r\n\r\n", c_type_name, enum_name));
-        } else {
-            // Unit enum: scoped, non-prefixed value constants
-            // (`Update::RefreshDom`). C++03 namespace-scope `static const`
-            // has internal linkage → template-static ODR-safe form
-            // (`static const` members + a typedef alias; no constexpr/using).
-            code.push_str(&generate_enum_constants_extern(enum_def, config, true));
-        }
-    }
 }

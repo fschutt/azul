@@ -18,19 +18,16 @@ SCROLL = EventFilter.Hover(HoverEventFilter.Scroll)
 CLICK = EventFilter.Hover(HoverEventFilter.MouseUp)
 PAGE = 25
 
-
 class SheetState:
     def __init__(self):
         self.total_rows = TOTAL_ROWS
         self.first_row = 0
-
 
 def hash2(row, col):
     h = (row * 2654435761 ^ col * 40503) & 0xFFFFFFFF
     h ^= h >> 13
     h = (h * 1274126177) & 0xFFFFFFFF
     return h ^ (h >> 16)
-
 
 def cell_text(row, col):
     h = hash2(row, col)
@@ -44,12 +41,10 @@ def cell_text(row, col):
         return str(h % 90 + 10)
     return "%d.%02d" % (h % 900 + 10, h % 100)
 
-
 def cell(text, css):
     return (Dom.create_div()
             .with_css(css)
             .with_child(Dom.create_p_with_text(text)))
-
 
 def column_header():
     header = (Dom.create_div()
@@ -64,7 +59,6 @@ def column_header():
             "font-size:11px;font-weight:bold;color:#33404f;overflow:hidden;"
             "border-right:1px solid #9aa2ae;" % (COL_WIDTH, COL_WIDTH))))
     return header
-
 
 def sheet_rows(data):
     grid = Dom.create_div()
@@ -88,7 +82,6 @@ def sheet_rows(data):
         grid = grid.with_child(row)
     return grid
 
-
 def scroll_by(data, rows):
     new_first = max(0, min(data.total_rows - VISIBLE_ROWS, data.first_row + rows))
     if new_first == data.first_row:
@@ -96,18 +89,14 @@ def scroll_by(data, rows):
     data.first_row = new_first
     return Update.RefreshDom
 
-
 def on_scroll(data, info):
     return scroll_by(data, PAGE)
-
 
 def on_page_down(data, info):
     return scroll_by(data, PAGE)
 
-
 def on_page_up(data, info):
     return scroll_by(data, -PAGE)
-
 
 def pager_button(text, data, callback):
     return (Dom.create_div()
@@ -115,7 +104,6 @@ def pager_button(text, data, callback):
                       "border:1px solid #b6bcc6;font-size:11px;cursor:pointer;")
             .with_child(Dom.create_p_with_text(text))
             .with_callback(CLICK, data, callback))
-
 
 def layout(data, info):
     title = (Dom.create_div()
@@ -147,7 +135,6 @@ def layout(data, info):
             .with_child(column_header())
             .with_child(viewport)
             .with_child(status))
-
 
 state = SheetState()
 window = WindowCreateOptions.create(layout)

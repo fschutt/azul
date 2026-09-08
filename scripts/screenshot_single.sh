@@ -142,7 +142,7 @@ else
 fi
 
 cd "$ROOT_DIR"
-cargo build --profile "$PROFILE" -p azul-dll --features build-dll
+cargo build --profile "$PROFILE" -p azul-dll --features build-dll,debug-server
 if [ ! -f "$DLL_PATH" ]; then
     log_error "Failed to compile DLL"
     exit 1
@@ -341,7 +341,7 @@ log_success "Port $PORT is listening (PID: $port_check)"
 
 # Quick connectivity test
 log_info "Testing HTTP connectivity..."
-log_info "Request: POST http://localhost:$PORT/ - {\"type\":\"get_logs\"}"
+log_info "Request: POST http://localhost:$PORT/ - {\"op\":\"get_logs\"}"
 
 CONNECTIVITY_RESPONSE_FILE="$TEMP_DIR/connectivity_response.json"
 CURL_STDERR_FILE="$TEMP_DIR/curl_stderr.log"
@@ -350,7 +350,7 @@ CURL_STDERR_FILE="$TEMP_DIR/curl_stderr.log"
 log_info "Running curl with 10s timeout..."
 curl -s -X POST "http://localhost:$PORT/" \
     -H "Content-Type: application/json" \
-    -d '{"type":"get_logs"}' \
+    -d '{"op":"get_logs"}' \
     --connect-timeout 5 \
     --max-time 10 \
     -o "$CONNECTIVITY_RESPONSE_FILE" \
@@ -395,12 +395,12 @@ log_step 8 "Taking screenshot..."
 SCREENSHOT_FILE="$TEMP_DIR/${EXAMPLE_NAME}_screenshot.png"
 JSON_RESPONSE_FILE="$TEMP_DIR/screenshot_response.json"
 
-log_info "Request: POST http://localhost:$PORT/ - {\"type\":\"take_native_screenshot\"}"
+log_info "Request: POST http://localhost:$PORT/ - {\"op\":\"take_native_screenshot\"}"
 
 # Save raw response to file immediately, avoiding memory/ARG_MAX limits
 curl -s -X POST "http://localhost:$PORT/" \
     -H "Content-Type: application/json" \
-    -d '{"type":"take_native_screenshot"}' \
+    -d '{"op":"take_native_screenshot"}' \
     --max-time 60 \
     -o "$JSON_RESPONSE_FILE"
 
@@ -448,12 +448,12 @@ sleep 1
 # Step 9: Shut down application
 log_step 9 "Shutting down application..."
 
-log_info "Request: POST http://localhost:$PORT/ - {\"type\":\"close\"}"
+log_info "Request: POST http://localhost:$PORT/ - {\"op\":\"close\"}"
 
 CLOSE_RESPONSE_FILE="$TEMP_DIR/close_response.json"
 curl -s -X POST "http://localhost:$PORT/" \
     -H "Content-Type: application/json" \
-    -d '{"type":"close"}' \
+    -d '{"op":"close"}' \
     -o "$CLOSE_RESPONSE_FILE" || true
 
 if grep -q '"status":"ok"' "$CLOSE_RESPONSE_FILE" 2>/dev/null; then

@@ -36,7 +36,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info);
 
 Dom make_button(RefAny& calc, const char* label, int evt, char digit, int op, const char* style) {
     ButtonData bd(calc.clone().release(), evt, digit, op);
-    
+
     Dom text = Dom::create_p_with_text(String(label));
     Dom btn = Dom::create_div();
     btn.set_css(String(style));
@@ -49,15 +49,15 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     RefAny data_wrapper(data);
     const Calculator* c = Calculator_downcast_ref(data_wrapper);
     if (!c) return AzDom_createBody();
-    
+
     Dom display_text = Dom::create_p_with_text(String(c->display));
     Dom display = Dom::create_div();
     display.set_css(String("background:#2d2d2d;color:white;font-size:48px;text-align:right;padding:20px;min-height:80px;"));
     display.add_child(display_text);
-    
+
     Dom buttons = Dom::create_div();
     buttons.set_css(String("flex-grow:1;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:1px;"));
-    
+
     buttons.add_child(make_button(data_wrapper, "C", 4, 0, 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
     buttons.add_child(make_button(data_wrapper, "7", 0, '7', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
     buttons.add_child(make_button(data_wrapper, "8", 0, '8', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
@@ -72,12 +72,12 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     buttons.add_child(make_button(data_wrapper, "3", 0, '3', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
     buttons.add_child(make_button(data_wrapper, "=", 2, 0, 0, "background:#ff9f0a;font-size:24px;padding:20px;"));
     buttons.add_child(make_button(data_wrapper, "0", 0, '0', 0, "background:#d1d1d6;font-size:24px;padding:20px;"));
-    
+
     Dom body = Dom::create_div();
     body.set_css(String("height:100%;display:flex;flex-direction:column;font-family:sans-serif;"));
     body.add_child(display);
     body.add_child(buttons);
-    
+
     return body.release();
 }
 
@@ -85,11 +85,11 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
     RefAny data_wrapper(data);
     const ButtonData* bd = ButtonData_downcast_ref(data_wrapper);
     if (!bd) return AzUpdate_DoNothing;
-    
+
     RefAny calc_wrapper(AzRefAny_clone(&bd->calc));
     Calculator* c = Calculator_downcast_mut(calc_wrapper);
     if (!c) return AzUpdate_DoNothing;
-    
+
     if (bd->evt_type == 0) {
         if (c->clear_next) {
             c->display[0] = '\0';
@@ -108,7 +108,7 @@ AzUpdate on_click(AzRefAny data, AzCallbackInfo info) {
         c->pending_value = 0;
         c->clear_next = 0;
     }
-    
+
     return AzUpdate_RefreshDom;
 }
 
@@ -120,10 +120,10 @@ int main() {
     model.pending_value = 0.0;
     model.clear_next = 0;
     RefAny data = Calculator_upcast(model);
-    
+
     WindowCreateOptions window = WindowCreateOptions::create(layout);
     window.inner().window_state.title = az_string_from_literal("Calculator");
-    
+
     App app = App::create(data, AppConfig::default_());
     app.run(window);
     return 0;

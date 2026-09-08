@@ -14,8 +14,7 @@ fn myDataTypeId() u64 {
 fn myDataDestructor(_: ?*anyopaque) callconv(.c) void {}
 
 fn myDataUpcast(model: MyDataModel) C.AzRefAny {
-    // AzRefAny_newC copies the bytes into its own heap allocation, so a
-    // stack pointer is fine; run_destructor=false ⇒ libazul won't free ours.
+
     var local = model;
     const type_name_bytes = "MyDataModel";
     const type_name = C.AzString_fromUtf8(type_name_bytes.ptr, type_name_bytes.len);
@@ -26,8 +25,8 @@ fn myDataUpcast(model: MyDataModel) C.AzRefAny {
         myDataTypeId(),
         type_name,
         myDataDestructor,
-        0, // no serialize_fn
-        0, // no deserialize_fn
+        0,
+        0,
     );
 }
 
@@ -51,14 +50,9 @@ fn layout(data: C.AzRefAny, _: C.AzLayoutCallbackInfo) callconv(.c) C.AzDom {
     var buf: [16]u8 = undefined;
     const slice = std.fmt.bufPrint(&buf, "{d}", .{m.counter}) catch return C.AzDom_createBody();
     const counter_str = C.AzString_fromUtf8(slice.ptr, slice.len);
-    const label = C.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counter_str);
-
-    var label_wrapper = C.AzDom_createDiv();
-    const font_size = C.AzStyleFontSize_px(32.0);
-    const css_prop = C.AzCssProperty_fontSize(font_size);
-    const cond = C.AzCssPropertyWithConditions_simple(css_prop);
-    C.AzDom_addCssProperty(&label_wrapper, cond);
-    C.AzDom_addChild(&label_wrapper, label);
+    var label = C.AzDom_createPWithText(counter_str);
+    const css = "font-size: 32px;";
+    C.AzDom_setCss(&label, C.AzString_fromUtf8(css.ptr, css.len));
 
     const btn_label_bytes = "Increase counter";
     const btn_label = C.AzString_fromUtf8(btn_label_bytes.ptr, btn_label_bytes.len);
@@ -69,7 +63,7 @@ fn layout(data: C.AzRefAny, _: C.AzLayoutCallbackInfo) callconv(.c) C.AzDom {
     const button_dom = C.AzButton_dom(button);
 
     var body = C.AzDom_createBody();
-    C.AzDom_addChild(&body, label_wrapper);
+    C.AzDom_addChild(&body, label);
     C.AzDom_addChild(&body, button_dom);
     return body;
 }
@@ -83,7 +77,6 @@ pub fn main() !void {
     window.window_state.title = C.AzString_fromUtf8(title_bytes.ptr, title_bytes.len);
     window.window_state.size.dimensions.width = 400.0;
     window.window_state.size.dimensions.height = 300.0;
-
 
     var app = C.AzApp_create(data, C.AzAppConfig_create());
     C.AzApp_run(&app, window);

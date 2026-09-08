@@ -39,7 +39,7 @@ typedef struct {
     Operation operation;
 } ButtonData;
 
-void ButtonData_destructor(void* b_ptr) { 
+void ButtonData_destructor(void* b_ptr) {
     ButtonData* b = (ButtonData*)b_ptr;
     AzRefAny_delete(&b->calc);
 }
@@ -55,7 +55,7 @@ void Calculator_init(Calculator* c) {
 
 void Calculator_calculate(Calculator* c) {
     if (c->pending_operation == OP_NONE) return;
-    
+
     double result = 0.0;
     switch (c->pending_operation) {
         case OP_ADD: result = c->pending_value + c->current_value; break;
@@ -72,7 +72,7 @@ void Calculator_calculate(Calculator* c) {
             break;
         default: break;
     }
-    
+
     c->current_value = result;
     if (fabs(result - floor(result)) < 0.0000001 && fabs(result) < 1e15) {
         snprintf(c->display, sizeof(c->display), "%lld", (long long)result);
@@ -91,7 +91,7 @@ AzDom create_button(AzRefAny* calc, const char* label, EventType evt, char digit
     bd.event_type = evt;
     bd.digit = digit;
     bd.operation = op;
-    
+
     AzDom button = AzDom_createDiv();
     AzString style_str = AzString_copyFromBytes((const uint8_t*)style, 0, strlen(style));
     AzDom_setCss(&button, style_str);
@@ -99,7 +99,7 @@ AzDom create_button(AzRefAny* calc, const char* label, EventType evt, char digit
     AzDom_addChild(&button, AzDom_createPWithText(label_str));
     AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
     AzDom_addCallback(&button, event, ButtonData_upcast(bd), on_button_click);
-    
+
     return button;
 }
 
@@ -211,7 +211,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     if (!Calculator_downcastRef(&data, &c)) {
         return AzDom_createBody();
     }
-    
+
     char display_text[64];
     strcpy(display_text, c.ptr->display);
     CalculatorRef_delete(&c);
@@ -224,27 +224,27 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom buttons = AzDom_createDiv();
     AzString buttons_style = AzString_copyFromBytes((const uint8_t*)BUTTONS_STYLE, 0, strlen(BUTTONS_STYLE));
     AzDom_setCss(&buttons, buttons_style);
-    
+
     AzDom_addChild(&buttons, create_button(&data, "C", EVT_CLEAR, 0, OP_NONE, FN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "+/-", EVT_INVERT, 0, OP_NONE, FN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "%", EVT_PERCENT, 0, OP_NONE, FN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "\xc3\xb7", EVT_OPERATION, 0, OP_DIVIDE, OP_STYLE));
-    
+
     AzDom_addChild(&buttons, create_button(&data, "7", EVT_DIGIT, '7', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "8", EVT_DIGIT, '8', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "9", EVT_DIGIT, '9', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "\xc3\x97", EVT_OPERATION, 0, OP_MULTIPLY, OP_STYLE));
-    
+
     AzDom_addChild(&buttons, create_button(&data, "4", EVT_DIGIT, '4', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "5", EVT_DIGIT, '5', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "6", EVT_DIGIT, '6', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "-", EVT_OPERATION, 0, OP_SUBTRACT, OP_STYLE));
-    
+
     AzDom_addChild(&buttons, create_button(&data, "1", EVT_DIGIT, '1', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "2", EVT_DIGIT, '2', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "3", EVT_DIGIT, '3', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "+", EVT_OPERATION, 0, OP_ADD, OP_STYLE));
-    
+
     AzDom_addChild(&buttons, create_button(&data, "0", EVT_DIGIT, '0', OP_NONE, ZERO_STYLE));
     AzDom_addChild(&buttons, create_button(&data, ".", EVT_DIGIT, '.', OP_NONE, BTN_STYLE));
     AzDom_addChild(&buttons, create_button(&data, "=", EVT_EQUALS, 0, OP_NONE, EQ_STYLE));
@@ -263,19 +263,19 @@ AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {
     if (!ButtonData_downcastRef(&data, &bd)) {
         return AzUpdate_DoNothing;
     }
-    
+
     AzRefAny calc_ref = AzRefAny_clone(&bd.ptr->calc);
     EventType evt = bd.ptr->event_type;
     char digit = bd.ptr->digit;
     Operation op = bd.ptr->operation;
     ButtonDataRef_delete(&bd);
-    
+
     CalculatorRefMut c = CalculatorRefMut_create(&calc_ref);
     if (!Calculator_downcastMut(&calc_ref, &c)) {
         AzRefAny_delete(&calc_ref);
         return AzUpdate_DoNothing;
     }
-    
+
     switch (evt) {
         case EVT_DIGIT:
             if (c.ptr->clear_on_next_input) {
@@ -286,7 +286,7 @@ AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {
                 c.ptr->display[0] = digit;
                 c.ptr->display[1] = '\0';
             } else if (digit == '.' && strchr(c.ptr->display, '.') != NULL) {
-                // Already has decimal
+
             } else {
                 size_t len = strlen(c.ptr->display);
                 if (len < 63) {
@@ -296,36 +296,36 @@ AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info) {
             }
             c.ptr->current_value = atof(c.ptr->display);
             break;
-            
+
         case EVT_OPERATION:
             Calculator_calculate(c.ptr);
             c.ptr->pending_operation = op;
             c.ptr->pending_value = c.ptr->current_value;
             c.ptr->clear_on_next_input = 1;
             break;
-            
+
         case EVT_EQUALS:
             Calculator_calculate(c.ptr);
             break;
-            
+
         case EVT_CLEAR:
             Calculator_init(c.ptr);
             break;
-            
+
         case EVT_INVERT:
             c.ptr->current_value = -c.ptr->current_value;
             snprintf(c.ptr->display, sizeof(c.ptr->display), "%g", c.ptr->current_value);
             break;
-            
+
         case EVT_PERCENT:
             c.ptr->current_value /= 100.0;
             snprintf(c.ptr->display, sizeof(c.ptr->display), "%g", c.ptr->current_value);
             break;
     }
-    
+
     CalculatorRefMut_delete(&c);
     AzRefAny_delete(&calc_ref);
-    
+
     return AzUpdate_RefreshDom;
 }
 
@@ -333,13 +333,12 @@ int main() {
     Calculator model;
     Calculator_init(&model);
     AzRefAny data = Calculator_upcast(model);
-    
-    
+
     AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     window.window_state.title = AzString_copyFromBytes("Calculator - CSS Grid Demo", 0, 26);
     window.window_state.size.dimensions.width = 320.0;
     window.window_state.size.dimensions.height = 480.0;
-    
+
     AzAppConfig config = AzAppConfig_create();
     AzApp app = AzApp_create(data, config);
     AzApp_run(&app, window);

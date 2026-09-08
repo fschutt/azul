@@ -12,7 +12,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzResultXmlXmlError_delete(&parsed);
         return AzDom_createBody();
     }
-    // Move the parsed AzXml out of the Result, then build a Dom from it.
+
     AzXml xml = parsed.Ok.payload;
     parsed = {};
     return AzDom_createFromParsedXml(xml);

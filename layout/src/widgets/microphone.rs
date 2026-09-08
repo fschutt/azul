@@ -33,8 +33,7 @@ use crate::thread::{
 
 // --- User hook: on_frame (backreference DI, FFI-exposed) ---
 
-/// User hook fired once per captured audio chunk - the backreference DI pattern
-/// (see `architecture.md`).
+/// User hook fired once per captured audio chunk.
 ///
 /// The widget's private writeback invokes it with each
 /// [`AudioFrame`] so application code can save it, apply effects, or send it

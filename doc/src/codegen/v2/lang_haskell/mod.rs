@@ -1,42 +1,26 @@
 //! Haskell binding generator.
 //!
-//! Produces a small library of `.hs` modules plus a Cabal manifest:
+//! Produces a small library of `.hs` modules, a C shim file and a Cabal
+//! manifest:
 //!
-//! 1. `src/Azul.hs` — umbrella module re-exporting the curated public
-//!    surface (idiomatic newtype wrappers, `withFoo` bracket
-//!    constructors, `MyDataModel -> Dom` style layout entry points).
-//!    Carries the architecture-alignment doc block at the top.
-//! 2. `src/Azul/Internal/FFI.hs` — raw `foreign import ccall` value
-//!    declarations that link directly to the C ABI symbols. `unsafe`
-//!    is used for non-callback entry points; `safe` is reserved for
-//!    any function that may re-enter Haskell (callback-invoking).
-//! 3. `src/Azul/Types.hs` — Haskell data declarations that mirror the
-//!    C structs and enums, with manually-written `Storable` instances
-//!    (offsets emitted literally from the IR). Phantom-typed
-//!    `RefAny a` lives here.
-//! 4. `azul.cabal` — Cabal manifest declaring the library + deps.
-//!
-//! ## Why Haskell as a target language matters
-//!
-//! Azul's architecture (see `doc/guide/architecture.md` lines 107–230)
-//! is explicitly a *functional* GUI model — `UI = f(data)` in the Elm
-//! tradition — but with one critical refinement: `RefAny` lets the
-//! State Graph be decoupled from the Visual Tree, so prop-drilling
-//! (the second-generation hierarchy constraint) doesn't apply. Haskell
-//! is the most natural target language for this paradigm:
-//!
-//! - Layout callbacks are expressible as `MyDataModel -> Dom`
-//!   (effectively pure) with the `IO` effect happening at the FFI
-//!   boundary inside the callback trampoline.
-//! - Update callbacks are expressible as
-//!   `Event -> MyDataModel -> (MyDataModel, Update)` — Elm's
-//!   `update` story brought into Haskell. Imperative side-effects
-//!   (RefAny mutation) are hidden inside the trampoline.
-//! - `bracket` / `finally` from `Control.Exception` give us RAII over
-//!   FFI handles without forcing users into manual `delete`-call
-//!   discipline.
-//! - `RefAny` is a phantom-typed `newtype RefAny a` so downcasts are
-//!   statically tracked.
+//! 1. `src/Azul.hs` — the umbrella module user code imports: one managed
+//!    wrapper type per resource-owning class, one function per api.json
+//!    method (receiver last, so builder chains are `>>=` pipelines), the
+//!    host-handle `RefAny` (`refAnyCreate` / `refAnyGet` / `refAnyModify`),
+//!    callbacks as plain closures, and re-exports of the `Azul.Types`
+//!    enums and plain structs. See `wrappers.rs`.
+//! 2. `src/Azul/Internal/FFI.hs` — raw `foreign import ccall` declarations
+//!    that link to the C ABI symbols (through the `_via` shims wherever a
+//!    struct travels by value). Every import is `safe`: a host-handle
+//!    `RefAny` destructor re-enters Haskell through the releaser, so any
+//!    function that may drop one can call back.
+//! 3. `src/Azul/Types.hs` — Haskell data declarations that mirror the C
+//!    structs, enums and tagged unions, with `Storable` instances whose
+//!    sizes, alignments and member offsets are imports of the cbits layout
+//!    oracle (the C compiler's `sizeof` / `_Alignof` / `offsetof`).
+//! 4. `cbits/azul_shims.c` — the `_via` shims, the inbound trampolines,
+//!    the host-invoker prototypes and the layout oracle.
+//! 5. `azul.cabal` — Cabal manifest declaring the library + deps.
 //!
 //! ## Output protocol
 //!
@@ -50,6 +34,8 @@
 //! <FFI.hs contents>
 //! -- ==FILE: src/Azul/Types.hs ==
 //! <Types.hs contents>
+//! -- ==FILE: cbits/azul_shims.c ==
+//! <shim contents>
 //! -- ==FILE: azul.cabal ==
 //! <cabal contents>
 //! ```
@@ -153,8 +139,12 @@ fn module_scope_declarations(src: &str) -> Vec<(String, usize)> {
             continue;
         }
 
-        // `data X = ...` / `newtype X = ...` / `type X = ...`
-        if line.starts_with("data ") || line.starts_with("newtype ") || line.starts_with("type ") {
+        // `data X = ...` / `newtype X = ...` / `type X = ...` / `class X h where`
+        if line.starts_with("data ")
+            || line.starts_with("newtype ")
+            || line.starts_with("type ")
+            || line.starts_with("class ")
+        {
             if let Some(name) = trimmed.split_whitespace().nth(1) {
                 let name = name.trim_end_matches(|c: char| !is_haskell_ident_char(c));
                 if !name.is_empty() {
@@ -235,88 +225,7 @@ fn push_section(out: &mut String, path: &str, content: &str) {
 
 fn generate_umbrella(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     let mut builder = CodeBuilder::new(&config.indent);
-
-    builder.line("{- |");
-    builder.line("Module      : Azul");
-    builder.line("Description : Auto-generated Haskell bindings for the Azul GUI framework.");
-    builder.line("");
-    builder.line("== Architecture alignment");
-    builder.line("");
-    builder.line("Azul's architecture (see @doc\\/guide\\/architecture.md@ lines 107-230) is");
-    builder.line("explicitly a /functional/ GUI model: the UI is a pure function of the");
-    builder.line("application data, @UI = f(data)@, in the Elm tradition. The critical");
-    builder.line("refinement that distinguishes Azul from React/Elm is @RefAny@: a");
-    builder.line("type-erased reference that lets the State Graph be /decoupled/ from the");
-    builder.line("Visual Tree, so prop-drilling the React-style hierarchy constraint never");
-    builder.line("arises.");
-    builder.line("");
-    builder.line("Haskell is the most natural target language for this paradigm:");
-    builder.line("");
-    builder.line("* Layout callbacks are expressed as @layout :: MyDataModel -> Dom@:");
-    builder.line("  effectively pure, with the @IO@ effect happening at the FFI boundary");
-    builder.line("  inside the generated callback trampoline.");
-    builder.line("");
-    builder.line("* Update callbacks are expressed as");
-    builder.line("  @onClick :: Event -> MyDataModel -> (MyDataModel, Update)@:");
-    builder.line("  Elm's @update@ story brought directly into Haskell. Imperative");
-    builder.line("  side-effects (RefAny mutation) live inside the trampoline, not in");
-    builder.line("  user code.");
-    builder.line("");
-    builder.line("* RAII over FFI handles uses 'Control.Exception.bracket' /");
-    builder.line("  'Control.Exception.finally' instead of manual @_delete@ calls.");
-    builder.line("");
-    builder.line("* @'RefAny' a@ is a phantom-typed newtype, so downcasts are statically");
-    builder.line("  tracked.");
-    builder.line("");
-    builder.line("Generated by azul-doc codegen v2 (lang_haskell). DO NOT EDIT MANUALLY.");
-    builder.line("-}");
-    builder.line("{-# LANGUAGE ForeignFunctionInterface #-}");
-    builder.line("{-# LANGUAGE GeneralizedNewtypeDeriving #-}");
-    builder.line("{-# LANGUAGE ScopedTypeVariables #-}");
-    builder.blank();
-    builder.line("module Azul");
-    builder.indent();
-    builder.line("( -- * Wrapper smart-constructors (RAII via @bracket@)");
-    wrappers::emit_umbrella_exports(&mut builder, ir, config)?;
-    builder.line(") where");
-    // User code wanting raw FFI data types imports `Azul.Types`
-    // directly. We don't re-export that module here because doing so
-    // would bring every PascalCase name into scope alongside our
-    // wrapper newtypes (`Azul.CssParseErrorOwned` vs
-    // `Azul.Types.CssParseErrorOwned`), which Haskell rejects as
-    // duplicate declarations within Azul.hs itself.
-    builder.dedent();
-    builder.blank();
-    // Import Azul.Types only qualified-as-T so wrapper newtype
-    // declarations (`newtype Foo = Foo { unFoo :: Ptr T.Foo }`) can
-    // reference the underlying data type without duplicating the
-    // unqualified name in the Azul module's namespace. The umbrella
-    // re-export `module Azul.Types` in the export list still
-    // re-exports the data types to outside consumers — re-export
-    // happens via the qualified import, not via an unqualified one.
-    builder.line("import qualified Azul.Types as T");
-    builder.line("import qualified Azul.Internal.FFI as FFI");
-    builder.line("import qualified Foreign.Marshal.Alloc");
-    builder.line("import qualified Foreign.Storable");
-    builder.line("import qualified System.IO.Unsafe");
-    builder.line("import Control.Exception (bracket)");
-    builder.line("import qualified Control.Monad");
-    builder.line("import Data.IORef (IORef, newIORef, readIORef, writeIORef)");
-    // Phase 6 needs castPtr + plusPtr for the Option/Result payload
-    // byte-offset decoders.
-    builder.line("import Foreign.Ptr (Ptr, FunPtr, nullPtr, castPtr, plusPtr)");
-    builder.line("import Foreign.Marshal.Alloc (alloca)");
-    builder.line("import Foreign.Storable (Storable(..))");
-    // Item 18 Phase 1: per-method wrapper signatures reference
-    // Foreign.C.Types directly so they match the cdef-emitted FFI
-    // declarations exactly (no `CBool 1` / `fromIntegral` plumbing).
-    builder.line("import Foreign.C.Types");
-    builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
-    builder.line("import Data.Int (Int8, Int16, Int32, Int64)");
-    builder.blank();
-
-    wrappers::emit_wrapper_bodies(&mut builder, ir, config)?;
-
+    wrappers::emit_umbrella_module(&mut builder, ir, config)?;
     Ok(builder.finish())
 }
 
@@ -343,12 +252,11 @@ fn generate_ffi(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 
     functions::emit_foreign_imports(&mut builder, ir, config)?;
 
-    // Phase H.1 — per callback typedef, emit a `register<X>Callback`
-    // helper that hides the inbound-trampoline triplet
-    // (mk_<X>_inner + c_Az<X>_set_inner + p_Az<X>_trampoline) behind a
-    // single user-facing API. Lives here (FFI.hs) so the type
-    // signatures match the mk_<X>_inner shape exactly — both modules
-    // import `Azul.Types` unqualified.
+    // Per callback typedef, a `register<X>Callback` helper that hides the
+    // inbound-trampoline triplet (mk_<X>_inner + c_Az<X>_set_inner +
+    // p_Az<X>_trampoline) behind a single function. Lives here (FFI.hs)
+    // so the type signatures match the mk_<X>_inner shape exactly — both
+    // modules import `Azul.Types` unqualified.
     functions::emit_callback_register_helpers(&mut builder, ir, config)?;
 
     Ok(builder.finish())
@@ -358,53 +266,74 @@ fn generate_types_module(ir: &CodegenIR, config: &CodegenConfig) -> Result<Strin
     let mut builder = CodeBuilder::new(&config.indent);
 
     builder.line("-- | Haskell datatypes that mirror the C ABI structs and enums,");
-    builder.line("-- plus their hand-written 'Storable' instances.");
-    builder.line("--");
-    builder.line("-- @RefAny a@ is a phantom-typed newtype around the C ABI's");
-    builder.line("-- type-erased reference, so downcasts to a specific user data");
-    builder.line("-- model are statically tracked at the Haskell level.");
+    builder.line("-- with 'Storable' instances whose sizes, alignments and member offsets");
+    builder.line("-- are the C compiler's (the cbits layout oracle, see cshim.rs).");
     builder.line("--");
     builder.line("-- Generated by azul-doc codegen v2 (lang_haskell). DO NOT EDIT MANUALLY.");
     builder.line("{-# LANGUAGE ForeignFunctionInterface #-}");
     builder.line("{-# LANGUAGE GeneralizedNewtypeDeriving #-}");
     builder.line("{-# LANGUAGE DeriveFunctor #-}");
+    builder.line("{-# OPTIONS_GHC -Wno-unused-imports -Wno-unused-matches #-}");
     builder.blank();
     builder.line("module Azul.Types where");
     builder.blank();
     builder.line("import Foreign.C.Types");
-    builder.line("import Foreign.C.String (peekCStringLen)");
     builder.line("import Foreign.Ptr (Ptr, FunPtr, castPtr, nullPtr)");
     builder.line("import qualified Foreign.Ptr");
-    // V8: vecToList clone-via path needs `alloca` for the per-element
-    // out-buffer. Qualified-only so the symbol doesn't pollute the
-    // import namespace of users who already had unqualified imports
-    // from Foreign.Marshal.Alloc in their own modules.
+    // `<vec>ToList` needs `alloca` for the per-element clone out-buffer.
+    // Qualified-only so the symbol doesn't pollute the import namespace
+    // of users who already had unqualified imports from
+    // Foreign.Marshal.Alloc in their own modules.
     builder.line("import qualified Foreign.Marshal.Alloc");
     builder.line("import Foreign.Storable (Storable(..))");
+    builder.line("import Data.Bits ((.&.), (.|.), shiftL, shiftR)");
+    builder.line("import Data.Char (chr, ord)");
     builder.line("import Data.Word (Word8, Word16, Word32, Word64)");
     builder.line("import Data.Int (Int8, Int16, Int32, Int64)");
     builder.blank();
 
-    builder.line("-- | Phantom-typed reference to type-erased Azul user data.");
-    builder.line("--");
-    builder.line("-- The phantom type parameter @a@ tracks at the Haskell type level which");
-    builder.line("-- user data model the underlying C-side @AzRefAny@ holds. Downcasts");
-    builder.line("-- ('refAnyDowncastRef') return @Maybe a@ so type errors at the boundary");
-    builder.line("-- become value-level @Nothing@ rather than runtime crashes.");
-    builder.line("newtype RefAny a = RefAny { unRefAny :: Ptr () }");
-    // Hand-roll Show so any `data X = ... | _ RefAny | ...` variant
-    // can still derive (Show). Without this `deriving (Show)` would
-    // fail for every Result/Option that carries a RefAny payload.
-    builder.line("instance Show (RefAny a) where");
+    // UTF-8 codec for the AzString boundary. `Foreign.C.String` would use
+    // the locale encoding, which is not guaranteed to be UTF-8; libazul
+    // strings always are.
+    builder.line("-- | Encode a Haskell String as UTF-8 bytes (what every AzString holds).");
+    builder.line("encodeUtf8 :: String -> [Word8]");
+    builder.line("encodeUtf8 = concatMap enc");
     builder.indent();
-    builder.line("show _ = \"<RefAny>\"");
+    builder.line("where");
+    builder.indent();
+    builder.line("enc c");
+    builder.indent();
+    builder.line("| n < 0x80 = [fromIntegral n]");
+    builder.line("| n < 0x800 = [fromIntegral (0xC0 .|. (n `shiftR` 6)), cont n]");
+    builder.line("| n < 0x10000 = [fromIntegral (0xE0 .|. (n `shiftR` 12)), cont (n `shiftR` 6), cont n]");
+    builder.line("| otherwise = [fromIntegral (0xF0 .|. (n `shiftR` 18)), cont (n `shiftR` 12), cont (n `shiftR` 6), cont n]");
+    builder.indent();
+    builder.line("where n = ord c");
     builder.dedent();
-    builder.line("instance Storable (RefAny a) where");
+    builder.dedent();
+    builder.line("cont n = fromIntegral (0x80 .|. (n .&. 0x3F))");
+    builder.dedent();
+    builder.dedent();
+    builder.blank();
+    builder.line("-- | Decode UTF-8 bytes into a Haskell String (malformed sequences become U+FFFD).");
+    builder.line("decodeUtf8 :: [Word8] -> String");
+    builder.line("decodeUtf8 [] = []");
+    builder.line("decodeUtf8 (b0 : rest)");
     builder.indent();
-    builder.line("sizeOf _ = sizeOf (undefined :: Ptr ())");
-    builder.line("alignment _ = alignment (undefined :: Ptr ())");
-    builder.line("peek p = RefAny <$> peek (castPtr p)");
-    builder.line("poke p (RefAny x) = poke (castPtr p) x");
+    builder.line("| b0 < 0x80 = chr (fromIntegral b0) : decodeUtf8 rest");
+    builder.line("| b0 .&. 0xE0 == 0xC0 = multi 1 (fromIntegral (b0 .&. 0x1F)) rest");
+    builder.line("| b0 .&. 0xF0 == 0xE0 = multi 2 (fromIntegral (b0 .&. 0x0F)) rest");
+    builder.line("| b0 .&. 0xF8 == 0xF0 = multi 3 (fromIntegral (b0 .&. 0x07)) rest");
+    builder.line("| otherwise = '\\xFFFD' : decodeUtf8 rest");
+    builder.indent();
+    builder.line("where");
+    builder.indent();
+    builder.line("multi :: Int -> Int -> [Word8] -> String");
+    builder.line("multi 0 acc bs = chr acc : decodeUtf8 bs");
+    builder.line("multi k acc (b : bs) | b .&. 0xC0 == 0x80 = multi (k - 1) ((acc `shiftL` 6) .|. fromIntegral (b .&. 0x3F)) bs");
+    builder.line("multi _ _ bs = '\\xFFFD' : decodeUtf8 bs");
+    builder.dedent();
+    builder.dedent();
     builder.dedent();
     builder.blank();
 

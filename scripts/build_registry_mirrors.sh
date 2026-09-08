@@ -145,6 +145,38 @@ META
     sha1_of "$f" > "$f.sha1"; md5_of "$f" > "$f.md5"
   done
   echo "  [maven] built rs/azul/azul/$V (jar+pom+metadata+checksums)"
+  # rs.azul:azul-kotlin - the compiled Kotlin binding (Azul.kt) with the same
+  # natives; a separate artifact because both bindings live in package
+  # com.azul with the same class names and can never share a classpath. The
+  # maven job writes the consumer pom next to the jar (it knows the Kotlin
+  # version it compiled with).
+  local kjar="$ART/maven-jar/azul-kotlin-$V.jar" kpom="$ART/maven-jar/azul-kotlin-$V.pom"
+  [ -f "$kjar" ] || { echo "::error::[maven] $kjar missing — the maven job must upload azul-kotlin-$V.jar (the Kotlin Maven route depends on rs.azul:azul-kotlin:$V)"; return 1; }
+  [ -f "$kpom" ] || { echo "::error::[maven] $kpom missing — the maven job writes it next to the jar"; return 1; }
+  if ! unzip -l "$kjar" | grep -qE '\.class$'; then
+    echo "::error::[maven] $kjar contains no .class files — refusing to publish it as rs.azul:azul-kotlin:$V"; return 1
+  fi
+  if ! unzip -l "$kjar" | grep -qE 'libazul\.so|libazul\.dylib|azul\.dll'; then
+    echo "::error::[maven] $kjar carries no native library — JNA would fail at runtime; refusing to publish"; return 1
+  fi
+  local kdir="$SITE/ui/maven/rs/azul/azul-kotlin/$V"
+  mkdir -p "$kdir"
+  cp "$kjar" "$kdir/azul-kotlin-$V.jar"
+  cp "$kpom" "$kdir/azul-kotlin-$V.pom"
+  echo "  [maven] published azul-kotlin-$V.jar ($(unzip -l "$kjar" | grep -cE '\.class$') classes)"
+  cat > "$SITE/ui/maven/rs/azul/azul-kotlin/maven-metadata.xml" <<META
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>rs.azul</groupId>
+  <artifactId>azul-kotlin</artifactId>
+  <versioning>
+    <latest>$V</latest>
+    <release>$V</release>
+    <versions><version>$V</version></versions>
+    <lastUpdated>$(date -u +%Y%m%d%H%M%S)</lastUpdated>
+  </versioning>
+</metadata>
+META
 }
 
 # --------------------------------------------------------------------------

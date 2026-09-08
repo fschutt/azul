@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.azul.examples</groupId>
+    <artifactId>hello-world</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <kotlin.version>2.3.21</kotlin.version>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- The azul release this example targets: rs.azul:azul-kotlin at this
+             version from the self-hosted Maven repository (profile
+             `from-registry` below, the default). That jar carries the
+             compiled Kotlin binding AND libazul for linux-x86-64 /
+             darwin-aarch64 / win32-x86-64 as JNA resources, so nothing
+             native has to be downloaded or pointed at. -->
+        <azul.version>0.2.0</azul.version>
+        <azul.maven.repo>https://azul.rs/ui/maven</azul.maven.repo>
+    </properties>
+
+    <build>
+        <!-- HelloWorld.kt lives in this directory. -->
+        <sourceDirectory>${project.basedir}</sourceDirectory>
+        <plugins>
+            <plugin>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-maven-plugin</artifactId>
+                <version>${kotlin.version}</version>
+                <executions>
+                    <execution>
+                        <id>compile</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <jvmTarget>17</jvmTarget>
+                    <sourceDirs>
+                        <sourceDir>${project.basedir}</sourceDir>
+                    </sourceDirs>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>com.azul.HelloWorldKt</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+            <!-- One self-contained app jar: the binding, JNA and the Kotlin
+                 runtime shaded in, so `java -jar target/hello-world-1.0.0.jar`
+                 needs no classpath. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-stdlib</artifactId>
+            <version>${kotlin.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.14.0</version>
+        </dependency>
+    </dependencies>
+
+    <!-- Where the com.azul.* binding comes from, one of two profiles:
+
+         from-registry (the default, what azul.rs documents): depend on
+         rs.azul:azul-kotlin from the self-hosted Maven repository.
+
+         from-codegen (activated by -Dazul.codegen.dir=<dir>): compile the
+         freshly generated Azul.kt in <dir> (the repo's target/codegen/kotlin,
+         or the unpacked azul-kotlin-<version>.tar.gz) together with the
+         example. Azul.kt is ~150k lines: run with MAVEN_OPTS=-Xmx4g. -->
+    <profiles>
+        <profile>
+            <id>from-registry</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <repositories>
+                <repository>
+                    <id>azul-rs</id>
+                    <url>${azul.maven.repo}</url>
+                </repository>
+            </repositories>
+            <dependencies>
+                <dependency>
+                    <groupId>rs.azul</groupId>
+                    <artifactId>azul-kotlin</artifactId>
+                    <version>${azul.version}</version>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>from-codegen</id>
+            <activation>
+                <property>
+                    <name>azul.codegen.dir</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.jetbrains.kotlin</groupId>
+                        <artifactId>kotlin-maven-plugin</artifactId>
+                        <configuration>
+                            <sourceDirs>
+                                <sourceDir>${project.basedir}</sourceDir>
+                                <sourceDir>${azul.codegen.dir}</sourceDir>
+                            </sourceDirs>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

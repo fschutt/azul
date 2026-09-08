@@ -100,7 +100,7 @@ impl VideoWidget {
 
     /// Set a hook invoked with every decoded frame - for live effects, saving
     /// frames into your data model, or sending them over the network
-    /// (azul-meet). The backreference DI pattern (see `architecture.md`).
+    /// (azul-meet).
     pub fn set_on_frame<C: Into<OnVideoFrameCallback>>(&mut self, data: RefAny, on_frame: C) {
         self.on_frame = Some(OnVideoFrame {
             refany: data,

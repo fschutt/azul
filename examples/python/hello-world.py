@@ -1,14 +1,11 @@
 from azul import *
 
-
 class DataModel:
     def __init__(self, counter):
         self.counter = counter
 
-
 def layout(data, info):
-    label = (Dom.create_div()
-             .with_child(Dom.create_span_with_text(str(data.counter)))
+    label = (Dom.create_p_with_text(str(data.counter))
              .with_css("font-size: 32px;"))
 
     button = (Button.create("Increase counter")
@@ -20,11 +17,9 @@ def layout(data, info):
             .with_child(label)
             .with_child(button))
 
-
 def on_click(data, info):
     data.counter += 1
     return Update.RefreshDom
-
 
 if __name__ == "__main__":
     model = DataModel(5)

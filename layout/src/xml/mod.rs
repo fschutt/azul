@@ -155,11 +155,9 @@ pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
     DomXml { parsed_dom }
 }
 
-/// Create a Dom (with CSS attached but not applied) from an already-parsed Xml structure.
-///
-/// Returns an unstyled `Dom` suitable for use in layout callbacks (which return `Dom`,
-/// not `StyledDom`). The CSS from `<style>` tags is attached to the `Dom.css` field
-/// and will be applied during the cascade pass.
+/// Creates a `Dom` from an already-parsed `Xml` structure, for use in layout
+/// callbacks. CSS from `<style>` tags is attached to `Dom.css` and applied
+/// during the cascade pass.
 // FFI-exported (api.json fn_body azul_layout::xml::dom_from_parsed_xml(xml)): owned Xml by value.
 #[allow(clippy::needless_pass_by_value)]
 #[must_use]

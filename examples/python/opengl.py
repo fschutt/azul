@@ -2,12 +2,10 @@ from azul import *
 
 CLICK = EventFilter.Hover(HoverEventFilter.MouseUp)
 
-
 class OpenGlState:
     def __init__(self):
         self.rotation_deg = 0.0
         self.step_deg = 15.0
-
 
 def button(text, data, callback):
     return (Dom.create_div()
@@ -16,21 +14,17 @@ def button(text, data, callback):
             .with_child(Dom.create_p_with_text(text))
             .with_callback(CLICK, data, callback))
 
-
 def on_rotate(data, info):
     data.rotation_deg = (data.rotation_deg + data.step_deg) % 360.0
     return Update.RefreshDom
-
 
 def on_faster(data, info):
     data.step_deg = min(90.0, data.step_deg + 5.0)
     return Update.RefreshDom
 
-
 def on_slower(data, info):
     data.step_deg = max(5.0, data.step_deg - 5.0)
     return Update.RefreshDom
-
 
 def layout(data, info):
     title = (Dom.create_div()
@@ -65,7 +59,6 @@ def layout(data, info):
             .with_child(title)
             .with_child(stage)
             .with_child(controls))
-
 
 state = OpenGlState()
 window = WindowCreateOptions.create(layout)
