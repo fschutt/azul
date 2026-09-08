@@ -148,7 +148,7 @@ fn dom_node_with_class(class: &str) -> NodeId {
         if data
             .get_ids_and_classes()
             .iter()
-            .any(|c| c.as_class().map_or(false, |c| c == class))
+            .any(|c| c.as_class() == Some(class))
         {
             return NodeId::new(id);
         }
@@ -370,7 +370,7 @@ fn an_inline_flex_box_is_as_tall_as_its_content_plus_its_own_box() {
             if data
                 .get_ids_and_classes()
                 .iter()
-                .any(|c| c.as_class().map_or(false, |c| c == "btn"))
+                .any(|c| c.as_class() == Some("btn"))
             {
                 found = Some(NodeId::new(id));
             }

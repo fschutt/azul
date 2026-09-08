@@ -1097,10 +1097,8 @@ impl DynamicSelectorContext {
         // in, so a widget with `@theme dark` rules came out dark on the site
         // while every other widget stayed light. Unset (the normal case) keeps
         // the OS theme.
-        let theme = match option_env_theme() {
-            Some(pinned) => pinned,
-            None => ThemeCondition::from_system_theme(system_style.theme),
-        };
+        let theme = option_env_theme()
+            .unwrap_or_else(|| ThemeCondition::from_system_theme(system_style.theme));
 
         Self {
             os,

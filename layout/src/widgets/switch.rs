@@ -138,10 +138,6 @@ const KNOB_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color
 const KNOB_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(KNOB_BG_ITEMS);
 
-/// Build the track (pill container) style. Background colour is the only
-/// state-dependent property, so the style is built at runtime per the recipe's
-/// "runtime vec if param-dependent" path.
-
 /// What the switch declares so its two state changes TWEEN instead of
 /// snapping: the knob's `margin-left` travel and the track's colour.
 ///
@@ -157,7 +153,7 @@ fn switch_animation(property: &'static str) -> CssPropertyWithConditions {
     CssPropertyWithConditions::simple(CssProperty::Animation(
         azul_css::props::property::StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(
             alloc::vec![StyleAnimation {
-                name: azul_css::AzString::from_const_str(property),
+                name: AzString::from_const_str(property),
                 duration: CssDuration::from_millis(150),
                 delay: CssDuration::from_millis(0),
                 iterations: AnimationIterationCount::Count(1),
@@ -168,6 +164,9 @@ fn switch_animation(property: &'static str) -> CssPropertyWithConditions {
     ))
 }
 
+/// Build the track (pill container) style. Background colour is the only
+/// state-dependent property, so the style is built at runtime per the recipe's
+/// "runtime vec if param-dependent" path.
 fn build_track_style(checked: bool) -> CssPropertyWithConditionsVec {
     let bg = if checked { TRACK_ON_BG } else { TRACK_OFF_BG };
     CssPropertyWithConditionsVec::from_vec(alloc::vec![

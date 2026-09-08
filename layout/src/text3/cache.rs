@@ -9204,12 +9204,11 @@ pub(crate) fn shape_placeholder_text<T: ParsedFontTrait>(
             // the placeholder blink out and come back (device report).
             // Resolve it the way `window.rs` does on the same miss.
             let resolved;
-            let font_chain = match font_chain_cache.get(&cache_key) {
-                Some(chain) => chain,
-                None => {
-                    resolved = resolve_chain_on_miss(&cache_key, fc_cache);
-                    &resolved
-                }
+            let font_chain = if let Some(chain) = font_chain_cache.get(&cache_key) {
+                chain
+            } else {
+                resolved = resolve_chain_on_miss(&cache_key, fc_cache);
+                &resolved
             };
             // v1: the FIRST loaded face of the chain shapes the whole prompt
             // (a prompt is app-authored, single-script text; per-glyph
