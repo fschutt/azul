@@ -5202,6 +5202,7 @@ jobs:
                    -o -name '*.dylib' -o -name '*.dll' -o -name '*.pyd' \
                    -o -name '*.deb' -o -name '*.rpm' -o -name '*.whl' -o -name '*.nupkg' \
                    -o -name '*.gem' -o -name '*.jar' -o -name '*.tgz' \
+                   -o -name '*.cs' -o -name '*.psm1' \
                    -o -name 'examples.zip' -o -name 'guide.pdf' \) \
                 ! -name 'libazul.so' ! -name 'libazul.dylib' ! -name 'libazul.x86_64.dylib' \
                 ! -name 'azul.dll' ! -name 'azul.i686.dll' ! -name 'azul.dll.lib'

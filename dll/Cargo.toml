@@ -245,10 +245,14 @@ libloading = "0.8"
 # build on Apple (no MoltenVK video) or Android (MediaCodec), and its `vk-mem`
 # (C++/VMA) dep needs a C++ toolchain that the ARM/RISC-V cross-compile checks
 # lack — so restrict to x86_64 desktop (other arches keep the stub decoder).
+# MUSL is excluded for the same reason and not by architecture: the
+# x86_64-unknown-linux-musl check has no musl C++ toolchain either (only the
+# `cross` images used by the BUILD matrix carry one), and hardware video decode
+# is not part of what the Alpine package ships.
 # Behind `video-native`; `default-features = false` drops the heavy wgpu dep — we
 # use the raw Vulkan BytesDecoder path (decode -> NV12 -> CPU RGBA convert), which
 # also gives the "headless VK decode, copy back to CPU" CPU-mode fallback.
-[target.'cfg(all(target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))'.dependencies]
+[target.'cfg(all(target_arch = "x86_64", any(all(target_os = "linux", target_env = "gnu"), target_os = "windows")))'.dependencies]
 gpu-video = { package = "gpu-video-azul", version = "0.4.0", default-features = false, optional = true }
 
 [target.'cfg(any(target_os = "ios"))'.dependencies]

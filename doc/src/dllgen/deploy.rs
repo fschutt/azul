@@ -1744,7 +1744,15 @@ fn is_large(filename: &str) -> bool {
         return false;
     }
 
-    filename.ends_with(".lib")
+    // The generated single-file bindings for the .NET and PowerShell surfaces
+    // are 11 MB and 13 MB of text: bigger than most of the binaries, and pure
+    // downloads — nothing on the site reads them. They belong on the Release
+    // with the rest of the large build output (2026-09-08: the Pages artifact
+    // reached 917 MB against a 900 MB gate and GitHub's 1 GB hard cap, and
+    // these two are 24 MB of it).
+    filename.ends_with(".cs")
+        || filename.ends_with(".psm1")
+        || filename.ends_with(".lib")
         || filename.ends_with(".so")
         || filename.contains(".so.")
         || filename.ends_with(".dylib")
