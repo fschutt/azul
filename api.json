@@ -369,7 +369,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "echo $HOSTNAME/ui/alpine/x86_64 | sudo tee -a /etc/apk/repositories"
+                                    "content": "echo $HOSTNAME/ui/alpine | sudo tee -a /etc/apk/repositories"
                                 },
                                 {
                                     "type": "command",
@@ -793,7 +793,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "echo $HOSTNAME/ui/alpine/x86_64 | sudo tee -a /etc/apk/repositories"
+                                    "content": "echo $HOSTNAME/ui/alpine | sudo tee -a /etc/apk/repositories"
                                 },
                                 {
                                     "type": "command",
@@ -1135,7 +1135,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "echo $HOSTNAME/ui/alpine/x86_64 | sudo tee -a /etc/apk/repositories"
+                                    "content": "echo $HOSTNAME/ui/alpine | sudo tee -a /etc/apk/repositories"
                                 },
                                 {
                                     "type": "command",
@@ -1477,7 +1477,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "echo $HOSTNAME/ui/alpine/x86_64 | sudo tee -a /etc/apk/repositories"
+                                    "content": "echo $HOSTNAME/ui/alpine | sudo tee -a /etc/apk/repositories"
                                 },
                                 {
                                     "type": "command",
@@ -1819,7 +1819,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "echo $HOSTNAME/ui/alpine/x86_64 | sudo tee -a /etc/apk/repositories"
+                                    "content": "echo $HOSTNAME/ui/alpine | sudo tee -a /etc/apk/repositories"
                                 },
                                 {
                                     "type": "command",
@@ -2161,7 +2161,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "echo $HOSTNAME/ui/alpine/x86_64 | sudo tee -a /etc/apk/repositories"
+                                    "content": "echo $HOSTNAME/ui/alpine | sudo tee -a /etc/apk/repositories"
                                 },
                                 {
                                     "type": "command",
@@ -2503,7 +2503,7 @@
                             "steps": [
                                 {
                                     "type": "command",
-                                    "content": "echo $HOSTNAME/ui/alpine/x86_64 | sudo tee -a /etc/apk/repositories"
+                                    "content": "echo $HOSTNAME/ui/alpine | sudo tee -a /etc/apk/repositories"
                                 },
                                 {
                                     "type": "command",
@@ -6675,7 +6675,7 @@
             },
             "apk": {
                 "depends": [
-                    "gcompat"
+                    "musl"
                 ]
             }
         },

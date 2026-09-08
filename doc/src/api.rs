@@ -302,8 +302,8 @@ pub struct PackageConfig {
     /// which do not exist on Arch (`libc6` → `glibc`).
     #[serde(default)]
     pub archlinux: PackagerOverrides,
-    /// Alpine (apk) overrides — the library is a glibc build, so it depends
-    /// on `gcompat`, not on Debian's `libc6`.
+    /// Alpine (apk) overrides — the package ships the musl build, so it
+    /// depends on `musl`, not on Debian's `libc6`.
     #[serde(default)]
     pub apk: PackagerOverrides,
 }

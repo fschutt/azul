@@ -82,7 +82,7 @@ SigLevel = Optional TrustAll
 Server = https://azul.rs/ui/arch/$arch
 
 # Alpine
-echo https://azul.rs/ui/alpine/x86_64 >> /etc/apk/repositories
+echo https://azul.rs/ui/alpine >> /etc/apk/repositories
 apk add --allow-untrusted azul
 ```
 

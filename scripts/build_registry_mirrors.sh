@@ -880,13 +880,14 @@ build_pacman() {
 #   apk add --allow-untrusted azul   (until AZUL_APK_SIGN_KEY signs the index;
 #                                    then: curl -o /etc/apk/keys/azul.rsa.pub
 #                                    https://azul.rs/ui/alpine/azul.rsa.pub)
-# The library is a glibc build, hence the package depends on gcompat.
+# Each package ships the musl build for its arch (the two musl rows of the
+# cross-build matrix), so it depends on `musl` and links with Alpine's own
+# gcc — a glibc libazul.so cannot be linked there at all.
 # `apk index` builds the index; the runner has none, so it runs in alpine.
 # --------------------------------------------------------------------------
-build_apk() {
-  local pkgs; pkgs=$(ls -1 "$ART"/artifacts-apk/*.apk 2>/dev/null)
-  [ -n "$pkgs" ] || { echo "  [apk] no .apk artifacts — skip"; return; }
-  local apk_dir="$SITE/ui/alpine/x86_64"
+build_apk_arch() { # $1 arch (apk's name for it), $2 dir holding that arch's .apk
+  local arch="$1" src="$2"
+  local apk_dir="$SITE/ui/alpine/$arch"
   mkdir -p "$apk_dir"
   # apk resolves a package to the file "<name>-<version>.apk" recorded in the
   # index, NOT to whatever the file is called on disk. nfpm names it in the
@@ -894,7 +895,7 @@ build_apk() {
   # the index and then died with "package mentioned in index not found".
   # Rename on the way in; the version comes from $V like every other channel.
   local a
-  for a in "$ART"/artifacts-apk/*.apk; do
+  for a in "$src"/*.apk; do
     cp "$a" "$apk_dir/azul-$V.apk"
   done
   # --allow-untrusted: nfpm builds the .apk unsigned (there is no signing key
@@ -903,7 +904,7 @@ build_apk() {
   # first website deploy that ever reached this channel died. What matters to
   # a client is the signature on the INDEX, not on the package, and the
   # install route the site documents already says `apk add --allow-untrusted`.
-  local cmd='apk index --allow-untrusted --rewrite-arch x86_64 -o APKINDEX.tar.gz ./*.apk'
+  local cmd="apk index --allow-untrusted --rewrite-arch $arch -o APKINDEX.tar.gz ./*.apk"
   if [ -n "${AZUL_APK_SIGN_KEY:-}" ]; then
     printf '%s' "$AZUL_APK_SIGN_KEY" | base64 -d > "$apk_dir/azul.rsa"
     cmd="$cmd && apk add -q abuild openssl && abuild-sign -k azul.rsa APKINDEX.tar.gz && openssl rsa -in azul.rsa -pubout -out ../azul.rsa.pub"
@@ -927,13 +928,35 @@ build_apk() {
   if [ "$rc" -eq 0 ] && [ -s "$apk_dir/APKINDEX.tar.gz" ]; then
     # The log lives inside the directory we are about to publish: never ship it.
     rm -f "$apk_log"
-    echo "  [apk] built ui/alpine/x86_64/APKINDEX.tar.gz ($(ls "$apk_dir"/*.apk | wc -l | tr -d ' ') package(s)$([ -n "${AZUL_APK_SIGN_KEY:-}" ] && echo ', signed'))"
-  else
-    echo "::error::[apk] apk index failed (rc=$rc) — the .apk is hosted but 'apk add azul' has no index to find it in"
-    sed 's/^/  [apk] /' "$apk_log" 2>/dev/null | tail -20
-    rm -f "$apk_log"
-    return 1
+    echo "  [apk] built ui/alpine/$arch/APKINDEX.tar.gz ($(ls "$apk_dir"/*.apk | wc -l | tr -d ' ') package(s)$([ -n "${AZUL_APK_SIGN_KEY:-}" ] && echo ', signed'))"
+    return 0
   fi
+  echo "::error::[apk] apk index failed for $arch (rc=$rc) — the .apk is hosted but 'apk add azul' has no index to find it in"
+  sed 's/^/  [apk] /' "$apk_log" 2>/dev/null | tail -20
+  rm -f "$apk_log"
+  return 1
+}
+
+build_apk() {
+  # One repository per arch: artifacts-apk/<arch>/*.apk, as the deploy job
+  # downloads them. A flat artifacts-apk/*.apk is the pre-arm layout and is
+  # x86_64 by definition.
+  local rc=0 found=0 arch src
+  for arch in x86_64 aarch64; do
+    src="$ART/artifacts-apk/$arch"
+    if ! ls "$src"/*.apk >/dev/null 2>&1; then
+      if [ "$arch" = x86_64 ] && ls "$ART"/artifacts-apk/*.apk >/dev/null 2>&1; then
+        src="$ART/artifacts-apk"
+      else
+        echo "  [apk] no $arch .apk artifacts — skip"
+        continue
+      fi
+    fi
+    found=1
+    build_apk_arch "$arch" "$src" || rc=1
+  done
+  [ "$found" = 1 ] || echo "  [apk] no .apk artifacts — skip"
+  return $rc
 }
 
 # --------------------------------------------------------------------------

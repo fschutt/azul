@@ -407,10 +407,12 @@ jobs:
   # with the image they expect (`container`) and they run inside it here,
   # one route per job. Only the C / C++ tabs document such routes.
   distros:
-    name: "steps: ${{ matrix.lang }} (${{ matrix.variant }})"
+    name: "steps: ${{ matrix.lang }} (${{ matrix.variant }}${{ matrix.runner && ', arm64' || '' }})"
     needs: resolve
     if: needs.resolve.outputs.deployed == 'true'
-    runs-on: ubuntu-22.04
+    # `runner` only where the route is arch-specific: the Alpine repository is
+    # per-arch and the route links a real binary, so it runs on both.
+    runs-on: ${{ matrix.runner || 'ubuntu-22.04' }}
     timeout-minutes: 30
     container:
       image: ${{ matrix.image }}
@@ -424,6 +426,8 @@ jobs:
           - { lang: cpp, variant: linux-pacman, image: "archlinux:latest", setup: "pacman -Sy --noconfirm git gcc curl python" }
           - { lang: c,   variant: linux-apk,    image: "alpine:3.20",      setup: "apk add --no-cache git bash gcc g++ musl-dev curl python3" }
           - { lang: cpp, variant: linux-apk,    image: "alpine:3.20",      setup: "apk add --no-cache git bash gcc g++ musl-dev curl python3" }
+          - { lang: c,   variant: linux-apk,    image: "alpine:3.20",      setup: "apk add --no-cache git bash gcc g++ musl-dev curl python3", runner: ubuntu-24.04-arm }
+          - { lang: cpp, variant: linux-apk,    image: "alpine:3.20",      setup: "apk add --no-cache git bash gcc g++ musl-dev curl python3", runner: ubuntu-24.04-arm }
     steps:
       # git first: none of these images ship it and actions/checkout needs it.
       - name: Toolchain (${{ matrix.image }})

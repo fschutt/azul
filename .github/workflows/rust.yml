@@ -846,6 +846,14 @@ jobs:
           - target: s390x-unknown-linux-gnu
             runner: ubuntu-22.04
             check_build_dll: true
+          # Alpine's libc, both arches. The .apk ships THESE builds (musl's ld
+          # cannot link a glibc libazul.so), so they are first-class targets.
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-22.04
+            check_build_dll: true
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-22.04
+            check_build_dll: true
           - target: i686-pc-windows-msvc
             runner: windows-2022
             check_build_dll: true
@@ -929,6 +937,21 @@ jobs:
             artifact_name: azul-linux-armv7
             use_cross: true
             artifact_ext: so
+          # The library the Alpine .apk ships. A cdylib on a musl target needs
+          # -crt-static explicitly: musl targets default to crt-static, and a
+          # cdylib with libc statically linked in cannot be linked against.
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-22.04
+            artifact_name: azul-linux-x86_64-musl
+            use_cross: true
+            artifact_ext: so
+            rustflags: "-C target-feature=-crt-static"
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-22.04
+            artifact_name: azul-linux-aarch64-musl
+            use_cross: true
+            artifact_ext: so
+            rustflags: "-C target-feature=-crt-static"
           - target: i686-pc-windows-msvc
             runner: windows-2022
             artifact_name: azul-windows-i686
@@ -1011,10 +1034,14 @@ jobs:
 
       - name: Build with cross (Linux cross-arch)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.use_cross
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags || '' }}
         run: cross build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="build-dll"
 
       - name: Build natively (Windows/macOS cross-arch)
         if: steps.cache-valid.outputs.skip != 'true' && !matrix.use_cross
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags || '' }}
         run: cargo build --profile prod-release --target ${{ matrix.target }} -p azul-dll --features="build-dll"
 
       - name: Strip static lib (bitcode + debug)
@@ -3873,6 +3900,19 @@ jobs:
           name: azul-linux-amd64
           path: artifacts
 
+      # The Alpine packages are built from THESE libraries, not the glibc one.
+      - name: Download Linux x86_64 musl binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: azul-linux-x86_64-musl
+          path: artifacts-musl/x86_64
+
+      - name: Download Linux aarch64 musl binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: azul-linux-aarch64-musl
+          path: artifacts-musl/aarch64
+
       - name: Download Linux aarch64 binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
@@ -3937,7 +3977,37 @@ jobs:
           # built over these by scripts/build_registry_mirrors.sh in the
           # deploy job. Same files, per-packager `depends` from api.json.
           nfpm pkg --packager archlinux --target .
-          nfpm pkg --packager apk --target .
+
+      # Alpine is musl: the glibc libazul.so cannot be linked there at all,
+      # and `gcc hello-world.c -lazul` is the documented route's own step. So
+      # each .apk packages the musl build for its arch, with the same
+      # nfpm.yaml (only `arch:` differs, which is what nfpm names the file by).
+      - name: Build the Alpine packages from the musl libraries
+        run: |
+          set -eu
+          for a in x86_64 aarch64; do
+            case "$a" in
+              x86_64)  nfpm_arch=amd64 ;;
+              aarch64) nfpm_arch=arm64 ;;
+            esac
+            so="$(find "artifacts-musl/$a" -name 'libazul.so' -print -quit)"
+            if [ -z "$so" ]; then
+              echo "::error::no musl libazul.so for $a - the Alpine package would ship a library Alpine cannot link"
+              exit 1
+            fi
+            if readelf -d "$so" | grep -q 'libc\.so\.6'; then
+              echo "::error::$so links glibc (libc.so.6), it is not a musl build"
+              readelf -d "$so" | head -20
+              exit 1
+            fi
+            d="target/packages-musl/$a"
+            mkdir -p "$d"
+            cp target/packages/azul.h target/packages/LICENSE "$d/"
+            cp target/packages/azul*.hpp "$d/"
+            sed "s/^arch: .*/arch: $nfpm_arch/" target/packages/nfpm.yaml > "$d/nfpm.yaml"
+            cp "$so" "$d/libazul.so"
+            ( cd "$d" && nfpm pkg --packager apk --target . && ls -la )
+          done
 
       - name: Debug - Tree before upload
         run: |
@@ -3970,11 +4040,19 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      - name: Upload Alpine package
+      - name: Upload Alpine package (x86_64)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: azul-linux-amd64-apk
-          path: target/packages/*.apk
+          path: target/packages-musl/x86_64/*.apk
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload Alpine package (aarch64)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: azul-linux-arm64-apk
+          path: target/packages-musl/aarch64/*.apk
           retention-days: 30
           if-no-files-found: error
 
@@ -4267,6 +4345,20 @@ jobs:
           name: azul-linux-i686
           path: artifacts-linux-i686
 
+      - name: Download Linux x86_64 musl binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: azul-linux-x86_64-musl
+          path: artifacts-linux-musl
+
+      - name: Download Linux aarch64 musl binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: azul-linux-aarch64-musl
+          path: artifacts-linux-musl-aarch64
+
       - name: Download Linux aarch64 binaries
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
@@ -4522,12 +4614,18 @@ jobs:
         with:
           name: ruby-gem
           path: artifacts-registry/ruby-gem
-      - name: Download alpine apk package
+      - name: Download alpine apk package (x86_64)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
           name: azul-linux-amd64-apk
-          path: artifacts-registry/artifacts-apk
+          path: artifacts-registry/artifacts-apk/x86_64
+      - name: Download alpine apk package (aarch64)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          name: azul-linux-arm64-apk
+          path: artifacts-registry/artifacts-apk/aarch64
       - name: Download archlinux package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
@@ -4614,6 +4712,10 @@ jobs:
 
           find artifacts-linux-i686 -name "libazul.so" -exec cp {} "$RELEASE_DIR/libazul.linux-i686.so" \; 2>/dev/null || true
           find artifacts-linux-i686 -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.linux-i686.a" \; 2>/dev/null || true
+          find artifacts-linux-musl -name "libazul.so" -exec cp {} "$RELEASE_DIR/libazul.linux-x86_64-musl.so" \; 2>/dev/null || true
+          find artifacts-linux-musl -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.linux-x86_64-musl.a" \; 2>/dev/null || true
+          find artifacts-linux-musl-aarch64 -name "libazul.so" -exec cp {} "$RELEASE_DIR/libazul.linux-aarch64-musl.so" \; 2>/dev/null || true
+          find artifacts-linux-musl-aarch64 -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.linux-aarch64-musl.a" \; 2>/dev/null || true
           find artifacts-linux-aarch64 -name "libazul.so" -exec cp {} "$RELEASE_DIR/libazul.linux-aarch64.so" \; 2>/dev/null || true
           find artifacts-linux-aarch64 -name "libazul.a" -exec cp {} "$RELEASE_DIR/libazul.linux-aarch64.a" \; 2>/dev/null || true
           find artifacts-linux-armv7 -name "libazul.so" -exec cp {} "$RELEASE_DIR/libazul.linux-armv7.so" \; 2>/dev/null || true
@@ -4931,8 +5033,10 @@ jobs:
             need_glob pacman 'pkg.tar.zst' 'website/ui/arch/x86_64/*.pkg.tar.zst'
           fi
           if have_artifacts artifacts-registry/artifacts-apk; then
-            need_file apk website/ui/alpine/x86_64/APKINDEX.tar.gz
-            need_glob apk '.apk' 'website/ui/alpine/x86_64/*.apk'
+            for arch in x86_64 aarch64; do
+              need_file apk "website/ui/alpine/$arch/APKINDEX.tar.gz"
+              need_glob apk ".apk ($arch)" "website/ui/alpine/$arch/*.apk"
+            done
           fi
 
           # Built from the release dir by azul-doc deploy + the mirrors script —
@@ -5284,7 +5388,9 @@ jobs:
     name: Verify documented install (${{ matrix.channel }})
     needs: deploy_pages
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    runs-on: ubuntu-22.04
+    # `runner` only where the check has to run on real hardware of another
+    # arch (the Alpine repository is per-arch, and a linked binary has to run).
+    runs-on: ${{ matrix.runner || 'ubuntu-22.04' }}
     container:
       image: ${{ matrix.image }}
     strategy:
@@ -5309,6 +5415,11 @@ jobs:
           - channel: pacman
             image: archlinux:base@sha256:82b1b08faae9d61e3e7e13d562f4d09114d939105b0d59ff34140f3bd418593a
           - channel: apk
+            image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+          # Same image (the digest is the multi-arch index), on an arm runner:
+          # it pulls the aarch64 package out of ui/alpine/aarch64 and links it.
+          - channel: apk_aarch64
+            runner: ubuntu-24.04-arm
             image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
           - channel: bindings
             image: python:3.12-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970

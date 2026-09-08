@@ -26,7 +26,7 @@
 #   verify_install_commands.sh --emit-digests <site_dir> <version>
 #   verify_install_commands.sh --check-nuget-layout <site_dir>
 #
-#   channel      pypi | npm | gems | nuget | brew | apt | maven | pacman | apk
+#   channel      pypi | npm | gems | nuget | brew | apt | maven | pacman | apk | apk_aarch64
 #                | bindings | rust | cargo | doclinks | choco | scoop
 #   base_url     default https://azul.rs (override to point at a staging tree,
 #                e.g. http://127.0.0.1:8099 in front of a local `website/`)
@@ -107,6 +107,7 @@ entry_path() { # $1 channel, $2 version
     maven) printf 'ui/maven/rs/azul/azul/%s/azul-%s.jar' "$v" "$v" ;;
     pacman) printf 'ui/arch/x86_64/azul.db' ;;
     apk)   printf 'ui/alpine/x86_64/APKINDEX.tar.gz' ;;
+    apk_aarch64) printf 'ui/alpine/aarch64/APKINDEX.tar.gz' ;;
     bindings) printf 'ui/release/%s/bindings-%s.tar.gz' "$v" "$v" ;;
     rust)  printf 'ui/release/%s/azul-rust-%s.tar.gz' "$v" "$v" ;;
     cargo) printf 'ui/cargo/az/ul/azul' ;;
@@ -127,7 +128,7 @@ emit_digests() {
   local site="${1:?site dir}" v="${2:?version}"
   [ -d "$site" ] || fail "--emit-digests: $site is not a directory"
   local ch p
-  for ch in pypi npm gems brew apt maven pacman apk bindings rust cargo choco scoop; do
+  for ch in pypi npm gems brew apt maven pacman apk apk_aarch64 bindings rust cargo choco scoop; do
     p="$(entry_path "$ch" "$v")"
     [ -s "$site/$p" ] || continue
     printf '%s\t%s\t%s\n' "$ch" "$p" "$(sha256_of "$site/$p")"
@@ -742,20 +743,25 @@ verify_pacman() {
   e2e_run "pacman/c" ./hello-world
   log "pacman: '[azul]' + 'pacman -Sy azul' installs azul $VERSION from $BASE/ui/arch and the C build runs"
 }
+# The Alpine repository is per-arch (ui/alpine/<arch>/) and apk appends the
+# arch itself, so the documented line carries none. Both arches run this: the
+# aarch64 one is the `apk_aarch64` channel, same commands on an arm runner.
 verify_apk() {
   need_cmd apk
-  echo "$BASE/ui/alpine/x86_64" >> /etc/apk/repositories
+  echo "$BASE/ui/alpine" >> /etc/apk/repositories
   run apk add --allow-untrusted azul gcc musl-dev \
     || fail "apk: 'apk add --allow-untrusted azul' FAILED — the site tells every Alpine user to run exactly this against $BASE/ui/alpine"
   [ -s /usr/lib/libazul.so ] || fail "apk: the package installed but /usr/lib/libazul.so is missing"
   local w; w="$(mktemp -d)"; cd "$w" || fail "apk: cannot enter $w"
   fetch "$(rel hello-world.c)"
   run gcc hello-world.c -lazul -o hello-world || fail "apk: 'gcc hello-world.c -lazul' FAILED"
-  # glibc build on musl through gcompat (the package's dependency): running
-  # it is the only proof that claim holds.
-  e2e_run "apk/c" ./hello-world
-  log "apk: 'apk add --allow-untrusted azul' installs azul $VERSION from $BASE/ui/alpine and the C build runs"
+  # The package ships the musl build; running the linked binary is the only
+  # proof that the library and Alpine's libc actually agree.
+  e2e_run "apk/$(uname -m)/c" ./hello-world
+  log "apk: 'apk add --allow-untrusted azul' installs azul $VERSION ($(uname -m)) from $BASE/ui/alpine and the C build runs"
 }
+
+verify_apk_aarch64() { verify_apk; }
 
 # --------------------------------------------------------------------------
 # choco —  choco install libazul --source https://azul.rs/ui/nuget/index.json
@@ -807,7 +813,7 @@ main() {
     exit $?
   fi
 
-  CHANNEL="${1:?channel: pypi|npm|gems|nuget|brew|apt|maven|pacman|apk|bindings|rust|cargo|doclinks|choco|scoop}"
+  CHANNEL="${1:?channel: pypi|npm|gems|nuget|brew|apt|maven|pacman|apk|apk_aarch64|bindings|rust|cargo|doclinks|choco|scoop}"
   BASE="${2:-https://azul.rs}"
   VERSION="${3:-0.2.0}"
   DIGESTS="${4:--}"
@@ -818,8 +824,8 @@ main() {
     || fail "$CHANNEL: neither sha256sum nor shasum is available — this check cannot tell one build's bytes from another's"
 
   case "$CHANNEL" in
-    pypi|npm|gems|nuget|brew|apt|maven|pacman|apk|bindings|rust|cargo|doclinks|choco|scoop) ;;
-    *) fail "unknown channel '$CHANNEL' (pypi|npm|gems|nuget|brew|apt|maven|pacman|apk|bindings|rust|cargo|doclinks|choco|scoop)" ;;
+    pypi|npm|gems|nuget|brew|apt|maven|pacman|apk|apk_aarch64|bindings|rust|cargo|doclinks|choco|scoop) ;;
+    *) fail "unknown channel '$CHANNEL' (pypi|npm|gems|nuget|brew|apt|maven|pacman|apk|apk_aarch64|bindings|rust|cargo|doclinks|choco|scoop)" ;;
   esac
 
   if ! entry_path "$CHANNEL" "$VERSION" >/dev/null 2>&1; then
