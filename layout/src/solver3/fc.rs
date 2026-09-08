@@ -8324,6 +8324,32 @@ fn atomic_inline_children_are_laid_out(
 /// * `content_box_top` — padding + border on the box's top edge, i.e. the
 ///   offset from its border box to its content box.
 /// * `margin_bottom` — the bottom margin, since text3 aligns the MARGIN box.
+/// The used BORDER-BOX block size of an atomic inline whose height is `auto`.
+///
+/// `LayoutOutput::overflow_size` does not mean the same thing in every
+/// formatting context. `layout_bfc` reports a CONTENT-box extent, so a
+/// consumer adds padding and border to reach the border box. `layout_flex_grid`
+/// reports taffy's `content_size` with only the leading BORDER stripped — the
+/// padding is still inside it, deliberately, because the scrollbar geometry
+/// measures in the padding box. Adding padding to THAT counts it twice: an
+/// `inline-flex` button with `padding: 6px 12px` came out 12 px too tall, which
+/// is every button in every hello-world and on the frontpage screenshots.
+///
+/// A flex or grid container has already resolved its own border box — taffy's
+/// container size, which `layout_flex_grid` writes into the node's `used_size`.
+/// That is the answer for those; everything else is content + padding + border.
+fn atomic_inline_auto_height(
+    child_fc: Option<FormattingContext>,
+    child_used_height: Option<f32>,
+    content_height: f32,
+    padding_border_sum: f32,
+) -> f32 {
+    match (child_fc, child_used_height) {
+        (Some(FormattingContext::Flex | FormattingContext::Grid), Some(h)) => h,
+        _ => content_height + padding_border_sum,
+    }
+}
+
 fn atomic_inline_baseline_offset(
     baseline_from_content_top: Option<f32>,
     border_box_height: f32,
@@ -8726,16 +8752,21 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 };
                 // Determine final border-box height
                 let final_height = match css_height.unwrap_or_default() {
-                    LayoutHeight::Auto if !is_replaced_atomic => {
-                        let content_height = layout_result.output.overflow_size.height;
-                        content_height
-                            + box_props.padding.main_sum(writing_mode)
-                            + box_props.border.main_sum(writing_mode)
-                    }
+                    LayoutHeight::Auto if !is_replaced_atomic => atomic_inline_auto_height(
+                        tree.get(LayoutNodeId::new(child_index))
+                            .map(|n| n.formatting_context),
+                        tree.get(LayoutNodeId::new(child_index))
+                            .and_then(|n| n.used_size)
+                            .map(|s| s.height),
+                        layout_result.output.overflow_size.height,
+                        box_props.padding.main_sum(writing_mode)
+                            + box_props.border.main_sum(writing_mode),
+                    ),
                     _ => tentative_size.height,
                 };
 
                 let final_size = LogicalSize::new(tentative_size.width, final_height);
+
 
                 // Update the node in the tree with its now-known used size.
                 tree.get_mut(LayoutNodeId::new(child_index))
@@ -9253,13 +9284,16 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             };
             // Determine final border-box height
             let final_height = match css_height.clone().unwrap_or_default() {
-                LayoutHeight::Auto if !is_replaced_atomic => {
-                    // For auto height, add padding and border to the content height
-                    let content_height = layout_result.output.overflow_size.height;
-                    content_height
-                        + box_props.padding.main_sum(writing_mode)
-                        + box_props.border.main_sum(writing_mode)
-                }
+                LayoutHeight::Auto if !is_replaced_atomic => atomic_inline_auto_height(
+                    tree.get(LayoutNodeId::new(child_index))
+                        .map(|n| n.formatting_context),
+                    tree.get(LayoutNodeId::new(child_index))
+                        .and_then(|n| n.used_size)
+                        .map(|s| s.height),
+                    layout_result.output.overflow_size.height,
+                    box_props.padding.main_sum(writing_mode)
+                        + box_props.border.main_sum(writing_mode),
+                ),
                 // Explicit height (calculate_used_size_for_node gave the border-box
                 // height), OR a replaced element's auto height (intrinsic/CSS-resolved).
                 _ => tentative_size.height,
@@ -9274,6 +9308,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 css_height,
                 final_height
             );
+
 
             let final_size = LogicalSize::new(tentative_size.width, final_height);
 

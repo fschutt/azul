@@ -302,3 +302,99 @@ fn dbg_dump_two_passes() {
         }
     }
 }
+
+/// An `inline-flex` button is exactly as tall as its label plus its own
+/// padding and border. It used to be 12 px taller — its padding counted twice,
+/// because `LayoutOutput::overflow_size` is a CONTENT-box extent for a block
+/// formatting context but a PADDING-box one for flex/grid (taffy measures
+/// `content_size` from the border-box origin and only the border is stripped),
+/// and the atomic-inline measurement added padding to both alike.
+#[test]
+fn an_inline_flex_box_is_as_tall_as_its_content_plus_its_own_box() {
+    const BTN: &str = r#"
+<html><head><style>
+  .btn {
+    display: inline-flex; flex-direction: row;
+    align-items: center; justify-content: center;
+    font-size: 13px; padding: 6px 12px; border: 1px solid #ced4da;
+  }
+  .btn p { margin-top: 0px; margin-bottom: 0px; font-size: 14px; }
+</style></head>
+<body><div class="btn"><p>Click me!</p></div></body>
+</html>
+"#;
+    let fc_cache = azul_layout::font::loading::build_font_cache();
+    let mut font_manager = FontManager::new(fc_cache).expect("font manager");
+    let mut cache = Env::fresh_cache();
+    let styled_dom = Dom::from_xml_string(BTN);
+    let mut text_cache = TextLayoutCache::new();
+    let content_size = LogicalSize::new(400.0, 300.0);
+    let viewport = LogicalRect {
+        origin: LogicalPosition::zero(),
+        size: content_size,
+    };
+    let loader = PathLoader::new();
+    let font_loader =
+        |b: std::sync::Arc<rust_fontconfig::FontBytes>, i: usize| loader.load_font_shared(b, i);
+    let mut dbg = Some(Vec::new());
+    layout_document_paged_with_config(
+        &mut cache,
+        &mut text_cache,
+        FragmentationContext::new_paged(content_size),
+        &styled_dom,
+        viewport,
+        &mut font_manager,
+        &BTreeMap::new(),
+        &mut dbg,
+        None,
+        &RendererResources::default(),
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+        font_loader,
+        FakePageConfig::new(),
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
+        false,
+    )
+    .expect("layout");
+    let tree = cache.tree.as_ref().unwrap();
+    // The button is the only node with a class in this markup, so find it by
+    // its DOM id rather than by formatting context (which is not re-exported).
+    let btn_dom = {
+        let d = Dom::from_xml_string(BTN);
+        let nodes = d.node_data.as_container();
+        let mut found = None;
+        for (id, data) in nodes.internal.iter().enumerate() {
+            if data
+                .get_ids_and_classes()
+                .iter()
+                .any(|c| c.as_class().map_or(false, |c| c == "btn"))
+            {
+                found = Some(NodeId::new(id));
+            }
+        }
+        found.expect("the .btn node")
+    };
+    let flex = tree
+        .nodes
+        .iter()
+        .position(|n| n.dom_node_id == Some(btn_dom))
+        .expect("the button has a layout node");
+    let label = *tree
+        .children(flex)
+        .first()
+        .expect("the button has a label child");
+    let btn_h = tree.nodes[flex].used_size.expect("button size").height;
+    let label_h = tree.nodes[label].used_size.expect("label size").height;
+
+    // padding: 6px 12px + border: 1px -> 14 px on the block axis.
+    let expected = label_h + 12.0 + 2.0;
+    assert!(
+        (btn_h - expected).abs() < 0.01,
+        "the inline-flex button is {btn_h:.2} px tall for a {label_h:.2} px label; expected \
+         {expected:.2} (label + 12 px padding + 2 px border). A difference of exactly the \
+         padding means it was counted twice."
+    );
+}
