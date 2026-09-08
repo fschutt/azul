@@ -301,7 +301,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&browser, list_view);
 
     AzDom content = AzDom_createDiv();
-    AzDom_setCss(&content, str("flex-grow: 1; padding: 20px; overflow: auto; background: white;"));
+    /* No hardcoded background: the window's own background follows the system
+     * theme, and painting white over it left a light panel full of dark
+     * widgets on a dark desktop. */
+    AzDom_setCss(&content, str("flex-grow: 1; padding: 20px; overflow: auto;"));
     AzDom_addChild(&content, button);
     AzDom_addChild(&content, checkbox);
     AzDom_addChild(&content, progress);

@@ -98,10 +98,12 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzMapTileLayer layer = AzMapTileLayer_default();
     AzString credit = AzString_clone(&layer.attribution);
 
-    /* 2-3. The widget, its look and its camera. A preset is a vendored MapCSS
-     *      palette; `System` instead follows the window's light/dark theme. */
+    /* 2-3. The widget, its look and its camera. `System` follows the window's
+     *      light/dark theme, re-decoding the visible tiles when it changes;
+     *      the presets (Positron, Bright, Dark, ...) pin a vendored MapCSS
+     *      palette instead. */
     AzMapWidget widget = AzMapWidget_create(layer);
-    widget = AzMapWidget_withTheme(widget, AzMapTheme_Bright);
+    widget = AzMapWidget_withTheme(widget, AzMapTheme_System);
     widget = AzMapWidget_withViewport(widget, viewport);
 
     /* 4. `domWithFetch` wires the built-in HTTP + MVT worker to this Dom.

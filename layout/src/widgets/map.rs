@@ -1838,7 +1838,18 @@ fn pan_viewport(
 #[cfg(all(feature = "xml", feature = "cpurender"))]
 #[must_use]
 pub fn svg_string_to_dom(svg: &str) -> Option<Dom> {
-    let img = crate::cpurender::render_svg_to_imageref(svg.as_bytes(), 256, 256).ok()?;
+    // Rasterise at TWICE the tile's logical size. The image node below is laid
+    // out at 100% of a 256px tile, so on a 2x display the tile occupies 512
+    // device pixels — rasterising at 256 and letting the blit stretch it made
+    // every map visibly soft. 2x is pixel-exact there, and on a 1x display the
+    // blit AREA-AVERAGES on the way down, so the extra samples come back as
+    // antialiasing rather than waste. (The honest fix is to rasterise at the
+    // window's real DPI, but this function is on the tile-decode path and has
+    // no window to ask; 2x covers every display azul currently ships on.)
+    const TILE_RASTER_PX: u32 = 512;
+    let img =
+        crate::cpurender::render_svg_to_imageref(svg.as_bytes(), TILE_RASTER_PX, TILE_RASTER_PX)
+            .ok()?;
     Some(
         Dom::create_image(img)
             .with_css("position: absolute; left: 0; top: 0; width: 100%; height: 100%;"),

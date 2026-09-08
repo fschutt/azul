@@ -7511,9 +7511,25 @@ where
                             .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
                     }
                     let node_state = &styled_nodes[nid].styled_node_state;
+                    // No declared `color` anywhere up the chain: the UA default
+                    // applies, and that default depends on the theme. Black is
+                    // right on a light window and invisible on a dark one, and
+                    // the window background already follows the system theme —
+                    // so the text has to as well or a dark-mode app renders
+                    // black-on-black until it styles every node itself.
                     Some(
                         cache
-                            .get_text_color_or_default(&node_data[nid], &nid, node_state)
+                            .get_text_color(&node_data[nid], &nid, node_state)
+                            .and_then(|c| c.get_property().copied())
+                            .unwrap_or_else(|| {
+                                let ctx = self.ctx.system_style.as_ref().map_or_else(
+                                    azul_css::dynamic_selector::DynamicSelectorContext::default,
+                                    |s| {
+                                        azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(s)
+                                    },
+                                );
+                                azul_core::ua_css::evaluate_ua_root_text_color(&ctx)
+                            })
                             .inner,
                     )
                 })

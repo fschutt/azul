@@ -269,9 +269,11 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         let shared_sel = lib.sel(b"sharedApplication\0");
         let app = lib.send_id(nsapp_cls, shared_sel);
 
+        let mut effective_appearance: Id = core::ptr::null_mut();
         if !app.is_null() {
             let appearance = lib.send_id(app, lib.sel(b"effectiveAppearance\0"));
             if !appearance.is_null() {
+                effective_appearance = appearance;
                 if let Some(name) =
                     nsstring_to_string(&lib, lib.send_id(appearance, lib.sel(b"name\0")))
                 {
@@ -283,6 +285,24 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         }
 
         // ── 2. Semantic colours from NSColor ─────────────────────────
+        // MAKE THE APP'S APPEARANCE CURRENT FIRST. Every colour below is a
+        // DYNAMIC NSColor: it has no RGB value of its own and resolves against
+        // whatever `NSAppearance.currentAppearance` happens to be. Left unset
+        // that is the default LIGHT appearance, so on a dark desktop the block
+        // below resolved a full set of light values and overwrote the dark
+        // defaults step 1 had just chosen — the theme came out `Dark` while
+        // every colour in it said "light", which is why a dark-mode window
+        // painted a white canvas with black text.
+        let ns_appearance_cls = lib.cls(b"NSAppearance\0");
+        let previous_appearance = lib.send_id(ns_appearance_cls, lib.sel(b"currentAppearance\0"));
+        if !effective_appearance.is_null() {
+            let _ = lib.send_id_id(
+                ns_appearance_cls,
+                lib.sel(b"setCurrentAppearance:\0"),
+                effective_appearance,
+            );
+        }
+
         let nsc = lib.cls(b"NSColor\0");
 
         macro_rules! q {
@@ -311,6 +331,16 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         q!(link, b"linkColor\0");
         q!(separator, b"separatorColor\0");
         q!(grid, b"gridColor\0");
+
+        // Put back whatever was current, so this probe cannot leak an
+        // appearance into unrelated AppKit drawing on this thread.
+        if !effective_appearance.is_null() {
+            let _ = lib.send_id_id(
+                ns_appearance_cls,
+                lib.sel(b"setCurrentAppearance:\0"),
+                previous_appearance,
+            );
+        }
 
         // Focus ring colour lives in FocusVisuals, not SystemColors
         if let Some(c) = extract_color(

@@ -536,11 +536,31 @@ impl CpuBackend {
             return Vec::new();
         }
 
-        // Allocate or resize compositor
+        // Allocate or resize compositor.
+        //
+        // The canvas colour, in precedence order: a transparent window clears
+        // to nothing; otherwise the app's own `background_color` if it set
+        // one; otherwise the SYSTEM window background. That last step is what
+        // makes a dark desktop produce a dark window — hardcoding white here
+        // painted every window white and left dark-themed widgets sitting on
+        // a white sheet, because this backend is the shared CPU path for
+        // macOS, X11 and Wayland alike.
         let clear_color: [u8; 4] = if self.transparent {
             [0, 0, 0, 0]
         } else {
-            [255, 255, 255, 255]
+            let app_choice = match layout_window.current_window_state.background_color {
+                azul_css::props::basic::color::OptionColorU::Some(c) => Some(c),
+                azul_css::props::basic::color::OptionColorU::None => None,
+            };
+            let system_choice = layout_window.system_style.as_ref().and_then(|s| {
+                match s.colors.window_background {
+                    azul_css::props::basic::color::OptionColorU::Some(c) => Some(c),
+                    azul_css::props::basic::color::OptionColorU::None => None,
+                }
+            });
+            app_choice
+                .or(system_choice)
+                .map_or([255, 255, 255, 255], |c| [c.r, c.g, c.b, 255])
         };
         let compositor = self
             .compositor
