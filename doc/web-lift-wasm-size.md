@@ -2049,3 +2049,53 @@ calls does not have to be *dropped* to stop costing first-paint bytes, it has to
 be *deferred*. Dropping it would break any path that does reach it through the
 dispatcher; deferring it costs a fetch and nothing else. So the lever is real,
 its size is known, and the mechanism for taking it is the one already built.
+
+
+# ⚠ COVERAGE CAUGHT A WRONG CHUNK: p2 RUNS AT FIRST PAINT
+
+The chunk plan is derived from the call graph, and its criterion is that a lazy
+root is one **nothing statically calls** — so it is entered only through
+`__az_indirect_dispatch` and the eager core never names it. That criterion is
+necessary. It is not sufficient, and the coverage bitmap says so:
+
+| root | offered as | entered at first paint? |
+|---|---|---|
+| `azwriter::web_state::app_state_from_json` | mini p2, 271 fns / 5.05 MB | **YES** |
+| `azul_layout::window::virtual_view_measure_dom_trampoline` | mini p1 | no |
+| `azul_core::icon::resolve_icons_in_dom_inner` | mini p3 | no |
+| `azwriter::on_browse_clicked` | layout p1, 1454 fns / 28.82 MB | no |
+
+`app_state_from_json` is seeded as an "extra fn-pointer root" precisely because
+`AzStartup_hydrateJson` calls it through the address the server ships. It is an
+entry point; it just is not a *named* one. **Shipping it as a lazy chunk would
+have broken the boot** — a dispatch into an unloaded chunk is synchronous and
+cannot await the fetch.
+
+This is the same shape as run 78's `AzStartup_solveLayoutReal`: a boot-path root
+offered as the biggest lazy chunk, inflating the saving. The prefix-based
+exclusion (`AzStartup_`/`AzApp_`/`AzWindow_`) caught that one and could never
+have caught this one.
+
+## The fix, and what it costs
+
+**Every seeded root is now a boot root, the mini included.** A seed is by
+construction something OUTSIDE the module calls — whether named `AzStartup_*` or
+reached through a shipped pointer — and that is exactly what disqualifies a lazy
+root. The mini's exemption rested on treating "entered through the dispatcher" as
+if it meant "entered late", which it does not.
+
+p2 was roughly a third of the mini's lazy bytes (5.05 of 15.86 MB), so the mini's
+chunking win is materially smaller than the −28.8% / −1,221,924 bytes recorded
+above. **Treat every mini chunking figure in this document as an upper bound
+until a run re-measures it with p2 in the core.** The layout module's figure is
+unaffected: `on_browse_clicked` is a click handler and cannot run at first paint
+by construction.
+
+## The general point about coverage
+
+The headline from AZ_FN_COVERAGE was "87% of object bytes never execute", and
+that number turned out to be a lower bound measured on a boot that trapped before
+layout. This is the more useful result from the same run: **coverage validated a
+graph-derived plan and found a specific chunk wrong.** The graph cannot see the
+difference between a function pointer the server hands to the loader and one a
+vtable holds for later; execution can.
