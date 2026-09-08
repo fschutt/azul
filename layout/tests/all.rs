@@ -218,8 +218,6 @@ mod ifc_caching;
 mod image_flex_grow;
 #[path = "incremental_rendering.rs"]
 mod incremental_rendering;
-#[path = "inline_atomic_after_block.rs"]
-mod inline_atomic_after_block;
 #[path = "inline_block_text.rs"]
 mod inline_block_text;
 #[path = "inline_gradient_border.rs"]
