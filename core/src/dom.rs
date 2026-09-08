@@ -2267,16 +2267,11 @@ pub struct NodeDataExt {
     /// this node across frames even if its position in the array changes.
     /// This is crucial for correct lifecycle events when lists are reordered.
     pub key: Option<u64>,
-    /// App-chosen MARKER string, resolvable to this node's `(DomId, NodeId)`
-    /// via `CallbackInfo::get_node_id_by_marker`. The clean spelling of the
-    /// "find that other widget from this callback" jump: the app mints a
-    /// unique string at build time (a UUID, a counter — anything unique in
-    /// the window), stamps it on the node AND keeps it in whatever dataset
-    /// the jumping callback holds. Replaces the old
-    /// `get_node_id_of_root_dataset` search, which needed an EMPTY instance
-    /// of the target's private dataset type just to name it — coupling the
-    /// caller to widget internals the architecture forbids it from seeing.
-    /// Unlike an `Id` attribute, a marker is invisible to CSS matching.
+    /// App-chosen marker string, resolvable to this node's `(DomId, NodeId)`
+    /// via `CallbackInfo::get_node_id_by_marker` - the clean way for one
+    /// widget's callback to find another widget without knowing its
+    /// internals. Unlike an `Id` attribute, a marker is invisible to CSS
+    /// matching.
     pub marker: Option<AzString>,
     /// Callback to merge dataset state from a previous frame's node into the current node.
     /// This enables heavy resource preservation (video decoders, GL textures) across frames.
@@ -2777,22 +2772,16 @@ impl NodeData {
         Self::create_node(NodeType::Br)
     }
 
-    /// Creates a RAW text node - read this before using it.
+    /// Creates a raw text node - only valid as the leaf inside a block-level
+    /// wrapper (`p`, `div`, `h1`, ...).
     ///
-    /// **WARNING**: azul does NOT auto-wrap raw text in an anonymous block
-    /// the way browsers do. A bare text node has NO box of its own: it gets
-    /// no rect, no clip, and no layout constraints. Every box-model CSS
-    /// property (width/height/position/overflow/background/border/padding),
-    /// every callback, every `tab_index` and every `dataset` attached to a
-    /// text node is silently INERT. This has broken shipped widgets before
-    /// (text escaping its container, click targets that never fire).
-    ///
-    /// A raw text node is only correct as the bare leaf INSIDE a block-level
-    /// wrapper that carries the styling - `p`, `div`, `h1`... Prefer the
-    /// `create_*_with_text` family (`Dom::create_p_with_text`,
-    /// `Dom::create_div_with_text`, `Dom::create_span_with_text`, ...), which
-    /// builds that shape for you. The engine also logs a warning after layout
-    /// when it finds a text node used without a containing block.
+    /// Azul does not auto-wrap text in an anonymous block the way browsers
+    /// do: a bare text node has no box, so every box-model property,
+    /// callback, `tab_index` and `dataset` on it is inert. Prefer
+    /// `create_*_with_text` (`Dom::create_p_with_text`,
+    /// `Dom::create_div_with_text`, `Dom::create_span_with_text`, ...)
+    /// instead. The engine logs a warning after layout if it finds an
+    /// unwrapped text node.
     ///
     /// Shorthand for `NodeData::create_node(NodeType::Text(value.into()))`.
     #[inline]
@@ -4347,8 +4336,8 @@ impl Default for Dom {
 impl Dom {
     // ----- DOM CONSTRUCTORS
 
-    /// Creates an empty DOM with a give `NodeType`. Note: This is a `const fn` and
-    /// doesn't allocate, it only allocates once you add at least one child node.
+    /// Creates an empty DOM with a given `NodeType`. Doesn't allocate until
+    /// you add at least one child node.
     #[inline]
     #[must_use]
     pub fn create_node(node_type: NodeType) -> Self {
@@ -4668,8 +4657,6 @@ impl Dom {
     /// **Accessibility**: Represents a modal or non-modal dialog.
     /// When opened as modal, focus is trapped. Use aria-label or aria-labelledby.
     /// Escape key should close modal dialogs.
-    ///
-    /// Use [`Dom::create_dialog_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use]
@@ -4689,22 +4676,16 @@ impl Dom {
             estimated_total_children: 0,
         }
     }
-    /// Creates a RAW text node - read this before using it.
+    /// Creates a raw text node - only valid as the leaf inside a block-level
+    /// wrapper (`p`, `div`, `h1`, ...).
     ///
-    /// **WARNING**: azul does NOT auto-wrap raw text in an anonymous block
-    /// the way browsers do. A bare text node has NO box of its own: it gets
-    /// no rect, no clip, and no layout constraints. Every box-model CSS
-    /// property (width/height/position/overflow/background/border/padding),
-    /// every callback, every `tab_index` and every `dataset` attached to a
-    /// text node is silently INERT. This has broken shipped widgets before
-    /// (text escaping its container, click targets that never fire).
-    ///
-    /// A raw text node is only correct as the bare leaf INSIDE a block-level
-    /// wrapper that carries the styling - `p`, `div`, `h1`... Prefer the
-    /// `create_*_with_text` family ([`Dom::create_p_with_text`],
-    /// [`Dom::create_div_with_text`], [`Dom::create_span_with_text`], ...),
-    /// which builds that shape for you. The engine also logs a warning after
-    /// layout when it finds a text node used without a containing block.
+    /// Azul does not auto-wrap text in an anonymous block the way browsers
+    /// do: a bare text node has no box, so every box-model property,
+    /// callback, `tab_index` and `dataset` on it is inert. Prefer
+    /// `create_*_with_text` ([`Dom::create_p_with_text`],
+    /// [`Dom::create_div_with_text`], [`Dom::create_span_with_text`], ...)
+    /// instead. The engine logs a warning after layout if it finds an
+    /// unwrapped text node.
     #[inline]
     pub fn create_text_do_not_use_without_block_level_wrapper<S: Into<AzString>>(value: S) -> Self {
         Self::create_node(NodeType::Text(BoxOrStatic::heap(value.into())))
@@ -4738,27 +4719,14 @@ impl Dom {
 
     /// An icon that can be SWAPPED at runtime, without a full `layout()`.
     ///
-    /// [`create_icon`](Self::create_icon) bakes the spec into the tree the
-    /// cascade consumes, so changing it means producing a different tree - a
-    /// full `layout()` - and by the time a callback runs, the DOM it would edit
-    /// has already been built. This wraps the icon in a `VirtualView` instead:
-    /// the view owns the spec, renders `create_icon(spec)` as its child DOM,
-    /// and `CallbackInfo::set_icon` rewrites the spec and asks that ONE view to
-    /// re-render. Nothing else in the window relayouts.
+    /// Wraps the icon in a `VirtualView`: the view owns the icon spec and
+    /// re-renders `create_icon(spec)` as its child DOM, so
+    /// `CallbackInfo::set_icon` can swap it without relayouting anything
+    /// else. A view is needed rather than an in-place swap because an icon
+    /// resolves to a subtree (an SVG icon is a tree of paths), not one node.
     ///
-    /// A view rather than something narrower (the way `set_text` rewrites a
-    /// text node in place) because AN ICON IS NOT ONE NODE: it resolves to a
-    /// subtree - an SVG icon is a tree of paths - and a nested DOM of arbitrary
-    /// shape, re-materialized in place, is exactly what a `VirtualView` is.
-    ///
-    /// # Sizing
-    ///
-    /// The view reports the icon's MEASURED size, so `width`/`height: auto`
-    /// gives the icon's natural size - a `VirtualView` is a replaced element
-    /// and sizes like an `<img>`. A definite size still wins, again like an
-    /// `<img>`, and is what a toolbar or titlebar button should give it: the
-    /// box is part of that design, and a stated box is right on the FIRST
-    /// layout rather than once the measurement comes back.
+    /// Sizes like a replaced element (an `<img>`): `auto` gives the icon's
+    /// measured natural size, a definite size wins.
     ///
     /// # Example
     /// ```rust,ignore
@@ -4776,12 +4744,10 @@ impl Dom {
         Self::create_from_data(NodeData::create_virtual_view(data, callback))
     }
 
-    /// Creates an invisible `NodeType::GeolocationProbe` node that
-    /// signals "this subtree needs the user's location". Lays out as
-    /// zero-size and is skipped in the display list - the framework
-    /// scans for it at end-of-layout and starts / stops the native
-    /// `CLLocationManager` / `LocationManager` / `geoclue`
-    /// subscription. See `SUPER_PLAN_2.md` section 1.5.
+    /// Creates an invisible node that signals "this subtree needs the
+    /// user's location": it lays out as zero-size, and the framework
+    /// starts/stops the platform location service for as long as it stays
+    /// in the tree.
     #[inline]
     #[must_use]
     pub fn create_geolocation_probe(config: crate::geolocation::GeolocationProbeConfig) -> Self {
@@ -6716,11 +6682,6 @@ impl Dom {
 
     /// Creates a generic block container (div) with text.
     ///
-    /// The div is the box the text lives in: put your styling, callbacks and
-    /// `tab_index` on the DIV, never on the text leaf (a text node has no box
-    /// of its own - see
-    /// [`Dom::create_text_do_not_use_without_block_level_wrapper`]).
-    ///
     /// **Parameters:**
     /// - `text`: Div content
     #[inline]
@@ -7340,15 +7301,14 @@ impl Dom {
     }
 
     #[inline]
-    /// Give this node an accessible NAME, keeping whatever else it already
+    /// Give this node an accessible name, keeping whatever else it already
     /// declares.
     ///
-    /// This is the override an application needs and `with_accessibility_info`
-    /// cannot give it. A widget fills in what it knows — a slider's role and
-    /// live value, a checkbox's checked state — and it CANNOT know what the
-    /// control is called: only the app does. Replacing the whole struct to add
-    /// a name would discard the role and the value with it, so the control
-    /// would gain a name and stop reporting its position.
+    /// This is the override `with_accessibility_info` can't give you: a
+    /// widget fills in what it knows (a slider's role and live value, a
+    /// checkbox's checked state) but not what the control is called - only
+    /// the app knows that. Replacing the whole struct to add a name would
+    /// discard the role and value with it.
     ///
     /// ```ignore
     /// Slider::new(volume).dom().with_accessibility_name("Volume")
@@ -7361,7 +7321,7 @@ impl Dom {
         })
     }
 
-    /// Overlay a PARTIAL accessibility declaration, keeping every field the
+    /// Overlay a partial accessibility declaration, keeping every field the
     /// patch does not set.
     ///
     /// The general form of the two helpers around it, and the one to reach for
@@ -7389,7 +7349,7 @@ impl Dom {
         self
     }
 
-    /// Point this node at the node that already NAMES it, keeping the rest of
+    /// Point this node at the node that already names it, keeping the rest of
     /// its declaration.
     ///
     /// Preferred over copying the label text: a duplicated name drifts the

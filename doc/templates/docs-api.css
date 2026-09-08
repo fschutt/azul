@@ -226,6 +226,38 @@
     margin: 0 0 12px;
 }
 
+/* ---- Doc block: sets prose off from the mono listing's background, and
+   collapses everything past the first paragraph behind a <details> toggle
+   so a long warning doesn't push the whole page down. ---- */
+#api .doc-block {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 8px 14px;
+    margin: 6px 0 10px;
+}
+#api .doc-block > p.doc {
+    margin: 0;
+}
+#api .doc-block > .doc-more {
+    margin-top: 6px;
+}
+#api .doc-more > summary {
+    font-size: 13px;
+    color: var(--color-text-light);
+}
+#api .doc-more > p.doc {
+    margin: 8px 0 0;
+}
+/* A `# Heading` line inside a doc comment: a small heading, not prose. */
+#api p.doc-heading {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin-top: 12px !important;
+}
+
 /* ---- "has destructor" badge: quiet pill instead of bare text ---- */
 #api .chd {
     display: inline-block;

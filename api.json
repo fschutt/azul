@@ -6920,9 +6920,13 @@
             }
         ],
         "notes": [
-            "This release is not functional yet, this page only exists to test that the automated DLL building works.",
+            "Azul 0.2.0 is the first release meant to be actually used: a single API surface across 17 languages, a self-hosted mirror for every package manager it ships through, and one hello-world guide per language whose install steps are the exact commands post-release CI runs.",
             "",
-            "There has been only [one release on GitHub so far](https://github.com/fschutt/azul/releases) and the current API does not match the release."
+            "The engine gained a widget library (tabs, ribbons, data lists, and the rest of the built-in controls, styled through plain CSS), OpenGL integration for embedding hardware-accelerated content next to the normal UI, virtualized rendering for lists with millions of rows, native OS threads for background work that does not block the UI, an XHTML/CSS layout engine that loads interfaces from external markup, and flexbox and grid layouts with rounded corners, shadows, gradients, and native accent colors. Dialogs, file access, HTTP, media, and a local-first Db now share one resumable request/response primitive.",
+            "",
+            "Bindings ship for C, C++ (C++17), C#, Fortran, Go, Haskell, Java, Kotlin, Lua, Node.js, OCaml, Pascal, Python, Ruby, Rust, Scala, and Zig. Each has a hello-world guide at `/ui/guide/hello-world/<language>`; only Rust is marked mature so far, the rest are working but young.",
+            "",
+            "Every install route is a package-manager install, not just a tarball: `apt`/`dnf`/`pacman`/`apk` on Linux, Homebrew on macOS, and Chocolatey or Scoop on Windows for the C-family languages, backed by self-hosted repositories; a sparse cargo registry for Rust; a PEP 503 package index for Python (pip, uv, poetry, pdm); an npm tarball for Node.js bundling every platform's native library; a RubyGems-compatible source for Ruby; a NuGet feed for C#; and a Maven mirror serving `rs.azul:azul` and, as a separate artifact with its own natives, `rs.azul:azul-kotlin`. A manual download of the prebuilt library plus headers or generated bindings remains the fallback everywhere."
         ],
         "api": {
             "window": {
@@ -21861,22 +21865,15 @@
                             },
                             "create_text_do_not_use_without_block_level_wrapper": {
                                 "doc": [
-                                    "Creates a RAW text node - read this before using it.",
+                                    "Creates a raw text node - only valid as the leaf inside a block-level",
+                                    "wrapper (`p`, `div`, `h1`, ...).",
                                     "",
-                                    "WARNING: azul does NOT auto-wrap raw text in an anonymous block the way",
-                                    "browsers do. A bare text node has NO box of its own: it gets no rect, no",
-                                    "clip and no layout constraints. Every box-model CSS property",
-                                    "(width / height / position / overflow / background / border / padding),",
-                                    "every callback, every tab_index and every dataset attached to a text",
-                                    "node is silently INERT. This has broken shipped widgets before (text",
-                                    "escaping its container, click targets that never fire).",
-                                    "",
-                                    "A raw text node is only correct as the bare leaf INSIDE a block-level",
-                                    "wrapper that carries the styling - p, div, h1... Prefer the",
-                                    "create_*_with_text family (create_p_with_text, create_div_with_text,",
-                                    "create_span_with_text, ...), which builds that shape for you. The engine",
-                                    "also logs a warning after layout when it finds a text node used without",
-                                    "a containing block."
+                                    "Azul does not auto-wrap text in an anonymous block the way browsers do:",
+                                    "a bare text node has no box, so every box-model property, callback,",
+                                    "`tab_index` and `dataset` on it is inert. Prefer `create_*_with_text`",
+                                    "(`create_p_with_text`, `create_div_with_text`, `create_span_with_text`,",
+                                    "...) instead. The engine logs a warning after layout if it finds an",
+                                    "unwrapped text node."
                                 ],
                                 "priority": 97.0,
                                 "fn_args": [
@@ -21953,8 +21950,8 @@
                             },
                             "create_node": {
                                 "doc": [
-                                    "Creates an empty DOM with a give `NodeType`. Note: This is a `const fn` and",
-                                    "doesn't allocate, it only allocates once you add at least one child node."
+                                    "Creates an empty DOM with a given `NodeType`. Doesn't allocate until",
+                                    "you add at least one child node."
                                 ],
                                 "fn_args": [
                                     {
@@ -22183,8 +22180,6 @@
                             "create_dialog": {
                                 "doc": [
                                     "Creates a dialog element with accessibility information.",
-                                    "",
-                                    "Use `create_dialog_no_a11y` only as a deliberate escape hatch.",
                                     "",
                                     "**Accessibility**: Represents a modal or non-modal dialog.",
                                     "When opened as modal, focus is trapped. Use aria-label or aria-labelledby.",
@@ -24380,11 +24375,11 @@
                             },
                             "with_marker": {
                                 "doc": [
-                                    "Stamp an app-chosen MARKER string on the root node, resolvable to the node's",
-                                    "`DomNodeId` from any callback via `CallbackInfo::get_node_id_by_marker` -",
-                                    "the address half of the inter-widget fast path (see the guide's",
-                                    "architecture chapter). Unlike an `Id` attribute, a marker is invisible to",
-                                    "CSS matching. Pass `None` to remove a previously set marker."
+                                    "Stamp an app-chosen marker string on the root node, resolvable to a",
+                                    "`(DomId, NodeId)` via `CallbackInfo::get_node_id_by_marker` - the clean",
+                                    "way for one widget's callback to find another widget without knowing",
+                                    "its internals. Unlike an `Id` attribute, a marker is invisible to CSS",
+                                    "matching. Pass `None` to remove a previously set marker."
                                 ],
                                 "fn_args": [
                                     {
@@ -25039,15 +25034,14 @@
                             },
                             "with_accessibility_name": {
                                 "doc": [
-                                    "Give this node an accessible NAME, keeping whatever else it already",
+                                    "Give this node an accessible name, keeping whatever else it already",
                                     "declares.",
                                     "",
-                                    "This is the override an application needs and `with_accessibility_info`",
-                                    "cannot give it. A widget fills in what it knows - a slider's role and",
-                                    "live value, a checkbox's checked state - and it CANNOT know what the",
-                                    "control is called: only the app does. Replacing the whole struct to add",
-                                    "a name would discard the role and the value with it, so the control",
-                                    "would gain a name and stop reporting its position.",
+                                    "This is the override `with_accessibility_info` can't give you: a",
+                                    "widget fills in what it knows (a slider's role and live value, a",
+                                    "checkbox's checked state) but not what the control is called - only",
+                                    "the app knows that. Replacing the whole struct to add a name would",
+                                    "discard the role and value with it.",
                                     "",
                                     "```ignore",
                                     "Slider::new(volume).dom().with_accessibility_name(\"Volume\")",
@@ -25068,7 +25062,7 @@
                             },
                             "with_accessibility_labelled_by": {
                                 "doc": [
-                                    "Point this node at the node that already NAMES it, keeping the rest of",
+                                    "Point this node at the node that already names it, keeping the rest of",
                                     "its declaration.",
                                     "",
                                     "Preferred over copying the label text: a duplicated name drifts the",
@@ -25089,7 +25083,7 @@
                             },
                             "with_accessibility_assign": {
                                 "doc": [
-                                    "Overlay a PARTIAL accessibility declaration, keeping every field the",
+                                    "Overlay a partial accessibility declaration, keeping every field the",
                                     "patch does not set.",
                                     "",
                                     "The general form of the two helpers around it, and the one to reach for",
@@ -25203,22 +25197,15 @@
                             },
                             "create_text_do_not_use_without_block_level_wrapper": {
                                 "doc": [
-                                    "Creates a RAW text node - read this before using it.",
+                                    "Creates a raw text node - only valid as the leaf inside a block-level",
+                                    "wrapper (`p`, `div`, `h1`, ...).",
                                     "",
-                                    "WARNING: azul does NOT auto-wrap raw text in an anonymous block the way",
-                                    "browsers do. A bare text node has NO box of its own: it gets no rect, no",
-                                    "clip and no layout constraints. Every box-model CSS property",
-                                    "(width / height / position / overflow / background / border / padding),",
-                                    "every callback, every tab_index and every dataset attached to a text",
-                                    "node is silently INERT. This has broken shipped widgets before (text",
-                                    "escaping its container, click targets that never fire).",
-                                    "",
-                                    "A raw text node is only correct as the bare leaf INSIDE a block-level",
-                                    "wrapper that carries the styling - p, div, h1... Prefer the",
-                                    "create_*_with_text family (create_p_with_text, create_div_with_text,",
-                                    "create_span_with_text, ...), which builds that shape for you. The engine",
-                                    "also logs a warning after layout when it finds a text node used without",
-                                    "a containing block."
+                                    "Azul does not auto-wrap text in an anonymous block the way browsers do:",
+                                    "a bare text node has no box, so every box-model property, callback,",
+                                    "`tab_index` and `dataset` on it is inert. Prefer `create_*_with_text`",
+                                    "(`create_p_with_text`, `create_div_with_text`, `create_span_with_text`,",
+                                    "...) instead. The engine logs a warning after layout if it finds an",
+                                    "unwrapped text node."
                                 ],
                                 "priority": 72.0,
                                 "fn_args": [
@@ -25462,10 +25449,11 @@
                             },
                             "with_marker": {
                                 "doc": [
-                                    "Stamp an app-chosen MARKER string on this node, resolvable to the node's",
-                                    "`DomNodeId` from any callback via `CallbackInfo::get_node_id_by_marker`.",
-                                    "Unlike an `Id` attribute, a marker is invisible to CSS matching.",
-                                    "Pass `None` to remove a previously set marker."
+                                    "Stamp an app-chosen marker string on this node, resolvable to a",
+                                    "`(DomId, NodeId)` via `CallbackInfo::get_node_id_by_marker` - the clean",
+                                    "way for one widget's callback to find another widget without knowing",
+                                    "its internals. Unlike an `Id` attribute, a marker is invisible to CSS",
+                                    "matching. Pass `None` to remove a previously set marker."
                                 ],
                                 "fn_args": [
                                     {
@@ -54099,7 +54087,7 @@
                                 "doc": [
                                     "Set a hook fired when the user pans / zooms the map. The map owns its",
                                     "own pan/pinch state; this lets your app observe or persist the",
-                                    "resulting `MapViewport`. The backreference DI pattern (architecture.md)."
+                                    "resulting `MapViewport`."
                                 ],
                                 "fn_args": [
                                     {
@@ -54162,8 +54150,7 @@
                             "set_on_pin_tap": {
                                 "doc": [
                                     "Set a hook fired when the user taps the map (a press + release at ~the",
-                                    "same point, no drag), with the tapped lat/lon. The backreference DI",
-                                    "pattern (architecture.md)."
+                                    "same point, no drag), with the tapped lat/lon."
                                 ],
                                 "fn_args": [
                                     {
@@ -126102,10 +126089,11 @@
                     "WebTransport": {
                         "doc": [
                             "Real-time room transport over WebTransport (HTTP/3 / QUIC).",
-                            "Connect to a coordination server, send typed media/chat/control, and poll",
-                            "`recv()` from a timer for inbound events. The engine runs on a background",
-                            "thread; v1 is a loopback stub (echoes sends back as a synthetic peer) -- the",
-                            "real QUIC engine lands behind the `webtransport-native` feature."
+                            "",
+                            "Connects to a coordination server, sends typed media/chat/control, and",
+                            "polls `recv()` from a timer for inbound events, on a background thread.",
+                            "v1 is a loopback stub (echoes sends back as a synthetic peer); the real",
+                            "QUIC engine lands behind the `webtransport-native` feature."
                         ],
                         "external": "azul_dll::unified::webtransport::WebTransport",
                         "custom_impls": [

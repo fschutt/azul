@@ -559,7 +559,7 @@ impl MapWidget {
 
     /// Set a hook fired when the user pans / zooms the map. The map owns its
     /// own pan/pinch state; this lets your app observe or persist the
-    /// resulting `MapViewport`. The backreference DI pattern (architecture.md).
+    /// resulting `MapViewport`.
     pub fn set_on_viewport_changed<C: Into<MapViewportChangedCallback>>(
         &mut self,
         data: RefAny,
@@ -584,8 +584,7 @@ impl MapWidget {
     }
 
     /// Set a hook fired when the user taps the map (a press + release at ~the
-    /// same point, no drag), with the tapped lat/lon. The backreference DI
-    /// pattern (architecture.md).
+    /// same point, no drag), with the tapped lat/lon.
     pub fn set_on_pin_tap<C: Into<MapPinTapCallback>>(&mut self, data: RefAny, callback: C) {
         self.on_pin_tap = Some(MapPinTap {
             refany: data,
@@ -1277,9 +1276,8 @@ use azul_core::task::{Duration, SystemTimeDiff, TerminateTimer, TimerId};
 
 /// User hook fired when the user pans or zooms the map.
 ///
-/// Lets app code observe
-/// or persist the widget-driven `MapViewport` (which otherwise lives only in
-/// the opaque `MapTileCache`). The backreference DI pattern (architecture.md).
+/// Lets app code observe or persist the widget-driven `MapViewport` (which
+/// otherwise lives only in the opaque `MapTileCache`).
 pub type MapViewportChangedCallbackType =
     extern "C" fn(RefAny, CallbackInfo, MapViewport) -> Update;
 impl_widget_callback!(
@@ -1328,7 +1326,7 @@ fn invoke_viewport_changed(
 ///
 /// Receives the tapped [`MapLatLon`] (projected via
 /// [`MapWidget::latlon_at_px`]) so apps can drop a pin without wiring their own
-/// tap handling + projection. The backreference DI pattern (architecture.md).
+/// tap handling + projection.
 pub type MapPinTapCallbackType = extern "C" fn(RefAny, CallbackInfo, MapLatLon) -> Update;
 impl_widget_callback!(
     MapPinTap,
