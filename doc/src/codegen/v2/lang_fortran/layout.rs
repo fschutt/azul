@@ -166,14 +166,16 @@ pub(crate) fn mono_layout(
     match &mono.kind {
         MonomorphizedKind::SimpleEnum { .. } => Some(AbiLayout::new(4, 4)),
         MonomorphizedKind::Struct { fields } => fields_layout(fields.iter(), ir, depth, None),
-        MonomorphizedKind::TaggedUnion { repr: _, variants } => {
-            // NOTE: lang_c's monomorphized-union emission ALWAYS spells the
-            // variant tag as the C tag enum (`AzFoo_Tag tag;`, int-sized) —
-            // unlike hand-written unions where a "u8" repr shrinks it to
-            // `uint8_t`. C enums are int-sized even with a Force8Bit
-            // sentinel, so azul.h's ABI for monos has a 4-byte tag and we
-            // must match azul.h (clang-verified over all 1551 types).
-            let tag = AbiLayout::new(4, 4);
+        MonomorphizedKind::TaggedUnion { repr, variants } => {
+            // The tag is read from the SAME `repr` string lang_c reads for its
+            // `uint8_t tag;` / `AzFoo_Tag tag;` choice, so a monomorphized
+            // `CssPropertyValue<Color>` (repr "C, u8", payload ColorU = 4×u8)
+            // is 5 bytes here exactly as in azul.h. This branch used to pin
+            // the tag at 4 bytes on the theory that lang_c always emitted the
+            // C enum for monos; lang_c stopped doing that, and every one of
+            // the 13 `CssPropertyValue<Color>` blobs was 8 bytes in Fortran
+            // against 5 in C. See `tests::mono_u8_union_tag_matches_lang_c`.
+            let tag = tag_layout(repr.as_deref());
             let mut size = 0usize;
             let mut align = tag.align;
             for v in variants {
@@ -274,5 +276,44 @@ pub(crate) fn blob_field_decl(l: AbiLayout) -> String {
         4 => format!("integer(c_int32_t) :: opaque_({})", l.size / 4),
         2 => format!("integer(c_int16_t) :: opaque_({})", l.size / 2),
         _ => format!("integer(c_int8_t) :: opaque_({})", l.size),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codegen::v2::ir::{FieldRefKind, MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant};
+
+    fn union(repr: Option<&str>) -> MonomorphizedTypeDef {
+        MonomorphizedTypeDef {
+            kind: MonomorphizedKind::TaggedUnion {
+                repr: repr.map(str::to_string),
+                variants: vec![
+                    MonomorphizedVariant {
+                        name: "Auto".into(),
+                        payload_type: None,
+                        payload_ref_kind: FieldRefKind::Owned,
+                    },
+                    MonomorphizedVariant {
+                        name: "Exact".into(),
+                        payload_type: Some("u8".into()),
+                        payload_ref_kind: FieldRefKind::Owned,
+                    },
+                ],
+            },
+        }
+    }
+
+    /// A monomorphized `#[repr(C, u8)]` union has a one-byte tag, exactly as
+    /// lang_c spells it (`uint8_t tag;`); without the u8 repr the tag is the
+    /// int-sized C enum. The 13 `CssPropertyValue<Color>` blobs were 8 bytes
+    /// in Fortran against 5 in azul.h when this was pinned at 4.
+    #[test]
+    fn mono_u8_union_tag_matches_lang_c() {
+        let ir = CodegenIR::new();
+        let u8_tag = mono_layout(&union(Some("C, u8")), &ir, 0).expect("layout");
+        assert_eq!((u8_tag.size, u8_tag.align), (2, 1), "u8 tag + u8 payload");
+        let int_tag = mono_layout(&union(None), &ir, 0).expect("layout");
+        assert_eq!((int_tag.size, int_tag.align), (8, 4), "int tag + u8 payload, padded");
     }
 }
