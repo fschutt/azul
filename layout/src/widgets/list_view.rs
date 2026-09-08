@@ -470,6 +470,13 @@ const CSS_MATCH_12980082330151137475_PROPERTIES: &[CssPropertyWithConditions] = 
     CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
         StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
     ))),
+    // Same reason as the tree's label: a conditional inline value is not
+    // inherited, so the cell states its own dark colour.
+    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
+        StyleTextColor {
+            inner: ColorU { r: 230, g: 230, b: 230, a: 255 },
+        },
+    ))),
 ];
 const CSS_MATCH_12980082330151137475: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_12980082330151137475_PROPERTIES);
@@ -500,6 +507,11 @@ const CSS_MATCH_15315949193378715186_PROPERTIES: &[CssPropertyWithConditions] = 
     CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_7422581697888665934_ITEMS,
+        )),
+    )),
+    CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            &[StyleBackgroundContent::Color(ColorU { r: 43, g: 43, b: 43, a: 255 })],
         )),
     )),
 ];
@@ -534,6 +546,9 @@ const CSS_MATCH_15673486787900743642_PROPERTIES: &[CssPropertyWithConditions] = 
     CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
         LayoutAlignItems::Center,
     ))),
+    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
+        StyleTextColor { inner: ColorU { r: 230, g: 230, b: 230, a: 255 } },
+    ))),
 ];
 const CSS_MATCH_15673486787900743642: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15673486787900743642_PROPERTIES);
@@ -550,6 +565,17 @@ const CSS_MATCH_17553577885456905601_PROPERTIES: &[CssPropertyWithConditions] = 
             STYLE_BACKGROUND_CONTENT_2444935983575427872_ITEMS,
         )),
     )),
+    // Dark defaults. Inline CSS takes `@theme dark` conditions and the last
+    // matching property wins, so each dark value sits after the light one it
+    // replaces. A list is a FIELD: in a dark window it must not stay white.
+    CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            &[StyleBackgroundContent::Color(ColorU { r: 31, g: 31, b: 31, a: 255 })],
+        )),
+    )),
+    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
+        StyleTextColor { inner: ColorU { r: 230, g: 230, b: 230, a: 255 } },
+    ))),
 ];
 const CSS_MATCH_17553577885456905601: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_17553577885456905601_PROPERTIES);
