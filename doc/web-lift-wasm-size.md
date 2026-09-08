@@ -2061,9 +2061,24 @@ necessary. It is not sufficient, and the coverage bitmap says so:
 | root | offered as | entered at first paint? |
 |---|---|---|
 | `azwriter::web_state::app_state_from_json` | mini p2, 271 fns / 5.05 MB | **YES** |
-| `azul_layout::window::virtual_view_measure_dom_trampoline` | mini p1 | no |
-| `azul_core::icon::resolve_icons_in_dom_inner` | mini p3 | no |
-| `azwriter::on_browse_clicked` | layout p1, 1454 fns / 28.82 MB | no |
+| `azul_layout::window::virtual_view_measure_dom_trampoline` | mini p1 | not entered ⚠ |
+| `azul_core::icon::resolve_icons_in_dom_inner` | mini p3 | not entered ⚠ |
+| `azwriter::on_browse_clicked` | layout p1, 1454 fns / 28.82 MB | not entered ✓ |
+
+⚠ **The two marked rows are NOT evidence of safety.** That coverage run booted
+into the `hydrateStyledDom` trap, which aborts before the layout engine executes
+— `LayoutWindow` had ZERO hot functions in the same measurement. `p1` is a LAYOUT
+function, so "not entered" there means "never reached", not "not needed". If it
+does run at first paint once the trap fix lands, the mini's chunking win
+collapses further: p1 is its largest chunk at 514 fns / 10.38 MB.
+
+✓ `on_browse_clicked` is the one row that stands on its own, and not because of
+the bitmap: it is a click handler, so it cannot run at first paint by
+construction.
+
+The positive result is the reliable one either way. `app_state_from_json` runs
+during hydration, BEFORE the trap, so its ENTERED is trustworthy — and a positive
+needs no assumption about how far the boot got.
 
 `app_state_from_json` is seeded as an "extra fn-pointer root" precisely because
 `AzStartup_hydrateJson` calls it through the address the server ships. It is an
