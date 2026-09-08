@@ -15,15 +15,20 @@
 //!    its own identifiers, but the `name="..."` argument is case-sensitive
 //!    so the linker matches the same exported symbols as the C/C++/Pascal
 //!    bindings.
-//! 3. Wraps every type that owns heap memory (i.e. has a matching
-//!    `<TypeName>_delete` C function) in an idiomatic Fortran derived type
-//!    with `final ::` finalizer (F2003+) that calls the matching `_delete`
-//!    automatically when the value goes out of scope. Type-bound procedures
-//!    (`procedure :: run => app_run`) provide the OO-style call syntax.
-//! 4. Drops the `Az` prefix from user-facing wrapper names while keeping
-//!    `Az`-prefixed FFI types and C symbols. Static factory functions are
-//!    spelled `App_create`; instance methods are emitted as subroutines
-//!    whose first argument is the wrapper type (Fortran TBPs).
+//! 3. Wraps every class in an idiomatic `<snake>_t` derived type
+//!    (`dom_t`, `button_t`, `app_t`) whose methods are type-bound
+//!    procedures (`call app%run(window)`), whose `String` arguments are
+//!    `character(len=*)`, whose unit enums are plain `integer`, and
+//!    whose callbacks are ordinary Fortran procedures matching a typed
+//!    abstract interface. There is deliberately NO `final ::`
+//!    subroutine: gfortran finalizes a function result after the
+//!    assignment that consumed it, so a finalizer would `_delete`
+//!    everything a factory ever returned. Cleanup is the explicit
+//!    `delete` type-bound procedure, guarded by an `owned` flag.
+//! 4. Adds the host-invoker runtime (see [`managed`]): one handle table
+//!    that owns both `RefAny` payloads and registered user procedures,
+//!    installed lazily on the first handle so user code never calls an
+//!    `init` function.
 //!
 //! # Output structure (high-level)
 //!
@@ -63,22 +68,22 @@
 //!     ! ...
 //!   end interface
 //!
-//!   ! --- Idiomatic wrappers with `final` finalizers ---
-//!   type :: App
-//!     private
+//!   ! --- Idiomatic wrappers ---
+//!   type :: app_t
 //!     type(AzApp) :: raw
-//!     logical :: owned = .true.
+//!     logical :: owned = .false.
 //!   contains
-//!     final :: app_finalizer
+//!     procedure :: delete => app_delete
 //!     procedure :: run => app_run
-//!   end type App
+//!   end type app_t
 //!
 //! contains
 //!
-//!   subroutine app_finalizer(self)
-//!     type(App), intent(inout) :: self
+//!   subroutine app_delete(self)
+//!     class(app_t), intent(inout), target :: self
 //!     if (self%owned) call az_app_delete(self%raw)
-//!   end subroutine app_finalizer
+//!     self%owned = .false.
+//!   end subroutine app_delete
 //!
 //!   ! ... method bodies ...
 //! end module azul
@@ -147,6 +152,16 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.line("private");
     builder.blank();
 
+    // The module is `private` by default, so the `iso_c_binding`
+    // entities a user would otherwise have to import themselves are
+    // re-exported here. `use azul` is the only `use` a program needs.
+    builder.line("! iso_c_binding re-exports: `use azul` is the only import a program");
+    builder.line("! needs, even when it reaches for the raw `az_*` layer.");
+    for name in ISO_C_REEXPORTS {
+        builder.line(&format!("public :: {}", name));
+    }
+    builder.blank();
+
     // 1. Derived-type / enum / callback procedural type emission.
     types::generate_types(&mut builder, ir, config)?;
 
@@ -155,12 +170,17 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
 
     // 3. Idiomatic wrapper type declarations (still inside the module
     //    decl section — Fortran modules separate type declarations from
-    //    procedure bodies via the `contains` keyword below).
-    wrappers::generate_wrapper_decls(&mut builder, ir, config)?;
+    //    procedure bodies via the `contains` keyword below). The plan is
+    //    built once and shared with the managed layer: both claim
+    //    module-wide (case-folded) identifiers from the same table.
+    let ctx = wrappers::Ctx::new(ir, config);
+    wrappers::generate_wrapper_decls(&mut builder, &ctx)?;
 
-    // 3b. Managed-FFI host-invoker plumbing — module-level state + FFI
-    //     interface declarations. Must come before `contains`.
-    managed::emit_managed_decls(&mut builder, ir);
+    // 3b. Managed-FFI host-invoker plumbing — typed callback interfaces,
+    //     the handle table and the host-handle FFI block. Must come
+    //     before `contains`, and after the wrapper types the abstract
+    //     interfaces `import`.
+    managed::emit_managed_decls(&mut builder, &ctx);
 
     // === module body (procedure implementations) ===
     builder.dedent();
@@ -168,11 +188,11 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.indent();
     builder.blank();
 
-    wrappers::generate_wrapper_bodies(&mut builder, ir, config)?;
+    wrappers::generate_wrapper_bodies(&mut builder, &ctx)?;
 
-    // Managed-FFI bodies (handle table accessors, releaser stub,
-    // azul_refany_create / azul_refany_get).
-    managed::emit_managed_bodies(&mut builder, ir);
+    // Managed-FFI bodies (handle table, per-kind invokers + registrars,
+    // ref_any_create / the RefAny `get` binding).
+    managed::emit_managed_bodies(&mut builder, &ctx);
 
     builder.dedent();
     builder.line("end module azul");
@@ -215,11 +235,43 @@ pub fn ffi_type_name(name: &str) -> String {
     format!("Az{}", name)
 }
 
-/// Idiomatic, `Az`-stripped wrapper type name (e.g. `Dom` -> `Dom`).
-/// Used for the user-facing F2003 derived type with `final ::`.
+/// Idiomatic wrapper type name (e.g. `Dom` -> `dom_t`,
+/// `WindowCreateOptions` -> `window_create_options_t`).
+///
+/// The `_t` suffix is not decoration: Fortran folds case, so a wrapper
+/// type spelled `Dom` makes `type(Dom) :: dom` — the natural variable
+/// name — a redeclaration of the type itself. Every other Fortran
+/// binding in the wild solves this the same way.
 pub fn wrapper_type_name(name: &str) -> String {
-    name.to_string()
+    truncate_identifier(&format!("{}_t", pascal_to_snake_case(name)))
 }
+
+/// `iso_c_binding` entities re-exported from the `azul` module so user
+/// code needs a single `use azul`. A `private` module may re-export
+/// entities it obtained by use-association, including the intrinsic
+/// procedures.
+pub const ISO_C_REEXPORTS: &[&str] = &[
+    "c_int",
+    "c_int8_t",
+    "c_int16_t",
+    "c_int32_t",
+    "c_int64_t",
+    "c_size_t",
+    "c_intptr_t",
+    "c_float",
+    "c_double",
+    "c_bool",
+    "c_char",
+    "c_ptr",
+    "c_funptr",
+    "c_null_ptr",
+    "c_null_funptr",
+    "c_loc",
+    "c_f_pointer",
+    "c_f_procpointer",
+    "c_associated",
+    "c_funloc",
+];
 
 /// The "instance method" prefix for wrapper procedures. We use a
 /// snake_case lowering of the wrapper type as the prefix so type-bound
