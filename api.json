@@ -4541,6 +4541,174 @@
                                     "content": "node hello-world.js"
                                 }
                             ]
+                        },
+                        {
+                            "id": "linux-bun",
+                            "label": "Linux (Bun)",
+                            "os": [
+                                "linux"
+                            ],
+                            "description": "Download the binding and the prebuilt library next to your program and run it with Bun; the binding uses bun:ffi and needs no package install",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "bun hello-world.js"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "macos-bun",
+                            "label": "macOS (Bun)",
+                            "os": [
+                                "macos"
+                            ],
+                            "description": "Download the binding and the prebuilt library next to your program and run it with Bun; the binding uses bun:ffi and needs no package install",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "bun hello-world.js"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "windows-bun",
+                            "label": "Windows (Bun)",
+                            "os": [
+                                "windows"
+                            ],
+                            "description": "Download the binding and the prebuilt library next to your program and run it with Bun; the binding uses bun:ffi and needs no package install",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "bun hello-world.js"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "linux-deno",
+                            "label": "Linux (Deno)",
+                            "os": [
+                                "linux"
+                            ],
+                            "description": "Download the binding and the prebuilt library next to your program and run it with Deno; the binding is CommonJS, which Deno loads when package.json says so, and it needs the FFI, read and env permissions",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.so"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "printf '{\"type\":\"commonjs\"}\\n' > package.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "deno run --allow-ffi --allow-read --allow-env hello-world.js"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "macos-deno",
+                            "label": "macOS (Deno)",
+                            "os": [
+                                "macos"
+                            ],
+                            "description": "Download the binding and the prebuilt library next to your program and run it with Deno; the binding is CommonJS, which Deno loads when package.json says so, and it needs the FFI, read and env permissions",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/libazul.dylib"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "printf '{\"type\":\"commonjs\"}\\n' > package.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "deno run --allow-ffi --allow-read --allow-env hello-world.js"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "windows-deno",
+                            "label": "Windows (Deno)",
+                            "os": [
+                                "windows"
+                            ],
+                            "description": "Download the binding and the prebuilt library next to your program and run it with Deno; the binding is CommonJS, which Deno loads when package.json says so, and it needs the FFI, read and env permissions",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/hello-world.js"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "printf '{\"type\":\"commonjs\"}\\n' > package.json"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "deno run --allow-ffi --allow-read --allow-env hello-world.js"
+                                }
+                            ]
                         }
                     ]
                 },

@@ -101,6 +101,297 @@ pub const END_MARKER: &str = " ==";
 /// on the dynamic-loader search path.
 pub const DLL_NAME: &str = "azul";
 
+/// The Deno adapter: `Deno.dlopen` plus a by-value type layer that
+/// encodes/decodes the wrapper layer's plain-object struct values to the
+/// raw bytes Deno marshals. Emitted verbatim (no indentation pass).
+const DENO_ADAPTER_JS: &str = r#"
+function loadDeno() {
+    // Deno.dlopen needs the whole symbol map at open time; bind() records
+    // symbols and the first call opens the library. Deno does no library
+    // name mangling either: DLL_NAME is already a resolved path or a full
+    // platform filename from _resolveDllPath().
+    const Deno = globalThis.Deno;
+    const libPath = DLL_NAME;
+    const pendingSymbols = {};
+    let opened = null;
+    function ensureOpen() {
+        if (opened === null) {
+            opened = Deno.dlopen(libPath, pendingSymbols).symbols;
+        }
+        return opened;
+    }
+
+    // ---- by-value type layer -----------------------------------------------
+    // Deno marshals a struct parameter or return as raw bytes (Uint8Array)
+    // laid out per the C ABI and described by a nested `{ struct: [...] }`
+    // descriptor. The wrapper layer holds struct values as plain JS objects
+    // keyed by field name (the shape koffi decodes to). This table bridges
+    // the two: every registered struct/union/alias gets its C layout
+    // (size, alignment, field offsets), a Deno descriptor, and
+    // encode/decode routines. Little-endian on every supported target.
+    const PRIM = {
+        'void':     { kind: 'prim', size: 0, align: 1, native: 'void' },
+        'bool':     { kind: 'prim', size: 1, align: 1, native: 'bool',
+                      get: (dv, o) => dv.getUint8(o) !== 0, set: (dv, o, v) => dv.setUint8(o, v ? 1 : 0) },
+        'int8_t':   { kind: 'prim', size: 1, align: 1, native: 'i8',
+                      get: (dv, o) => dv.getInt8(o), set: (dv, o, v) => dv.setInt8(o, Number(v)) },
+        'uint8_t':  { kind: 'prim', size: 1, align: 1, native: 'u8',
+                      get: (dv, o) => dv.getUint8(o), set: (dv, o, v) => dv.setUint8(o, Number(v)) },
+        'int16_t':  { kind: 'prim', size: 2, align: 2, native: 'i16',
+                      get: (dv, o) => dv.getInt16(o, true), set: (dv, o, v) => dv.setInt16(o, Number(v), true) },
+        'uint16_t': { kind: 'prim', size: 2, align: 2, native: 'u16',
+                      get: (dv, o) => dv.getUint16(o, true), set: (dv, o, v) => dv.setUint16(o, Number(v), true) },
+        'int32_t':  { kind: 'prim', size: 4, align: 4, native: 'i32',
+                      get: (dv, o) => dv.getInt32(o, true), set: (dv, o, v) => dv.setInt32(o, Number(v), true) },
+        'uint32_t': { kind: 'prim', size: 4, align: 4, native: 'u32',
+                      get: (dv, o) => dv.getUint32(o, true), set: (dv, o, v) => dv.setUint32(o, Number(v), true) },
+        'int64_t':  { kind: 'prim', size: 8, align: 8, native: 'i64',
+                      get: (dv, o) => dv.getBigInt64(o, true), set: (dv, o, v) => dv.setBigInt64(o, BigInt(v), true) },
+        'uint64_t': { kind: 'prim', size: 8, align: 8, native: 'u64',
+                      get: (dv, o) => dv.getBigUint64(o, true), set: (dv, o, v) => dv.setBigUint64(o, BigInt(v), true) },
+        'float':    { kind: 'prim', size: 4, align: 4, native: 'f32',
+                      get: (dv, o) => dv.getFloat32(o, true), set: (dv, o, v) => dv.setFloat32(o, Number(v), true) },
+        'double':   { kind: 'prim', size: 8, align: 8, native: 'f64',
+                      get: (dv, o) => dv.getFloat64(o, true), set: (dv, o, v) => dv.setFloat64(o, Number(v), true) },
+        'size_t':   { kind: 'prim', size: 8, align: 8, native: 'usize',
+                      get: (dv, o) => Number(dv.getBigUint64(o, true)), set: (dv, o, v) => dv.setBigUint64(o, BigInt(v), true) },
+        'intptr_t': { kind: 'prim', size: 8, align: 8, native: 'isize',
+                      get: (dv, o) => Number(dv.getBigInt64(o, true)), set: (dv, o, v) => dv.setBigInt64(o, BigInt(v), true) },
+    };
+    const PTR = { kind: 'pointer', size: 8, align: 8, native: 'pointer' };
+    const types = Object.create(null);
+
+    function resolve(spec) {
+        if (typeof spec !== 'string') throw new Error('azul.js: bad FFI type spec ' + spec);
+        const s = spec.trim();
+        if (s.endsWith('*')) return PTR;
+        const p = PRIM[s];
+        if (p) return p;
+        const t = types[s];
+        if (t) return t;
+        throw new Error("azul.js: unregistered FFI type '" + s + "'");
+    }
+    function alignUp(n, a) { return (n + a - 1) & ~(a - 1); }
+    function isAggregate(t) { return t.kind === 'struct' || t.kind === 'union'; }
+    // Descriptor usable as a field: `bool` is a byte inside an aggregate.
+    function fieldNative(t) { return t === PRIM.bool ? 'u8' : t.native; }
+    // Descriptor usable as a parameter/return: an aggregate is always a
+    // `{ struct }` so Deno marshals it as bytes even when a union's
+    // representative member is a scalar.
+    function paramNative(t) {
+        if (isAggregate(t) && typeof t.native === 'string') return { struct: [t.native] };
+        return t.native;
+    }
+    // libffi has no union type. A member whose size and alignment equal
+    // the union's own reproduces the union's register classification on
+    // every supported ABI whenever the other members are shorter (the
+    // repr(C, u8) tagged enums: the largest variant carries the tag byte
+    // every variant shares). Otherwise an integer fill of the union's
+    // size/alignment keeps the layout of the enclosing struct exact.
+    function unionNative(t) {
+        for (const m of t.members) {
+            if (m.type.size === t.size && m.type.align === t.align) return fieldNative(m.type);
+        }
+        const unit = t.align >= 8 ? 'u64' : t.align === 4 ? 'u32' : t.align === 2 ? 'u16' : 'u8';
+        return { struct: new Array(t.size / t.align).fill(unit) };
+    }
+    function define(name, fields, isUnion) {
+        const members = [];
+        let size = 0, align = 1;
+        for (const key of Object.keys(fields)) {
+            const t = resolve(fields[key]);
+            if (isUnion) {
+                members.push({ name: key, type: t, offset: 0 });
+                if (t.size > size) size = t.size;
+            } else {
+                const off = alignUp(size, t.align);
+                members.push({ name: key, type: t, offset: off });
+                size = off + t.size;
+            }
+            if (t.align > align) align = t.align;
+        }
+        size = alignUp(size, align);
+        const t = { kind: isUnion ? 'union' : 'struct', name, members, size, align, native: null };
+        t.native = isUnion ? unionNative(t) : { struct: members.map((m) => fieldNative(m.type)) };
+        types[name] = t;
+        return t;
+    }
+
+    function ptrValue(v) {
+        if (v == null) return 0n;
+        if (typeof v === 'bigint') return v;
+        if (typeof v === 'number') return BigInt(v);
+        if (v instanceof Deno.UnsafeCallback) v = v.pointer;
+        else if (v instanceof Uint8Array || v instanceof ArrayBuffer) v = Deno.UnsafePointer.of(v);
+        const pv = Deno.UnsafePointer.value(v);
+        return typeof pv === 'bigint' ? pv : BigInt(pv);
+    }
+    function bytesAt(dv, off, len) { return new Uint8Array(dv.buffer, dv.byteOffset + off, len); }
+
+    // JS value -> native bytes at `off`. Wrapper instances unwrap to their
+    // `_ptr` value; a Uint8Array of the type's size is copied verbatim.
+    function encode(t, v, dv, off) {
+        if (v && typeof v === 'object' && v._ptr !== undefined) v = v._ptr;
+        if (t.kind === 'pointer') { dv.setBigUint64(off, ptrValue(v), true); return; }
+        if (t.set) { t.set(dv, off, v == null ? 0 : v); return; }
+        if (v == null) return;
+        if (v instanceof Uint8Array) { bytesAt(dv, off, t.size).set(v.subarray(0, t.size)); return; }
+        if (t.kind === 'struct') {
+            for (const m of t.members) {
+                const fv = v[m.name];
+                if (fv !== undefined) encode(m.type, fv, dv, off + m.offset);
+            }
+            return;
+        }
+        // Union. A decoded union remembers its source bytes and which member
+        // the user assigned; a plain object encodes whichever members it has.
+        const st = v.__azUnionState;
+        if (st) {
+            bytesAt(dv, off, t.size).set(v.__azBytes);
+            if (st.active !== null) {
+                for (const m of t.members) if (m.name === st.active) encode(m.type, st.cache[m.name], dv, off);
+                return;
+            }
+            for (const m of t.members) if (m.name in st.cache) encode(m.type, st.cache[m.name], dv, off);
+            return;
+        }
+        for (const m of t.members) if (v[m.name] !== undefined) encode(m.type, v[m.name], dv, off);
+    }
+    // Native bytes at `off` -> JS value (plain object for aggregates).
+    function decode(t, dv, off) {
+        if (t.kind === 'pointer') {
+            const a = dv.getBigUint64(off, true);
+            return a === 0n ? null : Deno.UnsafePointer.create(a);
+        }
+        if (t.get) return t.get(dv, off);
+        if (t.kind === 'struct') {
+            const obj = {};
+            Object.defineProperty(obj, '__azType', { value: t.name });
+            for (const m of t.members) obj[m.name] = decode(m.type, dv, off + m.offset);
+            return obj;
+        }
+        return decodeUnion(t, dv, off);
+    }
+    // Every member of a union decodes from the same bytes, lazily; a
+    // member assignment marks it as the one to encode back.
+    function decodeUnion(t, dv, off) {
+        const bytes = new Uint8Array(t.size);
+        bytes.set(bytesAt(dv, off, t.size));
+        const bdv = new DataView(bytes.buffer);
+        const st = { cache: Object.create(null), active: null };
+        const obj = {};
+        Object.defineProperty(obj, '__azType', { value: t.name });
+        Object.defineProperty(obj, '__azBytes', { value: bytes });
+        Object.defineProperty(obj, '__azUnionState', { value: st });
+        for (const m of t.members) {
+            Object.defineProperty(obj, m.name, {
+                enumerable: true,
+                get() {
+                    if (!(m.name in st.cache)) st.cache[m.name] = decode(m.type, bdv, 0);
+                    return st.cache[m.name];
+                },
+                set(v) { st.cache[m.name] = v; st.active = m.name; },
+            });
+        }
+        return obj;
+    }
+    // Copy a `T *` argument back into the caller's object after the call,
+    // so a `&mut self` method's writes are visible to the wrapper.
+    function decodeInto(t, dv, off, target) {
+        if (!target || typeof target !== 'object') return;
+        const st = target.__azUnionState;
+        if (st) {
+            target.__azBytes.set(bytesAt(dv, off, t.size));
+            for (const k of Object.keys(st.cache)) delete st.cache[k];
+            st.active = null;
+        } else if (t.kind === 'struct') {
+            for (const m of t.members) target[m.name] = decode(m.type, dv, off + m.offset);
+        }
+    }
+    function toBytes(t, v) {
+        const buf = new Uint8Array(t.size);
+        encode(t, v, new DataView(buf.buffer), 0);
+        return buf;
+    }
+    // Argument conversion for a `pointer` parameter: raw pointers pass
+    // through, buffers/callbacks give their address, a decoded aggregate
+    // is encoded into a scratch buffer (copied back after the call).
+    function toPointerArg(v, copyBack) {
+        if (v == null) return null;
+        if (v instanceof Deno.UnsafeCallback) return v.pointer;
+        if (typeof v === 'bigint' || typeof v === 'number') return Deno.UnsafePointer.create(BigInt(v));
+        if (v instanceof Uint8Array || v instanceof ArrayBuffer) return Deno.UnsafePointer.of(v);
+        if (typeof v === 'object' && v.__azType) {
+            const vt = types[v.__azType];
+            const buf = toBytes(vt, v);
+            copyBack.push([vt, buf, v]);
+            return Deno.UnsafePointer.of(buf);
+        }
+        return v;
+    }
+    function bind(name, paramSpecs, retSpec) {
+        const ptypes = paramSpecs.map(resolve);
+        const rtype = resolve(retSpec);
+        pendingSymbols[name] = { parameters: ptypes.map(paramNative), result: paramNative(rtype) };
+        opened = null;
+        return (...args) => {
+            const sym = ensureOpen()[name];
+            const conv = new Array(ptypes.length);
+            const copyBack = [];
+            for (let i = 0; i < ptypes.length; i++) {
+                const t = ptypes[i];
+                let v = args[i];
+                if (v && typeof v === 'object' && v._ptr !== undefined) v = v._ptr;
+                if (isAggregate(t)) {
+                    conv[i] = (v instanceof Uint8Array && v.length === t.size) ? v : toBytes(t, v);
+                } else if (t.kind === 'pointer') {
+                    conv[i] = toPointerArg(v, copyBack);
+                } else {
+                    conv[i] = v;
+                }
+            }
+            const ret = sym(...conv);
+            for (const [vt, buf, v] of copyBack) decodeInto(vt, new DataView(buf.buffer), 0, v);
+            if (isAggregate(rtype)) return decode(rtype, new DataView(ret.buffer, ret.byteOffset, ret.byteLength), 0);
+            return ret;
+        };
+    }
+    // libazul keeps every callback pointer it is handed for the life of
+    // the process; the trampolines must never be collected or closed.
+    const liveCallbacks = [];
+
+    return {
+        runtime: 'deno',
+        types,
+        struct(name, fields) { return define(name, fields, false); },
+        union(name, fields) { return define(name, fields, true); },
+        array(_elemType, _length) { return null; },
+        alias(name, target) { types[name] = resolve(target); return types[name]; },
+        func(spec) { return bind(spec.name, spec.parameters, spec.returns); },
+        proto(_name, retType, argTypes) {
+            return { parameters: argTypes.map((s) => paramNative(resolve(s))), result: paramNative(resolve(retType)) };
+        },
+        callback(proto, jsFn) {
+            const cb = new Deno.UnsafeCallback(proto, jsFn);
+            liveCallbacks.push(cb);
+            return cb;
+        },
+        addr(value) { return Deno.UnsafePointer.of(value); },
+        // Write an int32 through an out-pointer (callback return writeback).
+        // `UnsafePointerView.getArrayBuffer(len)` is a direct mutable view
+        // over the native memory at the pointer.
+        writeInt32(p, v) { new DataView(new Deno.UnsafePointerView(p).getArrayBuffer(4)).setInt32(0, v, true); },
+        encodeInto(p, typeName, value) {
+            const t = resolve(typeName);
+            encode(t, value, new DataView(new Deno.UnsafePointerView(p).getArrayBuffer(t.size)), 0);
+        },
+        readBytes(p, len) { return new Uint8Array(new Deno.UnsafePointerView(p).getArrayBuffer(len)).slice(); },
+        ptr: 'pointer',
+    };
+}
+
+"#;
+
 /// Public entry point. Returns a multi-file string with two sections:
 /// `azul.js` and `package.json`.
 pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
@@ -385,6 +676,12 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.line("// same primitive on all three runtimes so the invoker layer can");
     b.line("// write enum returns without a runtime gate).");
     b.line("writeInt32(p, v) { koffi.encode(p, 'int32_t', v); },");
+    b.line("// Encode a by-value struct/union into native memory (callback");
+    b.line("// struct-return writeback). Same shape on every runtime that can");
+    b.line("// marshal aggregates, so the invoker layer needs no runtime gate.");
+    b.line("encodeInto(p, typeName, value) { koffi.encode(p, typeName, value); },");
+    b.line("// Copy `len` bytes out of native memory (AzString decode).");
+    b.line("readBytes(p, len) { return koffi.decode(p, 'uint8_t', len); },");
     b.line("ptr: 'void *',");
     b.dedent();
     b.line("};");
@@ -494,99 +791,20 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.blank();
 
     // ---- Deno branch --------------------------------------------------------
-    b.line("function loadDeno() {");
+    b.raw(DENO_ADAPTER_JS);
+
+    b.line("// Bun runs koffi through its Node-API layer (`bun add koffi`), which");
+    b.line("// marshals every by-value struct the C API uses; the `bun:ffi` adapter");
+    b.line("// stays as the fallback for a Bun install without koffi.");
+    b.line("function _koffiResolves() {");
     b.indent();
-    b.line("// Deno.dlopen requires a symbol map at open time. We use the same");
-    b.line("// lazy-symbol-map pattern as Bun.");
-    b.line("const Deno = globalThis.Deno;");
-    b.line("// Deno.dlopen does NOT auto-resolve bare names; DLL_NAME is already");
-    b.line("// a resolved path or a full platform filename from _resolveDllPath().");
-    b.line("const libPath = DLL_NAME;");
-    b.line("const pendingSymbols = {};");
-    b.line("let opened = null;");
-    b.line("function ensureOpen() {");
-    b.indent();
-    b.line("if (opened === null) {");
-    b.indent();
-    b.line("opened = Deno.dlopen(libPath, pendingSymbols).symbols;");
-    b.dedent();
-    b.line("}");
-    b.line("return opened;");
-    b.dedent();
-    b.line("}");
-    b.line("// Map a koffi-style type spec string to Deno's NativeType. Any");
-    b.line("// non-primitive (registered struct, pointer, unknown) collapses to");
-    b.line("// 'pointer' — wrappers carry the high-level shape.");
-    b.line("function toDenoType(spec) {");
-    b.indent();
-    b.line("if (typeof spec !== 'string') return 'pointer';");
-    b.line("switch (spec.trim()) {");
-    b.indent();
-    b.line("case 'void':     return 'void';");
-    b.line("case 'bool':     return 'bool';");
-    b.line("case 'int8_t':   return 'i8';");
-    b.line("case 'uint8_t':  return 'u8';");
-    b.line("case 'int16_t':  return 'i16';");
-    b.line("case 'uint16_t': return 'u16';");
-    b.line("case 'int32_t':  return 'i32';");
-    b.line("case 'uint32_t': return 'u32';");
-    b.line("case 'int64_t':  return 'i64';");
-    b.line("case 'uint64_t': return 'u64';");
-    b.line("case 'float':    return 'f32';");
-    b.line("case 'double':   return 'f64';");
-    b.line("case 'size_t':   return 'usize';");
-    b.line("case 'intptr_t': return 'pointer';");
-    b.line("default:         return 'pointer';");
-    b.dedent();
-    b.line("}");
-    b.dedent();
-    b.line("}");
-    b.line("return {");
-    b.indent();
-    b.line("runtime: 'deno',");
-    b.line("struct(_name, _fields) { return null; },");
-    b.line("union(_name, _fields) { return null; },");
-    b.line("array(_elemType, _length) { return null; },");
-    b.line("alias(_name, _target) { return null; },");
-    b.line("func(spec) {");
-    b.indent();
-    b.line("const { name, parameters, returns } = spec;");
-    b.line("pendingSymbols[name] = {");
-    b.indent();
-    b.line("parameters: parameters.map(toDenoType),");
-    b.line("result: toDenoType(returns),");
-    b.dedent();
-    b.line("};");
-    b.line("opened = null;");
-    b.line("// A callback argument is passed as its pointer: Deno 2 rejects the");
-    b.line("// UnsafeCallback object itself (\"expected null, or External\").");
-    b.line("return (...args) => ensureOpen()[name](...args.map((a) => (a instanceof Deno.UnsafeCallback) ? a.pointer : a));");
-    b.dedent();
-    b.line("},");
-    b.line("proto(_name, retType, argTypes) {");
-    b.indent();
-    b.line("return { parameters: argTypes.map(toDenoType), result: toDenoType(retType) };");
-    b.dedent();
-    b.line("},");
-    b.line("callback(proto, jsFn) {");
-    b.indent();
-    b.line("return new Deno.UnsafeCallback(proto, jsFn);");
-    b.dedent();
-    b.line("},");
-    b.line("addr(value) { return Deno.UnsafePointer.of(value); },");
-    b.line("// Write an int32 through an out-pointer (callback return writeback).");
-    b.line("// `UnsafePointerView.getArrayBuffer(len)` returns a direct mutable");
-    b.line("// view over the native memory at the pointer, so the DataView write");
-    b.line("// lands in the framework's out-struct. LE on all supported targets.");
-    b.line("writeInt32(p, v) { new DataView(new Deno.UnsafePointerView(p).getArrayBuffer(4)).setInt32(0, v, true); },");
-    b.line("ptr: 'pointer',");
-    b.dedent();
-    b.line("};");
+    b.line("try { require.resolve('koffi'); return true; } catch (_e) { return false; }");
     b.dedent();
     b.line("}");
     b.blank();
-
-    b.line("const azulFFI = isNode ? loadNodeKoffi() : isBun ? loadBun() : loadDeno();");
+    b.line("const azulFFI = isDeno ? loadDeno()");
+    b.line("    : (isNode || (isBun && _koffiResolves())) ? loadNodeKoffi()");
+    b.line("    : loadBun();");
     b.blank();
 }
 
