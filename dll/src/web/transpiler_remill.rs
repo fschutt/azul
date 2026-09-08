@@ -3832,11 +3832,25 @@ impl RemillTranspiler {
         // button handler, which a first paint never calls.
         let mut lazy_chunks: Vec<super::transpiler::LazyChunk> = Vec::new();
         let is_mini = opts.output_stem == "azul-mini";
-        let boot_names: HashSet<String> = if is_mini {
-            HashSet::new()
-        } else {
-            seed_names.iter().cloned().collect()
-        };
+        // EVERY SEEDED ROOT IS A BOOT ROOT, the mini included.
+        //
+        // The mini used to be exempted, on the reasoning that its `extra
+        // fn-pointer root`s are entered only through the dispatcher and are
+        // therefore the lazy candidates. That reasoning conflates "entered
+        // through the dispatcher" with "entered late", and AZ_FN_COVERAGE showed
+        // it is wrong: `azwriter::web_state::app_state_from_json` was offered as
+        // chunk p2 (271 fns / 5.05 MB) and IS ENTERED AT FIRST PAINT, because
+        // `AzStartup_hydrateJson` calls it through the address the server ships.
+        // Deferring it would have broken the boot.
+        //
+        // A seed is by construction something OUTSIDE the module calls, which is
+        // exactly what disqualifies a lazy root — whether it is named
+        // `AzStartup_*` or reached through a shipped pointer. The graph criterion
+        // "nothing statically calls it" stays necessary and is not sufficient.
+        //
+        // This costs real measured saving and that is the point: p2 was ~a third
+        // of the mini's lazy bytes.
+        let boot_names: HashSet<String> = seed_names.iter().cloned().collect();
         // The mini keeps its stem: every log grep, monitor and analysis script
         // in scripts/m9_e2e keys on "AZ_CHUNK azul-mini". Only the callback
         // lifts need a better name, because they all share the stem
