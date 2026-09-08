@@ -177,7 +177,7 @@ jobs:
           echo "docproof pinned at $got"
 
       - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
 
@@ -2913,7 +2913,7 @@ jobs:
 
       - name: Set up JDK 17 (JVM bindings)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: '17'
@@ -2944,21 +2944,21 @@ jobs:
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: Bogdanp/setup-racket@0094a9d8bd157633293a2210f373bb542687fa6d # v1.11
+        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
         with:
           version: '9.3'
 
       - name: Set up Swift (Linux)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'ubuntu-22.04'
         continue-on-error: true
-        uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
+        uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # v3
         with:
           swift-version: '5.10'
 
       - name: Set up Swift (Windows)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'windows-2022'
         continue-on-error: true
-        uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5 # v0.4.0
+        uses: compnerd/gha-setup-swift@397094e75494a93fa8d81db0268dbc8f5d6cf7c6 # v0.4.1
         with:
           branch: swift-5.10-release
           tag: 5.10-RELEASE
@@ -2966,7 +2966,7 @@ jobs:
       - name: Set up Zig
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
         continue-on-error: true
-        uses: mlugg/setup-zig@53fc45b17fe98b52f92ee5ea08ff48a85a3e7eb7 # v1.2.2
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: "0.14.1"
 
@@ -3053,14 +3053,14 @@ jobs:
       - name: Set up Kotlin
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: fwilhe2/setup-kotlin@c061b2b2664e466684327ec98bd4e6f9aa9c2048 # v1 branch, 2026-09-07
+        uses: fwilhe2/setup-kotlin@ee9692514da313706b193d808526812102a344e4 # v1 branch, 2026-09-07
         with:
           version: '2.3.10'
 
       - name: Set up Scala (coursier)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: coursier/setup-action@039f736548afa5411c1382f40a5bd9c2d30e0383 # v1.3.9
+        uses: coursier/setup-action@9b7939bf01fd1185ce2babe16135168361bf2c62 # v3.0.2
         with:
           jvm: temurin:17
           apps: scala:3.9.0 scalac:3.9.0
@@ -3086,7 +3086,7 @@ jobs:
       - name: Set up V (vlang)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: vlang/setup-v@51668e85beab02cce1907b99b6ad039e71d98994 # v1.4
+        uses: vlang/setup-v@663cc08827d1fc0532ee755b4dedbb183c11d06a # v1.7
         with:
           version: 0.5.2
           check-latest: false
@@ -3094,7 +3094,7 @@ jobs:
       - name: Set up Julia
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: julia-actions/setup-julia@4c0cb0fce8556fdb04a90347310e5db8b1f98fb9 # v2.7.0
+        uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
         with:
           version: '1.10'
 
@@ -3247,7 +3247,7 @@ jobs:
 
       - name: Set up JDK 17 (JVM bindings)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: '17'
@@ -3278,21 +3278,21 @@ jobs:
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: Bogdanp/setup-racket@0094a9d8bd157633293a2210f373bb542687fa6d # v1.11
+        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
         with:
           version: '9.3'
 
       - name: Set up Swift (Linux)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'ubuntu-22.04'
         continue-on-error: true
-        uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
+        uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # v3
         with:
           swift-version: '5.10'
 
       - name: Set up Swift (Windows)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2' && matrix.os == 'windows-2022'
         continue-on-error: true
-        uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5 # v0.4.0
+        uses: compnerd/gha-setup-swift@397094e75494a93fa8d81db0268dbc8f5d6cf7c6 # v0.4.1
         with:
           branch: swift-5.10-release
           tag: 5.10-RELEASE
@@ -3300,7 +3300,7 @@ jobs:
       - name: Set up Zig
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-b'
         continue-on-error: true
-        uses: mlugg/setup-zig@53fc45b17fe98b52f92ee5ea08ff48a85a3e7eb7 # v1.2.2
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: "0.14.1"
 
@@ -3387,14 +3387,14 @@ jobs:
       - name: Set up Kotlin
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: fwilhe2/setup-kotlin@c061b2b2664e466684327ec98bd4e6f9aa9c2048 # v1 branch, 2026-09-07
+        uses: fwilhe2/setup-kotlin@ee9692514da313706b193d808526812102a344e4 # v1 branch, 2026-09-07
         with:
           version: '2.3.10'
 
       - name: Set up Scala (coursier)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a'
         continue-on-error: true
-        uses: coursier/setup-action@039f736548afa5411c1382f40a5bd9c2d30e0383 # v1.3.9
+        uses: coursier/setup-action@9b7939bf01fd1185ce2babe16135168361bf2c62 # v3.0.2
         with:
           jvm: temurin:17
           apps: scala:3.9.0 scalac:3.9.0
@@ -3420,7 +3420,7 @@ jobs:
       - name: Set up V (vlang)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: vlang/setup-v@51668e85beab02cce1907b99b6ad039e71d98994 # v1.4
+        uses: vlang/setup-v@663cc08827d1fc0532ee755b4dedbb183c11d06a # v1.7
         with:
           version: 0.5.2
           check-latest: false
@@ -3428,7 +3428,7 @@ jobs:
       - name: Set up Julia
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
         continue-on-error: true
-        uses: julia-actions/setup-julia@4c0cb0fce8556fdb04a90347310e5db8b1f98fb9 # v2.7.0
+        uses: julia-actions/setup-julia@fa02766e078afaaf09b14210362cee14137e6a32 # v3.0.2
         with:
           version: '1.10'
 
@@ -3788,11 +3788,11 @@ jobs:
         with:
           toolchain: 1.90.0
           targets: aarch64-linux-android, x86_64-linux-android
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
         with:
           cmdline-tools-version: 12266719
       - name: Install SDK build-tools + platform
@@ -6055,7 +6055,7 @@ jobs:
           cp packaging/pypi/README.md ./README.md
 
       - name: Build wheels (cibuildwheel)
-        uses: pypa/cibuildwheel@7940a4c0e76eb2030e473a5f864f291f63ee879b # v2.21.3
+        uses: pypa/cibuildwheel@e090b81e30c4d855ea63bf4b6e59204c09a101ae # v4.2.1
         env:
           CIBW_BUILD_FRONTEND: "build"
           CIBW_BUILD: "cp310-*"
@@ -6421,7 +6421,7 @@ jobs:
           submodules: recursive
 
       - name: Set up JDK
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: "17"
@@ -6551,7 +6551,7 @@ jobs:
       # App, AzulHostInvoker, ...): the two jars can never share a classpath,
       # so the Kotlin jar carries its own natives.
       - name: Kotlin compiler (rs.azul:azul-kotlin)
-        uses: fwilhe2/setup-kotlin@c061b2b2664e466684327ec98bd4e6f9aa9c2048 # v1 branch, 2026-09-07
+        uses: fwilhe2/setup-kotlin@ee9692514da313706b193d808526812102a344e4 # v1 branch, 2026-09-07
         with:
           version: "${{ env.KOTLIN_VERSION }}"
       - name: Build the Kotlin binding jar + its consumer pom
@@ -6624,7 +6624,7 @@ jobs:
 
       - name: Re-configure JDK with OSSRH server + GPG
         if: steps.mvncheck.outputs.ready == '1'
-        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: "17"
@@ -6685,7 +6685,7 @@ jobs:
 
       - name: Publish to the AUR
         if: steps.aurcheck.outputs.ready == '1'
-        uses: KSXGitHub/github-actions-deploy-aur@a97f56a8425a7a7f3b8c58607f769c69b089cadb # v3.0.1
+        uses: KSXGitHub/github-actions-deploy-aur@084b0d9b15415bf9cdb65d44dad1efe37a354050 # v4.2.0
         with:
           pkgname: azul
           pkgbuild: target/package/aur/PKGBUILD
