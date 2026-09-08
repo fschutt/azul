@@ -47,8 +47,8 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, FunctionArg, FunctionDef, FunctionKind,
-    StructDef, TypeCategory,
+    ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, FieldRefKind, FunctionArg, FunctionDef,
+    FunctionKind, StructDef, TypeCategory,
 };
 use super::super::managed_host_invoker::{
     host_invoker_kinds, layout_callback_factory_info, to_snake_case, wrapper_name,
@@ -433,11 +433,18 @@ fn find_string_class(ir: &CodegenIR) -> Option<StringClass> {
         let Some(vec) = ir.find_struct(vec_field.type_name.trim()) else {
             continue;
         };
-        let ptr = vec
+        // The Vec shape is `{ptr, len, cap, destructor}`; the raw-pointer
+        // marker lives in `ref_kind`, not in `type_name` (which is the
+        // bare element type, `u8`), so match on the field names.
+        let ptr = vec.fields.iter().find(|f| {
+            f.name == "ptr"
+                && matches!(f.ref_kind, FieldRefKind::Ptr | FieldRefKind::PtrMut)
+                && f.type_name.trim() == "u8"
+        });
+        let len = vec
             .fields
             .iter()
-            .find(|f| f.type_name.trim().starts_with('*') && f.type_name.contains("u8"));
-        let len = vec.fields.iter().find(|f| f.name == "len");
+            .find(|f| f.name == "len" && f.type_name.trim() == "usize");
         if let (Some(ptr), Some(len)) = (ptr, len) {
             return Some(StringClass {
                 name: s.name.clone(),
@@ -808,7 +815,10 @@ fn emit_take(builder: &mut CodeBuilder, ctx: &Ctx, c: &ClassPlan) {
         .unwrap_or(false);
     builder.line(&format!("function {}(x) result(r)", take));
     builder.indent();
-    builder.line(&format!("type({}), intent(in), target :: x", c.wt));
+    // `class`, not `type`: the consuming call sites pass both plain
+    // wrapper variables and the polymorphic `self` of a type-bound
+    // procedure.
+    builder.line(&format!("class({}), intent(in), target :: x", c.wt));
     builder.line(&format!("type({}) :: r", ffi_type_name(&c.s.name)));
     builder.line("if (x%owned) then");
     builder.line("  r = x%raw");
