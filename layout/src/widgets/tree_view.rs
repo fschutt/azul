@@ -94,6 +94,16 @@ const HOVER_BG: ColorU = ColorU {
     b: 255,
     a: 255,
 };
+/// The tree is a FIELD, like the list view next to it: it draws its own
+/// surface. Without one the control was transparent and inherited whatever it
+/// happened to sit on, which is why it read as a floating list of labels
+/// rather than a pane. Same value as `__azul_native_list-container`.
+const FIELD_BG: ColorU = ColorU {
+    r: 252,
+    g: 252,
+    b: 252,
+    a: 255,
+};
 const ICON_COLOR: ColorU = ColorU {
     r: 100,
     g: 100,
@@ -104,6 +114,10 @@ const ICON_COLOR: ColorU = ColorU {
 // -- Tree container style --
 
 static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(FIELD_BG)]),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Auto)),
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,

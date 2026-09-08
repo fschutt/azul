@@ -9,6 +9,9 @@ typedef struct {
     bool checkbox_checked;
     char text_input[256];
     size_t selected_row;
+    uint32_t expanded_nodes;
+    size_t selected_node;
+    size_t sort_column;
 } WidgetShowcase;
 
 void WidgetShowcase_destructor(void* m) { }
@@ -17,10 +20,36 @@ AZ_REFLECT(WidgetShowcase, WidgetShowcase_destructor);
 AzUpdate on_button_click(AzRefAny data, AzCallbackInfo info);
 AzUpdate on_checkbox_toggle(AzRefAny data, AzCallbackInfo info, AzCheckBoxState state);
 AzUpdate on_list_row_click(AzRefAny data, AzCallbackInfo info, AzListViewState state, size_t row_index);
+AzUpdate on_tree_node_click(AzRefAny data, AzCallbackInfo info, size_t node_index);
 AzUpdate on_tab_click(AzRefAny data, AzCallbackInfo info, size_t tab_index);
+AzUpdate on_list_column_click(AzRefAny data, AzCallbackInfo info, AzListViewState state, size_t column_index);
+
+#define FILE_COUNT 8
 
 static AzString str(const char* s) {
     return AzString_copyFromBytes((const uint8_t*)s, 0, strlen(s));
+}
+
+static AzOptionUsize some_usize(size_t value) {
+    AzOptionUsize opt;
+    opt.Some.tag = AzOptionUsize_Tag_Some;
+    opt.Some.payload = value;
+    return opt;
+}
+
+static void sorted_order(const char* rows[FILE_COUNT][3], size_t column, size_t* out) {
+    for (size_t i = 0; i < FILE_COUNT; i++) {
+        out[i] = i;
+    }
+    for (size_t i = 1; i < FILE_COUNT; i++) {
+        size_t key = out[i];
+        size_t j = i;
+        while (j > 0 && strcmp(rows[out[j - 1]][column], rows[key][column]) > 0) {
+            out[j] = out[j - 1];
+            j--;
+        }
+        out[j] = key;
+    }
 }
 
 static AzRibbonItem small_button(const char* icon, const char* label) {
@@ -185,11 +214,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     bool checked = d.ptr->checkbox_checked;
     float progress_value = d.ptr->progress_value;
 
-    AzDom button = AzDom_createDiv();
+    AzButton btn = AzButton_create(str("Click me!"));
+    AzButton_setOnClick(&btn, AzRefAny_clone(&data), on_button_click);
+    AzDom button = AzButton_dom(btn);
     AzDom_setCss(&button, str("margin-bottom: 10px;"));
-    AzDom_addChild(&button, AzDom_createPWithText(str("Click me!")));
-    AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_mouseUp());
-    AzDom_addCallback(&button, event, AzRefAny_clone(&data), on_button_click);
 
     AzCheckBox cb = AzCheckBox_create(checked);
     AzCheckBox_setOnToggle(&cb, AzRefAny_clone(&data), on_checkbox_toggle);
@@ -211,26 +239,66 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom number_input = AzNumberInput_dom(AzNumberInput_create(42.0));
     AzDom_setCss(&number_input, str("margin-bottom: 10px;"));
 
-    static const char* row_data[3][3] = {
-        { "report.pdf",  "120 KB", "PDF"   },
-        { "photo.png",   "2.4 MB", "Image" },
-        { "notes.txt",   "4 KB",   "Text"  },
+    static const char* row_data[FILE_COUNT][3] = {
+        { "report.pdf",     "120 KB", "PDF"     },
+        { "photo.png",      "2.4 MB", "Image"   },
+        { "notes.txt",      "4 KB",   "Text"    },
+        { "archive.zip",    "88 MB",  "Archive" },
+        { "slides.key",     "12 MB",  "Slides"  },
+        { "budget.numbers", "340 KB", "Sheet"   },
+        { "logo.svg",       "18 KB",  "Vector"  },
+        { "readme.md",      "2 KB",   "Text"    },
     };
+    size_t order[FILE_COUNT];
+    sorted_order(row_data, d.ptr->sort_column, order);
+
     AzString col_names[3] = { str("Name"), str("Size"), str("Type") };
     AzListView lv = AzListView_create(AzStringVec_copyFromPtr(col_names, 3));
-    AzListViewRow rows[3];
-    for (size_t r = 0; r < 3; r++) {
+    AzListViewRow rows[FILE_COUNT];
+    for (size_t r = 0; r < FILE_COUNT; r++) {
         AzDom cells[3];
         for (size_t c = 0; c < 3; c++) {
-            cells[c] = AzDom_createPWithText(str(row_data[r][c]));
+            cells[c] = AzDom_createSpanWithText(str(row_data[order[r]][c]));
         }
         rows[r].cells = AzDomVec_copyFromPtr(cells, 3);
         rows[r].height.None.tag = AzOptionPixelValueNoPercent_Tag_None;
     }
-    AzListView_setRows(&lv, AzListViewRowVec_copyFromPtr(rows, 3));
+    AzListView_setRows(&lv, AzListViewRowVec_copyFromPtr(rows, FILE_COUNT));
+    AzListView_setSortedBy(&lv, some_usize(d.ptr->sort_column));
     AzListView_setOnRowClick(&lv, AzRefAny_clone(&data), on_list_row_click);
+    AzListView_setOnColumnClick(&lv, AzRefAny_clone(&data), on_list_column_click);
     AzDom list_view = AzListView_dom(lv);
-    AzDom_setCss(&list_view, str("height: 150px; margin-bottom: 10px;"));
+    AzDom_setCss(&list_view, str("flex-grow: 1; overflow-y: auto;"));
+
+    uint32_t expanded = d.ptr->expanded_nodes;
+    size_t selected_node = d.ptr->selected_node;
+
+    static const char* tree_labels[7] = {
+        "Home", "Documents", "report.pdf", "photo.png", "notes.txt", "Downloads", "azul-0.2.0.tar.gz",
+    };
+    AzTreeViewNode nodes[7];
+    for (size_t i = 0; i < 7; i++) {
+        nodes[i] = AzTreeViewNode_new(str(tree_labels[i]));
+        nodes[i] = AzTreeViewNode_withExpanded(nodes[i], (expanded & (1u << i)) != 0);
+        nodes[i] = AzTreeViewNode_withSelected(nodes[i], i == selected_node);
+    }
+    AzTreeViewNode_addChild(&nodes[1], nodes[2]);
+    AzTreeViewNode_addChild(&nodes[1], nodes[3]);
+    AzTreeViewNode_addChild(&nodes[1], nodes[4]);
+    AzTreeViewNode_addChild(&nodes[5], nodes[6]);
+    AzTreeViewNode_addChild(&nodes[0], nodes[1]);
+    AzTreeViewNode_addChild(&nodes[0], nodes[5]);
+    AzTreeViewNode root = nodes[0];
+
+    AzTreeView tv = AzTreeView_new(root);
+    AzTreeView_setOnNodeClick(&tv, AzRefAny_clone(&data), on_tree_node_click);
+    AzDom tree_view = AzTreeView_dom(tv);
+    AzDom_setCss(&tree_view, str("width: 200px; margin-right: 10px;"));
+
+    AzDom browser = AzDom_createDiv();
+    AzDom_setCss(&browser, str("display: flex; flex-direction: row; height: 150px; margin-bottom: 10px;"));
+    AzDom_addChild(&browser, tree_view);
+    AzDom_addChild(&browser, list_view);
 
     AzDom content = AzDom_createDiv();
     AzDom_setCss(&content, str("flex-grow: 1; padding: 20px; overflow: auto; background: white;"));
@@ -240,7 +308,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&content, text_input);
     AzDom_addChild(&content, color_input);
     AzDom_addChild(&content, number_input);
-    AzDom_addChild(&content, list_view);
+    AzDom_addChild(&content, browser);
 
     AzDom body = AzDom_createBody();
     AzDom_setCss(&body, str("display: flex; flex-direction: column; height: 100%; margin: 0; padding: 0;"));
@@ -284,6 +352,27 @@ AzUpdate on_list_row_click(AzRefAny data, AzCallbackInfo info, AzListViewState s
     return AzUpdate_RefreshDom;
 }
 
+AzUpdate on_tree_node_click(AzRefAny data, AzCallbackInfo info, size_t node_index) {
+    WidgetShowcaseRefMut d = WidgetShowcaseRefMut_create(&data);
+    if (!WidgetShowcase_downcastMut(&data, &d)) {
+        return AzUpdate_DoNothing;
+    }
+    d.ptr->selected_node = node_index;
+    d.ptr->expanded_nodes ^= (1u << node_index);
+    WidgetShowcaseRefMut_delete(&d);
+    return AzUpdate_RefreshDom;
+}
+
+AzUpdate on_list_column_click(AzRefAny data, AzCallbackInfo info, AzListViewState state, size_t column_index) {
+    WidgetShowcaseRefMut d = WidgetShowcaseRefMut_create(&data);
+    if (!WidgetShowcase_downcastMut(&data, &d)) {
+        return AzUpdate_DoNothing;
+    }
+    d.ptr->sort_column = column_index;
+    WidgetShowcaseRefMut_delete(&d);
+    return AzUpdate_RefreshDom;
+}
+
 AzUpdate on_checkbox_toggle(AzRefAny data, AzCallbackInfo info, AzCheckBoxState state) {
     WidgetShowcaseRefMut d = WidgetShowcaseRefMut_create(&data);
     if (!WidgetShowcase_downcastMut(&data, &d)) {
@@ -301,7 +390,10 @@ int main() {
         .progress_value = 25.0,
         .checkbox_checked = false,
         .text_input = "",
-        .selected_row = 0
+        .selected_row = 0,
+        .expanded_nodes = (1u << 0) | (1u << 1),
+        .selected_node = 2,
+        .sort_column = 0
     };
     AzRefAny data = WidgetShowcase_upcast(model);
 

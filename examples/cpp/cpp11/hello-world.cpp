@@ -15,7 +15,7 @@ ffi::Dom layout(ffi::RefAny data, ffi::LayoutCallbackInfo info) {
     if (!d) return Dom::create_body();
 
     Dom label = Dom::create_p_with_text(String(std::to_string(d->counter)))
-        .with_css(String("font-size: 32px;"));
+        .with_css(String("font-size: 32px; margin: 0;"));
 
     Button button = Button::create("Increase counter")
         .with_button_type(ButtonType::Primary)

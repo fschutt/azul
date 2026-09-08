@@ -6,7 +6,7 @@ newtype DataModel = DataModel { counter :: Int }
 
 layout :: RefAny -> DataModel -> LayoutCallbackInfo -> IO Dom
 layout dat model _ = do
-  label <- domCreatePWithText (show (counter model)) >>= domWithCss "font-size: 32px;"
+  label <- domCreatePWithText (show (counter model)) >>= domWithCss "font-size: 32px; margin: 0;"
   button <- buttonCreate "Increase counter"
     >>= buttonWithButtonType ButtonType_Primary
     >>= buttonWithOnClick dat onClick

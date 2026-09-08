@@ -51,7 +51,7 @@ fn layout(data: C.AzRefAny, _: C.AzLayoutCallbackInfo) callconv(.c) C.AzDom {
     const slice = std.fmt.bufPrint(&buf, "{d}", .{m.counter}) catch return C.AzDom_createBody();
     const counter_str = C.AzString_fromUtf8(slice.ptr, slice.len);
     var label = C.AzDom_createPWithText(counter_str);
-    const css = "font-size: 32px;";
+    const css = "font-size: 32px; margin: 0;";
     C.AzDom_setCss(&label, C.AzString_fromUtf8(css.ptr, css.len));
 
     const btn_label_bytes = "Increase counter";

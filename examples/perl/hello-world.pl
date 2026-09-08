@@ -32,7 +32,7 @@ my $layout = sub {
     return $body unless defined $m;
 
     my $label = Azul::FFI::AzDom_createDiv();
-    $label = Azul::FFI::AzDom_withCss($label, mk_str('font-size: 32px;'));
+    $label = Azul::FFI::AzDom_withCss($label, mk_str('font-size: 32px; margin: 0;'));
     $label = Azul::FFI::AzDom_withChild(
         $label, Azul::FFI::AzDom_createTextDoNotUseWithoutBlockLevelWrapper(mk_str($m->{counter})));
 

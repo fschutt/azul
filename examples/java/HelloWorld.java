@@ -30,7 +30,7 @@ public final class HelloWorld {
             }
             MyDataModel m = (MyDataModel) recovered;
             Dom label = Dom.createPWithText(String.valueOf(m.counter))
-                .withCss("font-size: 32px;");
+                .withCss("font-size: 32px; margin: 0;");
             Dom buttonDom = Button.create("Increase counter")
                 .withButtonType(ButtonType.Primary.value)
                 .onClick(m, ON_CLICK)

@@ -748,6 +748,100 @@ fn apply_focus_restyle(
     }
 }
 
+/// Apply an incremental `:active` restyle for this pass's press / release.
+///
+/// The same gap `apply_hover_restyle` closed for `:hover`, one state later:
+/// `restyle_on_state_change` took an `ActiveChange` from the very beginning
+/// and NOTHING in the shell ever passed one, so `:active` was dead on every
+/// backend. A pressed button showed its `:hover` colour and never its own
+/// pressed one, which is what every widget's `on_active` declaration means.
+///
+/// A release deactivates every node still marked active in that DOM rather
+/// than just the release target: the pointer may have moved off the pressed
+/// node before the button came up, and the press state must not latch.
+fn apply_active_restyle(
+    layout_window: &mut LayoutWindow,
+    pressed_per_dom: std::collections::BTreeMap<azul_core::dom::DomId, Vec<azul_core::dom::NodeId>>,
+    released: bool,
+) -> ProcessEventResult {
+    use azul_core::diff::ChangeAccumulator;
+
+    let mut result = ProcessEventResult::DoNothing;
+    let dom_ids: Vec<azul_core::dom::DomId> = if released {
+        layout_window.layout_results.keys().copied().collect()
+    } else {
+        pressed_per_dom.keys().copied().collect()
+    };
+    for dom_id in dom_ids {
+        let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
+            continue;
+        };
+        let deactivated: Vec<azul_core::dom::NodeId> = if released {
+            layout_result
+                .styled_dom
+                .styled_nodes
+                .as_container()
+                .internal
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| n.styled_node_state.active)
+                .map(|(i, _)| azul_core::dom::NodeId::new(i))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        // CSS 2.2 / Selectors 4: `:active` applies to the element being
+        // activated AND to its ancestors — pressing a button's label makes
+        // the BUTTON active, which is where every widget declares its pressed
+        // style. Only one MouseDown event is emitted, on the deepest node, so
+        // the chain is walked here (`:hover` gets its chain for free: the
+        // hover manager emits an enter event per element).
+        let activated = {
+            let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+            let mut out = Vec::new();
+            for node in pressed_per_dom.get(&dom_id).cloned().unwrap_or_default() {
+                let mut cur = Some(node);
+                while let Some(n) = cur {
+                    if !out.contains(&n) {
+                        out.push(n);
+                    }
+                    cur = hierarchy
+                        .get(n)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+                }
+            }
+            out
+        };
+        if deactivated.is_empty() && activated.is_empty() {
+            continue;
+        }
+        let restyle_result = layout_result.styled_dom.restyle_on_state_change(
+            None, // focus
+            None, // hover
+            Some(azul_core::styled_dom::ActiveChange {
+                deactivated,
+                activated,
+            }),
+        );
+        if restyle_result.changed_nodes.is_empty() {
+            continue;
+        }
+        let r = if restyle_result.gpu_only_changes {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            let mut accumulator = ChangeAccumulator::new();
+            accumulator.merge_restyle_result(&restyle_result);
+            if accumulator.needs_layout() {
+                ProcessEventResult::ShouldIncrementalRelayout
+            } else {
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+        };
+        result = result.max_self(r);
+    }
+    result
+}
+
 /// Apply an incremental `:hover` restyle for this pass's MouseEnter /
 /// MouseLeave targets and classify the result (MWA-A3c).
 ///
@@ -10193,6 +10287,31 @@ pub trait PlatformWindow {
             }
         };
 
+        // The `:active` twin of the block above — see `apply_active_restyle`.
+        let active_restyle_result: Option<ProcessEventResult> = {
+            use std::collections::BTreeMap;
+            let mut pressed: BTreeMap<azul_core::dom::DomId, Vec<azul_core::dom::NodeId>> =
+                BTreeMap::new();
+            let mut released = false;
+            for ev in &synthetic_events {
+                match ev.event_type {
+                    azul_core::events::EventType::MouseDown => {
+                        if let Some(node) = ev.target.node.into_crate_internal() {
+                            pressed.entry(ev.target.dom).or_default().push(node);
+                        }
+                    }
+                    azul_core::events::EventType::MouseUp => released = true,
+                    _ => {}
+                }
+            }
+            if pressed.is_empty() && !released {
+                None
+            } else {
+                self.get_layout_window_mut()
+                    .map(|lw| apply_active_restyle(lw, pressed, released))
+            }
+        };
+
         // MWA-B12: arm the one-shot long-press wake-up on every MouseDown —
         // a motionless press generates no further events, so no pass would
         // ever evaluate detect_long_press (the press only ever fired if the
@@ -11818,6 +11937,11 @@ pub trait PlatformWindow {
         // MWA-A3c: fold the incremental :hover restyle outcome (computed
         // right after event determination above) into the pass result.
         if let Some(r) = hover_restyle_result {
+            result = result.max(r);
+        }
+
+        // ...and its `:active` twin.
+        if let Some(r) = active_restyle_result {
             result = result.max(r);
         }
 

@@ -26,7 +26,7 @@ contains
     end select
 
     label = dom_create_p_with_text(trim(text))
-    call label%with_css('font-size: 32px;')
+    call label%with_css('font-size: 32px; margin: 0;')
 
     button = button_create('Increase counter')
     call button%with_button_type(ButtonType_Primary)

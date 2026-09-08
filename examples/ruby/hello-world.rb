@@ -20,7 +20,7 @@ layout = lambda do |data_ptr, _info|
   next Azul::Dom.create_body if m.nil?
 
   label = Azul::Dom.create_p_with_text(m.counter.to_s)
-    .with_css('font-size: 32px;')
+    .with_css('font-size: 32px; margin: 0;')
 
   button = Azul::Button.create('Increase counter')
     .with_button_type(Azul::ButtonType::Primary)

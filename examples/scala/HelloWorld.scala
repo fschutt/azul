@@ -25,7 +25,7 @@ object HelloWorld {
         AzulHostInvoker.refanyGet(dataPtr) match {
           case m: MyDataModel =>
             val label = Dom.createPWithText(String.valueOf(m.counter))
-              .withCss("font-size: 32px;")
+              .withCss("font-size: 32px; margin: 0;")
             val buttonDom = Button.create("Increase counter")
               .withButtonType(ButtonType.Primary.value)
               .onClick(m, ON_CLICK)

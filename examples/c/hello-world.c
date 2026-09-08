@@ -31,7 +31,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     MyDataModelRef_delete(&d);
 
     AzDom label = AzDom_createPWithText(str(buffer));
-    AzDom_setCss(&label, str("font-size: 32px;"));
+    AzDom_setCss(&label, str("font-size: 32px; margin: 0;"));
 
     AzButton button = AzButton_create(str("Increase counter"));
     AzButton_setButtonType(&button, AzButtonType_Primary);
