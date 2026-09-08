@@ -14128,6 +14128,94 @@ impl LayoutWindow {
         (all_changes, update)
     }
 
+    /// Deliver a batch of completed resumable-API requests (see
+    /// `crate::request`): each entry's `ResumeCallback` runs as a fresh
+    /// activation with its own `CallbackInfo`, exactly the way a thread
+    /// writeback does in [`Self::run_all_threads`].
+    ///
+    /// The caller drains the queue with `crate::request::take_completed()`
+    /// and applies the returned changes; completions a callback issues while
+    /// running are left in the queue for the caller's next drain, so nested
+    /// resumes stay FIFO and never recurse.
+    #[cfg(feature = "std")]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn run_completed_requests(
+        &mut self,
+        completed: Vec<crate::request::CompletedRequest>,
+        current_window_handle: &RawWindowHandle,
+        gl_context: &OptionGlContextPtr,
+        system_style: Arc<azul_css::system::SystemStyle>,
+        system_callbacks: &ExternalSystemCallbacks,
+        previous_window_state: &Option<FullWindowState>,
+        current_window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+    ) -> (Vec<crate::callbacks::CallbackChange>, Update) {
+        use crate::callbacks::CallbackInfo;
+
+        let _span = crate::probe::Probe::span("dispatch.resume");
+
+        let mut update = Update::DoNothing;
+        let mut all_changes = Vec::new();
+
+        if completed.is_empty() {
+            return (all_changes, update);
+        }
+
+        let current_scroll_states = self.get_nested_scroll_states(DomId::ROOT_ID);
+        let hit_dom_node = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(None),
+        };
+
+        for completion in completed {
+            let crate::request::CompletedRequest {
+                request_id: _,
+                data,
+                callback,
+                result,
+            } = completion;
+
+            let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+            let ref_data = crate::callbacks::CallbackInfoRefData {
+                layout_window: self,
+                renderer_resources,
+                previous_window_state,
+                current_window_state,
+                gl_context,
+                current_scroll_manager: &current_scroll_states,
+                current_window_handle,
+                system_callbacks,
+                system_style: system_style.clone(),
+                monitors: self.monitors.clone(),
+                #[cfg(feature = "icu")]
+                icu_localizer: self.icu_localizer.clone(),
+                ctx: callback.ctx.clone(),
+            };
+
+            let callback_info = CallbackInfo::new(
+                &ref_data,
+                &callback_changes,
+                hit_dom_node,
+                OptionLogicalPosition::None,
+                OptionLogicalPosition::None,
+            );
+
+            let cb_span = crate::probe::Probe::span_for_fn(callback.cb as usize);
+            let callback_update = (callback.cb)(data, callback_info, result);
+            drop(cb_span);
+            update.max_self(callback_update);
+
+            let collected_changes = callback_changes
+                .lock()
+                .map(|mut guard| core::mem::take(&mut *guard))
+                .unwrap_or_default();
+            all_changes.extend(collected_changes);
+        }
+
+        (all_changes, update)
+    }
+
     /// Invokes a single callback and returns the raw changes + update signal.
     ///
     /// Caller is responsible for processing each `CallbackChange` via

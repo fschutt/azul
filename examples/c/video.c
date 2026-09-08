@@ -2,11 +2,19 @@
 //
 // C port of examples/azul-video/src/main.rs, driving the same FFI:
 //   1. AzVideoStartupCheck_run()      - probe VK_KHR_video_decode_h264 readiness.
-//   2. local sample (fopen/fread) or AzHttpRequestConfig_downloadBytesDefault()
+//   2. local sample (fopen/fread) or AzHttpRequestConfig_downloadBytes()
 //                                     - obtain the Big Buck Bunny H.264 MP4 bytes.
 //   3. AzDecodedVideo_decodeMp4H264() - demux + decode the whole clip to RGBA.
 //   4. each AzVideoFrame -> AzImageRef (RawImageFormat::RGBA8); a per-frame Timer
 //      advances an <img> through them so the clip actually plays + loops.
+//
+// Steps 2 (download) and 3 (decode) are REQUEST/RESUME shaped: the call only
+// issues the request and the result arrives later, through the event loop, in
+// a resume callback (a browser can only answer these asynchronously). So the
+// pipeline runs from the window-create callback as a chain:
+//   on_startup (probe; local sample -> decode, else download)
+//     -> on_downloaded (hand the bytes to the decoder)
+//     -> on_decoded (wrap the frames as images, install the playback Timer)
 //
 // Where no Vulkan Video decoder exists, the decode yields no frames and a
 // placeholder box stands in (the probe summary text explains why).
@@ -51,6 +59,7 @@ typedef struct {
     size_t idx;                          // currently displayed frame (wraps to loop)
     uint32_t vw, vh;                     // coded video size (for the display box)
     float fps;
+    bool hw_ready;                       // probe result, reported once the decode resumes
 } VideoApp;
 
 void VideoApp_destructor(void* p) {
@@ -69,6 +78,9 @@ AZ_REFLECT(VideoApp, VideoApp_destructor);
 // Forward declarations
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info);
 AzUpdate on_startup(AzRefAny data, AzCallbackInfo info);
+AzUpdate on_downloaded(AzRefAny data, AzCallbackInfo info, AzRefAny result);
+AzUpdate on_decoded(AzRefAny data, AzCallbackInfo info, AzRefAny result);
+static void install_playback_timer(AzRefAny data, AzCallbackInfo* info);
 AzTimerCallbackReturn advance_frame(AzRefAny data, AzTimerCallbackInfo info);
 
 // ---------------------------------------------------------------------------
@@ -116,12 +128,11 @@ static unsigned char* read_file(const char* path, size_t* out_len) {
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline: decode the clip bytes + wrap each frame as a renderable image.
+// Pipeline: wrap each decoded frame as a renderable image.
 // ---------------------------------------------------------------------------
 
-static void decode_and_build(VideoApp* m, AzU8VecRef bytes, bool hw_ready) {
-    AzOptionDecodedVideo opt = AzDecodedVideo_decodeMp4H264(bytes);
-
+// `opt` is the decoder's answer (the payload of the decode resume); consumed here.
+static void decode_and_build(VideoApp* m, AzOptionDecodedVideo opt, bool hw_ready) {
     if (AzOptionDecodedVideo_isSome(&opt)) {
         AzDecodedVideo* dv = &opt.Some.payload; // borrow; freed via opt below
         m->vw = dv->width;
@@ -167,14 +178,14 @@ static void decode_and_build(VideoApp* m, AzU8VecRef bytes, bool hw_ready) {
     AzOptionDecodedVideo_delete(&opt); // single free of the decoded clip + frames
 }
 
-static void run_pipeline(VideoApp* m) {
-    // 1. Hardware-decode capability probe.
+// 1. Hardware-decode capability probe (synchronous).
+static void probe_hardware(VideoApp* m) {
     AzVideoStartupCheck check = AzVideoStartupCheck_run();
-    bool hw = check.hw_decode_ready;
+    m->hw_ready = check.hw_decode_ready;
     char summ[STATUS_LEN];
     az_string_to_cstr(&check.summary, summ, sizeof(summ));
     push_status(m, "VK hardware H.264 decode: %s - %s",
-                hw ? "READY" : "not available", summ);
+                m->hw_ready ? "READY" : "not available", summ);
     if (check.detail.vec.len > 0) {
         char det[STATUS_LEN];
         az_string_to_cstr(&check.detail, det, sizeof(det));
@@ -198,34 +209,6 @@ static void run_pipeline(VideoApp* m) {
         // Gated behind a reboot-safety check before shipping (see memory notes).
     }
     AzVideoStartupCheck_delete(&check);
-
-    // 2. Obtain the clip - prefer the local sample (offline / fast).
-    size_t len = 0;
-    unsigned char* buf = read_file(LOCAL_SAMPLE, &len);
-    if (buf) {
-        push_status(m, "Loaded local sample: %zu bytes", len);
-        AzU8VecRef ref = { .ptr = buf, .len = len };
-        decode_and_build(m, ref, hw); // decode copies the input; safe to free after
-        free(buf);
-        return;
-    }
-
-    // URL fallback via the azul http FFI (mirrors http_get in the Rust demo).
-    push_status(m, "Local sample missing (%s) - fetching URL", LOCAL_SAMPLE);
-    AzResultU8VecHttpError r = AzHttpRequestConfig_downloadBytesDefault(AZ_STR(BBB_URL));
-    if (r.Ok.tag == AzResultU8VecHttpError_Tag_Ok) {
-        AzU8Vec* body = &r.Ok.payload; // borrow; freed via r below
-        push_status(m, "HTTP GET -> %zu bytes", body->len);
-        AzU8VecRef ref = { .ptr = body->ptr, .len = body->len };
-        decode_and_build(m, ref, hw);
-    } else {
-        AzString es = AzHttpError_toDbgString(&r.Err.payload);
-        char ebuf[STATUS_LEN];
-        az_string_to_cstr(&es, ebuf, sizeof(ebuf));
-        AzString_delete(&es);
-        push_status(m, "HTTP fetch failed: %s", ebuf);
-    }
-    AzResultU8VecHttpError_delete(&r);
 }
 
 // ---------------------------------------------------------------------------
@@ -249,8 +232,8 @@ AzTimerCallbackReturn advance_frame(AzRefAny data, AzTimerCallbackInfo info) {
                    : AzTimerCallbackReturn_continueUnchanged();
 }
 
-// Window-create: install the playback Timer (only if we have frames to show).
-AzUpdate on_startup(AzRefAny data, AzCallbackInfo info) {
+// Install the playback Timer (only if we have frames to show).
+static void install_playback_timer(AzRefAny data, AzCallbackInfo* info) {
     bool has_frames = false;
     uint64_t interval_ms = 40; // ~25 fps default
     VideoAppRef d = VideoAppRef_create(&data);
@@ -263,10 +246,10 @@ AzUpdate on_startup(AzRefAny data, AzCallbackInfo info) {
         VideoAppRef_delete(&d);
     }
     if (!has_frames) {
-        return AzUpdate_DoNothing;
+        return;
     }
 
-    AzGetSystemTimeCallback time_fn = AzCallbackInfo_getSystemTimeFn(&info);
+    AzGetSystemTimeCallback time_fn = AzCallbackInfo_getSystemTimeFn(info);
     AzTimer timer = AzTimer_create(
         AzRefAny_clone(&data),
         (AzTimerCallback){ .cb = advance_frame, .ctx = AzOptionRefAny_none() },
@@ -276,8 +259,99 @@ AzUpdate on_startup(AzRefAny data, AzCallbackInfo info) {
     AzDuration interval = { .System = { .tag = AzDuration_Tag_System, .payload = diff } };
     timer = AzTimer_withInterval(timer, interval);
 
-    AzCallbackInfo_addTimer(&info, AzTimerId_unique(), timer);
-    return AzUpdate_DoNothing;
+    AzCallbackInfo_addTimer(info, AzTimerId_unique(), timer);
+}
+
+// Window-create: probe the decoder, then obtain the clip. The download and the
+// decode are requests whose results arrive in on_downloaded / on_decoded.
+AzUpdate on_startup(AzRefAny data, AzCallbackInfo info) {
+    (void)info;
+    VideoAppRefMut d = VideoAppRefMut_create(&data);
+    if (!VideoApp_downcastMut(&data, &d)) {
+        return AzUpdate_DoNothing;
+    }
+    VideoApp* m = d.ptr;
+
+    // 1. Hardware-decode capability probe.
+    probe_hardware(m);
+
+    // 2. Obtain the clip - prefer the local sample (offline / fast).
+    size_t len = 0;
+    unsigned char* buf = read_file(LOCAL_SAMPLE, &len);
+    if (buf) {
+        push_status(m, "Loaded local sample: %zu bytes", len);
+        AzU8Vec bytes = AzU8Vec_copyFromPtr(buf, len); // the decoder owns the copy
+        free(buf);
+        VideoAppRefMut_delete(&d);
+        // 3. Decode - the frames arrive in on_decoded.
+        AzDecodedVideo_decodeMp4H264(bytes, AzRefAny_clone(&data), on_decoded);
+        return AzUpdate_RefreshDom;
+    }
+
+    // URL fallback via the azul http FFI (mirrors http_get in the Rust demo).
+    push_status(m, "Local sample missing (%s) - fetching URL", LOCAL_SAMPLE);
+    VideoAppRefMut_delete(&d);
+    AzHttpRequestConfig cfg = AzHttpRequestConfig_create();
+    AzHttpRequestConfig_downloadBytes(&cfg, AZ_STR(BBB_URL), AzRefAny_clone(&data), on_downloaded);
+    AzHttpRequestConfig_delete(&cfg);
+    return AzUpdate_RefreshDom;
+}
+
+// Resume of the download: hand the clip bytes to the decoder.
+AzUpdate on_downloaded(AzRefAny data, AzCallbackInfo info, AzRefAny result) {
+    (void)info;
+    VideoAppRefMut d = VideoAppRefMut_create(&data);
+    if (!VideoApp_downcastMut(&data, &d)) {
+        return AzUpdate_DoNothing;
+    }
+    VideoApp* m = d.ptr;
+
+    AzOptionHttpBytesResult r = AzHttpBytesResult_downcast(result);
+    if (r.Some.tag != AzOptionHttpBytesResult_Tag_Some) {
+        push_status(m, "HTTP fetch failed: unexpected result payload");
+        VideoAppRefMut_delete(&d);
+        return AzUpdate_RefreshDom;
+    }
+    AzResultU8VecHttpError res = r.Some.payload.result;
+    if (res.Ok.tag != AzResultU8VecHttpError_Tag_Ok) {
+        AzString es = AzHttpError_toDbgString(&res.Err.payload);
+        char ebuf[STATUS_LEN];
+        az_string_to_cstr(&es, ebuf, sizeof(ebuf));
+        AzString_delete(&es);
+        AzHttpError_delete(&res.Err.payload);
+        push_status(m, "HTTP fetch failed: %s", ebuf);
+        VideoAppRefMut_delete(&d);
+        return AzUpdate_RefreshDom;
+    }
+
+    AzU8Vec body = res.Ok.payload; // moved into the decoder below
+    push_status(m, "HTTP GET -> %zu bytes", body.len);
+    VideoAppRefMut_delete(&d);
+
+    // 3. Decode - the frames arrive in on_decoded.
+    AzDecodedVideo_decodeMp4H264(body, AzRefAny_clone(&data), on_decoded);
+    return AzUpdate_RefreshDom;
+}
+
+// Resume of the decode: wrap the frames as images and start playback.
+AzUpdate on_decoded(AzRefAny data, AzCallbackInfo info, AzRefAny result) {
+    VideoAppRefMut d = VideoAppRefMut_create(&data);
+    if (!VideoApp_downcastMut(&data, &d)) {
+        return AzUpdate_DoNothing;
+    }
+    VideoApp* m = d.ptr;
+
+    AzOptionVideoDecodeResult r = AzVideoDecodeResult_downcast(result);
+    if (r.Some.tag != AzOptionVideoDecodeResult_Tag_Some) {
+        push_status(m, "Decode failed: unexpected result payload");
+        VideoAppRefMut_delete(&d);
+        return AzUpdate_RefreshDom;
+    }
+    decode_and_build(m, r.Some.payload.video, m->hw_ready);
+    VideoAppRefMut_delete(&d);
+
+    install_playback_timer(data, &info);
+    return AzUpdate_RefreshDom;
 }
 
 AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
@@ -358,11 +432,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
 // ---------------------------------------------------------------------------
 
 int main(void) {
-    fprintf(stderr, "[azvideo] decoding (this can take a few seconds)...\n");
+    fprintf(stderr, "[azvideo] starting - the clip is obtained + decoded once the window is up...\n");
 
     VideoApp model;
     memset(&model, 0, sizeof(model));
-    run_pipeline(&model);
 
     AzRefAny data = VideoApp_upcast(model);
 
@@ -371,7 +444,7 @@ int main(void) {
     window.window_state.size.dimensions.width = 600.0;
     window.window_state.size.dimensions.height = 640.0;
 
-    // Install the playback Timer at window-create (ctx = clone of app data).
+    // Start the pipeline at window-create (ctx = clone of app data).
     AzCallback startup_cb = {
         .cb = (AzCallbackType)on_startup,
         .ctx = AzOptionRefAny_some(AzRefAny_clone(&data)),

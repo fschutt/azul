@@ -182,7 +182,7 @@ pub mod desktop;
 pub mod e2e_web_runner;
 
 // Target-stable home for the `extra::*` feature handles (audio, video_codec,
-// sqlite, pdf, udp). Off-wasm it re-exports the real `desktop::extra::*` types;
+// sqlite, pdf, webtransport). Off-wasm it re-exports the real `desktop::extra::*` types;
 // on wasm it provides repr-C-identical stubs so the generated C-ABI bindings
 // resolve everywhere. UNGATED on purpose (the path must exist on every target).
 pub mod unified;

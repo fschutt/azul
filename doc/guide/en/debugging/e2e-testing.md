@@ -169,6 +169,40 @@ Settle the frames (`wait_frame` + `wait`, and `tick_ms` past any running fade or
 
 Selector resolution accepts CSS selectors (`.btn`, `#counter`, `div > span`), explicit `node_id` integers, or a `text` substring match. Pick whichever is least brittle. `selector` is preferred because the inspector can build them by clicking nodes in the DOM tree.
 
+### Mocking OS requests: dialogs, HTTP, files and devices
+
+A *request* (`FileDialog::open_file`, `HttpRequestConfig::http_get`, `FilePath::read_bytes`, `Db::sync_now`, ...) asks the OS for something and resumes the app later through its resume callback. A scenario cannot click a native file picker or reach the network, so under `AZ_E2E` / `AZ_BACKEND=headless` every request first consults a **mock store** that the scenario fills with the `mock` op. A mocked answer resumes the app through the same pump and the same callback a real answer takes; the app code under test is unchanged.
+
+- `mock` (params: `set` object). Arms the store and queues answers. Keys of `set`:
+  - `reset: true` - empties every queue and the records. Put it first in every scenario.
+  - `file_open: { "path": "..." }` or `null` - the next `FileDialog::open_file` resumes with that path, or as cancelled. Queued: one answer per call, in order.
+  - `file_open_multi: { "paths": [...] }` - the next `FileDialog::open_multiple_files`.
+  - `color_pick: { "r": 0, "g": 0, "b": 0 }` or `null` - the next `ColorPickerDialog::open`.
+  - `save_file: { "path": "..." }` or `null` - the next `FileDialog::save_file`.
+  - `save_bytes: { "accept": true }` - what `FileDialog::save_bytes` reports (default `true`). The bytes are recorded either way, for `assert_saved_file`.
+  - `file_read: { "<path>": { "text": "..." } }` or `{ "b64": "..." }` per path - canned content for `FilePath::read_bytes` / `read_string`. Paths without an entry read the real file.
+  - `http: { "<pattern>": { "status": 200, "text": "...", "content_type": "..." } }` or `{ "error": "..." }` per pattern - canned answers for `http_get`, `http_post`, `http_request`, `download_bytes`, `is_url_reachable` and the Db sync endpoints. A pattern is an exact URL, a prefix ending in `*`, or `*`; `b64` replaces `text` for binary bodies.
+  - `audio_devices: { "outputs": [...], "inputs": [...] }` - `AudioDeviceList::enumerate`.
+  - `video_decode: { "none": true }` - `decode_mp4_h264` resumes without a video.
+
+A request that runs while the store is armed but has no queued answer never opens a native dialog and never touches the network: it resumes as cancelled (dialogs), unreachable (HTTP) or empty (devices), **and is recorded**. That keeps a scenario that forgot to mock something from hanging on a dialog nobody can click; three assertions turn the record into a verdict:
+
+- `assert_no_unmocked_requests`. Every request since the last `reset` had a canned answer. End every scenario that mocks what it needs with it.
+- `assert_unmocked_request` (params: `request`, a substring of the record such as `"FileDialog::open_file"` or `"http https://..."`). The opposite: proves that a request ran without an answer, for scenarios that test the cancelled path.
+- `assert_saved_file` (params: `name` or `name_ends_with`, `mime?`, `min_len?`, `contains?`). An export recorded by `FileDialog::save_bytes` matches; the newest matching export wins.
+
+```json
+{ "op": "mock", "set": { "reset": true,
+    "file_open": { "path": "/tmp/report" },
+    "file_read": { "/tmp/report": { "text": "a,b\n1,2\n" } } } },
+{ "op": "click", "text": "Open file" },
+{ "op": "wait_frame" },
+{ "op": "assert_text", "selector": "#file", "expected": "file: /tmp/report (8 bytes)" },
+{ "op": "assert_no_unmocked_requests" }
+```
+
+Mocked answers are delivered by the pump that also runs timers, and the pump keeps going while a resume callback issues further requests, so one `wait_frame` after the click settles a whole chain such as open -> read. The `resume` example (`examples/rust/src/resume.rs`) has one button per request kind, and the specs in `tests/e2e/resume_*.json` drive all of them, including the "forgot to mock" case.
+
 ## Step results
 
 Each step returns:

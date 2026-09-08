@@ -775,11 +775,21 @@ fn idiomatic_method_name(method_name: &str) -> String {
     // warns on every shadowed name and our build treats warnings as
     // errors — append "_X" (a valid Pascal identifier) so the wrapper
     // method is uniquely named while still recognisable.
-    match pascal.as_str() {
+    let named = match pascal.as_str() {
         "ToString" | "Equals" | "GetHashCode" | "Free" | "Destroy" | "ClassName" | "ClassType"
         | "Dispatch" => format!("{}_X", pascal),
         _ => pascal,
+    };
+    // Pascal is case-insensitive: `Set` IS the reserved word `set`. The
+    // snake_case → PascalCase step above never went through
+    // `sanitize_identifier`, so an api.json method called `set` (Db.set,
+    // 2026-09-07) produced `function Set(...)` and FPC stopped with
+    // `"identifier" expected but "SET" found` — the same trailing-underscore
+    // rule the parameter names already follow.
+    if super::is_pascal_reserved(&named.to_ascii_lowercase()) {
+        return format!("{}_", named);
     }
+    named
 }
 
 fn sanitize_comment(s: &str) -> String {

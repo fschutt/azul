@@ -526,25 +526,41 @@ build_rpm() {
   local r="$SITE/ui/rpm"
   mkdir -p "$r"
   cp "$ART"/artifacts-rpm/*.rpm "$r/" 2>/dev/null || true
-  # A ready-to-use .repo for `dnf config-manager --add-repo .../azul.repo`.
-  # gpgcheck=0 until the repo is signed (mirrors the apt "unsigned until signed"
-  # state). yum + zypper read this same baseurl.
+  if command -v createrepo_c >/dev/null 2>&1; then
+    createrepo_c "$r" >/dev/null 2>&1 && echo "  [rpm] built repodata (createrepo_c)" \
+      || { echo "::error::[rpm] createrepo_c failed - 'dnf install azul' has no repodata to read"; return 1; }
+  elif command -v createrepo >/dev/null 2>&1; then
+    createrepo "$r" >/dev/null 2>&1 && echo "  [rpm] built repodata (createrepo)" \
+      || { echo "::error::[rpm] createrepo failed"; return 1; }
+  else
+    echo "::error::[rpm] no createrepo_c available - the .rpm is hosted but 'dnf install azul' cannot find it"
+    return 1
+  fi
+  # Repo signing is opt-in (AZUL_RPM_GPG_KEY: base64 armored private key), the
+  # same shape as the apt key. Unsigned, azul.repo says gpgcheck=0 - which is
+  # what it means - and the docs say so too.
+  local gpg_lines="gpgcheck=0"
+  if [ -n "${AZUL_RPM_GPG_KEY:-}" ] && command -v gpg >/dev/null 2>&1; then
+    if printf '%s' "$AZUL_RPM_GPG_KEY" | base64 -d | gpg --batch --import >/dev/null 2>&1 \
+       && gpg --batch --yes --armor --detach-sign -o "$r/repodata/repomd.xml.asc" "$r/repodata/repomd.xml" \
+       && gpg --batch --armor --export > "$r/azul.gpg.key"; then
+      gpg_lines="gpgcheck=1
+repo_gpgcheck=1
+gpgkey=$BASE/ui/rpm/azul.gpg.key"
+      echo "  [rpm] repodata signed (repomd.xml.asc + azul.gpg.key)"
+    else
+      echo "::warning::[rpm] AZUL_RPM_GPG_KEY present but signing failed - publishing unsigned"
+    fi
+  fi
+  # A ready-to-use .repo for `dnf config-manager --add-repo .../azul.repo`;
+  # yum + zypper read the same baseurl.
   cat > "$r/azul.repo" <<REPO
 [azul]
 name=Azul GUI framework
 baseurl=$BASE/ui/rpm
 enabled=1
-gpgcheck=0
+$gpg_lines
 REPO
-  if command -v createrepo_c >/dev/null 2>&1; then
-    createrepo_c "$r" >/dev/null 2>&1 && echo "  [rpm] built repodata (createrepo_c)" \
-      || echo "  [rpm] hosted .rpm only (createrepo_c failed)"
-  elif command -v createrepo >/dev/null 2>&1; then
-    createrepo "$r" >/dev/null 2>&1 && echo "  [rpm] built repodata (createrepo)" \
-      || echo "  [rpm] hosted .rpm only (createrepo failed)"
-  else
-    echo "  [rpm] hosted .rpm only (no createrepo_c available)"
-  fi
 }
 
 # --------------------------------------------------------------------------
@@ -807,7 +823,7 @@ build_pacman() {
   if command -v repo-add >/dev/null 2>&1; then
     ( cd "$arch_dir" && bash -c "$cmd" >/dev/null 2>&1 )
   else
-    in_distro archlinux:base "$arch_dir" bash -c "$cmd" >/dev/null 2>&1
+    in_distro archlinux:base@sha256:82b1b08faae9d61e3e7e13d562f4d09114d939105b0d59ff34140f3bd418593a "$arch_dir" bash -c "$cmd" >/dev/null 2>&1
   fi
   local rc=$?
   rm -f "$arch_dir/.signing-key.asc"
@@ -852,7 +868,7 @@ build_apk() {
     # abuild-sign needs root inside the container for `apk add`; the files it
     # writes are chowned back below.
     if [ -n "${AZUL_APK_SIGN_KEY:-}" ]; then
-      docker run --rm -v "$(cd "$apk_dir" && pwd):/repo" -w /repo alpine:3.20 sh -c "$cmd" >/dev/null 2>&1
+      docker run --rm -v "$(cd "$apk_dir" && pwd):/repo" -w /repo alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc sh -c "$cmd" >/dev/null 2>&1
     else
       in_distro alpine:3.20 "$apk_dir" sh -c "$cmd" >/dev/null 2>&1
     fi
@@ -1018,7 +1034,7 @@ build_choco
 # 404'd for every user. Build everything first so one broken channel does not
 # mask the state of the others, then fail once at the end.
 build_gems || FAILED="$FAILED gems"
-build_rpm       # yum + zypper consume this same repo
+build_rpm    || FAILED="$FAILED rpm"   # yum + zypper consume this same repo
 build_pacman || FAILED="$FAILED pacman"
 build_apk    || FAILED="$FAILED apk"
 build_homebrew

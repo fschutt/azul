@@ -3473,7 +3473,7 @@ impl WaylandWindow {
         // none of its own.
         if self.active_popup.is_some() {
             let text = if is_pressed {
-                let mut buffer = [0i8; 32];
+                let mut buffer: [core::ffi::c_char; 32] = [0; 32];
                 let len = unsafe {
                     (self.xkb.xkb_state_key_get_utf8)(
                         xkb_state,
@@ -3574,7 +3574,7 @@ impl WaylandWindow {
 
         // Get UTF-8 character (if printable)
         if is_pressed {
-            let mut buffer = [0i8; 32];
+            let mut buffer: [core::ffi::c_char; 32] = [0; 32];
             let len = unsafe {
                 (self.xkb.xkb_state_key_get_utf8)(
                     xkb_state,
@@ -5254,7 +5254,7 @@ impl WaylandWindow {
         }
 
         if is_pressed {
-            let mut buffer = [0i8; 32];
+            let mut buffer: [core::ffi::c_char; 32] = [0; 32];
             let len = unsafe {
                 (self.xkb.xkb_state_key_get_utf8)(
                     xkb_state,

@@ -78,7 +78,7 @@ let dom = Dom::create_image(image_ref);
 
 A `null_image` keeps a slot in the cache without uploading data. It's useful as a fallback when an asynchronous loader hasn't finished yet.
 
-`RawImage` also exposes encoders (`encode_png`, `encode_jpeg`, `encode_bmp`, `encode_gif`, `encode_pnm`, `encode_tga`, `encode_tiff`) and the universal decoder `RawImage::decode_image_bytes_any`.
+`RawImage` also exposes encoders (`encode_png`, `encode_jpeg`, `encode_bmp`, `encode_gif`, `encode_pnm`, `encode_tga`, `encode_tiff`) and two decoders. `RawImage::decode_image_bytes_any` is the synchronous, pure-compute decoder that works on every target. `RawImage::decode_image_bytes` is the request form: it resumes a callback with an `ImageDecodeResult` and, in the browser, hands the work to the hardware decoder - the faster choice for large images. Decoded pixels may differ slightly per backend (premultiplication, ICC handling).
 
 ## SVG
 

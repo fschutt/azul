@@ -528,6 +528,11 @@ impl Runner {
         // contenteditable arms the caret blink) has to have armed it before the
         // pump looks, or the timer would always be one op late.
         result = result.max(self.pump_timers());
+        // Resumable-API completions issued by the ops above (a click callback
+        // that called `FilePath::read_bytes(.., data, on_result)`) resume
+        // here, after their requesting activation returned - the same
+        // ordering the DLL shells give them.
+        result = result.max(self.pump_completed_requests());
         // The ops above committed text through `apply_user_change` (a
         // `text_input` op is `CreateTextInput`), never through the event
         // pass - the post-commit notifications they owe are drained here.
@@ -728,6 +733,60 @@ impl Runner {
             // have removed it by the time that one is reached. (A `Timer` that
             // asked to terminate arrives here as a `RemoveTimer` change appended
             // by `run_single_timer` itself.)
+            for change in &changes {
+                result = result.max(self.apply_user_change(change));
+            }
+            if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
+                needs_dom_regeneration = true;
+            }
+        }
+
+        if needs_dom_regeneration {
+            result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+        }
+        result
+    }
+
+    /// Deliver every completed resumable-API request — the E2E-host twin of
+    /// `PlatformWindow::invoke_completed_requests`. Loops because a resume may
+    /// issue (and, on desktop, synchronously complete) the next request; the
+    /// cap keeps a resume that re-requests forever from hanging the run.
+    fn pump_completed_requests(&mut self) -> ProcessEventResult {
+        use azul_core::callbacks::Update;
+
+        const MAX_RESUME_ROUNDS: usize = 1024;
+
+        let window_handle = RawWindowHandle::Unsupported;
+        let gl_context = OptionGlContextPtr::None;
+
+        let mut result = ProcessEventResult::DoNothing;
+        let mut needs_dom_regeneration = false;
+
+        for _ in 0..MAX_RESUME_ROUNDS {
+            let completed = crate::request::take_completed();
+            if completed.is_empty() {
+                break;
+            }
+            let (changes, update) = {
+                let Self {
+                    layout_window,
+                    window_state,
+                    previous_window_state,
+                    renderer_resources,
+                    system_callbacks,
+                    ..
+                } = self;
+                layout_window.run_completed_requests(
+                    completed,
+                    &window_handle,
+                    &gl_context,
+                    Arc::new(SystemStyle::default()),
+                    system_callbacks,
+                    previous_window_state,
+                    window_state,
+                    renderer_resources,
+                )
+            };
             for change in &changes {
                 result = result.max(self.apply_user_change(change));
             }

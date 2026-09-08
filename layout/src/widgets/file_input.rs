@@ -215,25 +215,74 @@ impl FileInput {
 }
 
 extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
+    // The click only ISSUES the request. The dialog answer arrives in
+    // `fileinput_on_file_picked` as a fresh activation - the same shape on
+    // desktop (modal dialog, resumed right after this callback returns),
+    // mobile (OS picker delegate) and web (async picker). The widget's public
+    // API does not change: `on_path_change` still fires once with the new
+    // path, and `Update::RefreshDom` is still returned for the relabel.
+    #[cfg(feature = "extra")]
+    {
+        use crate::desktop::dialogs::{FileDialog, OptionFileTypeList};
+
+        let (title, default_dir) = {
+            let Some(state) = refany.downcast_ref::<FileInputStateWrapper>() else {
+                return Update::DoNothing;
+            };
+            (state.file_dialog_title.clone(), state.default_dir.clone())
+        };
+        let _ = info;
+        let _request = FileDialog::open_file(
+            title,
+            default_dir,
+            OptionFileTypeList::None,
+            refany.clone(),
+            crate::callbacks::ResumeCallback::create(fileinput_on_file_picked),
+        );
+        Update::DoNothing
+    }
+    // Without the `extra` feature there is no dialog to show; the widget
+    // reports its (unchanged) state so an app can still react to the click.
+    #[cfg(not(feature = "extra"))]
+    {
+        let Some(mut fileinputstatewrapper) = refany.downcast_mut::<FileInputStateWrapper>()
+        else {
+            return Update::DoNothing;
+        };
+        let fileinputstatewrapper = &mut *fileinputstatewrapper;
+        let inner = fileinputstatewrapper.inner.clone();
+        let mut result = match fileinputstatewrapper.on_path_change.as_mut() {
+            Some(FileInputOnPathChange { refany, callback }) => {
+                (callback.cb)(refany.clone(), info, inner)
+            }
+            None => Update::RefreshDom,
+        };
+        result.max_self(Update::RefreshDom);
+        result
+    }
+}
+
+/// Resume half of [`fileinput_on_click`]: stores the picked path and fires
+/// the app's `on_path_change`. A cancelled dialog changes nothing.
+#[cfg(feature = "extra")]
+extern "C" fn fileinput_on_file_picked(
+    mut refany: RefAny,
+    mut info: CallbackInfo,
+    result: RefAny,
+) -> Update {
+    use crate::desktop::dialogs::FileOpenResult;
+
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing;
+    };
     let Some(mut fileinputstatewrapper) = refany.downcast_mut::<FileInputStateWrapper>() else {
         return Update::DoNothing;
     };
     let fileinputstatewrapper = &mut *fileinputstatewrapper;
-
-    // `tfd` is desktop-only (target-gated in Cargo.toml to not(android|ios)); the
-    // `extra` feature does nothing on mobile, so gate the dialog block by the same
-    // target cfg to avoid referencing the unlinked `tfd` crate on iOS/Android.
-    #[cfg(all(feature = "extra", not(any(target_os = "android", target_os = "ios"))))]
-    {
-        let mut dialog = tfd::FileDialog::new(fileinputstatewrapper.file_dialog_title.as_str());
-        if let Some(dir) = fileinputstatewrapper.default_dir.as_ref() {
-            dialog = dialog.with_path(dir.as_str());
-        }
-        let Some(selected_path) = dialog.open_file() else {
-            return Update::DoNothing;
-        };
-        fileinputstatewrapper.inner.path = Some(selected_path.into()).into();
-    }
+    fileinputstatewrapper.inner.path = OptionString::Some(path.inner);
 
     let inner = fileinputstatewrapper.inner.clone();
     let mut result = match fileinputstatewrapper.on_path_change.as_mut() {
@@ -242,9 +291,7 @@ extern "C" fn fileinput_on_click(mut refany: RefAny, mut info: CallbackInfo) -> 
         }
         None => Update::RefreshDom,
     };
-
     result.max_self(Update::RefreshDom);
-
     result
 }
 

@@ -17,9 +17,12 @@
 
 use azul::callbacks::{CallbackType, DatasetMergeCallbackType, RenderImageCallbackInfo};
 use azul::css::PhysicalSizeU32;
-use azul::dialog::FileDialog;
+use azul::dialog::{FileDialog, FileOpenResult, SaveTargetResult};
+use azul::file::FileReadBytesResult;
 use azul::dom::{DatasetMergeCallback, RenderImageCallback};
-use azul::error::{ResultRawImageDecodeImageError, ResultU8VecEncodeImageError};
+use azul::error::{
+    ResultRawImageDecodeImageError, ResultU8VecEncodeImageError, ResultU8VecFileError,
+};
 use azul::gl::{GlContextPtr, Texture};
 use azul::image::{Brush, ImageRef, RawImage, RawImageData, RawImageFormat};
 use azul::option::OptionFileTypeList;
@@ -1740,18 +1743,41 @@ extern "C" fn on_set_brush(mut data: RefAny, _info: CallbackInfo) -> Update {
 
 // Import: pick an image file, decode it (PNG/JPEG/...) and set it as the canvas
 // background that strokes/metaballs paint over.
-extern "C" fn on_import(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let picked =
-        FileDialog::open_file("Import image", OptionString::None, OptionFileTypeList::None);
-    let path = match picked.into_option() {
-        Some(p) => p,
-        None => return Update::DoNothing,
+// A chain of two resumes: the click only ISSUES the open-file request; the
+// picked path is read with a second request; the bytes are decoded in the
+// second resume. Every step is an ordinary callback activation, which is
+// what lets the same code run against the browser's async pickers.
+extern "C" fn on_import(data: RefAny, _info: CallbackInfo) -> Update {
+    let _request = FileDialog::open_file(
+        "Import image",
+        OptionString::None,
+        OptionFileTypeList::None,
+        data,
+        on_import_picked,
+    );
+    Update::DoNothing
+}
+
+extern "C" fn on_import_picked(data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
     };
-    let bytes = match std::fs::read(path.as_str()) {
-        Ok(b) => b,
-        Err(_) => return Update::DoNothing,
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing; // cancelled
     };
-    let decoded = RawImage::decode_image_bytes_any(U8VecRef::from(&bytes[..]));
+    let _request = path.read_bytes(data, on_import_bytes);
+    Update::DoNothing
+}
+
+extern "C" fn on_import_bytes(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some(read) = FileReadBytesResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let bytes = match read.result {
+        ResultU8VecFileError::Ok(b) => b,
+        ResultU8VecFileError::Err(_) => return Update::DoNothing,
+    };
+    let decoded = RawImage::decode_image_bytes_any(U8VecRef::from(bytes.as_ref()));
     let img = match decoded {
         ResultRawImageDecodeImageError::Ok(ref img) => img.clone(),
         _ => return Update::DoNothing,
@@ -1766,14 +1792,26 @@ extern "C" fn on_import(mut data: RefAny, _info: CallbackInfo) -> Update {
 // Export: pick a destination and request a PNG dump of the finished canvas; the
 // render callback drains the request (Texture::copy_to_raw_image on GPU, else
 // the CPU RawImage) and writes the file.
-extern "C" fn on_export(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let picked = FileDialog::save_file("Export PNG", OptionString::None);
-    let path = match picked.into_option() {
-        Some(p) => p,
-        None => return Update::DoNothing,
+extern "C" fn on_export(data: RefAny, _info: CallbackInfo) -> Update {
+    let _request = FileDialog::save_file("Export PNG", "canvas.png", data, on_export_target);
+    Update::DoNothing
+}
+
+extern "C" fn on_export_target(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = SaveTargetResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(target) = picked.target.into_option() else {
+        return Update::DoNothing; // cancelled
+    };
+    // The PNG is produced at render time (GPU readback), so the export needs
+    // a real path to write to later; browsers without the File System Access
+    // API hand out a download target instead, which has none.
+    let Some(path) = target.as_path().into_option() else {
+        return Update::DoNothing;
     };
     match data.downcast_mut::<PaintState>() {
-        Some(mut s) => s.request_export(path.as_str().to_string()),
+        Some(mut s) => s.request_export(path.as_string().as_str().to_string()),
         None => return Update::DoNothing,
     }
     Update::RefreshDom
@@ -1783,20 +1821,13 @@ extern "C" fn on_export(mut data: RefAny, _info: CallbackInfo) -> Update {
 // of the rasterized canvas needed, so this writes synchronously here instead
 // of round-tripping through the render callback like the PNG export.
 extern "C" fn on_export_svg(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let picked = FileDialog::save_file("Export SVG", OptionString::None);
-    let path = match picked.into_option() {
-        Some(p) => p,
-        None => return Update::DoNothing,
-    };
     let svg = match data.downcast_ref::<PaintState>() {
         Some(s) => strokes_to_svg(&s.strokes, s.metaball_mode),
         None => return Update::DoNothing,
     };
-    let mut path = path.as_str().to_string();
-    if !path.to_ascii_lowercase().ends_with(".svg") {
-        path.push_str(".svg");
-    }
-    let _ = std::fs::write(&path, svg);
+    // Bytes in, file out: `save_bytes` is the one portable "hand the user a
+    // file" primitive (native save dialog here, a download in the browser).
+    let _scheduled = FileDialog::save_bytes("strokes.svg", "image/svg+xml", svg.into_bytes());
     Update::DoNothing
 }
 

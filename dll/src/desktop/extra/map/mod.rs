@@ -236,6 +236,25 @@ pub extern "C" fn tile_fetch_worker(
     }
 }
 
+/// Install the built-in tile-fetch worker as the framework-owned fetcher
+/// `MapWidget::dom_with_fetch` uses, once. Called from the shared per-frame
+/// layout pass (like the file-picker backend) so it is in place before any
+/// map is built, and again defensively from [`map_widget_dom`].
+pub fn ensure_map_tile_fetcher() {
+    #[cfg(feature = "map-tiles")]
+    {
+        static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        DONE.get_or_init(|| {
+            let _ = azul_layout::widgets::map::register_map_tile_fetcher(
+                azul_layout::thread::ThreadCallback {
+                    cb: tile_fetch_worker,
+                    ctx: azul_core::refany::OptionRefAny::None,
+                },
+            );
+        });
+    }
+}
+
 /// Build the `MapWidget`'s rendered `Dom`, wiring the built-in tile-fetch worker.
 ///
 /// This is the single entry point the FFI `MapWidget::dom()` shims to (see
@@ -254,10 +273,8 @@ pub extern "C" fn tile_fetch_worker(
 pub fn map_widget_dom(widget: azul_layout::widgets::map::MapWidget) -> azul_core::dom::Dom {
     #[cfg(feature = "map-tiles")]
     {
-        widget.dom_with_fetch(azul_layout::thread::ThreadCallback {
-            cb: tile_fetch_worker,
-            ctx: azul_core::refany::OptionRefAny::None,
-        })
+        ensure_map_tile_fetcher();
+        widget.dom_with_fetch()
     }
     #[cfg(not(feature = "map-tiles"))]
     {

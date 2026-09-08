@@ -345,10 +345,32 @@ pub fn emit_managed_implementation(builder: &mut CodeBuilder, ir: &CodegenIR) {
 
 /// Emit the `initialization` block call at the very end of the unit.
 /// Pascal runs this after all top-level declarations are processed.
+///
+/// Besides registering the invoker stubs, the block masks every FPU
+/// exception. libazul is Rust and C code compiled for the IEEE-754 DEFAULT
+/// environment: NaN and ±inf are ordinary values in its arithmetic (taffy's
+/// layout cache compares `abs(inf - inf)`, ratio code divides 0/0, ...). The
+/// Free Pascal runtime instead UNMASKS InvalidOp, ZeroDivide and Overflow in
+/// the FPU control register at program start, so the first such operation
+/// inside the library trapped — and on aarch64-darwin the kernel delivers a
+/// trapped FP exception as SIGILL, which the FPC RTL then reports as
+/// "EAccessViolation: Access violation" with nothing wrong in memory. The
+/// Pascal hello-world died that way in taffy::compute::flexbox on the very
+/// first layout, while the byte-identical C program passed. Masking is what
+/// every FFI host of a C library has to do (Delphi's Set8087CW before
+/// OpenGL/DirectX is the same rule); it costs nothing for Pascal code that
+/// does not rely on FP traps.
 pub fn emit_managed_initialization(builder: &mut CodeBuilder) {
     builder.blank();
     builder.line("initialization");
     builder.indent();
+    builder.line("{ libazul computes with NaN/inf as VALUES (IEEE default); the FPC RTL");
+    builder.line("  unmasks InvalidOp/ZeroDivide/Overflow, which made the first inf - inf");
+    builder.line("  inside the library trap as SIGILL -> \"EAccessViolation\". Mask them,");
+    builder.line("  as every host of a C library must. Re-enable around your own code");
+    builder.line("  only if you never call back into azul while they are unmasked. }");
+    builder.line("SetExceptionMask([exInvalidOp, exDenormalized, exZeroDivide, exOverflow,");
+    builder.line("                  exUnderflow, exPrecision]);");
     builder.line("AzulHostInvokerInit;");
     builder.dedent();
     builder.blank();

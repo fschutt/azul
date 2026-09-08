@@ -1,6 +1,27 @@
+/* nanosleep() needs a POSIX feature macro under strict -std=c11 */
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L
+#endif
 #include "azul.h"
 #include <stdio.h>
 #include <string.h>
+
+/* The framework exports no blocking sleep any more (blocking is wrong on the
+ * UI thread and the browser has no such primitive); a worker thread that
+ * really wants to pace itself uses the platform primitive directly. */
+#ifdef _WIN32
+#include <windows.h>
+static void example_sleep_ms(unsigned ms) { Sleep(ms); }
+#else
+#include <time.h>
+static void example_sleep_ms(unsigned ms) {
+    struct timespec ts;
+    ts.tv_sec = ms / 1000u;
+    ts.tv_nsec = (long)(ms % 1000u) * 1000000L;
+    nanosleep(&ts, NULL);
+}
+#endif
+
 
 // Application State
 typedef struct {
@@ -170,7 +191,7 @@ void background_thread_fn(
         
         // Simulate work (sleep 50ms)
         // In real code, this would be actual work like file I/O, network, etc.
-        AzThread_sleepMs(50);
+        example_sleep_ms(50);
     }
 }
 

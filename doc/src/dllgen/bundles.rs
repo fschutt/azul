@@ -194,8 +194,8 @@ description = "Azul GUI framework - the pre-rendered Rust API over the prebuilt 
 homepage = "https://azul.rs/"
 repository = "https://github.com/fschutt/azul"
 build = "build.rs"
-# A release snapshot: azul.rs/ui/cargo hosts it, `cargo publish` never should.
-publish = false
+# Served from azul.rs/ui/cargo (sparse registry); published to crates.io by
+# scripts/publish_upstream.sh when CARGO_REGISTRY_TOKEN is present.
 
 [lib]
 name = "azul"

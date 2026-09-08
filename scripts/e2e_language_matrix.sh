@@ -648,47 +648,92 @@ _pkg_lock() {
 }
 _pkg_unlock() { rm -rf "$_PKG_LOCK" 2>/dev/null; }
 
+# Only remove what THIS run installed. On a developer machine the matrix used
+# to `brew uninstall fpc` (and luajit, gcc, llvm, ...) at the end of each
+# language, taking the user's own toolchains with it — a run then "fixed" the
+# machine by deleting /opt/homebrew/bin/fpc. Packages that were already present
+# before the install step are recorded here and skipped by the remove step.
+_PKG_PREINSTALLED="${TMPDIR:-/tmp}/azul-e2e-pkg-preinstalled.$$"
+_pkg_mark_preinstalled() { echo "$1" >> "$_PKG_PREINSTALLED"; }
+_pkg_was_preinstalled() { [ -f "$_PKG_PREINSTALLED" ] && grep -qx "$1" "$_PKG_PREINSTALLED"; }
+
 # _apt_install <pkg...>: serialized apt-get install (Linux only, no-op elsewhere).
 _apt_install() {
   [ "$IS_MACOS" = 1 ] || [ "$IS_WINDOWS" = 1 ] && return 0
   _pkg_lock; trap _pkg_unlock RETURN
-  sudo apt-get install -y --no-install-recommends "$@" 2>/dev/null || true
+  local pkg todo=""
+  for pkg in "$@"; do
+    if dpkg -s "$pkg" >/dev/null 2>&1; then _pkg_mark_preinstalled "$pkg"; else todo="$todo $pkg"; fi
+  done
+  # shellcheck disable=SC2086
+  [ -n "$todo" ] && { sudo apt-get install -y --no-install-recommends $todo 2>/dev/null || true; }
+  return 0
 }
 
 # _apt_remove <pkg...>: remove apt packages (Linux only).
 _apt_remove() {
   [ "$IS_MACOS" = 1 ] || [ "$IS_WINDOWS" = 1 ] && return 0
   _pkg_lock; trap _pkg_unlock RETURN
-  sudo apt-get remove -y "$@" 2>/dev/null || true
+  local pkg todo=""
+  for pkg in "$@"; do _pkg_was_preinstalled "$pkg" || todo="$todo $pkg"; done
+  [ -n "$todo" ] || return 0
+  # shellcheck disable=SC2086
+  sudo apt-get remove -y $todo 2>/dev/null || true
   sudo apt-get autoremove -y 2>/dev/null || true
 }
 
-# _brew_install <pkg...>: serialized brew install (macOS only).
+# _brew_install <pkg...>: serialized brew install (macOS only). Homebrew has
+# no version pins — a formula IS its current version — so these macOS extras
+# (fpc, luajit, gcc, llvm, ...) track Homebrew; apt is frozen by the 22.04
+# repos and choco takes `name=version`.
 _brew_install() {
   [ "$IS_MACOS" = 1 ] || return 0
   _pkg_lock; trap _pkg_unlock RETURN
-  brew install "$@" 2>/dev/null || true
+  local pkg todo=""
+  for pkg in "$@"; do
+    if brew list --versions "$pkg" >/dev/null 2>&1; then _pkg_mark_preinstalled "$pkg"; else todo="$todo $pkg"; fi
+  done
+  # shellcheck disable=SC2086
+  [ -n "$todo" ] && { brew install $todo 2>/dev/null || true; }
+  return 0
 }
 
 # _brew_remove <pkg...>: remove brew packages (macOS only).
 _brew_remove() {
   [ "$IS_MACOS" = 1 ] || return 0
   _pkg_lock; trap _pkg_unlock RETURN
-  brew uninstall "$@" 2>/dev/null || true
+  local pkg todo=""
+  for pkg in "$@"; do _pkg_was_preinstalled "$pkg" || todo="$todo $pkg"; done
+  # shellcheck disable=SC2086
+  [ -n "$todo" ] && { brew uninstall $todo 2>/dev/null || true; }
+  return 0
 }
 
-# _choco_install <pkg...>: serialized choco install (Windows only).
+# _choco_install <pkg[=version]...>: serialized choco install (Windows only).
+# `name=version` pins the package (choco --version); a bare name takes the
+# current package, which only the non-gating beta lanes still do.
 _choco_install() {
   [ "$IS_WINDOWS" = 1 ] || return 0
   _pkg_lock; trap _pkg_unlock RETURN
-  choco install "$@" -y 2>/dev/null || true
+  local spec pkg ver
+  for spec in "$@"; do
+    pkg="${spec%%=*}"; ver=""; [ "$spec" != "$pkg" ] && ver="${spec#*=}"
+    if choco list --exact --limit-output "$pkg" 2>/dev/null | grep -qi "^$pkg|"; then _pkg_mark_preinstalled "$pkg"; continue; fi
+    if [ -n "$ver" ]; then choco install "$pkg" --version "$ver" -y 2>/dev/null || true
+    else choco install "$pkg" -y 2>/dev/null || true; fi
+  done
+  return 0
 }
 
 # _choco_remove <pkg...>: remove choco packages (Windows only).
 _choco_remove() {
   [ "$IS_WINDOWS" = 1 ] || return 0
   _pkg_lock; trap _pkg_unlock RETURN
-  choco uninstall "$@" -y 2>/dev/null || true
+  local spec pkg todo=""
+  for spec in "$@"; do pkg="${spec%%=*}"; _pkg_was_preinstalled "$pkg" || todo="$todo $pkg"; done
+  # shellcheck disable=SC2086
+  [ -n "$todo" ] && { choco uninstall $todo -y 2>/dev/null || true; }
+  return 0
 }
 
 lang_deps_install() {
@@ -703,7 +748,7 @@ lang_deps_install() {
       _apt_install php-cli llvm-dev libclang-dev clang
       _brew_install php llvm
       # Windows: php is preinstalled; llvm for the extension build
-      _choco_install llvm
+      _choco_install llvm=22.1.7
       ;;
     fortran)
       _apt_install gfortran
@@ -717,12 +762,12 @@ lang_deps_install() {
     pascal)
       _apt_install fp-compiler
       _brew_install fpc
-      _choco_install freepascal
+      _choco_install freepascal=3.2.2
       ;;
     lisp)
       _apt_install sbcl libffi-dev
       _brew_install sbcl libffi
-      _choco_install sbcl
+      _choco_install sbcl=2.6.8
       # Bootstrap quicklisp if needed
       if command -v sbcl >/dev/null 2>&1 && [ ! -f "$HOME/quicklisp/setup.lisp" ]; then
         curl -sO https://beta.quicklisp.org/quicklisp.lisp \
@@ -757,8 +802,8 @@ lang_deps_install() {
       ;;
     ruby)
       # Ruby FFI gem (ruby itself is preinstalled)
-      gem install ffi --no-document 2>/dev/null \
-        || sudo gem install ffi --no-document 2>/dev/null || true
+      gem install ffi -v 1.17.4 --no-document 2>/dev/null \
+        || sudo gem install ffi -v 1.17.4 --no-document 2>/dev/null || true
       ;;
     racket)
       # libffi-dev needed for racket FFI trampolines
@@ -1157,7 +1202,7 @@ lang_node() {
     cp "$LIB_PATH" "$REPO_ROOT/examples/node/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/node" || exit 1
     # koffi is the FFI backend; install if the example doesn't already have it.
-    [ -d node_modules/koffi ] || npm install --no-audit --no-fund koffi >/dev/null 2>&1 || true
+    [ -d node_modules/koffi ] || npm install --no-audit --no-fund koffi@2.16.3 >/dev/null 2>&1 || true
     # NOTE (macOS): azul.js calls koffi.load('azul') with a bare name and has no
     # env hook for an explicit path. macOS SIP strips DYLD_* from the hardened
     # node binary, so the loader can't find a bare-named lib -> this FAILS on
@@ -1714,8 +1759,11 @@ lang_haskell() {
 
 # ---- Pascal (FPC) ------------------------------------------------------------
 # Toolchain: fpc (Free Pascal Compiler) (CI: install via apt `fp-compiler` /
-# brew `fpc`). README marks this BLOCKED libazul-side (AzApp_run access
-# violation on macOS) -> expected FAILS, which we report honestly.
+# brew `fpc`). Full counter E2E, expects WORKS. The old "AzApp_run access
+# violation on macOS" was the FPC runtime's UNMASKED FPU exceptions: libazul
+# computes inf - inf (a NaN) in taffy's layout cache compare, the trap arrived
+# as SIGILL and FPC printed it as EAccessViolation. The generated unit now
+# masks the FPU in its initialization block (lang_pascal/managed.rs).
 lang_pascal() {
   have fpc || { skip pascal "fpc not installed (apt: fp-compiler / brew: fpc)"; return; }
   local f; f="$(log_path pascal)"
@@ -1728,7 +1776,7 @@ lang_pascal() {
     fpc -Mobjfpc -Sh -Fl. -k-L. -k-lazul hello-world.pas || exit 1
     ./hello-world
   ) >"$f" 2>&1
-  finish pascal "pascal build/run failed (README notes libazul-side block)"
+  finish pascal "pascal build/run failed"
 }
 
 # ---- Fortran -----------------------------------------------------------------
@@ -2163,6 +2211,9 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
   local LANG_TIMEOUT="$LANG_TIMEOUT"
   case "$lang" in
     racket) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
+    # dune compiles the 7.8 MB azul.ml (ocaml) and cabal the three generated
+    # Haskell modules from scratch on the first run: minutes, not a hang.
+    ocaml|haskell) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
   esac
   # NB: capture the exit code via `&&` short-circuit, NOT `if …; then return; fi`.
   # A bare `if <cmd>; then return 0; fi` whose condition is FALSE leaves the `if`

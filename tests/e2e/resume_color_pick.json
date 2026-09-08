@@ -1,0 +1,13 @@
+[
+  {
+    "name": "resume_color_pick_mocked",
+    "description": "A mocked colour picker resumes with the canned colour.",
+    "steps": [
+      { "op": "mock", "set": { "reset": true, "color_pick": { "r": 1, "g": 2, "b": 3 } } },
+      { "op": "click", "text": "Pick colour" },
+      { "op": "wait_frame" },
+      { "op": "assert_text", "selector": "#color", "expected": "colour: rgb(1, 2, 3)" },
+      { "op": "assert_no_unmocked_requests" }
+    ]
+  }
+]

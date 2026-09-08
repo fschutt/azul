@@ -169,7 +169,9 @@ fn raise_x11(display: *mut core::ffi::c_void, window: u64) -> bool {
                 serial: 0,
                 send_event: 1,
                 display,
-                window,
+                // XID is `c_ulong` — 32 bits on i686, so the u64 handle
+                // narrows here (an XID never exceeds 32 bits anyway).
+                window: window as _,
                 message_type: atom,
                 // 32-BIT ITEMS. The EWMH message is five longs; declaring 8 or
                 // 16 makes the WM read the payload as bytes and ignore it.

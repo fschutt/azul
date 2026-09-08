@@ -18,7 +18,7 @@ use core::{
     ffi::c_void,
     fmt,
     mem::ManuallyDrop,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
 };
 #[cfg(feature = "std")]
 use std::sync::mpsc::{Receiver, Sender};
@@ -190,6 +190,53 @@ impl ThreadId {
     }
 }
 
+// Request ids start at 1: 0 is `RequestId::invalid()`, the never-matching
+// sentinel an app can store before it has issued anything.
+static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Identifies one in-flight request created by a resumable API function.
+///
+/// Every request function (`FileDialog::open_file`, `FilePath::read_bytes`,
+/// `HttpRequestConfig::http_get`, ...) returns one of these immediately and
+/// resumes the caller later through its `ResumeCallback`. The id is a `u64`
+/// on every target - it crosses to JavaScript as a `BigInt`, where a 32-bit
+/// `usize` would not round-trip - and it is process-unique, never reused.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct RequestId {
+    pub id: u64,
+}
+
+impl RequestId {
+    /// A `RequestId` that never matches a real request - use it to initialise
+    /// state before the first request has been issued.
+    #[must_use]
+    pub const fn invalid() -> Self {
+        Self { id: 0 }
+    }
+
+    /// `true` for every id minted by [`RequestId::unique`], `false` only for
+    /// [`RequestId::invalid`].
+    #[must_use]
+    pub const fn is_valid(&self) -> bool {
+        self.id != 0
+    }
+
+    /// Mints the next process-unique id.
+    #[must_use]
+    pub fn unique() -> Self {
+        Self {
+            id: NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst),
+        }
+    }
+}
+
+impl Default for RequestId {
+    fn default() -> Self {
+        Self::invalid()
+    }
+}
+
 /// A point in time, either from the system clock or a tick counter.
 ///
 /// Use `Instant::System` on platforms with std, `Instant::Tick` on `embedded/no_std`.
@@ -341,7 +388,7 @@ pub fn reset_test_clock() {
 /// patch is one frame, and one frame is exactly what a `t` (tick) duration
 /// counts. `AzStartup_buildPatch` calls [`advance_system_tick`] once per patch.
 #[cfg(feature = "std")]
-static SYSTEM_TICK: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+static SYSTEM_TICK: AtomicU64 = AtomicU64::new(0);
 
 /// Advance the frame counter by one. Called once per produced frame by backends
 /// that have no wall clock. Cheap enough to call unconditionally.

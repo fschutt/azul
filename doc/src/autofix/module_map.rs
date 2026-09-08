@@ -812,6 +812,18 @@ fn module_from_external_path(path: &str) -> Option<String> {
     if path.starts_with("azul_core::callbacks::") {
         return Some("callbacks".to_string());
     }
+    // The callback wrappers that need `CallbackInfo` live one crate up
+    // (`azul_layout::callbacks::{Callback, ResumeCallback, ...}`); by name
+    // alone `ResumeCallback` matches dom's generic `callback` keyword.
+    if path.starts_with("azul_layout::callbacks::") {
+        return Some("callbacks".to_string());
+    }
+    // `RequestId` (the resumable-API handle) has no keyword of its own and
+    // would otherwise fall to `misc`; every `azul_core::task::` type is a
+    // timer / thread / request primitive of the `task` module.
+    if path.starts_with("azul_core::task::") {
+        return Some("task".to_string());
+    }
     if path.starts_with("azul_core::a11y::") {
         return Some("dom".to_string());
     }
@@ -896,6 +908,16 @@ fn module_from_external_path(path: &str) -> Option<String> {
     }
     if path.starts_with("azul_layout::desktop::file::") {
         return Some("file".to_string());
+    }
+    // The resumable-http result structs (`HttpGetResult`, ...) end in
+    // `Result`, which the `error` keyword outweighs (6 > 4); their source
+    // module is the authority.
+    if path.starts_with("azul_layout::http::") {
+        return Some("http".to_string());
+    }
+    // Same for the image-decode result struct (`ImageDecodeResult`).
+    if path.starts_with("azul_layout::image::") {
+        return Some("image".to_string());
     }
     if path.starts_with("azul_layout::fmt::") {
         return Some("fmt".to_string());
@@ -1109,6 +1131,70 @@ mod tests {
         );
         // Already in correct module
         assert_eq!(get_correct_module("CssProperty", "css"), None);
+    }
+
+    /// Every class the resumable-API remodel adds must be a fixpoint of the
+    /// autofix pipeline in the module it was placed in: a wrong verdict here
+    /// means `autofix` moves the class on the next CI run.
+    #[test]
+    fn test_resumable_api_classes_stay_put() {
+        let stays = |name: &str, module: &str, external: &str| {
+            assert_eq!(
+                get_correct_module_with_path(name, module, Some(external)),
+                None,
+                "{name} (external {external}) must stay in `{module}`"
+            );
+        };
+        // Phase 0 - the primitive.
+        stays("RequestId", "task", "azul_core::task::RequestId");
+        stays("ResumeCallbackType", "callbacks", "azul_layout::callbacks::ResumeCallbackType");
+        stays("ResumeCallback", "callbacks", "azul_layout::callbacks::ResumeCallback");
+        // Phase 1 - result structs pinned by their source module; by name
+        // alone the `result` keyword would send every one of them to `error`.
+        stays("FileOpenResult", "dialog", "azul_layout::desktop::dialogs::FileOpenResult");
+        stays("FileOpenMultiResult", "dialog", "azul_layout::desktop::dialogs::FileOpenMultiResult");
+        stays("ColorPickResult", "dialog", "azul_layout::desktop::dialogs::ColorPickResult");
+        stays("FileReadBytesResult", "file", "azul_layout::file::FileReadBytesResult");
+        stays("FileReadStringResult", "file", "azul_layout::file::FileReadStringResult");
+        stays("ImageDecodeResult", "image", "azul_layout::image::ImageDecodeResult");
+        stays("FilePathVecSlice", "file", "azul_layout::file::FilePathVecSlice");
+        // Phase 2.
+        stays("HttpGetResult", "http", "azul_layout::http::HttpGetResult");
+        stays("HttpBytesResult", "http", "azul_layout::http::HttpBytesResult");
+        stays("HttpReachableResult", "http", "azul_layout::http::HttpReachableResult");
+        // Phase 3.
+        stays("SaveTarget", "dialog", "azul_layout::desktop::dialogs::SaveTarget");
+        stays("SaveTargetKind", "dialog", "azul_layout::desktop::dialogs::SaveTargetKind");
+        stays("SaveTargetResult", "dialog", "azul_layout::desktop::dialogs::SaveTargetResult");
+        stays("FileDirListResult", "file", "azul_layout::file::FileDirListResult");
+        // Phase 4.
+        stays("AudioDeviceListResult", "audio", "azul_dll::unified::audio::AudioDeviceListResult");
+        // These two sit next to `DecodedVideo` / `ScreenRecorder`, whose Rust
+        // home maps to `video`; the keyword verdict (not the path) keeps them.
+        stays(
+            "VideoDecodeResult",
+            "image",
+            "azul_dll::unified::video_codec::pipeline::VideoDecodeResult",
+        );
+        stays(
+            "ScreenRecordingResult",
+            "screen",
+            "azul_dll::unified::video_codec::ScreenRecordingResult",
+        );
+        // Phase R.
+        stays("DbConfig", "db", "azul_core::db::DbConfig");
+        stays("DbOpenResult", "db", "azul_core::db::DbOpenResult");
+        stays("DbSyncStatus", "db", "azul_core::db::DbSyncStatus");
+        stays("DbMergeCallback", "db", "azul_core::db::DbMergeCallback");
+        stays("DbMergeCallbackType", "db", "azul_core::db::DbMergeCallbackType");
+        stays("DbConflict", "db", "azul_core::db::DbConflict");
+        stays("DbCollectionScopeVecSlice", "db", "azul_core::db::DbCollectionScopeVecSlice");
+        stays("DbOpenResult", "db", "azul_dll::unified::sqlite::DbOpenResult");
+        // Structural verdicts are not pins and must keep winning.
+        stays("FilePathVec", "vec", "azul_layout::file::FilePathVec");
+        stays("OptionFileOpenResult", "option", "azul_layout::desktop::dialogs::OptionFileOpenResult");
+        stays("ResultDbDbError", "error", "azul_core::db::ResultDbDbError");
+        stays("DbError", "error", "azul_core::db::DbError");
     }
 
     #[test]

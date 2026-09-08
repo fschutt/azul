@@ -247,7 +247,7 @@ documented · `DEFER` needs later design.
 | 12 | dialog.ColorPickerDialog.open (`AzColorPickerDialog_open`) | `tfd` color chooser | `<input type=color>` + change event | ASYNC | CB-API + STUB | |
 | 13 | dialog.DialogAriaInfo.* (5 fns) | pure struct builders | n/a | PURE | LIFT | a11y metadata only |
 
-### 3.2 File I/O (api.json `file` module + `svg.FilePath` (misfiled in svg); desktop `layout/src/desktop/file.rs` (std::fs) and `layout/src/file.rs` (std::fs + `dirs` crate, Cargo `layout/Cargo.toml:94`))
+### 3.2 File I/O (api.json `file` module + `svg.FilePath` (misfiled in svg); the former desktop `File` shim (deleted in f13aca993; its std::fs powers folded into `FilePath`) and `layout/src/file.rs` (std::fs + `dirs` crate, Cargo `layout/Cargo.toml:94`))
 
 Web model decision (§5.3): paths on web resolve inside a **virtual filesystem**
 = OPFS (persistent, origin-scoped) + a **picked-file registry** (`/az/picked/<id>`

@@ -432,6 +432,10 @@ pub use azul_core::icon::{
 /// Callback handling for layout events (invocation, result processing).
 #[cfg(feature = "text_layout")]
 pub mod callbacks;
+/// The request / resume primitive: where resumable API functions park their
+/// callbacks until the runtime delivers the result as a fresh activation.
+#[cfg(feature = "text_layout")]
+pub mod request;
 /// CPU-based software rendering (no GPU required).
 #[cfg(feature = "cpurender")]
 // Scoped (was crate-wide): complex rasterizer signatures.

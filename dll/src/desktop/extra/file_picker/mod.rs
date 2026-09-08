@@ -8,7 +8,7 @@
 //!
 //! The pattern this module implements:
 //!
-//! 1. The user-facing `FileDialog::open_file_async(...)` in
+//! 1. The user-facing resumable `FileDialog::open_file(...)` in
 //!    `layout/src/desktop/dialogs.rs` returns a [`FilePickerHandle`]. The
 //!    handle holds an `Arc<Mutex<…>>` slot the OS callback writes into when
 //!    the picker dismisses. azul-layout cannot call into this crate, so the
@@ -32,7 +32,7 @@
 use azul_css::{corety::OptionString, AzString, OptionStringVec};
 
 // The handle and status types live in azul-layout (`desktop::dialogs`) so
-// `FileDialog::open_file_async` — the user-facing entry point, which sits
+// `FileDialog::open_file` — the user-facing entry point, which sits
 // below this crate — can return them. Re-exported here so the platform
 // submodules keep their `super::{FilePickerHandle, FilePickerStatus}`.
 pub use azul_layout::desktop::dialogs::{FilePickerHandle, FilePickerStatus};
@@ -43,7 +43,7 @@ pub mod android;
 pub mod ios;
 
 /// Install this module's dispatchers as azul-layout's async file-picker
-/// backend, once. Mobile only: on the desktop `FileDialog::open_file_async`
+/// backend, once. Mobile only: on the desktop `FileDialog::open_file`
 /// answers synchronously through `tfd` and must NOT be routed here (the
 /// non-mobile arms of the dispatchers below answer `Cancelled` without
 /// showing anything). Called from the shared per-frame layout pass, like

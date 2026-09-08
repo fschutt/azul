@@ -16,6 +16,7 @@
 //! API surface + ownership are real and codegen-exposed; the real backend
 //! swaps in behind a feature later.
 
+use azul_css::impl_option_inner;
 use core::ffi::c_void;
 
 use azul_core::audio::{AudioConfig, AudioFrame};
@@ -309,13 +310,63 @@ pub struct AudioDeviceList {
     pub inputs: StringVec,
 }
 
+/// Result of [`AudioDeviceList::enumerate`].
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct AudioDeviceListResult {
+    pub devices: AudioDeviceList,
+}
+
+azul_css::impl_option!(
+    AudioDeviceListResult,
+    OptionAudioDeviceListResult,
+    copy = false,
+    [Debug, Clone]
+);
+
+impl AudioDeviceListResult {
+    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionAudioDeviceListResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+}
+
 impl AudioDeviceList {
-    /// Enumerate the machine's audio devices. Linux: PipeWire/PulseAudio via
+    /// Enumerate the machine's audio devices and resume `on_result` with an
+    /// [`AudioDeviceListResult`]. Linux: PipeWire/PulseAudio via
     /// `pactl list short sinks/sources`; macOS: the CoreAudio HAL
     /// (`AudioObjectGetPropertyData` on the system object, dlopen'd at runtime —
     /// no link-time dep); empty on platforms without an enumeration backend yet
     /// (and if `pactl` isn't installed / CoreAudio can't be loaded).
-    pub fn enumerate() -> AudioDeviceList {
+    pub fn enumerate(
+        data: azul_core::refany::RefAny,
+        on_result: azul_layout::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        let devices = Self::enumerate_blocking();
+        azul_layout::request::complete(data, on_result, AudioDeviceListResult { devices })
+    }
+
+    /// The synchronous enumeration behind [`Self::enumerate`] (Rust-internal;
+    /// `enumerate` is the API on every target because the browser's
+    /// `enumerateDevices()` is asynchronous).
+    pub fn enumerate_blocking() -> AudioDeviceList {
+        // Deterministic under e2e: the mock store's lists, or empty lists
+        // (recorded as unmocked) - never the machine's real devices.
+        match azul_layout::request::mock::take_audio_devices() {
+            azul_layout::request::mock::Answer::NotArmed => {}
+            azul_layout::request::mock::Answer::Mocked((outputs, inputs)) => {
+                return AudioDeviceList {
+                    outputs: StringVec::from_vec(outputs),
+                    inputs: StringVec::from_vec(inputs),
+                };
+            }
+            azul_layout::request::mock::Answer::Unmocked => {
+                return AudioDeviceList {
+                    outputs: StringVec::from_vec(Vec::new()),
+                    inputs: StringVec::from_vec(Vec::new()),
+                };
+            }
+        }
         #[cfg(target_os = "linux")]
         {
             AudioDeviceList {
@@ -545,7 +596,7 @@ mod audio_device_tests {
 
     #[test]
     fn audio_device_enumerate() {
-        let list = AudioDeviceList::enumerate();
+        let list = AudioDeviceList::enumerate_blocking();
         let outs: Vec<&str> = list.outputs.as_ref().iter().map(|s| s.as_str()).collect();
         let ins: Vec<&str> = list.inputs.as_ref().iter().map(|s| s.as_str()).collect();
         eprintln!("audio outputs ({}): {:?}", outs.len(), outs);

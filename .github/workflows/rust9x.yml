@@ -33,14 +33,14 @@ jobs:
     timeout-minutes: 350
     steps:
       - name: Install bootstrap Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           # Bootstrap compiler for the rust9x build; kept in step with the
           # workspace toolchain (rust-toolchain.toml).
           toolchain: 1.90.0
 
       - name: Install Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 

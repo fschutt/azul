@@ -1,0 +1,13 @@
+[
+  {
+    "name": "resume_unmocked_picker_resolves_as_cancelled_and_is_recorded",
+    "description": "Under e2e a picker with no mocked answer must never open a native dialog: it resolves as cancelled and is recorded, so a scenario that forgot to mock fails at the assertion instead of hanging.",
+    "steps": [
+      { "op": "mock", "set": { "reset": true } },
+      { "op": "click", "text": "Open file" },
+      { "op": "wait_frame" },
+      { "op": "assert_text", "selector": "#file", "expected": "file: cancelled" },
+      { "op": "assert_unmocked_request", "request": "FileDialog::open_file" }
+    ]
+  }
+]

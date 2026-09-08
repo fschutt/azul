@@ -13,19 +13,24 @@ import Foreign.C.Types (CSize)
 import Foreign.Marshal.Alloc (alloca, allocaBytes, mallocBytes)
 import Foreign.Marshal.Utils (fillBytes)
 import Foreign.Ptr (Ptr, FunPtr, castPtr)
-import Foreign.Storable (poke)
+import Foreign.Storable (poke, sizeOf)
 
--- C ABI sizes (checked against sizeof() of the shipped azul.h).
--- Kept generous where the exact size could drift.
+-- Buffer sizes for the by-value FFI structs come from the generated binding's
+-- Storable instances, which since 2026-09-07 take `sizeOf` from the C
+-- compiler (the cbits layout oracle) — never from numbers written down by
+-- hand: the structs grow with the API (AzButton went 272 -> 728 bytes,
+-- AzAppConfig 1648 -> 2400), and a fixed `allocaBytes 512` for a 728-byte
+-- AzButton_create_via result overflowed the stack and segfaulted in the first
+-- layout callback.
 szRefAny, szString, szDom, szButton, szWco, szAppConfig, szApp, szOnClickCb :: Int
-szRefAny    = 32    -- sizeof(AzRefAny)  = 24
-szString    = 48    -- sizeof(AzString)  = 40
-szDom       = 512   -- sizeof(AzDom)     = 240
-szButton    = 512   -- sizeof(AzButton)  = 272
-szWco       = 2048  -- sizeof(AzWindowCreateOptions) = 1336
-szAppConfig = 2048  -- sizeof(AzAppConfig) = 1648
-szApp       = 64    -- sizeof(AzApp)     = 16
-szOnClickCb = 64    -- sizeof(AzButtonOnClickCallback) = 40 (cb + OptionRefAny::None)
+szRefAny    = 32  -- AzRefAny is 24 bytes; T.RefAny is a pointer newtype and carries no struct size
+szString    = sizeOf (undefined :: T.AzString)
+szDom       = sizeOf (undefined :: T.Dom)
+szButton    = sizeOf (undefined :: T.Button)
+szWco       = sizeOf (undefined :: T.WindowCreateOptions)
+szAppConfig = sizeOf (undefined :: T.AppConfig)
+szApp       = sizeOf (undefined :: T.App)
+szOnClickCb = sizeOf (undefined :: T.ButtonOnClickCallback)
 
 -- ASCII-only here, so the Latin-1 marshalling is valid UTF-8.
 mkAzString :: String -> Ptr T.AzString -> IO ()

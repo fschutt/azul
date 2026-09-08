@@ -54,6 +54,10 @@ pub const HOST_INVOKER_KINDS: &[&str] = &[
     "Callback",
     "LayoutCallback",
     "VirtualViewCallback",
+    // The one callback every resumable API function resumes into
+    // (layout/src/callbacks.rs). Managed hosts pass a closure as `on_result`
+    // to FileDialog::open_file, FilePath::read_bytes, HttpRequestConfig::http_get, ...
+    "ResumeCallback",
     // Widget callbacks (layout/src/widgets/*).
     "ButtonOnClickCallback",
     "TabOnClickCallback",

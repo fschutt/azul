@@ -413,9 +413,12 @@ pub struct Xkb {
     /// Optional: an xkbcommon too old to export it leaves locks unreported
     /// rather than failing to load the library.
     pub xkb_state_mod_name_is_active:
-        Option<unsafe extern "C" fn(*mut xkb_state, *const i8, u32) -> i32>,
+        Option<unsafe extern "C" fn(*mut xkb_state, *const core::ffi::c_char, u32) -> i32>,
     pub xkb_state_key_get_one_sym: unsafe extern "C" fn(*mut xkb_state, u32) -> u32,
-    pub xkb_state_key_get_utf8: unsafe extern "C" fn(*mut xkb_state, u32, *mut i8, usize) -> i32,
+    // `char*` is `*mut c_char`, not `*mut i8`: c_char is `u8` on arm, riscv,
+    // powerpc and s390x, and the caller's `[c_char; 32]` buffer only type-checks
+    // where the two coincide (x86). Same class as the [0i8; 32] fixes.
+    pub xkb_state_key_get_utf8: unsafe extern "C" fn(*mut xkb_state, u32, *mut core::ffi::c_char, usize) -> i32,
     /// Does this key auto-repeat? The keymap knows (modifiers, locks and
     /// several function keys do not), which is strictly better than a
     /// hand-rolled list of "keys that should not repeat".

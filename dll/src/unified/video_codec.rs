@@ -51,11 +51,42 @@ pub mod pipeline {
         [Clone, Debug]
     );
 
-    /// No video-decode backend in this build: always returns `None`.
+    /// Result of `decode_mp4_h264`. Layout MUST match
+    /// `desktop::extra::video_codec::pipeline::VideoDecodeResult`.
+    #[repr(C)]
+    #[derive(Debug, Clone)]
+    pub struct VideoDecodeResult {
+        pub video: OptionDecodedVideo,
+    }
+
+    impl_option!(
+        VideoDecodeResult,
+        OptionVideoDecodeResult,
+        copy = false,
+        [Clone, Debug]
+    );
+
+    impl VideoDecodeResult {
+        pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionVideoDecodeResult {
+            result.downcast_ref::<Self>().map(|r| r.clone()).into()
+        }
+    }
+
+    /// No video-decode backend in this build: resumes with `video: None`.
     ///
     /// Says so once on first use — a permanent `None` is otherwise
     /// indistinguishable from "the clip just produced no frames".
-    pub fn decode_mp4_h264(_bytes: &[u8]) -> OptionDecodedVideo {
+    pub fn decode_mp4_h264(
+        bytes: azul_css::U8Vec,
+        data: azul_core::refany::RefAny,
+        on_result: azul_layout::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        let _ = bytes;
+        let video = decode_mp4_h264_stub();
+        azul_layout::request::complete(data, on_result, VideoDecodeResult { video })
+    }
+
+    fn decode_mp4_h264_stub() -> OptionDecodedVideo {
         static ANNOUNCE: std::sync::Once = std::sync::Once::new();
         ANNOUNCE.call_once(|| {
             if cfg!(target_arch = "wasm32") {
@@ -82,7 +113,7 @@ use core::ffi::c_void;
 #[cfg(target_arch = "wasm32")]
 use azul_core::video::{OptionVideoFrame, VideoFrame};
 #[cfg(target_arch = "wasm32")]
-use azul_css::{AzString, U8Vec};
+use azul_css::{impl_option_inner, AzString, U8Vec};
 
 /// wasm stub of the desktop `VideoEncoder` handle (no codec backend on wasm).
 #[cfg(target_arch = "wasm32")]
@@ -127,8 +158,11 @@ impl VideoEncoder {
     pub fn is_open(&self) -> bool {
         false
     }
-    pub fn encode(&self, _frame: VideoFrame, _force_keyframe: bool) -> U8Vec {
-        U8Vec::from_vec(Vec::new())
+    pub fn encode(&self, _frame: VideoFrame, _force_keyframe: bool) -> bool {
+        false
+    }
+    pub fn recv_packet(&mut self) -> azul_css::corety::OptionU8Vec {
+        azul_css::corety::OptionU8Vec::None
     }
     pub fn frames_encoded(&self) -> u64 {
         0
@@ -181,8 +215,45 @@ impl ScreenRecorder {
     pub fn frames_written(&self) -> u64 {
         0
     }
-    pub fn finish(&mut self) -> bool {
-        false
+    pub fn finish(
+        &mut self,
+        data: azul_core::refany::RefAny,
+        on_result: azul_layout::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        azul_layout::request::complete(
+            data,
+            on_result,
+            ScreenRecordingResult {
+                ok: false,
+                error: azul_css::corety::OptionString::Some(AzString::from_const_str(
+                    "no screen recorder on wasm",
+                )),
+            },
+        )
+    }
+}
+
+/// wasm stub of `ScreenRecordingResult`; layout MUST match the desktop type.
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScreenRecordingResult {
+    pub ok: bool,
+    pub error: azul_css::corety::OptionString,
+}
+
+#[cfg(target_arch = "wasm32")]
+azul_css::impl_option!(
+    ScreenRecordingResult,
+    OptionScreenRecordingResult,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
+
+#[cfg(target_arch = "wasm32")]
+impl ScreenRecordingResult {
+    pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionScreenRecordingResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
     }
 }
 
@@ -226,7 +297,10 @@ impl VideoDecoder {
     pub fn is_open(&self) -> bool {
         false
     }
-    pub fn decode(&self, _data: U8Vec) -> OptionVideoFrame {
+    pub fn decode(&self, _data: U8Vec) -> bool {
+        false
+    }
+    pub fn recv_frame(&mut self) -> OptionVideoFrame {
         OptionVideoFrame::None
     }
     pub fn close(&mut self) {}

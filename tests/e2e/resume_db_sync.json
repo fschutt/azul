@@ -1,0 +1,40 @@
+[
+  {
+    "name": "resume_db_open_set_get_and_sync",
+    "description": "Db::open resumes with a handle, set lands immediately, get resumes with the value; sync_now pushes the oplog to a mocked endpoint and pulls nothing back, so the status resumes as Idle.",
+    "steps": [
+      {
+        "op": "mock",
+        "set": {
+          "reset": true,
+          "http": {
+            "https://sync.example.invalid/demo/push": { "status": 200, "text": "{\"ok\":true}", "content_type": "application/json" },
+            "https://sync.example.invalid/demo/pull*": { "status": 200, "text": "{\"ops\":[],\"cursor\":\"1\"}", "content_type": "application/json" }
+          }
+        }
+      },
+      { "op": "click", "text": "Db round-trip" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "assert_text", "selector": "#db", "expected": "db: hello" },
+      { "op": "click", "text": "Sync" },
+      { "op": "wait_frame" },
+      { "op": "assert_text", "selector": "#sync", "expected": "sync: Idle" },
+      { "op": "assert_no_unmocked_requests" }
+    ]
+  },
+  {
+    "name": "resume_db_sync_offline_is_queued",
+    "description": "When the endpoint is unreachable the dirty rows stay queued: the status is Queued, never an error.",
+    "steps": [
+      { "op": "mock", "set": { "reset": true, "http": { "*": { "error": "network unreachable (mocked)" } } } },
+      { "op": "click", "text": "Db round-trip" },
+      { "op": "wait_frame" },
+      { "op": "wait_frame" },
+      { "op": "assert_text", "selector": "#db", "expected": "db: hello" },
+      { "op": "click", "text": "Sync" },
+      { "op": "wait_frame" },
+      { "op": "assert_text", "selector": "#sync", "expected": "sync: Queued" }
+    ]
+  }
+]

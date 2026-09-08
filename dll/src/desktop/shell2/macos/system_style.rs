@@ -42,6 +42,17 @@ struct ObjcLib {
     sel_reg: unsafe extern "C" fn(*const u8) -> Sel,
     /// Raw `objc_msgSend` pointer — cast to the correct signature at each call-site.
     msg_send: *mut c_void,
+    /// The entry point for messages that RETURN A STRUCT LARGER THAN 16 BYTES.
+    /// On x86-64 such a struct comes back through a hidden pointer in the
+    /// first argument register, and that is a different function:
+    /// `objc_msgSend_stret`. Calling plain `objc_msgSend` with a struct-return
+    /// signature there shifts every argument by one slot — the receiver lands
+    /// in the sret slot, the selector in the receiver slot — and the runtime
+    /// dereferences garbage (EXC_BAD_ACCESS at 0x18 in `App::create`, the
+    /// first thing every Intel-Mac user of libazul.x86_64.dylib hit). arm64
+    /// has no separate entry point (the indirect-result register is x8, outside
+    /// the argument registers), so there it is `objc_msgSend` itself.
+    msg_send_stret: *mut c_void,
     _h_objc: *mut c_void,
     _h_appkit: *mut c_void,
 }
@@ -71,6 +82,10 @@ impl ObjcLib {
             let gc = dlsym(h_objc, b"objc_getClass\0".as_ptr());
             let sr = dlsym(h_objc, b"sel_registerName\0".as_ptr());
             let ms = dlsym(h_objc, b"objc_msgSend\0".as_ptr());
+            #[cfg(target_arch = "x86_64")]
+            let ms_stret = dlsym(h_objc, b"objc_msgSend_stret\0".as_ptr());
+            #[cfg(not(target_arch = "x86_64"))]
+            let ms_stret = ms;
 
             if gc.is_null() || sr.is_null() || ms.is_null() {
                 dlclose(h_appkit);
@@ -82,6 +97,7 @@ impl ObjcLib {
                 get_class: core::mem::transmute(gc),
                 sel_reg: core::mem::transmute(sr),
                 msg_send: ms,
+                msg_send_stret: ms_stret,
                 _h_objc: h_objc,
                 _h_appkit: h_appkit,
             })
@@ -108,13 +124,14 @@ impl ObjcLib {
         f(target, sel)
     }
 
-    /// `[target sel]` → f64  (arm64: regular msgSend; x86_64 would need fpret)
+    /// `[target sel]` → f64
     #[inline]
     unsafe fn send_f64(&self, target: Id, sel: Sel) -> f64 {
-        // On Apple Silicon objc_msgSend handles all return types.
-        // On x86_64 we would need objc_msgSend_fpret, but modern macOS
-        // builds overwhelmingly target arm64.  The fallback in discover()
-        // keeps things safe for x86_64 — we just get the default value.
+        // A `double` comes back in xmm0 on x86-64 and d0 on arm64, which plain
+        // objc_msgSend passes through untouched. `objc_msgSend_fpret` exists
+        // only for x87 `long double` returns (and 32-bit x86), so it is not
+        // needed here. The struct-returning sends are the exception — see
+        // `msg_send_stret`.
         let f: unsafe extern "C" fn(Id, Sel) -> f64 = core::mem::transmute(self.msg_send);
         f(target, sel)
     }
@@ -401,9 +418,12 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         let nspi = lib.cls(b"NSProcessInfo\0");
         let pi = lib.send_id(nspi, lib.sel(b"processInfo\0"));
         if !pi.is_null() {
-            // operatingSystemVersion returns a struct { major, minor, patch }
-            // on arm64 this is returned in x0/x1/x2 (3 × NSInteger = 3 × i64).
-            // We read major via a helper struct.
+            // operatingSystemVersion returns a 24-byte struct { major, minor,
+            // patch } (3 × NSInteger). Larger than 16 bytes, so it comes back
+            // through the indirect-result convention: x8 on arm64 (plain
+            // objc_msgSend), a hidden first argument on x86-64
+            // (objc_msgSend_stret) — `msg_send_stret` is the right entry point
+            // on both. This send was the x86-64 crash in App::create.
             #[repr(C)]
             struct NSOperatingSystemVersion {
                 major: i64,
@@ -412,7 +432,7 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
             }
             let osv_sel = lib.sel(b"operatingSystemVersion\0");
             let f: unsafe extern "C" fn(Id, Sel) -> NSOperatingSystemVersion =
-                core::mem::transmute(lib.msg_send);
+                core::mem::transmute(lib.msg_send_stret);
             let v = f(pi, osv_sel);
             style.os_version = match v.major {
                 // Apple changed version numbering: macOS 15 (Sequoia) → macOS 26 (Tahoe) in 2025

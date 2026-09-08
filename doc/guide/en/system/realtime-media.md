@@ -208,9 +208,13 @@ actual hardware backends are platform-specific and only run on a real device:
   the API + plumbing are exercisable without hardware.
 - **Audio output** (`AudioSink`): rodio/cpal on desktop, AVAudioEngine / AAudio
   on mobile.
-- **Video encode/decode** (`VideoEncoder` / `VideoDecoder`):
+- **Video encode/decode** (`VideoEncoder` / `VideoDecoder`), submit + poll:
   `VideoEncoder::open(w, h, h265, bitrate_kbps)` -> `encode(VideoFrame, force_keyframe)
-  -> bytes`; `VideoDecoder::open(h265)` -> `decode(bytes) -> Option<VideoFrame>`.
+  -> bool` (accepted) then drain `recv_packet() -> Option<U8Vec>`;
+  `VideoDecoder::open(h265)` -> `decode(bytes) -> bool` then drain
+  `recv_frame() -> Option<VideoFrame>`. Hardware and browser (WebCodecs)
+  codecs are output-callback shaped, so one submitted frame can yield zero
+  or several packets, possibly later - poll from a timer.
   `VideoEncoder::backend_name()` reports the platform-native codec the build
   selects: **gpu-video** (Vulkan Video) on Linux/Windows desktop, **VideoToolbox**
   on Apple (Vulkan Video can't build there - no MoltenVK video), **MediaCodec**

@@ -10,10 +10,14 @@
 //!   emit `peek`/`poke` bodies that walk the fields *in declaration
 //!   order* using `peekByteOff` / `pokeByteOff` with a running offset.
 //!   The running offset is computed from the previous field's
-//!   `sizeOf`. This is correct for structs whose Rust layout matches
-//!   the C ABI without padding (the common case for azul's flat POD
-//!   structs); for structs with padding the user can always fall back
-//!   to the raw FFI primitives.
+//!   `sizeOf`, which is exact only for structs without padding; for
+//!   padded structs the user can fall back to the raw FFI primitives
+//!   (exact `offsetof` through the oracle is the follow-up).
+//!   `sizeOf` and `alignment` themselves ARE exact: they come from the
+//!   cbits layout oracle (`az_hs_sizeof_<T>` / `az_hs_alignof_<T>`,
+//!   cshim.rs), i.e. from the C compiler, since 2026-09-07 — the former
+//!   field-size sum under-allocated every padded struct (AzApp 9 vs 16,
+//!   AzButton 700 vs 728) and the hello-world overflowed its stack buffers.
 //! - **Unit enums** (no payload) become a normal Haskell sum type
 //!   with `deriving (Show, Eq, Enum, Bounded)`, plus a `Storable`
 //!   instance going through `Word32` (the Rust ABI repr for unit
@@ -333,6 +337,24 @@ pub fn should_emit_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
     )
 }
 
+/// `<t>_sizeOf_total` / `<t>_alignment_total` bound to the cbits layout oracle
+/// (`az_hs_sizeof_<IrName>` / `az_hs_alignof_<IrName>`, cshim.rs). Nullary
+/// pure foreign imports: GHC calls the C function once per evaluation and the
+/// value is a CAF, so `sizeOf` stays a constant.
+fn emit_layout_oracle_bindings(builder: &mut CodeBuilder, ir_name: &str, lname: &str) {
+    // Two-line form like every other foreign import in the module (the
+    // module's own tests parse `foreign import ccall unsafe "sym"` + the
+    // Haskell name on the next line).
+    builder.line(&format!("foreign import ccall unsafe \"az_hs_sizeof_{}\"", ir_name));
+    builder.line(&format!("    c_az_hs_sizeof_{} :: CSize", lname));
+    builder.line(&format!("foreign import ccall unsafe \"az_hs_alignof_{}\"", ir_name));
+    builder.line(&format!("    c_az_hs_alignof_{} :: CSize", lname));
+    builder.line(&format!("{}_sizeOf_total :: Int", lname));
+    builder.line(&format!("{}_sizeOf_total = fromIntegral c_az_hs_sizeof_{}", lname, lname));
+    builder.line(&format!("{}_alignment_total :: Int", lname));
+    builder.line(&format!("{}_alignment_total = fromIntegral c_az_hs_alignof_{}", lname, lname));
+}
+
 // ============================================================================
 // Struct emission
 // ============================================================================
@@ -450,34 +472,21 @@ fn emit_struct_decl(
     // This avoids requiring offsetof macros at codegen time. Names are
     // lower-camelCased so Haskell parses them as value bindings rather
     // than data constructors.
+    // Size and alignment come from the C compiler through the cbits layout
+    // oracle (cshim.rs `emit_layout_oracle`): `sizeof(Az<T>)` / `_Alignof`.
+    // The previous field-size sum had no padding (AzApp: 9 vs 16) and every
+    // `alloca` through the instance was too small — the hello-world's
+    // AzButton buffer overflowed the stack on 2026-09-07. The peek/poke
+    // offsets above are still the running unpadded sum (see the module doc).
     let tname = lower_first(&name);
     builder.blank();
-    builder.line(&format!("{}_sizeOf_total :: Int", tname));
     if s.fields.is_empty() {
+        builder.line(&format!("{}_sizeOf_total :: Int", tname));
         builder.line(&format!("{}_sizeOf_total = 1", tname));
-    } else {
-        let mut sum_terms: Vec<String> = Vec::new();
-        for f in &s.fields {
-            let hty = haskell_field_type(&f.type_name, f.ref_kind, ir);
-            sum_terms.push(format!("sizeOf (undefined :: {})", hty));
-        }
-        builder.line(&format!(
-            "{}_sizeOf_total = {}",
-            tname,
-            sum_terms.join(" + ")
-        ));
-    }
-    builder.line(&format!("{}_alignment_total :: Int", tname));
-    // Pessimistic: take the max alignment of the first field (sufficient
-    // for the C ABI on every platform we target — pointer-aligned).
-    if let Some(f0) = s.fields.first() {
-        let hty = haskell_field_type(&f0.type_name, f0.ref_kind, ir);
-        builder.line(&format!(
-            "{}_alignment_total = alignment (undefined :: {})",
-            tname, hty
-        ));
-    } else {
+        builder.line(&format!("{}_alignment_total :: Int", tname));
         builder.line(&format!("{}_alignment_total = 1", tname));
+    } else {
+        emit_layout_oracle_bindings(builder, &s.name, &tname);
     }
     builder.blank();
 
@@ -805,10 +814,14 @@ fn emit_tagged_union_decl(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR
     // and round-trips payload variants only when their payload is
     // 'Storable' itself. For complex payloads users should reach for
     // the raw FFI primitives.
+    // sizeof/alignof from the C compiler (cbits layout oracle) — the old
+    // fixed `8 + 64` bound was far off for large payloads (AzOptionDom: 288).
+    let lname = lower_first(&name);
+    emit_layout_oracle_bindings(builder, &e.name, &lname);
     builder.line(&format!("instance Storable {} where", name));
     builder.indent();
-    builder.line("sizeOf _ = 8 + 64  -- tag (Word32 + pad) + payload bound");
-    builder.line("alignment _ = 8");
+    builder.line(&format!("sizeOf _ = {}_sizeOf_total", lname));
+    builder.line(&format!("alignment _ = {}_alignment_total", lname));
     builder.line(&format!(
         "peek _ = error \"Azul.Types.peek {}: tagged-union peek not implemented; use the raw FFI primitives\"",
         name

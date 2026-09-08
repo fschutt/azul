@@ -10,43 +10,62 @@
 # The first line whose target AND glob both match wins, so put specific
 # targets above `*`. Blank lines and `#` comments are ignored.
 #
-# PROVENANCE: every number below is 1.5x the size that artifact actually had in
-# the shipped 0.2.0 release (queried from the GitHub release assets), rounded
-# up. 1.5x is deliberately loose for a FIRST gate: the tree has moved several
-# hundred commits since 0.2.0, so these are a ceiling that catches a runaway
-# regression without failing honest growth. `check_artifact_size.sh` prints
-# each artifact as a percentage of its budget - once a few CI runs have
-# reported real current numbers, tighten these to ~1.15x and this becomes a
-# real ratchet.
+# PROVENANCE: the first version of this file (0d3b63eb5, 2026-09-05) set every
+# number to 1.5x the size the artifact had in the shipped 0.2.0 release, as a
+# deliberately loose first ceiling. The first CI run that reached the gate
+# (master 34144083957, 2026-09-07) supplied the real numbers, and 1.5x was
+# BELOW reality: libazul.so is 52,851,208 bytes against 33,970,016 in 0.2.0,
+# a 1.56x growth over the several hundred commits since (widgets, text3,
+# the LuaJIT by-reference twins, the pdf/audio/camera surfaces). So:
+#   * artifacts with a measured current size are budgeted at ~1.15x of it
+#     (the ratchet the first version promised once numbers existed);
+#   * cross-compiled targets that have no measurement yet (their builds
+#     failed to compile in that run) are budgeted at 1.8x their 0.2.0 size =
+#     the observed 1.56x growth times the same 1.15 headroom. Tighten each
+#     to 1.15x of its actual size when a run reports it.
+# Every line carries the number it was derived from.
 #
 # RAISING A BUDGET IS A DELIBERATE, REVIEWABLE COMMIT. That is the point: the
 # size change shows up in the diff with a reason next to it, instead of
 # silently in a release artifact.
 
 # --- Linux, cross-compiled (the `build_binaries` matrix) -------------------
-i686-unknown-linux-gnu          *azul*.so       62000000   # 0.2.0: 40810244
-aarch64-unknown-linux-gnu       *azul*.so       52000000   # 0.2.0: 34228712
-armv7-unknown-linux-gnueabihf   *azul*.so       53000000   # 0.2.0: 35047524
-powerpc64-unknown-linux-gnu     *azul*.so       76000000   # 0.2.0: 50546888
-s390x-unknown-linux-gnu         *azul*.so       66000000   # 0.2.0: 43603672
-riscv64gc-unknown-linux-gnu     *azul*.so       52000000   # 0.2.0: 34506720
+# 1.8x of 0.2.0 (no current measurement yet, see PROVENANCE).
+i686-unknown-linux-gnu          *azul*.so       74000000   # 0.2.0: 40810244
+aarch64-unknown-linux-gnu       *azul*.so       62000000   # 0.2.0: 34228712
+armv7-unknown-linux-gnueabihf   *azul*.so       64000000   # 0.2.0: 35047524
+powerpc64-unknown-linux-gnu     *azul*.so       91000000   # 0.2.0: 50546888
+s390x-unknown-linux-gnu         *azul*.so       79000000   # 0.2.0: 43603672
+riscv64gc-unknown-linux-gnu     *azul*.so       63000000   # 0.2.0: 34506720
 
 # --- Windows / macOS -------------------------------------------------------
-i686-pc-windows-msvc            *azul*.dll      51000000   # 0.2.0 azuldbg.dll: 33751552
-x86_64-apple-darwin             *azul*.dylib    45000000   # 0.2.0 libazuldbg.dylib: 29570896
+# 1.8x of 0.2.0 (no current measurement yet).
+i686-pc-windows-msvc            *azul*.dll      61000000   # 0.2.0 azuldbg.dll: 33751552
+x86_64-apple-darwin             *azul*.dylib    63000000   # 0.2.0 libazuldbg.dylib: 29570896; sized like libazul.dylib below
 
 # --- Host builds (x86_64 linux), for jobs that opt in ----------------------
-*                               libazuldbg.so   66000000   # 0.2.0: 43543648
-*                               libazul.so      51000000   # 0.2.0 azul.so: 33970016
-*                               libazuldbg.dylib 45000000  # 0.2.0: 29570896
-*                               libazul.dylib   45000000
-*                               azul.so         51000000   # 0.2.0: 33970016 (the C lib)
-*                               azuldbg.dll     51000000   # 0.2.0: 33751552
-*                               azul.dll        51000000   # sized against azuldbg.dll
-*                               azul.pyd        59000000   # 0.2.0: 38763008
-*                               azul.cpython*.so 75000000  # 0.2.0: 49466680
+# libazul.so / libazuldbg.so / azul.so / libazul.a: 1.15x of the 2026-09-07
+# measurement. The rest: 1.8x of 0.2.0 until a run reports them.
+*                               libazuldbg.so   62000000   # 2026-09-07: 53358992 (0.2.0: 43543648)
+*                               libazul.so      61000000   # 2026-09-07: 52851208 (0.2.0: 33970016)
+# No CI measurement for the dylibs yet; a local arm64 dev build (build-dll,
+# debug-server, unstripped) was 54,525,408 on 2026-09-07 and the prod build
+# strips local symbols, so 1.15x of that is a safe first ceiling.
+*                               libazuldbg.dylib 63000000  # local dev 2026-09-07: 54525408 (0.2.0: 29570896)
+*                               libazul.dylib   63000000   # local dev 2026-09-07: 54525408
+# `azul.so` is the PYTHON EXTENSION MODULE (target/prod-release/azul.so, on
+# Linux AND macOS), not the C library — the first version of this line said
+# "the C lib" and sized it like libazul.so, which is why the very first gated
+# run failed it at 137 %.
+*                               azul.so         81000000   # 2026-09-07: 70227720 (python ext, linux)
+*                               azuldbg.dll     61000000   # 0.2.0: 33751552
+*                               azul.dll        61000000   # sized against azuldbg.dll
+*                               azul.pyd        70000000   # 0.2.0: 38763008
+*                               azul.cpython*.so 81000000  # sized against azul.so (0.2.0: 49466680)
 
-# The static archives (`*azul*.a` / `azul*.lib`) are NOT gated yet: the 0.2.0
-# release only published them gzipped, so there is no honest raw number to set
-# a budget from. `check_artifact_size.sh` reports them as UNGATED with their
-# real size - take those numbers from a CI run and add lines here.
+# --- Static archives -------------------------------------------------------
+# 0.2.0 only published these gzipped, so the first honest raw number is the
+# 2026-09-07 CI measurement of the x86_64 linux host build. The cross-compiled
+# `*azul*.a` / `azul*.lib` archives still have no measurement and stay
+# UNGATED (reported with their real size) until a run supplies one.
+*                               libazul.a       530000000  # 2026-09-07: 460124600

@@ -9808,6 +9808,27 @@ pub trait PlatformWindow {
             }
         }
 
+        // RESUMABLE-API COMPLETIONS. A callback in this pass that called
+        // `FileDialog::open_file(.., data, on_result)` (or any other request
+        // function) has its result queued, never invoked re-entrantly; the
+        // outermost pass delivers it now, so the resume runs in the same
+        // frame as the click that asked for it. Outermost only: the pump
+        // itself applies changes through `apply_user_change`, which can run
+        // nested passes, and those must not drain the queue mid-delivery.
+        if depth == 0 {
+            if let Some((resume_result, resume_update)) = self.invoke_completed_requests() {
+                result = result.max(resume_result);
+                if matches!(
+                    resume_update,
+                    azul_core::callbacks::Update::RefreshDom
+                        | azul_core::callbacks::Update::RefreshDomAllWindows
+                ) {
+                    self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                }
+            }
+        }
+
         result
     }
 
@@ -11887,6 +11908,24 @@ pub trait PlatformWindow {
             }
         }
 
+        // Resumable-API completions issued by the timers / writebacks above
+        // (or by an OS delegate that answered a deferred mobile picker since
+        // the last frame) are delivered here, after their requesting
+        // activation has returned and before this frame is rendered.
+        if let Some((resume_changes_result, resume_update)) = self.invoke_completed_requests() {
+            max_changes_result = max_changes_result.max(resume_changes_result);
+            if resume_changes_result != ProcessEventResult::DoNothing {
+                needs_redraw = true;
+            }
+            match resume_update {
+                Update::RefreshDom | Update::RefreshDomAllWindows => {
+                    needs_redraw = true;
+                    needs_layout_regeneration = true;
+                }
+                _ => {}
+            }
+        }
+
         // A timer or thread writeback that committed text (`CreateTextInput`
         // from the E2E harness, an app timer editing a field) owes the
         // post-commit notifications like any other pass; folded into the
@@ -12468,6 +12507,71 @@ pub trait PlatformWindow {
 
     /// Invoke all pending thread callbacks (writeback messages).
     ///
+    /// Deliver every completed resumable-API request (`azul_layout::request`):
+    /// `FileDialog::open_file`, `FilePath::read_bytes`, `HttpRequestConfig::http_get`
+    /// and friends park `{data, on_result}` in the runtime queue and this is
+    /// the pump that resumes them, each as a fresh activation over a fresh
+    /// `CallbackInfo`, with the changes it pushed applied right after it.
+    ///
+    /// Runs in a loop because a resume may issue the next request and, on
+    /// desktop, that request completes synchronously: the follow-up lands in
+    /// the queue while the pump is running and is delivered in the same call,
+    /// FIFO, without recursing. The round cap only guards against an app
+    /// whose resume re-requests forever; the remainder is picked up next
+    /// frame instead of hanging the UI thread.
+    ///
+    /// Called from `process_timers_and_threads` (every frame-driving backend)
+    /// and from the outermost `process_window_events` pass, so a request
+    /// issued from a click resumes before that frame is rendered — the
+    /// documented "on desktop it may run within the same frame" guarantee.
+    ///
+    /// Returns `None` when nothing was delivered.
+    fn invoke_completed_requests(
+        &mut self,
+    ) -> Option<(ProcessEventResult, azul_core::callbacks::Update)> {
+        use azul_layout::callbacks::ExternalSystemCallbacks;
+
+        const MAX_RESUME_ROUNDS: usize = 1024;
+
+        // Automatic Db syncs that are due run first, so their status
+        // callbacks are among the completions delivered below.
+        crate::desktop::extra::sqlite::tick_auto_sync();
+
+        let mut delivered_any = false;
+        let mut changes_result = ProcessEventResult::DoNothing;
+        let mut update = azul_core::callbacks::Update::DoNothing;
+
+        for _ in 0..MAX_RESUME_ROUNDS {
+            let completed = azul_layout::request::take_completed();
+            if completed.is_empty() {
+                break;
+            }
+            self.get_layout_window()?;
+            delivered_any = true;
+
+            let borrows = self.prepare_callback_invocation();
+            let (changes, round_update) = borrows.layout_window.run_completed_requests(
+                completed,
+                &borrows.window_handle,
+                borrows.gl_context_ptr,
+                borrows.system_style.clone(),
+                &ExternalSystemCallbacks::rust_internal(),
+                borrows.previous_window_state,
+                borrows.current_window_state,
+                borrows.renderer_resources,
+            );
+            drop(borrows);
+
+            for change in &changes {
+                let r = self.apply_user_change(change);
+                changes_result = changes_result.max(r);
+            }
+            update.max_self(round_update);
+        }
+
+        delivered_any.then_some((changes_result, update))
+    }
+
     /// This method polls all active threads for completed work and invokes
     /// the writeback callbacks for any threads that have finished.
     ///

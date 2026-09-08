@@ -985,66 +985,6 @@ impl OptionThread {
 }
 
 // ============================================================================
-// Sleep utilities
-// ============================================================================
-
-/// Sleeps the current thread for the specified number of milliseconds.
-///
-/// This is a cross-platform utility that can be called from C/C++/Python.
-///
-/// # Arguments
-/// * `milliseconds` - Number of milliseconds to sleep
-#[cfg(feature = "std")]
-#[must_use]
-pub fn thread_sleep_ms(milliseconds: u64) -> azul_css::corety::EmptyStruct {
-    thread::sleep(std::time::Duration::from_millis(milliseconds));
-    azul_css::corety::EmptyStruct::new()
-}
-
-/// Sleeps the current thread for the specified number of milliseconds (no-op on no_std).
-#[cfg(not(feature = "std"))]
-pub fn thread_sleep_ms(_milliseconds: u64) -> azul_css::corety::EmptyStruct {
-    // No-op on no_std - can't sleep without OS
-    azul_css::corety::EmptyStruct::new()
-}
-
-/// Sleeps the current thread for the specified number of microseconds.
-///
-/// # Arguments
-/// * `microseconds` - Number of microseconds to sleep
-#[cfg(feature = "std")]
-#[must_use]
-pub fn thread_sleep_us(microseconds: u64) -> azul_css::corety::EmptyStruct {
-    thread::sleep(std::time::Duration::from_micros(microseconds));
-    azul_css::corety::EmptyStruct::new()
-}
-
-/// Sleeps the current thread for the specified number of microseconds (no-op on no_std).
-#[cfg(not(feature = "std"))]
-pub fn thread_sleep_us(_microseconds: u64) -> azul_css::corety::EmptyStruct {
-    // No-op on no_std - can't sleep without OS
-    azul_css::corety::EmptyStruct::new()
-}
-
-/// Sleeps the current thread for the specified number of nanoseconds.
-///
-/// # Arguments
-/// * `nanoseconds` - Number of nanoseconds to sleep
-#[cfg(feature = "std")]
-#[must_use]
-pub fn thread_sleep_ns(nanoseconds: u64) -> azul_css::corety::EmptyStruct {
-    thread::sleep(std::time::Duration::from_nanos(nanoseconds));
-    azul_css::corety::EmptyStruct::new()
-}
-
-/// Sleeps the current thread for the specified number of nanoseconds (no-op on no_std).
-#[cfg(not(feature = "std"))]
-pub fn thread_sleep_ns(_nanoseconds: u64) -> azul_css::corety::EmptyStruct {
-    // No-op on no_std - can't sleep without OS
-    azul_css::corety::EmptyStruct::new()
-}
-
-// ============================================================================
 // Generated adversarial tests
 // ============================================================================
 
@@ -1058,7 +998,6 @@ mod autotest_generated {
     use std::{
         collections::{hash_map::DefaultHasher, BTreeMap},
         sync::{Arc, Mutex},
-        time::Instant as StdInstant,
     };
 
     use azul_core::{
@@ -1243,7 +1182,7 @@ mod autotest_generated {
                             $ticks.fetch_add(1, AtomicOrd::SeqCst);
                         }
                         OptionThreadSendMsg::None => {
-                            let _slept = thread_sleep_ms(1);
+                            thread::sleep(std::time::Duration::from_millis(1));
                         }
                     }
                 }
@@ -1928,85 +1867,5 @@ mod autotest_generated {
         let recovered = opt.into_option().expect("Some must round-trip to Some");
         join_worker(&recovered);
         assert!(recovered.ptr.lock().expect("not poisoned").is_finished());
-    }
-
-    // ==================================================================
-    // thread_sleep_* — numeric boundaries
-    // ==================================================================
-
-    #[test]
-    fn thread_sleep_zero_returns_immediately_for_every_unit() {
-        let start = StdInstant::now();
-        assert_eq!(thread_sleep_ms(0), EmptyStruct::new());
-        assert_eq!(thread_sleep_us(0), EmptyStruct::new());
-        assert_eq!(thread_sleep_ns(0), EmptyStruct::new());
-        // A zero sleep must not become an unbounded one.
-        assert!(start.elapsed() < core::time::Duration::from_secs(5));
-        assert_eq!(EmptyStruct::new()._reserved, 0);
-    }
-
-    #[test]
-    fn thread_sleep_sleeps_at_least_the_requested_duration() {
-        // std::thread::sleep guarantees *at least* the requested time.
-        let start = StdInstant::now();
-        let _slept = thread_sleep_ms(5);
-        assert!(start.elapsed() >= core::time::Duration::from_millis(5));
-
-        let start = StdInstant::now();
-        let _slept = thread_sleep_us(5_000);
-        assert!(start.elapsed() >= core::time::Duration::from_micros(5_000));
-
-        let start = StdInstant::now();
-        let _slept = thread_sleep_ns(5_000_000);
-        assert!(start.elapsed() >= core::time::Duration::from_nanos(5_000_000));
-    }
-
-    #[test]
-    fn thread_sleep_one_unit_does_not_panic() {
-        // Smallest non-zero input in each unit: no truncation panic, no overflow.
-        let _ms = thread_sleep_ms(1);
-        let _us = thread_sleep_us(1);
-        let _ns = thread_sleep_ns(1);
-    }
-
-    static MAX_SLEEP_ENTERED: AtomicBool = AtomicBool::new(false);
-    static MAX_SLEEP_PANICKED: AtomicBool = AtomicBool::new(false);
-
-    #[test]
-    fn thread_sleep_max_converts_without_overflow() {
-        // u64::MAX is representable in every Duration constructor these fns use, so
-        // the conversion itself must not overflow-panic ...
-        let _d_ms = core::time::Duration::from_millis(u64::MAX);
-        let _d_us = core::time::Duration::from_micros(u64::MAX);
-        let _d_ns = core::time::Duration::from_nanos(u64::MAX);
-
-        // ... but the *sleep* is genuinely unbounded (~584 million years at MAX), so
-        // it can only be exercised on a detached thread: assert it reaches the sleep
-        // rather than unwinding. Nothing ever joins this thread by design.
-        let _detached = thread::spawn(|| {
-            MAX_SLEEP_ENTERED.store(true, AtomicOrd::SeqCst);
-            if std::panic::catch_unwind(|| {
-                let _slept = thread_sleep_ms(u64::MAX);
-            })
-            .is_err()
-            {
-                MAX_SLEEP_PANICKED.store(true, AtomicOrd::SeqCst);
-            }
-        });
-
-        for _ in 0..200 {
-            if MAX_SLEEP_ENTERED.load(AtomicOrd::SeqCst) {
-                break;
-            }
-            let _slept = thread_sleep_ms(10);
-        }
-        assert!(
-            MAX_SLEEP_ENTERED.load(AtomicOrd::SeqCst),
-            "detached sleeper never started"
-        );
-        assert!(
-            !MAX_SLEEP_PANICKED.load(AtomicOrd::SeqCst),
-            "thread_sleep_ms(u64::MAX) must not panic"
-        );
     }
 }

@@ -85,6 +85,9 @@ examples/csharp/Azul.psm1
 # Java / Kotlin (JVM)
 examples/java/com/
 examples/java/target/
+# maven-shade-plugin rewrites this on every `mvn package` with the <properties>
+# in a different order — a build artifact, not a source (untracked 2026-09-07).
+examples/java/dependency-reduced-pom.xml
 examples/kotlin/Azul.kt
 examples/kotlin/build/
 examples/kotlin/.gradle/

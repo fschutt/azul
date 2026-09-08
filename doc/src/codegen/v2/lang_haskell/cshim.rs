@@ -19,7 +19,7 @@
 //! natural `args -> IO T` shape.
 
 use super::super::config::CodegenConfig;
-use super::super::ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionDef, TypeCategory};
+use super::super::ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionDef};
 
 /// Top-level entry: produce the full `cbits/azul_shims.c` source as a
 /// single string, including the necessary `#include`s.
@@ -64,7 +64,46 @@ pub fn generate_c_shims(ir: &CodegenIR, config: &CodegenConfig) -> String {
         }
         emit_inbound_trampoline(&mut out, cb);
     }
+
+    // Layout oracle: `Azul.Types`' Storable instances take `sizeOf` and
+    // `alignment` from the C compiler instead of guessing. The generated
+    // Haskell used to sum the fields' sizes (no padding: AzApp came out as 9
+    // bytes, sizeof is 16) and to give every tagged union a fixed
+    // `8 + 64` (AzOptionDom is 288 bytes). Anything that `alloca`s a struct
+    // through those instances — the hello-world's buffers included — was
+    // under-allocated and overflowed the stack (2026-09-07). Every struct and
+    // tagged union that gets a real Storable instance (types::should_emit_*)
+    // gets one sizeof/alignof pair here; the header is the single source.
+    out.push_str(
+        "\n\
+         /* ============================================================ */\n\
+         /* Layout oracle for Azul.Types (Storable sizeOf / alignment).   */\n\
+         /* sizeof/_Alignof of every struct and tagged union the Haskell  */\n\
+         /* module declares, so the instances match the C ABI exactly.    */\n\
+         /* ============================================================ */\n\n\
+         #include <stddef.h>\n\n",
+    );
+    for s in &ir.structs {
+        if super::types::should_emit_struct(s, config) && !s.fields.is_empty() {
+            emit_layout_oracle(&mut out, &s.name);
+        }
+    }
+    for e in &ir.enums {
+        if super::types::should_emit_enum(e, config) {
+            emit_layout_oracle(&mut out, &e.name);
+        }
+    }
     out
+}
+
+/// `size_t az_hs_sizeof_<T>(void)` / `size_t az_hs_alignof_<T>(void)` for one
+/// C type `Az<T>` — see the layout-oracle note in `generate_c_shims`.
+fn emit_layout_oracle(out: &mut String, ir_name: &str) {
+    out.push_str(&format!(
+        "size_t az_hs_sizeof_{n}(void) {{ return sizeof(Az{n}); }}\n\
+         size_t az_hs_alignof_{n}(void) {{ return _Alignof(Az{n}); }}\n",
+        n = ir_name
+    ));
 }
 
 /// True if a callback typedef needs an inbound trampoline. We emit one
@@ -264,53 +303,22 @@ fn emit_inbound_trampoline(out: &mut String, cb: &CallbackTypedefDef) {
 
 /// True if a function passes the same inclusion filter as the
 /// foreign-import emitter (so the shim's symbol resolves to the same
-/// libazul export).
+/// libazul export) AND actually needs a shim.
+///
+/// This used to be a hand-copied twin of `functions::should_emit_function`
+/// "kept in lockstep" by a comment, and it drifted: the import side let
+/// declared capabilities (`clone`, `default`, `toDbgString`, `partialEq`) of
+/// RECURSIVE types through, this side only those of `DestructorOrClone`
+/// enums. Result: `foreign import ccall "AzXmlNode_clone_via"` with no
+/// `AzXmlNode_clone_via` in cbits/azul_shims.c, and the ubuntu e2e lane died
+/// at link time with 15 undefined references (`AzXmlNode_clone_via`,
+/// `AzXml_toDbgString_via`, `AzXmlNodeChildVec_clone_via`,
+/// `AzResultXmlXmlError_clone_via`, ...). Two predicates cannot drift when
+/// there is one.
 pub fn should_emit_shim_for(func: &FunctionDef, ir: &CodegenIR, config: &CodegenConfig) -> bool {
-    // Kept in lockstep with `functions::should_emit_function`, as the doc above
-    // says: the foreign-import points at `<c_name>_via`, and that symbol exists
-    // only if THIS function emits the shim. Letting a declared capability past
-    // the `DestructorOrClone` exclusion in one and not the other produces an
-    // `AzXVecDestructor_toDbgString_via` import with nothing to link against.
-    if func.kind.is_declared_capability()
-        && ir
-            .find_enum(&func.class_name)
-            .is_some_and(|e| e.category == TypeCategory::DestructorOrClone)
-    {
-        return config.should_include_type(&func.class_name) && needs_shim(func);
-    }
-    if !config.should_include_type(&func.class_name) {
-        return false;
-    }
-    if let Some(s) = ir.find_struct(&func.class_name) {
-        if matches!(
-            s.category,
-            TypeCategory::Recursive
-                | TypeCategory::VecRef
-                | TypeCategory::DestructorOrClone
-                | TypeCategory::GenericTemplate
-        ) {
-            return false;
-        }
-        if !s.generic_params.is_empty() {
-            return false;
-        }
-    }
-    if let Some(e) = ir.find_enum(&func.class_name) {
-        if matches!(
-            e.category,
-            TypeCategory::Recursive
-                | TypeCategory::DestructorOrClone
-                | TypeCategory::GenericTemplate
-        ) {
-            return false;
-        }
-        if !e.generic_params.is_empty() {
-            return false;
-        }
-    }
     // Only emit a shim when the function actually needs one — primitive-only
     // signatures pass through GHC's FFI natively.
-    needs_shim(func)
+    super::functions::should_emit_function(func, ir, config) && needs_shim(func)
 }
 
 /// Does this function's C-ABI signature have at least one struct-by-value

@@ -1017,6 +1017,67 @@ pub struct Callback {
 
 impl_callback!(Callback, CallbackType);
 
+/// The one callback shape every resumable API resumes into.
+///
+/// `fn(data, info, result) -> Update`:
+///
+/// * `data` is the `RefAny` the app passed to the request function, returned
+///   untouched - the continuation context.
+/// * `info` is an ordinary `CallbackInfo` for this fresh activation.
+/// * `result` is the per-operation RESULT STRUCT, built by the runtime and
+///   type-erased into a `RefAny`. Every result struct has one static
+///   `downcast(result)` accessor (`FileOpenResult::downcast`, ...) that turns
+///   it back into the typed value.
+///
+/// The callback never runs re-entrantly inside the requesting activation. On
+/// desktop it may run within the same frame; on web it always runs on a later
+/// task.
+pub type ResumeCallbackType = extern "C" fn(
+    /* data: the app's context, exactly as submitted */ RefAny,
+    CallbackInfo,
+    /* result: the type-erased result struct */ RefAny,
+) -> Update;
+
+/// Function-pointer + host-context pair a resumable API function stores until
+/// its result exists. See [`ResumeCallbackType`].
+#[repr(C)]
+pub struct ResumeCallback {
+    pub cb: ResumeCallbackType,
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
+    /// Native Rust code sets this to None
+    pub ctx: OptionRefAny,
+}
+
+impl_callback!(ResumeCallback, ResumeCallbackType);
+
+impl ResumeCallback {
+    /// Create a resume callback from a raw `ResumeCallbackType` function
+    /// pointer (ctx = None). A coercion site, like [`Callback::create`].
+    #[must_use]
+    pub const fn create(cb: ResumeCallbackType) -> Self {
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
+    }
+}
+
+// Host-invoker plumbing for the resume callback: managed runtimes pass a
+// closure as `on_result` to every request function, so this wrapper needs
+// the same `createFromHostHandle` / `set...Invoker` pair `Callback` has.
+azul_core::impl_managed_callback! {
+    wrapper:        ResumeCallback,
+    info_ty:        CallbackInfo,
+    return_ty:      Update,
+    default_ret:    Update::DoNothing,
+    invoker_static: RESUME_CALLBACK_INVOKER,
+    invoker_ty:     AzResumeCallbackInvoker,
+    thunk_fn:       az_resume_callback_thunk,
+    setter_fn:      AzApp_setResumeCallbackInvoker,
+    from_handle_fn: AzResumeCallback_createFromHostHandle,
+    extra_args:     [ result: RefAny ],
+}
+
 // Host-invoker plumbing for managed-FFI bindings (Lua, Ruby, Perl, ...).
 // See `azul_core::host_invoker` for the design. This expands to a static
 // `az_callback_thunk` that the framework dispatches by-value args to, an
@@ -4746,47 +4807,6 @@ impl CallbackInfo {
         crate::dialogs::report::crop_png(&full, x, y, w, h).map_err(AzString::from)
     }
 
-    /// Take a screenshot and save it directly to a file
-    ///
-    /// Convenience method that combines `take_screenshot` with file writing.
-    ///
-    /// # Arguments
-    /// * `dom_id` - The DOM to screenshot
-    /// * `path` - The file path to save the PNG to
-    ///
-    /// # Returns
-    /// * `Ok(())` - Screenshot saved successfully
-    /// * `Err(String)` - Error message if rendering or saving failed
-    #[cfg(all(feature = "std", feature = "cpurender"))]
-    /// # Errors
-    ///
-    /// Returns an error message if the screenshot cannot be captured or encoded.
-    pub fn take_screenshot_to_file(&self, dom_id: DomId, path: &str) -> Result<(), AzString> {
-        let png_data = self.take_screenshot(dom_id)?;
-        std::fs::write(path, png_data)
-            .map_err(|e| AzString::from(alloc::format!("Failed to write file: {e}")))?;
-        Ok(())
-    }
-
-    /// Take a native OS-level screenshot of the window including window decorations
-    ///
-    /// **NOTE**: This is a stub implementation. For full native screenshot support,
-    /// use the `NativeScreenshotExt` trait from the `azul-dll` crate, which uses
-    /// runtime dynamic loading (dlopen) to avoid static linking dependencies.
-    ///
-    /// # Returns
-    /// * `Err(String)` - Always returns an error directing to use the extension trait
-    #[cfg(feature = "std")]
-    /// # Errors
-    ///
-    /// Returns an error message if the screenshot cannot be captured or encoded.
-    pub fn take_native_screenshot(&self, _path: &str) -> Result<(), AzString> {
-        Err(AzString::from(
-            "Native screenshot requires the NativeScreenshotExt trait from azul-dll crate. \
-             Import it with: use azul::desktop::NativeScreenshotExt;",
-        ))
-    }
-
     /// Take a native OS-level screenshot and return the PNG data as bytes
     ///
     /// **NOTE**: This is a stub implementation. For full native screenshot support,
@@ -4800,18 +4820,10 @@ impl CallbackInfo {
     ///
     /// Returns an error message if the screenshot cannot be captured or encoded.
     pub fn take_native_screenshot_bytes(&self) -> Result<Vec<u8>, AzString> {
-        // Create a temporary file, take screenshot, read bytes, delete file
-        let temp_path = std::env::temp_dir().join("azul_screenshot_temp.png");
-        let temp_path_str = temp_path.to_string_lossy().to_string();
-
-        self.take_native_screenshot(&temp_path_str)?;
-
-        let bytes = std::fs::read(&temp_path)
-            .map_err(|e| AzString::from(alloc::format!("Failed to read screenshot: {e}")))?;
-
-        drop(std::fs::remove_file(&temp_path));
-
-        Ok(bytes)
+        Err(AzString::from(
+            "Native screenshot requires the NativeScreenshotExt trait from azul-dll crate. \
+             Import it with: use azul::desktop::NativeScreenshotExt;",
+        ))
     }
 
     /// Take a native OS-level screenshot and return as a Base64 data URI

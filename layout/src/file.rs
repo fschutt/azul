@@ -7,7 +7,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use azul_css::{
     impl_option, impl_option_inner, impl_result, impl_result_inner, impl_vec, impl_vec_clone,
-    impl_vec_debug, impl_vec_mut, AzString, EmptyStruct, U8Vec,
+    impl_vec_debug, impl_vec_mut, impl_vec_partialeq, AzString, EmptyStruct, U8Vec,
 };
 use core::fmt;
 
@@ -55,6 +55,13 @@ pub enum FileErrorKind {
     IsFile,
     /// Other error
     Other,
+    /// The operation needs a user gesture and was requested outside one
+    /// (browser pickers and permission prompts only open from a transient
+    /// activation; a request issued from a timer gets this kind).
+    NeedsUserGesture,
+    /// No implementation exists on this engine / target. Distinct from
+    /// `PermissionDenied`, which is a decision, not an absence.
+    Unsupported,
 }
 
 impl FileError {
@@ -683,6 +690,95 @@ impl_option!(
     [Clone, Debug, PartialEq, Eq]
 );
 
+impl_vec!(
+    FilePath,
+    FilePathVec,
+    FilePathVecDestructor,
+    FilePathVecDestructorType,
+    FilePathVecSlice,
+    OptionFilePath
+);
+impl_vec_clone!(FilePath, FilePathVec, FilePathVecDestructor);
+impl_vec_debug!(FilePath, FilePathVec);
+impl_vec_partialeq!(FilePath, FilePathVec);
+impl_vec_mut!(FilePath, FilePathVec);
+
+// ============================================================================
+// Resumable read results
+// ============================================================================
+//
+// `FilePath::read_bytes` / `read_string` / `read_dir` are request functions
+// (see `crate::request`): they return a `RequestId` and resume the caller's
+// `ResumeCallback` with one of these structs, type-erased into a `RefAny`.
+// Each struct has exactly one static `downcast(result)` accessor, which is
+// the binding-portable way to get the typed value back out.
+
+/// Result of [`FilePath::read_bytes`].
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct FileReadBytesResult {
+    pub result: ResultU8VecFileError,
+}
+
+impl_option!(
+    FileReadBytesResult,
+    OptionFileReadBytesResult,
+    copy = false,
+    [Debug, Clone]
+);
+
+impl FileReadBytesResult {
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
+    #[must_use]
+    pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionFileReadBytesResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+}
+
+/// Result of [`FilePath::read_string`].
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct FileReadStringResult {
+    pub result: ResultStringFileError,
+}
+
+impl_option!(
+    FileReadStringResult,
+    OptionFileReadStringResult,
+    copy = false,
+    [Debug, Clone]
+);
+
+impl FileReadStringResult {
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
+    #[must_use]
+    pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionFileReadStringResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+}
+
+/// Result of [`FilePath::read_dir`].
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct FileDirListResult {
+    pub result: ResultDirEntryVecFileError,
+}
+
+impl_option!(
+    FileDirListResult,
+    OptionFileDirListResult,
+    copy = false,
+    [Debug, Clone]
+);
+
+impl FileDirListResult {
+    /// Downcast the `result` `RefAny` delivered to a `ResumeCallback`.
+    #[must_use]
+    pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionFileDirListResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+}
+
 impl Default for FilePath {
     fn default() -> Self {
         Self {
@@ -1016,21 +1112,70 @@ impl FilePath {
         dir_delete_all(self.inner.as_str())
     }
 
-    /// Reads the entire file at this path as bytes
+    /// Reads the entire file at this path as bytes, resuming `on_result`
+    /// with a [`FileReadBytesResult`].
+    ///
+    /// Never blocks the calling activation in an observable way: the read
+    /// happens here on desktop, and the callback runs as a fresh activation
+    /// after the current one returns (same frame on desktop, a later task on
+    /// web). `data` is handed back to the callback untouched.
+    #[cfg(feature = "text_layout")]
+    #[must_use]
+    pub fn read_bytes(
+        &self,
+        data: azul_core::refany::RefAny,
+        on_result: crate::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        let result = self.read_bytes_blocking().into();
+        crate::request::complete(data, on_result, FileReadBytesResult { result })
+    }
+
+    /// Reads the entire file at this path as a string, resuming `on_result`
+    /// with a [`FileReadStringResult`]. See [`Self::read_bytes`].
+    #[cfg(feature = "text_layout")]
+    #[must_use]
+    pub fn read_string(
+        &self,
+        data: azul_core::refany::RefAny,
+        on_result: crate::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        let result = self.read_string_blocking().into();
+        crate::request::complete(data, on_result, FileReadStringResult { result })
+    }
+
+    /// The synchronous read behind [`Self::read_bytes`]. Not part of the
+    /// public API (it cannot exist on web); framework-internal callers that
+    /// are already on a worker thread may use it.
     #[cfg(feature = "std")]
     /// # Errors
     ///
     /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
-    pub fn read_bytes(&self) -> Result<U8Vec, FileError> {
+    pub fn read_bytes_blocking(&self) -> Result<U8Vec, FileError> {
+        // Canned e2e documents (`e2e://...`) are served from the mock store;
+        // every other path is a real file.
+        #[cfg(feature = "text_layout")]
+        if let Some(bytes) = crate::request::mock::take_file_read(self.inner.as_str()) {
+            return Ok(U8Vec::from_vec(bytes));
+        }
         file_read(self.inner.as_str())
     }
 
-    /// Reads the entire file at this path as a string
+    /// The synchronous read behind [`Self::read_string`]; see
+    /// [`Self::read_bytes_blocking`].
     #[cfg(feature = "std")]
     /// # Errors
     ///
     /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
-    pub fn read_string(&self) -> Result<AzString, FileError> {
+    pub fn read_string_blocking(&self) -> Result<AzString, FileError> {
+        #[cfg(feature = "text_layout")]
+        if let Some(bytes) = crate::request::mock::take_file_read(self.inner.as_str()) {
+            return alloc::string::String::from_utf8(bytes)
+                .map(AzString::from)
+                .map_err(|_| FileError {
+                    message: AzString::from_const_str("canned e2e document is not UTF-8"),
+                    kind: FileErrorKind::Other,
+                });
+        }
         file_read_string(self.inner.as_str())
     }
 
@@ -1082,12 +1227,26 @@ impl FilePath {
         self.inner.clone()
     }
 
-    /// Lists directory contents
+    /// Lists directory contents, resuming `on_result` with a
+    /// [`FileDirListResult`]. See [`Self::read_bytes`] for the contract.
+    #[cfg(feature = "text_layout")]
+    #[must_use]
+    pub fn read_dir(
+        &self,
+        data: azul_core::refany::RefAny,
+        on_result: crate::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        let result = self.read_dir_blocking().into();
+        crate::request::complete(data, on_result, FileDirListResult { result })
+    }
+
+    /// The synchronous listing behind [`Self::read_dir`]; see
+    /// [`Self::read_bytes_blocking`].
     #[cfg(feature = "std")]
     /// # Errors
     ///
     /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
-    pub fn read_dir(&self) -> Result<DirEntryVec, FileError> {
+    pub fn read_dir_blocking(&self) -> Result<DirEntryVec, FileError> {
         dir_list(self.inner.as_str())
     }
 
@@ -2155,9 +2314,9 @@ mod autotest_generated {
         assert!(!e.exists());
         assert!(!e.is_file());
         assert!(!e.is_dir());
-        assert!(e.read_bytes().is_err());
-        assert!(e.read_string().is_err());
-        assert!(e.read_dir().is_err());
+        assert!(e.read_bytes_blocking().is_err());
+        assert!(e.read_string_blocking().is_err());
+        assert!(e.read_dir_blocking().is_err());
         assert!(e.metadata().is_err());
         assert!(e.canonicalize().is_err());
         assert!(e.remove_file().is_err());
@@ -2208,7 +2367,7 @@ mod autotest_generated {
         let f = nested.join_str(&AzString::from(String::from("data.bin")));
         let payload = U8Vec::from_vec(vec![0u8, 0xFF, 0x41]);
         assert!(f.write_bytes(&payload).is_ok());
-        assert_eq!(f.read_bytes().expect("read").as_slice(), payload.as_slice());
+        assert_eq!(f.read_bytes_blocking().expect("read").as_slice(), payload.as_slice());
         assert_eq!(f.metadata().expect("meta").size, 3);
         assert_eq!(f.file_name().expect("name").as_str(), "data.bin");
         assert_eq!(f.extension().expect("ext").as_str(), "bin");
@@ -2226,7 +2385,7 @@ mod autotest_generated {
         assert!(!copy.exists());
         assert!(moved.is_file());
 
-        assert_eq!(nested.read_dir().expect("list").len(), 2);
+        assert_eq!(nested.read_dir_blocking().expect("list").len(), 2);
 
         assert!(moved.remove_file().is_ok());
         assert!(f.remove_file().is_ok());
@@ -2247,7 +2406,7 @@ mod autotest_generated {
             .write_string(&AzString::from(String::from("first")))
             .is_ok());
         assert!(f.write_string(&AzString::from(String::from("2"))).is_ok());
-        assert_eq!(f.read_string().expect("read").as_str(), "2");
+        assert_eq!(f.read_string_blocking().expect("read").as_str(), "2");
         assert_eq!(f.metadata().expect("meta").size, 1);
     }
 

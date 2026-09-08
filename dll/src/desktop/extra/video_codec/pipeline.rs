@@ -48,14 +48,55 @@ impl_option!(
     [Clone, Debug]
 );
 
-/// Demux + decode an in-memory MP4, returning the clip or `None` on any error —
-/// the C-ABI-friendly entry point (mirrors [`decode_mp4_h264_bytes`], which
-/// returns a `Result` for Rust callers).
-pub fn decode_mp4_h264(bytes: &[u8]) -> OptionDecodedVideo {
-    match decode_mp4_h264_bytes(bytes) {
+/// Result of [`decode_mp4_h264`]. `video` is `None` on any demux / decode
+/// error.
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct VideoDecodeResult {
+    pub video: OptionDecodedVideo,
+}
+
+impl_option!(
+    VideoDecodeResult,
+    OptionVideoDecodeResult,
+    copy = false,
+    [Clone, Debug]
+);
+
+impl VideoDecodeResult {
+    /// Downcast the `result` RefAny delivered to a `ResumeCallback`.
+    pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionVideoDecodeResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+}
+
+/// Demux + decode an in-memory MP4 (H.264) and resume `on_result` with a
+/// [`VideoDecodeResult`] - the API entry point (mirrors
+/// [`decode_mp4_h264_bytes`], which returns a `Result` for Rust callers).
+/// Decoding a whole clip is inherently asynchronous on web (WebCodecs), so
+/// the answer is delivered as a resume on every target; on desktop the
+/// decode runs here and the callback runs right after the current activation
+/// returns.
+pub fn decode_mp4_h264(
+    bytes: azul_css::U8Vec,
+    data: azul_core::refany::RefAny,
+    on_result: azul_layout::callbacks::ResumeCallback,
+) -> azul_core::task::RequestId {
+    // An e2e scenario can ask for a codec-free answer.
+    if azul_layout::request::mock::video_decode_mocked() {
+        return azul_layout::request::complete(
+            data,
+            on_result,
+            VideoDecodeResult {
+                video: OptionDecodedVideo::None,
+            },
+        );
+    }
+    let video = match decode_mp4_h264_bytes(bytes.as_ref()) {
         Ok(d) => OptionDecodedVideo::Some(d),
         Err(_) => OptionDecodedVideo::None,
-    }
+    };
+    azul_layout::request::complete(data, on_result, VideoDecodeResult { video })
 }
 
 /// Demux + decode an MP4 file at `path`.
@@ -73,7 +114,8 @@ pub fn decode_mp4_h264_bytes(mp4: &[u8]) -> Result<DecodedVideo, String> {
     let mut access_units_fed = 0usize;
     for chunk in &demuxed.chunks {
         // A chunk can yield 0..N frames (pipelining + B-frame reorder); drain all.
-        let mut f = decoder.decode(U8Vec::from_vec(chunk.annexb.clone()));
+        let _accepted = decoder.decode(U8Vec::from_vec(chunk.annexb.clone()));
+        let mut f = decoder.next_frame();
         while let OptionVideoFrame::Some(frame) = f {
             frames.push(frame);
             f = decoder.next_frame();

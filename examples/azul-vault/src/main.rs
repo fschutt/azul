@@ -1,44 +1,51 @@
 //! AzulVault — P4 goal app (SUPER_PLAN_2 §4 P4.4).
 //!
-//! A biometric-gated key/value store, persisted to a local SQLite file via
-//! the public `Db` API. On launch the vault is locked; the Unlock button
-//! drives the OS biometric prompt (`CallbackInfo::request_biometric_auth`)
-//! and `get_biometric_result()` unlocks it once the user authenticates.
-//! Ties P4.1 (biometric) + P4.3 (db-sqlite) together using only the public
-//! `azul::` api.json surface.
+//! A biometric-gated key/value store, persisted through the public `Db`
+//! API: a local-first store whose local working set lives in a file under
+//! the app's data directory (IndexedDB in the browser) and can sync to an
+//! optional backup endpoint. On launch the vault is locked; the Unlock
+//! button drives the OS biometric prompt
+//! (`CallbackInfo::request_biometric_auth`) and `get_biometric_result()`
+//! unlocks it once the user authenticates. Ties P4.1 (biometric) + P4.3
+//! (db) together using only the public `azul::` api.json surface.
 //!
-//! Async caveat (same as AzMaps' locate): the OS prompt resolves on
-//! another thread, so the result is polled on the next Unlock tap — a
-//! Timer-driven auto-unlock is a follow-up. This first cut adds + counts
-//! sample entries; custom key/value text input + a listing view (which
-//! needs the `DbRows`/`DbValue` accessor methods exposed) are P4.4b.
+//! Every read of the store is a request that resumes a callback
+//! (`Db::open` -> `on_db_opened`, `Db::iterate` -> `on_entries`); writes
+//! (`Db::set`) are fire-and-forget and land in the local store immediately.
+//! The same code runs against the browser's asynchronous IndexedDB.
+//!
+//! Async caveat (same as AzMaps' locate): the OS biometric prompt resolves
+//! on another thread, so its result is polled on the next Unlock tap — a
+//! Timer-driven auto-unlock is a follow-up.
 
 use azul::biometric::BiometricPrompt;
 use azul::biometric::BiometricResult;
-use azul::db::{Db, DbValue};
+use azul::db::{Db, DbConfig, DbKeyRange, DbOpenResult, DbRowsResult, DbValue};
+use azul::error::ResultDbDbError;
 use azul::prelude::*;
 
+/// The store every vault entry lives in (`key` -> `value`, both text).
+const ENTRIES: &str = "entries";
+
 struct VaultState {
-    /// SQLite file path — the vault persists here across runs. Stored as a
-    /// plain `String`; converted to `AzString` at the `Db::open` call via
-    /// `.into()` (so no engine handle lives in `RefAny`).
-    db_path: String,
+    /// The open store, once `Db::open` has resumed. A `Db` is a reference
+    /// counted handle, so keeping it in the app state is fine.
+    db: Option<Db>,
     /// Set once the user authenticates; gates the entry UI.
     unlocked: bool,
     /// Transient message shown on the locked screen.
     status: String,
-    /// Entries inserted this session (the file itself persists more).
+    /// Entries inserted this session (the store itself persists more).
     added_count: usize,
-    /// Cached `(key, value)` rows from the last `SELECT`, refreshed on
-    /// unlock + after each add and rendered by `layout`.
+    /// Cached `(key, value)` rows from the last `iterate`, refreshed on
+    /// open + after each add and rendered by `layout`.
     entries: Vec<(String, String)>,
 }
 
 impl VaultState {
     fn new() -> Self {
-        let path = std::env::temp_dir().join("azul-vault.db");
         Self {
-            db_path: path.to_string_lossy().into_owned(),
+            db: None,
             unlocked: false,
             status: String::new(),
             added_count: 0,
@@ -47,27 +54,7 @@ impl VaultState {
     }
 }
 
-/// Open the vault db and read all `(key, value)` rows via the public `Db`
-/// API (`query` → `DbRows` fields → `DbValueVec::as_slice()`). No engine
-/// internals — just the api.json surface.
-fn refresh_entries(s: &mut VaultState) {
-    let db = Db::open(s.db_path.clone());
-    let rows = db.query(
-        "SELECT k, v FROM entries ORDER BY id",
-        Vec::<DbValue>::new(),
-    );
-    let ncols = rows.columns.as_slice().len();
-    let cells = rows.values.as_slice();
-    let mut out = Vec::new();
-    if ncols >= 2 {
-        for row in cells.chunks(ncols) {
-            out.push((cell_text(&row[0]), cell_text(&row[1])));
-        }
-    }
-    s.entries = out;
-}
-
-/// Render a result cell as a display string.
+/// Render a value as a display string.
 fn cell_text(v: &DbValue) -> String {
     match v {
         DbValue::Text(t) => t.as_str().to_string(),
@@ -75,6 +62,11 @@ fn cell_text(v: &DbValue) -> String {
         DbValue::Real(r) => r.to_string(),
         _ => String::new(),
     }
+}
+
+/// Ask the store for every entry; `on_entries` fills the cache.
+fn request_entries(db: &Db, data: RefAny) {
+    let _request = db.iterate(ENTRIES, DbKeyRange::all(), 0, data, on_entries);
 }
 
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%; \
@@ -166,7 +158,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 }
 
 /// Unlock button. Polls for a completed biometric auth (the OS prompt
-/// resolves asynchronously); if none yet, fires a fresh request.
+/// resolves asynchronously); if none yet, fires a fresh request. Once
+/// authenticated it opens the store; `on_db_opened` continues from there.
 extern "C" fn on_unlock(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if let Some(result) = info.get_biometric_result().into_option() {
         match result {
@@ -174,15 +167,10 @@ extern "C" fn on_unlock(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 if let Some(mut s) = data.downcast_mut::<VaultState>() {
                     s.unlocked = true;
                     s.status = String::new();
-                    // Ensure the table exists (idempotent).
-                    let db = Db::open(s.db_path.clone());
-                    let _ = db.execute(
-                        "CREATE TABLE IF NOT EXISTS entries \
-                         (id INTEGER PRIMARY KEY, k TEXT, v TEXT)",
-                        Vec::<DbValue>::new(),
-                    );
-                    refresh_entries(&mut *s);
                 }
+                // The store answers in `on_db_opened` - right after this
+                // callback returns on desktop, a task later in the browser.
+                let _request = Db::open(DbConfig::create("azul-vault"), data.clone(), on_db_opened);
                 return Update::RefreshDom;
             }
             other => {
@@ -214,23 +202,76 @@ extern "C" fn on_unlock(mut data: RefAny, mut info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
-/// Insert a sample secret via the public `Db` API.
-extern "C" fn on_add(mut data: RefAny, _info: CallbackInfo) -> Update {
+/// `Db::open` resumed: keep the handle and load the entries.
+extern "C" fn on_db_opened(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some(opened) = DbOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let db = match opened.result {
+        ResultDbDbError::Ok(db) => db,
+        ResultDbDbError::Err(e) => {
+            if let Some(mut s) = data.downcast_mut::<VaultState>() {
+                s.status = format!("Could not open the vault: {}", e.message.as_str());
+                s.unlocked = false;
+            }
+            return Update::RefreshDom;
+        }
+    };
     if let Some(mut s) = data.downcast_mut::<VaultState>() {
+        s.db = Some(db.clone());
+    }
+    request_entries(&db, data);
+    Update::DoNothing
+}
+
+/// `Db::iterate` resumed: cache the `(key, value)` rows for `layout`.
+extern "C" fn on_entries(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+    let Some(answer) = DbRowsResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    if let Some(e) = answer.error.into_option() {
+        eprintln!("[azul-vault] listing the entries failed: {}", e.as_str());
+        return Update::DoNothing;
+    }
+    let rows = answer.rows;
+    let ncols = rows.columns.as_slice().len();
+    let cells = rows.values.as_slice();
+    let mut out = Vec::new();
+    if ncols >= 2 {
+        for row in cells.chunks(ncols) {
+            out.push((cell_text(&row[0]), cell_text(&row[1])));
+        }
+    }
+    if let Some(mut s) = data.downcast_mut::<VaultState>() {
+        s.entries = out;
+    }
+    Update::RefreshDom
+}
+
+/// Insert a sample secret via the public `Db` API. `set` is fire-and-forget
+/// (the row is visible to the next read immediately); the listing is
+/// refreshed through `on_entries`.
+extern "C" fn on_add(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let db = {
+        let Some(mut s) = data.downcast_mut::<VaultState>() else {
+            return Update::DoNothing;
+        };
+        let Some(db) = s.db.clone() else {
+            s.status = "The vault is not open yet.".to_string();
+            return Update::RefreshDom;
+        };
         let n = s.added_count + 1;
-        let db = Db::open(s.db_path.clone());
-        let affected = db.execute(
-            "INSERT INTO entries (k, v) VALUES (?, ?)",
-            vec![
-                DbValue::Text(format!("entry-{}", n).into()),
-                DbValue::Text(format!("secret-value-{}", n).into()),
-            ],
+        let stored = db.set(
+            ENTRIES,
+            DbValue::Text(format!("entry-{}", n).into()),
+            DbValue::Text(format!("secret-value-{}", n).into()),
         );
-        if affected > 0 {
+        if stored {
             s.added_count = n;
         }
-        refresh_entries(&mut *s);
-    }
+        db
+    };
+    request_entries(&db, data);
     Update::RefreshDom
 }
 

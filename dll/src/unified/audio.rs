@@ -10,6 +10,7 @@ pub use crate::desktop::extra::audio::*;
 // module so the path resolves to `azul_dll::unified::audio::AudioSink`.
 // Includes a `Drop` impl to match the real desktop type's `custom_impl(Drop)`.
 #[cfg(target_arch = "wasm32")]
+use azul_css::impl_option_inner;
 use core::ffi::c_void;
 
 #[cfg(target_arch = "wasm32")]
@@ -66,6 +67,29 @@ impl AudioSink {
     pub fn close(&mut self) {}
 }
 
+/// wasm stub of `AudioDeviceListResult`; layout MUST match the desktop type.
+#[cfg(target_arch = "wasm32")]
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct AudioDeviceListResult {
+    pub devices: AudioDeviceList,
+}
+
+#[cfg(target_arch = "wasm32")]
+azul_css::impl_option!(
+    AudioDeviceListResult,
+    OptionAudioDeviceListResult,
+    copy = false,
+    [Debug, Clone]
+);
+
+#[cfg(target_arch = "wasm32")]
+impl AudioDeviceListResult {
+    pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionAudioDeviceListResult {
+        result.downcast_ref::<Self>().map(|r| r.clone()).into()
+    }
+}
+
 /// wasm stub of `AudioDeviceList` (no enumeration backend on wasm). `#[repr(C)]`
 /// layout MUST match the desktop `audio::AudioDeviceList`.
 #[cfg(target_arch = "wasm32")]
@@ -77,8 +101,15 @@ pub struct AudioDeviceList {
 }
 #[cfg(target_arch = "wasm32")]
 impl AudioDeviceList {
-    /// No audio enumeration on wasm: empty lists.
-    pub fn enumerate() -> AudioDeviceList {
+    /// No audio enumeration on wasm: resumes with empty lists.
+    pub fn enumerate(
+        data: azul_core::refany::RefAny,
+        on_result: azul_layout::callbacks::ResumeCallback,
+    ) -> azul_core::task::RequestId {
+        let devices = Self::enumerate_blocking();
+        azul_layout::request::complete(data, on_result, AudioDeviceListResult { devices })
+    }
+    pub fn enumerate_blocking() -> AudioDeviceList {
         AudioDeviceList {
             outputs: StringVec::from_const_slice(&[]),
             inputs: StringVec::from_const_slice(&[]),

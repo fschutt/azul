@@ -225,8 +225,9 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
             // Decode one access unit per iteration (drain every frame it yields),
             // flushing the reorder buffer after the final chunk.
             if chunk_idx < total {
-                let mut f =
+                let _accepted =
                     decoder.decode(U8Vec::from_vec(demuxed.chunks[chunk_idx].annexb.clone()));
+                let mut f = decoder.next_frame();
                 while let OptionVideoFrame::Some(frame) = f {
                     decoded.push(frame);
                     f = decoder.next_frame();
@@ -351,7 +352,7 @@ fn fetch_ranged(url: &str) -> Option<Vec<u8>> {
     use azul_css::AzString;
     use azul_layout::http::{HttpRequestConfig, ResultU8VecHttpError};
     let cfg = HttpRequestConfig::new().with_header("Range", "bytes=0-");
-    match cfg.download_bytes(AzString::from(url.to_string())) {
+    match cfg.download_bytes_blocking(AzString::from(url.to_string())) {
         ResultU8VecHttpError::Ok(b) => Some(b.as_slice().to_vec()),
         ResultU8VecHttpError::Err(_) => None,
     }

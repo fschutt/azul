@@ -229,8 +229,10 @@ strfmt = ["dep:strfmt", "std"]
 # Widget support (button, text_input, checkbox, etc.)
 widgets = ["text_layout", "strfmt"]
 
-# Extra APIs (native dialogs, file operations)
-extra = ["dep:tfd", "dep:dirs"]
+# Extra APIs (native dialogs, file operations). The dialogs are resumable
+# (`FileDialog::open_file(.., data, on_result)`), so they need the callback
+# machinery of `text_layout`.
+extra = ["dep:tfd", "dep:dirs", "text_layout"]
 
 # Basic text shaping (unicode support, allsorts font parsing)
 # Requires font_loading for font discovery (FcFontCache)
