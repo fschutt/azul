@@ -1970,3 +1970,47 @@ and only that one.
 The general lesson is the one this document keeps relearning: **a plausible size
 is not a verified one.** What caught it was not the number but an invariant —
 three different object counts producing one identical size.
+
+
+# RUN 82: THE LAYOUT CHUNK REPRODUCES, AND THE CORPUS FIGURE SETTLES
+
+The layout module's p0 linked again on a different build:
+
+| | run 81 | run 82 |
+|---|---|---|
+| lazy root | `azwriter::on_browse_clicked` | same |
+| its subtree | 1455 fns / 28.82 MB | 1454 fns / 28.82 MB |
+| eager core | 36.91 of 69.52 MB (−46.9%) | 37.23 of 69.84 MB (−46.7%) |
+| **p0 linked** | **19,522,535 → 2,644,835 br** | **19,721,036 → 2,667,390 br** |
+
+Two builds, 0.85% apart on the compressed p0 — well inside the per-build drift
+that moves 30-100 functions. The layout chunking result is reproducible.
+
+Whole-corpus mirror duplication, complete run: **24,125,376 of 26.9 MB (89.5%)**
+byte-identical to an earlier module's, on the cross-module measure. ⚠ That is
+NOT the actionable number — see below.
+
+Boot clean: `bootstrap complete`, EXCEPTIONS 0, 318 DOM nodes, 585 bytes of body
+text, unmatched dispatches 0. `hydrateStyledDom TRAPPED` appears exactly once,
+which is the control for the restyle fix landing in run 83.
+
+## ⚠ THE DEDUP BUDGET IS SMALLER THAN 89.5%, AND THE REASON IS ORDERING
+
+The cross-module figure counts a segment as duplicate when ANY earlier-lifted
+module shipped it. That encodes the LIFT order as if it were the LOAD order, and
+it is not.
+
+The guarantee only holds for the mini. Every module linked `ImportMemory`
+imports `env.memory` FROM the mini, so the mini is always instantiated first. Two
+callback modules have no such relationship — either can be fetched without the
+other — so a segment shared only between two callbacks must be shipped by both.
+
+`MIRROR-DUP` is therefore now keyed on the mini's segments alone: the mini
+records a baseline and every `ImportMemory` module is measured against it. The
+number that reports is the one that is safe to act on; 89.5% is not.
+
+The dedup itself is implemented behind `AZ_MIRROR_DEDUP=1`, off by default,
+because the failure mode is silent: a dropped segment the guest still reads
+returns zeros, which surfaces as wrong layout or a bad pointer far from the
+mirror, never as a load error. Conflicts — 236 segments / 281,794 bytes that
+genuinely differ at the same address — are never dropped.
