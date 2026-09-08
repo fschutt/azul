@@ -889,28 +889,41 @@ build_apk() {
   local apk_dir="$SITE/ui/alpine/x86_64"
   mkdir -p "$apk_dir"
   cp "$ART"/artifacts-apk/*.apk "$apk_dir/"
-  local cmd='apk index --rewrite-arch x86_64 -o APKINDEX.tar.gz ./*.apk'
+  # --allow-untrusted: nfpm builds the .apk unsigned (there is no signing key
+  # unless AZUL_APK_SIGN_KEY is set), and `apk index` REFUSES an unsigned
+  # package with "UNTRUSTED signature", exit 99 — which is exactly how the
+  # first website deploy that ever reached this channel died. What matters to
+  # a client is the signature on the INDEX, not on the package, and the
+  # install route the site documents already says `apk add --allow-untrusted`.
+  local cmd='apk index --allow-untrusted --rewrite-arch x86_64 -o APKINDEX.tar.gz ./*.apk'
   if [ -n "${AZUL_APK_SIGN_KEY:-}" ]; then
     printf '%s' "$AZUL_APK_SIGN_KEY" | base64 -d > "$apk_dir/azul.rsa"
     cmd="$cmd && apk add -q abuild openssl && abuild-sign -k azul.rsa APKINDEX.tar.gz && openssl rsa -in azul.rsa -pubout -out ../azul.rsa.pub"
   fi
+  # Keep the output: this step used to discard it, so a channel that had never
+  # run once died with a bare "rc=99" and no reason anywhere in the log.
+  local apk_log="$apk_dir/.apk-index.log"
   if command -v apk >/dev/null 2>&1 && [ -z "${AZUL_APK_SIGN_KEY:-}" ]; then
-    ( cd "$apk_dir" && sh -c "$cmd" >/dev/null 2>&1 )
+    ( cd "$apk_dir" && sh -c "$cmd" ) >"$apk_log" 2>&1
   else
     # abuild-sign needs root inside the container for `apk add`; the files it
     # writes are chowned back below.
     if [ -n "${AZUL_APK_SIGN_KEY:-}" ]; then
-      docker run --rm -v "$(cd "$apk_dir" && pwd):/repo" -w /repo alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc sh -c "$cmd" >/dev/null 2>&1
+      docker run --rm -v "$(cd "$apk_dir" && pwd):/repo" -w /repo alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc sh -c "$cmd" >"$apk_log" 2>&1
     else
-      in_distro alpine:3.20 "$apk_dir" sh -c "$cmd" >/dev/null 2>&1
+      in_distro alpine:3.20 "$apk_dir" sh -c "$cmd" >"$apk_log" 2>&1
     fi
   fi
   local rc=$?
   rm -f "$apk_dir/azul.rsa"
   if [ "$rc" -eq 0 ] && [ -s "$apk_dir/APKINDEX.tar.gz" ]; then
+    # The log lives inside the directory we are about to publish: never ship it.
+    rm -f "$apk_log"
     echo "  [apk] built ui/alpine/x86_64/APKINDEX.tar.gz ($(ls "$apk_dir"/*.apk | wc -l | tr -d ' ') package(s)$([ -n "${AZUL_APK_SIGN_KEY:-}" ] && echo ', signed'))"
   else
     echo "::error::[apk] apk index failed (rc=$rc) — the .apk is hosted but 'apk add azul' has no index to find it in"
+    sed 's/^/  [apk] /' "$apk_log" 2>/dev/null | tail -20
+    rm -f "$apk_log"
     return 1
   fi
 }
