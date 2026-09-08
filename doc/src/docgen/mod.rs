@@ -1259,7 +1259,7 @@ pub fn azlin_orb() -> &'static str {
 pub fn azlin_footer() -> String {
     r#"<footer role="contentinfo" class="docs-footer">
     <div class="container">
-      <p><a href="https://en.wikipedia.org/wiki/Ad_maiorem_Dei_gloriam" target="_blank" rel="noopener noreferrer">A.M.D.G.</a> &mdash; Azlin Project 2026</p>
+      <p><a href="https://en.wikipedia.org/wiki/Ad_maiorem_Dei_gloriam" target="_blank" rel="noopener noreferrer">A.M.D.G.</a> - Azlin Project 2026</p>
     </div>
   </footer>
   <script>document.querySelectorAll('.mobile-menu a, .nav-links a').forEach(function(a){a.addEventListener('click',function(){document.body.classList.remove('nav-open');});});</script>
