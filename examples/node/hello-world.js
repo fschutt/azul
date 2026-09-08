@@ -1,7 +1,7 @@
 'use strict';
 
 let azul;
-try { azul = require('azul'); } catch (_) { azul = require('./azul.js'); }
+try { azul = require('./azul.js'); } catch (_) { azul = require('azul'); }
 const {
     App, AppConfig, Button, ButtonType, Dom, Update, WindowCreateOptions,
     refanyCreate, refanyGet,

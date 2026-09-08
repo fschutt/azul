@@ -147,7 +147,6 @@ fn emit_dispatch_state(b: &mut CodeBuilder) {
     b.line("let _hostInvokerInitialized = false;");
     b.line("// One-shot flag: warn only once when a struct-returning callback");
     b.line("// fires on Bun/Deno (no struct writeback there; default is used).");
-    b.line("let _structRetWarnedOnce = false;");
     b.blank();
     b.line("function _allocHandle(value) {");
     b.indent();
@@ -290,8 +289,6 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
             if let Some(koffi_type) = struct_branch_type {
                 b.line("} else if (typeof ret === 'object') {");
                 b.indent();
-                b.line("if (azulFFI.runtime === 'node-koffi') {");
-                b.indent();
                 // Unwrap wrapper-class instances back to their underlying
                 // koffi struct value. Users return `Dom.create_body().with_child(...)`
                 // which is a `Dom` wrapper instance; the koffi-side encode
@@ -300,8 +297,13 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
                 // so we null the `_ptr` to keep the FinalizationRegistry
                 // from double-freeing.
                 b.line("const _raw = (ret && ret._ptr !== undefined) ? ret._ptr : ret;");
+                // Through the adapter's `encodeInto`, not koffi directly:
+                // every runtime implements it (koffi.encode on Node, the
+                // by-value type layer's encoder over an UnsafePointerView /
+                // toArrayBuffer on Deno and Bun), so a struct-returning
+                // callback works on all three.
                 b.line(&format!(
-                    "azulFFI.koffi.encode(outPtr, '{}', _raw);",
+                    "azulFFI.encodeInto(outPtr, '{}', _raw);",
                     koffi_type
                 ));
                 b.line("if (ret && ret._ptr !== undefined && ret.constructor && ret.constructor._registry) {");
@@ -311,21 +313,6 @@ fn emit_init_block(b: &mut CodeBuilder, ir: &CodegenIR) {
                 b.dedent();
                 b.line("}");
                 b.dedent();
-                b.line("} else if (!_structRetWarnedOnce) {");
-                b.indent();
-                b.line("// Bun/Deno: struct-by-value writeback is NOT expressible at");
-                b.line("// this FFI layer — struct-typed C calls collapse to plain");
-                b.line("// pointers (see toBunType/toDenoType in the loaders), so `ret`");
-                b.line("// carries no authentic struct bytes to copy into outPtr. The");
-                b.line("// native thunk pre-filled *outPtr with this kind's default");
-                b.line("// (core/src/host_invoker.rs), so the framework safely uses the");
-                b.line("// default — no memory corruption — but the host's return value");
-                b.line("// is dropped. Ownership therefore STAYS with the JS wrapper");
-                b.line("// (no unregister/null of _ptr here). Warn once.");
-                b.line("_structRetWarnedOnce = true;");
-                b.line("console.error('[azul] warning: struct-returning callbacks (layout/virtual-view) are not supported on ' + azulFFI.runtime + ' (experimental runtime); the framework default return is used instead. Use Node.js (koffi) for full callback support.');");
-                b.dedent();
-                b.line("}");
                 b.dedent();
                 b.line("}");
             } else {
