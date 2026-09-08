@@ -1344,6 +1344,13 @@ const BINDING_FILES: &[BindingFile] = &[
         src: "kotlin/HelloWorld.kt",
         source: BindingSource::Examples,
     },
+    // The release dir is flat and java's pom.xml already owns that name;
+    // the Kotlin Maven route curls this one as `-o pom.xml`.
+    BindingFile {
+        dst: "pom-kotlin.xml",
+        src: "kotlin/pom.xml",
+        source: BindingSource::Examples,
+    },
     BindingFile {
         dst: "hello-world.js",
         src: "node/hello-world.js",

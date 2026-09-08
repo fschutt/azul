@@ -3910,6 +3910,58 @@
                     "displayName": "Kotlin",
                     "install": [
                         {
+                            "id": "linux-maven",
+                            "label": "Maven (Linux)",
+                            "os": [
+                                "linux"
+                            ],
+                            "description": "Maven resolves rs.azul:azul-kotlin from the self-hosted repository at $HOSTNAME/ui/maven (the compiled binding with libazul for Linux, macOS and Windows bundled as JNA resources) and builds one self-contained jar",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -o pom.xml $HOSTNAME/ui/release/$VERSION/pom-kotlin.xml"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.kt"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "mvn -q package"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "java -jar target/hello-world-1.0.0.jar"
+                                }
+                            ]
+                        },
+                        {
+                            "id": "macos-maven",
+                            "label": "Maven (macOS)",
+                            "os": [
+                                "macos"
+                            ],
+                            "description": "Maven resolves rs.azul:azul-kotlin from the self-hosted repository at $HOSTNAME/ui/maven and builds one self-contained jar; macOS needs the JVM's first thread for the window",
+                            "steps": [
+                                {
+                                    "type": "command",
+                                    "content": "curl -o pom.xml $HOSTNAME/ui/release/$VERSION/pom-kotlin.xml"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -O $HOSTNAME/ui/release/$VERSION/HelloWorld.kt"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "mvn -q package"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "java -XstartOnFirstThread -jar target/hello-world-1.0.0.jar"
+                                }
+                            ]
+                        },
+                        {
                             "id": "linux-apt",
                             "label": "Linux (apt)",
                             "os": [
@@ -4056,7 +4108,8 @@
                     ],
                     "bundle": {
                         "Azul.kt": "Azul.kt",
-                        "HelloWorld.kt": "HelloWorld.kt"
+                        "HelloWorld.kt": "HelloWorld.kt",
+                        "pom-kotlin.xml": "pom.xml"
                     }
                 },
                 "lisp": {

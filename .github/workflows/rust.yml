@@ -51,6 +51,9 @@ env:
   # Forces JS actions to Node 24 to silence deprecation warnings.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   AZUL_VERSION: "0.2.0"
+  # The Kotlin compiler that builds rs.azul:azul-kotlin; its consumer pom pins
+  # the matching kotlin-stdlib, and examples/kotlin/pom.xml declares the same.
+  KOTLIN_VERSION: "2.3.21"
   # Prefix for cache keys. When cache_bust is true, run_id forces a clean rebuild.
   CACHE_BUST: ${{ github.event.inputs.cache_bust == 'true' && github.run_id || '' }}
 
@@ -4918,6 +4921,9 @@ jobs:
             need_file maven website/ui/maven/rs/azul/azul/maven-metadata.xml
             need_file maven "website/ui/maven/rs/azul/azul/${AZUL_VERSION}/azul-${AZUL_VERSION}.jar"
             need_file maven "website/ui/maven/rs/azul/azul/${AZUL_VERSION}/azul-${AZUL_VERSION}.pom"
+            need_file maven website/ui/maven/rs/azul/azul-kotlin/maven-metadata.xml
+            need_file maven "website/ui/maven/rs/azul/azul-kotlin/${AZUL_VERSION}/azul-kotlin-${AZUL_VERSION}.jar"
+            need_file maven "website/ui/maven/rs/azul/azul-kotlin/${AZUL_VERSION}/azul-kotlin-${AZUL_VERSION}.pom"
           fi
 
           if have_artifacts artifacts-registry/artifacts-arch; then
@@ -6539,11 +6545,63 @@ jobs:
         working-directory: target/package/maven
         run: mvn -B -ntp package
 
+      # rs.azul:azul-kotlin - the Kotlin binding (Azul.kt) compiled, with the
+      # same JNA native resources as the Java jar. A separate artifact because
+      # both bindings live in package com.azul with the same class names (Dom,
+      # App, AzulHostInvoker, ...): the two jars can never share a classpath,
+      # so the Kotlin jar carries its own natives.
+      - name: Kotlin compiler (rs.azul:azul-kotlin)
+        uses: fwilhe2/setup-kotlin@c061b2b2664e466684327ec98bd4e6f9aa9c2048 # v1 branch, 2026-09-07
+        with:
+          version: "${{ env.KOTLIN_VERSION }}"
+      - name: Build the Kotlin binding jar + its consumer pom
+        run: |
+          set -euo pipefail
+          V="${AZUL_VERSION}"
+          out=target/package/maven/target
+          jna="$(find "$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0" -name 'jna-5.14.0.jar' | head -1)"
+          [ -n "$jna" ] || { echo "::error::jna-5.14.0.jar not in ~/.m2 after the Java build"; exit 1; }
+          kotlinc -J-Xmx4g -cp "$jna" target/codegen/kotlin/Azul.kt -d "$out/azul-kotlin-$V.jar"
+          jar uf "$out/azul-kotlin-$V.jar" -C target/package/maven/src/main/resources .
+          classes="$(unzip -l "$out/azul-kotlin-$V.jar" | grep -cE '\.class$')"
+          [ "$classes" -gt 1000 ] || { echo "::error::azul-kotlin-$V.jar has $classes classes"; exit 1; }
+          cat > "$out/azul-kotlin-$V.pom" <<POM
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project xmlns="http://maven.apache.org/POM/4.0.0"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>rs.azul</groupId>
+            <artifactId>azul-kotlin</artifactId>
+            <version>$V</version>
+            <packaging>jar</packaging>
+            <name>Azul Kotlin Bindings</name>
+            <description>Kotlin (JNA) bindings for the Azul GUI framework, with libazul bundled for Linux, macOS and Windows.</description>
+            <url>https://azul.rs/</url>
+            <licenses><license><name>MIT</name><url>https://opensource.org/licenses/MIT</url></license></licenses>
+            <dependencies>
+              <dependency>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-stdlib</artifactId>
+                <version>${KOTLIN_VERSION}</version>
+              </dependency>
+              <dependency>
+                <groupId>net.java.dev.jna</groupId>
+                <artifactId>jna</artifactId>
+                <version>5.14.0</version>
+              </dependency>
+            </dependencies>
+          </project>
+          POM
+          echo "azul-kotlin-$V.jar: $classes classes + natives"
+
       - name: Upload JAR (artifact)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: maven-jar
-          path: target/package/maven/target/*.jar
+          path: |
+            target/package/maven/target/*.jar
+            target/package/maven/target/*.pom
           if-no-files-found: warn
           retention-days: 7
 
