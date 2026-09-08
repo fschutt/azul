@@ -5360,6 +5360,26 @@ fn inject_user_binary_data_segments(
                                 conflict += 1;
                                 conflict_b += bytes.len();
                                 new_b += bytes.len();
+                                // Name them, not just count them. These are the
+                                // residual risk in the whole dedup idea: pages
+                                // two modules disagree about. A count says how
+                                // big the risk is; the addresses say WHAT it is,
+                                // and whether they cluster in one region (a
+                                // relocated table, a TLS block) or are scattered.
+                                if conflict <= 6 {
+                                    let owner = native_of(*off as usize)
+                                        .and_then(|n| table.nearest_below(n))
+                                        .map(|e| e.canonical_name.clone())
+                                        .unwrap_or_else(|| "(no symbol below)".to_string());
+                                    eprintln!(
+                                        "[azul-web]   MIRROR-CONFLICT ({}): @synth 0x{:x} \
+                                         {} B  near {}",
+                                        output_stem,
+                                        off,
+                                        bytes.len(),
+                                        &owner[..owner.len().min(72)],
+                                    );
+                                }
                             }
                             None => new_b += bytes.len(),
                         }
