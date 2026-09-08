@@ -1461,11 +1461,22 @@ pub fn run_web(
     // startup seconds for a normal (post-wasm-opt) module, but if the module
     // is still huge (opt fell back) drop to q=9 so startup doesn't stall.
     let mini_wasm_br = {
-        let q = if mini_wasm.len() <= 8 * 1024 * 1024 {
-            11
-        } else {
-            9
-        };
+        // The size-aware default is a SERVER-STARTUP choice, not a payload one:
+        // q11 is worth the extra seconds for a normal module, but on a huge one
+        // it stalls startup, so it drops to q9. The mini has been over 8 MiB for
+        // this entire effort, so it has always taken q9 — and q9 is measurably
+        // worse on the wire: 2,564,371 against q11's 2,201,690 on p0's code half,
+        // -14.1%, for about +65 s of one-time compression.
+        //
+        // That trade belongs to whoever deploys, not to the dev server's startup
+        // latency, so `AZ_BROTLI_Q` overrides it. Without the override nothing
+        // changes; with it the payload figure can be measured, and a deployment
+        // that pre-compresses at build time can simply pay the seconds once.
+        let q = std::env::var("AZ_BROTLI_Q")
+            .ok()
+            .and_then(|v| v.parse::<i32>().ok())
+            .filter(|q| (0..=11).contains(q))
+            .unwrap_or(if mini_wasm.len() <= 8 * 1024 * 1024 { 11 } else { 9 });
         let br = server::brotli_compress(&mini_wasm, q);
         if let Some(ref b) = br {
             eprintln!(
