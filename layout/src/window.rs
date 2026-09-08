@@ -7227,6 +7227,80 @@ impl LayoutWindow {
                 node.upsert_inline_css_property(prop.clone());
             }
         }
+        // An IMPERATIVE property change honours a declared `animation` exactly
+        // like a change the reconciler discovers does. `set_css_property` used
+        // to write the new value straight into the property cache, so a widget
+        // that styles itself imperatively — the switch's knob and track, the
+        // checkbox's tick — snapped no matter what it declared: the only place
+        // that ever seeded a `CssTransition` was the DOM diff, which this path
+        // never reaches. Seed the same record here, from the value the node
+        // resolves to RIGHT NOW to the incoming one.
+        //
+        // The new value is still written below. A seeded transition overrides
+        // it back to `from` on its first tick and walks it to `to`, so the
+        // worst case (no tick — see `needs_animation_frame`) is exactly the
+        // snap this path did before, never a property that fails to change.
+        let seeded: Vec<CssTransition> = {
+            let cache = &layout_result.styled_dom.css_property_cache.ptr;
+            let node_data = layout_result.styled_dom.node_data.as_container();
+            let states = layout_result.styled_dom.styled_nodes.as_container();
+            let (Some(nd), Some(state)) = (node_data.get(node_id), states.get(node_id)) else {
+                return ContentChangeResult {
+                    tier: ContentDirtyTier::Unchanged,
+                };
+            };
+            let anims = cache
+                .get_property(nd, &node_id, &state.styled_node_state,
+                    &azul_css::props::property::CssPropertyType::Animation)
+                .and_then(|p| match p {
+                    azul_css::props::property::CssProperty::Animation(v) => v.get_property().cloned(),
+                    _ => None,
+                });
+            match anims {
+                None => Vec::new(),
+                Some(anims) => props
+                    .iter()
+                    .filter_map(|prop| {
+                        let ty = prop.get_type();
+                        // The animation meta-properties are a mode switch, not
+                        // a value to tween.
+                        if matches!(
+                            ty,
+                            azul_css::props::property::CssPropertyType::Animation
+                                | azul_css::props::property::CssPropertyType::AnimationIn
+                                | azul_css::props::property::CssPropertyType::AnimationOut
+                        ) {
+                            return None;
+                        }
+                        // A LIST scopes properties independently; the last
+                        // covering entry wins, web-cascade style.
+                        let anim = anims.as_ref().iter().rev().find(|a| {
+                            a.name.as_str() == "all" || a.name.as_str() == ty.to_str()
+                        })?;
+                        let from = cache
+                            .get_property(nd, &node_id, &state.styled_node_state, &ty)
+                            .cloned()
+                            .unwrap_or_else(|| azul_css::props::property::CssProperty::auto(ty));
+                        if from == *prop {
+                            return None;
+                        }
+                        Some(CssTransition {
+                            node: node_id,
+                            prop_type: ty,
+                            from,
+                            to: prop.clone(),
+                            t: 0.0,
+                            duration_s: anim.duration.millis() as f32 / 1000.0,
+                            delay_s: anim.delay.millis() as f32 / 1000.0,
+                            timing: anim.timing,
+                            scope: ty.relayout_scope(false),
+                            last_color: None,
+                        })
+                    })
+                    .collect(),
+            }
+        };
+
         // The property cache's single write site: the resolver
         // consults user-overridden properties FIRST, so paint changes
         // are visible on the next DL build. The returned restyle result is
@@ -7234,6 +7308,16 @@ impl LayoutWindow {
         let _restyle_result = layout_result
             .styled_dom
             .restyle_user_property(&node_id, &props);
+        // Frame 0 of every seeded transition: hold the node at `from` so the
+        // change does not flash its target before the tween starts, exactly as
+        // the reconcile path does for the transitions IT captures.
+        for tr in &seeded {
+            drop(
+                layout_result
+                    .styled_dom
+                    .restyle_user_property(&tr.node, core::slice::from_ref(&tr.from)),
+            );
+        }
         // Paint-only properties must not charge a layout pass
         // (a per-frame animated colour would re-layout the world).
         let props_vec: azul_css::props::property::CssPropertyVec = props.into();
@@ -7264,6 +7348,16 @@ impl LayoutWindow {
                 // already schedules the rebuild once per frame.
                 self.regenerate_display_list_for_dom(dom_id);
             }
+        }
+
+        // Hand the seeded transitions to the same per-frame driver the
+        // reconcile path feeds (`tick_animations`), now that the borrow on
+        // `layout_results` is over. A retarget of the same property replaces
+        // the older record so a rapid double-toggle does not stack tweens.
+        for tr in seeded {
+            self.css_transitions
+                .retain(|old| !(old.node == tr.node && old.prop_type == tr.prop_type));
+            self.css_transitions.push(tr);
         }
 
         if needs_relayout {
