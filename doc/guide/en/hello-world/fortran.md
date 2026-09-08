@@ -32,23 +32,34 @@ The Fortran binding targets **Fortran 2003+** and talks to the prebuilt
 `libazul` native library through `iso_c_binding`. Everything lives in a
 single generated module, `azul.f90`, which has two layers:
 
-- **`az_*`** — raw `bind(C)` interfaces mirroring `azul.h` one-to-one
-  (`az_dom_create_body()`, `az_button_create(...)`, ...). Structs are
-  passed by value with the exact C size and alignment; tagged unions
-  (every `AzOption*` / `AzResult*` / union type) are emitted as
-  ABI-opaque blobs, because Fortran has no native `union` — you
-  construct and inspect them exclusively through the C-API helper
-  functions, never through field access.
-- **`azul_*`** — a small host-invoker convenience layer on top:
-  `azul_register_<kind>()` turns a `bind(C)` module procedure into an
-  `Az<Kind>Callback` value, and `azul_refany_create()` /
-  `azul_refany_get()` wrap and recover your data model pointer.
+- **the wrapper layer** — what you write against. One derived type per
+  class (`dom_t`, `button_t`, `app_t`, `ref_any_t`, ...) with type-bound
+  procedures (`call app%run(window)`), `character(len=*)` where the API
+  wants a string, plain `integer` for unit enums (`ButtonType_Primary`,
+  `Update_RefreshDom`), and ordinary Fortran procedures for callbacks.
+  Factories are module procedures: `dom_create_body()`,
+  `button_create('Increase counter')`.
+- **`az_*`** — the raw `bind(C)` interfaces mirroring `azul.h`
+  one-to-one, underneath. You need them only for something the wrapper
+  layer does not cover: tagged unions (every `AzOption*` / `AzResult*`
+  type) are ABI-opaque blobs because Fortran has no native `union`, so
+  you construct and inspect those through the C-API helper functions.
 
-Callbacks dispatch through libazul's host-invoker plumbing: each
-registered procedure gets a handle id, and when the framework fires the
-callback it calls back into a per-kind invoker inside `azul.f90` that
-looks the procedure up and invokes it. You wire those invokers up once
-at startup with `azul_host_invoker_init()`.
+`use azul` is the only `use` a program needs — the module re-exports the
+`iso_c_binding` entities as well, so reaching down to the raw layer
+costs no extra import.
+
+The `_t` suffix on wrapper types is not decoration. Fortran folds case,
+so a type named `Dom` makes `type(Dom) :: dom` — the natural variable
+name — a redeclaration of the type itself. `type(dom_t) :: dom` is the
+ordinary spelling.
+
+Callbacks are ordinary module functions matching a generated abstract
+interface. Registration is implicit: hand the procedure to the method
+that takes it, and the binding stores it in a handle table, hands
+libazul the id, and dispatches back through a generated `bind(C)`
+invoker when the event fires. There is no init call to forget, no
+`c_funloc`, and no out-pointer to write.
 
 ## Installation
 
@@ -93,169 +104,120 @@ This is the complete, verified `hello_world.f90` (the same file the
 install step downloads):
 
 ```fortran
-! Full-GUI Fortran hello-world: counter label + "Increase counter" button.
-!
-! Build & run:  make && ./hello_world     (Makefile ships next to azul.f90)
-!
-! Callbacks go through azul.f90's host-invoker dispatch: register a
-! bind(C) module procedure via azul_register_<kind>() and the returned
-! Az<Kind>Callback value round-trips its handle id back into the
-! registered procedure. Callbacks MUST live in a module (not as internal
-! procedures) so c_funloc() needs no executable-stack trampoline.
-
 module hello_impl
-  use, intrinsic :: iso_c_binding
   use azul
   implicit none
 
   type :: t_model
     integer :: counter = 5
   end type t_model
-  type(t_model), target, save :: model
 
 contains
 
-  function mk_str(s) result(r)
-    character(len=*), intent(in) :: s
-    type(AzString) :: r
-    character(kind=c_char), dimension(max(len(s), 1)), target :: buf
-    integer :: i
-    do i = 1, len(s)
-      buf(i) = s(i:i)
-    end do
-    ! AzString_fromUtf8 copies the bytes, so the automatic buffer is fine.
-    r = az_string_from_utf8(c_loc(buf(1)), int(len(s), c_size_t))
-  end function mk_str
+  function layout(data, info) result(body)
+    type(ref_any_t), intent(inout) :: data
+    type(layout_callback_info_t), intent(inout) :: info
+    type(dom_t) :: body
+    class(*), pointer :: model
+    type(dom_t) :: label
+    type(button_t) :: button
+    character(len=16) :: text
 
-  ! ButtonOnClick user callback: bump the counter, request a DOM refresh.
-  ! arg0 = AzRefAny* (model handle), arg1 = CallbackInfo*, out_ptr = AzUpdate*.
-  subroutine my_on_click(arg0, arg1, out_ptr) bind(C)
-    type(c_ptr), value :: arg0, arg1, out_ptr
-    type(c_ptr) :: praw
-    type(t_model), pointer :: m
-    integer(c_int), pointer :: update_out
-    praw = azul_refany_get(arg0)
-    if (c_associated(praw)) then
-      call c_f_pointer(praw, m)
-      m%counter = m%counter + 1
-    end if
-    if (c_associated(out_ptr)) then
-      call c_f_pointer(out_ptr, update_out)
-      update_out = AzUpdate_RefreshDom
-    end if
-    if (c_associated(arg1)) return
-  end subroutine my_on_click
+    model => data%get()
+    select type (model)
+    type is (t_model)
+      write (text, '(I0)') model%counter
+    class default
+      text = '?'
+    end select
 
-  ! Layout user callback: build body > [ div.font-size-32 > text(counter),
-  ! button ]. arg0 = AzRefAny*, arg1 = LayoutCallbackInfo*, out_ptr = AzDom*.
-  subroutine my_layout(arg0, arg1, out_ptr) bind(C)
-    type(c_ptr), value :: arg0, arg1, out_ptr
-    type(c_ptr) :: praw
-    type(t_model), pointer :: m
-    type(AzDom), pointer :: dom_out
-    type(AzDom) :: body, label_wrap
-    type(AzButton) :: btn
-    type(AzButtonOnClickCallback) :: click_cb
-    type(AzRefAny) :: click_data
-    character(len=32) :: num
-    body = az_dom_create_body()
-    praw = azul_refany_get(arg0)
-    if (c_associated(praw)) then
-      call c_f_pointer(praw, m)
-      write (num, '(I0)') m%counter
+    label = dom_create_p_with_text(trim(text))
+    call label%with_css('font-size: 32px;')
 
-      label_wrap = az_dom_create_div()
-      label_wrap = az_dom_with_css(label_wrap, mk_str('font-size: 32px;'))
-      label_wrap = az_dom_with_child(label_wrap, &
-                                     az_dom_create_span_with_text(mk_str(trim(num))))
+    button = button_create('Increase counter')
+    call button%with_button_type(ButtonType_Primary)
+    call button%with_on_click(data, on_click)
 
-      click_cb = azul_register_buttononclickcallback(my_on_click)
-      click_data = azul_refany_create(c_loc(model))
-      btn = az_button_create(mk_str('Increase counter'))
-      btn = az_button_with_button_type(btn, AzButtonType_Primary)
-      btn = az_button_with_on_click(btn, click_data, click_cb)
+    body = dom_create_body()
+    call body%with_child(label)
+    call body%with_child(button%dom())
+  end function layout
 
-      body = az_dom_with_child(body, label_wrap)
-      body = az_dom_with_child(body, az_button_dom(btn))
-    end if
-    if (c_associated(out_ptr)) then
-      call c_f_pointer(out_ptr, dom_out)
-      dom_out = body
-    end if
-    if (c_associated(arg1)) return
-  end subroutine my_layout
+  function on_click(data, info) result(update)
+    type(ref_any_t), intent(inout) :: data
+    type(callback_info_t), intent(inout) :: info
+    integer :: update
+    class(*), pointer :: model
+
+    model => data%get()
+    select type (model)
+    type is (t_model)
+      model%counter = model%counter + 1
+    end select
+    update = Update_RefreshDom
+  end function on_click
 
 end module hello_impl
 
 program hello_world
-  use, intrinsic :: iso_c_binding
   use azul
   use hello_impl
   implicit none
 
-  ! NB: Fortran is case-insensitive — `app` would collide with the
-  ! wrapper type `App` exported by the azul module.
-  type(AzRefAny) :: app_data
-  type(AzLayoutCallback) :: layout_cb
-  type(AzWindowCreateOptions) :: wco
-  type(AzApp), target :: the_app
+  type(app_t) :: app
+  type(window_create_options_t) :: window
 
-  print '(A)', '[azul] Fortran full-GUI hello-world starting.'
-
-  call azul_host_invoker_init()
-
-  app_data = azul_refany_create(c_loc(model))
-  layout_cb = azul_register_layoutcallback(my_layout)
-
-  wco = az_window_create_options_default()
-  wco%window_state%layout_callback = layout_cb
-  wco%window_state%title = mk_str('Hello World')
-
-  the_app = az_app_create(app_data, az_app_config_create())
-  call az_app_run(c_loc(the_app), wco)
+  app = app_create(ref_any_create(t_model(5)), app_config_create())
+  window = window_create_options_create(layout)
+  call app%run(window)
 end program hello_world
 ```
 
 Six things to notice.
 
-- **Callbacks are `bind(C)` module procedures.** They MUST live in a
-  module, not as internal procedures of the main program: `c_funloc()`
-  on a module procedure yields a plain C function pointer, while an
-  internal procedure would require a compiler-generated
-  executable-stack trampoline that crashes on hardened systems.
-- **`azul_host_invoker_init()`** — call it once, before `az_app_run`.
-  It hands libazul the Fortran-side invoker for every callback kind
-  (layout, button-click, checkbox-toggle, ...) plus the handle
-  releaser. Skip it and no callback ever fires: the window opens but
-  stays blank.
-- **`azul_register_<kind>(proc)`** — stores `c_funloc(proc)` in a
-  handle table and returns the `Az<Kind>Callback` value you pass to the
-  framework (`azul_register_layoutcallback` for the window,
-  `azul_register_buttononclickcallback` for the button). When the event
-  fires, libazul calls the registered invoker with the handle id, which
-  looks up your procedure and calls it.
-- **`azul_refany_create(c_loc(model))` / `azul_refany_get(arg0)`** —
-  the RefAny round-trip. `azul_refany_create` wraps a raw `c_ptr` to
-  your model (which must be a `target, save` variable so the address
-  stays valid for the app's lifetime); inside a callback,
-  `azul_refany_get` recovers the raw pointer and `c_f_pointer` turns it
-  back into a typed Fortran pointer.
-- **Results go out through `out_ptr`.** User callbacks are
-  `subroutine`s, not `function`s: the framework passes an out-pointer
-  (`AzUpdate*` for click callbacks, `AzDom*` for layout callbacks) and
-  the invoker reads whatever you wrote there. Always write it on every
-  path — `update_out = AzUpdate_RefreshDom` queues a re-layout,
-  `AzUpdate_DoNothing` (or writing nothing at all: don't) skips it.
-- **`mk_str` copies.** `az_string_from_utf8` copies the bytes into an
-  owned, refcounted `AzString`, so building it from a stack-local
-  character buffer is fine. There is no `character(*)`-taking overload
-  in the binding yet; `mk_str` is the four-line idiom to write once per
-  project.
+- **Callbacks are ordinary module functions.** `layout` and `on_click`
+  take wrapper types and RETURN their result — no `bind(C)`, no
+  `type(c_ptr)` dummies, no out-pointer to write. Each one matches a
+  generated `abstract interface` (`layout_callback_iface`,
+  `button_on_click_callback_iface`), so the compiler checks the shape
+  for you. They must live in a MODULE rather than as internal
+  procedures of the main program; an internal procedure would need a
+  compiler-generated executable-stack trampoline that crashes on
+  hardened systems.
+- **The intents are part of the interface.** `data` and `info` are
+  `intent(inout)` because a method that mutates the receiver needs it,
+  and Fortran requires a procedure's dummy characteristics to match the
+  abstract interface exactly. Copy the three declaration lines from the
+  example; a mismatch is a compile error, not a runtime surprise.
+- **Registration is implicit.** `call button%with_on_click(data, on_click)`
+  and `window_create_options_create(layout)` take the procedure itself;
+  the binding stores it in a handle table, hands libazul the id, and
+  dispatches back through a generated invoker. There is no
+  `host_invoker_init` to call and therefore none to forget — the first
+  handle installs the releaser and every per-kind invoker.
+- **`ref_any_create(t_model(5))` / `data%get()`** — the model
+  round-trip. `ref_any_create` takes anything (`class(*)`) and COPIES
+  it into the binding-owned handle table, so the model needs no
+  `target, save` and cannot dangle; the table frees it when libazul
+  drops the last clone of the `RefAny`. Inside a callback `data%get()`
+  returns a `class(*), pointer` to that copy — `select type` recovers
+  the concrete type, and writes through it persist.
+- **Builders mutate in place.** A method that consumes `self` and
+  returns `Self` (`with_css`, `with_child`, `with_button_type`) is
+  emitted as a SUBROUTINE, so it reads `call label%with_css('...')`
+  rather than `label = label%with_css('...')`. Methods that return
+  something else stay functions: `button%dom()` hands the button's DOM
+  back and marks the button consumed.
+- **Strings are `character`.** Arguments are `character(len=*)` and
+  results are `character(len=:), allocatable`; the binding does the
+  `AzString` marshalling. Unit enums are plain `integer` constants with
+  no `Az` prefix (`ButtonType_Primary`, `Update_RefreshDom`), and
+  booleans are `logical`.
 
-Also note the naming comment in the main program: Fortran is
-case-insensitive, so a variable named `app` collides with the `App`
-wrapper type exported by the `azul` module. Prefix your locals
-(`the_app`, `app_data`) to stay clear.
+Nothing here needs `target`, `save`, `c_loc`, `c_f_pointer`, or a
+`use, intrinsic :: iso_c_binding` line. If you do reach for the raw
+`az_*` layer, `use azul` already re-exports those `iso_c_binding`
+entities.
 
 ## Build and run
 
@@ -268,8 +230,8 @@ DYLD_LIBRARY_PATH=. ./hello_world   # macOS
 You should see the window pictured on the
 [hello-world landing page](..md): the label renders "5",
 and every click on the button increments it — the click callback bumps
-`model%counter`, returns `AzUpdate_RefreshDom`, and the framework
-re-runs `my_layout` with the new value.
+`model%counter`, returns `Update_RefreshDom`, and the framework
+re-runs `layout` with the new value.
 
 To run the same headless counter scenario the CI uses:
 
@@ -287,16 +249,18 @@ AZ_E2E=path/to/hello_world_counter.json AZ_BACKEND=headless make run
   The shipped Makefile works around it; in your own Makefile set
   `FC = gfortran` explicitly (a plain `FC ?=` does *not* override the
   builtin).
-- **Window opens but the button does nothing / stays blank** — you
-  forgot `call azul_host_invoker_init()` before `az_app_run`, so
-  libazul has no way to dispatch into Fortran.
-- **Counter renders but never updates** — the click callback did not
-  write `AzUpdate_RefreshDom` through `out_ptr` (or wrote nothing:
-  the out-value is read by the framework, leaving it unwritten is
-  undefined). Write the out-pointer on every code path.
-- **Segfault inside a callback** — the model was not declared
-  `target, save`, so `c_loc(model)` went stale; or the callback is an
-  internal procedure instead of a module procedure.
+- **"Interface mismatch in dummy procedure"** — your callback's
+  declarations do not match the abstract interface. The dummy TYPES,
+  the INTENTS and the result type all have to agree; copy them from the
+  example or read the `abstract interface` block in `azul.f90`.
+- **Counter renders but never updates** — the click callback returned
+  something other than `Update_RefreshDom`. `Update_DoNothing` skips
+  the re-layout.
+- **Segfault inside a callback** — the callback is an internal
+  procedure of the main program instead of a module procedure.
+- **`type(dom_t) :: dom` errors on the type name** — you dropped the
+  `_t`. Fortran folds case, so the wrapper types carry the suffix
+  precisely so the obvious variable name stays free.
 - **macOS: `dyld: Library not loaded: libazul.dylib`** — the Makefile's
   `$ORIGIN` rpath is Linux-only. Run with `DYLD_LIBRARY_PATH=.` or
   rewrite the install name with `install_name_tool`.

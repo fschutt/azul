@@ -1,103 +1,67 @@
 module hello_impl
-  use, intrinsic :: iso_c_binding
   use azul
   implicit none
 
   type :: t_model
     integer :: counter = 5
   end type t_model
-  type(t_model), target, save :: model
 
 contains
 
-  function mk_str(s) result(r)
-    character(len=*), intent(in) :: s
-    type(AzString) :: r
-    character(kind=c_char), dimension(max(len(s), 1)), target :: buf
-    integer :: i
-    do i = 1, len(s)
-      buf(i) = s(i:i)
-    end do
+  function layout(data, info) result(body)
+    type(ref_any_t), intent(inout) :: data
+    type(layout_callback_info_t), intent(inout) :: info
+    type(dom_t) :: body
+    class(*), pointer :: model
+    type(dom_t) :: label
+    type(button_t) :: button
+    character(len=16) :: text
 
-    r = az_string_from_utf8(c_loc(buf(1)), int(len(s), c_size_t))
-  end function mk_str
+    model => data%get()
+    select type (model)
+    type is (t_model)
+      write (text, '(I0)') model%counter
+    class default
+      text = '?'
+    end select
 
-  subroutine my_on_click(arg0, arg1, out_ptr) bind(C)
-    type(c_ptr), value :: arg0, arg1, out_ptr
-    type(c_ptr) :: praw
-    type(t_model), pointer :: m
-    integer(c_int), pointer :: update_out
-    praw = azul_refany_get(arg0)
-    if (c_associated(praw)) then
-      call c_f_pointer(praw, m)
-      m%counter = m%counter + 1
-    end if
-    if (c_associated(out_ptr)) then
-      call c_f_pointer(out_ptr, update_out)
-      update_out = AzUpdate_RefreshDom
-    end if
-    if (c_associated(arg1)) return
-  end subroutine my_on_click
+    label = dom_create_p_with_text(trim(text))
+    call label%with_css('font-size: 32px;')
 
-  subroutine my_layout(arg0, arg1, out_ptr) bind(C)
-    type(c_ptr), value :: arg0, arg1, out_ptr
-    type(c_ptr) :: praw
-    type(t_model), pointer :: m
-    type(AzDom), pointer :: dom_out
-    type(AzDom) :: body, label_dom
-    type(AzButton) :: btn
-    type(AzButtonOnClickCallback) :: click_cb
-    type(AzRefAny) :: click_data
-    character(len=32) :: num
-    body = az_dom_create_body()
-    praw = azul_refany_get(arg0)
-    if (c_associated(praw)) then
-      call c_f_pointer(praw, m)
-      write (num, '(I0)') m%counter
+    button = button_create('Increase counter')
+    call button%with_button_type(ButtonType_Primary)
+    call button%with_on_click(data, on_click)
 
-      label_dom = az_dom_create_p_with_text(mk_str(trim(num)))
-      label_dom = az_dom_with_css(label_dom, mk_str('font-size: 32px;'))
+    body = dom_create_body()
+    call body%with_child(label)
+    call body%with_child(button%dom())
+  end function layout
 
-      click_cb = azul_register_buttononclickcallback(my_on_click)
-      click_data = azul_refany_create(c_loc(model))
-      btn = az_button_create(mk_str('Increase counter'))
-      btn = az_button_with_button_type(btn, AzButtonType_Primary)
-      btn = az_button_with_on_click(btn, click_data, click_cb)
+  function on_click(data, info) result(update)
+    type(ref_any_t), intent(inout) :: data
+    type(callback_info_t), intent(inout) :: info
+    integer :: update
+    class(*), pointer :: model
 
-      body = az_dom_with_child(body, label_dom)
-      body = az_dom_with_child(body, az_button_dom(btn))
-    end if
-    if (c_associated(out_ptr)) then
-      call c_f_pointer(out_ptr, dom_out)
-      dom_out = body
-    end if
-    if (c_associated(arg1)) return
-  end subroutine my_layout
+    model => data%get()
+    select type (model)
+    type is (t_model)
+      model%counter = model%counter + 1
+    end select
+    update = Update_RefreshDom
+  end function on_click
 
 end module hello_impl
 
 program hello_world
-  use, intrinsic :: iso_c_binding
   use azul
   use hello_impl
   implicit none
 
-  type(AzRefAny) :: app_data
-  type(AzLayoutCallback) :: layout_cb
-  type(AzWindowCreateOptions) :: wco
-  type(AzApp), target :: the_app
+  type(app_t) :: app
+  type(window_create_options_t) :: window
 
-  print '(A)', '[azul] Fortran full-GUI hello-world starting.'
-
-  call azul_host_invoker_init()
-
-  app_data = azul_refany_create(c_loc(model))
-  layout_cb = azul_register_layoutcallback(my_layout)
-
-  wco = az_window_create_options_default()
-  wco%window_state%layout_callback = layout_cb
-  wco%window_state%title = mk_str('Hello World')
-
-  the_app = az_app_create(app_data, az_app_config_create())
-  call az_app_run(c_loc(the_app), wco)
+  app = app_create(ref_any_create(t_model(5)), app_config_create())
+  window = window_create_options_create(layout)
+  call app%run(window)
 end program hello_world
