@@ -38,7 +38,7 @@ static AzString str(const char* s) {
 
 static AzDom cell(const char* text, const char* css) {
     AzDom d = AzDom_createDiv();
-    AzDom_addChild(&d, AzDom_createPWithText(str(text)));
+    AzDom_addChild(&d, AzDom_createSpanWithText(str(text)));
     AzDom_setCss(&d, str(css));
     return d;
 }
@@ -88,7 +88,7 @@ AzVirtualViewReturn render_rows(AzRefAny data, AzVirtualViewCallbackInfo info) {
 
     AzDom container = AzDom_createDiv();
 
-    char css[320];
+    char css[384];
     char text[64];
 
     for (int i = 0; i < count; i++) {
@@ -103,7 +103,7 @@ AzVirtualViewReturn render_rows(AzRefAny data, AzVirtualViewCallbackInfo info) {
 
         snprintf(text, sizeof(text), "%d", row_idx + 1);
         snprintf(css, sizeof(css),
-            "width: %.0fpx; min-width: %.0fpx; height: %.0fpx; line-height: %.0fpx; "
+            "box-sizing: border-box; width: %.0fpx; min-width: %.0fpx; height: %.0fpx; line-height: %.0fpx; "
             "text-align: center; font-size: 11px; color: #444444; background: #eceff4; "
             "border-right: 1px solid #b6bcc6; border-bottom: 1px solid #d7dbe2;",
             ROW_HEAD_WIDTH, ROW_HEAD_WIDTH, ROW_HEIGHT, ROW_HEIGHT);
@@ -113,7 +113,7 @@ AzVirtualViewReturn render_rows(AzRefAny data, AzVirtualViewCallbackInfo info) {
             cell_text(text, sizeof(text), row_idx, c);
             const char* align = (c >= 3) ? "right" : "left";
             snprintf(css, sizeof(css),
-                "width: %.0fpx; min-width: %.0fpx; height: %.0fpx; line-height: %.0fpx; "
+                "box-sizing: border-box; width: %.0fpx; min-width: %.0fpx; height: %.0fpx; line-height: %.0fpx; "
                 "padding-left: 6px; padding-right: 6px; font-size: 12px; color: #1f2933; "
                 "text-align: %s; overflow: hidden; "
                 "border-right: 1px solid #d7dbe2; border-bottom: 1px solid #d7dbe2;",
@@ -144,11 +144,11 @@ static AzDom column_header(void) {
         "display: flex; flex-direction: row; background: #dfe3ea; "
         "border-bottom: 1px solid #9aa2ae;"));
 
-    char css[320];
+    char css[384];
     char text[64];
 
     snprintf(css, sizeof(css),
-        "width: %.0fpx; min-width: %.0fpx; height: 24px; line-height: 24px; "
+        "box-sizing: border-box; width: %.0fpx; min-width: %.0fpx; height: 24px; line-height: 24px; "
         "border-right: 1px solid #9aa2ae; background: #d3d8e0;",
         ROW_HEAD_WIDTH, ROW_HEAD_WIDTH);
     AzDom_addChild(&header, cell("", css));
@@ -156,7 +156,7 @@ static AzDom column_header(void) {
     for (int c = 0; c < COL_COUNT; c++) {
         snprintf(text, sizeof(text), "%s   %s", COL_LABELS[c], COL_TITLES[c]);
         snprintf(css, sizeof(css),
-            "width: %.0fpx; min-width: %.0fpx; height: 24px; line-height: 24px; "
+            "box-sizing: border-box; width: %.0fpx; min-width: %.0fpx; height: 24px; line-height: 24px; "
             "padding-left: 6px; font-size: 11px; font-weight: bold; color: #33404f; "
             "overflow: hidden; border-right: 1px solid #9aa2ae;",
             COL_WIDTH, COL_WIDTH);
@@ -171,7 +171,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     char buf[96];
     snprintf(buf, sizeof(buf), "Sheet1  -  %d rows x %d columns", TOTAL_ROWS, COL_COUNT);
     AzDom title = AzDom_createDiv();
-    AzDom_addChild(&title, AzDom_createPWithText(str(buf)));
+    AzDom_addChild(&title, AzDom_createSpanWithText(str(buf)));
     AzDom_setCss(&title, str(
         "padding: 8px 12px; background: #217346; color: white; "
         "font-size: 13px; font-weight: bold;"));
@@ -182,7 +182,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "background: #ffffff;"));
 
     AzDom status = AzDom_createDiv();
-    AzDom_addChild(&status, AzDom_createPWithText(
+    AzDom_addChild(&status, AzDom_createSpanWithText(
         str("Ready   -   only the visible band of cells exists in the DOM")));
     AzDom_setCss(&status, str(
         "padding: 4px 12px; background: #f1f3f6; border-top: 1px solid #c9ced6; "
