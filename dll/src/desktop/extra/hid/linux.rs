@@ -183,7 +183,7 @@ pub fn feature_report(instance: u64, report_id: u8, len: usize) -> Option<Vec<u8
         let n = unsafe {
             libc::ioctl(
                 dev.fd,
-                hidiocgfeature(len as u32) as libc::c_ulong,
+                hidiocgfeature(len as u32) as libc::Ioctl,
                 buf.as_mut_ptr(),
             )
         };
@@ -226,7 +226,7 @@ fn open_device(path: &std::path::Path) -> Option<OpenDevice> {
     if unsafe {
         libc::ioctl(
             fd,
-            HIDIOCGRAWINFO as libc::c_ulong,
+            HIDIOCGRAWINFO as libc::Ioctl,
             std::ptr::addr_of_mut!(devinfo),
         )
     } < 0
@@ -238,7 +238,7 @@ fn open_device(path: &std::path::Path) -> Option<OpenDevice> {
     let name = if unsafe {
         libc::ioctl(
             fd,
-            hidiocgrawname(NAME_BUF as u32) as libc::c_ulong,
+            hidiocgrawname(NAME_BUF as u32) as libc::Ioctl,
             name_buf.as_mut_ptr(),
         )
     } >= 0
@@ -261,7 +261,7 @@ fn open_device(path: &std::path::Path) -> Option<OpenDevice> {
     let serial = if unsafe {
         libc::ioctl(
             fd,
-            hidiocgrawuniq(NAME_BUF as u32) as libc::c_ulong,
+            hidiocgrawuniq(NAME_BUF as u32) as libc::Ioctl,
             uniq_buf.as_mut_ptr(),
         )
     } >= 0
@@ -298,7 +298,7 @@ fn read_top_level_usage(fd: i32) -> Option<(u16, u16)> {
     if unsafe {
         libc::ioctl(
             fd,
-            HIDIOCGRDESCSIZE as libc::c_ulong,
+            HIDIOCGRDESCSIZE as libc::Ioctl,
             std::ptr::addr_of_mut!(size),
         )
     } < 0
@@ -315,7 +315,7 @@ fn read_top_level_usage(fd: i32) -> Option<(u16, u16)> {
     if unsafe {
         libc::ioctl(
             fd,
-            HIDIOCGRDESC as libc::c_ulong,
+            HIDIOCGRDESC as libc::Ioctl,
             std::ptr::addr_of_mut!(*desc),
         )
     } < 0
