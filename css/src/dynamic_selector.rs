@@ -822,21 +822,21 @@ impl_option!(
 
 
 /// `AZ_THEME=light|dark`, for deterministic rendering (screenshots, reftests,
-/// CI). Returns `None` when unset or unrecognised, and is a no-op without
-/// `std`.
+/// CI). Returns `None` when unset or unrecognised.
+///
+/// Reads the environment directly, like `system.rs`'s `AZ_RICING` override
+/// right next door: this crate is std.
 #[must_use]
 fn option_env_theme() -> Option<ThemeCondition> {
-    #[cfg(feature = "std")]
+    match std::env::var("AZ_THEME")
+        .ok()?
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
     {
-        match std::env::var("AZ_THEME").ok()?.trim().to_ascii_lowercase().as_str() {
-            "light" => Some(ThemeCondition::Light),
-            "dark" => Some(ThemeCondition::Dark),
-            _ => None,
-        }
-    }
-    #[cfg(not(feature = "std"))]
-    {
-        None
+        "light" => Some(ThemeCondition::Light),
+        "dark" => Some(ThemeCondition::Dark),
+        _ => None,
     }
 }
 
