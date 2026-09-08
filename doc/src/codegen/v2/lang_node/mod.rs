@@ -558,7 +558,9 @@ fn emit_load_lib(b: &mut CodeBuilder) {
     b.dedent();
     b.line("};");
     b.line("opened = null;");
-    b.line("return (...args) => ensureOpen()[name](...args);");
+    b.line("// A callback argument is passed as its pointer: Deno 2 rejects the");
+    b.line("// UnsafeCallback object itself (\"expected null, or External\").");
+    b.line("return (...args) => ensureOpen()[name](...args.map((a) => (a instanceof Deno.UnsafeCallback) ? a.pointer : a));");
     b.dedent();
     b.line("},");
     b.line("proto(_name, retType, argTypes) {");
