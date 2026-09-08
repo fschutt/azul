@@ -1,0 +1,11 @@
+# Reviewed __remill_error allowlist for the startup lift-audit (F5).
+#
+# One demangled function name per line, exactly as printed by the audit's
+# F5 report. An entry means: this function's __remill_error sites were
+# DEBUGGED and confirmed benign — record the reason as a trailing comment.
+# Known-benign class: COMISS/UCOMISS signaling-NaN semantics emit
+# __remill_error on paths ordinary float compares never take.
+#
+# Do NOT add entries without debugging: an undecoded instruction on a live
+# path is silent corruption. Empty on purpose — grows one reviewed entry
+# at a time.

@@ -102,7 +102,25 @@ pub fn render_initial_page(
         azul_core::json::OptionJson::Some(j) => format!("{}", j),
         azul_core::json::OptionJson::None => String::from("null"),
     };
-    // S1 (2026-06-11) generic hydration: embed the model's exact byte image
+    // The app registers `set_deserialize_fn` in its `main()`, which never runs
+    // in the guest — so the client can only learn the address from here. Ship
+    // it in SYNTH space (same translation the type_id gets) and let the loader
+    // reconstruct the model from `json` instead of the raw byte image, which is
+    // only meaningful for POD state (see doc/web-json-hydrate-plan.md). `0`
+    // means "no reflection registered" and keeps the raw-bytes path.
+    let native_deser_fn = app_data.get_deserialize_fn();
+    #[cfg(feature = "web-transpiler")]
+    let hydrate_deser_fn = if native_deser_fn == 0 {
+        0u64
+    } else {
+        super::symbol_table::get()
+            .and_then(|t| t.native_to_synth(native_deser_fn))
+            .map(|s| s as u64)
+            .unwrap_or(0)
+    };
+    #[cfg(not(feature = "web-transpiler"))]
+    let hydrate_deser_fn = native_deser_fn as u64;
+    // S1 generic hydration: embed the model's exact byte image
     // so the JS bootstrap can rebuild ANY plain-old-data model (the legacy
     // "json" int only covered hello-world's 4-byte counter — a larger model
     // got a 4-byte allocation and every field past offset 4 corrupted the
@@ -221,8 +239,8 @@ pub fn render_initial_page(
     // and the user's toJson serialization. For hello-world.c the
     // serialization is just the integer counter.
     let hydrate_block = format!(
-        r#"<script id="az-hydrate" type="application/json">{{"type_id":"{}","json":{},"size":{},"bytes":"{}"}}</script>"#,
-        hydrate_type_id, hydrate_json, hydrate_size, hydrate_bytes_hex,
+        r#"<script id="az-hydrate" type="application/json">{{"type_id":"{}","json":{},"size":{},"bytes":"{}","deserialize_fn":{}}}</script>"#,
+        hydrate_type_id, hydrate_json, hydrate_size, hydrate_bytes_hex, hydrate_deser_fn,
     );
 
     // Honor document metadata from the DOM (`<html lang>` / `<title>`); fall back
@@ -1012,7 +1030,7 @@ fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static s
             FocusEventFilter::VirtualKeyUp => "keyup",
             _ => "click",
         },
-        // S1 (2026-06-11): Window-filter callbacks previously fell through
+        // S1 : Window-filter callbacks previously fell through
         // to "click" — a resize cb registered as a click handler. Window
         // kinds dispatch by BROADCAST in AzStartup_dispatchEvent (no bbox
         // target), keyed off these names.

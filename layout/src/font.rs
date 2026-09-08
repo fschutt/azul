@@ -169,7 +169,20 @@ pub mod parsed {
     /// variable font into per-weight STATIC instances so the ordinary (static)
     /// weight-selection path can pick the right one — no changes to
     /// shaping/decode/PDF needed.
+    // [az-web-lift] No font the web backend can register is variable. The only faces that
+    // reach `register_named_font_in_tier` there are the two built-in mock TTFs (neither has
+    // an `fvar` table), and the JS-supplied fallback font is installed straight into the
+    // `FcFontCache` via `with_memory_fonts` — it never passes through this path at all. So
+    // `fvar` parsing always returns None at runtime on the web build, while still dragging
+    // `allsorts::variations` + the instancer into the lift. Return None directly.
     #[must_use]
+    #[cfg(feature = "web_lift")]
+    pub fn read_wght_axis(_bytes: &[u8], _index: usize) -> Option<(f32, f32, f32)> {
+        None
+    }
+
+    #[must_use]
+    #[cfg(not(feature = "web_lift"))]
     pub fn read_wght_axis(bytes: &[u8], index: usize) -> Option<(f32, f32, f32)> {
         let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(index).ok()?;
@@ -194,7 +207,19 @@ pub mod parsed {
     /// All other axes are left at their default. Returns fresh TTF bytes that
     /// parse and embed exactly like any static font, or `None` if the font is
     /// not a bakeable variable font.
+    // [az-web-lift] Unreachable on the web build: its only caller
+    // (`FontManager::register_variable_instances`) is gated behind `read_wght_axis`, which is
+    // a constant None there. Compiling it out is what actually drops `allsorts::variations`
+    // (the instancer, its `binary::write` table serializer and the CFF2 handling) from the
+    // lifted module — the dead-at-runtime version still costs full code size in the lift.
     #[must_use]
+    #[cfg(feature = "web_lift")]
+    pub fn bake_weight_instance(_bytes: &[u8], _index: usize, _wght: f32) -> Option<Vec<u8>> {
+        None
+    }
+
+    #[must_use]
+    #[cfg(not(feature = "web_lift"))]
     pub fn bake_weight_instance(bytes: &[u8], index: usize, wght: f32) -> Option<Vec<u8>> {
         use allsorts::tables::Fixed;
         let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;

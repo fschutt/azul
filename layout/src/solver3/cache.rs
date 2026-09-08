@@ -2625,7 +2625,18 @@ fn log_child_positioning<T: ParsedFontTrait>(
     child_relative_pos: LogicalPosition,
     child_absolute_pos: LogicalPosition,
 ) {
-    // Always print positioning info for debugging
+    // Gate FIRST — this used to compute `child_dom_name` (a String allocation
+    // plus a `{:?}` Debug of the whole NodeType enum) before checking whether
+    // debug messages are even enabled, i.e. on EVERY child of EVERY node in
+    // EVERY layout. Besides the wasted work on desktop, on the web-lift path
+    // that Debug chain reaches `hyphenation_commons::dictionary::trie`'s Debug,
+    // which reads through `std::io::Read` — a Leaf stub in wasm — so the
+    // formatter returned Err and `format_inner`'s `.expect` aborted the whole
+    // solve. `log_content_box_calculation` above already gates first; mirror it.
+    let Some(debug_msgs) = ctx.debug_messages.as_mut() else {
+        return;
+    };
+
     let child_dom_name = child_node
         .dom_node_id
         .and_then(|id| {
@@ -2636,10 +2647,6 @@ fn log_child_positioning<T: ParsedFontTrait>(
                 .get(id.index())
         })
         .map_or_else(|| "Unknown".to_string(), |n| format!("{:?}", n.node_type));
-
-    let Some(debug_msgs) = ctx.debug_messages.as_mut() else {
-        return;
-    };
 
     debug_msgs.push(LayoutDebugMessage::new(
         LayoutDebugMessageType::PositionCalculation,

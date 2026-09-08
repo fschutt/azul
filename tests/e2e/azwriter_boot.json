@@ -1,0 +1,20 @@
+[
+  {
+    "name": "azwriter_boot",
+    "description": "AzWriter smoke: the document view renders on the web backend (goal 2 of the AzWriter-on-web milestone). Asserts real content exists (blank-window guard) and pins the boot state with a golden screenshot. Intentionally minimal — richer flows (file open via predefined string, selection/cursor sync) build on this once the boundary interception lands.",
+    "steps": [
+      {
+        "op": "wait",
+        "ms": 500
+      },
+      {
+        "op": "assert_exists",
+        "selector": "body > div"
+      },
+      {
+        "op": "assert_screenshot",
+        "name": "azwriter_boot"
+      }
+    ]
+  }
+]

@@ -8335,7 +8335,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
         crate::az_mark((0x606A8) as u32, (tree.nodes.len() as u32) as u32);
         crate::az_mark(
             (0x606AC) as u32,
-            (tree.get(ifc_root_index).is_some() as u32 | 0xC0DE0000u32) as u32,
+            (tree.get(crate::solver3::layout_tree::LayoutNodeId(ifc_root_index)).is_some() as u32
+                | 0xC0DE0000u32) as u32,
         );
         crate::az_mark((0x606B0) as u32, (tree.root as u32) as u32);
         // [g147 az-web-lift DIAG] CALLEE-side tree ptr + nodes.len indexed by ifc_root_index

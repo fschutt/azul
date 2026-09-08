@@ -1,0 +1,12 @@
+[
+  {
+    "name": "smoke_load_settle_screenshot",
+    "description": "Synthetic minimal flow: load the page, wait for the loader to settle, record diagnostics, capture a screenshot. No golden compare — this is the harness plumbing gate, not a rendering test.",
+    "steps": [
+      { "op": "get_state" },
+      { "op": "wait", "ms": 100 },
+      { "op": "wait_frame", "screenshot": true },
+      { "op": "get_focus_state" }
+    ]
+  }
+]

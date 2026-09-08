@@ -652,14 +652,15 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
     }
 
     // Priority 5: Find longest matching keyword across all modules
-    // Collect all matches: (module_name, matched_keyword, keyword_length, module_order)
-    let mut matches: Vec<(&str, &str, usize, usize)> = Vec::new();
+    // Collect all matches:
+    // (module_name, matched_keyword, keyword_length, module_order, is_module_name)
+    let mut matches: Vec<(&str, &str, usize, usize, bool)> = Vec::new();
 
     // First check module names themselves as keywords
     for (order, module) in MODULES.iter().enumerate() {
         if *module != "vec" && *module != "option" && *module != "error" {
             if lower_name.contains(module) {
-                matches.push((module, module, module.len(), order));
+                matches.push((module, module, module.len(), order, true));
             }
         }
     }
@@ -674,7 +675,7 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
                 .unwrap_or(usize::MAX);
             for keyword in module_keywords {
                 if lower_name.contains(keyword) {
-                    matches.push((module, keyword, keyword.len(), order));
+                    matches.push((module, keyword, keyword.len(), order, false));
                 }
             }
         }
@@ -685,14 +686,17 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
         return ("misc".to_string(), true);
     }
 
-    // Sort by: longest keyword first, then by module order (first in MODULES wins)
+    // Sort by: longest keyword first; on equal length a MODULE-NAME match
+    // outranks a generic keyword (a type containing a module's own name is
+    // stronger evidence than a shared word — "FilePath" contains the module
+    // name "file" AND svg's generic keyword "path", both length 4: `file`
+    // must win); remaining ties fall to module order (first in MODULES wins).
     matches.sort_by(|a, b| {
-        // Compare by length (descending)
         match b.2.cmp(&a.2) {
-            std::cmp::Ordering::Equal => {
-                // On tie, compare by module order (ascending)
-                a.3.cmp(&b.3)
-            }
+            std::cmp::Ordering::Equal => match b.4.cmp(&a.4) {
+                std::cmp::Ordering::Equal => a.3.cmp(&b.3),
+                other => other,
+            },
             other => other,
         }
     });
@@ -1046,6 +1050,10 @@ mod tests {
         assert_eq!(determine_module("DomNodeId").0, "dom");
         assert_eq!(determine_module("SvgPath").0, "svg");
         assert_eq!(determine_module("GlContext").0, "gl");
+        // Equal-length tie between a module-NAME match and a generic keyword:
+        // "filepath" contains module name "file" (4) and svg keyword "path"
+        // (4) — the module name must win (FilePath was mis-bucketed into svg).
+        assert_eq!(determine_module("FilePath").0, "file");
     }
 
     #[test]

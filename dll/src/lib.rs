@@ -178,6 +178,8 @@ extern crate azul_layout;
 // Compiled when internal bindings are available (not for link-dynamic)
 #[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
 pub mod desktop;
+#[cfg(feature = "web-e2e-runner")]
+pub mod e2e_web_runner;
 
 // Target-stable home for the `extra::*` feature handles (audio, video_codec,
 // sqlite, pdf, udp). Off-wasm it re-exports the real `desktop::extra::*` types;
@@ -186,6 +188,74 @@ pub mod desktop;
 pub mod unified;
 
 // Web backend: serve the app as HTML over HTTP (AZ_BACKEND=web://ip:port)
+/// Register serde JSON reflection for an app's root state type.
+///
+/// The web backend renders the first frame natively, ships the root state
+/// inside the HTML and lets the lifted wasm client rebuild it; without a
+/// registered serializer pair it refuses to start. This macro writes the two
+/// `extern "C"` bridges and a `register` fn for a type that already derives
+/// serde's `Serialize` + `Deserialize`, so an app needs one line instead of
+/// forty of identical boilerplate.
+///
+/// serde_json does the encoding - the bridge only hands the resulting text to
+/// azul's `Json`. The calling crate must depend on `serde_json`.
+///
+/// ```ignore
+/// azul::impl_json_reflection!(MyState, my_state_reflect);
+/// // ...
+/// let mut data = RefAny::new(MyState::default());
+/// my_state_reflect::register(&mut data);
+/// ```
+///
+/// A state holding live handles (threads, DOM ids, textures) cannot round-trip
+/// as-is: give it a wire struct and register that by hand instead - see
+/// examples/azul-writer/src/web_state.rs.
+#[macro_export]
+macro_rules! impl_json_reflection {
+    ($state:ty, $modname:ident) => {
+        mod $modname {
+            use super::*;
+
+            extern "C" fn to_json(mut refany: $crate::prelude::RefAny) -> $crate::json::Json {
+                let text = match refany.downcast_ref::<$state>() {
+                    Some(s) => match ::serde_json::to_string(&*s) {
+                        Ok(t) => t,
+                        Err(_) => return $crate::json::Json::null(),
+                    },
+                    None => return $crate::json::Json::null(),
+                };
+                // The Az result/option enums impl Drop, so clone out of a
+                // match-by-reference rather than moving the parsed payload.
+                match &$crate::json::Json::parse(text.as_str()) {
+                    $crate::error::ResultJsonJsonParseError::Ok(j) => j.clone(),
+                    $crate::error::ResultJsonJsonParseError::Err(_) => $crate::json::Json::null(),
+                }
+            }
+
+            extern "C" fn from_json(json: $crate::json::Json) -> $crate::error::ResultRefAnyString {
+                let state: $state = match ::serde_json::from_str(json.to_string().as_str()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return $crate::error::ResultRefAnyString::err(
+                            ::std::format!("{}: {}", ::core::stringify!($state), e).as_str(),
+                        )
+                    }
+                };
+                let mut r = $crate::prelude::RefAny::new(state);
+                // Re-register so round-trips keep working on the client.
+                register(&mut r);
+                $crate::error::ResultRefAnyString::ok(r)
+            }
+
+            /// Attach the pair to the root `RefAny`, before `App::create`.
+            pub fn register(data: &mut $crate::prelude::RefAny) {
+                data.set_serialize_fn(to_json as usize);
+                data.set_deserialize_fn(from_json as usize);
+            }
+        }
+    };
+}
+
 #[cfg(all(
     feature = "web",
     feature = "cabi_internal",

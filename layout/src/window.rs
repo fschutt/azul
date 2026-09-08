@@ -5240,6 +5240,19 @@ impl LayoutWindow {
         // give a child a fresh scratch cache and restore the root's cache
         // afterwards; the per-DOM snapshot lives in `layout_results`. Nested
         // children stack their swaps.
+        // [AZ-DIAG 2026-08-14 REVERT] web-lift: solveLayoutReal sees this Vec as
+        // len=5/ptr=0xa03d300 but layout_dom_recursive_impl sees garbage. StyledDom
+        // crosses TWO by-value calls; mark it HERE (the middle frame) to pin which
+        // copy corrupts it.
+        unsafe {
+            if let Some(cc) = styled_dom.css_property_cache.ptr.compact_cache.as_ref() {
+                crate::az_mark(0x40620, 1);
+                crate::az_mark(0x40624, cc.prev_font_hashes.len() as u32);
+                crate::az_mark(0x40628, cc.prev_font_hashes.as_ptr() as usize as u32);
+            } else {
+                crate::az_mark(0x40620, 0xC000_ABED);
+            }
+        }
         let is_child_dom = styled_dom.dom_id.inner != 0;
         if is_child_dom {
             let saved_root_cache = core::mem::take(&mut self.layout_cache);
@@ -5528,6 +5541,18 @@ impl LayoutWindow {
             // which most layouts do NOT re-run.
             let compact_cache_ref = styled_dom.css_property_cache.ptr.compact_cache.as_ref();
 
+            // [AZ-DIAG 2026-08-14 REVERT] web-lift: the FNV loop below OOBs, yet
+            // solveLayoutReal saw this exact Vec as len=5 / ptr=0xa03d300 (valid)
+            // just before handing `styled_dom` over. Dump what THIS function sees so
+            // we can tell whether the by-value StyledDom move corrupted it.
+            unsafe {
+                crate::az_mark(0x40610, compact_cache_ref.is_some() as u32);
+                if let Some(cc) = compact_cache_ref {
+                    crate::az_mark(0x40614, cc.prev_font_hashes.len() as u32);
+                    crate::az_mark(0x40618, cc.prev_font_hashes.as_ptr() as usize as u32);
+                    crate::az_mark(0x4061C, (cc.prev_font_hashes.as_ptr() as usize >> 32) as u32);
+                }
+            }
             let font_stacks_sig = compact_cache_ref.map(|cc| {
                 // Fast polynomial rolling hash over the `prev_font_hashes`
                 // slice. Mixes each u64 with a multiplier + bit-rotation,

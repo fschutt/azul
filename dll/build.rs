@@ -63,6 +63,7 @@ fn main() {
 
     check_generated_files();
     compress_debugger_assets();
+    bundle_e2e_web_runner();
 
     if env::var("CARGO_FEATURE_CABI_EXTERNAL").is_ok() {
         configure_dynamic_linking(&target);
@@ -1011,6 +1012,58 @@ fn compress_debugger_assets() {
         println!("cargo:rerun-if-changed={}", src_path.display());
         brotli_compress_file(&src_path, &Path::new(&out_dir).join(br_name));
     }
+}
+
+/// Bundle the web e2e harness (scripts/e2e-web/*.mjs) into the dll so any
+/// app binary can act as the test executor without the user hunting for
+/// script files: `AZ_BACKEND=<http url> AZ_E2E=<dir|file> ./app` extracts the
+/// bundle to a temp dir and spawns node/bun/deno on it (see
+/// src/e2e_web_runner.rs). Format: brotli over a simple TLV stream of
+/// [u32 path_len][path bytes][u32 content_len][content bytes] entries.
+fn bundle_e2e_web_runner() {
+    if env::var("CARGO_FEATURE_WEB_E2E_RUNNER").is_err() {
+        return;
+    }
+    let out_dir = env::var("OUT_DIR").unwrap_or_default();
+    if out_dir.is_empty() { return; }
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let src_root = Path::new(&manifest_dir).join("../scripts/e2e-web");
+
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut collect = |rel_dir: &str| {
+        let dir = src_root.join(rel_dir);
+        let Ok(entries) = fs::read_dir(&dir) else { return; };
+        let mut names: Vec<_> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |x| x == "mjs"))
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort(); // deterministic bundle → stable content hash
+        for name in names {
+            let p = dir.join(&name);
+            println!("cargo:rerun-if-changed={}", p.display());
+            let rel = if rel_dir.is_empty() { name.clone() } else { format!("{rel_dir}/{name}") };
+            files.push((rel, fs::read(&p).unwrap()));
+        }
+    };
+    collect("");
+    collect("lib");
+    if files.is_empty() {
+        panic!("azul-dll: feature web-e2e-runner is enabled but no .mjs files found in {}", src_root.display());
+    }
+    println!("cargo:rerun-if-changed={}", src_root.display());
+
+    let mut tlv = Vec::new();
+    for (path, content) in &files {
+        tlv.extend_from_slice(&(path.len() as u32).to_le_bytes());
+        tlv.extend_from_slice(path.as_bytes());
+        tlv.extend_from_slice(&(content.len() as u32).to_le_bytes());
+        tlv.extend_from_slice(content);
+    }
+    let mut compressed = Vec::new();
+    let params = brotli::enc::BrotliEncoderParams { quality: 11, ..Default::default() };
+    brotli::BrotliCompress(&mut &tlv[..], &mut compressed, &params).unwrap();
+    fs::write(Path::new(&out_dir).join("e2e_web_bundle.br"), &compressed).unwrap();
 }
 
 fn brotli_compress_file(src: &Path, dst: &Path) {

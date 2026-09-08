@@ -5,9 +5,9 @@
 # only lift their own callbacks on first request, rather than the entire library.
 # See docker/README.md for design details.
 #
-# EXPERIMENTAL: Publishes native amd64 + arm64 base images and stitches them
-# into a multi-arch tag. The arm64 (aarch64) lift is the validated path; the
-# amd64 (x86) self-lift is WIP and best-effort.
+# Publishes native amd64 + arm64 base images and stitches them into a multi-arch
+# tag. Both lifts are supported: aarch64 was validated first, and the x86-64
+# self-lift now boots an app end-to-end (see the weblift x86 lifter work).
 #
 # This workflow is kept separate from `rust.yml`. Website iteration (Pages deploy)
 # triggers this asynchronously so it is never blocked by rebuilding `remill`.
@@ -46,7 +46,7 @@ env:
 
 jobs:
   build:
-    name: Build ${{ matrix.arch }} (experimental)
+    name: Build ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     # Note: This build currently fails intentionally because remill's cmake
     # requires find_package(XED CONFIG), and cxx-common/VCPKG are not set up.
@@ -59,7 +59,7 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
             platform: linux/arm64
-          # amd64: Native x86 runner -> x86 self-lift (WIP, best-effort).
+          # amd64: Native x86 runner -> x86 self-lift.
           - arch: amd64
             runner: ubuntu-22.04
             platform: linux/amd64
@@ -148,7 +148,7 @@ jobs:
           fi
 
           {
-            echo "## azul-web-base (experimental, multi-arch)"
+            echo "## azul-web-base (multi-arch)"
             echo ""
             echo "Tag: \`${IMAGE}:${VER}\` ←$SRCS"
             echo ""
