@@ -2604,12 +2604,18 @@ impl LayoutTreeBuilder {
                         .collect::<Vec<_>>()
                 )));
             }
+            // CSS 2.2 s 9.2.2.1 / s 9.4.2: this anonymous block box contains
+            // nothing but inline-level boxes, so it establishes an INLINE
+            // formatting context. `reconcile_recursive` (cache.rs) has always
+            // built the same box as `FormattingContext::Inline`; this one said
+            // `Block { establishes_new_context: true }`, so the same markup laid
+            // out one way on a fresh tree and another on a reconciled one — an
+            // atomic inline under it was placed as a block child by one and on a
+            // line box by the other, and the two disagreed about its height.
             let anon_idx = self.create_anonymous_node(
                 parent_idx,
                 AnonymousBoxType::InlineWrapper,
-                FormattingContext::Block {
-                    establishes_new_context: true,
-                },
+                FormattingContext::Inline,
             );
             for inline_child_id in inline_run.drain(..) {
                 self.process_node(styled_dom, inline_child_id, Some(anon_idx), debug_messages)?;

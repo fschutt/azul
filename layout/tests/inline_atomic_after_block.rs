@@ -148,7 +148,7 @@ fn dom_node_with_class(class: &str) -> NodeId {
         if data
             .get_ids_and_classes()
             .iter()
-            .any(|c| c.as_class().map_or(false, |c| c.as_str() == class))
+            .any(|c| c.as_class().map_or(false, |c| c == class))
         {
             return NodeId::new(id);
         }
@@ -276,4 +276,29 @@ fn an_atomic_inline_sits_directly_below_the_paragraph_margin() {
         "the gap between the paragraph and the inline-flex box is {gap:.2} px, expected 32 px \
          (the paragraph's 1em bottom margin)"
     );
+}
+
+#[test]
+#[ignore = "diagnostic dump, run with --ignored when investigating"]
+fn dbg_dump_two_passes() {
+    let mut env = Env::new();
+    let mut cache = Env::fresh_cache();
+    for pass in 1..=2 {
+        env.layout(&mut cache, 400.0, 300.0);
+        let tree = cache.tree.as_ref().unwrap();
+        println!("=== pass {pass}");
+        for (i, n) in tree.nodes.iter().enumerate() {
+            let abs = cache.calculated_positions.get(i).copied();
+            let rel = tree.warm(azul_layout::solver3::LayoutNodeId::new(i)).and_then(|w| w.relative_position);
+            println!(
+                "  [{i}] dom={:?} parent={:?} fc={:?} size={:?} rel={:?} abs={:?}",
+                n.dom_node_id.map(|d| d.index()),
+                n.parent,
+                n.formatting_context,
+                n.used_size.map(|s| (s.width, s.height)),
+                rel.map(|p| (p.x, p.y)),
+                abs.map(|p| (p.x, p.y)),
+            );
+        }
+    }
 }
