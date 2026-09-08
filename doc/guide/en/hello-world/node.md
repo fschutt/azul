@@ -27,11 +27,10 @@ default-search-keys:
 ## Introduction
 
 The JavaScript binding loads the prebuilt `libazul` native library via
-[koffi](https://koffi.dev/) on Node, `bun:ffi` on Bun, and `Deno.UnsafeCallback` on
-Deno. **Node.js is the verified runtime**; the same `azul.js` also detects Bun and
-Deno, but those paths are experimental (callback return values are not yet written
-back to native memory there). You write ordinary JS: a plain object, a function per
-callback, and the smart `createWithLayout` factory.
+[koffi](https://koffi.dev/) on Node, `bun:ffi` on Bun and `Deno.dlopen` on Deno.
+All three run the same `azul.js` and all three are covered by the counter
+end-to-end test. You write ordinary JS: a plain object, a function per callback,
+and the smart `createWithLayout` factory.
 
 ## Installation
 
@@ -143,8 +142,10 @@ Four things to notice.
 ```sh
 node hello-world.js
 # or:
-bun  run hello-world.js
-deno run --allow-ffi --unstable-ffi hello-world.js
+bun hello-world.js
+# Deno needs the permissions, and a package.json marking the CommonJS module:
+printf '{"type":"commonjs"}\n' > package.json
+deno run --allow-ffi --allow-read --allow-env hello-world.js
 ```
 
 `azul.js` looks for the native library (`libazul.dylib` / `libazul.so` /
