@@ -2470,6 +2470,7 @@ impl RemillTranspiler {
                     accessed_pages,
                     accessed_ranges,
                     output_stem,
+                    memory_mode,
                 );
                 return Ok(final_wasm);
             }
@@ -2598,6 +2599,7 @@ impl RemillTranspiler {
             accessed_pages,
             accessed_ranges,
             output_stem,
+            memory_mode,
         );
         Ok(final_wasm)
     }
@@ -4976,6 +4978,7 @@ fn inject_user_binary_data_segments(
     accessed_pages: &std::collections::HashSet<usize>,
     accessed_ranges: &std::collections::HashSet<(usize, usize)>,
     output_stem: &str,
+    memory_mode: MemoryMode,
 ) {
     // M9-review + per-page (post-review): the synth-addr lift means
     // every native page has a predictable wasm offset. Combined with
@@ -5289,9 +5292,19 @@ fn inject_user_binary_data_segments(
         // it". Report only — it changes nothing about what is emitted.
         {
             use std::sync::{Mutex, OnceLock};
-            static SEEN: OnceLock<Mutex<std::collections::HashMap<u32, (usize, u64)>>> =
+            // Keyed on the MINI's segments, not on "any module seen so far".
+            //
+            // The ordering guarantee is what makes a dedup sound, and it only
+            // holds for the mini: every module linked `ImportMemory` imports
+            // `env.memory` FROM the mini, so the mini is always instantiated
+            // first. Two callback modules have no such relationship — either can
+            // be fetched without the other — so a segment shared only between
+            // two callbacks must be shipped by both. Deduping against "an
+            // earlier module in lift order" would encode the LIFT order as if it
+            // were the LOAD order, which it is not.
+            static MINI_SEGS: OnceLock<Mutex<std::collections::HashMap<u32, (usize, u64)>>> =
                 OnceLock::new();
-            let seen = SEEN.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+            let seen = MINI_SEGS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
             if let Ok(mut seen) = seen.lock() {
                 // Content-hashed, not just offset+length. Dropping a duplicate
                 // segment is only sound if the earlier module wrote the SAME
@@ -5301,44 +5314,90 @@ fn inject_user_binary_data_segments(
                 // measured before anything is deleted. A CONFLICT count above
                 // zero means the two modules disagree about what belongs at an
                 // address, and the whole idea is dead.
-                let (mut dup, mut dup_b) = (0usize, 0usize);
-                let (mut conflict, mut conflict_b) = (0usize, 0usize);
-                let mut new_b = 0usize;
-                for (off, bytes) in segments.iter() {
-                    let h = bytes.iter().fold(0xcbf29ce484222325u64, |a, b| {
-                        (a ^ *b as u64).wrapping_mul(0x100000001b3)
-                    });
-                    match seen.get(off) {
-                        Some((len, hash)) if *len == bytes.len() && *hash == h => {
-                            dup += 1;
-                            dup_b += bytes.len();
-                        }
-                        Some(_) => {
-                            conflict += 1;
-                            conflict_b += bytes.len();
-                            new_b += bytes.len();
-                            seen.insert(*off, (bytes.len(), h));
-                        }
-                        None => {
-                            new_b += bytes.len();
-                            seen.insert(*off, (bytes.len(), h));
+                let hash_of = |b: &Vec<u8>| -> u64 {
+                    b.iter().fold(0xcbf29ce484222325u64, |a, x| {
+                        (a ^ *x as u64).wrapping_mul(0x100000001b3)
+                    })
+                };
+                if matches!(memory_mode, MemoryMode::OwnMemory) {
+                    // This IS the mini. Record its segments as the baseline every
+                    // other module is measured against, and never drop anything
+                    // from it — it owns the memory, so nothing precedes it.
+                    for (off, bytes) in segments.iter() {
+                        seen.insert(*off, (bytes.len(), hash_of(bytes)));
+                    }
+                    eprintln!(
+                        "[azul-web] MIRROR-DUP ({}): baseline — {} segment(s) / {} bytes \
+                         recorded; every ImportMemory module is measured against these",
+                        output_stem,
+                        segments.len(),
+                        total_bytes,
+                    );
+                } else {
+                    // Content-hashed, not just offset+length. Dropping a segment
+                    // is only sound if the mini wrote the SAME bytes there, and
+                    // the pointer rewriting above is per-module: it translates
+                    // native→synth, which should be stable across modules, but
+                    // "should be" is exactly the assumption that has to be
+                    // measured before anything is deleted. A CONFLICT is a real
+                    // disagreement about what belongs at an address — measured at
+                    // 236 segments / 281,794 bytes across a full corpus — and
+                    // those MUST be kept.
+                    let (mut dup, mut dup_b) = (0usize, 0usize);
+                    let (mut conflict, mut conflict_b) = (0usize, 0usize);
+                    let mut new_b = 0usize;
+                    let mut drop_off: HashSet<u32> = HashSet::new();
+                    for (off, bytes) in segments.iter() {
+                        match seen.get(off) {
+                            Some((len, hash))
+                                if *len == bytes.len() && *hash == hash_of(bytes) =>
+                            {
+                                dup += 1;
+                                dup_b += bytes.len();
+                                drop_off.insert(*off);
+                            }
+                            Some(_) => {
+                                conflict += 1;
+                                conflict_b += bytes.len();
+                                new_b += bytes.len();
+                            }
+                            None => new_b += bytes.len(),
                         }
                     }
+                    eprintln!(
+                        "[azul-web] MIRROR-DUP ({}): {} of {} segment(s) BYTE-IDENTICAL to \
+                         THE MINI's — {} of {} bytes ({:.1}%); {} new, {} CONFLICT \
+                         ({} bytes, same address different content)",
+                        output_stem,
+                        dup,
+                        segments.len(),
+                        dup_b,
+                        total_bytes,
+                        100.0 * dup_b as f64 / total_bytes.max(1) as f64,
+                        new_b,
+                        conflict,
+                        conflict_b,
+                    );
+                    // Off by default. The saving is large but the failure mode is
+                    // silent: a dropped segment the guest still reads returns
+                    // zeros, which surfaces as wrong layout or a bad pointer far
+                    // from here, not as a load error.
+                    if !drop_off.is_empty()
+                        && std::env::var("AZ_MIRROR_DEDUP").map(|v| v == "1").unwrap_or(false)
+                    {
+                        let before = segments.len();
+                        segments.retain(|(off, _)| !drop_off.contains(off));
+                        eprintln!(
+                            "[azul-web] MIRROR-DEDUP ({}): dropped {} of {} segment(s), \
+                             {} bytes — the mini ships them at the same addresses and is \
+                             always instantiated first",
+                            output_stem,
+                            before - segments.len(),
+                            before,
+                            dup_b,
+                        );
+                    }
                 }
-                eprintln!(
-                    "[azul-web] MIRROR-DUP ({}): {} of {} segment(s) BYTE-IDENTICAL to an \
-                     earlier module's — {} of {} bytes ({:.1}%); {} new, {} CONFLICT \
-                     ({} bytes, same address different content)",
-                    output_stem,
-                    dup,
-                    segments.len(),
-                    dup_b,
-                    total_bytes,
-                    100.0 * dup_b as f64 / total_bytes.max(1) as f64,
-                    new_b,
-                    conflict,
-                    conflict_b,
-                );
             }
         }
         eprintln!(
