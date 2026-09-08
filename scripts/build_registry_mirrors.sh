@@ -876,7 +876,7 @@ build_pacman() {
 # --------------------------------------------------------------------------
 # Alpine apk — host the .apk + an APKINDEX (built by nfpm --packager apk).
 # apk repos are <baseurl>/<arch>/, so:
-#   /etc/apk/repositories:  https://azul.rs/ui/alpine/x86_64
+#   /etc/apk/repositories:  https://azul.rs/ui/alpine   (apk appends /<arch>)
 #   apk add --allow-untrusted azul   (until AZUL_APK_SIGN_KEY signs the index;
 #                                    then: curl -o /etc/apk/keys/azul.rsa.pub
 #                                    https://azul.rs/ui/alpine/azul.rsa.pub)
@@ -888,7 +888,15 @@ build_apk() {
   [ -n "$pkgs" ] || { echo "  [apk] no .apk artifacts — skip"; return; }
   local apk_dir="$SITE/ui/alpine/x86_64"
   mkdir -p "$apk_dir"
-  cp "$ART"/artifacts-apk/*.apk "$apk_dir/"
+  # apk resolves a package to the file "<name>-<version>.apk" recorded in the
+  # index, NOT to whatever the file is called on disk. nfpm names it in the
+  # Debian style (azul_0.2.0_x86_64.apk), so `apk add` found the package in
+  # the index and then died with "package mentioned in index not found".
+  # Rename on the way in; the version comes from $V like every other channel.
+  local a
+  for a in "$ART"/artifacts-apk/*.apk; do
+    cp "$a" "$apk_dir/azul-$V.apk"
+  done
   # --allow-untrusted: nfpm builds the .apk unsigned (there is no signing key
   # unless AZUL_APK_SIGN_KEY is set), and `apk index` REFUSES an unsigned
   # package with "UNTRUSTED signature", exit 99 — which is exactly how the
@@ -1038,7 +1046,7 @@ SigLevel = Optional TrustAll
 Server = https://azul.rs/ui/arch/\$arch
 
 sudo pacman -Sy azul"
-  landing ui/alpine "Alpine apk repository" "echo https://azul.rs/ui/alpine/x86_64 &gt;&gt; /etc/apk/repositories
+  landing ui/alpine "Alpine apk repository" "echo https://azul.rs/ui/alpine &gt;&gt; /etc/apk/repositories
 apk add --allow-untrusted azul"
   landing ui/cargo "cargo registry" "# .cargo/config.toml
 [registries]

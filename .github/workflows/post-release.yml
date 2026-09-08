@@ -418,13 +418,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { lang: c,   variant: linux-dnf,    image: "fedora:40",        setup: "dnf install -y gcc gcc-c++ curl python3" }
-          - { lang: cpp, variant: linux-dnf,    image: "fedora:40",        setup: "dnf install -y gcc gcc-c++ curl python3" }
-          - { lang: c,   variant: linux-pacman, image: "archlinux:latest", setup: "pacman -Sy --noconfirm gcc curl python" }
-          - { lang: cpp, variant: linux-pacman, image: "archlinux:latest", setup: "pacman -Sy --noconfirm gcc curl python" }
-          - { lang: c,   variant: linux-apk,    image: "alpine:3.20",      setup: "apk add --no-cache bash gcc g++ musl-dev curl python3" }
-          - { lang: cpp, variant: linux-apk,    image: "alpine:3.20",      setup: "apk add --no-cache bash gcc g++ musl-dev curl python3" }
+          - { lang: c,   variant: linux-dnf,    image: "fedora:40",        setup: "dnf install -y git gcc gcc-c++ curl python3" }
+          - { lang: cpp, variant: linux-dnf,    image: "fedora:40",        setup: "dnf install -y git gcc gcc-c++ curl python3" }
+          - { lang: c,   variant: linux-pacman, image: "archlinux:latest", setup: "pacman -Sy --noconfirm git gcc curl python" }
+          - { lang: cpp, variant: linux-pacman, image: "archlinux:latest", setup: "pacman -Sy --noconfirm git gcc curl python" }
+          - { lang: c,   variant: linux-apk,    image: "alpine:3.20",      setup: "apk add --no-cache git bash gcc g++ musl-dev curl python3" }
+          - { lang: cpp, variant: linux-apk,    image: "alpine:3.20",      setup: "apk add --no-cache git bash gcc g++ musl-dev curl python3" }
     steps:
+      # git first: none of these images ship it and actions/checkout needs it.
       - name: Toolchain (${{ matrix.image }})
         run: ${{ matrix.setup }}
       - uses: actions/checkout@v7
