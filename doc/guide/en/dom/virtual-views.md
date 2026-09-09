@@ -92,6 +92,27 @@ The key idea is that the rendered size and the virtual size are separate
 numbers. That's what lets a scrollbar pretend to span 30,000 rows while
 only 30 rows actually live in the DOM.
 
+```
+┌───────────────────────────────────┐
+│         Virtual Scroll Frame      │  ← virtual_scroll_size
+│                                   │    (infinite scroll: total logical height,
+│  ┌─────────────────────────────┐  │     may be larger than actual content)
+│  │       Scroll Frame          │  │  ← content_size (overflow_content_size)
+│  │    (actual content area)    │  │    (total height of rendered children)
+│  │                             │  │
+│  │  ┌───────────────────────┐  │  │
+│  │  │    Screen Bounds      │  │  │  ← scroll clip size (= container inner size)
+│  │  │   (visible window)    │  │  │    This is what the user sees.
+│  │  │                       │  │  │
+│  │  │   ← scroll offset →   │  │  │    Scroll offset shifts which part
+│  │  │                       │  │  │    of content_size is visible in
+│  │  └───────────────────────┘  │  │    the clip rect.
+│  │                             │  │
+│  └─────────────────────────────┘  │
+│                                   │
+└───────────────────────────────────┘
+```
+
 `VirtualViewReturn` carries two pairs:
 
 - `scroll_size` and `scroll_offset` describe the actual rendered content.

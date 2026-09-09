@@ -7,11 +7,6 @@
 //! capture. The local user is a camera/screen tile; remote participants are grey
 //! placeholders. Auto-joins a fake session (a generated "meeting link" hash).
 //! A settings strip lists the real audio devices (`AudioDeviceList::enumerate`).
-//!
-//! (Camera/screen tiles render their live frames on the GPU backend; on the CPU
-//! backend they show the widget placeholder. Sending the captured media to remote
-//! peers + per-device routing are the `WebTransport` / device-selection follow-ups
-//! — see doc/SUPER_PLAN_0.2.0.md.)
 
 use azul::audio::AudioConfig;
 use azul::audio::{AudioDeviceList, AudioDeviceListResult, AudioFrame};
@@ -24,8 +19,7 @@ use azul::prelude::*;
 use azul::screen::ScreenCaptureConfig;
 use azul::str::String as AzString;
 use azul::widgets::{
-    CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget, ProgressBar,
-    ScreenCaptureWidget,
+    CameraWidget, ConsumerFrame, FrameConsumer, MicrophoneWidget, ProgressBar, ScreenCaptureWidget,
 };
 
 struct MeetState {
@@ -125,7 +119,11 @@ fn device_col(title: &str, devices: &[String]) -> Dom {
     col
 }
 
-extern "C" fn on_devices_enumerated(mut data: RefAny, _info: CallbackInfo, result: RefAny) -> Update {
+extern "C" fn on_devices_enumerated(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    result: RefAny,
+) -> Update {
     let Some(answer) = AudioDeviceListResult::downcast(result).into_option() else {
         return Update::DoNothing;
     };
