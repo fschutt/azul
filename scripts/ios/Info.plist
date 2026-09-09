@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Minimal iOS app Info.plist template for an Azul cdylib-as-iOS-binary.
+  Substituted by build-ios.sh via /usr/libexec/PlistBuddy or sed:
+    @EXECUTABLE@   — Mach-O executable name (matches APP_NAME)
+    @BUNDLE_ID@    — reverse-DNS identifier
+    @DISPLAY_NAME@ — user-visible name
+    @VERSION@      — short version string, e.g. 1.0
+    @BUILD@        — build number, integer
+    @MIN_OS@       — minimum iOS version, e.g. 16.0
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>     <string>en</string>
+    <key>CFBundleExecutable</key>            <string>@EXECUTABLE@</string>
+    <key>CFBundleIdentifier</key>            <string>@BUNDLE_ID@</string>
+    <key>CFBundleName</key>                  <string>@EXECUTABLE@</string>
+    <key>CFBundleDisplayName</key>           <string>@DISPLAY_NAME@</string>
+    <key>CFBundlePackageType</key>           <string>APPL</string>
+    <key>CFBundleShortVersionString</key>    <string>@VERSION@</string>
+    <key>CFBundleVersion</key>               <string>@BUILD@</string>
+    <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
+    <key>MinimumOSVersion</key>              <string>@MIN_OS@</string>
+    <key>LSRequiresIPhoneOS</key>            <true/>
+    <key>UILaunchStoryboardName</key>        <string></string>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arm64</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+</dict>
+</plist>
