@@ -427,7 +427,7 @@ async function main() {
         console.error(`Nothing answered on ${opts.url} (${e.message}).`);
         console.error('The azul web server is not running. Start the app under test yourself, e.g.:');
         console.error('  AZ_BACKEND=web://127.0.0.1:8800 AZ_LIFT_CACHE=1 REMILL_LIFT_BIN=... ./examples/c/hello-world.exe');
-        console.error('(full recipe incl. depth env vars: scripts/m9_e2e/cdp_gate.sh:15-26; wait for "Listening on")');
+        console.error('(full recipe incl. depth env vars in the test script; wait for "Listening on")');
         process.exit(2);
     }
     console.log(`server:  ${opts.url} answers`);
