@@ -10,7 +10,7 @@
 //! Run:
 //!   cargo test -p azul-layout --features coretext_tests \
 //!       --test coretext_autoregression --release -- --nocapture
-//! or `scripts/coretext_regression.sh` (rotates metrics + prints prev-vs-now deltas).
+//! or the regression runner (rotates metrics + prints prev-vs-now deltas).
 //!
 //! ## Why this supersedes `test_coretext_compare.rs`
 //! That file `use`s `tiny_skia`, which is NOT a dependency of `azul-layout`
@@ -689,7 +689,7 @@ fn coretext_autoregression() {
             // A `SKIP: … ; return` reads as a PASS in the runner output. Under
             // AZ_REQUIRE_TEST_FONTS the host is asserted to have the fonts, so
             // the skip becomes the failure it actually is. (This whole file is
-            // macOS-gated and driven by scripts/coretext_regression.sh, which is
+            // macOS-gated and driven by the coretext regression suite, which is
             // why the default stays a soft skip.)
             assert!(
                 std::env::var_os("AZ_REQUIRE_TEST_FONTS").is_none(),

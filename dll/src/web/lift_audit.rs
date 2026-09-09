@@ -265,7 +265,7 @@ pub fn audit_wasm(bytes: &[u8], img: Option<(u64, u64)>) -> WasmAudit {
                         out.data_bytes += len;
                         if let (Some(addr), Some((lo, hi))) = (seg_addr, img) {
                             // 8-aligned absolute addresses only — same rule as
-                            // scripts/m9_e2e/natptr-scan.mjs.
+                            // the native pointer scan.
                             let mis = (addr % 8) as usize;
                             let start = if mis == 0 { 0 } else { 8 - mis };
                             let mut i = start;

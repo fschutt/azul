@@ -3055,7 +3055,7 @@ impl RemillTranspiler {
         //
         // Trapping here instead makes V8 unwind the guest stack, and the frame
         // BELOW the dispatcher is the lifted function that jumped — one
-        // `wfunc.mjs` lookup away from a name.
+        // lookup away from a name.
         //
         // Off by default: an unmatched dispatch is always a defect, but turning
         // every one into a hard stop would take out a bundle that currently boots

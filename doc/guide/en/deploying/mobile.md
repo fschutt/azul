@@ -255,8 +255,7 @@ cp scripts/ios/Info.plist MyApp.app/Info.plist          # template to copy/edit
 mkdir -p Payload && cp -r MyApp.app Payload/ && zip -r MyApp.ipa Payload
 ```
 
-The `Info.plist` template + entitlements are in
-[`scripts/ios/`](https://github.com/fschutt/azul/tree/master/scripts/ios).
+The `Info.plist` template + entitlements are standard iOS files.
 Add the usage strings for the device APIs you use: `NSCameraUsageDescription`,
 `NSMicrophoneUsageDescription`, `NSLocationWhenInUseUsageDescription`,
 `NSMotionUsageDescription`.
@@ -329,7 +328,7 @@ team works for a 7-day sideload). On a Mac:
 
 ```sh
 codesign --force --sign "Apple Development: you@example.com (TEAMID)" \
-  --entitlements scripts/ios/entitlements.plist azul-maps.app
+  --entitlements entitlements.plist azul-maps.app
 xcrun devicectl device install app --device <udid> azul-maps.app
 ```
 

@@ -55,7 +55,7 @@
 //!   (`.github/workflows/rust.yml`, job `icu_parity`). Under
 //!   `--no-default-features` the other ~116 modules do not compile, so it has
 //!   to be a target Cargo can select on its own.
-//! * `coretext_autoregression` — `scripts/coretext_regression.sh` invokes it by
+//! * `coretext_autoregression` — the coretext regression suite invokes it by
 //!   name (`--test coretext_autoregression`).
 //! * the subdirectory suites (`tests/solver3/`, `tests/managers/`,
 //!   `tests/text3/`) plus four root files that were already declared by hand.

@@ -17,7 +17,7 @@
 //! required parameter that the engine does not actually have, is DELETED and
 //! counted as a failure.
 //!
-//! Hard-won lessons inherited from `scripts/autotest_fleet.sh`:
+//! Hard-won lessons inherited from earlier E2E fleets:
 //!   1. A RATE-LIMITED `claude -p` exits 0 and answers with the limit message
 //!      as PLAIN TEXT. That must never be written out as a test.
 //!   2. RESUME: a 13k-line run *will* be interrupted. Keep a done-list.
