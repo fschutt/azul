@@ -5580,7 +5580,7 @@ mod tests {
             ws.size.dimensions.height,
             ws.size.dpi as f32 / 96.0,
         );
-        let mut fresh = CpuBackend::new();
+        let mut fresh = CpuBackend { follow_system_background: false, ..CpuBackend::new() };
         let lw = window.common.layout_window.as_ref().expect("layout window");
         fresh.render_frame(lw, &window.common.renderer_resources, w, h, dpi);
         let full = fresh
