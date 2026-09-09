@@ -6389,7 +6389,6 @@ jobs:
           rm -rf "$pkg" && mkdir -p "$pkg"
           cp target/codegen/node/azul.js "$pkg/azul.js"
           cp target/codegen/node/package.json "$pkg/package.json"
-          cp examples/node/README.md "$pkg/README.md" || echo "(no node README)"
           cp target/release/libazul.so "$pkg/libazul.so"
           [ -f dll-share/libazul.dylib ] && cp dll-share/libazul.dylib "$pkg/libazul.dylib" && echo "npm: + libazul.dylib" || true
           [ -f dll-share/azul.dll ] && cp dll-share/azul.dll "$pkg/azul.dll" && echo "npm: + azul.dll" || true
@@ -6464,7 +6463,6 @@ jobs:
           rm -rf "$pkg" && mkdir -p "$pkg/lib"
           cp target/codegen/azul.gemspec "$pkg/azul.gemspec"
           cp target/codegen/azul.rb "$pkg/lib/azul.rb"
-          cp examples/ruby/README.md "$pkg/README.md" || true
           cp target/release/libazul.so "$pkg/lib/libazul.so"
           [ -f dll-share/libazul.dylib ] && cp dll-share/libazul.dylib "$pkg/lib/libazul.dylib" && echo "ruby: + libazul.dylib" || true
           [ -f dll-share/azul.dll ] && cp dll-share/azul.dll "$pkg/lib/azul.dll" && echo "ruby: + azul.dll" || true
@@ -6544,7 +6542,6 @@ jobs:
           rm -rf "$pkg" && mkdir -p "$pkg/runtimes/linux-x64/native"
           cp target/codegen/Azul.csproj "$pkg/Azul.csproj"
           cp target/codegen/Azul.cs "$pkg/Azul.cs"
-          cp examples/csharp/README.md "$pkg/README.md" || true
           cp target/release/libazul.so "$pkg/runtimes/linux-x64/native/libazul.so"
           if [ -f dll-share/libazul.dylib ]; then mkdir -p "$pkg/runtimes/osx-arm64/native"; cp dll-share/libazul.dylib "$pkg/runtimes/osx-arm64/native/libazul.dylib"; echo "nuget: + osx-arm64"; fi
           if [ -f dll-share/azul.dll ]; then mkdir -p "$pkg/runtimes/win-x64/native"; cp dll-share/azul.dll "$pkg/runtimes/win-x64/native/azul.dll"; echo "nuget: + win-x64"; fi
