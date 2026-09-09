@@ -71,7 +71,15 @@ jobs:
         with:
           toolchain: 1.90.0
 
+      - name: Cache cargo-vet
+        id: cache-cargo-vet
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-vet
+          key: ${{ runner.os }}-cargo-vet-0.10.2
+
       - name: Install cargo-vet
+        if: steps.cache-cargo-vet.outputs.cache-hit != 'true'
         run: cargo install cargo-vet --version 0.10.2 --locked || cargo install cargo-vet --version 0.10.2
 
       # --locked uses the audit set and imports.lock as committed, preventing network refreshes.
@@ -127,7 +135,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
+      - name: Cache cargo-audit
+        id: cache-cargo-audit
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-cargo-audit-0.22.2
+
       - name: Install cargo-audit
+        if: steps.cache-cargo-audit.outputs.cache-hit != 'true'
         run: cargo install cargo-audit --version 0.22.2 --locked || cargo install cargo-audit --version 0.22.2
       - name: cargo audit
         shell: bash

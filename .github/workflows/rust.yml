@@ -1022,8 +1022,16 @@ jobs:
         with:
           toolchain: 1.90.0
           targets: ${{ matrix.target }}
-      - name: Install cross (Linux)
+      - name: Cache cross
+        id: cache-cross
         if: steps.cache-valid.outputs.skip != 'true' && matrix.use_cross
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cross
+          key: ${{ runner.os }}-cross-8c1a8aa4b661711f4b7b6ac07c2e8929ce2f7d27
+
+      - name: Install cross (Linux)
+        if: steps.cache-valid.outputs.skip != 'true' && matrix.use_cross && steps.cache-cross.outputs.cache-hit != 'true'
         run: cargo install cross --git https://github.com/cross-rs/cross --rev 8c1a8aa4b661711f4b7b6ac07c2e8929ce2f7d27 --locked  # v0.2.5 tree, the rev CI resolved on 2026-09-07
 
       - name: Download generated bindings (built once per OS)
@@ -1387,10 +1395,19 @@ jobs:
             coverage-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
             coverage-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
+      - name: Cache grcov
+        id: cache-grcov
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/grcov
+          key: ${{ runner.os }}-grcov-0.10.7
+
       - name: Install coverage tools
         run: |
           rustup component add llvm-tools-preview
-          cargo install grcov --version 0.10.7 --locked
+          if [ "${{ steps.cache-grcov.outputs.cache-hit }}" != "true" ]; then
+            cargo install grcov --version 0.10.7 --locked
+          fi
 
       - name: Run coverage
         run: bash scripts/coverage.sh --skip-install
@@ -3583,8 +3600,16 @@ jobs:
         uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         with:
           ndk-version: r27
-      - name: Install cargo-ndk
+      - name: Cache cargo-ndk
+        id: cache-cargo-ndk
         if: steps.cache-valid.outputs.skip != 'true' && startsWith(matrix.label, 'android')
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-ndk
+          key: ${{ runner.os }}-cargo-ndk-4.1.2
+
+      - name: Install cargo-ndk
+        if: steps.cache-valid.outputs.skip != 'true' && startsWith(matrix.label, 'android') && steps.cache-cargo-ndk.outputs.cache-hit != 'true'
         run: cargo install cargo-ndk --version 4.1.2 --locked
       - name: Build libazul (Android)
         if: steps.cache-valid.outputs.skip != 'true' && startsWith(matrix.label, 'android')
@@ -5575,7 +5600,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
+      - name: Cache cargo-deny
+        id: cache-cargo-deny
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-deny
+          key: ${{ runner.os }}-cargo-deny-0.20.2
+
       - name: Install cargo-deny
+        if: steps.cache-cargo-deny.outputs.cache-hit != 'true'
         run: cargo install cargo-deny --version 0.20.2 --locked || cargo install cargo-deny --version 0.20.2
 
       - name: cargo-deny + summary
@@ -5639,7 +5672,15 @@ jobs:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
 
+      - name: Cache cargo-geiger
+        id: cache-cargo-geiger
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-geiger
+          key: ${{ runner.os }}-cargo-geiger-0.13.0
+
       - name: Install cargo-geiger
+        if: steps.cache-cargo-geiger.outputs.cache-hit != 'true'
         run: cargo install cargo-geiger --version 0.13.0 --locked || cargo install cargo-geiger --version 0.13.0
       - name: cargo-geiger + summary
         shell: bash
