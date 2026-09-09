@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sprint J / CI gate: cargo check across every mobile target.
+# cargo check across every mobile target.
 #
 # Targets:
 #   aarch64-apple-ios          (device)

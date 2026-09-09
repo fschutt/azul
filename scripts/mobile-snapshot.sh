@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sprint J — golden-PNG snapshot harness for the headless backend.
+# PNG snapshot harness for the headless backend.
 #
 # Builds + runs an example with AZ_BACKEND=headless and
 # AZ_HEADLESS_SNAPSHOT_PATH=<actual>, then diffs the produced PNG
