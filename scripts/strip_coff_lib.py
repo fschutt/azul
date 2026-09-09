@@ -16,8 +16,7 @@ file format" — while it handles the individual COFF *members* just fine
 
 The ThinLTO-optimized machine code (.text$mn etc.) is byte-identical — only
 dead-weight metadata is removed (a prebuilt .lib consumer never runs Rust
-ThinLTO, so the embedded bitcode is 100% unusable; see
-scripts/RELEASE_SIZE_MEMORY_AUDIT_2026_07_04.md §2.4).
+ThinLTO, so the embedded bitcode is 100% unusable).
 
 Usage: strip_coff_lib.py <objcopy-binary> <file.lib>
 Exit 0 on success (file replaced in place), non-zero on any failure

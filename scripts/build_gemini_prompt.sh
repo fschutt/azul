@@ -196,8 +196,7 @@ add_md() {
 }
 
 echo "# SECTION 1: Architecture Documentation" >> "$OUT"
-add_md "$AZ_ROOT/scripts/ideas/architecture/ARCHITECTURE.md" "azul/scripts/ideas/architecture/ARCHITECTURE.md"
-add_md "$AZ_ROOT/scripts/ideas/product/STARTUP_LATENCY.md" "azul/scripts/ideas/product/STARTUP_LATENCY.md"
+
 
 echo "" >> "$OUT"
 echo "# SECTION 2: git2pdf (CLI driver)" >> "$OUT"

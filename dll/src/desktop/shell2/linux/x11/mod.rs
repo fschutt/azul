@@ -844,7 +844,6 @@ unsafe fn xi_get_property_bytes(
 /// unavailable (the shell then falls back to core pointer events). Selects
 /// Button/Motion/Touch for all master devices, maps each device's pressure/tilt
 /// valuator numbers via their label atoms and records its scroll axes.
-/// ABI per scripts/ideas/platform/WACOM_TOUCH_API_RESEARCH.md.
 ///
 /// Also enumerates every tablet-shaped device into a
 /// [`azul_layout::managers::gesture::TabletDeviceInfo`] list — name, USB ids

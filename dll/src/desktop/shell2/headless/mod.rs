@@ -8365,7 +8365,7 @@ mod tests {
         }
     }
 
-    // --- Scroll: the make-or-break perf case (see DAMAGE_REGION_PLAN.md §0.6) ---
+    // --- Scroll: the make-or-break perf case ---
 
     #[derive(Debug, Clone)]
     struct ScrollTestState {

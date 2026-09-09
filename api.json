@@ -24333,7 +24333,7 @@
                                     "zero-size and is skipped in the display list - the framework",
                                     "scans for it at end-of-layout and starts / stops the native",
                                     "`CLLocationManager` / `LocationManager` / `geoclue`",
-                                    "subscription. See `SUPER_PLAN_2.md` section 1.5."
+                                    "subscription."
                                 ],
                                 "fn_args": [
                                     {

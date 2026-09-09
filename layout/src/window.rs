@@ -446,7 +446,7 @@ pub extern "C" fn tooltip_delay_timer_callback(
 }
 
 /// Outcome of a single CPU `render_frame` call — the seed of the unified
-/// `DamageRegion` type described in `DAMAGE_REGION_PLAN.md`.
+/// `DamageRegion` type.
 ///
 /// Lives in `azul-layout` (rather than in the dll's headless backend, where it
 /// was originally defined) so that it can be stored on [`LayoutWindow`] and
@@ -1410,7 +1410,6 @@ pub struct LayoutWindow {
     /// notifications / etc. The platform backend drains
     /// `take_pending_permission_events` once per frame and routes each
     /// `Subscribe` / `Release` through `dll::desktop::extra::permission::apply_diff_events`.
-    /// See `SUPER_PLAN_2.md` §1.5 + research/08 for the architecture.
     pub permission_manager: crate::managers::permission::PermissionManager,
     /// Geolocation manager — `LocationFix` storage + per-frame diff
     /// against the `NodeType::GeolocationProbe`s in the styled DOM.

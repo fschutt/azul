@@ -742,7 +742,7 @@ pub type XEventsQueued = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
 pub const QueuedAlready: c_int = 0;
 pub type XNextEvent = unsafe extern "C" fn(*mut Display, *mut XEvent) -> c_int;
 
-// ===== XInput2 (XI2) — touch + pen/tablet. ABI per scripts/ideas/platform/WACOM_TOUCH_API_RESEARCH.md =====
+// ===== XInput2 (XI2) — touch + pen/tablet =====
 pub const GenericEvent: c_int = 35;
 /// `XI_HierarchyChanged` — a device was added, removed, enabled, disabled,
 /// attached or detached. XI2's own hotplug notification, selected on
