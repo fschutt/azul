@@ -6521,20 +6521,14 @@ where
         let Some(text) = node_data.get_placeholder() else {
             return;
         };
-        #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PH_DEBUG").is_some() {
-            std::eprintln!("[ph] attr present");
-        }
+
         if text.trim().is_empty() {
             return;
         }
         if !super::getters::is_node_contenteditable_inherited(self.ctx.styled_dom, dom_id) {
             return;
         }
-        #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PH_DEBUG").is_some() {
-            std::eprintln!("[ph] editable ok");
-        }
+
         // Only an EMPTY host shows its prompt, and "empty" is asked of the
         // CONTENT, not of the layout: an earlier version read
         // `inline_layout_result` and treated its ABSENCE as emptiness, so a
@@ -6597,17 +6591,16 @@ where
         if !content_empty {
             return;
         }
-        #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PH_DEBUG").is_some() {
-            std::eprintln!("[ph] empty ok");
-        }
-        if super::getters::is_focus_within_or_above(self.ctx.styled_dom, dom_id) {
+
+        // Focus can sit ABOVE the prompt line (on the editable container) or
+        // INSIDE the host (on the very line the pointer hit); either means the
+        // field is being edited and the prompt stays hidden.
+        if super::getters::is_focus_within_or_above(self.ctx.styled_dom, dom_id)
+            || super::getters::is_focus_within_subtree(self.ctx.styled_dom, host)
+        {
             return;
         }
-        #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PH_DEBUG").is_some() {
-            std::eprintln!("[ph] unfocused ok");
-        }
+
 
         let bp = node.box_props.unpack();
         let content_box = BorderBoxRect(*paint_rect)
@@ -6665,11 +6658,7 @@ where
             &self.ctx.font_manager.fc_cache,
             &loaded_fonts,
         );
-        #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PH_DEBUG").is_some() {
-            std::eprintln!("[ph] shaped {} glyphs (chain cached: {})", glyphs.len(),
-                !self.ctx.font_manager.font_chain_cache.is_empty());
-        }
+
         if glyphs.is_empty() {
             return;
         }

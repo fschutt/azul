@@ -693,9 +693,10 @@ fn apply_focus_restyle(
     use azul_core::styled_dom::FocusChange;
 
     // Get the first (primary) layout result
-    let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() else {
+    let Some((dom_id_ref, layout_result)) = layout_window.layout_results.iter_mut().next() else {
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     };
+    let dom_id = *dom_id_ref;
 
     // Apply restyle for focus change
     let restyle_result = layout_result.styled_dom.restyle_on_state_change(
@@ -724,27 +725,49 @@ fn apply_focus_restyle(
         // `:focus`-CONDITIONAL properties like the text input's focus border,
         // re-evaluated against the node's focused flag when the display list is
         // built. Returning `ShouldReRenderCurrentWindow` re-presented the STALE
-        // list, so after a blur the caret and the blue focus border stayed on
-        // screen ("focus doesn't get unset"). Rebuild so both re-resolve.
+        // display list forever until the app laid out for some other reason.
         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
     }
 
-    if restyle_result.gpu_only_changes {
-        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    stage_css_dirty(layout_window, dom_id, &restyle_result);
+
+    let mut r = ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+    if restyle_result.needs_layout {
+        r = ProcessEventResult::ShouldIncrementalRelayout;
+    } else if restyle_result.gpu_only_changes {
+        r = ProcessEventResult::ShouldReRenderCurrentWindow;
     }
+    r
+}
 
-    // Feed RestyleResult through ChangeAccumulator for granular classification
-    let mut accumulator = ChangeAccumulator::new();
-    accumulator.merge_restyle_result(&restyle_result);
-
-    if accumulator.needs_layout() {
-        // Restyle changed layout-affecting properties → incremental relayout
-        // (no DOM rebuild needed — the StyledDom already has updated states)
-        ProcessEventResult::ShouldIncrementalRelayout
-    } else if accumulator.needs_paint_only() {
-        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+fn stage_css_dirty(
+    layout_window: &mut LayoutWindow,
+    dom_id: azul_core::dom::DomId,
+    restyle_result: &azul_core::styled_dom::RestyleResult,
+) {
+    if restyle_result.changed_nodes.is_empty() {
+        return;
+    }
+    let mut dirty = Vec::new();
+    for (node_id, changes) in &restyle_result.changed_nodes {
+        let mut max_scope = azul_css::props::property::RelayoutScope::None;
+        for change in changes {
+            let scope = change.current_prop.get_type().relayout_scope(true);
+            if scope > max_scope {
+                max_scope = scope;
+            }
+        }
+        dirty.push((*node_id, max_scope));
+    }
+    if dirty.is_empty() {
+        return;
+    }
+    let mut current = layout_window.pending_css_dirty.take().unwrap_or((dom_id, Vec::new()));
+    if current.0 == dom_id {
+        current.1.extend(dirty);
+        layout_window.pending_css_dirty = Some(current);
     } else {
-        ProcessEventResult::ShouldReRenderCurrentWindow
+        layout_window.pending_css_dirty = Some((dom_id, dirty));
     }
 }
 
@@ -823,9 +846,13 @@ fn apply_active_restyle(
                 activated,
             }),
         );
+
         if restyle_result.changed_nodes.is_empty() {
             continue;
         }
+
+        stage_css_dirty(layout_window, dom_id, &restyle_result);
+
         let r = if restyle_result.gpu_only_changes {
             ProcessEventResult::ShouldReRenderCurrentWindow
         } else {
@@ -833,10 +860,13 @@ fn apply_active_restyle(
             accumulator.merge_restyle_result(&restyle_result);
             if accumulator.needs_layout() {
                 ProcessEventResult::ShouldIncrementalRelayout
+            } else if accumulator.needs_paint_only() {
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
             } else {
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
         };
+
         result = result.max_self(r);
     }
     result
@@ -871,6 +901,9 @@ fn apply_hover_restyle(
         if restyle_result.changed_nodes.is_empty() {
             continue;
         }
+
+        stage_css_dirty(layout_window, dom_id, &restyle_result);
+
         // Same granular classification as apply_focus_restyle: paint-only
         // changes avoid relayout, layout-affecting ones take the
         // incremental path (no DOM rebuild — states are already updated).

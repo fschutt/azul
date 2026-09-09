@@ -83,10 +83,6 @@ pub struct CompositorState {
     /// leaves at alpha 0 - the desktop shows through a popup's rounded
     /// corners). Set through [`Self::set_clear_color`] before rendering.
     pub clear_color: [u8; 4],
-    /// Whether a host actually chose [`Self::clear_color`], as opposed to it
-    /// still holding the constructor's white. Only an explicit choice may
-    /// override the system window background — see `resolved_clear_color`.
-    clear_color_explicit: bool,
     /// All layers keyed by ID.
     pub layers: HashMap<LayerId, Layer>,
     /// Root layer of the tree.
@@ -336,7 +332,6 @@ impl CompositorState {
         layers.insert(root_id, root_layer);
         Self {
             clear_color: [255, 255, 255, 255],
-            clear_color_explicit: false,
             layers,
             root_layer: root_id,
             next_layer_id: 1,
@@ -704,28 +699,6 @@ impl CompositorState {
     /// # Errors
     ///
     /// Returns an error string if the layers cannot be composited.
-    /// The colour a full repaint clears the root canvas to.
-    ///
-    /// The constructor's white is a PLACEHOLDER, not a decision: it exists so
-    /// the LCD text blend always finds an opaque base. Taking it literally
-    /// painted every window white regardless of the desktop theme, so a dark
-    /// system theme produced a white canvas with dark widgets sitting on it.
-    /// Unless a host explicitly chose a colour (a transparent window, a
-    /// headless capture), follow the system window background.
-    fn resolved_clear_color(&self, render_state: &CpuRenderState) -> [u8; 4] {
-        if self.clear_color_explicit {
-            return self.clear_color;
-        }
-        match render_state
-            .system_style
-            .as_ref()
-            .map(|s| s.colors.window_background)
-        {
-            Some(azul_css::props::basic::color::OptionColorU::Some(c)) => [c.r, c.g, c.b, c.a],
-            _ => self.clear_color,
-        }
-    }
-
     pub fn render_layers(
         &mut self,
         display_list: &DisplayList,
@@ -736,7 +709,6 @@ impl CompositorState {
         render_state: &CpuRenderState,
     ) -> Result<(), String> {
         let scroll_offsets = &render_state.scroll_offsets;
-        let clear_color = self.resolved_clear_color(render_state);
 
         // PARENT-FIRST ORDER. A plain scroll-frame layer is seeded with its
         // parent's already-rendered pixels below, so the parent must have
@@ -889,7 +861,7 @@ impl CompositorState {
             // for a transparent window) for the root, the parent's backdrop
             // for a plain layer, transparent for an effect layer.
             if *layer_id == self.root_layer {
-                let [r, g, b, a] = clear_color;
+                let [r, g, b, a] = self.clear_color;
                 layer.pixbuf.fill(r, g, b, a);
             } else if let Some(seed) = seed.filter(|s| s.len() == layer.pixbuf.data().len()) {
                 layer.pixbuf.data_mut().copy_from_slice(&seed);
@@ -925,7 +897,6 @@ impl CompositorState {
     /// Clear the root layer to `color` from now on (see the field).
     pub const fn set_clear_color(&mut self, color: [u8; 4]) {
         self.clear_color = color;
-        self.clear_color_explicit = true;
     }
 
     pub fn composite_frame(&self, output: &mut AzulPixmap, dpi_factor: f32) {
