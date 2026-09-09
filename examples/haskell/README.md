@@ -37,7 +37,7 @@ DYLD_LIBRARY_PATH=$PWD/../../target/release cabal run hello-world --extra-lib-di
 | `appConfigCreate`, `appCreate`, `appRun` | `appConfigCreate >>= appCreate dat >>= appRun window` |
 
 Because the receiver is the last argument, builder chains are `>>=`
-pipelines: `domCreatePWithText "5" >>= domWithCss "font-size: 32px;"`.
+pipelines: `domCreatePWithText "5" >>= domWithCss "font-size: 32px; margin: 0;"`.
 
 ## What the codegen gives you
 

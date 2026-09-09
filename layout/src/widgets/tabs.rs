@@ -891,6 +891,12 @@ const CSS_MATCH_4738503469417034630: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4738503469417034630_PROPERTIES);
 
 const CSS_MATCH_9988039989460234263_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul-native-tabs-header
     CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
         StyleFontSize {

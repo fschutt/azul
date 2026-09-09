@@ -9182,7 +9182,7 @@ pub(crate) fn shape_placeholder_text<T: ParsedFontTrait>(
     text: &str,
     style: &Arc<StyleProperties>,
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
-    _fc_cache: &FcFontCache,
+    fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
 ) -> Vec<Glyph> {
     if text.is_empty() {
@@ -9196,15 +9196,34 @@ pub(crate) fn shape_placeholder_text<T: ParsedFontTrait>(
             .unwrap_or_default(),
         FontStack::Stack(selectors) => {
             let cache_key = FontChainKey::from_selectors(selectors);
-            let Some(font_chain) = font_chain_cache.get(&cache_key) else {
-                return Vec::new();
+            // The chain cache is filled as a side effect of laying out real
+            // text, and a prompt is deliberately NOT a DOM node — nothing
+            // lays it out, so nothing guarantees its chain is in there. A
+            // miss used to shape zero glyphs and the prompt simply vanished
+            // for that frame: clicking anything that forces a relayout made
+            // the placeholder blink out and come back (device report).
+            // Resolve it the way `window.rs` does on the same miss.
+            let resolved;
+            let font_chain = if let Some(chain) = font_chain_cache.get(&cache_key) {
+                chain
+            } else {
+                resolved = resolve_chain_on_miss(&cache_key, fc_cache);
+                &resolved
             };
             // v1: the FIRST loaded face of the chain shapes the whole prompt
             // (a prompt is app-authored, single-script text; per-glyph
             // fallback can come later if a real prompt ever needs it).
+            //
+            // If none of the chain's faces is loaded YET, shape with whatever
+            // face this frame does have. The prompt is not laid out like real
+            // text — nothing loads fonts on its behalf — so on a frame that
+            // resolves the chain before its faces arrive, insisting on the
+            // chain paints NOTHING and the prompt blinks out for that frame.
+            // One frame in a neighbouring face is invisible next to that.
             let Some(font) = font_chain
                 .fonts()
                 .find_map(|m| loaded_fonts.get(&m.id))
+                .or_else(|| loaded_fonts.iter().next().map(|(_, f)| f))
             else {
                 return Vec::new();
             };

@@ -138,6 +138,32 @@ const KNOB_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color
 const KNOB_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(KNOB_BG_ITEMS);
 
+/// What the switch declares so its two state changes TWEEN instead of
+/// snapping: the knob's `margin-left` travel and the track's colour.
+///
+/// The click handler writes both imperatively, and an imperative write now
+/// honours a declared `animation` the same way a change found by the DOM diff
+/// does — so this declaration is the whole animation. A spring is the engine's
+/// default for a move; the duration is the retarget time base springs use.
+fn switch_animation(property: &'static str) -> CssPropertyWithConditions {
+    use azul_css::props::basic::{
+        animation::{AnimationIterationCount, AnimationTiming, StyleAnimation, StyleAnimationVec},
+        time::CssDuration,
+    };
+    CssPropertyWithConditions::simple(CssProperty::Animation(
+        azul_css::props::property::StyleAnimationVecValue::Exact(StyleAnimationVec::from_vec(
+            alloc::vec![StyleAnimation {
+                name: AzString::from_const_str(property),
+                duration: CssDuration::from_millis(150),
+                delay: CssDuration::from_millis(0),
+                iterations: AnimationIterationCount::Count(1),
+                timing: AnimationTiming::Spring,
+                clip: true,
+            }],
+        )),
+    ))
+}
+
 /// Build the track (pill container) style. Background colour is the only
 /// state-dependent property, so the style is built at runtime per the recipe's
 /// "runtime vec if param-dependent" path.
@@ -185,6 +211,7 @@ fn build_track_style(checked: bool) -> CssPropertyWithConditionsVec {
         )),
         CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg)),
+        switch_animation("background"),
     ])
 }
 
@@ -193,6 +220,7 @@ fn build_track_style(checked: bool) -> CssPropertyWithConditionsVec {
 fn build_knob_style(checked: bool) -> CssPropertyWithConditionsVec {
     let margin = if checked { KNOB_TRAVEL } else { 0 };
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
+        switch_animation("margin-left"),
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(
             KNOB_SIZE,
         ))),

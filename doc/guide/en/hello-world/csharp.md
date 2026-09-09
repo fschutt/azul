@@ -66,7 +66,9 @@ Or install the native library + binding by hand:
 2. Add the generated `Azul.cs` bindings to your project:
 
    ```sh
-   wget https://azul.rs/ui/release/$VERSION/Azul.cs
+   # Azul.cs ships with the GitHub release, not the site: it is far too
+   # large for the Pages artifact budget.
+   curl -L -O https://github.com/fschutt/azul/releases/download/$VERSION/Azul.cs
    # optional project scaffold:
    wget https://azul.rs/ui/release/$VERSION/Azul.csproj
    ```

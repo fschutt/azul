@@ -693,9 +693,10 @@ fn apply_focus_restyle(
     use azul_core::styled_dom::FocusChange;
 
     // Get the first (primary) layout result
-    let Some((_, layout_result)) = layout_window.layout_results.iter_mut().next() else {
+    let Some((dom_id_ref, layout_result)) = layout_window.layout_results.iter_mut().next() else {
         return ProcessEventResult::ShouldReRenderCurrentWindow;
     };
+    let dom_id = *dom_id_ref;
 
     // Apply restyle for focus change
     let restyle_result = layout_result.styled_dom.restyle_on_state_change(
@@ -724,28 +725,151 @@ fn apply_focus_restyle(
         // `:focus`-CONDITIONAL properties like the text input's focus border,
         // re-evaluated against the node's focused flag when the display list is
         // built. Returning `ShouldReRenderCurrentWindow` re-presented the STALE
-        // list, so after a blur the caret and the blue focus border stayed on
-        // screen ("focus doesn't get unset"). Rebuild so both re-resolve.
+        // display list forever until the app laid out for some other reason.
         return ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
     }
 
-    if restyle_result.gpu_only_changes {
-        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    stage_css_dirty(layout_window, dom_id, &restyle_result);
+
+    let mut r = ProcessEventResult::ShouldUpdateDisplayListCurrentWindow;
+    if restyle_result.needs_layout {
+        r = ProcessEventResult::ShouldIncrementalRelayout;
+    } else if restyle_result.gpu_only_changes {
+        r = ProcessEventResult::ShouldReRenderCurrentWindow;
     }
+    r
+}
 
-    // Feed RestyleResult through ChangeAccumulator for granular classification
-    let mut accumulator = ChangeAccumulator::new();
-    accumulator.merge_restyle_result(&restyle_result);
-
-    if accumulator.needs_layout() {
-        // Restyle changed layout-affecting properties → incremental relayout
-        // (no DOM rebuild needed — the StyledDom already has updated states)
-        ProcessEventResult::ShouldIncrementalRelayout
-    } else if accumulator.needs_paint_only() {
-        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+fn stage_css_dirty(
+    layout_window: &mut LayoutWindow,
+    dom_id: azul_core::dom::DomId,
+    restyle_result: &azul_core::styled_dom::RestyleResult,
+) {
+    if restyle_result.changed_nodes.is_empty() {
+        return;
+    }
+    let mut dirty = Vec::new();
+    for (node_id, changes) in &restyle_result.changed_nodes {
+        let mut max_scope = azul_css::props::property::RelayoutScope::None;
+        for change in changes {
+            let scope = change.current_prop.get_type().relayout_scope(true);
+            if scope > max_scope {
+                max_scope = scope;
+            }
+        }
+        dirty.push((*node_id, max_scope));
+    }
+    if dirty.is_empty() {
+        return;
+    }
+    let mut current = layout_window.pending_css_dirty.take().unwrap_or((dom_id, Vec::new()));
+    if current.0 == dom_id {
+        current.1.extend(dirty);
+        layout_window.pending_css_dirty = Some(current);
     } else {
-        ProcessEventResult::ShouldReRenderCurrentWindow
+        layout_window.pending_css_dirty = Some((dom_id, dirty));
     }
+}
+
+/// Apply an incremental `:active` restyle for this pass's press / release.
+///
+/// The same gap `apply_hover_restyle` closed for `:hover`, one state later:
+/// `restyle_on_state_change` took an `ActiveChange` from the very beginning
+/// and NOTHING in the shell ever passed one, so `:active` was dead on every
+/// backend. A pressed button showed its `:hover` colour and never its own
+/// pressed one, which is what every widget's `on_active` declaration means.
+///
+/// A release deactivates every node still marked active in that DOM rather
+/// than just the release target: the pointer may have moved off the pressed
+/// node before the button came up, and the press state must not latch.
+fn apply_active_restyle(
+    layout_window: &mut LayoutWindow,
+    pressed_per_dom: std::collections::BTreeMap<azul_core::dom::DomId, Vec<azul_core::dom::NodeId>>,
+    released: bool,
+) -> ProcessEventResult {
+    use azul_core::diff::ChangeAccumulator;
+
+    let mut result = ProcessEventResult::DoNothing;
+    let dom_ids: Vec<azul_core::dom::DomId> = if released {
+        layout_window.layout_results.keys().copied().collect()
+    } else {
+        pressed_per_dom.keys().copied().collect()
+    };
+    for dom_id in dom_ids {
+        let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
+            continue;
+        };
+        let deactivated: Vec<azul_core::dom::NodeId> = if released {
+            layout_result
+                .styled_dom
+                .styled_nodes
+                .as_container()
+                .internal
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| n.styled_node_state.active)
+                .map(|(i, _)| azul_core::dom::NodeId::new(i))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        // CSS 2.2 / Selectors 4: `:active` applies to the element being
+        // activated AND to its ancestors — pressing a button's label makes
+        // the BUTTON active, which is where every widget declares its pressed
+        // style. Only one MouseDown event is emitted, on the deepest node, so
+        // the chain is walked here (`:hover` gets its chain for free: the
+        // hover manager emits an enter event per element).
+        let activated = {
+            let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+            let mut out = Vec::new();
+            for node in pressed_per_dom.get(&dom_id).cloned().unwrap_or_default() {
+                let mut cur = Some(node);
+                while let Some(n) = cur {
+                    if !out.contains(&n) {
+                        out.push(n);
+                    }
+                    cur = hierarchy
+                        .get(n)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+                }
+            }
+            out
+        };
+        if deactivated.is_empty() && activated.is_empty() {
+            continue;
+        }
+        let restyle_result = layout_result.styled_dom.restyle_on_state_change(
+            None, // focus
+            None, // hover
+            Some(azul_core::styled_dom::ActiveChange {
+                deactivated,
+                activated,
+            }),
+        );
+
+        if restyle_result.changed_nodes.is_empty() {
+            continue;
+        }
+
+        stage_css_dirty(layout_window, dom_id, &restyle_result);
+
+        let r = if restyle_result.gpu_only_changes {
+            ProcessEventResult::ShouldReRenderCurrentWindow
+        } else {
+            let mut accumulator = ChangeAccumulator::new();
+            accumulator.merge_restyle_result(&restyle_result);
+            if accumulator.needs_layout() {
+                ProcessEventResult::ShouldIncrementalRelayout
+            } else if accumulator.needs_paint_only() {
+                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            } else {
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+        };
+
+        result = result.max_self(r);
+    }
+    result
 }
 
 /// Apply an incremental `:hover` restyle for this pass's MouseEnter /
@@ -777,6 +901,9 @@ fn apply_hover_restyle(
         if restyle_result.changed_nodes.is_empty() {
             continue;
         }
+
+        stage_css_dirty(layout_window, dom_id, &restyle_result);
+
         // Same granular classification as apply_focus_restyle: paint-only
         // changes avoid relayout, layout-affecting ones take the
         // incremental path (no DOM rebuild — states are already updated).
@@ -10193,6 +10320,31 @@ pub trait PlatformWindow {
             }
         };
 
+        // The `:active` twin of the block above — see `apply_active_restyle`.
+        let active_restyle_result: Option<ProcessEventResult> = {
+            use std::collections::BTreeMap;
+            let mut pressed: BTreeMap<azul_core::dom::DomId, Vec<azul_core::dom::NodeId>> =
+                BTreeMap::new();
+            let mut released = false;
+            for ev in &synthetic_events {
+                match ev.event_type {
+                    azul_core::events::EventType::MouseDown => {
+                        if let Some(node) = ev.target.node.into_crate_internal() {
+                            pressed.entry(ev.target.dom).or_default().push(node);
+                        }
+                    }
+                    azul_core::events::EventType::MouseUp => released = true,
+                    _ => {}
+                }
+            }
+            if pressed.is_empty() && !released {
+                None
+            } else {
+                self.get_layout_window_mut()
+                    .map(|lw| apply_active_restyle(lw, pressed, released))
+            }
+        };
+
         // MWA-B12: arm the one-shot long-press wake-up on every MouseDown —
         // a motionless press generates no further events, so no pass would
         // ever evaluate detect_long_press (the press only ever fired if the
@@ -11818,6 +11970,11 @@ pub trait PlatformWindow {
         // MWA-A3c: fold the incremental :hover restyle outcome (computed
         // right after event determination above) into the pass result.
         if let Some(r) = hover_restyle_result {
+            result = result.max(r);
+        }
+
+        // ...and its `:active` twin.
+        if let Some(r) = active_restyle_result {
             result = result.max(r);
         }
 

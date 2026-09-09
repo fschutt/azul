@@ -51,7 +51,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     title.set_css(String("font-size: 24px; margin-bottom: 20px;"));
 
     Dom label = Dom::create_p_with_text(String(progress_buf));
-    label.set_css(String("font-size: 32px; margin-bottom: 20px;"));
+    label.set_css(String("font-size: 32px; margin: 0 0 20px 0;"));
 
     Dom body = Dom::create_body();
     body.set_css(String("padding: 20px; font-family: sans-serif;"));

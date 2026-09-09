@@ -28,7 +28,6 @@ AzImageRef render_my_texture(AzRefAny data, AzRenderImageCallbackInfo info);
 AzUpdate startup_window(AzRefAny data, AzCallbackInfo info);
 AzUpdate on_testdata_read(AzRefAny data, AzCallbackInfo info, AzRefAny result);
 static AzUpdate upload_to_gpu(AzRefAny data, AzCallbackInfo* info);
-AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info);
 
 typedef struct {
     AzSvgPathElement* items;
@@ -426,34 +425,12 @@ static AzUpdate upload_to_gpu(AzRefAny data, AzCallbackInfo* info) {
 
     OpenGlStateRefMut_delete(&d);
 
-    AzTimerId timer_id = AzTimerId_unique();
-    AzGetSystemTimeCallback time_fn = AzCallbackInfo_getSystemTimeFn(info);
-    AzTimer timer = AzTimer_create(AzRefAny_clone(&data), (AzTimerCallback){ .cb = animate, .ctx = AzOptionRefAny_none() }, time_fn);
-
-    AzSystemTimeDiff interval = AzSystemTimeDiff_fromMillis(16);
-    AzDuration duration = { .System = { .tag = AzDuration_Tag_System, .payload = interval } };
-    timer = AzTimer_withInterval(timer, duration);
-
-    AzCallbackInfo_addTimer(info, timer_id, timer);
-
+    /* No animation timer. The rotation it drove is a property of the GPU
+     * scene, so on a machine with no GL context every tick re-ran the image
+     * callback and got back the exact same placeholder - a 60 Hz repaint of
+     * an unchanged frame. Nothing here needs a clock; the scene is uploaded
+     * once above and drawn by the image callback when the frame is painted. */
     return AzUpdate_RefreshDom;
-}
-
-AzTimerCallbackReturn animate(AzRefAny data, AzTimerCallbackInfo info) {
-    OpenGlStateRefMut d = OpenGlStateRefMut_create(&data);
-    if (!OpenGlState_downcastMut(&data, &d)) {
-        return AzTimerCallbackReturn_terminateUnchanged();
-    }
-
-    d.ptr->rotation_deg += 1.0f;
-    if (d.ptr->rotation_deg >= 360.0f) {
-        d.ptr->rotation_deg = 0.0f;
-    }
-
-    OpenGlStateRefMut_delete(&d);
-
-    AzTimerCallbackInfo_updateAllImageCallbacks(&info);
-    return AzTimerCallbackReturn_continueUnchanged();
 }
 
 int main(void) {

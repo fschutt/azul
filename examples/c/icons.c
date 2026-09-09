@@ -98,15 +98,15 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_setCss(&icons_container, az_str("margin-top: 8px; padding: 16px; background-color: #f0f0f0;"));
 
     AzDom home_icon = AzDom_createIcon(az_str("home"));
-    AzDom_setCss(&home_icon, az_str("font-size: 32px;"));
+    AzDom_setCss(&home_icon, az_str("font-size: 32px; margin: 0;"));
     AzDom_addChild(&icons_container, home_icon);
 
     AzDom settings_icon = AzDom_createIcon(az_str("settings"));
-    AzDom_setCss(&settings_icon, az_str("font-size: 32px;"));
+    AzDom_setCss(&settings_icon, az_str("font-size: 32px; margin: 0;"));
     AzDom_addChild(&icons_container, settings_icon);
 
     AzDom search_icon = AzDom_createIcon(az_str("search"));
-    AzDom_setCss(&search_icon, az_str("font-size: 32px;"));
+    AzDom_setCss(&search_icon, az_str("font-size: 32px; margin: 0;"));
     AzDom_addChild(&icons_container, search_icon);
 
     AzDom_addChild(&root, icons_container);

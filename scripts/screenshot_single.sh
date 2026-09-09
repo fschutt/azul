@@ -131,13 +131,6 @@ log_info "=========================================="
 # faster local run.
 PROFILE="${AZ_SCREENSHOT_PROFILE:-prod-release}"
 
-# Pin the theme. Widgets carry `@theme dark` rules, so without this a
-# screenshot renders in whatever theme the MACHINE is in — the frontpage
-# images came out with a dark tree and list view inside an otherwise light
-# window, because the Mac that took them was in dark mode. Override with
-# AZ_THEME=dark to shoot the dark variants deliberately.
-export AZ_THEME="${AZ_THEME:-light}"
-
 log_step 1 "Building DLL (profile=$PROFILE)..."
 
 DLL_PATH=""

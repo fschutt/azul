@@ -2067,7 +2067,11 @@ pub fn render_single_item(
         } => {
             // TextLayout is metadata for PDF/accessibility - skip in CPU rendering
         }
-        DisplayListItem::Image { bounds, image, .. } => {
+        DisplayListItem::Image {
+            bounds,
+            image,
+            border_radius,
+        } => {
             let clip = *clip_stack.last().unwrap();
             // The DL item carries the LIVE ImageRef: produced callback frames
             // are patched into the display list by the content chokepoint
@@ -2080,6 +2084,7 @@ pub fn render_single_item(
                 pixmap,
                 &scroll_rect(bounds.inner()),
                 image,
+                border_radius,
                 clip,
                 dpi_factor,
             );
@@ -4176,6 +4181,7 @@ fn render_image(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
     image: &ImageRef,
+    border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
 ) {
@@ -4189,6 +4195,15 @@ fn render_image(
             return;
         }
     }
+
+    // A `border-radius` on the <img> confines the pixels as well as the border:
+    // resolve the corners once here and hand them to whichever path paints.
+    let radii = resolved_corner_radii(&rect, border_radius, dpi_factor);
+    let mask = if radii.iter().any(|r| *r > 0.0) {
+        Some((&rect, radii))
+    } else {
+        None
+    };
 
     let image_data = image.get_data();
     // SAMPLE THE SOURCE DIRECTLY — do not convert the whole image to RGBA up
@@ -4222,7 +4237,12 @@ fn render_image(
             // format) are sampleable, so capture tiles do NOT hit this.
             if !src.is_sampleable() {
                 let gray = Rgba8::new(200, 200, 200, 255);
-                let mut path = build_rect_path(&rect);
+                // The placeholder stands in for the image, so it takes the image's
+                // shape: a `border-radius` on the <img> has to round the grey too,
+                // or a rounded surface shows square grey corners poking out past
+                // its own border (the frontpage `opengl` shot, whose GL callback
+                // has no GPU to run on and so is all placeholder).
+                let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
                 agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
                 return;
             }
@@ -4247,13 +4267,23 @@ fn render_image(
                 );
             });
             let gray = Rgba8::new(200, 200, 200, 255);
-            let mut path = build_rect_path(&rect);
+            // The placeholder stands in for the image, so it takes the image's
+            // shape: a `border-radius` on the <img> has to round the grey too,
+            // or a rounded surface shows square grey corners poking out past
+            // its own border (the frontpage `opengl` shot, whose GL callback
+            // has no GPU to run on and so is all placeholder).
+            let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
             agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
             return;
         }
         DecodedImage::NullImage { .. } => {
             let gray = Rgba8::new(200, 200, 200, 255);
-            let mut path = build_rect_path(&rect);
+            // The placeholder stands in for the image, so it takes the image's
+            // shape: a `border-radius` on the <img> has to round the grey too,
+            // or a rounded surface shows square grey corners poking out past
+            // its own border (the frontpage `opengl` shot, whose GL callback
+            // has no GPU to run on and so is all placeholder).
+            let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
             agg_fill_path(pixmap, &mut path, &gray, FillingRule::NonZero);
             return;
         }
@@ -4302,6 +4332,7 @@ fn render_image(
         dst_w,
         dst_h,
         win,
+        mask,
         &mut RowConversions::new(),
     );
 }
@@ -4517,6 +4548,9 @@ fn blit_sampled_image(
     dst_w: u32,
     dst_h: u32,
     win: (u32, u32, u32, u32),
+    // Rounded-rect the blit is confined to, as (device rect, resolved radii).
+    // `None` for a square image, which skips the mask entirely.
+    mask: Option<(&AzRect, [f32; 4])>,
     conversions: &mut RowConversions,
 ) {
     let (px_lo, py_lo, px_hi, py_hi) = win;
@@ -4597,6 +4631,9 @@ fn blit_sampled_image(
             }
             let ty_px = (dst_y + py as i32) as u32;
             let tx_px = (dst_x + px_lo as i32) as u32;
+            if let Some((mrect, radii)) = mask {
+                mask_row_to_rounded_rect(&mut stage, tx_px as f32, ty_px as f32, mrect, radii);
+            }
             composite_rgba_row(pixmap, ((ty_px * pw + tx_px) * 4) as usize, &stage);
         }
         return;
@@ -4664,6 +4701,9 @@ fn blit_sampled_image(
         }
         let ty_px = (dst_y + py as i32) as u32;
         let tx_px = (dst_x + px_lo as i32) as u32;
+        if let Some((mrect, radii)) = mask {
+            mask_row_to_rounded_rect(&mut stage, tx_px as f32, ty_px as f32, mrect, radii);
+        }
         composite_rgba_row(pixmap, ((ty_px * pw + tx_px) * 4) as usize, &stage);
     }
 }
@@ -4694,6 +4734,92 @@ fn build_rect_path(rect: &AzRect) -> PathStorage {
     path.line_to(x, y + h);
     path.close_polygon(PATH_FLAGS_NONE);
     path
+}
+
+/// The four corner radii of `rect` in DEVICE pixels, scaled down together if
+/// any edge's pair would overlap (CSS Backgrounds 3 §5.5).
+///
+/// Returned as `[top_left, top_right, bottom_right, bottom_left]`.
+fn resolved_corner_radii(rect: &AzRect, border_radius: &BorderRadius, dpi_factor: f32) -> [f32; 4] {
+    let mut r = [
+        (border_radius.top_left * dpi_factor).max(0.0),
+        (border_radius.top_right * dpi_factor).max(0.0),
+        (border_radius.bottom_right * dpi_factor).max(0.0),
+        (border_radius.bottom_left * dpi_factor).max(0.0),
+    ];
+    let (w, h) = (rect.width.max(0.0), rect.height.max(0.0));
+    // Each edge can only give up its own length: if the two radii meeting on it
+    // sum to more, every radius shrinks by the same factor so the corners still
+    // meet tangentially instead of crossing over.
+    let mut f: f32 = 1.0;
+    for (sum, len) in [
+        (r[0] + r[1], w), // top
+        (r[3] + r[2], w), // bottom
+        (r[0] + r[3], h), // left
+        (r[1] + r[2], h), // right
+    ] {
+        if sum > 0.0 && sum > len {
+            f = f.min(len / sum);
+        }
+    }
+    if f < 1.0 {
+        for v in &mut r {
+            *v *= f;
+        }
+    }
+    r
+}
+
+/// How much of the pixel centred at (`x`, `y`) the rounded rectangle covers:
+/// 1.0 well inside, 0.0 well outside, and a one-pixel ramp across the arc so
+/// the corner reads as a curve rather than a staircase.
+fn rounded_rect_coverage(x: f32, y: f32, rect: &AzRect, radii: [f32; 4]) -> f32 {
+    let (x0, y0) = (rect.x, rect.y);
+    let (x1, y1) = (rect.x + rect.width, rect.y + rect.height);
+    let [tl, tr, br, bl] = radii;
+
+    // Only the quarter-disc region of a corner is curved; everywhere else the
+    // rectangle is straight and fully covered.
+    let (cx, cy, r) = if x < x0 + tl && y < y0 + tl {
+        (x0 + tl, y0 + tl, tl)
+    } else if x > x1 - tr && y < y0 + tr {
+        (x1 - tr, y0 + tr, tr)
+    } else if x > x1 - br && y > y1 - br {
+        (x1 - br, y1 - br, br)
+    } else if x < x0 + bl && y > y1 - bl {
+        (x0 + bl, y1 - bl, bl)
+    } else {
+        return 1.0;
+    };
+    if r <= 0.0 {
+        return 1.0;
+    }
+    let d = (x - cx).hypot(y - cy);
+    (r + 0.5 - d).clamp(0.0, 1.0)
+}
+
+/// Fade a staged RGBA row's alpha to the rounded-rect coverage, so an image
+/// fills its `border-radius` instead of its bounding box.
+///
+/// The mask is applied to the staged row rather than inside the sampling loops
+/// because both the upscale and the downscale branch funnel through the same
+/// `composite_rgba_row`: one place to be correct, and the hot per-pixel maths
+/// above it is untouched. Rows that clear the corner bands cost one compare.
+fn mask_row_to_rounded_rect(stage: &mut [u8], row_x0: f32, row_y: f32, rect: &AzRect, radii: [f32; 4]) {
+    let [tl, tr, br, bl] = radii;
+    let y = row_y + 0.5;
+    let top = tl.max(tr);
+    let bottom = bl.max(br);
+    // Between the corner bands every pixel of the row is fully inside.
+    if y >= rect.y + top && y <= rect.y + rect.height - bottom {
+        return;
+    }
+    for (i, px) in stage.chunks_exact_mut(4).enumerate() {
+        let cov = rounded_rect_coverage(row_x0 + i as f32 + 0.5, y, rect, radii);
+        if cov < 1.0 {
+            px[3] = (f32::from(px[3]) * cov) as u8;
+        }
+    }
 }
 
 fn build_rounded_rect_path(
@@ -8172,6 +8298,7 @@ mod autotest_generated {
                     dw,
                     dh,
                     (0, 0, dw, dh),
+                    None,
                     &mut RowConversions::new(),
                 );
                 reference_blit(&mut want, &src, 2, 2, dw, dh);
@@ -8247,7 +8374,7 @@ mod autotest_generated {
         let (dw, dh) = (200u32, 160u32);
         let mut p = pixmap(dw, dh);
         let mut conv = RowConversions::new();
-        blit_sampled_image(&mut p, &src, 0, 0, dw, dh, (0, 0, dw, dh), &mut conv);
+        blit_sampled_image(&mut p, &src, 0, 0, dw, dh, (0, 0, dw, dh), None, &mut conv);
         assert!(
             conv.0 <= sh as usize + 1,
             "a {sh}-row source must be converted about once per row, not per destination row: \
@@ -8274,7 +8401,7 @@ mod autotest_generated {
         let (dw, dh) = (50u32, 40u32);
         let mut p = pixmap(dw, dh);
         let mut conv = RowConversions::new();
-        blit_sampled_image(&mut p, &src, 0, 0, dw, dh, (0, 0, dw, dh), &mut conv);
+        blit_sampled_image(&mut p, &src, 0, 0, dw, dh, (0, 0, dw, dh), None, &mut conv);
         assert!(
             conv.0 <= sh as usize,
             "a {sh}-row source downscaled 4x must convert at most {sh} rows, got {}",
@@ -8285,7 +8412,7 @@ mod autotest_generated {
         // point of narrowing the loop.
         let mut p = pixmap(dw, dh);
         let mut conv = RowConversions::new();
-        blit_sampled_image(&mut p, &src, 0, 0, dw, dh, (0, 0, dw, 4), &mut conv);
+        blit_sampled_image(&mut p, &src, 0, 0, dw, dh, (0, 0, dw, 4), None, &mut conv);
         assert!(
             conv.0 <= 4 * BLIT_MAX_TAPS as usize,
             "4 clipped destination rows must not convert the whole {sh}-row source: {}",

@@ -6753,6 +6753,49 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
 /// "me or something above me is focused". Recomputed per display-list build,
 /// which makes the rule latch-free by construction (the 2026-08-31
 /// whack-a-mole class: imperative show/hide overrides stuck forever).
+/// Whether `host` or anything INSIDE it holds focus.
+///
+/// The companion to [`is_focus_within_or_above`], and the other half of the
+/// same question. Focus can land above the prompt-carrying line (on the
+/// editable container) or below it (on the exact line the pointer hit), and
+/// which one happens is a function of where the value line ends up — so a
+/// purely upward walk answered "unfocused" for a field the user was plainly
+/// typing in as soon as the line moved. Centring a text input's value line
+/// inside its `min-height` did exactly that, and the focused empty field
+/// started painting its placeholder again.
+///
+/// Mirrors the emptiness walk in `maybe_paint_placeholder_prompt`, which
+/// already asks its question of the whole host subtree.
+pub(crate) fn is_focus_within_subtree(styled_dom: &StyledDom, host: NodeId) -> bool {
+    let styled = styled_dom.styled_nodes.as_container();
+    if styled
+        .get(host)
+        .is_some_and(|n| n.styled_node_state.focused)
+    {
+        return true;
+    }
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut stack = hierarchy
+        .get(host)
+        .and_then(|h| h.first_child_id(host))
+        .into_iter()
+        .collect::<Vec<_>>();
+    while let Some(n) = stack.pop() {
+        if styled.get(n).is_some_and(|s| s.styled_node_state.focused) {
+            return true;
+        }
+        if let Some(h) = hierarchy.get(n) {
+            if let Some(c) = h.first_child_id(n) {
+                stack.push(c);
+            }
+            if let Some(sib) = h.next_sibling_id() {
+                stack.push(sib);
+            }
+        }
+    }
+    false
+}
+
 pub(crate) fn is_focus_within_or_above(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let styled = styled_dom.styled_nodes.as_container();
     if styled

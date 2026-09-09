@@ -25,7 +25,7 @@ let layout (data_ptr : unit Ctypes.ptr) (_info : unit Ctypes.ptr)
 
       let label =
         Azul.Dom.create_p_with_text (string_of_int m.counter)
-        |> with_css "font-size: 32px;"
+        |> with_css "font-size: 32px; margin: 0;"
       in
       let button_dom =
         Azul.Button.create "Increase counter"

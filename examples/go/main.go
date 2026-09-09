@@ -94,7 +94,7 @@ func goLayout(data C.AzRefAny, _ C.AzLayoutCallbackInfo) C.AzDom {
 	counterStr := []byte(fmt.Sprintf("%d", m.counter))
 	counterAz := C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&counterStr[0])), C.size_t(len(counterStr)))
 	label := C.AzDom_createPWithText(counterAz)
-	cssBytes := []byte("font-size: 32px;")
+	cssBytes := []byte("font-size: 32px; margin: 0;")
 	C.AzDom_setCss(&label, C.AzString_fromUtf8((*C.uint8_t)(unsafe.Pointer(&cssBytes[0])), C.size_t(len(cssBytes))))
 
 	btnLabelBytes := []byte("Increase counter")

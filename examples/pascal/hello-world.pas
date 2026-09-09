@@ -65,7 +65,7 @@ begin
   end;
 
   label_dom := TDom.CreatePWithText(MakeAzString(IntToStr(TMyModel(m).Counter)))
-                   .WithCss(MakeAzString('font-size: 32px;'));
+                   .WithCss(MakeAzString('font-size: 32px; margin: 0;'));
 
   click_handler := TMyClickHandler.Create;
   click_cb := azul_register_buttononclickcallback(click_handler);

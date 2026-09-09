@@ -898,6 +898,23 @@ impl MacOSWindow {
             }
             _ => {}
         }
+
+        // Keep frames coming while anything is animating. x11, wayland and
+        // windows all gate their next frame on `needs_animation_frame()`;
+        // macOS never asked, so a tween that nothing else repainted simply
+        // stopped — visible now that an imperative `set_css_property` can
+        // seed a CSS transition (a switch would have frozen at its `from`
+        // value instead of snapping to the new one).
+        let still_animating = self
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| {
+                lw.scroll_manager.has_active_animations() || lw.needs_animation_frame()
+            });
+        if still_animating {
+            self.request_redraw();
+        }
     }
 
     /// Process a flags changed event (modifier keys).

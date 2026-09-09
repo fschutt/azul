@@ -187,45 +187,13 @@ const LINEAR_COLOR_STOP_10827796861537038040_ITEMS: &[NormalizedLinearColorStop]
     },
 ];
 
-const CSS_MATCH_1085706216385961159_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul_native-list-header-arrow-down
-    CssPropertyWithConditions::simple(CssProperty::Transform(StyleTransformVecValue::Exact(
-        StyleTransformVec::from_const_slice(STYLE_TRANSFORM_6162542744002865382_ITEMS),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::Position(LayoutPositionValue::Exact(
-        LayoutPosition::Absolute,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
-        LayoutPaddingRight {
-            inner: PixelValue::const_px(3),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-        LayoutPaddingLeft {
-            inner: PixelValue::const_px(3),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(
-        LayoutPaddingBottom {
-            inner: PixelValue::const_px(3),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
-        LayoutPaddingTop {
-            inner: PixelValue::const_px(3),
-        },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::JustifyContent(
-        LayoutJustifyContentValue::Exact(LayoutJustifyContent::Center),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
-        LayoutFlexDirection::Row,
-    ))),
-];
-const CSS_MATCH_1085706216385961159: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_1085706216385961159_PROPERTIES);
-
 const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul_native-list-header-item:hover
     CssPropertyWithConditions::on_hover(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -431,6 +399,11 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = 
         )),
     )),
     // .__azul_native-list-header-item
+    // Centre the label in the header's height: without it the text sat on the
+    // top edge and the gradient's grey half read as an empty band under it.
+    CssPropertyWithConditions::simple(CssProperty::JustifyContent(
+        LayoutJustifyContentValue::Exact(LayoutJustifyContent::Center),
+    )),
     CssPropertyWithConditions::simple(CssProperty::Position(LayoutPositionValue::Exact(
         LayoutPosition::Relative,
     ))),
@@ -443,9 +416,6 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = 
         LayoutMinWidth {
             inner: PixelValue::const_px(100),
         },
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
-        LayoutFlexDirection::Column,
     ))),
     CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
@@ -473,6 +443,15 @@ const CSS_MATCH_12498280255863106397: CssPropertyWithConditionsVec =
 
 const CSS_MATCH_12980082330151137475_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul_native-list-rows-row-cell
+    // A cell holds one line of a record, like a table cell: it clips rather
+    // than wrapping, so a row keeps the height the list gave it and a long
+    // value cannot push the rows below it out of place.
+    CssPropertyWithConditions::simple(CssProperty::WhiteSpace(StyleWhiteSpaceValue::Exact(
+        StyleWhiteSpace::Nowrap,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::OverflowX(LayoutOverflowValue::Exact(
+        LayoutOverflow::Hidden,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
         LayoutPaddingLeft {
             inner: PixelValue::const_px(7),
@@ -491,30 +470,16 @@ const CSS_MATCH_12980082330151137475_PROPERTIES: &[CssPropertyWithConditions] = 
     CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
         StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
     ))),
+    // Same reason as the tree's label: a conditional inline value is not
+    // inherited, so the cell states its own dark colour.
+    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
+        StyleTextColor {
+            inner: ColorU { r: 230, g: 230, b: 230, a: 255 },
+        },
+    ))),
 ];
 const CSS_MATCH_12980082330151137475: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_12980082330151137475_PROPERTIES);
-
-const CSS_MATCH_13758717721055992976_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul_native-list-header-arrow-down-inner
-    CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
-        LayoutWidth::Px(PixelValue::const_px(6)),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::Transform(StyleTransformVecValue::Exact(
-        StyleTransformVec::from_const_slice(STYLE_TRANSFORM_16978981723642914576_ITEMS),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::OverflowY(LayoutOverflowValue::Exact(
-        LayoutOverflow::Hidden,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::OverflowX(LayoutOverflowValue::Exact(
-        LayoutOverflow::Hidden,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight::Px(PixelValue::const_px(6)),
-    ))),
-];
-const CSS_MATCH_13758717721055992976: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_13758717721055992976_PROPERTIES);
 
 const CSS_MATCH_15295293133676720691_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul_native-list-header-dragwidth-drag
@@ -529,16 +494,24 @@ const CSS_MATCH_15295293133676720691: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15295293133676720691_PROPERTIES);
 
 const CSS_MATCH_15315949193378715186_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul_native-list-header
     CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
         LayoutHeight::Px(PixelValue::const_px(25)),
     ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
-        LayoutFlexDirection::Row,
-    ))),
     CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
         StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
             STYLE_BACKGROUND_CONTENT_7422581697888665934_ITEMS,
+        )),
+    )),
+    CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            &[StyleBackgroundContent::Color(ColorU { r: 43, g: 43, b: 43, a: 255 })],
         )),
     )),
 ];
@@ -560,9 +533,6 @@ const CSS_MATCH_15673486787900743642_PROPERTIES: &[CssPropertyWithConditions] = 
             inner: FloatValue::const_new(1),
         },
     ))),
-    CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
-        LayoutFlexDirection::Column,
-    ))),
     CssPropertyWithConditions::simple(CssProperty::TextColor(StyleTextColorValue::Exact(
         StyleTextColor {
             inner: ColorU {
@@ -576,116 +546,12 @@ const CSS_MATCH_15673486787900743642_PROPERTIES: &[CssPropertyWithConditions] = 
     CssPropertyWithConditions::simple(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(
         LayoutAlignItems::Center,
     ))),
+    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
+        StyleTextColor { inner: ColorU { r: 230, g: 230, b: 230, a: 255 } },
+    ))),
 ];
 const CSS_MATCH_15673486787900743642: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15673486787900743642_PROPERTIES);
-
-const CSS_MATCH_1574792189506859253_PROPERTIES: &[CssPropertyWithConditions] = &[
-    // .__azul_native-list-header-arrow-down-inner-deco
-    CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
-        LayoutWidth::Px(PixelValue::const_px(12)),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::Transform(StyleTransformVecValue::Exact(
-        StyleTransformVec::from_const_slice(STYLE_TRANSFORM_17732691695785266054_ITEMS),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
-        LayoutHeight::Px(PixelValue::const_px(12)),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(
-        BoxOrStatic::Static(&StyleBoxShadow {
-            offset_x: PixelValueNoPercent {
-                inner: PixelValue::const_px(3),
-            },
-            offset_y: PixelValueNoPercent {
-                inner: PixelValue::const_px(3),
-            },
-            color: ColorU {
-                r: 60,
-                g: 94,
-                b: 114,
-                a: 255,
-            },
-            blur_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(10),
-            },
-            spread_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            clip_mode: BoxShadowClipMode::Inset,
-        }),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
-        BoxOrStatic::Static(&StyleBoxShadow {
-            offset_x: PixelValueNoPercent {
-                inner: PixelValue::const_px(3),
-            },
-            offset_y: PixelValueNoPercent {
-                inner: PixelValue::const_px(3),
-            },
-            color: ColorU {
-                r: 60,
-                g: 94,
-                b: 114,
-                a: 255,
-            },
-            blur_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(10),
-            },
-            spread_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            clip_mode: BoxShadowClipMode::Inset,
-        }),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
-        BoxOrStatic::Static(&StyleBoxShadow {
-            offset_x: PixelValueNoPercent {
-                inner: PixelValue::const_px(3),
-            },
-            offset_y: PixelValueNoPercent {
-                inner: PixelValue::const_px(3),
-            },
-            color: ColorU {
-                r: 60,
-                g: 94,
-                b: 114,
-                a: 255,
-            },
-            blur_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(10),
-            },
-            spread_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            clip_mode: BoxShadowClipMode::Inset,
-        }),
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
-        BoxOrStatic::Static(&StyleBoxShadow {
-            offset_x: PixelValueNoPercent {
-                inner: PixelValue::const_px(3),
-            },
-            offset_y: PixelValueNoPercent {
-                inner: PixelValue::const_px(3),
-            },
-            color: ColorU {
-                r: 60,
-                g: 94,
-                b: 114,
-                a: 255,
-            },
-            blur_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(10),
-            },
-            spread_radius: PixelValueNoPercent {
-                inner: PixelValue::const_px(0),
-            },
-            clip_mode: BoxShadowClipMode::Inset,
-        }),
-    ))),
-];
-const CSS_MATCH_1574792189506859253: CssPropertyWithConditionsVec =
-    CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_1574792189506859253_PROPERTIES);
 
 const CSS_MATCH_17553577885456905601_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul_native_list-container
@@ -699,6 +565,17 @@ const CSS_MATCH_17553577885456905601_PROPERTIES: &[CssPropertyWithConditions] = 
             STYLE_BACKGROUND_CONTENT_2444935983575427872_ITEMS,
         )),
     )),
+    // Dark defaults. Inline CSS takes `@theme dark` conditions and the last
+    // matching property wins, so each dark value sits after the light one it
+    // replaces. A list is a FIELD: in a dark window it must not stay white.
+    CssPropertyWithConditions::dark_theme(CssProperty::BackgroundContent(
+        StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+            &[StyleBackgroundContent::Color(ColorU { r: 31, g: 31, b: 31, a: 255 })],
+        )),
+    )),
+    CssPropertyWithConditions::dark_theme(CssProperty::TextColor(StyleTextColorValue::Exact(
+        StyleTextColor { inner: ColorU { r: 230, g: 230, b: 230, a: 255 } },
+    ))),
 ];
 const CSS_MATCH_17553577885456905601: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_17553577885456905601_PROPERTIES);
@@ -735,6 +612,12 @@ const CSS_MATCH_2883986488332352590: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_2883986488332352590_PROPERTIES);
 
 const CSS_MATCH_4852927511892172364_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul_native-list-rows
     CssPropertyWithConditions::simple(CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(
         LayoutFlexDirection::Column,
@@ -761,6 +644,12 @@ const CSS_MATCH_6002662151290653203: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_6002662151290653203_PROPERTIES);
 
 const CSS_MATCH_6827198030119836081_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul_native-list-rows-row.selected
     CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -1047,6 +936,12 @@ const CSS_MATCH_6827198030119836081: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_6827198030119836081_PROPERTIES);
 
 const CSS_MATCH_7894335449545988724_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul_native-list-rows-row.focused
     CssPropertyWithConditions::on_focus(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -1364,6 +1259,42 @@ const IDS_AND_CLASSES_18330792117162403422: &[IdOrClass] = &[Class(AzString::fro
 ))];
 const COLUMN_NAME_CLASS: IdOrClassVec =
     IdOrClassVec::from_const_slice(IDS_AND_CLASSES_18330792117162403422);
+
+const IDS_AND_CLASSES_SORT_ARROW: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul_native-list-header-arrow-down",
+))];
+const SORT_ARROW_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CLASSES_SORT_ARROW);
+
+/// The sort indicator a header shows on the column the list is sorted by.
+///
+/// `sorted_by` used to change nothing on screen: the three
+/// `__azul_native-list-header-arrow-down*` rules had been in this widget's
+/// stylesheet from the start and no element ever matched them. They describe a
+/// rotated square with two shadowed edges — a CSS triangle — and rendering it
+/// produced a filled grey SQUARE, because nothing clips the rotated box. The
+/// indicator is a glyph instead, the same way the tree view draws its
+/// disclosure chevrons, so it is a triangle at any size and inherits the
+/// header's own colour.
+fn sort_arrow() -> Dom {
+    Dom::create_icon(AzString::from_const_str("arrow_drop_up"))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(SORT_ARROW_STYLE))
+        .with_ids_and_classes(SORT_ARROW_CLASS)
+}
+
+/// A small glyph, vertically centred by the header item's own flex box, that
+/// never competes with the label for width.
+static SORT_ARROW_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
+        inner: ColorU {
+            r: 0x67,
+            g: 0x67,
+            b: 0x67,
+            a: 255,
+        },
+    })),
+];
 
 pub type ListViewOnLazyLoadScrollCallbackType =
     extern "C" fn(RefAny, CallbackInfo, ListViewState) -> Update;
@@ -1709,13 +1640,16 @@ impl ListView {
                             .iter()
                             .enumerate()
                             .map(|(col_index, col)| {
-                                let col_dom = Dom::create_div()
+                                let mut col_dom = Dom::create_div()
                                     .with_css_props(CSS_MATCH_12498280255863106397)
                                     .with_ids_and_classes(COLUMN_NAME_CLASS)
                                     .with_child({
                                         crate::widgets::widget_p_with_text(col.clone())
                                             .with_css_props(CSS_MATCH_15673486787900743642)
                                     });
+                                if self.sorted_by.into_option() == Some(col_index) {
+                                    col_dom = col_dom.with_child(sort_arrow());
+                                }
                                 // Wire the click only when the app set a handler.
                                 match &on_column_click {
                                     OptionListViewOnColumnClick::Some(_) => col_dom.with_callbacks(

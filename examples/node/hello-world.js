@@ -20,7 +20,7 @@ function layout(dataPtr, _info) {
     if (m == null) return Dom.create_body();
 
     const label = Dom.create_p_with_text(String(m.counter))
-        .with_css('font-size: 32px;');
+        .with_css('font-size: 32px; margin: 0;');
 
     const button = Button.create('Increase counter')
         .with_button_type(ButtonType.Primary)

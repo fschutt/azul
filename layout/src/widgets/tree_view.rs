@@ -14,7 +14,10 @@ use azul_core::{
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    dynamic_selector::{
+        CssPropertyWithConditions, CssPropertyWithConditionsVec, DynamicSelector,
+        PseudoStateType, ThemeCondition,
+    },
     props::{
         basic::{
             color::{ColorOrSystem, ColorU},
@@ -94,6 +97,52 @@ const HOVER_BG: ColorU = ColorU {
     b: 255,
     a: 255,
 };
+/// The tree is a FIELD, like the list view next to it: it draws its own
+/// surface. Without one the control was transparent and inherited whatever it
+/// happened to sit on, which is why it read as a floating list of labels
+/// rather than a pane. Same value as `__azul_native_list-container`.
+const FIELD_BG: ColorU = ColorU {
+    r: 252,
+    g: 252,
+    b: 252,
+    a: 255,
+};
+// -- Dark theme --
+//
+// Inline CSS carries `@theme dark` conditions (`dark_theme`), and a later
+// property wins, so each dark value is declared right after the light one it
+// replaces. These are DEFAULTS: an app that wants the exact platform palette
+// still overrides them, but a tree must not be a white box in a dark window.
+const FIELD_BG_DARK: ColorU = ColorU {
+    r: 31,
+    g: 31,
+    b: 31,
+    a: 255,
+};
+const TEXT_COLOR_DARK: ColorU = ColorU {
+    r: 230,
+    g: 230,
+    b: 230,
+    a: 255,
+};
+const HOVER_BG_DARK: ColorU = ColorU {
+    r: 42,
+    g: 45,
+    b: 46,
+    a: 255,
+};
+const SELECTED_BG_DARK: ColorU = ColorU {
+    r: 9,
+    g: 71,
+    b: 113,
+    a: 255,
+};
+const ICON_COLOR_DARK: ColorU = ColorU {
+    r: 176,
+    g: 176,
+    b: 176,
+    a: 255,
+};
 const ICON_COLOR: ColorU = ColorU {
     r: 100,
     g: 100,
@@ -104,6 +153,10 @@ const ICON_COLOR: ColorU = ColorU {
 // -- Tree container style --
 
 static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(FIELD_BG)]),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_overflow_y(LayoutOverflow::Auto)),
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,
@@ -112,6 +165,14 @@ static TREE_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: TEXT_COLOR,
+    })),
+    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(
+            FIELD_BG_DARK,
+        )]),
+    )),
+    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
+        inner: TEXT_COLOR_DARK,
     })),
 ];
 
@@ -138,6 +199,15 @@ static ROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::on_hover(CssProperty::const_background_content(
         StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(HOVER_BG)]),
     )),
+    CssPropertyWithConditions::with_single_condition(
+        CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(&[
+            StyleBackgroundContent::Color(HOVER_BG_DARK),
+        ])),
+        &[
+            DynamicSelector::PseudoState(PseudoStateType::Hover),
+            DynamicSelector::Theme(ThemeCondition::Dark),
+        ],
+    ),
 ];
 
 // -- Selected row style --
@@ -168,6 +238,11 @@ static ROW_SELECTED_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: SELECTED_TEXT,
     })),
+    CssPropertyWithConditions::dark_theme(CssProperty::const_background_content(
+        StyleBackgroundContentVec::from_const_slice(&[StyleBackgroundContent::Color(
+            SELECTED_BG_DARK,
+        )]),
+    )),
 ];
 
 // -- Children container style --
@@ -192,6 +267,9 @@ static ICON_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: ICON_COLOR,
     })),
+    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
+        inner: ICON_COLOR_DARK,
+    })),
 ];
 
 // -- Leaf spacer (same width as icon, for alignment) --
@@ -208,6 +286,13 @@ static LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_left(
         LayoutPaddingLeft::const_px(4),
     )),
+    // The dark text colour is declared HERE, on the node that carries the
+    // text, not only on the container: a CONDITIONAL inline value does not
+    // reach a child through inheritance, so labels kept the light colour and
+    // came out near-black on the dark surface.
+    CssPropertyWithConditions::dark_theme(CssProperty::const_text_color(StyleTextColor {
+        inner: TEXT_COLOR_DARK,
+    })),
 ];
 
 // ============================================================================

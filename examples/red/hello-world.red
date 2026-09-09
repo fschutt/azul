@@ -55,7 +55,7 @@ on-layout: func [[cdecl] arg0 [byte-ptr!] arg1 [byte-ptr!] out [byte-ptr!]
         num: integer/to-string m/counter
 
         label: AzDom_createDiv
-        label: AzDom_withCss label mk-str "font-size: 32px;"
+        label: AzDom_withCss label mk-str "font-size: 32px; margin: 0;"
         label: AzDom_withChild label (AzDom_createTextDoNotUseWithoutBlockLevelWrapper mk-str num)
 
         click-cb:   azul-register-button-on-click-callback :on-click

@@ -30,7 +30,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     AzDom_addChild(&para, t1);
     
     AzDom t2 = AzDom_createPWithText(az_str("LARGE "));
-    AzDom_setCss(&t2, az_str("font-size: 32px; background-color: #dfd;"));
+    AzDom_setCss(&t2, az_str("font-size: 32px; margin: 0; background-color: #dfd;"));
     AzDom_addChild(&para, t2);
     
     AzDom t3 = AzDom_createPWithText(az_str("Medium "));

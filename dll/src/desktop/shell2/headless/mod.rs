@@ -258,6 +258,16 @@ pub struct CpuBackend {
     /// presents the alpha). Set by the backend from the window state before
     /// every `render_frame`.
     pub transparent: bool,
+    /// Whether an unstyled window follows the SYSTEM background colour.
+    ///
+    /// True for a real window on a desktop: an app that sets no
+    /// `background_color` should get the desktop's own window background, so a
+    /// dark system theme does not produce a white sheet. False for offscreen
+    /// rendering, where there is no desktop to follow and the output has to be
+    /// reproducible byte for byte — the headless renderer backs screenshots,
+    /// PDF export and the reference images the scroll tests diff against, and
+    /// those must not change colour with whatever machine runs them.
+    pub follow_system_background: bool,
     /// Implied by `transparent`: after every frame the window's shape (the
     /// rectangles of opaque-enough pixels, physical px) is computed into
     /// `last_shape` for the backend to hand to the OS, so clicks on fully
@@ -423,6 +433,7 @@ impl CpuBackend {
         Self {
             hit_tester: azul_layout::headless::CpuHitTester::new(),
             transparent: false,
+            follow_system_background: true,
             shape_from_alpha: false,
             #[cfg(feature = "cpurender")]
             last_shape: None,
@@ -536,11 +547,35 @@ impl CpuBackend {
             return Vec::new();
         }
 
-        // Allocate or resize compositor
+        // Allocate or resize compositor.
+        //
+        // The canvas colour, in precedence order: a transparent window clears
+        // to nothing; otherwise the app's own `background_color` if it set
+        // one; otherwise the SYSTEM window background. That last step is what
+        // makes a dark desktop produce a dark window — hardcoding white here
+        // painted every window white and left dark-themed widgets sitting on
+        // a white sheet, because this backend is the shared CPU path for
+        // macOS, X11 and Wayland alike.
         let clear_color: [u8; 4] = if self.transparent {
             [0, 0, 0, 0]
         } else {
-            [255, 255, 255, 255]
+            let app_choice = match layout_window.current_window_state.background_color {
+                azul_css::props::basic::color::OptionColorU::Some(c) => Some(c),
+                azul_css::props::basic::color::OptionColorU::None => None,
+            };
+            let system_choice = if self.follow_system_background {
+                layout_window.system_style.as_ref().and_then(|s| {
+                    match s.colors.window_background {
+                        azul_css::props::basic::color::OptionColorU::Some(c) => Some(c),
+                        azul_css::props::basic::color::OptionColorU::None => None,
+                    }
+                })
+            } else {
+                None
+            };
+            app_choice
+                .or(system_choice)
+                .map_or([255, 255, 255, 255], |c| [c.r, c.g, c.b, 255])
         };
         let compositor = self
             .compositor
@@ -1487,7 +1522,12 @@ impl HeadlessWindow {
 
         Ok(Self {
             common,
-            cpu_backend: CpuBackend::new(),
+            cpu_backend: CpuBackend {
+                // Offscreen output must be reproducible, so it keeps the plain
+                // white canvas rather than the host desktop's colour.
+                follow_system_background: false,
+                ..CpuBackend::new()
+            },
             is_open: true,
             event_queue: VecDeque::new(),
             thread_poll_timer_running: false,
@@ -5540,7 +5580,7 @@ mod tests {
             ws.size.dimensions.height,
             ws.size.dpi as f32 / 96.0,
         );
-        let mut fresh = CpuBackend::new();
+        let mut fresh = CpuBackend { follow_system_background: false, ..CpuBackend::new() };
         let lw = window.common.layout_window.as_ref().expect("layout window");
         fresh.render_frame(lw, &window.common.renderer_resources, w, h, dpi);
         let full = fresh
@@ -6952,7 +6992,7 @@ mod tests {
                 button: MouseButton::Left,
             },
         );
-        window.regenerate_layout().expect("layout after focus");
+
 
         // THE FIELD IS NOT BLANK ON FOCUS. Before, focus hid the placeholder
         // and the empty editable painted no caret, so a focused empty field
@@ -8149,17 +8189,14 @@ mod tests {
         use azul_core::window::CursorPosition;
 
         window.snapshot_window_state_baseline("headless.test.step");
-        let mut needs_redraw = false;
+        let mut tier = ProcessEventResult::DoNothing;
         match event {
             HeadlessEvent::MouseMove { x, y } => {
                 let pos = LogicalPosition { x, y };
                 window.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(pos);
                 // MWA-C-scroll: active scrollbar thumb drag (desktop pattern).
                 if window.common.scrollbar_drag_state.is_some() {
-                    needs_redraw = !matches!(
-                        PlatformWindow::handle_scrollbar_drag(window, pos),
-                        ProcessEventResult::DoNothing
-                    );
+                    tier = tier.max_self(PlatformWindow::handle_scrollbar_drag(window, pos));
                     // SANCTIONED SWALLOW: mirrors `run()`'s MouseMove arm — the
                     // thumb drag consumed this motion.
                     PlatformWindow::discard_input_delta(
@@ -8169,10 +8206,7 @@ mod tests {
                 } else {
                     window.update_hit_test_at(pos);
                     record_headless_input(window, false, false); // MWA-A4
-                    needs_redraw = !matches!(
-                        window.process_window_events(0),
-                        ProcessEventResult::DoNothing
-                    );
+                    tier = tier.max_self(window.process_window_events(0));
                 }
             }
             HeadlessEvent::MouseDown { button } => {
@@ -8193,10 +8227,7 @@ mod tests {
                 };
                 if let Some((hit, p)) = sb_hit {
                     window.common.mouse_state_mut().left_down = true;
-                    needs_redraw = !matches!(
-                        PlatformWindow::handle_scrollbar_click(window, hit, p),
-                        ProcessEventResult::DoNothing
-                    );
+                    tier = tier.max_self(PlatformWindow::handle_scrollbar_click(window, hit, p));
                     // SANCTIONED SWALLOW: mirrors `run()`'s MouseDown arm — the
                     // scrollbar consumed this press.
                     PlatformWindow::discard_input_delta(
@@ -8211,10 +8242,7 @@ mod tests {
                         _ => {}
                     }
                     record_headless_input(window, true, false); // MWA-A4
-                    needs_redraw = !matches!(
-                        window.process_window_events(0),
-                        ProcessEventResult::DoNothing
-                    );
+                    tier = tier.max_self(window.process_window_events(0));
                 }
             }
             HeadlessEvent::MouseUp { button } => {
@@ -8222,6 +8250,7 @@ mod tests {
                 let ended_scrollbar_drag = window.common.scrollbar_drag_state.is_some();
                 if ended_scrollbar_drag {
                     window.common.scrollbar_drag_state = None;
+                    tier = tier.max_self(ProcessEventResult::ShouldIncrementalRelayout);
                 }
                 match button {
                     MouseButton::Left => window.common.mouse_state_mut().left_down = false,
@@ -8230,11 +8259,7 @@ mod tests {
                     _ => {}
                 }
                 record_headless_input(window, false, true); // MWA-A4
-                let pass_changed = !matches!(
-                    window.process_window_events(0),
-                    ProcessEventResult::DoNothing
-                );
-                needs_redraw = ended_scrollbar_drag || pass_changed;
+                tier = tier.max_self(window.process_window_events(0));
             }
             HeadlessEvent::KeyDown { virtual_keycode } => {
                 window.common.keyboard_state_mut().current_virtual_keycode =
@@ -8244,10 +8269,7 @@ mod tests {
                     .keyboard_state_mut()
                     .pressed_virtual_keycodes
                     .insert_hm_item(virtual_keycode);
-                needs_redraw = !matches!(
-                    window.process_window_events(0),
-                    ProcessEventResult::DoNothing
-                );
+                tier = tier.max_self(window.process_window_events(0));
             }
             HeadlessEvent::KeyUp { virtual_keycode } => {
                 window.common.keyboard_state_mut().current_virtual_keycode =
@@ -8257,15 +8279,12 @@ mod tests {
                     .keyboard_state_mut()
                     .pressed_virtual_keycodes
                     .remove_hm_item(&virtual_keycode);
-                needs_redraw = !matches!(
-                    window.process_window_events(0),
-                    ProcessEventResult::DoNothing
-                );
+                tier = tier.max_self(window.process_window_events(0));
             }
             _ => {}
         }
-        if needs_redraw {
-            let _ = window.regenerate_layout();
+        if tier > ProcessEventResult::DoNothing {
+            window.service_frame(tier);
             window.cpu_backend.last_frame_damage.clone()
         } else {
             FrameDamage::None

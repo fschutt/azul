@@ -1503,8 +1503,15 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
 }
 
 .section-image img {
-    width: 100%;
+    /* `width: 100%` UPSCALED any screenshot narrower than its column — a
+       800px-wide capture stretched across a 1100px slot is 1.4x of blur, and
+       the bigger the screen the worse it got. `auto` + `max-width` renders at
+       most 1:1 and still shrinks to fit a narrow viewport. */
+    width: auto;
+    max-width: 100%;
     height: auto;
+    display: block;
+    margin-inline: auto;
     border-radius: 4px;
     box-shadow: var(--fl-shadow-1);
 }
@@ -1534,8 +1541,12 @@ body.nav-open .fl-orb .fl-orb-well-shadow { opacity: 1.35; }
 }
 
 .content-image img {
-    width: 100%;
+    /* Never scale a screenshot above 1:1 — see `.section-image img`. */
+    width: auto;
+    max-width: 100%;
     height: auto;
+    display: block;
+    margin-inline: auto;
     border-radius: 4px;
     box-shadow: var(--fl-shadow-1);
     background: var(--fl-sur); /* Fallback for loading */

@@ -1253,6 +1253,56 @@ pub struct ResolvedUaScrollbar {
 /// Iterates `UA_SCROLLBAR_CSS` and picks the first matching entry per
 /// property type.  Unconditional fallback entries in the table guarantee
 /// that every field resolves.
+/// The default `color` for text that inherits none, as a static table the
+/// dynamic context resolves.
+///
+/// A UA default cannot be one constant: black text is correct on the light
+/// window background and invisible on the dark one, and which of those the
+/// window has is not known until a `DynamicSelectorContext` exists. Declaring
+/// BOTH here — the plain rule and its `@theme dark` variant — keeps the table
+/// static (so the UA property cache stays a pure function of node type) and
+/// defers the choice to the same evaluation step the scrollbar defaults use.
+///
+/// Ordered most-specific first, like [`UA_SCROLLBAR_CSS`].
+pub(crate) static UA_ROOT_TEXT_COLOR_CSS: &[CssPropertyWithConditions] = &[
+    // Dark window background -> near-white text, matching the platform's own
+    // "label" colour rather than pure white, which glares.
+    CssPropertyWithConditions::with_single_condition(
+        CssProperty::TextColor(CssPropertyValue::Exact(azul_css::props::style::text::StyleTextColor {
+            inner: ColorU {
+                r: 0xe8,
+                g: 0xe8,
+                b: 0xe8,
+                a: 255,
+            },
+        })),
+        &[DynamicSelector::Theme(ThemeCondition::Dark)],
+    ),
+    // default -> opaque black, the CSS initial value.
+    CssPropertyWithConditions::simple(CssProperty::TextColor(CssPropertyValue::Exact(
+        azul_css::defaults::DEFAULT_TEXT_COLOR,
+    ))),
+];
+
+/// The inherited-text-colour default for `ctx`'s theme.
+///
+/// Falls back to the CSS initial value if the table somehow matches nothing,
+/// so this can never return "no colour".
+#[must_use]
+pub fn evaluate_ua_root_text_color(
+    ctx: &DynamicSelectorContext,
+) -> azul_css::props::style::text::StyleTextColor {
+    for prop in UA_ROOT_TEXT_COLOR_CSS {
+        if !prop.matches(ctx) {
+            continue;
+        }
+        if let CssProperty::TextColor(CssPropertyValue::Exact(c)) = &prop.property {
+            return *c;
+        }
+    }
+    azul_css::defaults::DEFAULT_TEXT_COLOR
+}
+
 #[must_use]
 pub fn evaluate_ua_scrollbar_css(ctx: &DynamicSelectorContext) -> ResolvedUaScrollbar {
     let mut color: Option<StyleScrollbarColor> = None;

@@ -30,6 +30,12 @@ const STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
     &[StyleFontFamily::System(STRING_16146701490593874959)];
 
 const CSS_MATCH_15775557796860201720_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul-native-frame .__azul-native-frame-header .__azul-native-frame-header-before div
     CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
         LayoutHeight::Px(PixelValue::const_px(8)),
@@ -86,6 +92,12 @@ const CSS_MATCH_15775557796860201720: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15775557796860201720_PROPERTIES);
 
 const CSS_MATCH_16739370686243728873_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul-native-frame .__azul-native-frame-header
     CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
         StyleFontSize {
@@ -161,6 +173,12 @@ const CSS_MATCH_8602559445190067154: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_8602559445190067154_PROPERTIES);
 
 const CSS_MATCH_9156589477016488419_PROPERTIES: &[CssPropertyWithConditions] = &[
+    // A flex container: `flex-direction` / `justify-content` / `align-items`
+    // below do nothing without it (this rule had none, so the box laid out as
+    // a block and its children stacked vertically).
+    CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+        LayoutDisplay::Flex,
+    ))),
     // .__azul-native-frame .__azul-native-frame-header .__azul-native-frame-header-after div
     CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
         LayoutHeight::Px(PixelValue::const_px(8)),

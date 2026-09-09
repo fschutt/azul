@@ -94,7 +94,7 @@ func layout(data *azul.RefAny, _ *azul.LayoutCallbackInfo) *azul.Dom {
 	button := azul.NewButtonCreate(azul.Str("Increase counter"))
 	button.OnClick(data, onClick)
 
-	body.SetCss(azul.Str("div { font-size: 32px; }"))
+	body.SetCss(azul.Str("div { font-size: 32px; margin: 0; }"))
 	body.AddChild(label.Raw())
 	body.AddChild(button.Dom())
 	return body

@@ -5444,6 +5444,57 @@ where
 
     /// Emits drawing commands for the background and border of a single node.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// Does this node's PARENT paint it, as an `InlineShape` of the parent's own
+    /// inline formatting context?
+    ///
+    /// This is the ownership question behind every inline-level box: exactly one
+    /// path must emit it. When the parent runs an IFC, the text engine measured
+    /// this box, gave it a position on a line, and paints it from that shape —
+    /// so `paint_node_background_and_border` must NOT paint it again, or the box
+    /// appears twice (once on its line, once at the parent's content origin).
+    /// When the parent runs anything else there is no shape and no other painter,
+    /// so the box must paint itself or it vanishes entirely.
+    ///
+    /// Two kinds of parent do NOT build inline shapes:
+    ///
+    ///  * a **flex or grid container**, which treats an inline-level child as a
+    ///    flex/grid item and lays it out directly;
+    ///  * a **replaced element** (`<img>`, `<video>`, `<canvas>`, …), whose own
+    ///    content is the replaced object. azul lets a replaced element carry
+    ///    children as an overlay (the frontpage `opengl` example composits a
+    ///    `Button` over its canvas); they are laid out by an interior run and
+    ///    painted by the ordinary node walk, never as inline shapes.
+    ///
+    /// Both were previously handled by asking only "is the parent flex or grid?",
+    /// which silently answered "yes, the parent paints it" for a replaced element
+    /// — so a `Button` over an `<img>` had its background painted by nobody.
+    fn parent_paints_as_inline_shape(&self, node_index: usize) -> bool {
+        let tree = &self.positioned_tree.tree;
+
+        let parent_fc = tree
+            .warm(LayoutNodeId::new(node_index))
+            .and_then(|w| w.parent_formatting_context);
+
+        if matches!(
+            parent_fc,
+            Some(FormattingContext::Flex | FormattingContext::Grid)
+        ) {
+            return false;
+        }
+
+        let parent_is_replaced = tree
+            .get(LayoutNodeId::new(node_index))
+            .and_then(|n| n.parent)
+            .and_then(|p| tree.get(LayoutNodeId::new(p)))
+            .and_then(|p| p.dom_node_id)
+            .is_some_and(|parent_dom_id| {
+                let node_data = &self.ctx.styled_dom.node_data.as_container()[parent_dom_id];
+                crate::solver3::layout_tree::is_replaced_element(node_data)
+            });
+
+        !parent_is_replaced
+    }
+
     fn paint_node_background_and_border(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -5514,25 +5565,17 @@ where
             return Ok(());
         }
 
-        // Skip inline and inline-block elements ONLY if they participate in an IFC (Inline Formatting Context).
-        // In Flex or Grid containers, inline-block elements are treated as flex/grid items and must be painted here.
-        // Inline elements participate in inline formatting context and their backgrounds
-        // must be positioned by the text layout engine, not the block layout engine
-        //
-        // IMPORTANT: The parent check must look at the PARENT NODE's formatting_context,
-        // not the current node's. If parent is Flex/Grid, we paint this element as a flex/grid item.
-        // Also check parent_formatting_context field which stores parent's FC during tree construction.
+        // An inline-level box is painted by whoever OWNS it: if its parent runs an
+        // inline formatting context, the text engine positioned it as an
+        // `InlineShape` and paints it from there, and painting it again here
+        // would double it at the wrong origin. If the parent runs anything else,
+        // nobody else will paint it and it must paint itself. See
+        // `parent_paints_as_inline_shape` for what the two cases actually are.
         let warm = self
             .positioned_tree
             .tree
             .warm(LayoutNodeId::new(node_index));
-        let parent_is_flex_or_grid = warm
-            .and_then(|w| {
-                w.parent_formatting_context
-                    .as_ref()
-                    .map(|fc| matches!(fc, FormattingContext::Flex | FormattingContext::Grid))
-            })
-            .unwrap_or(false);
+        let parent_paints_me_as_an_inline_shape = self.parent_paints_as_inline_shape(node_index);
 
         if let Some(dom_id) = node.dom_node_id {
             let display = {
@@ -5541,17 +5584,27 @@ where
                     .unwrap_or(LayoutDisplay::Inline)
             };
 
-            if display == LayoutDisplay::InlineBlock || display == LayoutDisplay::Inline {
+            // EVERY atomic inline is represented in its parent's inline layout
+            // as an `InlineShape` (fc.rs builds one for each), and
+            // `paint_inline_shape` paints it from there. Naming only
+            // `InlineBlock` here let an `inline-flex` / `inline-grid` /
+            // `inline-table` box paint its own background AS WELL, so it
+            // appeared twice — once where the shape put it and once at the
+            // parent's content origin. A `Button` (inline-flex) composited
+            // over an `<img>` showed both copies on the frontpage screenshot.
+            let is_atomic_inline = display.is_atomic_inline();
+
+            if is_atomic_inline || display == LayoutDisplay::Inline {
                 debug_info!(
                     self.ctx,
-                    "[paint_node] node {} has display={:?}, parent_formatting_context={:?}, parent_is_flex_or_grid={}",
+                    "[paint_node] node {} has display={:?}, parent_formatting_context={:?}, parent_paints_me_as_an_inline_shape={}",
                     node_index,
                     display,
                     warm.and_then(|w| w.parent_formatting_context.as_ref()),
-                    parent_is_flex_or_grid
+                    parent_paints_me_as_an_inline_shape
                 );
 
-                if !parent_is_flex_or_grid {
+                if parent_paints_me_as_an_inline_shape {
                     // Normally, text3 handles inline/inline-block backgrounds via
                     // InlineShape (inline-block) or glyph runs (inline). However,
                     // if this inline-block establishes a stacking context (e.g.
@@ -5560,9 +5613,7 @@ where
                     // background (step 1) → children (steps 3-6). If we skip the
                     // background, paint_inline_shape in the parent's paint_node_content
                     // would paint it AFTER the children, obscuring them.
-                    if display == LayoutDisplay::InlineBlock
-                        && self.establishes_stacking_context(node_index)
-                    {
+                    if is_atomic_inline && self.establishes_stacking_context(node_index) {
                         // Fall through to paint background/border now
                     } else {
                         return Ok(());
@@ -6470,20 +6521,14 @@ where
         let Some(text) = node_data.get_placeholder() else {
             return;
         };
-        #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PH_DEBUG").is_some() {
-            std::eprintln!("[ph] attr present");
-        }
+
         if text.trim().is_empty() {
             return;
         }
         if !super::getters::is_node_contenteditable_inherited(self.ctx.styled_dom, dom_id) {
             return;
         }
-        #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PH_DEBUG").is_some() {
-            std::eprintln!("[ph] editable ok");
-        }
+
         // Only an EMPTY host shows its prompt, and "empty" is asked of the
         // CONTENT, not of the layout: an earlier version read
         // `inline_layout_result` and treated its ABSENCE as emptiness, so a
@@ -6546,17 +6591,16 @@ where
         if !content_empty {
             return;
         }
-        #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PH_DEBUG").is_some() {
-            std::eprintln!("[ph] empty ok");
-        }
-        if super::getters::is_focus_within_or_above(self.ctx.styled_dom, dom_id) {
+
+        // Focus can sit ABOVE the prompt line (on the editable container) or
+        // INSIDE the host (on the very line the pointer hit); either means the
+        // field is being edited and the prompt stays hidden.
+        if super::getters::is_focus_within_or_above(self.ctx.styled_dom, dom_id)
+            || super::getters::is_focus_within_subtree(self.ctx.styled_dom, host)
+        {
             return;
         }
-        #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PH_DEBUG").is_some() {
-            std::eprintln!("[ph] unfocused ok");
-        }
+
 
         let bp = node.box_props.unpack();
         let content_box = BorderBoxRect(*paint_rect)
@@ -6614,11 +6658,7 @@ where
             &self.ctx.font_manager.fc_cache,
             &loaded_fonts,
         );
-        #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PH_DEBUG").is_some() {
-            std::eprintln!("[ph] shaped {} glyphs (chain cached: {})", glyphs.len(),
-                !self.ctx.font_manager.font_chain_cache.is_empty());
-        }
+
         if glyphs.is_empty() {
             return;
         }
@@ -7460,9 +7500,25 @@ where
                             .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
                     }
                     let node_state = &styled_nodes[nid].styled_node_state;
+                    // No declared `color` anywhere up the chain: the UA default
+                    // applies, and that default depends on the theme. Black is
+                    // right on a light window and invisible on a dark one, and
+                    // the window background already follows the system theme —
+                    // so the text has to as well or a dark-mode app renders
+                    // black-on-black until it styles every node itself.
                     Some(
                         cache
-                            .get_text_color_or_default(&node_data[nid], &nid, node_state)
+                            .get_text_color(&node_data[nid], &nid, node_state)
+                            .and_then(|c| c.get_property().copied())
+                            .unwrap_or_else(|| {
+                                let ctx = self.ctx.system_style.as_ref().map_or_else(
+                                    azul_css::dynamic_selector::DynamicSelectorContext::default,
+                                    |s| {
+                                        azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(s)
+                                    },
+                                );
+                                azul_core::ua_css::evaluate_ua_root_text_color(&ctx)
+                            })
                             .inner,
                     )
                 })

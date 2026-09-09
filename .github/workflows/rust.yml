@@ -534,7 +534,7 @@ jobs:
           toolchain: 1.90.0
 
       - name: Install dependencies (Ubuntu)
-        run: sudo apt-get update && sudo apt-get install -y libv4l-dev
+        run: sudo apt-get update -qq || true && sudo apt-get install -y libv4l-dev
 
       - name: Download the azul-doc binary
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -630,7 +630,7 @@ jobs:
         # already installed for the native-e2e job below, and fonts-noto-core for
         # another; this job just never got one. Locally (fonts present) all 44
         # AzWriter tests pass.
-        run: sudo apt-get update && sudo apt-get install -y libv4l-dev fonts-dejavu-core
+        run: sudo apt-get update -qq || true && sudo apt-get install -y libv4l-dev fonts-dejavu-core
 
       - name: Download generated bindings (built once by codegen_linux)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -710,7 +710,7 @@ jobs:
           toolchain: 1.90.0
 
       - name: Install dependencies (Ubuntu)
-        run: sudo apt-get update && sudo apt-get install -y libv4l-dev
+        run: sudo apt-get update -qq || true && sudo apt-get install -y libv4l-dev
 
       - name: Download generated bindings (built once by codegen_linux)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -1022,8 +1022,16 @@ jobs:
         with:
           toolchain: 1.90.0
           targets: ${{ matrix.target }}
-      - name: Install cross (Linux)
+      - name: Cache cross
+        id: cache-cross
         if: steps.cache-valid.outputs.skip != 'true' && matrix.use_cross
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cross
+          key: ${{ runner.os }}-cross-8c1a8aa4b661711f4b7b6ac07c2e8929ce2f7d27
+
+      - name: Install cross (Linux)
+        if: steps.cache-valid.outputs.skip != 'true' && matrix.use_cross && steps.cache-cross.outputs.cache-hit != 'true'
         run: cargo install cross --git https://github.com/cross-rs/cross --rev 8c1a8aa4b661711f4b7b6ac07c2e8929ce2f7d27 --locked  # v0.2.5 tree, the rev CI resolved on 2026-09-07
 
       - name: Download generated bindings (built once per OS)
@@ -1319,7 +1327,7 @@ jobs:
 
       - name: Install the fonts the hermetic fontconfig pins
         run: |
-          sudo apt-get update
+          sudo apt-get update -qq || true
           sudo apt-get install -y fonts-noto-core fonts-noto-mono
           fc-cache -f
           echo "families the reftest pins"
@@ -1387,10 +1395,19 @@ jobs:
             coverage-${{ env.CACHE_BUST }}-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
             coverage-${{ env.CACHE_BUST }}-${{ runner.os }}-
 
+      - name: Cache grcov
+        id: cache-grcov
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/grcov
+          key: ${{ runner.os }}-grcov-0.10.7
+
       - name: Install coverage tools
         run: |
           rustup component add llvm-tools-preview
-          cargo install grcov --version 0.10.7 --locked
+          if [ "${{ steps.cache-grcov.outputs.cache-hit }}" != "true" ]; then
+            cargo install grcov --version 0.10.7 --locked
+          fi
 
       - name: Run coverage
         run: bash scripts/coverage.sh --skip-install
@@ -1435,7 +1452,7 @@ jobs:
           toolchain: 1.90.0
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y clang lldb libv4l-dev
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang lldb libv4l-dev
 
       - name: Install dependencies (macOS)
         if: matrix.os == 'macos-14'
@@ -1581,7 +1598,7 @@ jobs:
 
       - name: Install clang (Ubuntu)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y clang libv4l-dev
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libv4l-dev
 
       - name: Set up MSVC (Windows)
         if: runner.os == 'Windows'
@@ -1642,7 +1659,7 @@ jobs:
 
       - name: Install toolchains (clang/c++/python + headless GL deps)
         run: |
-          sudo apt-get update
+          sudo apt-get update -qq || true
           sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libxext-dev python3
 
       - name: Download generated bindings (built once per OS)
@@ -1722,7 +1739,7 @@ jobs:
 
       - name: Install clang (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev xvfb libv4l-dev
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev xvfb libv4l-dev
 
       - name: Install MinGW (Windows)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'windows-2022'
@@ -2010,7 +2027,7 @@ jobs:
 
       - name: Install clang (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev xvfb libv4l-dev
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev xvfb libv4l-dev
 
       - name: Install MinGW (Windows)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'windows-2022'
@@ -2110,7 +2127,7 @@ jobs:
 
       - name: Install clang (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev xvfb libv4l-dev
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev xvfb libv4l-dev
 
       - name: Install MinGW (Windows)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'windows-2022'
@@ -2239,7 +2256,7 @@ jobs:
 
       - name: Install clang (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -2455,7 +2472,7 @@ jobs:
 
       - name: Install clang + deps (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Install MinGW (Windows)
         if: matrix.os == 'windows-2022'
@@ -2685,7 +2702,7 @@ jobs:
 
       - name: Install dependencies (Linux)
         if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -2758,7 +2775,7 @@ jobs:
           toolchain: 1.90.0
 
       - name: Install dependencies (Linux)
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev fonts-dejavu-core
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev fonts-dejavu-core
 
       - name: Rust build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -2902,7 +2919,7 @@ jobs:
 
       - name: Install dependencies (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev gdb
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev gdb
 
       - name: Install MinGW (Windows)
         if: matrix.os == 'windows-2022' && matrix.family.key != 'rust'
@@ -3236,7 +3253,7 @@ jobs:
 
       - name: Install dependencies (Linux)
         if: matrix.os == 'ubuntu-22.04'
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev gdb
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev gdb
 
       - name: Install MinGW (Windows)
         if: matrix.os == 'windows-2022' && matrix.family.key != 'rust'
@@ -3583,8 +3600,16 @@ jobs:
         uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         with:
           ndk-version: r27
-      - name: Install cargo-ndk
+      - name: Cache cargo-ndk
+        id: cache-cargo-ndk
         if: steps.cache-valid.outputs.skip != 'true' && startsWith(matrix.label, 'android')
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-ndk
+          key: ${{ runner.os }}-cargo-ndk-4.1.2
+
+      - name: Install cargo-ndk
+        if: steps.cache-valid.outputs.skip != 'true' && startsWith(matrix.label, 'android') && steps.cache-cargo-ndk.outputs.cache-hit != 'true'
         run: cargo install cargo-ndk --version 4.1.2 --locked
       - name: Build libazul (Android)
         if: steps.cache-valid.outputs.skip != 'true' && startsWith(matrix.label, 'android')
@@ -3950,7 +3975,7 @@ jobs:
       - name: Install NFPM
         run: |
           echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
-          sudo apt-get update
+          sudo apt-get update -qq || true
           sudo apt-get install -y nfpm tree
 
       - name: Debug - Tree after download
@@ -4142,7 +4167,7 @@ jobs:
           AZUL_APT_GPG_KEY: ${{ secrets.AZUL_APT_GPG_KEY }}
         run: |
           set -e
-          sudo apt-get update && sudo apt-get install -y dpkg-dev gnupg
+          sudo apt-get update -qq || true && sudo apt-get install -y dpkg-dev gnupg
           DIST=apt-repo/dists/stable
           POOL=apt-repo/pool/main
           mkdir -p "$POOL"
@@ -4252,7 +4277,7 @@ jobs:
 
       - name: Debug - Tree before upload
         run: |
-          sudo apt-get update && sudo apt-get install -y tree
+          sudo apt-get update -qq || true && sudo apt-get install -y tree
           tree doc/target/deploy/ 2>/dev/null | head -100 || ls -laR doc/target/deploy/ | head -100
 
       - name: Upload website skeleton
@@ -4663,7 +4688,7 @@ jobs:
 
       - name: Debug - Tree after download
         run: |
-          sudo apt-get update && sudo apt-get install -y tree
+          sudo apt-get update -qq || true && sudo apt-get install -y tree
           echo "=== Website skeleton ==="
           tree website/ 2>/dev/null | head -50 || ls -laR website/ | head -50
           echo ""
@@ -5445,14 +5470,28 @@ jobs:
             apk add -q bash curl git coreutils
           fi
 
+      # Cloned with git rather than actions/checkout ON PURPOSE. This job runs
+      # inside a container, and `actions/checkout` is a JavaScript action:
+      # GitHub refuses to run those in an ALPINE container on an arm runner
+      # ("JavaScript Actions in Alpine containers are only supported on x64
+      # Linux runners"), which is exactly the apk_aarch64 row. A sparse clone
+      # needs nothing the prerequisites step has not already installed, and it
+      # behaves the same on every image in the matrix.
       - name: Checkout the verifier
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: |
-            scripts/verify_install_commands.sh
-            tests/e2e/hello_world_counter.json
-            doc/guide/en/hello-world
-          sparse-checkout-cone-mode: false
+        shell: sh
+        run: |
+          set -eu
+          git init -q .
+          git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          git config core.sparseCheckout true
+          git config core.sparseCheckoutCone false
+          printf '%s\n' \
+            'scripts/verify_install_commands.sh' \
+            'tests/e2e/hello_world_counter.json' \
+            'doc/guide/en/hello-world/*' \
+            > .git/info/sparse-checkout
+          git -c protocol.version=2 fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout -q FETCH_HEAD
 
       - name: Run the command the site tells ${{ matrix.channel }} users to run
         env:
@@ -5478,6 +5517,8 @@ jobs:
         with:
           sparse-checkout: |
             scripts/verify_install_commands.sh
+            tests/e2e/hello_world_counter.json
+            doc/guide/en/hello-world
           sparse-checkout-cone-mode: false
 
       - name: Run the command the site tells macOS users to run
@@ -5559,7 +5600,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
         with:
           toolchain: 1.90.0
+      - name: Cache cargo-deny
+        id: cache-cargo-deny
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-deny
+          key: ${{ runner.os }}-cargo-deny-0.20.2
+
       - name: Install cargo-deny
+        if: steps.cache-cargo-deny.outputs.cache-hit != 'true'
         run: cargo install cargo-deny --version 0.20.2 --locked || cargo install cargo-deny --version 0.20.2
 
       - name: cargo-deny + summary
@@ -5623,7 +5672,15 @@ jobs:
           name: codegen-tree-${{ runner.os }}
           path: target/codegen
 
+      - name: Cache cargo-geiger
+        id: cache-cargo-geiger
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-geiger
+          key: ${{ runner.os }}-cargo-geiger-0.13.0
+
       - name: Install cargo-geiger
+        if: steps.cache-cargo-geiger.outputs.cache-hit != 'true'
         run: cargo install cargo-geiger --version 0.13.0 --locked || cargo install cargo-geiger --version 0.13.0
       - name: cargo-geiger + summary
         shell: bash
@@ -5750,7 +5807,7 @@ jobs:
       - name: Install clang (pinned) + headless deps
         run: |
           set -euo pipefail
-          sudo apt-get update
+          sudo apt-get update -qq || true
           sudo apt-get install -y clang-18 libclang-rt-18-dev libgl1-mesa-dev libx11-dev
           # `clang` is used unqualified throughout this job; make it the pinned one.
           sudo ln -sf /usr/bin/clang-18 /usr/local/bin/clang
@@ -5974,7 +6031,7 @@ jobs:
           chrome-version: "150"
       - name: Install pdfunite (poppler-utils)
         if: steps.pdf-cache.outputs.cache-hit != 'true'
-        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+        run: sudo apt-get update -qq || true && sudo apt-get install -y poppler-utils
       - name: Render docs -> target/azul-documentation.pdf
         if: steps.pdf-cache.outputs.cache-hit != 'true'
         env:
@@ -5998,7 +6055,7 @@ jobs:
         with:
           toolchain: 1.90.0
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Refuse a [patch] on any dependency of a published crate
         run: |
@@ -6110,7 +6167,7 @@ jobs:
           toolchain: 1.90.0
 
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Package (dry-run, leaf crate only)
         run: |
@@ -6152,7 +6209,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev
 
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -6826,7 +6883,7 @@ jobs:
           toolchain: 1.90.0
 
       - name: Install build dependencies + LuaRocks
-        run: sudo apt-get update && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev lua5.1 luarocks
+        run: sudo apt-get update -qq || true && sudo apt-get install -y clang libgl1-mesa-dev libx11-dev libv4l-dev lua5.1 luarocks
 
       - name: Download generated bindings (built once per OS)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

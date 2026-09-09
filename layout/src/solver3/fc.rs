@@ -8302,6 +8302,93 @@ fn atomic_inline_children_are_laid_out(
     })
 }
 
+/// The `baseline_offset` text3 wants for an atomic inline: the distance from
+/// the BOTTOM of its margin box up to its baseline — the box's descent, which
+/// is how `item_ascent_descent` (text3/cache.rs) reads the field.
+///
+/// Layout measures the opposite way: [`LayoutOutput::baseline`] is the distance
+/// from the top of the box's CONTENT box down to the baseline. Converting
+/// between the two is the whole of CSS 2.2 s 10.8.1 for these boxes — an atomic
+/// inline's baseline is the baseline of its last in-flow line box, and a box
+/// with no in-flow line boxes, or with `overflow` other than `visible`, takes
+/// its bottom margin edge instead.
+///
+/// This existed three times over, and two of the copies passed the top-relative
+/// number straight through. That puts the whole box BELOW the baseline (ascent
+/// 0), so a line box holding nothing else sinks it by the strut's ascent: 12.8
+/// px under a 16 px container font, which is exactly how far the button in
+/// every hello-world jumped the first time its window redrew.
+///
+/// * `baseline_from_content_top` — [`LayoutOutput::baseline`] of the box.
+/// * `border_box_height` — its used border-box height.
+/// * `content_box_top` — padding + border on the box's top edge, i.e. the
+///   offset from its border box to its content box.
+/// * `margin_bottom` — the bottom margin, since text3 aligns the MARGIN box.
+/// The used BORDER-BOX block size of an atomic inline whose height is `auto`.
+///
+/// `LayoutOutput::overflow_size` does not mean the same thing in every
+/// formatting context. `layout_bfc` reports a CONTENT-box extent, so a
+/// consumer adds padding and border to reach the border box. `layout_flex_grid`
+/// reports taffy's `content_size` with only the leading BORDER stripped — the
+/// padding is still inside it, deliberately, because the scrollbar geometry
+/// measures in the padding box. Adding padding to THAT counts it twice: an
+/// `inline-flex` button with `padding: 6px 12px` came out 12 px too tall, which
+/// is every button in every hello-world and on the frontpage screenshots.
+///
+/// A flex or grid container has already resolved its own border box — taffy's
+/// container size, which `layout_flex_grid` writes into the node's `used_size`.
+/// That is the answer for those; everything else is content + padding + border.
+fn atomic_inline_auto_height(
+    child_fc: Option<FormattingContext>,
+    child_used_height: Option<f32>,
+    content_height: f32,
+    padding_border_sum: f32,
+) -> f32 {
+    match (child_fc, child_used_height) {
+        (Some(FormattingContext::Flex | FormattingContext::Grid), Some(h)) => h,
+        _ => content_height + padding_border_sum,
+    }
+}
+
+/// Publish the positions an interior layout run produced into the tree, where
+/// the rest of the engine can see them.
+///
+/// A nested run (the one that lays out an atomic inline's own contents) reports
+/// its result in `LayoutOutput::positions`, keyed by layout-node index. But
+/// every later consumer — `position_bfc_child_descendants`, absolute
+/// positioning, painting — reads `LayoutNodeWarm::relative_position`. Until the
+/// two are joined the children are laid out correctly and then positioned as if
+/// they were all at their parent's content-box origin, which shows up as every
+/// margin inside the atomic inline being ignored.
+///
+/// The absolutely-positioned path does this in `positioning.rs` and the flex
+/// path in `taffy_bridge.rs`; this is the same join for the inline path.
+fn publish_interior_positions(tree: &mut LayoutTree, output: &LayoutOutput) {
+    for (child_idx, child_pos) in &output.positions {
+        if let Some(w) = tree.warm_mut(LayoutNodeId::new(*child_idx)) {
+            w.relative_position = Some(*child_pos);
+        }
+    }
+}
+
+fn atomic_inline_baseline_offset(
+    baseline_from_content_top: Option<f32>,
+    border_box_height: f32,
+    content_box_top: f32,
+    margin_bottom: f32,
+    overflow_is_visible: bool,
+) -> f32 {
+    match baseline_from_content_top {
+        Some(baseline_y) if overflow_is_visible => {
+            let from_border_box_top = baseline_y + content_box_top;
+            (border_box_height - from_border_box_top).max(0.0) + margin_bottom
+        }
+        // No in-flow line box, or overflow != visible: the baseline IS the
+        // bottom margin edge, so the box has no descent below it.
+        _ => margin_bottom,
+    }
+}
+
 fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     text_cache: &mut TextLayoutCache,
@@ -8675,6 +8762,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     &mut empty_float_cache,
                 )?;
 
+                publish_interior_positions(tree, &layout_result.output);
                 let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
 
                 // Replaced elements (image / VirtualView) have no flow content, so the
@@ -8686,24 +8774,28 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 };
                 // Determine final border-box height
                 let final_height = match css_height.unwrap_or_default() {
-                    LayoutHeight::Auto if !is_replaced_atomic => {
-                        let content_height = layout_result.output.overflow_size.height;
-                        content_height
-                            + box_props.padding.main_sum(writing_mode)
-                            + box_props.border.main_sum(writing_mode)
-                    }
+                    LayoutHeight::Auto if !is_replaced_atomic => atomic_inline_auto_height(
+                        tree.get(LayoutNodeId::new(child_index))
+                            .map(|n| n.formatting_context),
+                        tree.get(LayoutNodeId::new(child_index))
+                            .and_then(|n| n.used_size)
+                            .map(|s| s.height),
+                        layout_result.output.overflow_size.height,
+                        box_props.padding.main_sum(writing_mode)
+                            + box_props.border.main_sum(writing_mode),
+                    ),
                     _ => tentative_size.height,
                 };
 
                 let final_size = LogicalSize::new(tentative_size.width, final_height);
+
 
                 // Update the node in the tree with its now-known used size.
                 tree.get_mut(LayoutNodeId::new(child_index))
                     .unwrap()
                     .used_size = Some(final_size);
 
-                // CSS 2.2 § 10.8.1: inline-block baseline fallback
-                // If overflow is not 'visible', use bottom margin edge as baseline
+                // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`.
                 let overflow_x =
                     get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
                 let overflow_y =
@@ -8712,11 +8804,13 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     (overflow_x, overflow_y),
                     (LayoutOverflow::Visible, LayoutOverflow::Visible)
                 );
-                let baseline_offset = if overflow_is_visible {
-                    layout_result.output.baseline.unwrap_or(final_height)
-                } else {
-                    final_height
-                };
+                let baseline_offset = atomic_inline_baseline_offset(
+                    layout_result.output.baseline,
+                    final_height,
+                    box_props.padding.top + box_props.border.top,
+                    box_props.margin.bottom,
+                    overflow_is_visible,
+                );
 
                 // +spec:box-model:66ad24 - inline-axis margins, borders, padding respected for inline-level boxes (no collapsing)
                 // The margin-box size is used so text3 positions inline-blocks with proper spacing
@@ -8741,8 +8835,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     },
                     fill: None,
                     stroke: None,
-                    // Adjust baseline offset by top margin
-                    baseline_offset: baseline_offset + margin.top,
+                    // Already measured from the margin box's bottom edge.
+                    baseline_offset,
                     alignment: crate::solver3::getters::get_vertical_align_for_node(
                         ctx.styled_dom,
                         dom_id,
@@ -9200,6 +9294,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 &mut empty_float_cache,
             )?;
 
+            publish_interior_positions(tree, &layout_result.output);
             let css_height = get_css_height(ctx.styled_dom, dom_id, &styled_node_state);
 
             // Replaced elements (image / VirtualView) have no flow content, so the
@@ -9212,13 +9307,16 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             };
             // Determine final border-box height
             let final_height = match css_height.clone().unwrap_or_default() {
-                LayoutHeight::Auto if !is_replaced_atomic => {
-                    // For auto height, add padding and border to the content height
-                    let content_height = layout_result.output.overflow_size.height;
-                    content_height
-                        + box_props.padding.main_sum(writing_mode)
-                        + box_props.border.main_sum(writing_mode)
-                }
+                LayoutHeight::Auto if !is_replaced_atomic => atomic_inline_auto_height(
+                    tree.get(LayoutNodeId::new(child_index))
+                        .map(|n| n.formatting_context),
+                    tree.get(LayoutNodeId::new(child_index))
+                        .and_then(|n| n.used_size)
+                        .map(|s| s.height),
+                    layout_result.output.overflow_size.height,
+                    box_props.padding.main_sum(writing_mode)
+                        + box_props.border.main_sum(writing_mode),
+                ),
                 // Explicit height (calculate_used_size_for_node gave the border-box
                 // height), OR a replaced element's auto height (intrinsic/CSS-resolved).
                 _ => tentative_size.height,
@@ -9234,6 +9332,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 final_height
             );
 
+
             let final_size = LogicalSize::new(tentative_size.width, final_height);
 
             // Update the node in the tree with its now-known used size.
@@ -9241,20 +9340,7 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 .unwrap()
                 .used_size = Some(final_size);
 
-            // CSS 2.2 § 10.8.1: For inline-block elements, the baseline is the baseline of the
-            // last line box in the normal flow, unless it has either no in-flow line boxes or
-            // if its 'overflow' property has a computed value other than 'visible', in which
-            // case the baseline is the bottom margin edge.
-            //
-            // `layout_result.output.baseline` returns the Y-position of the baseline measured
-            // from the TOP of the content box. But `get_item_vertical_metrics` expects
-            // `baseline_offset` to be the distance from the BOTTOM to the baseline.
-            //
-            // Conversion: baseline_offset_from_bottom = height - baseline_from_top
-            //
-            // If no baseline is found (e.g., the inline-block has no text), or if
-            // overflow is not 'visible', we fall back to the bottom margin edge
-            // (baseline_offset = 0, meaning baseline at bottom).
+            // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`.
             let overflow_x =
                 get_overflow_x(ctx.styled_dom, dom_id, &styled_node_state).unwrap_or_default();
             let overflow_y =
@@ -9264,20 +9350,13 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 (LayoutOverflow::Visible, LayoutOverflow::Visible)
             );
             let baseline_from_top = layout_result.output.baseline;
-            let baseline_offset = match baseline_from_top {
-                Some(baseline_y) if overflow_is_visible => {
-                    // baseline_y is measured from top of content box
-                    // We need to add padding and border to get the position within the border-box
-                    let content_box_top = box_props.padding.top + box_props.border.top;
-                    let baseline_from_border_box_top = baseline_y + content_box_top;
-                    // Convert to distance from bottom
-                    (final_height - baseline_from_border_box_top).max(0.0)
-                }
-                _ => {
-                    // No baseline found or overflow != visible - use bottom margin edge
-                    0.0
-                }
-            };
+            let baseline_offset = atomic_inline_baseline_offset(
+                baseline_from_top,
+                final_height,
+                box_props.padding.top + box_props.border.top,
+                box_props.margin.bottom,
+                overflow_is_visible,
+            );
 
             debug_info!(
                 ctx,
@@ -9314,8 +9393,8 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 },
                 fill: None,
                 stroke: None,
-                // Adjust baseline offset by top margin
-                baseline_offset: baseline_offset + margin.top,
+                // Already measured from the margin box's bottom edge.
+                baseline_offset,
                 alignment: crate::solver3::getters::get_vertical_align_for_node(
                     ctx.styled_dom,
                     dom_id,
@@ -9755,7 +9834,11 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     .unwrap()
                     .used_size = Some(final_size);
 
-                // CSS 2.2 § 10.8.1: inline-block baseline fallback
+                // CSS 2.2 s 10.8.1, via `atomic_inline_baseline_offset`. This
+                // path measures the box from its intrinsic width and content
+                // height alone (no box_props are resolved for it here), so its
+                // content box and border box coincide and it has no margins to
+                // account for.
                 let overflow_x = get_overflow_x(ctx.styled_dom, child_dom_id, &styled_node_state)
                     .unwrap_or_default();
                 let overflow_y = get_overflow_y(ctx.styled_dom, child_dom_id, &styled_node_state)
@@ -9764,11 +9847,13 @@ fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     (overflow_x, overflow_y),
                     (LayoutOverflow::Visible, LayoutOverflow::Visible)
                 );
-                let baseline_offset = if overflow_is_visible {
-                    layout_result.output.baseline.unwrap_or(final_height)
-                } else {
-                    final_height
-                };
+                let baseline_offset = atomic_inline_baseline_offset(
+                    layout_result.output.baseline,
+                    final_height,
+                    0.0,
+                    0.0,
+                    overflow_is_visible,
+                );
 
                 content.push(InlineContent::Shape(InlineShape {
                     shape_def: ShapeDefinition::Rectangle {

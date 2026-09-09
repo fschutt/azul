@@ -38,7 +38,7 @@
                           (azul:az-string-ptr (az-str counter-text))))
            (label-div    (azul:make-dom-create-div))
            (label-div    (azul:dom-with-css label-div
-                                            (azul:az-string-ptr (az-str "font-size: 32px;"))))
+                                            (azul:az-string-ptr (az-str "font-size: 32px; margin: 0;"))))
            (label-div    (azul:dom-with-child label-div (azul:dom-ptr counter-dom)))
            (button       (azul:make-button-create (azul:az-string-ptr (az-str "Increase counter"))))
            (button       (azul:button-with-button-type button 1)) ; Primary

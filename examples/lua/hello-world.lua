@@ -14,7 +14,7 @@ local function layout(data, _info)
     if m == nil then return azul.Dom.create_body() end
 
     local label = azul.Dom.create_p_with_text(tostring(m.counter))
-        :with_css('font-size: 32px;')
+        :with_css('font-size: 32px; margin: 0;')
 
     local button_dom = azul.Button.create('Increase counter')
         :set_button_type(azul.ButtonType.Primary)
