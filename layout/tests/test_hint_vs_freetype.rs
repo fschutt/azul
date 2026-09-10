@@ -32,7 +32,7 @@
 //! below (freetype-py output, reproduced by the snippets in this header).
 //! Live hinting coverage lives in the fake-font hinting batteries in
 //! `layout/src/text3/` and in `tests/coretext_autoregression.rs`
-//! (`scripts/coretext_regression.sh`), both of which are real gates.
+//! (`tests/coretext_autoregression.rs`), which is a real gate.
 //!
 //! # How reference values were captured
 //!

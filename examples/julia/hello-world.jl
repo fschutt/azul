@@ -65,15 +65,13 @@ function layout(data::Azul.AzRefAny, info::Azul.AzLayoutCallbackInfo)::Azul.AzDo
     end
     counter === nothing && return Azul.AzDom_createBody()
 
-    label = Azul.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(Azul.az_string(string(counter)))
+    label_ref = Ref(Azul.AzDom_createPWithText(Azul.az_string(string(counter))))
 
-    label_wrapper = Ref(Azul.AzDom_createDiv())
     font_size = Azul.AzStyleFontSize_px(32.0f0)
     css_prop = Azul.AzCssProperty_fontSize(font_size)
     cond = Azul.AzCssPropertyWithConditions_simple(css_prop)
-    GC.@preserve label_wrapper begin
-        Azul.AzDom_addCssProperty(vptr(label_wrapper), cond)
-        Azul.AzDom_addChild(vptr(label_wrapper), label)
+    GC.@preserve label_ref begin
+        Azul.AzDom_addCssProperty(vptr(label_ref), cond)
     end
 
     button = Ref(Azul.AzButton_create(Azul.az_string("Increase counter")))
@@ -87,7 +85,7 @@ function layout(data::Azul.AzRefAny, info::Azul.AzLayoutCallbackInfo)::Azul.AzDo
 
     body = Ref(Azul.AzDom_createBody())
     GC.@preserve body begin
-        Azul.AzDom_addChild(vptr(body), label_wrapper[])
+        Azul.AzDom_addChild(vptr(body), label_ref[])
         Azul.AzDom_addChild(vptr(body), button_dom)
     end
     return body[]

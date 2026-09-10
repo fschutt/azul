@@ -4,14 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
-description = """
-    AzReview — ink-first code review. Code is rendered as PAPER PAGES in a
-    VirtualView; a pen/highlighter overlay is the source of truth and the
-    structured findings are DERIVED from it, never the reverse. Exercises the
-    tablet surface end to end: PenState (pressure/tilt/eraser), the Wacom PAD
-    (ExpressKeys pick the semantic colour, the ring scrolls), multi-touch, and
-    the microphone API for spoken rationale bound to a stroke cluster.
-"""
+description = "AzReview - ink-first code review"
 publish = false
 
 [dependencies]

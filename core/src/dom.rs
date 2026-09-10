@@ -663,7 +663,7 @@ pub enum NodeType {
     /// GPS / network location". Zero-size in layout, skipped in the
     /// display list. The `GeolocationManager` walks the styled DOM for
     /// these at end-of-layout and starts / stops the matching native
-    /// subscription. See `SUPER_PLAN_2.md` §1.5 + research/08.
+    /// subscription.
     GeolocationProbe(crate::geolocation::GeolocationProbeConfig),
     /// THE canonical page-break element: an empty block the UA styles with
     /// `break-before: page`. The pagination estimator and a screen DOM

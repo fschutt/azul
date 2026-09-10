@@ -137,6 +137,7 @@ fn emit_header(b: &mut CodeBuilder) {
     b.blank();
 
     b.line("/*");
+    b.line("#include <stdlib.h>");
     b.line("#include \"azul.h\"");
     b.line("*/");
     b.line("import \"C\"");
@@ -247,7 +248,11 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
 
     b.line(&format!("type {} struct {{", go_name));
     b.indent();
-    b.line(&format!("inner C.{}", ffi_name));
+    if has_delete {
+        b.line(&format!("inner *C.{}", ffi_name));
+    } else {
+        b.line(&format!("inner C.{}", ffi_name));
+    }
     b.dedent();
     b.line("}");
     b.blank();
@@ -297,12 +302,14 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, confi
         b.line("// destructor never runs twice.");
         b.line(&format!("func (self *{}) Close() error {{", go_name));
         b.indent();
-        b.line("if self == nil {");
+        b.line("if self == nil || self.inner == nil {");
         b.indent();
         b.line("return nil");
         b.dedent();
         b.line("}");
-        b.line(&format!("C.{}_delete(&self.inner)", ffi_name));
+        b.line(&format!("C.{}_delete(self.inner)", ffi_name));
+        b.line("C.free(unsafe.Pointer(self.inner))");
+        b.line("self.inner = nil");
         b.line("runtime.SetFinalizer(self, nil)");
         b.line("return nil");
         b.dedent();
@@ -386,14 +393,18 @@ fn emit_static_factory(
     let call = format!("C.{}({})", c_symbol, call_args);
 
     if returns_self {
-        b.line(&format!("self := &{}{{ inner: {} }}", go_name, call));
         if has_delete {
+            let ffi_name = ffi_type_name(&f.class_name);
+            b.line(&format!("self := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}", go_name, ffi_name, ffi_name));
+            b.line(&format!("*self.inner = {}", call));
             // Safety net: if user forgets `Close()`, GC will eventually
             // run the destructor.
             b.line(&format!(
                 "runtime.SetFinalizer(self, func(x *{}) {{ x.Close() }})",
                 go_name
             ));
+        } else {
+            b.line(&format!("self := &{}{{ inner: {} }}", go_name, call));
         }
         b.line("return self");
     } else if let Some(w) = &owned_wrapper {
@@ -401,7 +412,10 @@ fn emit_static_factory(
         // safety net used for self-returns. The value is a fresh, unaliased
         // C allocation owned solely by `ret`, so Close()/finalizer free it
         // at most once — no double-free.
-        b.line(&format!("ret := &{}{{ inner: {} }}", w, call));
+        let ret_ty_name = f.return_type.as_deref().unwrap().trim();
+        let ret_ffi_name = ffi_type_name(ret_ty_name);
+        b.line(&format!("ret := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}", w, ret_ffi_name, ret_ffi_name));
+        b.line(&format!("*ret.inner = {}", call));
         b.line(&format!(
             "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
             w
@@ -493,10 +507,20 @@ fn emit_instance_method(
         .first()
         .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
         .unwrap_or(false);
-    let self_expr = if self_by_value {
-        "self.inner"
+
+    let self_has_delete = has_destructor(&f.class_name, ir);
+    let self_expr = if self_has_delete {
+        if self_by_value {
+            "*self.inner"
+        } else {
+            "self.inner"
+        }
     } else {
-        "&self.inner"
+        if self_by_value {
+            "self.inner"
+        } else {
+            "&self.inner"
+        }
     };
 
     let call_args_full = if user_call_args.is_empty() {
@@ -512,20 +536,16 @@ fn emit_instance_method(
     let call = format!("C.{}({})", c_symbol, call_args_full);
 
     if returns_self {
-        b.line(&format!("ret := &{}{{ inner: {} }}", go_name, call));
-        // Register the matching finalizer on the returned wrapper —
-        // without this, the returned `*Foo` would never have its
-        // `_delete` called and the underlying allocation leaks until
-        // process exit. Mirrors the `runtime.SetFinalizer(self, …)`
-        // block emit_static_factory uses. GATED on has_delete: types
-        // without an `Az<T>_delete` never get a `Close()` method, so an
-        // ungated finalizer here is a hard compile error (`x.Close
-        // undefined`) — ColorU, SvgRect, ScrollIntoViewOptions et al.
         if has_destructor(&f.class_name, ir) {
+            let ffi_name = ffi_type_name(&f.class_name);
+            b.line(&format!("ret := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}", go_name, ffi_name, ffi_name));
+            b.line(&format!("*ret.inner = {}", call));
             b.line(&format!(
                 "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
                 go_name
             ));
+        } else {
+            b.line(&format!("ret := &{}{{ inner: {} }}", go_name, call));
         }
         // If self was consumed by-value, clear its finalizer so the
         // user's deferred `self.Close()` (or the GC's eventual
@@ -538,7 +558,10 @@ fn emit_instance_method(
         // Owned non-self return: box in the wrapper + arm the same GC
         // safety net used for self-returns. Fresh unaliased allocation
         // owned solely by `ret`, freed at most once — no double-free.
-        b.line(&format!("ret := &{}{{ inner: {} }}", w, call));
+        let ret_ty_name = f.return_type.as_deref().unwrap().trim();
+        let ret_ffi_name = ffi_type_name(ret_ty_name);
+        b.line(&format!("ret := &{}{{ inner: (*C.{})(C.malloc(C.size_t(unsafe.Sizeof(C.{}{{}})))) }}", w, ret_ffi_name, ret_ffi_name));
+        b.line(&format!("*ret.inner = {}", call));
         b.line(&format!(
             "runtime.SetFinalizer(ret, func(x *{}) {{ x.Close() }})",
             w
@@ -746,6 +769,9 @@ fn map_return_type(ty: &str, ir: &CodegenIR) -> String {
 /// `Hash()`.
 fn emit_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str, ir: &CodegenIR) {
     let ffi = format!("Az{}", class_name);
+    let has_delete = has_destructor(class_name, ir);
+    let self_expr = if has_delete { "self.inner" } else { "&self.inner" };
+    let other_expr = if has_delete { "other.inner" } else { "&other.inner" };
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for f in ir.functions_for_class(class_name) {
         let name = match f.kind {
@@ -767,7 +793,7 @@ fn emit_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str, ir: 
                     "func (self *{go_name}) Equal(other *{go_name}) bool {{"
                 ));
                 b.line(&format!(
-                    "    return bool(C.{ffi}_partialEq(&self.inner, &other.inner))"
+                    "    return bool(C.{ffi}_partialEq({self_expr}, {other_expr}))"
                 ));
                 b.line("}");
             }
@@ -778,7 +804,7 @@ fn emit_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str, ir: 
                     "func (self *{go_name}) PartialOrder(other *{go_name}) uint8 {{"
                 ));
                 b.line(&format!(
-                    "    return uint8(C.{ffi}_partialCmp(&self.inner, &other.inner))"
+                    "    return uint8(C.{ffi}_partialCmp({self_expr}, {other_expr}))"
                 ));
                 b.line("}");
             }
@@ -788,14 +814,14 @@ fn emit_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str, ir: 
                     "func (self *{go_name}) Order(other *{go_name}) uint8 {{"
                 ));
                 b.line(&format!(
-                    "    return uint8(C.{ffi}_cmp(&self.inner, &other.inner))"
+                    "    return uint8(C.{ffi}_cmp({self_expr}, {other_expr}))"
                 ));
                 b.line("}");
             }
             FunctionKind::Hash => {
                 b.line("// Hash delegates to the Rust Hash, as a 64-bit digest.");
                 b.line(&format!("func (self *{go_name}) Hash() uint64 {{"));
-                b.line(&format!("    return uint64(C.{ffi}_hash(&self.inner))"));
+                b.line(&format!("    return uint64(C.{ffi}_hash({self_expr}))"));
                 b.line("}");
             }
             FunctionKind::DebugToString => {
@@ -803,7 +829,7 @@ fn emit_trait_methods(b: &mut CodeBuilder, go_name: &str, class_name: &str, ir: 
                 b.line("// The AzString the ABI hands back owns its buffer and GoStr only");
                 b.line("// copies, so it is freed here rather than leaked once per call.");
                 b.line(&format!("func (self *{go_name}) String() string {{"));
-                b.line(&format!("    s := C.{ffi}_toDbgString(&self.inner)"));
+                b.line(&format!("    s := C.{ffi}_toDbgString({self_expr})"));
                 b.line("    defer C.AzString_delete(&s)");
                 b.line("    return GoStr(s)");
                 b.line("}");

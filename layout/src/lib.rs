@@ -425,17 +425,13 @@ pub use icon::{
 };
 // Re-export core icon types
 pub use azul_core::icon::{
-    resolve_icons_in_dom, styled_dom_resolving_icons, IconProviderHandle,
-    IconResolverCallbackType, IconViewState, OptionIconProviderHandle,
+    resolve_icons_in_dom, styled_dom_resolving_icons, IconProviderHandle, IconResolverCallbackType,
+    IconViewState, OptionIconProviderHandle,
 };
 
 /// Callback handling for layout events (invocation, result processing).
 #[cfg(feature = "text_layout")]
 pub mod callbacks;
-/// The request / resume primitive: where resumable API functions park their
-/// callbacks until the runtime delivers the result as a fresh activation.
-#[cfg(feature = "text_layout")]
-pub mod request;
 /// CPU-based software rendering (no GPU required).
 #[cfg(feature = "cpurender")]
 // Scoped (was crate-wide): complex rasterizer signatures.
@@ -444,12 +440,6 @@ pub mod cpurender;
 /// Default keyboard actions (copy, paste, select-all, undo, etc.).
 #[cfg(feature = "text_layout")]
 pub mod default_actions;
-/// HTML form constraint validation (`required`, `minlength`, `pattern`, ...).
-///
-/// Needs `text_layout` for `crate::window::DomLayoutResult` and `std` because
-/// `regex-lite` declares `compile_error!` without its own `std` feature.
-#[cfg(all(feature = "text_layout", feature = "std"))]
-pub mod form;
 /// Apply structural `DocumentOperation`s to a plain XML tree.
 ///
 /// The Path-2 helper for apps without their own document model (the PDF
@@ -472,9 +462,19 @@ pub mod event_determination;
 // Scoped (was crate-wide): complex font-table signatures.
 #[allow(clippy::type_complexity)]
 pub mod font;
+/// HTML form constraint validation (`required`, `minlength`, `pattern`, ...).
+///
+/// Needs `text_layout` for `crate::window::DomLayoutResult` and `std` because
+/// `regex-lite` declares `compile_error!` without its own `std` feature.
+#[cfg(all(feature = "text_layout", feature = "std"))]
+pub mod form;
 /// Glyph path and cell cache for CPU text rendering.
 #[cfg(feature = "cpurender")]
 pub mod glyph_cache;
+/// The request / resume primitive: where resumable API functions park their
+/// callbacks until the runtime delivers the result as a fresh activation.
+#[cfg(feature = "text_layout")]
+pub mod request;
 
 /// Headless backend for CPU-only rendering without a display server.
 ///
@@ -544,12 +544,6 @@ pub mod window_state;
 // Scoped (was crate-wide): incremental parser-state assignments.
 #[allow(unused_assignments)]
 pub mod xml;
-
-/// What a whole UI costs in memory — the measurement `architecture.md`'s
-/// re-derivation argument rests on, as a checked fact.
-#[cfg(test)]
-#[path = "dom_footprint_test.rs"]
-mod dom_footprint_test;
 
 /// Debug / E2E server op-dispatch, ported verbatim from the DLL. Gated behind
 /// the `e2e-server` feature (NOT in `default`), so the lean crate is unaffected.

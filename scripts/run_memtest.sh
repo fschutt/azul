@@ -7,7 +7,7 @@
 #
 # The memtest binary must honor AZ_MEMTEST_N (loop iterations) and exit 0.
 # Two checks:
-#   1. SEGFAULT — run under gdb with a tiny N; fail on SIGSEGV/SIGABRT.
+#   1. SEGFAULT — run under gdb/lldb with a tiny N; fail on SIGSEGV/SIGABRT.
 #   2. LEAK     — run with a small then a large N and compare peak RSS; a real
 #                 per-iteration leak scales with N, a correct binding stays flat.
 #
@@ -19,7 +19,7 @@ fail=0
 
 echo "=== memtest [$LABEL]: $* ==="
 
-# --- 1. segfault check (gdb, tiny N) ---
+# --- 1. segfault check (gdb/lldb, tiny N) ---
 if command -v gdb >/dev/null 2>&1; then
   seg="$(AZ_MEMTEST_N=2000 timeout 180 gdb -batch \
            -ex 'run' -ex 'bt 8' -ex 'quit' --args "${CMD[@]}" 2>&1)"
@@ -30,14 +30,36 @@ if command -v gdb >/dev/null 2>&1; then
   else
     echo "[$LABEL] segfault check: OK"
   fi
+elif command -v lldb >/dev/null 2>&1; then
+  seg="$(AZ_MEMTEST_N=2000 timeout 180 lldb --batch -o 'run' -o 'bt 8' -o 'quit' -- "${CMD[@]}" 2>&1)"
+  if printf '%s' "$seg" | grep -qE "EXC_BAD_ACCESS|SIGSEGV|SIGABRT|stopped"; then
+    if printf '%s' "$seg" | grep -q "exited with status = 0"; then
+       echo "[$LABEL] segfault check: OK"
+    else
+       echo "[$LABEL] FAIL: crash under lldb"
+       printf '%s\n' "$seg" | grep -A8 -E "EXC_BAD_ACCESS|SIGSEGV|SIGABRT|stopped" | head -20
+       fail=1
+    fi
+  else
+    echo "[$LABEL] segfault check: OK"
+  fi
 else
-  echo "[$LABEL] (gdb absent — skipping segfault check)"
+  echo "[$LABEL] FAIL: gdb and lldb absent — cannot run segfault check"
+  fail=1
 fi
 
 # --- 2. leak check (peak RSS growth across N) ---
 peak_rss_kb() { # $1 = N ; echoes peak RSS KB, or empty on failure
-  AZ_MEMTEST_N="$1" timeout 420 /usr/bin/time -v "${CMD[@]}" 2>&1 \
-    | grep -i "Maximum resident set size" | grep -oE "[0-9]+" | head -1
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    local bytes
+    bytes="$(AZ_MEMTEST_N="$1" timeout 420 /usr/bin/time -l "${CMD[@]}" 2>&1 | grep -i "maximum resident set size" | grep -oE "[0-9]+" | head -1)"
+    if [ -n "$bytes" ]; then
+      echo "$((bytes / 1024))"
+    fi
+  else
+    AZ_MEMTEST_N="$1" timeout 420 /usr/bin/time -v "${CMD[@]}" 2>&1 \
+      | grep -i "Maximum resident set size" | grep -oE "[0-9]+" | head -1
+  fi
 }
 small="$(peak_rss_kb 50000)"
 large="$(peak_rss_kb 300000)"
@@ -53,7 +75,8 @@ if [ -n "$small" ] && [ -n "$large" ]; then
     echo "[$LABEL] leak check: OK"
   fi
 else
-  echo "[$LABEL] (could not measure RSS — /usr/bin/time -v unavailable?)"
+  echo "[$LABEL] FAIL: could not measure RSS — /usr/bin/time -v or -l unavailable"
+  fail=1
 fi
 
 [ "$fail" -eq 0 ] && echo "[$LABEL] MEMTEST PASS" || echo "[$LABEL] MEMTEST FAIL"

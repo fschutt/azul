@@ -34,14 +34,7 @@ tested: AzReview             # dll_tests (the WAV writer: header/sample-count an
 #    wired into a job.
 no-tests: azul-examples         # examples/rust: hello-world binaries
 no-tests: AzWidgets          # widget showcase binary
-no-tests: azul-vault            # demo binary
-no-tests: azul-gamepad          # demo binary
-no-tests: azul-camera-app       # demo binary
-no-tests: azul-screenshare-app  # demo binary
-no-tests: azul-video-app        # demo binary
 no-tests: AzMeet             # demo binary
-no-tests: azul-self-test        # unattended platform-API smoke BINARY; it is the
-                                #   test, run by the per-OS smoke jobs, not by cargo test
 no-tests: webrender_api         # types only
 no-tests: webrender_build       # build-time shader plumbing
 no-tests: wr_azul_glyph_rasterizer  # thin adapter over azul-layout's rasteriser

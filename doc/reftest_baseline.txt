@@ -1,20 +1,5 @@
 # Reftests known to PASS at the time this baseline was recorded.
-#
-# THE REFERENCE ENGINE IS PINNED (rust.yml: `chrome-version: "150"`). This list
-# is only meaningful against a fixed oracle: on 2026-08-13 azul's rendered
-# images were byte-identical between CI and local, yet 8 text cases here
-# flipped purely because CI had drifted to Chrome 152 while the baseline was
-# recorded against 150. If you bump the pin, expect to re-record this file —
-# and check the new failures against azul's own output before believing them.
-# A test listed here MUST keep passing. Making a new test pass is welcome —
-# add it here in the same commit so the gain cannot silently regress later.
-# Removing a name is a deliberate admission of regression; say why.
-#
-# azul currently passes 45 of 52 CSS reftests. That is the real number, and it
-# is why this gate is a REGRESSION gate rather than an all-must-pass gate:
-# demanding 100% today would block every deploy, and demanding nothing is what
-# `azul-doc reftest` did before (it returned Ok(()) unconditionally, so 0/44
-# was indistinguishable from 44/44).
+# A test listed here MUST keep passing.
 block-float-clear-complex-001
 block-margin-collapse-complex-001
 block-padding-border-001
@@ -60,9 +45,5 @@ table-basic-001
 text-basic-001
 text-in-box-debug-001
 text-overflow-001
-# 2026-08-11 (night text3 campaign, ff2772bec): the ClusterFlags
-# classification + shared-source work turned these two green — per-glyph
-# style deletion made run styling uniform where the splitter previously
-# fragmented inline runs inconsistently.
 inline-background-001
 inline-elements-001

@@ -28,16 +28,14 @@ function layout(int $data): \Azul\Dom
     $m       = json_decode(azul_refany_get($data), true);
     $counter = $m['counter'] ?? 0;
 
-    $div = \Azul\Dom::createDiv();
-    $div->addChild(\Azul\Dom::createTextDoNotUseWithoutBlockLevelWrapper((string) $counter));
+    $label = \Azul\Dom::createPWithText((string) $counter);
 
-    $btn = \Azul\Dom::createDiv();
-    $btn->addChild(\Azul\Dom::createTextDoNotUseWithoutBlockLevelWrapper('Increase counter'));
+    $btn = \Azul\Button::create('Increase counter');
     $btn->onClick($data, $GLOBALS['azul_onclick_id']);
 
     $body = \Azul\Dom::createBody();
-    $body->addChild($div);
-    $body->addChild($btn);
+    $body->addChild($label);
+    $body->addChild($btn->dom());
     return $body;
 }
 

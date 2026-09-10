@@ -15,9 +15,8 @@
 # Build args: AZUL_REF (git ref to build libazul from; default master),
 # RUST_TOOLCHAIN, LLVM_VERSION.
 
-# ---------------------------------------------------------------------
 # Stage 1: toolchain + remill — build (or vendor) the lifter binaries.
-# ---------------------------------------------------------------------
+#
 # NOTE: building remill+LLVM from source takes ~45 min / ~10 GB; CI should
 # cache this stage (or COPY a prebuilt toolchain image). See README.md.
 FROM debian:bookworm-slim AS toolchain

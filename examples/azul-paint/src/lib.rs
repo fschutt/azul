@@ -1,7 +1,7 @@
 //! AzPaint — a simple drawing app built on the azul painting API.
 //!
 //! Architecture (the "dumb widget" / video-widget pattern):
-//!   * **App data** (`PaintState`) holds ONLY the source of truth: the list of
+//!   * **App data** (`PaintState`) holds only the source of truth: the list of
 //!     strokes + their config (color / eraser), the undo + redo stacks, the
 //!     in-flight stroke, and a `rev` counter that bumps on every change.
 //!   * The **canvas** is a single `<img>` node whose pixels come from a
@@ -18,11 +18,11 @@
 use azul::callbacks::{CallbackType, DatasetMergeCallbackType, RenderImageCallbackInfo};
 use azul::css::PhysicalSizeU32;
 use azul::dialog::{FileDialog, FileOpenResult, SaveTargetResult};
-use azul::file::FileReadBytesResult;
 use azul::dom::{DatasetMergeCallback, RenderImageCallback};
 use azul::error::{
     ResultRawImageDecodeImageError, ResultU8VecEncodeImageError, ResultU8VecFileError,
 };
+use azul::file::FileReadBytesResult;
 use azul::gl::{GlContextPtr, Texture};
 use azul::image::{Brush, ImageRef, RawImage, RawImageData, RawImageFormat};
 use azul::option::OptionFileTypeList;
@@ -106,7 +106,10 @@ fn canvas_bg() -> ColorU {
 fn dbg_ms() -> u128 {
     use std::sync::OnceLock;
     static START: OnceLock<std::time::Instant> = OnceLock::new();
-    START.get_or_init(std::time::Instant::now).elapsed().as_millis()
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis()
 }
 
 /// Live pen telemetry for the header readout — QUANTIZED so `PartialEq`
@@ -707,7 +710,14 @@ fn metaball_image(
         let col = if st.is_eraser { bg } else { st.color };
         let col = (col.r as f32, col.g as f32, col.b as f32);
         for p in &st.points[skip..] {
-            boxes.push(apply_metaball_dab(&mut mb.field, &mut mb.acc, wu, hu, col, p));
+            boxes.push(apply_metaball_dab(
+                &mut mb.field,
+                &mut mb.acc,
+                wu,
+                hu,
+                col,
+                p,
+            ));
         }
         skip = 0;
     }
@@ -716,7 +726,14 @@ fn metaball_image(
         // One full composite instead of per-dab boxes: overlapping boxes
         // would recomposite the same pixels once per dab.
         composite_metaball_region(
-            &mut mb.buf, &mb.field, &mb.acc, w, h, bg, background, (0, 0, wu, hu),
+            &mut mb.buf,
+            &mb.field,
+            &mb.acc,
+            w,
+            h,
+            bg,
+            background,
+            (0, 0, wu, hu),
         );
     } else {
         for bx in boxes {
@@ -960,7 +977,11 @@ extern "C" fn render_canvas(mut data: RefAny, mut info: RenderImageCallbackInfo)
             w,
             h,
             t0.elapsed(),
-            if rev_after != rev_before { "RASTER" } else { "cache-hit" },
+            if rev_after != rev_before {
+                "RASTER"
+            } else {
+                "cache-hit"
+            },
         );
     }
     out
@@ -1224,7 +1245,11 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                     h.tilt_x_deg,
                     h.tilt_y_deg,
                     h.twist_deg,
-                    if h.in_contact { "  [contact]" } else { "  [hover]" },
+                    if h.in_contact {
+                        "  [contact]"
+                    } else {
+                        "  [hover]"
+                    },
                     if h.is_eraser { "  [ERASER]" } else { "" },
                     if h.barrel { "  [BARREL]" } else { "" },
                 )
@@ -1474,7 +1499,10 @@ fn tablet_device_line(info: &CallbackInfo) -> Option<String> {
         vendor.to_string()
     };
     let size = if d.physical_width_mm > 0.0 {
-        format!(", {:.0}x{:.0} mm", d.physical_width_mm, d.physical_height_mm)
+        format!(
+            ", {:.0}x{:.0} mm",
+            d.physical_width_mm, d.physical_height_mm
+        )
     } else {
         String::new()
     };

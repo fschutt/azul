@@ -28,28 +28,6 @@ object model for rapid development of beautiful, native desktop applications
 > Visit https://azul.rs/reftest in order to see the current testing and development
 > of the core rendering / HTML layouting engine.
 
-## Using azul from Rust
-
-azul is not on crates.io. azul.rs serves a static cargo registry with the
-pre-rendered `azul` crate — the generated API lives inside the crate (so
-rust-analyzer sees every type) and it links the prebuilt `libazul` that
-`brew` / `apt` / `dnf` / `choco` / `scoop` install from the self-hosted
-mirrors, or one you downloaded (`AZ_LINK_PATH`):
-
-```toml
-# .cargo/config.toml
-[registries]
-azul = { index = "sparse+https://azul.rs/ui/cargo/" }
-```
-
-```bash
-cargo add azul --registry azul
-```
-
-The same crate is a download: `https://azul.rs/ui/release/<version>/azul-rust-<version>.tar.gz`
-(`cargo add azul --path azul-rust-<version>`). Full instructions, every
-platform: https://azul.rs/ui/guide/hello-world/rust
-
 ## Building from source
 
 ```bash

@@ -6,7 +6,7 @@ Red/System [
                   redc -r hello-world.red      # then run ./hello-world
 
               ALPHA / unverified — constructed from the Red/System spec without a
-              local Red toolchain to compile-check. See scripts/ideas/bindings/RED_FFI_FINDINGS.md.}
+              local Red toolchain to compile-check.}
 ]
 
 #include %azul.reds
@@ -54,9 +54,8 @@ on-layout: func [[cdecl] arg0 [byte-ptr!] arg1 [byte-ptr!] out [byte-ptr!]
         m: as model! praw
         num: integer/to-string m/counter
 
-        label: AzDom_createDiv
+        label: AzDom_createPWithText mk-str num
         label: AzDom_withCss label mk-str "font-size: 32px; margin: 0;"
-        label: AzDom_withChild label (AzDom_createTextDoNotUseWithoutBlockLevelWrapper mk-str num)
 
         click-cb:   azul-register-button-on-click-callback :on-click
         click-data: azul-refany-create as byte-ptr! the-model

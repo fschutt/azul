@@ -31,10 +31,8 @@ my $layout = sub {
     my $body = Azul::FFI::AzDom_createBody();
     return $body unless defined $m;
 
-    my $label = Azul::FFI::AzDom_createDiv();
+    my $label = Azul::FFI::AzDom_createPWithText(mk_str($m->{counter}));
     $label = Azul::FFI::AzDom_withCss($label, mk_str('font-size: 32px; margin: 0;'));
-    $label = Azul::FFI::AzDom_withChild(
-        $label, Azul::FFI::AzDom_createTextDoNotUseWithoutBlockLevelWrapper(mk_str($m->{counter})));
 
     my $click_cb   = Azul::register_callback('ButtonOnClickCallback', $on_click);
     my $click_data = Azul::refany_create($model);

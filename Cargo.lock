@@ -720,13 +720,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
-name = "azul-camera-app"
-version = "0.1.0"
-dependencies = [
- "azul-dll",
-]
-
-[[package]]
 name = "azul-core"
 version = "0.0.16"
 dependencies = [
@@ -898,13 +891,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "azul-gamepad"
-version = "0.1.0"
-dependencies = [
- "azul-dll",
-]
-
-[[package]]
 name = "azul-layout"
 version = "0.0.16"
 dependencies = [
@@ -970,40 +956,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "azul-screenshare-app"
-version = "0.1.0"
-dependencies = [
- "azul-dll",
-]
-
-[[package]]
-name = "azul-self-test"
-version = "0.1.0"
-dependencies = [
- "azul-dll",
- "ctor",
- "log",
-]
-
-[[package]]
 name = "azul-simplecss"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1749834be7a639241b87d508ea1a5a4bf4736761af260b8148cf73bd67cf94c"
-
-[[package]]
-name = "azul-vault"
-version = "0.1.0"
-dependencies = [
- "azul-dll",
-]
-
-[[package]]
-name = "azul-video-app"
-version = "0.1.0"
-dependencies = [
- "azul-dll",
-]
 
 [[package]]
 name = "backtrace"

@@ -89,14 +89,12 @@ layout :: proc "c" (data: azul.AzRefAny, info: azul.AzLayoutCallbackInfo) -> azu
 	buf: [16]u8
 	n := u32_write(m.counter, buf[:])
 	counter_str := azul.AzString_fromUtf8(raw_data(buf[:]), uint(n))
-	label := azul.AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counter_str)
+	label := azul.AzDom_createPWithText(counter_str)
 
-	label_wrapper := azul.AzDom_createDiv()
 	font_size := azul.AzStyleFontSize_px(32.0)
 	css_prop := azul.AzCssProperty_fontSize(font_size)
 	cond := azul.AzCssPropertyWithConditions_simple(css_prop)
-	azul.AzDom_addCssProperty(&label_wrapper, cond)
-	azul.AzDom_addChild(&label_wrapper, label)
+	azul.AzDom_addCssProperty(&label, cond)
 
 	btn_label_bytes := "Increase counter"
 	btn_label := azul.AzString_fromUtf8(raw_data(btn_label_bytes), uint(len(btn_label_bytes)))
@@ -107,7 +105,7 @@ layout :: proc "c" (data: azul.AzRefAny, info: azul.AzLayoutCallbackInfo) -> azu
 	button_dom := azul.AzButton_dom(button)
 
 	body := azul.AzDom_createBody()
-	azul.AzDom_addChild(&body, label_wrapper)
+	azul.AzDom_addChild(&body, label)
 	azul.AzDom_addChild(&body, button_dom)
 	return body
 }

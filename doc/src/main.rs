@@ -1721,7 +1721,7 @@ fn main() -> anyhow::Result<()> {
             );
             println!();
             println!("Example workflow:");
-            println!("  1. Generate commit list:  ./scripts/find_layout_commits.py c0e504a3..HEAD -o commits.txt");
+            println!("  1. Generate commit list:  git rev-list c0e504a3..HEAD > commits.txt");
             println!(
                 "  2. Run regression:        cargo run --release -- debug-regression commits.txt"
             );

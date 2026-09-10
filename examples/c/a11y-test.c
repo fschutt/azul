@@ -48,12 +48,10 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         AzDom_addChild(&h2, AzDom_createPWithText(AZ_STR("1. Text Content")));
         AzDom_addChild(&section, h2);
 
-        AzDom p1 = AzDom_createP();
-        AzDom_addChild(&p1, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("This is a paragraph of text. VoiceOver should read this content.")));
+        AzDom p1 = AzDom_createPWithText(AZ_STR("This is a paragraph of text. VoiceOver should read this content."));
         AzDom_addChild(&section, p1);
 
-        AzDom p2 = AzDom_createP();
-        AzDom_addChild(&p2, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("This is a second paragraph with different content.")));
+        AzDom p2 = AzDom_createPWithText(AZ_STR("This is a second paragraph with different content."));
         AzDom_addChild(&section, p2);
 
         AzDom_addChild(&body, section);

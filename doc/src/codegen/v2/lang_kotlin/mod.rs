@@ -251,8 +251,7 @@ fn emit_native_interface(builder: &mut CodeBuilder, ir: &CodegenIR, config: &Cod
     builder.line("// ────────────────────────────────────────────────────────────────");
     builder.blank();
 
-    // Group functions by module (matching the Java codegen, which is the
-    // reference per the BINDING_STRATEGY_PER_LANGUAGE.md plan).
+    // Group functions by module (matching the Java codegen).
     use std::collections::BTreeMap;
     let mut by_module: BTreeMap<String, Vec<&FunctionDef>> = BTreeMap::new();
     for func in &ir.functions {

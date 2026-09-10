@@ -1,8 +1,7 @@
 // CDP (Chrome DevTools Protocol) client over the global WebSocket.
 //
 // Part of the web e2e harness (scripts/web-e2e-harness-plan.md §4.1 "lib/cdp.js").
-// Follows the proven raw-WebSocket patterns of scripts/cdp_click_hw.js and
-// scripts/m9_e2e/cdp_screenshot.js: HTTP /json/* endpoints for tab lifecycle,
+// Follows the proven raw-WebSocket patterns: HTTP /json/* endpoints for tab lifecycle,
 // one WebSocket per tab for commands + events, console/exception capture for
 // the whole tab lifetime.
 //
@@ -41,7 +40,7 @@ export async function closeTab(cdpBase, tabId) {
 }
 
 /** Format a Runtime.exceptionThrown params.exceptionDetails into one line with
- *  wasm-tagged frames (pattern: scripts/m9_e2e/cdp_screenshot.js:33-39). */
+ *  wasm-tagged frames. */
 export function formatException(d) {
     const frames = ((d.stackTrace && d.stackTrace.callFrames) || [])
         .map(f => (f.functionName || '<anon>') + ((f.url || '').includes('.wasm') ? '@wasm' : ''))
@@ -157,7 +156,7 @@ export class Cdp {
     }
 }
 
-/** The relaunch recipe printed when nothing answers on :9222 (from scripts/m9_e2e/cdp_gate.sh:43-52). */
+/** The relaunch recipe printed when nothing answers on :9222. */
 export function browserRecipe(cdpBase) {
     return [
         `No browser answering on ${cdpBase} — start a headless Edge/Chrome with:`,
@@ -166,6 +165,6 @@ export function browserRecipe(cdpBase) {
         '      --headless=new --remote-debugging-port=9222 --disable-gpu ^',
         '      --no-first-run --user-data-dir=%TEMP%\\az-edge-headless about:blank',
         '',
-        '(bash: see the relaunch block in scripts/m9_e2e/cdp_gate.sh:43-52)',
+        '(bash: see the relaunch block in the test script)',
     ].join('\n');
 }

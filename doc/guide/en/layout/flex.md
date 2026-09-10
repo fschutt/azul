@@ -12,7 +12,7 @@ prerequisites: [layout]
 tracked_files:
   - css/src/props/layout/flex.rs
   - css/src/props/layout/spacing.rs
-last_generated_rev: 7ecd570e4c0c3584e5107e770058c16cb59fa6e7
+last_generated_rev: 4a4eb85b8c8943cc13bff93b797f0b795c23069c
 generated_at: 2026-05-02T05:49:28Z
 default-search-keys:
   - Dom
@@ -25,9 +25,7 @@ default-search-keys:
 
 ## Overview
 
-`display: flex` lays out children along one axis and aligns them on the other.
-The axis is set by `flex-direction`; the rest of the properties decide how
-remaining space is distributed and where items align.
+`display: flex` and `display: inline-flex` lay out children along one axis and align them on the other. The axis is set by `flex-direction`. The remaining properties decide how free space is distributed and where items align.
 
 ```html
 <div style='display: flex; gap: 8px; padding: 8px;'>
@@ -39,23 +37,22 @@ remaining space is distributed and where items align.
 
 ## Container properties
 
-These apply to the element with `display: flex` (or `inline-flex`).
+These apply to the element with `display: flex` or `display: inline-flex`.
 
 ### flex-direction
 
-- `row` (default). Main axis is horizontal. Items run first to last.
-- `row-reverse`. Main axis is horizontal. Items run last to first.
-- `column`. Main axis is vertical. Items run first to last.
-- `column-reverse`. Main axis is vertical. Items run last to first.
+* `row` (default). Main axis is horizontal. Items run first to last.
+* `row-reverse`. Main axis is horizontal. Items run last to first.
+* `column`. Main axis is vertical. Items run first to last.
+* `column-reverse`. Main axis is vertical. Items run last to first.
 
-`row` makes the inline axis the main axis. `column` makes the block axis
-the main axis.
+`row` makes the inline axis the main axis. `column` makes the block axis the main axis.
 
 ### flex-wrap
 
-- `nowrap` (default). Single line. Items shrink to fit.
-- `wrap`. Overflow wraps to a new line.
-- `wrap-reverse`. Wraps in reverse cross-axis order.
+* `nowrap` (default). Forces a single line for all children - items shrink to fit.
+* `wrap`. Overflowing children wrap to a new line.
+* `wrap-reverse`. Wraps in reverse cross-axis order.
 
 ```html
 <div style='display: flex; flex-wrap: wrap; gap: 8px;'>
@@ -67,42 +64,41 @@ the main axis.
 
 ### justify-content: main-axis alignment
 
-`justify-content` distributes free space along the main axis:
+`justify-content` distributes free space along the main axis.
 
-- `flex-start` / `start` (default). Free space at the end.
-- `flex-end` / `end`. Free space at the start.
-- `center`. Free space split equally on both ends.
-- `space-between`. Space between items, none at ends.
-- `space-around`. Half-space at ends, full between.
-- `space-evenly`. Equal space everywhere.
+* `start` (default). Items pack to the absolute start of the axis.
+* `end`. Items pack to the absolute end of the axis.
+* `flex-start`. Items pack to the flex-relative start. 
+  * Under `row-reverse` or `column-reverse`, this equals `end`.
+* `flex-end`. Items pack to the flex-relative end. 
+  * Under `row-reverse` or `column-reverse`, this equals `start`.
+* `center`. Free space splits equally on both ends.
+* `space-between`. Space between items, none at ends.
+* `space-around`. Half-space at ends, full between.
+* `space-evenly`. Equal space everywhere.
 
-The CSS-Box-Alignment names (`start`, `end`) and the legacy flex names
-(`flex-start`, `flex-end`) produce the same layout.
+`start` and `flex-start` are distinct variants and do not behave the same in reversed directions, i.e. in RTL contexts. The same applies to `end` and `flex-end`.
 
 ### align-items: cross-axis alignment for every line
 
-- `stretch` (default). Fills the cross axis.
-- `start` / `flex-start`. Aligns to cross-start.
-- `end` / `flex-end`. Aligns to cross-end.
-- `center`. Centres on cross axis.
-- `baseline`. Aligns text baselines.
+* `stretch` (default). Fills the cross axis.
+* `start` / `flex-start`. Aligns to cross-start.
+* `end` / `flex-end`. Aligns to cross-end.
+* `center`. Centres on cross axis.
+* `baseline`. Aligns text baselines.
+
+Unlike `justify-content`, the `align-items` property aliases `start` to `flex-start` and `end` to `flex-end`.
 
 ### align-content: cross-axis alignment between lines
 
-Only takes effect when `flex-wrap: wrap` produces multiple lines.
-`align-content` accepts the same set as `align-items` plus
-`space-between` and `space-around`.
+Takes effect when `flex-wrap: wrap` produces multiple lines. `align-content` accepts:
 
-### gap, row-gap, column-gap
-
-Adds space between items without margins. In `flex-direction: row`, `column-gap`
-is the main-axis gap and `row-gap` is the cross-axis gap (between wrapped lines).
-
-```html
-<div style='display: flex; flex-wrap: wrap; row-gap: 12px; column-gap: 8px;'>
-   ...
- </div>
-```
+* `stretch` (default).
+* `center`.
+* `start` / `flex-start`.
+* `end` / `flex-end`.
+* `space-between`.
+* `space-around`.
 
 ## Item properties
 
@@ -110,12 +106,9 @@ These apply to children of a flex container.
 
 ### flex-grow and flex-shrink
 
-`flex-grow` is a non-negative number, default `0`. `flex-shrink` is its
-mirror, default `1`.
+`flex-grow` is a non-negative number, default `0`. `flex-shrink` is its mirror, default `1`.
 
-When the container has free space on the main axis, items split it in
-proportion to `flex-grow`. When the container is overflowing, items
-shrink in proportion to `flex-shrink`.
+When the container has free space on the main axis, items split it in proportion to `flex-grow`. When the container overflows, items shrink in proportion to `flex-shrink`.
 
 ```html
 <div style='display: flex;'>
@@ -125,24 +118,32 @@ shrink in proportion to `flex-shrink`.
  </div>
 ```
 
-`flex-grow: 0; flex-shrink: 0` pins an item to its `flex-basis` size.
-That's useful for sidebars and toolbars.
-
 ### flex-basis
 
-- `auto` (default). Uses `width` or `height`.
-- `<length>`. Fixed size before grow/shrink applies.
+* `auto` (default). Uses `width` or `height`.
+* `<length>`. Fixed size before grow/shrink applies.
 
-`flex-basis` is the size the item starts at before `flex-grow` or
-`flex-shrink` redistribute space. `auto` falls back to `width` (in `row`)
-or `height` (in `column`).
+`flex-basis` defines the initial size of the item before space distribution. It accepts `px`, percentages, `em`, `rem`, and `pt`. Setting a non-`auto` basis completely overrides the item's `width` property.
+
+### flex shorthand
+
+The `flex` property combines `flex-grow`, `flex-shrink`, and `flex-basis`.
+
+* `flex: none` sets grow to `0`, shrink to `0`, and basis to `auto`.
+* `flex: <number>` sets grow. Shrink defaults to `1` and basis becomes `0px`.
+* `flex: <basis>` sets basis.
+* `flex: <grow> <shrink>` sets grow and shrink. Basis becomes `0px`.
+* `flex: <grow> <basis>` sets grow and basis. Shrink defaults to `1`.
+* `flex: <grow> <shrink> <basis>` sets all three.
+
+Setting `flex: 1` computes to `flex-basis: 0px`. This overrides the default `auto` basis and removes the element's natural width from the distribution calculation.
 
 ### align-self: override align-items for one item
 
-`align-self` accepts:
+`align-self` overrides the container's `align-items` for a specific item. It accepts:
 
-- `auto` (default). Inherits the container's `align-items`.
-- `stretch`, `start`, `end`, `center`, `baseline`.
+* `auto` (default). Inherits the container's `align-items`.
+* `stretch`, `center`, `start` / `flex-start`, `end` / `flex-end`, `baseline`.
 
 ```html
 <div style='display: flex; align-items: stretch;'>
@@ -201,13 +202,13 @@ or `height` (in `column`).
 
 ## Default values at a glance
 
-- `flex-direction` defaults to `row`.
-- `flex-wrap` defaults to `nowrap`.
-- `justify-content` defaults to `start`.
-- `align-items` defaults to `stretch`.
-- `align-content` defaults to `stretch`.
-- `flex-grow` defaults to `0`.
-- `flex-shrink` defaults to `1`.
-- `flex-basis` defaults to `auto`.
-- `align-self` defaults to `auto`.
-- `gap` defaults to `0`.
+* `flex-direction` defaults to `row`.
+* `flex-wrap` defaults to `nowrap`.
+* `justify-content` defaults to `start`.
+* `align-items` defaults to `stretch`.
+* `align-content` defaults to `stretch`.
+* `flex-grow` defaults to `0`.
+* `flex-shrink` defaults to `1`.
+* `flex-basis` defaults to `auto`.
+* `align-self` defaults to `auto`.
+* `gap` defaults to `0`.

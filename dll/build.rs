@@ -686,34 +686,6 @@ fn configure_ios() {
         "Run 'brew install ios-deploy' to deploy to a physical iPhone. \
          Simulator deploys via 'xcrun simctl' do not need it.",
     );
-
-    let project_root = env::var("CARGO_MANIFEST_DIR").unwrap();
-
-    // Create .cargo/config.toml with iOS runner (only if not already set)
-    let config_path = Path::new(&project_root).join(".cargo/config.toml");
-    if !fs::read_to_string(&config_path)
-        .unwrap_or_default()
-        .contains("ios-runner.sh")
-    {
-        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-        fs::write(
-            &config_path,
-            "[target.aarch64-apple-ios]\nrunner = \"scripts/ios-runner.sh\"\n",
-        )
-        .unwrap();
-    }
-
-    // Create the runner script (only if missing)
-    let runner_path = Path::new(&project_root).join("scripts/ios-runner.sh");
-    if !runner_path.exists() {
-        fs::create_dir_all(runner_path.parent().unwrap()).unwrap();
-        fs::write(&runner_path, IOS_RUNNER_SCRIPT).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&runner_path, fs::Permissions::from_mode(0o755));
-        }
-    }
 }
 
 fn check_tool(name: &str, args: &[&str], install_hint: &str) {
@@ -729,15 +701,6 @@ fn warn_if_tool_missing(name: &str, args: &[&str], install_hint: &str) {
         _ => println!("cargo:warning='{}' not found — {}", name, install_hint),
     }
 }
-
-const IOS_RUNNER_SCRIPT: &str = r#"#!/bin/bash
-set -e
-EXECUTABLE_PATH="$1"
-APP_NAME=$(basename "$EXECUTABLE_PATH")
-APP_BUNDLE_PATH="$(dirname "$EXECUTABLE_PATH")/${APP_NAME}.app"
-echo "Deploying ${APP_BUNDLE_PATH}..."
-ios-deploy --bundle "${APP_BUNDLE_PATH}" --justlaunch
-"#;
 
 // ── Debugger asset compression ───────────────────────────────────────
 

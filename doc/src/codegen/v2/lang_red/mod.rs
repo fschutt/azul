@@ -127,7 +127,7 @@ fn emit_library_directive(b: &mut CodeBuilder) {
 
 /// Emit `alias struct!` type declarations (regular structs, field-accurate)
 /// and unit-enum integer `#define`s. Tagged unions are emitted as flagged
-/// opaque blobs (exact sizing is a follow-up — see `RED_FFI_FINDINGS.md`).
+/// opaque blobs (exact sizing is a follow-up).
 fn emit_types(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     b.line(";; ------------------------------------------------------------------");
     b.line(";; Type aliases: C structs as `alias struct!`, unit enums as #define.");

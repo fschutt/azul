@@ -112,7 +112,7 @@ pub(crate) fn open_first_lib(names: &[&str]) -> Option<libloading::Library> {
 
 /// Platform-specific integrations for features outside the layout core
 /// (camera, screen-share, biometric, sensors, permission prompts, etc.).
-/// See `SUPER_PLAN_2.md` §0.5 — these live behind `extra/` rather than in
+/// These live behind `extra/` rather than in
 /// `azul-core` / `azul-layout` so the layout closure stays dep-light.
 pub mod extra;
 /// File IO for C / C++ developers: the one `FilePath` API, on every target.

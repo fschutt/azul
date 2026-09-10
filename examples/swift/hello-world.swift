@@ -62,14 +62,12 @@ func layout(_ data: AzRefAny, _ info: AzLayoutCallbackInfo) -> AzDom {
     }
 
     let counterStr = azString(String(m.pointee.counter))
-    let label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(counterStr)
+    var label = AzDom_createPWithText(counterStr)
 
-    var labelWrapper = AzDom_createDiv()
     let fontSize = AzStyleFontSize_px(32.0)
     let cssProp = AzCssProperty_fontSize(fontSize)
     let cond = AzCssPropertyWithConditions_simple(cssProp)
-    AzDom_addCssProperty(&labelWrapper, cond)
-    AzDom_addChild(&labelWrapper, label)
+    AzDom_addCssProperty(&label, cond)
 
     var button = AzButton_create(azString("Increase counter"))
     AzButton_setButtonType(&button, AzButtonType_Primary)
@@ -78,7 +76,7 @@ func layout(_ data: AzRefAny, _ info: AzLayoutCallbackInfo) -> AzDom {
     let buttonDom = AzButton_dom(button)
 
     var body = AzDom_createBody()
-    AzDom_addChild(&body, labelWrapper)
+    AzDom_addChild(&body, label)
     AzDom_addChild(&body, buttonDom)
     return body
 }

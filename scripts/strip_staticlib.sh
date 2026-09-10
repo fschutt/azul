@@ -7,7 +7,7 @@
 # ~1.3-1.5 GB). Consumers of a prebuilt staticlib never run Rust ThinLTO, so
 # the bitcode is 100% dead weight. Stripping post-build keeps the
 # ThinLTO-optimized machine code bit-identical (switching to embed-bitcode=no
-# would change codegen). See scripts/RELEASE_SIZE_MEMORY_AUDIT_2026_07_04.md §2.4.
+# would change codegen).
 #
 # Handles:
 #   *.a        ELF (any arch — cross too, unlike host binutils strip, which

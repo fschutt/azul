@@ -482,7 +482,7 @@ path = "tests/svg_xml_dom.rs"
 name = "icu_parity"
 path = "tests/icu_parity.rs"
 
-# NOT folded into `all`: `scripts/coretext_regression.sh` invokes it by name
+# NOT folded into `all`: the coretext regression suite invokes it by name
 # (`cargo test -p azul-layout --features coretext_tests --test
 # coretext_autoregression --release -- --nocapture`). The file is
 # `#![cfg(all(target_os = "macos", feature = "coretext_tests"))]`, so off macOS

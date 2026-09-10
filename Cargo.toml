@@ -6,14 +6,8 @@ members = [
     "examples/azul-review", # AzReview — ink-first code review; tablet/pen stress test
     "examples/azul-widgets", # AzulWidgets demo (showcase of all widgets; W5 release demo)
     "examples/azul-maps", # AzMaps demo (SUPER_PLAN_2 P3 goal app)
-    "examples/azul-vault", # AzulVault demo (SUPER_PLAN_2 P4 goal app)
     "examples/azul-writer", # AzWriter demo (office-2013-style document editor; bin azwriter)
-    "examples/azul-gamepad", # AzGamepad demo (P6 gamepad goal app)
-    "examples/azul-camera", # AzCamera demo (P6 camera widget; crate azul-camera-app)
-    "examples/azul-screenshare", # AzScreenShare demo (P6 screencap widget; crate azul-screenshare-app)
-    "examples/azul-video", # AzVideo demo (P6 video widget; crate azul-video-app)
     "examples/azul-meet", # azul-meet demo (SUPER_PLAN_2 P8 goal app: Udp + AudioSink + MicrophoneWidget)
-    "examples/azul-self-test", # unattended platform-API smoke test (PLATFORM_DEBUG_PLAN Phase 3)
     "dll", # dll module with auto-gen C functions (optional pyO3 support), depends on layout, core and css
     "doc", # doc / test generator, depends on layout, core and css
     "layout", # layout depends on core + css

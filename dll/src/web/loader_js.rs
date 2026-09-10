@@ -138,7 +138,7 @@ function azMulti3(sret, aLo, aHi, bLo, bHi) {
 // freshly-allocated memory stays garbage (e.g. a Vec::clone's memcpy'd dest,
 // hashbrown ctrl bytes, Box::new struct moves) → the consumer derefs garbage
 // → `memory access out of bounds` (the browser text-shaping/Css::from OOB,
-// root-caused — full-cycle.js worked ONLY because it supplied real
+// root-caused — the Node harness worked ONLY because it supplied real
 // impls). C ABI: all three return `dest`. `copyWithin` is overlap-safe, so it
 // is correct for memcpy AND memmove. A fresh Uint8Array per call avoids a
 // detached-buffer hazard after `memory.grow`.
@@ -172,7 +172,7 @@ function azUdivti3(sret, aLo, aHi, bLo, bHi) {
 // were installed.
 // `mem` is remill's opaque Memory token: return it unchanged to keep the
 // memory-ordering chain intact. Addresses are guest = wasm linear offsets.
-// (full-cycle.js always supplied these to BOTH its mini and cb envs — which is
+// (The Node harness always supplied these to BOTH its mini and cb envs — which is
 // exactly why the Node harness passed while the browser did not.)
 function azRemillIntrinsics() {
     return {
@@ -464,7 +464,7 @@ async function azBootstrap() {
     //    segments span the same band the bump heap allocates from (0x110000..~0x8664000 ∋
     //    0x6000000). Init/hydrate before it → EventloopState/RefAny/model bytes are
     //    CLOBBERED by the mirror → the cb's type_id check fails → every click = DoNothing.
-    //    (Same ordering the node harness has always used — see layout-flexbox.js.)
+    //    (Same ordering the node harness has always used.)
 
     // 4. Discover + instantiate per-callback WASMs. Each gets put at
     //    table[node_idx] AND recorded in azNodeCbFns so the
@@ -612,7 +612,7 @@ async function azBootstrap() {
             // accumulated +256MB per recursion level until the cascade's recursive
             // node walk (mini func698) indexed a jump table at ~768MB → OOB. Fix =
             // the forwarder now passes the constant entry pc (lift_addr), not %pc.
-            // hydrate now returns rc=0 node_count=5 (full-cycle.js) — the cascade
+            // hydrate now returns rc=0 node_count=5 (Node harness) — the cascade
             // is FIXED (commit 2ba1b59de). STILL GATED on a SEPARATE, newly-reachable
             // solver bug: AzStartup_solveLayoutReal (mini func232, chain 69→68→116→232)
             // derefs a garbage pointer field — `[[State.R14]+48]+16` where the +48
@@ -673,7 +673,7 @@ async function azBootstrap() {
     }
 
     // M9-2 probe hook: expose the layout cb + buildLayoutInfo on the
-    // window so /tmp/layout-probe.js can drive an end-to-end test
+    // window so we can drive an end-to-end test
     // from a Node fetch without bootstrapping the full DOM. Harmless
     // in production (no JS reads `window.__azProbe`).
     if (typeof window !== 'undefined') {
@@ -1525,7 +1525,7 @@ function azBootstrapTracked() {
         .then(azBootstrap)
         .catch(function(e) {
             // The stack is the diagnosis: wasm frames name the trapping
-            // function (wasm-function[N]:0x... → wfunc.mjs → symbol).
+            // function (wasm-function[N]:0x... → symbol).
             console.error('[azul-web] bootstrap FAILED:', (e && (e.stack || e.message)) || e);
             try {
                 azUnmatchedDispatches();

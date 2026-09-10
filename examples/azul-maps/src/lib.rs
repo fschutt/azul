@@ -1,21 +1,12 @@
-//! AzMaps — the P3 goal app from SUPER_PLAN_2.
-//!
-//! Exercises the `MapWidget` skeleton landed in
-//! `layout/src/widgets/map.rs`. The widget computes the visible-tile
-//! XYZ grid via Web Mercator math, builds one GPU-translated `<div>`
-//! per tile, and holds a `MapTileCache` `RefAny` dataset that
-//! survives relayout via a `DatasetMergeCallback`. Real MVT decode +
-//! HTTP fetch land in follow-up ticks; this demo wires the grid +
-//! viewport bookkeeping + a simple toolbar (zoom in / zoom out / recentre).
-//!
-//! Pan via touch / drag will land once the `GestureAndDragManager` is
-//! wired through the widget — for now the demo lets you nudge the
-//! viewport via on-screen buttons so the grid recompute is visible.
+//! `MapWidget` composed into a real application. The widget computes
+//! the visible-tile XYZ grid via Web Mercator math, builds one `<div>`
+//! per tile and holds a `MapTileCache` `RefAny` dataset that
+//! survives relayout via a `DatasetMergeCallback`.
 //!
 //! Compose a `Dom::create_geolocation_probe(...)` anywhere in the
 //! subtree to opt into "this app needs GPS" — the widget itself is
 //! agnostic of location; the framework's permission-as-DOM plumbing
-//! routes the prompt automatically (per P3.1).
+//! routes the prompt automatically.
 
 use azul::dom::{GeolocationProbeConfig, MapPinTapCallback};
 use azul::option::OptionRefAny;

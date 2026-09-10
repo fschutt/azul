@@ -52,12 +52,10 @@ proc layout(data: AzRefAny, info: AzLayoutCallbackInfo): AzDom {.cdecl.} =
   if m == nil:
     return AzDom_createBody()
 
-  let label = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(azStr($m.counter))
-  var labelWrapper = AzDom_createDiv()
+  var label = AzDom_createPWithText(azStr($m.counter))
   let cond = AzCssPropertyWithConditions_simple(
     AzCssProperty_fontSize(AzStyleFontSize_px(32.0'f32)))
-  AzDom_addCssProperty(addr labelWrapper, cond)
-  AzDom_addChild(addr labelWrapper, label)
+  AzDom_addCssProperty(addr label, cond)
 
   var button = AzButton_create(azStr("Increase counter"))
   AzButton_setButtonType(addr button, AzButtonType.Primary)
@@ -66,7 +64,7 @@ proc layout(data: AzRefAny, info: AzLayoutCallbackInfo): AzDom {.cdecl.} =
   let buttonDom = AzButton_dom(button)
 
   var body = AzDom_createBody()
-  AzDom_addChild(addr body, labelWrapper)
+  AzDom_addChild(addr body, label)
   AzDom_addChild(addr body, buttonDom)
   return body
 

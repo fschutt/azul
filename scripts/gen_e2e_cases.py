@@ -10,13 +10,13 @@ Reads the REAL surface out of the repo (never hand-typed lists):
                          MINUS everything `OP_POLICY` (doc/src/gene2e.rs) denies and
                          MINUS every zombie (declared but with no match arm)
   * Managers          -> layout/src/managers/*.rs
-  * Assertion families-> scripts/E2E_PLAN.md  §B  (a..f, g1..g5)
+  * Assertion families->  §B  (a..f, g1..g5)
 
 then crosses them combinatorially (interaction x target x mutation x phase x
 assertion-family) and emits ONE natural-language e2e case per line, ordered
 SIMPLE -> COMPLEX.
 
-Scope rule (E2E_PLAN.md §0.1): BEHAVIOUR ONLY. No geometry assertions, ever.
+Scope rule: BEHAVIOUR ONLY. No geometry assertions, ever.
 `azul-doc reftest` owns layout/CSS/pixel correctness.
 
 COHERENCE IS ENFORCED, NOT HOPED FOR
@@ -243,7 +243,7 @@ CROSS_OK, CROSS_UNIMPL = cross_invariants()
 KEYED_MANAGERS = {MGR_ALIAS.get(m, m) for m in key_surface_managers()}
 MANAGERS = managers()
 
-# Assertion families, verbatim from E2E_PLAN.md §B
+# Assertion families, verbatim from §B
 FAMILIES = OrderedDict([
     ("a", "idle stability (frame N+1 identical to frame N, damage drains to None)"),
     ("b", "liveness (damage non-empty AND pixels actually differ)"),
@@ -657,7 +657,7 @@ RESOURCES = [
      "scroll so the scrollbar fades in and out over, then unmount", {"scrollv", "scrollh"}),
 ]
 
-# X1..X10 straight out of E2E_PLAN.md §B(g2). `needs` is the capability the
+# X1..X10 straight out of §B(g2). `needs` is the capability the
 # interaction must supply for the invariant to say anything at all: asserting
 # "the active drag's source node still exists" about a hover is vacuous.
 CROSS = [
