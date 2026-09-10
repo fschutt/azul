@@ -48,6 +48,7 @@ use azul_core::{
 };
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
+use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
 use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec, DynamicSelector,
@@ -1540,16 +1541,14 @@ impl RibbonStyle {
             tab_filler_style: theme_tab_filler(theme),
             content_style: theme_content(theme),
             group_style: theme_group(theme),
-            group_items_style: CssPropertyWithConditionsVec::from_const_slice(GROUP_ITEMS_STYLE),
-            group_footer_style: CssPropertyWithConditionsVec::from_const_slice(GROUP_FOOTER_STYLE),
+            group_items_style: CssPropertyWithConditionsVec::new(),
+            group_footer_style: CssPropertyWithConditionsVec::new(),
             group_label_style: theme_group_label(theme),
-            footer_spacer_style: CssPropertyWithConditionsVec::from_const_slice(
-                FOOTER_SPACER_STYLE,
-            ),
+            footer_spacer_style: CssPropertyWithConditionsVec::new(),
             launcher_button_style: theme_launcher_button(theme),
             launcher_icon_style: theme_launcher_icon(theme),
-            column_style: CssPropertyWithConditionsVec::from_const_slice(COLUMN_STYLE),
-            row_style: CssPropertyWithConditionsVec::from_const_slice(ROW_STYLE),
+            column_style: CssPropertyWithConditionsVec::new(),
+            row_style: CssPropertyWithConditionsVec::new(),
             separator_style: theme_separator(theme),
             large_button_style: theme_large_button(theme),
             large_icon_style: theme_large_icon(theme),
@@ -1560,16 +1559,12 @@ impl RibbonStyle {
             arrow_icon_style: theme_arrow_icon(theme),
             checked_style: theme_checked(theme),
             gallery_frame_style: theme_gallery_frame(theme),
-            gallery_strip_style: CssPropertyWithConditionsVec::from_const_slice(
-                GALLERY_STRIP_STYLE,
-            ),
+            gallery_strip_style: CssPropertyWithConditionsVec::new(),
             gallery_cell_style: theme_gallery_cell(theme),
             gallery_cell_selected_style: theme_gallery_cell_selected(theme),
             gallery_cell_label_style: theme_gallery_cell_label(theme),
             gallery_spinner_style: theme_gallery_spinner(theme),
-            gallery_wrapper_style: CssPropertyWithConditionsVec::from_const_slice(
-                GALLERY_WRAPPER_STYLE,
-            ),
+            gallery_wrapper_style: CssPropertyWithConditionsVec::new(),
             gallery_panel_style: theme_gallery_panel(theme),
             mobile_tab_button_style: theme_mobile_tab_button(theme),
             mobile_tab_label_style: theme_mobile_tab_label(theme),
@@ -1959,7 +1954,7 @@ impl RibbonTab {
         Self {
             label,
             groups: RibbonGroupVec::from_const_slice(&[]),
-            style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            style: CssPropertyWithConditionsVec::new(),
         }
     }
 
@@ -3958,8 +3953,8 @@ mod tests {
             // drives the forwarding path only.
             auto_select: false,
             in_panel: false,
-            selected_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
-            base_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            selected_style: CssPropertyWithConditionsVec::new(),
+            base_style: CssPropertyWithConditionsVec::new(),
         });
         let (update, changes) = run_trampoline(on_ribbon_gallery_cell_click, data);
         assert_eq!(update, Update::RefreshDom);
@@ -3978,8 +3973,8 @@ mod tests {
             on_select: None.into(),
             auto_select: false,
             in_panel: false,
-            selected_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
-            base_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            selected_style: CssPropertyWithConditionsVec::new(),
+            base_style: CssPropertyWithConditionsVec::new(),
         });
         let (update, _) = run_trampoline(on_ribbon_gallery_cell_click, data);
         assert_eq!(update, Update::DoNothing);

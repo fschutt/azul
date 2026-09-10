@@ -28,6 +28,7 @@ use azul_core::{
     refany::RefAny,
     task::OptionTimerId,
 };
+use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
 use azul_css::css::BoxOrStatic;
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
@@ -97,7 +98,7 @@ const SANS_SERIF_FAMILY: StyleFontFamilyVec =
 const TEXT_INPUT_MIN_HEIGHT_PX: isize = 22;
 
 #[cfg(target_os = "windows")]
-static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
+pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
@@ -234,7 +235,7 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
 ];
 
 #[cfg(target_os = "linux")]
-static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
+pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
@@ -367,7 +368,7 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
 // Mobile (Android / iOS) inherit the macOS-style container — same flex
 // box-sizing and background; touch-target padding is the user's concern.
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
+pub(crate) static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Text)),
     CssPropertyWithConditions::simple(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
@@ -503,7 +504,7 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
 // spaces the user typed.
 
 #[cfg(target_os = "windows")]
-static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+pub(crate) static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     // The PROMPT's own colour, via the real `::placeholder` cascade. The
     // engine paints the prompt with the value line's style, overridden by
     // whatever `::placeholder` declares - so this is the widget's default
@@ -542,7 +543,7 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
 ];
 
 #[cfg(target_os = "linux")]
-static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+pub(crate) static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     // The PROMPT's own colour, via the real `::placeholder` cascade. The
     // engine paints the prompt with the value line's style, overridden by
     // whatever `::placeholder` declares - so this is the widget's default
@@ -581,7 +582,7 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
 ];
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+pub(crate) static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     // The PROMPT's own colour, via the real `::placeholder` cascade. The
     // engine paints the prompt with the value line's style, overridden by
     // whatever `::placeholder` declares - so this is the widget's default
@@ -628,8 +629,8 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
 #[repr(C)]
 pub struct TextInput {
     pub text_input_state: TextInputStateWrapper,
-    pub container_style: CssPropertyWithConditionsVec,
-    pub label_style: CssPropertyWithConditionsVec,
+    pub container_style: OptionCssPropertyWithConditionsVec,
+    pub label_style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET so it knows at build time whether it was named;
@@ -774,10 +775,8 @@ impl Default for TextInput {
     fn default() -> Self {
         Self {
             text_input_state: TextInputStateWrapper::default(),
-            container_style: CssPropertyWithConditionsVec::from_const_slice(
-                TEXT_INPUT_CONTAINER_PROPS,
-            ),
-            label_style: CssPropertyWithConditionsVec::from_const_slice(TEXT_INPUT_LABEL_PROPS),
+            container_style: OptionCssPropertyWithConditionsVec::None,
+            label_style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
             theme: None.into(),
         }
@@ -930,7 +929,7 @@ impl TextInput {
     }
 
     pub fn set_container_style(&mut self, style: CssPropertyWithConditionsVec) {
-        self.container_style = style;
+        self.container_style = OptionCssPropertyWithConditionsVec::Some(style);
     }
 
     #[must_use]
@@ -940,7 +939,7 @@ impl TextInput {
     }
 
     pub fn set_label_style(&mut self, style: CssPropertyWithConditionsVec) {
-        self.label_style = style;
+        self.label_style = OptionCssPropertyWithConditionsVec::Some(style);
     }
 
     #[must_use]

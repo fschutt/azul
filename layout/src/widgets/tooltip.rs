@@ -27,6 +27,7 @@ use azul_core::{
     dom::{Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::{OptionRefAny, RefAny},
 };
+use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -138,7 +139,7 @@ pub struct Tooltip {
     /// Style of the positioning wrapper around the anchor.
     pub wrapper_style: CssPropertyWithConditionsVec,
     /// Style of the tip popup.
-    pub tip_style: CssPropertyWithConditionsVec,
+    pub tip_style: OptionCssPropertyWithConditionsVec,
 }
 
 impl Default for Tooltip {
@@ -155,7 +156,7 @@ impl Tooltip {
             anchor,
             text,
             wrapper_style: CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_WRAPPER_STYLE),
-            tip_style: CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_TIP_STYLE),
+            tip_style: OptionCssPropertyWithConditionsVec::None,
         }
     }
 
@@ -176,7 +177,7 @@ impl Tooltip {
     /// Overrides the tip popup style.
     #[inline]
     pub fn set_tip_style(&mut self, style: CssPropertyWithConditionsVec) {
-        self.tip_style = style;
+        self.tip_style = OptionCssPropertyWithConditionsVec::Some(style);
     }
 
     /// Builder-style setter for the tip popup style.
@@ -203,7 +204,7 @@ impl Tooltip {
 
         let tip = crate::widgets::widget_p_with_text(self.text)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOOLTIP_TIP_CLASS))
-            .with_css_props(self.tip_style);
+            .with_css_props(self.tip_style.into_option().unwrap_or_else(|| CssPropertyWithConditionsVec::from_const_slice(TOOLTIP_TIP_STYLE)));
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOOLTIP_WRAPPER_CLASS))

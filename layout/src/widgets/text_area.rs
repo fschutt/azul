@@ -531,13 +531,13 @@ impl TextArea {
         self
     }
 
-    pub fn set_container_style(&mut self, style: OptionCssPropertyWithConditionsVec) {
-        self.container_style = style;
+    pub fn set_container_style(&mut self, style: CssPropertyWithConditionsVec) {
+        self.container_style = OptionCssPropertyWithConditionsVec::Some(style);
     }
 
     #[must_use]
-    pub fn with_container_style(mut self, style: OptionCssPropertyWithConditionsVec) -> Self {
-        self.set_container_style(style);
+    pub fn with_container_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
+        self.set_container_style(style); // note: this regex might break if set_X name is different from with_X
         self
     }
 

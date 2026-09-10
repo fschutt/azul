@@ -34,6 +34,7 @@ use azul_core::{
     dom::{DatasetMergeCallbackType, Dom, OptionDom},
     refany::{OptionRefAny, RefAny},
 };
+use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
 use azul_css::impl_option_inner; // for impl_widget_callback!'s impl_option!
 use azul_css::{dynamic_selector::CssPropertyWithConditionsVec, AzString};
 
@@ -472,7 +473,7 @@ pub struct MapLatLon {
 pub struct MapWidget {
     pub layer: MapTileLayer,
     pub viewport: MapViewport,
-    pub container_style: CssPropertyWithConditionsVec,
+    pub container_style: OptionCssPropertyWithConditionsVec,
     /// Optional hook fired when the user pans / zooms (effects / persist
     /// the viewport). FFI-exposed; re-set on each fresh build.
     pub on_viewport_changed: OptionMapViewportChanged,
@@ -506,7 +507,7 @@ impl MapWidget {
         Self {
             layer,
             viewport: MapViewport::default(),
-            container_style: CssPropertyWithConditionsVec::from_const_slice(&[]),
+            container_style: OptionCssPropertyWithConditionsVec::None,
             on_viewport_changed: OptionMapViewportChanged::None,
             on_pin_tap: OptionMapPinTap::None,
         }
@@ -545,7 +546,7 @@ impl MapWidget {
 
     #[must_use]
     pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
-        self.container_style = css;
+        self.container_style = OptionCssPropertyWithConditionsVec::Some(css);
         self
     }
 
@@ -780,10 +781,10 @@ impl MapWidget {
 
         // A caller-supplied container style replaces the default fill above
         // (`with_css_props` replaces the inline style) — the caller then owns sizing.
-        if self.container_style.as_slice().is_empty() {
+        if self.container_style.into_option().is_none() {
             root
         } else {
-            root.with_css_props(self.container_style)
+            root.with_css_props(self.container_style.into_option().unwrap_or_else(|| CssPropertyWithConditionsVec::new()))
         }
     }
 }

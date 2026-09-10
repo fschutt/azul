@@ -908,13 +908,30 @@ pub fn create_fluent_zip_from_strings(files: Vec<(String, String)>) -> Result<Ve
 /// Export all translations from a `FluentLocalizerHandle` to a ZIP archive.
 pub fn export_to_zip(localizer: &FluentLocalizerHandle) -> Result<Vec<u8>, String> {
     
-    let entries = localizer
+    let bundles = localizer
         .inner()
         .bundles
         .lock()
-        .map_err(|e| format!("Lock error: {e:?}"))?.collect();
+        .map_err(|e| format!("Lock error: {e:?}"))?;
 
-    
+    let entries: Vec<ZipFileEntry> = bundles
+        .iter()
+        .flat_map(|(locale, bundle)| {
+            bundle
+                .sources
+                .iter()
+                .enumerate()
+                .map(|(i, source)| {
+                    let path = if bundle.sources.len() == 1 {
+                        format!("{}.fluent", locale)
+                    } else {
+                        format!("{}/part_{}.fluent", locale, i)
+                    };
+                    ZipFileEntry::file(path, source.clone().into_bytes())
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
 
     create_fluent_zip(entries)
 }

@@ -6,6 +6,7 @@
 //! parses as an `f32` within the configured `min`/`max` range.
 
 use std::string::String;
+use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
 
 use azul_core::{
     callbacks::{CoreCallbackData, Update},
@@ -15,7 +16,7 @@ use azul_core::{
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
-    dynamic_selector::CssPropertyWithConditionsVec,
+    dynamic_selector::CssPropertyWithConditionsVec, 
     props::{
         basic::*,
         layout::*,
@@ -189,7 +190,7 @@ impl NumberInput {
     }
 
     pub fn set_container_style(&mut self, style: CssPropertyWithConditionsVec) {
-        self.text_input.container_style = style;
+        self.text_input.container_style = OptionCssPropertyWithConditionsVec::Some(style);
     }
 
     #[must_use]
@@ -199,7 +200,7 @@ impl NumberInput {
     }
 
     pub fn set_label_style(&mut self, style: CssPropertyWithConditionsVec) {
-        self.text_input.label_style = style;
+        self.text_input.label_style = OptionCssPropertyWithConditionsVec::Some(style);
     }
 
     #[must_use]

@@ -687,10 +687,7 @@ fn css_prop(ty: CssPropertyType, value: &str) -> Option<CssProperty> {
 /// replaced, so the fields inside the picker still look like fields.
 fn field_container_style(width_px: isize, grow: bool) -> CssPropertyWithConditionsVec {
     let mut props: Vec<CssPropertyWithConditions> =
-        crate::widgets::text_input::TextInput::default()
-            .container_style
-            .as_ref()
-            .to_vec();
+        crate::widgets::text_input::TEXT_INPUT_CONTAINER_PROPS.to_vec();
     props.retain(|p| {
         !matches!(
             p.property.get_type(),

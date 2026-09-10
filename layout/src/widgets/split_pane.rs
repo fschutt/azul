@@ -47,6 +47,7 @@ use azul_core::{
     geom::{CursorNodePosition, LogicalSize},
     refany::RefAny,
 };
+use azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec;
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     impl_option_inner,
@@ -123,7 +124,7 @@ pub struct SplitPane {
     /// The second pane's content (right for horizontal, bottom for vertical).
     pub second: Dom,
     /// Style for the outer container.
-    pub container_style: CssPropertyWithConditionsVec,
+    pub container_style: OptionCssPropertyWithConditionsVec,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -293,7 +294,7 @@ impl SplitPane {
             },
             first,
             second,
-            container_style: container_style(direction),
+            container_style: OptionCssPropertyWithConditionsVec::Some(container_style(direction)),
         }
     }
 
@@ -315,7 +316,7 @@ impl SplitPane {
     #[inline]
     pub fn set_direction(&mut self, direction: SplitDirection) {
         self.split_pane_state.inner.direction = direction;
-        self.container_style = container_style(direction);
+        self.container_style = OptionCssPropertyWithConditionsVec::Some(container_style(direction));
     }
 
     /// Builder-style setter for the orientation.
@@ -330,7 +331,7 @@ impl SplitPane {
     #[inline]
     #[must_use]
     pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
-        self.container_style = css;
+        self.container_style = OptionCssPropertyWithConditionsVec::Some(css);
         self
     }
 
@@ -442,7 +443,7 @@ impl SplitPane {
 
         Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(SPLIT_PANE_CLASS))
-            .with_css_props(self.container_style)
+            .with_css_props(self.container_style.into_option().unwrap_or_else(|| CssPropertyWithConditionsVec::new()))
             .with_callbacks(callbacks.into())
             .with_tab_index(TabIndex::Auto)
             // Role so the accessibility tree knows what this IS:

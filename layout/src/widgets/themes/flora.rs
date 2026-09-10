@@ -709,7 +709,7 @@ pub fn text_input(mut ti: TextInput) -> Dom {
     let state_ref = RefAny::new(ti.text_input_state);
 
     let mut container_style: Vec<CssPropertyWithConditions> =
-        ti.container_style.as_slice().to_vec();
+        ti.container_style.into_option().map(|s| s.as_slice().to_vec()).unwrap_or_else(|| crate::widgets::text_input::TEXT_INPUT_CONTAINER_PROPS.to_vec());
     container_style.push(CssPropertyWithConditions::dark_theme(
         CssProperty::BackgroundContent(
             StyleBackgroundContentVec::from_vec(vec![StyleBackgroundContent::Color(DARK_SUR)])
@@ -732,7 +732,7 @@ pub fn text_input(mut ti: TextInput) -> Dom {
         CssProperty::BorderRightColor(StyleBorderRightColor { inner: DARK_BD }.into()),
     ));
 
-    let mut label_style: Vec<CssPropertyWithConditions> = ti.label_style.as_slice().to_vec();
+    let mut label_style: Vec<CssPropertyWithConditions> = ti.label_style.into_option().map(|s| s.as_slice().to_vec()).unwrap_or_else(|| crate::widgets::text_input::TEXT_INPUT_LABEL_PROPS.to_vec());
     label_style.push(CssPropertyWithConditions::dark_theme(
         CssProperty::TextColor(StyleTextColor { inner: DARK_INK }.into()),
     ));
