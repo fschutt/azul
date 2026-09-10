@@ -7,7 +7,7 @@ use azul_core::{
     dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
     refany::RefAny,
 };
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
+use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec, OptionCssPropertyWithConditionsVec};
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
@@ -21,11 +21,12 @@ use azul_css::{
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
+use crate::widgets::themes::{OptionTheme, Theme};
 
-static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+pub static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-checkbox-container",
 ))];
-static CHECKBOX_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+pub static CHECKBOX_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-checkbox-content",
 ))];
 
@@ -57,10 +58,11 @@ azul_core::impl_managed_callback! {
 #[repr(C)]
 pub struct CheckBox {
     pub check_box_state: CheckBoxStateWrapper,
+    pub theme: OptionTheme,
     /// Style for the checkbox container
-    pub container_style: CssPropertyWithConditionsVec,
+    pub container_style: OptionCssPropertyWithConditionsVec,
     /// Style for the checkbox content
-    pub content_style: CssPropertyWithConditionsVec,
+    pub content_style: OptionCssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
     ///
     /// Carried by the WIDGET rather than patched onto the finished `Dom`: that
@@ -108,7 +110,7 @@ const FILL_THEME: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(CO
 const FILL_COLOR_BACKGROUND: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(FILL_THEME);
 
-static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+pub static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_background_content(
         BACKGROUND_COLOR_LIGHT,
     )),
@@ -185,14 +187,14 @@ static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
 ];
 
-static DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED: &[CssPropertyWithConditions] = &[
+pub static DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(8))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(8))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
     CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 ];
 
-static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[CssPropertyWithConditions] = &[
+pub static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(8))),
     CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(8))),
     CssPropertyWithConditions::simple(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
@@ -210,14 +212,15 @@ impl CheckBox {
     #[must_use]
     pub fn create(checked: bool) -> Self {
         Self {
+            theme: crate::widgets::themes::OptionTheme::None,
             check_box_state: CheckBoxStateWrapper {
                 inner: CheckBoxState { checked },
                 ..Default::default()
             },
-            container_style: CssPropertyWithConditionsVec::from_const_slice(
+            container_style: OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::from_const_slice(
                 DEFAULT_CHECKBOX_CONTAINER_STYLE,
-            ),
-            content_style: if checked {
+            )),
+            content_style: OptionCssPropertyWithConditionsVec::Some(if checked {
                 CssPropertyWithConditionsVec::from_const_slice(
                     DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED,
                 )
@@ -225,7 +228,7 @@ impl CheckBox {
                 CssPropertyWithConditionsVec::from_const_slice(
                     DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED,
                 )
-            },
+            }),
             accessibility_name: OptionString::None,
         }
     }
@@ -261,59 +264,19 @@ impl CheckBox {
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        // Read before the widget's fields are moved into the DOM below.
-        let cb_name = self.accessibility_name.clone();
-        crate::widgets::warn_widget_needs_a_name("check_box", cb_name.is_some());
-
-        // Read the state BEFORE the wrapper is moved into the callback below.
-        let checked_now = self.check_box_state.inner.checked;
-
-        use azul_core::{
-            callbacks::{CoreCallback, CoreCallbackData},
-            dom::{Dom, EventFilter, HoverEventFilter},
+        let theme = match self.theme {
+            crate::widgets::themes::OptionTheme::Some(theme) => theme,
+            crate::widgets::themes::OptionTheme::None => crate::widgets::themes::Theme::Flat,
         };
-
-        Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTAINER_CLASS))
-            .with_css_props(self.container_style)
-            .with_callbacks(
-                vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::Click),
-                    callback: CoreCallback {
-                        cb: input::default_on_checkbox_clicked as usize,
-                        ctx: azul_core::refany::OptionRefAny::None,
-                    },
-                    refany: RefAny::new(self.check_box_state),
-                }]
-                .into(),
-            )
-            .with_tab_index(TabIndex::Auto)
-            // A checkbox that does not publish its checked state announces as
-            // unchecked forever, however it renders. The state must travel with
-            // every build, not be set once at construction.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::CheckButton,
-                accessibility_name: cb_name,
-                states: azul_core::a11y::AccessibilityStateVec::from_vec(vec![
-                    if checked_now {
-                        azul_core::a11y::AccessibilityState::CheckedTrue
-                    } else {
-                        azul_core::a11y::AccessibilityState::CheckedFalse
-                    },
-                ]),
-                ..Default::default()
-            })
-            .with_children(
-                vec![Dom::create_div()
-                    .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTENT_CLASS))
-                    .with_css_props(self.content_style)]
-                .into(),
-            )
+        match theme {
+            crate::widgets::themes::Theme::Flat => crate::widgets::themes::flat::check_box(self),
+            crate::widgets::themes::Theme::Flora => crate::widgets::themes::flora::check_box(self),
+        }
     }
 }
 
 // handle input events for the checkbox
-mod input {
+pub mod input {
 
     use azul_core::{callbacks::Update, refany::RefAny};
     use azul_css::props::{property::CssProperty, style::effects::StyleOpacity};
@@ -321,7 +284,7 @@ mod input {
     use super::{CheckBoxOnToggle, CheckBoxStateWrapper};
     use crate::callbacks::CallbackInfo;
 
-    pub(super) extern "C" fn default_on_checkbox_clicked(
+    pub extern "C" fn default_on_checkbox_clicked(
         mut check_box: RefAny,
         mut info: CallbackInfo,
     ) -> Update {
@@ -355,11 +318,11 @@ mod input {
         // the build-time CheckedTrue/False would go stale on the first click.
         info.set_accessibility_state(
             info.get_hit_node(),
-            azul_core::a11y::AccessibilityStateVec::from_vec(vec![if check_box.inner.checked {
-                azul_core::a11y::AccessibilityState::CheckedTrue
+            azul_core::a11y::AccessibilityStateVec::from_const_slice(if check_box.inner.checked {
+                &[azul_core::a11y::AccessibilityState::CheckedTrue]
             } else {
-                azul_core::a11y::AccessibilityState::CheckedFalse
-            }]),
+                &[azul_core::a11y::AccessibilityState::CheckedFalse]
+            }),
         );
 
         if check_box.inner.checked {
