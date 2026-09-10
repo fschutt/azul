@@ -521,12 +521,10 @@ fn emit_instance_method(
         } else {
             "self.inner"
         }
+    } else if self_by_value {
+        "self.inner"
     } else {
-        if self_by_value {
-            "self.inner"
-        } else {
-            "&self.inner"
-        }
+        "&self.inner"
     };
 
     let call_args_full = if user_call_args.is_empty() {
@@ -589,14 +587,12 @@ fn emit_instance_method(
         if self_by_value {
             b.line("runtime.SetFinalizer(self, nil)");
         }
+    } else if self_by_value {
+        b.line(&format!("ret := {}", call));
+        b.line("runtime.SetFinalizer(self, nil)");
+        b.line("return ret");
     } else {
-        if self_by_value {
-            b.line(&format!("ret := {}", call));
-            b.line("runtime.SetFinalizer(self, nil)");
-            b.line("return ret");
-        } else {
-            b.line(&format!("return {}", call));
-        }
+        b.line(&format!("return {}", call));
     }
 
     b.dedent();

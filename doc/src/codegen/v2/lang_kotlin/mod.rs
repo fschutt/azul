@@ -469,7 +469,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
         if let (Some(_), Some(sv)) = (none, some) {
             let payload_tuple = match &sv.kind {
                 EnumVariantKind::Tuple(types) if types.len() == 1 => {
-                    Some((types[0].0.clone(), types[0].1.clone()))
+                    Some((types[0].0.clone(), types[0].1))
                 }
                 _ => None,
             };
@@ -506,7 +506,7 @@ fn emit_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Codegen
         if let (Some(ov), Some(_)) = (ok, err) {
             let payload_tuple = match &ov.kind {
                 EnumVariantKind::Tuple(types) if types.len() == 1 => {
-                    Some((types[0].0.clone(), types[0].1.clone()))
+                    Some((types[0].0.clone(), types[0].1))
                 }
                 _ => None,
             };
@@ -841,7 +841,7 @@ fn emit_vec_to_list_kt(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
         elem_kt
     ));
     builder.indent();
-    builder.line(&format!("if (ptr == null || len == 0L) return emptyList()"));
+    builder.line(&"if (ptr == null || len == 0L) return emptyList()".to_string());
     builder.line(&format!(
         "val __out = java.util.ArrayList<{}>(len.toInt())",
         elem_kt

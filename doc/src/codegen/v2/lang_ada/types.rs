@@ -577,7 +577,7 @@ fn pascalize_field_name(name: &str) -> String {
     let mut chars = name.chars().peekable();
     let mut upper_next = true;
     let mut prev_lower = false;
-    while let Some(c) = chars.next() {
+    for c in chars {
         if c == '_' {
             out.push('_');
             upper_next = true;
@@ -592,7 +592,7 @@ fn pascalize_field_name(name: &str) -> String {
             out.extend(c.to_uppercase());
             upper_next = false;
         } else {
-            out.extend(c.to_ascii_lowercase().to_string().chars());
+            out.push_str(&c.to_ascii_lowercase().to_string());
         }
         prev_lower = c.is_ascii_lowercase();
     }

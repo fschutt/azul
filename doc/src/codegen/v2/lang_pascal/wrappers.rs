@@ -288,15 +288,13 @@ fn emit_method_decl(
                 prefix_kw, method_name, args_str, pas_ret, tail
             ));
         }
+    } else if args_str.is_empty() {
+        builder.line(&format!("{}procedure {};{}", prefix_kw, method_name, tail));
     } else {
-        if args_str.is_empty() {
-            builder.line(&format!("{}procedure {};{}", prefix_kw, method_name, tail));
-        } else {
-            builder.line(&format!(
-                "{}procedure {}({});{}",
-                prefix_kw, method_name, args_str, tail
-            ));
-        }
+        builder.line(&format!(
+            "{}procedure {}({});{}",
+            prefix_kw, method_name, args_str, tail
+        ));
     }
 }
 
@@ -500,15 +498,13 @@ fn emit_method_impl(
                 prefix_kw, class_name, method_name, args_str, pas_ret
             )
         }
+    } else if args_str.is_empty() {
+        format!("{}procedure {}.{};", prefix_kw, class_name, method_name)
     } else {
-        if args_str.is_empty() {
-            format!("{}procedure {}.{};", prefix_kw, class_name, method_name)
-        } else {
-            format!(
-                "{}procedure {}.{}({});",
-                prefix_kw, class_name, method_name, args_str
-            )
-        }
+        format!(
+            "{}procedure {}.{}({});",
+            prefix_kw, class_name, method_name, args_str
+        )
     };
 
     builder.line(&signature);
@@ -700,7 +696,6 @@ fn pascal_class_name(raw: &str) -> String {
 fn constructor_pascal_names(ir: &CodegenIR, class_name: &str) -> Vec<String> {
     let ctors: Vec<&FunctionDef> = ir
         .functions_for_class(class_name)
-        .into_iter()
         .filter(|f| matches!(f.kind, FunctionKind::Constructor | FunctionKind::Default))
         .collect();
 
@@ -792,6 +787,5 @@ fn sanitize_comment(s: &str) -> String {
     // close Pascal block comments (matches lang_pascal/types.rs).
     s.replace('{', "(")
         .replace('}', ")")
-        .replace('\n', " ")
-        .replace('\r', " ")
+        .replace(['\n', '\r'], " ")
 }

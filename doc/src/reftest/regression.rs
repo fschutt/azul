@@ -931,7 +931,7 @@ fn calculate_worst_regressions(
             let total_delta: i64 = detailed
                 .iter()
                 .filter(|c| c.status == "REGRESSED" || c.status == "BROKE")
-                .map(|c| (c.curr_diff - c.prev_diff) as i64)
+                .map(|c| (c.curr_diff - c.prev_diff))
                 .sum();
 
             if total_delta > 0 {
@@ -1755,7 +1755,7 @@ fn generate_diff_report_string(
     let mut sorted_commits: Vec<_> = commit_data.iter().collect();
     sorted_commits.sort_by(|a, b| b.0.date.cmp(&a.0.date));
 
-    output.push_str(&format!("# Azul Layout Regression Analysis\n"));
+    output.push_str(&"# Azul Layout Regression Analysis\n".to_string());
     output.push_str(&format!(
         "# Generated: {}\n",
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
@@ -1785,7 +1785,7 @@ fn generate_diff_report_string(
             ));
             output.push_str(&format!("   Message: {}\n", message));
         }
-        output.push_str("\n");
+        output.push('\n');
     }
 
     output.push_str("## PART 1: Summary of Changes (sorted by date, oldest first)\n\n");
@@ -1844,7 +1844,7 @@ fn generate_diff_report_string(
                 for diff in &diffs {
                     output.push_str(&format!("{}\n", diff));
                 }
-                output.push_str("\n");
+                output.push('\n');
 
                 if !detailed.is_empty() {
                     all_detailed.push((prev_c.clone(), (*commit).clone(), detailed));

@@ -236,10 +236,7 @@ fn should_include_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     // wrappers reference them as fields (e.g.
     // `AzCalcAstItemVec.destructor: AzCalcAstItemVecDestructor`,
     // `AzU8VecRef`). The C-header generator includes them; we follow.
-    match s.category {
-        TypeCategory::Recursive | TypeCategory::GenericTemplate => false,
-        _ => true,
-    }
+    !matches!(s.category, TypeCategory::Recursive | TypeCategory::GenericTemplate)
 }
 
 fn should_include_enum(e: &EnumDef, config: &CodegenConfig) -> bool {
@@ -403,7 +400,7 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
         if let (Some(_), Some(sv)) = (none, some) {
             let payload_tuple = match &sv.kind {
                 EnumVariantKind::Tuple(types) if types.len() == 1 => {
-                    Some((types[0].0.clone(), types[0].1.clone()))
+                    Some((types[0].0.clone(), types[0].1))
                 }
                 _ => None,
             };
@@ -439,7 +436,7 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
         if let (Some(ov), Some(_)) = (ok, err) {
             let payload_tuple = match &ov.kind {
                 EnumVariantKind::Tuple(types) if types.len() == 1 => {
-                    Some((types[0].0.clone(), types[0].1.clone()))
+                    Some((types[0].0.clone(), types[0].1))
                 }
                 _ => None,
             };

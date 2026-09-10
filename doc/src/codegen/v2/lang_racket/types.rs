@@ -393,5 +393,5 @@ fn ref_kind_field_type(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR)
 }
 
 fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }

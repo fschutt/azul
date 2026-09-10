@@ -129,7 +129,7 @@ fn build_ir_from_api(api_data: &ApiData) -> Result<CodegenIR> {
         .get_latest_version_str()
         .ok_or_else(|| anyhow::anyhow!("No versions found in api.json"))?;
     let version_data = api_data
-        .get_version(&version_str)
+        .get_version(version_str)
         .ok_or_else(|| anyhow::anyhow!("Version {} not found", version_str))?;
 
     let ir_builder = IRBuilder::new(version_data);

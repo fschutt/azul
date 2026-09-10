@@ -133,6 +133,7 @@ pub struct Avatar {
 /// Builds the circular container style for a given size. Diameter, corner radius
 /// and font size are size-dependent, so the style is built at runtime per the
 /// recipe's "runtime vec when param-dependent" path (see `badge::build_badge_style`).
+#[must_use] 
 pub fn build_avatar_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
     let d = size.diameter();
     let r = size.radius();
@@ -181,6 +182,7 @@ pub fn build_avatar_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
 
 /// Builds the inner image style: fills the circle and is itself rounded so the
 /// image reads as a circle even if `overflow: hidden` clipping is unavailable.
+#[must_use] 
 pub fn build_image_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
     let d = size.diameter();
     let r = size.radius();
@@ -248,24 +250,25 @@ impl Avatar {
 
     /// Sets the size variant, recomputing the style.
     #[inline]
-    pub fn set_theme(&mut self, theme: UiTheme) {
+    pub const fn set_theme(&mut self, theme: UiTheme) {
         self.theme = OptionUiTheme::Some(theme);
     }
 
-    pub fn with_theme(mut self, theme: UiTheme) -> Self {
+    #[must_use] 
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
         self.set_theme(theme);
         self
     }
 
     #[inline]
-    pub fn set_size(&mut self, size: AvatarSize) {
+    pub const fn set_size(&mut self, size: AvatarSize) {
         self.size = size;
     }
 
     /// Builder-style setter for the size variant.
     #[inline]
     #[must_use]
-    pub fn with_size(mut self, size: AvatarSize) -> Self {
+    pub const fn with_size(mut self, size: AvatarSize) -> Self {
         self.set_size(size);
         self
     }
@@ -284,12 +287,12 @@ impl Avatar {
     #[must_use]
     pub fn dom(self) -> Dom {
         let theme = match self.theme {
-            crate::widgets::themes::OptionUiTheme::Some(theme) => theme,
-            crate::widgets::themes::OptionUiTheme::None => crate::widgets::themes::UiTheme::Flat,
+            OptionUiTheme::Some(theme) => theme,
+            OptionUiTheme::None => UiTheme::Flat,
         };
         match theme {
-            crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::avatar(self),
-            crate::widgets::themes::UiTheme::Flora => crate::widgets::themes::flora::avatar(self),
+            UiTheme::Flat => crate::widgets::themes::flat::avatar(self),
+            UiTheme::Flora => crate::widgets::themes::flora::avatar(self),
         }
     }
 }

@@ -437,7 +437,7 @@ impl RustGenerator {
             builder.line("#[repr(C)]");
             builder.line(&format!("pub struct {}Ref<'a, T> {{", prefix));
             builder.indent();
-            builder.line(&format!("ptr: &'a T,"));
+            builder.line(&"ptr: &'a T,".to_string());
             builder.line(&format!("sharing_info: {}RefCount,", prefix));
             builder.dedent();
             builder.line("}");
@@ -463,7 +463,7 @@ impl RustGenerator {
             builder.line("#[repr(C)]");
             builder.line(&format!("pub struct {}RefMut<'a, T> {{", prefix));
             builder.indent();
-            builder.line(&format!("ptr: &'a mut T,"));
+            builder.line(&"ptr: &'a mut T,".to_string());
             builder.line(&format!("sharing_info: {}RefCount,", prefix));
             builder.dedent();
             builder.line("}");
@@ -631,10 +631,8 @@ impl RustGenerator {
             builder.line("/// Returns a RAII guard to the inner value if types match.");
             builder.line("/// ");
             builder.line("/// The guard holds a shared borrow; drop it when done.");
-            builder.line(&format!(
-                "pub fn downcast_ref<T: 'static>(&mut self) -> Option<azul_core::refany::Ref<'_, \
-                 T>> {{"
-            ));
+            builder.line(&"pub fn downcast_ref<T: 'static>(&mut self) -> Option<azul_core::refany::Ref<'_, \
+                 T>> {".to_string());
             builder.indent();
             builder.line("use core::mem::transmute;");
             builder.line("unsafe {");
@@ -652,10 +650,8 @@ impl RustGenerator {
                 .line("/// Returns a RAII guard to mutably borrow the inner value if types match.");
             builder.line("/// ");
             builder.line("/// The guard holds an exclusive borrow; drop it when done.");
-            builder.line(&format!(
-                "pub fn downcast_mut<T: 'static>(&mut self) -> \
-                 Option<azul_core::refany::RefMut<'_, T>> {{"
-            ));
+            builder.line(&"pub fn downcast_mut<T: 'static>(&mut self) -> \
+                 Option<azul_core::refany::RefMut<'_, T>> {".to_string());
             builder.indent();
             builder.line("use core::mem::transmute;");
             builder.line("unsafe {");
@@ -936,7 +932,7 @@ impl RustGenerator {
         }
 
         builder.line("// --- Serde-JSON Support for RefAny ---");
-        builder.line(&format!("#[cfg(feature = \"serde-json\")]"));
+        builder.line(&"#[cfg(feature = \"serde-json\")]".to_string());
         builder.line(&format!("impl {}RefAny {{", prefix));
         builder.indent();
 
@@ -983,7 +979,7 @@ impl RustGenerator {
         builder.indent();
         builder.line("match serde_json::to_string(&*val) {");
         builder.indent();
-        builder.line(&format!("Ok(s) => {{"));
+        builder.line(&"Ok(s) => {".to_string());
         builder.indent();
         builder.line(&format!("let result = {}Json::parse(s.as_str());", prefix));
         builder.line("match &result {");
@@ -1157,9 +1153,7 @@ impl RustGenerator {
             let key = (from_type.clone(), return_type.clone());
 
             // Only use the first method for each conversion pair
-            if !conversion_methods.contains_key(&key) {
-                conversion_methods.insert(key, &func.method_name);
-            }
+            conversion_methods.entry(key).or_insert(&func.method_name);
         }
 
         // Generate the From impls, in sorted (from_type, to_type) order.
@@ -1608,10 +1602,8 @@ impl RustGenerator {
             // that are NOT part of the C-API (as_slice_mut, get_mut, iter, iter_mut, etc.)
 
             // get_mut()
-            builder.line(&format!(
-                "/// Returns a mutable reference to an element at the given index, or `None` if \
-                 out of bounds."
-            ));
+            builder.line(&"/// Returns a mutable reference to an element at the given index, or `None` if \
+                 out of bounds.".to_string());
             builder.line("#[inline]");
             builder.line(&format!(
                 "pub fn get_mut(&mut self, index: usize) -> Option<&mut {}> {{",
@@ -1624,9 +1616,7 @@ impl RustGenerator {
             builder.blank();
 
             // iter_mut()
-            builder.line(&format!(
-                "/// Returns a mutable iterator over the elements."
-            ));
+            builder.line(&"/// Returns a mutable iterator over the elements.".to_string());
             builder.line("#[inline]");
             builder.line(&format!(
                 "pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, {}> {{",

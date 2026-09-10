@@ -327,7 +327,7 @@ fn determine_fn_type(method: &MethodDef, type_name: &str) -> String {
     if method.self_kind == Some(SelfKind::RefMut)
         && method.args.len() == 1
         && (method.return_type.is_none()
-            || method.return_type.as_ref().map(|s| s.as_str()) == Some("Self"))
+            || method.return_type.as_deref() == Some("Self"))
         && method.name.starts_with("set_")
     {
         return "setter".to_string();
@@ -832,19 +832,17 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
         } else {
             (None, false)
         }
+    } else if let Some(ref ret_ty) = method.return_type {
+        let (converted, needs_into) = convert_return_type_for_ffi(ret_ty, class_name);
+        (
+            Some(ReturnTypeData {
+                r#type: converted,
+                doc: None,
+            }),
+            needs_into,
+        )
     } else {
-        if let Some(ref ret_ty) = method.return_type {
-            let (converted, needs_into) = convert_return_type_for_ffi(ret_ty, class_name);
-            (
-                Some(ReturnTypeData {
-                    r#type: converted,
-                    doc: None,
-                }),
-                needs_into,
-            )
-        } else {
-            (None, false)
-        }
+        (None, false)
     };
 
     // Generate fn_body using the full external path
@@ -937,7 +935,7 @@ fn get_fields_from_kind(type_def: &TypeDefinition) -> Vec<(String, String, RefKi
     match &expanded {
         TypeDefKind::Struct { fields, .. } => fields
             .iter()
-            .map(|(name, f)| (name.clone(), f.ty.clone(), f.ref_kind.clone()))
+            .map(|(name, f)| (name.clone(), f.ty.clone(), f.ref_kind))
             .collect(),
         _ => Vec::new(),
     }

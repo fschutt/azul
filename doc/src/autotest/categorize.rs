@@ -141,7 +141,7 @@ fn classify(f: &ExtractedFn) -> Category {
         || name.starts_with("format")
         || name.starts_with("to_str")
         || name == "as_str_owned";
-    if is_fmt || (is_serializer_name && (returns_string || is_fmt)) {
+    if is_fmt || is_serializer_name && returns_string {
         return Category::Serializer;
     }
 
@@ -160,7 +160,7 @@ fn classify(f: &ExtractedFn) -> Category {
         || name.starts_with("with_")
         || name.starts_with("new_")
         || name.starts_with("from_");
-    if is_ctor_name && (returns_self || f.self_kind.is_none()) && returns_self {
+    if is_ctor_name && returns_self {
         return Category::Constructor;
     }
 
@@ -456,7 +456,7 @@ fn is_numeric_signature(f: &ExtractedFn) -> bool {
 
     // Require at least one numeric/geom arg (so we have something to push to extremes),
     // OR a numeric return with no args at all is not interesting (that's a getter).
-    numeric_args >= 1 && (ret_numeric || numeric_args >= 1)
+    numeric_args >= 1
 }
 
 /// True if any argument is a float.

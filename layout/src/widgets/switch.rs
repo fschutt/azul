@@ -173,6 +173,7 @@ fn switch_animation(property: &'static str) -> CssPropertyWithConditions {
 /// Build the track (pill container) style. Background colour is the only
 /// state-dependent property, so the style is built at runtime per the recipe's
 /// "runtime vec if param-dependent" path.
+#[must_use] 
 pub fn build_track_style(checked: bool) -> CssPropertyWithConditionsVec {
     let bg = if checked { TRACK_ON_BG } else { TRACK_OFF_BG };
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
@@ -223,6 +224,7 @@ pub fn build_track_style(checked: bool) -> CssPropertyWithConditionsVec {
 
 /// Build the knob style. The knob's `margin-left` is the state-dependent
 /// property that slides it between the off (left) and on (right) positions.
+#[must_use] 
 pub fn build_knob_style(checked: bool) -> CssPropertyWithConditionsVec {
     let margin = if checked { KNOB_TRAVEL } else { 0 };
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
@@ -267,15 +269,15 @@ impl Switch {
     #[must_use]
     pub fn create(checked: bool) -> Self {
         Self {
-            theme: crate::widgets::themes::OptionUiTheme::None,
+            theme: OptionUiTheme::None,
             switch_state: SwitchStateWrapper {
                 inner: SwitchState { checked },
                 ..Default::default()
             },
-            track_style: azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(
+            track_style: OptionCssPropertyWithConditionsVec::Some(
                 build_track_style(checked),
             ),
-            knob_style: azul_css::dynamic_selector::OptionCssPropertyWithConditionsVec::Some(
+            knob_style: OptionCssPropertyWithConditionsVec::Some(
                 build_knob_style(checked),
             ),
             accessibility_name: OptionString::None,
@@ -314,8 +316,8 @@ impl Switch {
     #[must_use]
     pub fn dom(self) -> Dom {
         let theme = match self.theme {
-            crate::widgets::themes::OptionUiTheme::Some(theme) => theme,
-            crate::widgets::themes::OptionUiTheme::None => crate::widgets::themes::UiTheme::Flat,
+            OptionUiTheme::Some(theme) => theme,
+            OptionUiTheme::None => crate::widgets::themes::UiTheme::Flat,
         };
         match theme {
             crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::switch(self),
@@ -339,6 +341,7 @@ pub mod input {
     use super::{SwitchOnToggle, SwitchStateWrapper, KNOB_TRAVEL, TRACK_OFF_BG, TRACK_ON_BG};
     use crate::callbacks::CallbackInfo;
 
+    #[must_use] 
     pub extern "C" fn default_on_switch_clicked(
         mut switch: RefAny,
         mut info: CallbackInfo,

@@ -314,7 +314,7 @@ pub fn debug_parse_file(file_path: &Path) -> Result<()> {
                     .map(|s| s.ident.to_string())
                     .unwrap_or_default();
                 if macro_name.starts_with("impl_") {
-                    macros.push(format!("{}!({})", macro_name, m.mac.tokens.to_string()));
+                    macros.push(format!("{}!({})", macro_name, m.mac.tokens));
                 }
             }
             _ => {}
@@ -1506,7 +1506,7 @@ fn get_problem_reason(
     use super::module_map::INTERNAL_ONLY_TYPES;
 
     if internal_types.contains(type_name) {
-        return format!("Internal-only type (contains BTreeMap/HashMap/Arc)");
+        return "Internal-only type (contains BTreeMap/HashMap/Arc)".to_string();
     }
 
     // Check what makes it difficult based on known patterns

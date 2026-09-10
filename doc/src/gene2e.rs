@@ -38,8 +38,8 @@
 //!   * artifact exists but FAILS the gate -> regenerate (overwrite)
 //!   * artifact whose hash is no longer in the corpus -> STALE ORPHAN, reported, deleted only with
 //!     `--prune`
-//! `--limit N` means "generate N MORE", i.e. it truncates the not-yet-done list
-//! (after `--filter`), never the corpus.
+//!     `--limit N` means "generate N MORE", i.e. it truncates the not-yet-done list
+//!     (after `--filter`), never the corpus.
 //!
 //! THE REVIEW LOOP (`--review-batch N`)
 //! -----------------------------------
@@ -1866,12 +1866,11 @@ pub fn run(project_root: &Path, opts: &GenE2eOptions) -> Result<()> {
         let Some(want) = expected.get(h.as_str()) else {
             continue;
         };
-        if a.path != *want && !want.exists() && !opts.dry_run {
-            if fs::rename(&a.path, want).is_ok() {
+        if a.path != *want && !want.exists() && !opts.dry_run
+            && fs::rename(&a.path, want).is_ok() {
                 a.path = want.to_path_buf();
                 renamed += 1;
             }
-        }
     }
 
     let p = plan(

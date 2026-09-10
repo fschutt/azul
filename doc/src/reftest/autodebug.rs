@@ -631,8 +631,8 @@ pub fn analyze_pixel_diff(
 
     // Build per-pixel diff data: delta values
     const BLOCK_SIZE: u32 = 16;
-    let block_cols = ((width + BLOCK_SIZE - 1) / BLOCK_SIZE) as usize;
-    let block_rows = ((height + BLOCK_SIZE - 1) / BLOCK_SIZE) as usize;
+    let block_cols = width.div_ceil(BLOCK_SIZE) as usize;
+    let block_rows = height.div_ceil(BLOCK_SIZE) as usize;
 
     // For each block: count differing pixels and accumulate deltas
     let mut block_diff_counts = vec![0u32; block_cols * block_rows];
@@ -1094,7 +1094,7 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
                         }
 
                         let done = i + 1 + skipped;
-                        if done % 20 == 0 || i + 1 == pending_jobs.len() {
+                        if done.is_multiple_of(20) || i + 1 == pending_jobs.len() {
                             println!("    Chrome: {}/{}", done, jobs.len());
                         }
                     }
@@ -1121,7 +1121,7 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
                             chrome_errors += 1;
                         }
                         let done = i + 1 + skipped;
-                        if done % 20 == 0 || i + 1 == pending_jobs.len() {
+                        if done.is_multiple_of(20) || i + 1 == pending_jobs.len() {
                             println!("    Chrome: {}/{}", done, jobs.len());
                         }
                     }
@@ -1234,7 +1234,7 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
         }
 
         let done = azul_done.fetch_add(1, Ordering::Relaxed) + 1;
-        if done % 20 == 0 || done == jobs.len() {
+        if done.is_multiple_of(20) || done == jobs.len() {
             println!("    Azul: {}/{}", done, jobs.len());
         }
     });
@@ -1387,12 +1387,8 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
     fn box_line(content: &str) {
         // Box inner width = 60 chars (between ║ and ║)
         let visible_len = content.chars().count();
-        let pad = if visible_len < 60 {
-            60 - visible_len
-        } else {
-            0
-        };
-        println!("║{}{}║", content, " ".repeat(pad));
+        let pad = 60_i32.saturating_sub(visible_len.try_into().unwrap());
+        println!("║{}{}║", content, " ".repeat(pad.try_into().unwrap()));
     }
 
     println!("\n╔════════════════════════════════════════════════════════════════╗");

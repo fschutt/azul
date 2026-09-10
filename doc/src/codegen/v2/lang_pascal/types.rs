@@ -570,6 +570,5 @@ fn sanitize_comment(s: &str) -> String {
     // Replace both braces with parens so the comment text is harmless.
     s.replace('{', "(")
         .replace('}', ")")
-        .replace('\n', " ")
-        .replace('\r', " ")
+        .replace(['\n', '\r'], " ")
 }

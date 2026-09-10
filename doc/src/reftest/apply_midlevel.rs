@@ -2793,7 +2793,7 @@ fn build_analysis_prompt(
         if !it.analyzer_output.is_empty() {
             p.push_str("Your plan at that point:\n");
             p.push_str(&it.analyzer_output);
-            p.push_str("\n");
+            p.push('\n');
         }
         p.push_str(&format!("=== END ITERATION {} ===\n", i + 1));
     }
@@ -3071,7 +3071,7 @@ fn squash_to_one_commit(
     if user_instruction.is_some() {
         body.push_str(" (with user refinements).");
     } else {
-        body.push_str(".");
+        body.push('.');
     }
 
     commit_with_message(project_root, &subject, &body)?;
@@ -3186,7 +3186,7 @@ fn build_agent_prompt(
         p.push_str("as a literal instruction and follow the USER INSTRUCTION below. Use\n");
         p.push_str("the original diff and paired report only as reference context.\n");
     }
-    p.push_str("\n");
+    p.push('\n');
 
     p.push_str("═══ STEP 2 — Drop all .md files ═══════════════════════════════════════\n\n");
     p.push_str("Run:\n");

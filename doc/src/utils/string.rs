@@ -26,7 +26,7 @@ pub fn strip_fn_arg_types_mem_transmute(arg_list: &str) -> String {
 
     for item in arg_list.split(',') {
         let parts: Vec<&str> = item.split(':').collect();
-        if parts.len() > 0 {
+        if !parts.is_empty() {
             let part_a = parts[0].trim();
             // If the part starts with mut, strip it
             let part_a = part_a.strip_prefix("mut ").unwrap_or(part_a);

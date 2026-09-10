@@ -29,8 +29,8 @@ pub fn generate_api_html(api_data: &ApiData, version: &str) -> String {
     let version_data = api_data.get_version(version).unwrap();
 
     let title = format!("API v{version}");
-    let jump = quick_jump(&version_data);
-    let content = generate_api_content(&version_data);
+    let jump = quick_jump(version_data);
+    let content = generate_api_content(version_data);
     let prism_script = crate::docgen::get_prism_script();
     let search_script = crate::docgen::get_search_init(crate::docgen::PageKind::Api);
     let details_script = reveal_script();
@@ -189,7 +189,7 @@ fn identifiers(text: &str) -> impl Iterator<Item = &str> {
 /// own order, so curating a level means naming the handful of entries that
 /// belong at the top, not ranking all two hundred. Ordering here is a reading
 /// aid only - codegen walks the file itself, where the order is ABI-relevant.
-fn by_priority<'a, K, V, P>(map: &'a indexmap::IndexMap<K, V>, priority: P) -> Vec<(&'a K, &'a V)>
+fn by_priority<K, V, P>(map: &indexmap::IndexMap<K, V>, priority: P) -> Vec<(&K, &V)>
 where
     P: Fn(&V) -> f32,
 {
@@ -551,7 +551,7 @@ fn reveal_script() -> String {
 
 /// Generate a combined API index page (version selector).
 pub fn generate_api_index(api_data: &ApiData) -> String {
-    let title = format!("Select API version");
+    let title = "Select API version".to_string();
 
     // Version selector: same links as before ({HTML_ROOT}/api/<version>),
     // rendered as azlin docs cards. Ordering = get_sorted_versions, unchanged.

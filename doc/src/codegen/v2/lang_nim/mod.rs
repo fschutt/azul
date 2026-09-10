@@ -433,6 +433,12 @@ pub struct ProcDedup {
     externals: HashMap<String, String>,
 }
 
+impl Default for ProcDedup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProcDedup {
     pub fn new() -> Self {
         ProcDedup {
@@ -490,5 +496,5 @@ impl ProcDedup {
 /// Sanitize a doc comment so it sits safely inside a Nim `#` line
 /// comment. Newlines collapse to spaces.
 pub fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }

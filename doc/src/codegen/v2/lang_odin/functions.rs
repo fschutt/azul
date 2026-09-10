@@ -52,7 +52,7 @@ pub fn generate_foreign_block(b: &mut CodeBuilder, ir: &CodegenIR, config: &Code
 
 fn emit_foreign_proc(b: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     for d in &func.doc {
-        b.line(&format!("\t// {}", d.replace('\n', " ").replace('\r', " ")));
+        b.line(&format!("\t// {}", d.replace(['\n', '\r'], " ")));
     }
 
     // Functions with a callback-wrapper arg export a triple in the DLL;

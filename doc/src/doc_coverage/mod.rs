@@ -99,7 +99,7 @@ pub fn run(root: &Path, api_data: &ApiData, opts: &DocCoverageOptions) -> Result
     let mut per_file: BTreeMap<String, Vec<Undoc>> = BTreeMap::new();
     let mut skipped_no_source = 0usize;
 
-    for (_ver, vd) in &api_data.0 {
+    for vd in api_data.0.values() {
         for (_mod_name, module) in &vd.api {
             for (class_name, class) in &module.classes {
                 let Some(ext) = class.external.as_deref() else {

@@ -561,7 +561,7 @@ pub fn remove_duplicate_types(api_data: &mut ApiData) -> usize {
 
     let mut removed = 0;
 
-    for (_version_name, version_data) in &mut api_data.0 {
+    for version_data in api_data.0.values_mut() {
         // First pass: collect all locations for each type name
         let mut type_locations: BTreeMap<String, Vec<String>> = BTreeMap::new();
 

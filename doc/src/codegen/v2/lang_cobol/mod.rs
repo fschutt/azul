@@ -157,7 +157,7 @@ pub fn to_cobol_case(s: &str) -> String {
             let next = chars.get(i + 1).copied();
             let boundary = prev.is_lowercase()
                 || prev.is_ascii_digit()
-                || (prev.is_uppercase() && next.map_or(false, |n| n.is_lowercase()));
+                || (prev.is_uppercase() && next.is_some_and(|n| n.is_lowercase()));
             if boundary && !out.ends_with('-') {
                 out.push('-');
             }
@@ -333,7 +333,7 @@ pub fn sanitize_cobol_identifier(name: &str) -> String {
     // COBOL identifiers must start with a letter (not a digit). Tuple
     // struct fields from Rust come through with numeric names `0`,
     // `1`, ... — prefix them with `FIELD-` so the result is valid.
-    let upper = if upper.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+    let upper = if upper.chars().next().is_some_and(|c| c.is_ascii_digit()) {
         format!("FIELD-{}", upper)
     } else {
         upper
@@ -354,7 +354,7 @@ pub fn sanitize_cobol_identifier(name: &str) -> String {
 /// `*>` anywhere (free format). We use the fixed-format form throughout
 /// the copybook for maximum tooling compatibility.
 pub fn sanitize_doc(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }
 
 /// Wrap a long doc string into multiple fixed-format COBOL comment lines.

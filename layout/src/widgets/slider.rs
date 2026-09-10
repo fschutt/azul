@@ -343,12 +343,12 @@ impl Slider {
 
     #[inline]
     #[must_use]
-
     pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
         self
     }
 
+    #[must_use] 
     pub fn dom(self) -> Dom {
         match self.theme {
             crate::widgets::themes::OptionUiTheme::Some(crate::widgets::themes::UiTheme::Flat) => {
@@ -421,6 +421,7 @@ fn commit_value(
 /// macOS), the same fine/coarse pair the colour picker uses.
 ///
 /// Commits through `commit_value`, exactly like a drag.
+#[must_use] 
 pub extern "C" fn on_slider_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     use azul_core::window::VirtualKeyCode as K;
 
@@ -464,6 +465,7 @@ pub extern "C" fn on_slider_key(mut data: RefAny, mut info: CallbackInfo) -> Upd
 }
 
 /// Pointer down → begin a drag and set the value from the press position.
+#[must_use] 
 pub extern "C" fn on_slider_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() else {
         return Update::DoNothing;
@@ -473,6 +475,7 @@ pub extern "C" fn on_slider_pointer_down(mut data: RefAny, mut info: CallbackInf
 }
 
 /// Pointer move → if a drag is active, track the value to the cursor.
+#[must_use] 
 pub extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() else {
         return Update::DoNothing;
@@ -484,6 +487,7 @@ pub extern "C" fn on_slider_pointer_move(mut data: RefAny, mut info: CallbackInf
 }
 
 /// Pointer up → end the drag.
+#[must_use] 
 pub extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() {
         slider.dragging = false;
@@ -501,6 +505,7 @@ pub extern "C" fn on_slider_pointer_up(mut data: RefAny, _info: CallbackInfo) ->
 /// The callback sees its own node (the track), not the event's origin, so
 /// the cursor decides: still inside the track's rect means the pointer only
 /// left a child.
+#[must_use] 
 pub extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) -> Update {
     let still_inside = match (
         info.get_cursor_relative_to_node().into_option(),
@@ -537,6 +542,7 @@ pub extern "C" fn on_slider_pointer_leave(mut data: RefAny, info: CallbackInfo) 
 /// the pointer is up the app's value is the truth again, as for any
 /// controlled widget. The `on_value_change` hook is taken from the FRESH
 /// build so a rebuilt closure/data is honoured.
+#[must_use] 
 pub extern "C" fn merge_slider_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     {
         let new_guard = new_data.downcast_mut::<SliderStateWrapper>();

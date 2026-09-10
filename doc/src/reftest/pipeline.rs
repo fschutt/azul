@@ -35,7 +35,7 @@ pub struct TestRunResult {
 
 /// Chrome backend: persistent CDP or per-test process.
 pub enum ChromeBackend {
-    Cdp(ChromeCdp),
+    Cdp(Box<ChromeCdp>),
     Process(String),
 }
 
@@ -60,7 +60,7 @@ impl ChromeBackend {
         match ChromeCdp::launch(chrome_path) {
             Ok(cdp) => {
                 println!("  Chrome CDP connected");
-                ChromeBackend::Cdp(cdp)
+                ChromeBackend::Cdp(Box::new(cdp))
             }
             Err(e) => {
                 println!("  Chrome CDP failed ({}), using process", e);
@@ -79,7 +79,7 @@ impl ChromeBackend {
     ) -> Result<(String, Option<ChromePerformanceTiming>), String> {
         match self {
             ChromeBackend::Cdp(cdp) => {
-                let needs_convert = chrome_img.extension().map_or(false, |e| e == "webp");
+                let needs_convert = chrome_img.extension().is_some_and(|e| e == "webp");
                 let save_path = if needs_convert {
                     chrome_img.with_extension("png")
                 } else {

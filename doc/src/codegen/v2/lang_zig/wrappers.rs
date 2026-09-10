@@ -740,9 +740,7 @@ fn emit_union_helper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
     }
 
     out.push_str(&format!("pub const {} = struct {{\n", zig_name));
-    out.push_str(&format!(
-        "    /// The raw FFI tagged-union type, as exposed by `@cImport`.\n"
-    ));
+    out.push_str(&"    /// The raw FFI tagged-union type, as exposed by `@cImport`.\n".to_string());
     out.push_str(&format!("    pub const Raw = C.{};\n", ffi_name));
     out.push('\n');
 

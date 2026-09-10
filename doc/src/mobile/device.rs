@@ -225,7 +225,7 @@ pub fn boot_simulator(
         Some(name) => available
             .lines()
             .find(|l| l.contains(name))
-            .and_then(|l| udid_of(l))
+            .and_then(udid_of)
             .ok_or_else(|| anyhow::anyhow!("no available simulator matching '{name}'"))?,
         None => available
             .lines()

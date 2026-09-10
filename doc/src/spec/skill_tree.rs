@@ -65,8 +65,10 @@ pub struct SpecAnnotation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub enum VerificationStatus {
     /// Not started - no work done yet
+    #[default]
     NotStarted,
     /// Prompt has been built and saved to file
     PromptBuilt,
@@ -78,11 +80,6 @@ pub enum VerificationStatus {
     Verified,
 }
 
-impl Default for VerificationStatus {
-    fn default() -> Self {
-        VerificationStatus::NotStarted
-    }
-}
 
 impl VerificationStatus {
     pub fn icon(&self) -> &'static str {
@@ -1326,7 +1323,7 @@ impl SkillTree {
             .map(|(id, n)| (id.as_str(), &n.status))
             .collect();
         let json = serde_json::to_string_pretty(&statuses)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(|e| std::io::Error::other(e))?;
         std::fs::write(path, json)
     }
 

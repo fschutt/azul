@@ -30,7 +30,7 @@ use azul_layout::{
     window::{FrameDamage, LayoutWindow},
 };
 
-/// CPU rendering backend (the headless replacement for WebRender).
+/// CPU rendering backend (the headless replacement for `WebRender`).
 ///
 /// Holds the retained compositor state, the previous frame's display list /
 /// scroll offsets / GPU values — everything the frame-to-frame damage diff
@@ -64,7 +64,7 @@ pub(super) struct CpuBackend {
     /// zombie contribution to damage is `previous ∪ current`: restore the
     /// live pixels where an exit was, paint it where it is — the reap frame
     /// (zombies gone, previous non-empty) erases the leftovers the same way.
-    pub(super) previous_zombie_rects: Vec<azul_core::geom::LogicalRect>,
+    pub(super) previous_zombie_rects: Vec<LogicalRect>,
     /// Previous frame's `VirtualView` child-DOM display lists.
     pub(super) previous_vview_dls: BTreeMap<DomId, Arc<DisplayList>>,
     /// GPU-animated values of the previous frame, for the frame-to-frame diff.
@@ -240,7 +240,7 @@ impl CpuBackend {
         } else {
             Vec::new()
         };
-        let zombie_damage: Vec<azul_core::geom::LogicalRect> = self
+        let zombie_damage: Vec<LogicalRect> = self
             .previous_zombie_rects
             .iter()
             .chain(zombie_rects.iter())
@@ -258,7 +258,7 @@ impl CpuBackend {
         // the harness executes the SAME blit path a device does (it used to
         // have no notion of a TranslateHint at all — every mover-blit bug was
         // structurally untestable here).
-        let dl_arc_ptr = std::sync::Arc::as_ptr(display_list) as usize;
+        let dl_arc_ptr = Arc::as_ptr(display_list) as usize;
         let patch_hint = cpurender::translate_hint_for_patch(
             layout_window.layout_cache.last_patch_move.as_ref(),
             dpi_factor,
@@ -277,7 +277,7 @@ impl CpuBackend {
             Some(old_dl)
                 if can_reuse_previous_frame
                     && !gpu_damage.needs_full
-                    && std::sync::Arc::ptr_eq(old_dl, display_list) =>
+                    && Arc::ptr_eq(old_dl, display_list) =>
             {
                 Some(Vec::new())
             }
@@ -407,7 +407,7 @@ impl CpuBackend {
             eprintln!(
                 "[E2EDMG] dl_damage={:?} diff_ran={} patched={} resize={:?} gpu_full={} \
                  gpu_rects={} zombie={}",
-                dl_damage.as_ref().map(|r| r.len()),
+                dl_damage.as_ref().map(Vec::len),
                 diff_path_ran,
                 layout_window.layout_cache.last_build_was_patched,
                 resize_damage.len(),

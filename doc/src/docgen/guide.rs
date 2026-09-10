@@ -37,8 +37,8 @@ pub struct Guide {
 ///   language name and would otherwise emit `class="language-rust,no_run"` which doesn't match any
 ///   rule.
 /// - Transform straight `"` into German-style „…" quotes outside of code
-/// (Frontmatter is stripped earlier, in `get_guide_list`, so it never
-/// reaches this stage.)
+///   (Frontmatter is stripped earlier, in `get_guide_list`, so it never
+///   reaches this stage.)
 fn preprocess_markdown_content(content: &str) -> String {
     // Remove mermaid code blocks. Normalise rustdoc directive suffixes on
     // any other fence opening so Prism gets the bare language name

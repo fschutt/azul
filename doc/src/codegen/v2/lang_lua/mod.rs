@@ -122,9 +122,7 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
                 // not a fn-pointer typedef).
                 let open = trimmed.find('(').unwrap_or(0);
                 let ret = trimmed["extern".len()..open]
-                    .trim()
-                    .rsplitn(2, char::is_whitespace)
-                    .nth(1)
+                    .trim().rsplit_once(char::is_whitespace).map(|x| x.0)
                     .unwrap_or("")
                     .trim()
                     .to_string();
@@ -137,9 +135,7 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
                         if param.contains('*') {
                             continue;
                         }
-                        let ty = param
-                            .rsplitn(2, char::is_whitespace)
-                            .nth(1)
+                        let ty = param.rsplit_once(char::is_whitespace).map(|x| x.0)
                             .unwrap_or("")
                             .trim();
                         if ty.starts_with("Az")

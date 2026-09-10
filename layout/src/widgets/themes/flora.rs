@@ -460,6 +460,7 @@ pub const DARK_ON_ACC: ColorU = ColorU {
     a: 255,
 };
 
+#[must_use] 
 pub fn button(btn: Button) -> Dom {
     let callbacks = match btn.on_click.into_option() {
         Some(ButtonOnClick {
@@ -478,9 +479,9 @@ pub fn button(btn: Button) -> Dom {
 
     let type_class = btn.button_type.class_name();
     let classes: Vec<IdOrClass> = vec![
-        IdOrClass::Class(AzString::from("__azul-native-button")),
-        IdOrClass::Class(AzString::from(type_class)),
-        IdOrClass::Class(AzString::from("__azul-theme-flora")),
+        Class(AzString::from("__azul-native-button")),
+        Class(AzString::from(type_class)),
+        Class(AzString::from("__azul-theme-flora")),
     ];
 
     let mut button = Dom::create_node(NodeType::Button);
@@ -576,6 +577,7 @@ pub fn button(btn: Button) -> Dom {
 
 use crate::widgets::check_box::CheckBox;
 
+#[must_use] 
 pub fn check_box(cb: CheckBox) -> Dom {
     let cb_name = cb.accessibility_name.clone();
     crate::widgets::warn_widget_needs_a_name("check_box", cb_name.is_some());
@@ -640,8 +642,8 @@ pub fn check_box(cb: CheckBox) -> Dom {
             .into(),
         )
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-            role: azul_core::a11y::AccessibilityRole::CheckButton,
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::CheckButton,
             accessibility_name: cb_name,
             states: azul_core::a11y::AccessibilityStateVec::from_const_slice(if checked_now {
                 &[azul_core::a11y::AccessibilityState::CheckedTrue]
@@ -666,6 +668,7 @@ use crate::widgets::text_input::{
     TEXT_INPUT_LABEL_CLASS,
 };
 
+#[must_use] 
 pub fn text_input(mut ti: TextInput) -> Dom {
     let a11y_name: Option<AzString> = ti.text_input_state.inner.placeholder.as_ref().cloned();
     let a11y_value: String = ti
@@ -738,8 +741,8 @@ pub fn text_input(mut ti: TextInput) -> Dom {
         .with_ids_and_classes(vec![Class(TEXT_INPUT_CONTAINER_CLASS.into())].into())
         .with_css_props(CssPropertyWithConditionsVec::from_vec(container_style))
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-            role: azul_core::a11y::AccessibilityRole::Text,
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::Text,
             accessibility_name: a11y_name.into(),
             accessibility_value: Some(AzString::from(a11y_value)).into(),
             ..Default::default()
@@ -803,11 +806,12 @@ pub fn text_input(mut ti: TextInput) -> Dom {
         )
 }
 
+#[must_use] 
 pub fn label(l: crate::widgets::label::Label) -> Dom {
     use azul_core::dom::{IdOrClass::Class, IdOrClassVec};
     use AzString;
 
-    static LABEL_CLASS: &[azul_core::dom::IdOrClass] =
+    static LABEL_CLASS: &[IdOrClass] =
         &[Class(AzString::from_const_str("__azul-native-label"))];
 
     crate::widgets::widget_p_with_text(l.string)
@@ -815,6 +819,7 @@ pub fn label(l: crate::widgets::label::Label) -> Dom {
         .with_css_props(l.label_style)
 }
 
+#[must_use] 
 pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
     let is_checked = s.switch_state.inner.checked;
     use azul_core::{
@@ -856,8 +861,8 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
             .into(),
         )
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-            role: azul_core::a11y::AccessibilityRole::CheckButton,
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::CheckButton,
             accessibility_name: sw_name,
             states: azul_core::a11y::AccessibilityStateVec::from_vec(alloc::vec![
                 if switch_checked {
@@ -897,7 +902,7 @@ pub fn switch(s: crate::widgets::switch::Switch) -> Dom {
 pub fn progressbar(bar: crate::widgets::progressbar::ProgressBar) -> Dom {
     let height = bar.height;
     let dataset =
-        azul_core::refany::RefAny::new(crate::widgets::progressbar::ProgressBarLocalDataset {
+        RefAny::new(crate::widgets::progressbar::ProgressBarLocalDataset {
             bar,
         });
     Dom::create_virtual_view(
@@ -1183,8 +1188,8 @@ pub fn progressbar_render_bar_impl(
             // on every build so it tracks the bar; a callback that moves the
             // bar live without a rebuild keeps it current with
             // `CallbackInfo::set_accessibility_value` on this node.
-            .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-                role: azul_core::a11y::AccessibilityRole::ProgressBar,
+            .with_accessibility_info(AccessibilityInfo {
+                role: AccessibilityRole::ProgressBar,
                 accessibility_value: Some(AzString::from(alloc::format!(
                     "{:.0}%",
                     // NaN clamps to NaN and would read "NaN%"; an unknown
@@ -1350,6 +1355,7 @@ pub fn progressbar_render_bar_impl(
 ///
 /// The bar is not scrollable content, so all three rects collapse to one:
 /// `materialized` == `virtual_rect` == the container's box at origin zero.
+#[must_use] 
 pub extern "C" fn progressbar_render_virtual_view(
     mut data: RefAny,
     info: VirtualViewCallbackInfo,
@@ -1446,7 +1452,7 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
     ));
 
     Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
             AzString::from_const_str("__azul-native-slider"),
         )]))
         .with_css_props(CssPropertyWithConditionsVec::from_vec(track_style))
@@ -1456,15 +1462,15 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
             crate::widgets::slider::merge_slider_state,
         ))
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-            role: azul_core::a11y::AccessibilityRole::Slider,
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::Slider,
             accessibility_name: a11y_name,
             accessibility_value: Some(AzString::from(alloc::format!("{value_now}"))).into(),
             ..Default::default()
         })
         .with_children(
             vec![Dom::create_div()
-                .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+                .with_ids_and_classes(IdOrClassVec::from_vec(vec![Class(
                     AzString::from_const_str("__azul-native-slider-thumb"),
                 )]))
                 .with_css_props(CssPropertyWithConditionsVec::from_vec(thumb_style))]
@@ -1472,6 +1478,7 @@ pub fn slider(slider: crate::widgets::slider::Slider) -> Dom {
         )
 }
 
+#[must_use] 
 pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
     let ta_name: Option<AzString> = ta.text_area_state.inner.placeholder.as_ref().cloned();
 
@@ -1545,8 +1552,8 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
         .with_ids_and_classes(vec![Class("__azul-native-text-area-container".into())].into())
         .with_css_props(CssPropertyWithConditionsVec::from_vec(container_style))
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-            role: azul_core::a11y::AccessibilityRole::Text,
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::Text,
             accessibility_name: ta_name.into(),
             ..Default::default()
         })
@@ -1727,6 +1734,7 @@ const FLORA_DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
     })),
 ];
 
+#[must_use] 
 pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
     use azul_core::{
         callbacks::{CoreCallback, CoreCallbackData},
@@ -1743,7 +1751,7 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
         .get(dd.selected)
         .map(|o| AzString::from(o.as_str().to_string()));
 
-    const DROPDOWN_CLASS: &[azul_core::dom::IdOrClass] =
+    const DROPDOWN_CLASS: &[IdOrClass] =
         &[Class(AzString::from_const_str("__azul-native-dropdown"))];
 
     let selected_text = dd
@@ -1761,8 +1769,8 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
         ))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DROPDOWN_CLASS))
         .with_tab_index(TabIndex::Auto)
-        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
-            role: azul_core::a11y::AccessibilityRole::ComboBox,
+        .with_accessibility_info(AccessibilityInfo {
+            role: AccessibilityRole::ComboBox,
             accessibility_value: selected_label.into(),
             ..Default::default()
         })
@@ -1791,6 +1799,7 @@ pub fn drop_down(dd: crate::widgets::drop_down::DropDown) -> Dom {
         ]))
 }
 
+#[must_use] 
 pub fn avatar(a: crate::widgets::avatar::Avatar) -> Dom {
     use azul_core::dom::{Dom, IdOrClassVec};
     let size = a.size;
@@ -1799,7 +1808,7 @@ pub fn avatar(a: crate::widgets::avatar::Avatar) -> Dom {
             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                 crate::widgets::avatar::AVATAR_IMAGE_CLASS,
             ))
-            .with_css_props(crate::widgets::avatar::build_image_style(size).into()),
+            .with_css_props(crate::widgets::avatar::build_image_style(size)),
         None => crate::widgets::widget_p_with_text(a.initials).with_ids_and_classes(
             IdOrClassVec::from_const_slice(crate::widgets::avatar::AVATAR_INITIALS_CLASS),
         ),

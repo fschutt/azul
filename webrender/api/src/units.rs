@@ -178,11 +178,11 @@ impl TexelRect {
     }
 }
 
-impl Into<TexelRect> for DeviceIntRect {
-    fn into(self) -> TexelRect {
+impl From<DeviceIntRect> for TexelRect {
+    fn from(val: DeviceIntRect) -> Self {
         TexelRect {
-            uv0: self.min.to_f32(),
-            uv1: self.max.to_f32(),
+            uv0: val.min.to_f32(),
+            uv1: val.max.to_f32(),
         }
     }
 }
@@ -223,8 +223,8 @@ impl AuHelpers<LayoutPointAu> for LayoutPoint {
     }
 
     fn to_au(&self) -> LayoutPointAu {
-        let x = self.x.min(MAX_AU_FLOAT).max(-MAX_AU_FLOAT);
-        let y = self.y.min(MAX_AU_FLOAT).max(-MAX_AU_FLOAT);
+        let x = self.x.clamp(-MAX_AU_FLOAT, MAX_AU_FLOAT);
+        let y = self.y.clamp(-MAX_AU_FLOAT, MAX_AU_FLOAT);
 
         LayoutPointAu::new(Au::from_f32_px(x), Au::from_f32_px(y))
     }

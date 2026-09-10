@@ -634,6 +634,7 @@ fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
         .map(|c| c.cluster_id.start_byte_in_run as usize)
 }
 
+#[must_use] 
 pub extern "C" fn default_on_focus_received(
     mut text_area: RefAny,
     mut info: CallbackInfo,
@@ -662,6 +663,7 @@ pub extern "C" fn default_on_focus_received(
     Update::DoNothing
 }
 
+#[must_use] 
 pub extern "C" fn default_on_focus_lost(mut text_area: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut text_area) = text_area.downcast_mut::<TextAreaStateWrapper>() else {
         return Update::DoNothing;
@@ -690,6 +692,7 @@ pub extern "C" fn default_on_focus_lost(mut text_area: RefAny, mut info: Callbac
     }
 }
 
+#[must_use] 
 pub extern "C" fn default_on_text_input(text_area: RefAny, info: CallbackInfo) -> Update {
     default_on_text_input_inner(text_area, info).unwrap_or(Update::DoNothing)
 }
@@ -803,6 +806,7 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
     Some(result.update)
 }
 
+#[must_use] 
 pub extern "C" fn default_on_virtual_key_down(text_area: RefAny, info: CallbackInfo) -> Update {
     default_on_virtual_key_down_inner(text_area, info).unwrap_or(Update::DoNothing)
 }

@@ -69,7 +69,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                         if let Some(ref pt) = sv.payload_type {
                             return ReturnIdiom::Option {
                                 payload_ty: pt.clone(),
-                                ref_kind: sv.payload_ref_kind.clone(),
+                                ref_kind: sv.payload_ref_kind,
                             };
                         }
                     }
@@ -79,7 +79,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                         if let Some(ref pt) = ov.payload_type {
                             return ReturnIdiom::Result {
                                 payload_ty: pt.clone(),
-                                ref_kind: ov.payload_ref_kind.clone(),
+                                ref_kind: ov.payload_ref_kind,
                             };
                         }
                     }
@@ -96,7 +96,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                     if types.len() == 1 {
                         return ReturnIdiom::Option {
                             payload_ty: types[0].0.clone(),
-                            ref_kind: types[0].1.clone(),
+                            ref_kind: types[0].1,
                         };
                     }
                 }
@@ -108,7 +108,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                     if types.len() == 1 {
                         return ReturnIdiom::Result {
                             payload_ty: types[0].0.clone(),
-                            ref_kind: types[0].1.clone(),
+                            ref_kind: types[0].1,
                         };
                     }
                 }
@@ -685,7 +685,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     emit_kt_equals_hashcode_if_supported(builder, s, &class_name, &ffi_name, ir);
 
     // Phase I.3 (Kotlin): toString() routed through Az<X>_toDbgString.
-    emit_kt_toString_if_supported(builder, s, ir);
+    emit_kt_to_string_if_supported(builder, s, ir);
 
     // Phase I.1.3 (Kotlin): iterator() body for Vec wrappers with a
     // wrapper-class element type. Mirrors Java's I.1.2 emission via
@@ -909,7 +909,7 @@ fn emit_kt_equals_hashcode_if_supported(
 }
 
 /// Phase I.3 (Kotlin): override toString() through Az<X>_toDbgString.
-fn emit_kt_toString_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_kt_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if matches!(s.category, TypeCategory::String) {
         return; // Vec-direct decode already in place.
     }
@@ -1145,7 +1145,7 @@ fn emit_static_factory(
             .as_deref()
             .map(|r| r.trim())
             .filter(|r| has_kt_wrapper_class(r, ir))
-            .map(|r| kotlin_class_name(r))
+            .map(kotlin_class_name)
     } else {
         None
     };
@@ -1206,7 +1206,7 @@ fn emit_static_factory(
     };
 
     if return_kt == "Unit" {
-        builder.line(&format!("{}", call));
+        builder.line(&call.to_string());
         emit_consume(builder, &consume_after_call);
     } else if returns_self {
         // ByValue → adopt its underlying Pointer.
@@ -1372,7 +1372,7 @@ fn emit_instance_method(
             .as_deref()
             .map(|r| r.trim())
             .filter(|r| has_kt_wrapper_class(r, ir))
-            .map(|r| kotlin_class_name(r))
+            .map(kotlin_class_name)
     } else {
         None
     };
@@ -1434,7 +1434,7 @@ fn emit_instance_method(
     };
 
     if return_kt == "Unit" {
-        builder.line(&format!("{}", call));
+        builder.line(&call.to_string());
         emit_consume(builder, &consume_after_call);
     } else if returns_self {
         builder.line(&format!("val raw = {}", call));

@@ -64,7 +64,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                         if let Some(ref pt) = sv.payload_type {
                             return ReturnIdiom::Option {
                                 payload_ty: pt.clone(),
-                                ref_kind: sv.payload_ref_kind.clone(),
+                                ref_kind: sv.payload_ref_kind,
                             };
                         }
                     }
@@ -74,7 +74,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                         if let Some(ref pt) = ov.payload_type {
                             return ReturnIdiom::Result {
                                 payload_ty: pt.clone(),
-                                ref_kind: ov.payload_ref_kind.clone(),
+                                ref_kind: ov.payload_ref_kind,
                             };
                         }
                     }
@@ -91,7 +91,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                     if types.len() == 1 {
                         return ReturnIdiom::Option {
                             payload_ty: types[0].0.clone(),
-                            ref_kind: types[0].1.clone(),
+                            ref_kind: types[0].1,
                         };
                     }
                 }
@@ -103,7 +103,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                     if types.len() == 1 {
                         return ReturnIdiom::Result {
                             payload_ty: types[0].0.clone(),
-                            ref_kind: types[0].1.clone(),
+                            ref_kind: types[0].1,
                         };
                     }
                 }
@@ -267,10 +267,8 @@ fn emit_cs_option_body(
                      InteropServices.Marshal.SizeOf<{}>());",
                     raw_payload_cs
                 ));
-                builder.line(&format!(
-                    "System.Runtime.InteropServices.Marshal.StructureToPtr(__nv.Value, __nv_ptr, \
-                     false);"
-                ));
+                builder.line(&"System.Runtime.InteropServices.Marshal.StructureToPtr(__nv.Value, __nv_ptr, \
+                     false);".to_string());
                 builder.line(&format!("var __cloned = {}(__nv_ptr);", clone));
                 builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__nv_ptr);");
                 emit_delete(builder);
@@ -550,11 +548,9 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // `__Consume()`, so the guard only fires on genuine use-after-
     // dispose/-consume. Same exception shape as the method-entry guard
     // in `emit_wrapper_method`.
-    builder.line(&format!(
-        "/// <summary>Returns the underlying FFI struct by value. Throws <see \
+    builder.line(&"/// <summary>Returns the underlying FFI struct by value. Throws <see \
          cref=\"ObjectDisposedException\"/> if this wrapper was already disposed or consumed \
-         (ownership transferred to the native side).</summary>"
-    ));
+         (ownership transferred to the native side).</summary>".to_string());
     builder.line(&format!("public {} Raw", ffi_name));
     builder.line("{");
     builder.indent();
@@ -746,7 +742,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     emit_cs_equals_hashcode_if_supported(builder, s, &class_name, ir);
 
     // Phase I.3 (C#): override ToString() through Az<X>_toDbgString.
-    emit_cs_toString_if_supported(builder, s, ir);
+    emit_cs_to_string_if_supported(builder, s, ir);
 
     // Phase I.1.5 (C#): GetEnumerator() body for Vec wrappers.
     // Wrapper-element Vecs get IEnumerable<T>; primitive-element
@@ -859,7 +855,7 @@ fn emit_cs_equals_hashcode_if_supported(
 }
 
 /// Phase I.3 (C#): override ToString() through Az<X>_toDbgString.
-fn emit_cs_toString_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_cs_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if matches!(s.category, TypeCategory::String) {
         return;
     }
@@ -1087,9 +1083,7 @@ fn emit_dispose_methods(builder: &mut CodeBuilder, class_name: &str, raw_type_na
          InteropServices.Marshal.SizeOf<{}>());",
         ffi_type_name(raw_type_name)
     ));
-    builder.line(&format!(
-        "System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __p, false);",
-    ));
+    builder.line(&"System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __p, false);".to_string());
     builder.line(&format!("NativeMethods.Az{}_delete(__p);", raw_type_name));
     builder.line("System.Runtime.InteropServices.Marshal.FreeHGlobal(__p);");
     builder.line("_disposed = true;");
@@ -1516,9 +1510,7 @@ fn emit_wrapper_method(
         builder.line("try");
         builder.line("{");
         builder.indent();
-        builder.line(&format!(
-            "System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __self, false);",
-        ));
+        builder.line(&"System.Runtime.InteropServices.Marshal.StructureToPtr(_inner, __self, false);".to_string());
         if is_app_run {
             builder.line("__AzAppLoopState.Running = true;");
         }

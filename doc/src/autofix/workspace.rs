@@ -101,16 +101,14 @@ fn normalize_type_name_for_api(type_name: &str) -> String {
 pub fn collect_all_api_types(api_data: &ApiData) -> Vec<(String, String, String)> {
     let mut types = Vec::new();
 
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Include callback_typedefs - they need patches for FFI
                 // (e.g. FooDestructorType is callback_typedef but needs patch)
 
                 let type_path = class_data
-                    .external
-                    .as_ref()
-                    .map(|s| s.as_str())
+                    .external.as_deref()
                     .unwrap_or(class_name.as_str())
                     .to_string();
 
@@ -888,7 +886,7 @@ pub fn generate_patches<T: TypeLookup>(
                 let key = (module_name.clone(), class_name.clone());
                 all_patches
                     .entry(key)
-                    .or_insert_with(|| ClassPatch::default())
+                    .or_insert_with(ClassPatch::default)
                     .move_to_module = Some(correct_module);
             }
         }
@@ -2019,7 +2017,7 @@ pub fn virtual_patch_application<T: TypeLookup>(
                 newly_discovered.push(type_info);
             } else {
                 // Only report TypeNotFound if it's not a suppressed type
-                if !crate::autofix::should_suppress_type_not_found(&type_name) {
+                if !crate::autofix::should_suppress_type_not_found(type_name) {
                     messages.push(AutofixMessage::TypeNotFound {
                         type_name: type_name.clone(),
                     });

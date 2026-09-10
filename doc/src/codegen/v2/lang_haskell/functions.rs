@@ -637,13 +637,13 @@ fn emit_inbound_trampoline_imports(
         None => false,
     };
 
-    let inner_ret_ty;
-    if ret_is_aggregate {
+    
+    let inner_ret_ty = if ret_is_aggregate {
         let raw = haskell_field_type(cb.return_type.as_deref().unwrap(), FieldRefKind::Owned, ir);
         inner_atoms.push(format!("Ptr {}", paren_if_needed(&raw)));
-        inner_ret_ty = "()".to_string();
+        "()".to_string()
     } else {
-        inner_ret_ty = match cb.return_type.as_deref() {
+        match cb.return_type.as_deref() {
             None => "()".to_string(),
             Some(r) => {
                 let t = r.trim();
@@ -653,8 +653,8 @@ fn emit_inbound_trampoline_imports(
                     haskell_field_type(t, FieldRefKind::Owned, ir)
                 }
             }
-        };
-    }
+        }
+    };
 
     let inner_func_ty = if inner_atoms.is_empty() {
         format!("IO {}", paren_if_needed(&inner_ret_ty))

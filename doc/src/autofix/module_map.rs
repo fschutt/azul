@@ -512,7 +512,7 @@ pub fn should_exclude_path(path: &std::path::Path) -> bool {
 /// 5. Find all matching keywords across all modules, pick the longest match On tie, pick the first
 ///    module in MODULES order
 /// 6. "misc" (with warning)
-/// Known-difficult type names, matched BEFORE any keyword heuristic.
+///    Known-difficult type names, matched BEFORE any keyword heuristic.
 ///
 /// The keyword matcher is a substring search ranked by match length. That
 /// works for the overwhelming majority of names and is deliberately kept, but
@@ -658,11 +658,10 @@ pub fn determine_module(type_name: &str) -> (String, bool) {
 
     // First check module names themselves as keywords
     for (order, module) in MODULES.iter().enumerate() {
-        if *module != "vec" && *module != "option" && *module != "error" {
-            if lower_name.contains(module) {
+        if *module != "vec" && *module != "option" && *module != "error"
+            && lower_name.contains(module) {
                 matches.push((module, module, module.len(), order, true));
             }
-        }
     }
 
     // Then check all keywords

@@ -975,9 +975,7 @@ impl CGenerator {
             }
         }
 
-        builder.line(&format!(
-            "/* Raw variant — fn-pointer only. Use the WithCtx sibling below */"
-        ));
+        builder.line(&"/* Raw variant — fn-pointer only. Use the WithCtx sibling below */".to_string());
         builder.line("/* if you need to attach a refany ctx (managed-FFI dispatch). */");
         builder.line(&format!(
             "extern DLLIMPORT {} {}({});",
@@ -985,9 +983,7 @@ impl CGenerator {
             func.c_name,
             args_raw.join(", ")
         ));
-        builder.line(&format!(
-            "/* WithCtx variant — fn-pointer + AzOptionRefAny ctx for host-handle dispatch. */"
-        ));
+        builder.line(&"/* WithCtx variant — fn-pointer + AzOptionRefAny ctx for host-handle dispatch. */".to_string());
         builder.line(&format!(
             "extern DLLIMPORT {} {}WithCtx({});",
             return_type,

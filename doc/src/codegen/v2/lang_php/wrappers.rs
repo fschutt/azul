@@ -76,30 +76,24 @@ fn should_emit_struct(s: &StructDef) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
-    match s.category {
-        TypeCategory::Recursive
+    !matches!(s.category, TypeCategory::Recursive
         | TypeCategory::VecRef
         | TypeCategory::Boxed
         | TypeCategory::GenericTemplate
         | TypeCategory::DestructorOrClone
-        | TypeCategory::CallbackTypedef => false,
-        _ => true,
-    }
+        | TypeCategory::CallbackTypedef)
 }
 
 fn should_emit_enum(e: &EnumDef) -> bool {
     if !e.generic_params.is_empty() {
         return false;
     }
-    match e.category {
-        TypeCategory::Recursive
+    !matches!(e.category, TypeCategory::Recursive
         | TypeCategory::VecRef
         | TypeCategory::Boxed
         | TypeCategory::GenericTemplate
         | TypeCategory::DestructorOrClone
-        | TypeCategory::CallbackTypedef => false,
-        _ => true,
-    }
+        | TypeCategory::CallbackTypedef)
 }
 
 fn has_delete_for(class: &str, ir: &CodegenIR) -> bool {
@@ -558,9 +552,7 @@ fn emit_static_factory(out: &mut String, f: &FunctionDef, class_name: &str) {
     }
     out.push_str(&format!("     * Wraps `Azul::lib()->{}`.\n", f.c_name));
     if returns_self {
-        out.push_str(&format!(
-            "     *\n     * @return self instance wrapping the returned FFI cdata.\n"
-        ));
+        out.push_str(&"     *\n     * @return self instance wrapping the returned FFI cdata.\n".to_string());
     }
     out.push_str("     */\n");
     let return_hint = if returns_self { ": self" } else { "" };
@@ -596,7 +588,7 @@ fn emit_static_factory(out: &mut String, f: &FunctionDef, class_name: &str) {
 /// Filter the implicit `self` / lower-class-name receiver out of a
 /// function's arguments — the receiver is supplied by `$this` for
 /// instance methods, and is absent entirely for static factories.
-fn user_args<'a>(f: &'a FunctionDef) -> Vec<&'a super::super::ir::FunctionArg> {
+fn user_args(f: &FunctionDef) -> Vec<&super::super::ir::FunctionArg> {
     let class_lower = f.class_name.to_lowercase();
     f.args
         .iter()

@@ -247,7 +247,7 @@ fn collect_rust_files(files: &mut Vec<(String, PathBuf)>, crate_name: &str, dir:
         }
         if path.is_dir() {
             collect_rust_files(files, crate_name, &path);
-        } else if path.extension().map_or(false, |e| e == "rs") {
+        } else if path.extension().is_some_and(|e| e == "rs") {
             files.push((crate_name.to_string(), path));
         }
     }

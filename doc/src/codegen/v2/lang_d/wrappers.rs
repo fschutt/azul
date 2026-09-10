@@ -155,7 +155,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     let self_arg_name = to_snake_case(&s.name);
 
     for d in &s.doc {
-        b.line(&format!("// {}", d.replace('\n', " ").replace('\r', " ")));
+        b.line(&format!("// {}", d.replace(['\n', '\r'], " ")));
     }
 
     b.line(&format!("struct {} {{", d_name));
@@ -242,7 +242,7 @@ fn emit_static_factory(
 ) {
     let name = sanitize_identifier(&idiomatic_method_name(&f.method_name));
     for d in &f.doc {
-        b.line(&format!("\t// {}", d.replace('\n', " ").replace('\r', " ")));
+        b.line(&format!("\t// {}", d.replace(['\n', '\r'], " ")));
     }
 
     let cb_mode = has_callback_wrapper_arg(f);
@@ -291,7 +291,7 @@ fn emit_instance_method(
         sanitize_identifier(&idiomatic_method_name(&f.method_name))
     };
     for d in &f.doc {
-        b.line(&format!("\t// {}", d.replace('\n', " ").replace('\r', " ")));
+        b.line(&format!("\t// {}", d.replace(['\n', '\r'], " ")));
     }
 
     let cb_mode = has_callback_wrapper_arg(f);

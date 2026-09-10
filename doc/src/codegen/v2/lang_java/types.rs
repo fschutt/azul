@@ -579,7 +579,7 @@ fn emit_tagged_union_files(
                 if let (Some(_), Some(sv)) = (none, some) {
                     let payload_ty_opt = match &sv.kind {
                         EnumVariantKind::Tuple(types) if types.len() == 1 => {
-                            Some((types[0].0.clone(), types[0].1.clone()))
+                            Some((types[0].0.clone(), types[0].1))
                         }
                         _ => None,
                     };
@@ -622,7 +622,7 @@ fn emit_tagged_union_files(
                 if let (Some(ov), Some(_)) = (ok, err) {
                     let payload_ty_opt = match &ov.kind {
                         EnumVariantKind::Tuple(types) if types.len() == 1 => {
-                            Some((types[0].0.clone(), types[0].1.clone()))
+                            Some((types[0].0.clone(), types[0].1))
                         }
                         _ => None,
                     };

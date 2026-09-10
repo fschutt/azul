@@ -1056,7 +1056,7 @@ fn contains_token(text: &str, needle: &str) -> bool {
 /// would be demanding something impossible.
 pub fn declared_derives(api: &ApiData) -> BTreeMap<String, BTreeSet<String>> {
     let mut out: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for (_ver, vd) in &api.0 {
+    for vd in api.0.values() {
         for (_module, md) in &vd.api {
             for (class, cd) in &md.classes {
                 if cd.generic_params.as_ref().is_some_and(|g| !g.is_empty()) {
@@ -1279,12 +1279,12 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     section and call `foreign` bindings declared 42k lines later. The module could not be split
 ///     either
 ///     - two `module X` is a duplicate - so the WHOLE module, variant
-///     constants included, moved to the late idiomatic pass. Nothing in the
-///     file references these modules internally, which is what made the move
-///     safe; the type checker confirmed it.
-///     Everything else here was the same fault in different places: the `.mli`
-///     SEALS the module, so anything the interface omits is unreachable
-///     however complete `azul.ml` is.
+///       constants included, moved to the late idiomatic pass. Nothing in the
+///       file references these modules internally, which is what made the move
+///       safe; the type checker confirmed it.
+///       Everything else here was the same fault in different places: the `.mli`
+///       SEALS the module, so anything the interface omits is unreachable
+///       however complete `azul.ml` is.
 ///   * `php-ext` (134) - BACK UP from 125, because the change that lowered it emitted code that
 ///     does not compile. `is_method_kind_eligible` and `takes_self` were widened to the trait
 ///     kinds; the result was methods with no receiver whose bodies still said `self.inner` and
@@ -1328,9 +1328,9 @@ pub fn check(codegen_dir: &Path, api: &ApiData) -> anyhow::Result<Vec<BindingRep
 ///     `should_emit_function` filters excluded the whole `DestructorOrClone` category, including
 ///     the one entry point a `derive` actually asks for. They now share
 ///     `FunctionKind::is_declared_capability`.
-/// The surfaces that carry `*VecDestructor` as a first-class type and really
-/// do implement its derives. Everywhere else it is opaque - see the ruling at
-/// the exclusion site.
+///     The surfaces that carry `*VecDestructor` as a first-class type and really
+///     do implement its derives. Everywhere else it is opaque - see the ruling at
+///     the exclusion site.
 const DESTRUCTOR_BEARING: &[&str] = &[
     "rust-internal",
     "rust-dynamic",
@@ -1361,8 +1361,8 @@ pub fn verdict(reports: &[BindingReport]) -> (bool, String) {
 
     let _ = writeln!(
         out,
-        "{:<28} {:>9} {:>8} {:>7} {:>8} {:>8}  {}",
-        "binding", "honoured", "missing", "n/a", "unmapped", "absent", "shape"
+        "{:<28} {:>9} {:>8} {:>7} {:>8} {:>8}  shape",
+        "binding", "honoured", "missing", "n/a", "unmapped", "absent"
     );
     let _ = writeln!(out, "{}", "-".repeat(110));
     for r in reports {

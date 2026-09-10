@@ -469,7 +469,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     emit_node_equals_if_supported(b, s, ir, &class);
 
     // Phase I.3.4 (Node): toString() routed through Az<X>_toDbgString.
-    emit_node_toString_if_supported(b, s, ir);
+    emit_node_to_string_if_supported(b, s, ir);
 
     // Phase I.1.7 (Node): if this wrapper is a Vec (ptr/len/cap/destructor
     // shape), expose Symbol.iterator so `for (const x of vec)` works.
@@ -774,7 +774,7 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
 /// Phase I.3.4 (Node): emit `toString()` instance method routed
 /// through `Az<X>_toDbgString`. Decodes the returned AzString to a JS
 /// string via `_azStringDecode`. Skips AzString itself.
-fn emit_node_toString_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_node_to_string_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if matches!(s.category, TypeCategory::String) {
         return;
     }
@@ -825,7 +825,7 @@ fn emit_node_equals_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &Codege
     ));
     b.line(" * so this is exposed as an explicit method.");
     b.line(" */");
-    b.line(&format!("equals(other) {{"));
+    b.line(&"equals(other) {".to_string());
     b.indent();
     b.line(&format!("if (!(other instanceof {})) return false;", class));
     b.line("if (this._ptr == null || other._ptr == null) return this._ptr === other._ptr;");
@@ -1302,7 +1302,7 @@ fn emit_callback_register_lines(b: &mut CodeBuilder, args: &[&super::super::ir::
 // Argument helpers
 // ============================================================================
 
-fn user_args<'a>(f: &'a FunctionDef) -> Vec<&'a super::super::ir::FunctionArg> {
+fn user_args(f: &FunctionDef) -> Vec<&super::super::ir::FunctionArg> {
     let class_lower = f.class_name.to_lowercase();
     f.args
         .iter()

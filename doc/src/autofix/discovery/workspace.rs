@@ -144,7 +144,7 @@ fn scan_crate_directory(
             };
 
             scan_crate_directory(index, crate_name, &path, &new_prefix);
-        } else if path.extension().map_or(false, |e| e == "rs") {
+        } else if path.extension().is_some_and(|e| e == "rs") {
             // Parse Rust file for type definitions
             let file_name = path.file_stem().and_then(|n| n.to_str()).unwrap_or("");
 

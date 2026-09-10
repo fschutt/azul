@@ -212,7 +212,7 @@ impl<'a> IRBuilder<'a> {
                     let is_copy = class_data
                         .derive
                         .as_ref()
-                        .map_or(false, |d| d.iter().any(|t| t == "Copy"));
+                        .is_some_and(|d| d.iter().any(|t| t == "Copy"));
                     let has_gate = struct_fields.iter().any(|fm| {
                         fm.contains_key("run_destructor") || fm.contains_key("destructor")
                     });

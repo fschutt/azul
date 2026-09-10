@@ -4106,7 +4106,8 @@ impl CallbackInfo {
     /// The cache stores localizers for multiple locales. Each locale's formatter
     /// is lazily created on first use and cached for subsequent calls.
     #[cfg(feature = "icu")]
-    pub fn get_icu_localizer(&self) -> &IcuLocalizerHandle {
+    #[must_use] 
+    pub const fn get_icu_localizer(&self) -> &IcuLocalizerHandle {
         unsafe { &(*self.ref_data).icu_localizer }
     }
 
@@ -4123,6 +4124,7 @@ impl CallbackInfo {
     /// info.format_integer("fr-FR", 1234567) // -> "1 234 567"
     /// ```
     #[cfg(feature = "icu")]
+    #[must_use] 
     pub fn format_integer(&self, locale: &str, value: i64) -> AzString {
         self.get_icu_localizer().format_integer(locale, value)
     }
@@ -4140,6 +4142,7 @@ impl CallbackInfo {
     /// info.format_decimal("de-DE", 123456, 2) // -> "1.234,56"
     /// ```
     #[cfg(feature = "icu")]
+    #[must_use] 
     pub fn format_decimal(&self, locale: &str, integer_part: i64, decimal_places: i16) -> AzString {
         self.get_icu_localizer()
             .format_decimal(locale, integer_part, decimal_places)
@@ -4159,6 +4162,7 @@ impl CallbackInfo {
     /// info.get_plural_category("pl", 5)  // -> PluralCategory::Many
     /// ```
     #[cfg(feature = "icu")]
+    #[must_use] 
     pub fn get_plural_category(&self, locale: &str, value: i64) -> PluralCategory {
         self.get_icu_localizer().get_plural_category(locale, value)
     }
@@ -4176,6 +4180,7 @@ impl CallbackInfo {
     /// info.pluralize("pl", count, "brak", "1 element", "2 elementy", "{} elementy", "{} elementów", "{} elementów")
     /// ```
     #[cfg(feature = "icu")]
+    #[must_use] 
     pub fn pluralize(
         &self,
         locale: &str,
@@ -4204,6 +4209,7 @@ impl CallbackInfo {
     /// info.format_list("es-ES", &items, ListType::And) // -> "A, B y C"
     /// ```
     #[cfg(feature = "icu")]
+    #[must_use] 
     pub fn format_list(&self, locale: &str, items: StringVec, list_type: ListType) -> AzString {
         self.get_icu_localizer()
             .format_list(locale, items.as_ref(), list_type)
@@ -4213,7 +4219,7 @@ impl CallbackInfo {
     ///
     /// # Arguments
     /// * `locale` - BCP 47 locale string
-    /// * `date` - The date to format (use IcuDate::now() or IcuDate::new())
+    /// * `date` - The date to format (use `IcuDate::now()` or `IcuDate::new()`)
     /// * `length` - Short, Medium, or Long format
     ///
     /// # Example
@@ -4223,6 +4229,7 @@ impl CallbackInfo {
     /// info.format_date("de-DE", today, FormatLength::Medium) // -> "15.01.2025"
     /// ```
     #[cfg(feature = "icu")]
+    #[must_use] 
     pub fn format_date(&self, locale: &str, date: IcuDate, length: FormatLength) -> IcuResult {
         self.get_icu_localizer().format_date(locale, date, length)
     }
@@ -4231,7 +4238,7 @@ impl CallbackInfo {
     ///
     /// # Arguments
     /// * `locale` - BCP 47 locale string
-    /// * `time` - The time to format (use IcuTime::now() or IcuTime::new())
+    /// * `time` - The time to format (use `IcuTime::now()` or `IcuTime::new()`)
     /// * `include_seconds` - Whether to include seconds in the output
     ///
     /// # Example
@@ -4241,6 +4248,7 @@ impl CallbackInfo {
     /// info.format_time("de-DE", now, false) // -> "16:30"
     /// ```
     #[cfg(feature = "icu")]
+    #[must_use] 
     pub fn format_time(&self, locale: &str, time: IcuTime, include_seconds: bool) -> IcuResult {
         self.get_icu_localizer()
             .format_time(locale, time, include_seconds)
@@ -4250,9 +4258,10 @@ impl CallbackInfo {
     ///
     /// # Arguments
     /// * `locale` - BCP 47 locale string
-    /// * `datetime` - The date and time to format (use IcuDateTime::now())
+    /// * `datetime` - The date and time to format (use `IcuDateTime::now()`)
     /// * `length` - Short, Medium, or Long format
     #[cfg(feature = "icu")]
+    #[must_use] 
     pub fn format_datetime(
         &self,
         locale: &str,
@@ -4279,6 +4288,7 @@ impl CallbackInfo {
     /// info.compare_strings("sv-SE", "Äpple", "Öl")     // -> -1 (Swedish: Ä before Ö)
     /// ```
     #[cfg(feature = "icu")]
+    #[must_use] 
     pub fn compare_strings(&self, locale: &str, a: &str, b: &str) -> i32 {
         self.get_icu_localizer().compare_strings(locale, a, b)
     }
@@ -4298,6 +4308,7 @@ impl CallbackInfo {
     /// // Result: ["Ägypten", "Andorra", "Österreich"] (Ä sorts with A, Ö with O)
     /// ```
     #[cfg(feature = "icu")]
+    #[must_use] 
     pub fn sort_strings(&self, locale: &str, strings: StringVec) -> IcuStringVec {
         self.get_icu_localizer()
             .sort_strings(locale, strings.as_ref())
@@ -4313,6 +4324,7 @@ impl CallbackInfo {
     /// * `a` - First string to compare
     /// * `b` - Second string to compare
     #[cfg(feature = "icu")]
+    #[must_use] 
     pub fn strings_equal(&self, locale: &str, a: &str, b: &str) -> bool {
         self.get_icu_localizer().strings_equal(locale, a, b)
     }

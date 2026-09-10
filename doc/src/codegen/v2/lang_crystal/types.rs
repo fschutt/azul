@@ -385,5 +385,5 @@ fn tag_type(repr: Option<&str>) -> &'static str {
 
 /// Strip characters that would break a Crystal `#` line comment.
 fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }

@@ -201,6 +201,7 @@ struct ChoiceCallbackData {
 // Callbacks
 // ============================================================================
 
+#[must_use] 
 pub extern "C" fn on_dropdown_click(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     let Some(refany) = refany.downcast_ref::<DropDown>() else {
         return Update::DoNothing;

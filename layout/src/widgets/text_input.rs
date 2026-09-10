@@ -1069,6 +1069,7 @@ fn engine_caret(info: &CallbackInfo, node: DomNodeId) -> Option<usize> {
         .map(|c| c.cluster_id.start_byte_in_run as usize)
 }
 
+#[must_use] 
 pub extern "C" fn default_on_focus_received(
     mut text_input: RefAny,
     mut info: CallbackInfo,
@@ -1102,6 +1103,7 @@ pub extern "C" fn default_on_focus_received(
     Update::DoNothing
 }
 
+#[must_use] 
 pub extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackInfo) -> Update {
     let Some(mut text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
         return Update::DoNothing;
@@ -1132,6 +1134,7 @@ pub extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: Callba
     }
 }
 
+#[must_use] 
 pub extern "C" fn default_on_text_input(text_input: RefAny, info: CallbackInfo) -> Update {
     default_on_text_input_inner(text_input, info).unwrap_or(Update::DoNothing)
 }
@@ -1262,6 +1265,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
     Some(result.update)
 }
 
+#[must_use] 
 pub extern "C" fn default_on_virtual_key_down(text_input: RefAny, info: CallbackInfo) -> Update {
     default_on_virtual_key_down_inner(text_input, info).unwrap_or(Update::DoNothing)
 }
@@ -1319,6 +1323,7 @@ fn default_on_virtual_key_down_inner(
     Some(result.update)
 }
 
+#[must_use] 
 pub extern "C" fn default_on_mouse_hover(mut text_input: RefAny, _info: CallbackInfo) -> Update {
     let Some(_text_input) = text_input.downcast_mut::<TextInputStateWrapper>() else {
         return Update::DoNothing;

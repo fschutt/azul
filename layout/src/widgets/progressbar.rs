@@ -295,13 +295,13 @@ impl ProgressBar {
     /// widget's private dataset so [`update_progress`](Self::update_progress)
     /// can find and mutate it later - see the module docs for the fast path.
     #[inline]
-    pub fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
     }
 
     #[inline]
     #[must_use]
-    pub fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
         self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
         self
     }

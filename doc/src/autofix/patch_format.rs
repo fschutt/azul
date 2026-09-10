@@ -799,7 +799,7 @@ impl AutofixPatch {
                                 // the codegen validator rejects the added type
                                 // ("expected repr(C, u8)").
                                 let has_data_variant =
-                                    a.enum_variants.as_ref().map_or(false, |vs| {
+                                    a.enum_variants.as_ref().is_some_and(|vs| {
                                         vs.iter().any(|v| v.variant_type.is_some())
                                     });
                                 if has_data_variant {
@@ -1050,7 +1050,7 @@ impl AutofixPatch {
                         .iter()
                         .map(|arg| CallbackArgData {
                             r#type: arg.arg_type.clone(),
-                            ref_kind: arg.ref_kind.clone(),
+                            ref_kind: arg.ref_kind,
                             doc: None,
                         })
                         .collect();
@@ -1080,7 +1080,7 @@ impl AutofixPatch {
                     if let Some(ref mut callback_def) = patch.callback_typedef {
                         if let Some(arg) = callback_def.fn_args.get_mut(*arg_index) {
                             arg.r#type = new_type.clone();
-                            arg.ref_kind = new_ref.clone();
+                            arg.ref_kind = *new_ref;
                         }
                     }
                 }
@@ -1313,10 +1313,10 @@ fn insert_class_patch(
     api_patch
         .versions
         .entry(version.to_string())
-        .or_insert_with(VersionPatch::default)
+        .or_default()
         .modules
         .entry(module.to_string())
-        .or_insert_with(ModulePatch::default)
+        .or_default()
         .classes
         .insert(class_name.to_string(), class_patch);
 }

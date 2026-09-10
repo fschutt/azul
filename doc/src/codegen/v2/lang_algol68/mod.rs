@@ -212,7 +212,7 @@ fn camel_or_snake_to_spaced_lower(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 4);
     let mut chars = s.chars().peekable();
     let mut first = true;
-    while let Some(c) = chars.next() {
+    for c in chars {
         if c == '_' {
             if !out.ends_with(' ') && !first {
                 out.push(' ');
@@ -417,5 +417,5 @@ pub fn ptr_type(inner: &str, ir: &CodegenIR) -> String {
 /// comment delimiters: an embedded `#` would close the comment, so we
 /// replace it with a `?` and collapse newlines to spaces.
 pub fn sanitize_comment(s: &str) -> String {
-    s.replace('#', "?").replace('\n', " ").replace('\r', " ")
+    s.replace('#', "?").replace(['\n', '\r'], " ")
 }

@@ -660,8 +660,8 @@ pub(crate) fn type_with_ref_to_perl(
     // from the package directly — `record(Azul::AzFoo)` re-derivation
     // returns undef alignof when referenced from another `record_layout_1`
     // call site, even after the package's own `record_layout_1` ran.
-    let prefixed = config.apply_prefix(trimmed);
-    prefixed
+    
+    config.apply_prefix(trimmed)
 }
 
 /// Map a Rust primitive type string to a FFI::Platypus type name (no

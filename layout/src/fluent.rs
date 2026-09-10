@@ -91,19 +91,21 @@ pub enum FluentSyntaxCheckResult {
 
 impl FluentSyntaxCheckResult {
     /// Returns true if the result is Ok (no syntax errors).
-    pub fn is_ok(&self) -> bool {
+    #[must_use] 
+    pub const fn is_ok(&self) -> bool {
         match self {
-            FluentSyntaxCheckResult::Ok => true,
-            FluentSyntaxCheckResult::Errors(_) => false,
+            Self::Ok => true,
+            Self::Errors(_) => false,
         }
     }
 
     /// Get the error strings if this is an Errors result.
     /// Returns None if this is Ok.
+    #[must_use] 
     pub fn get_errors(&self) -> OptionStringVec {
         match self {
-            FluentSyntaxCheckResult::Ok => OptionStringVec::None,
-            FluentSyntaxCheckResult::Errors(e) => OptionStringVec::Some(e.clone()),
+            Self::Ok => OptionStringVec::None,
+            Self::Errors(e) => OptionStringVec::Some(e.clone()),
         }
     }
 }
@@ -123,7 +125,7 @@ pub struct FluentLanguageInfo {
     pub message_ids: Vec<AzString>,
 }
 
-/// Vec of FluentLanguageInfo
+/// Vec of `FluentLanguageInfo`
 pub type FluentLanguageInfoVec = Vec<FluentLanguageInfo>;
 
 /// A single failure encountered while loading a Fluent language pack.
@@ -205,7 +207,7 @@ impl FluentLocaleBundle {
         let resource = FluentResource::try_new(source.to_owned()).map_err(|(_res, errors)| {
             errors
                 .into_iter()
-                .map(|e| fluent::FluentError::ParserError(e))
+                .map(fluent::FluentError::ParserError)
                 .collect::<Vec<_>>()
         })?;
         self.bundle.add_resource(resource)?;
@@ -222,7 +224,7 @@ impl FluentLocaleBundle {
             None
         } else {
             let mut fa = FluentArgs::new();
-            for arg in args.iter() {
+            for arg in args {
                 match &arg.value {
                     FmtValue::Str(s) => {
                         fa.set(
@@ -231,10 +233,10 @@ impl FluentLocaleBundle {
                         );
                     }
                     FmtValue::Sint(n) => {
-                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n as f64));
+                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(f64::from(*n)));
                     }
                     FmtValue::Uint(n) => {
-                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n as f64));
+                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(f64::from(*n)));
                     }
                     FmtValue::Slong(n) => {
                         fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n as f64));
@@ -243,7 +245,7 @@ impl FluentLocaleBundle {
                         fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n as f64));
                     }
                     FmtValue::Float(n) => {
-                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n as f64));
+                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(f64::from(*n)));
                     }
                     FmtValue::Double(n) => {
                         fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n));
@@ -256,16 +258,16 @@ impl FluentLocaleBundle {
                     }
                     // Handle remaining numeric types
                     FmtValue::Uchar(n) => {
-                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n as f64));
+                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(f64::from(*n)));
                     }
                     FmtValue::Schar(n) => {
-                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n as f64));
+                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(f64::from(*n)));
                     }
                     FmtValue::Ushort(n) => {
-                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n as f64));
+                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(f64::from(*n)));
                     }
                     FmtValue::Sshort(n) => {
-                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n as f64));
+                        fa.set(arg.key.as_str().to_owned(), FluentValue::from(f64::from(*n)));
                     }
                     FmtValue::Isize(n) => {
                         fa.set(arg.key.as_str().to_owned(), FluentValue::from(*n as f64));
@@ -276,7 +278,7 @@ impl FluentLocaleBundle {
                     FmtValue::StrVec(sv) => {
                         // Convert string vec to comma-separated string
                         let joined: String =
-                            sv.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
+                            sv.iter().map(AzString::as_str).collect::<Vec<_>>().join(", ");
                         fa.set(arg.key.as_str().to_owned(), FluentValue::from(joined));
                     }
                 }
@@ -309,7 +311,7 @@ impl FluentLocaleBundle {
     }
 }
 
-/// Inner data for FluentLocalizerHandle
+/// Inner data for `FluentLocalizerHandle`
 pub struct FluentLocalizerInner {
     /// Bundles for each locale
     bundles: Mutex<BTreeMap<String, FluentLocaleBundle>>,
@@ -358,8 +360,8 @@ impl Drop for FluentLocalizerHandle {
         unsafe {
             let copies = (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst);
             if copies == 1 {
-                let _ = Box::from_raw(self.ptr as *mut FluentLocalizerInner);
-                let _ = Box::from_raw(self.copies as *mut AtomicUsize);
+                let _ = Box::from_raw(self.ptr.cast_mut());
+                let _ = Box::from_raw(self.copies.cast_mut());
             }
         }
     }
@@ -370,9 +372,7 @@ impl core::fmt::Debug for FluentLocalizerHandle {
         let inner = self.inner();
         let default_locale = inner
             .default_locale
-            .lock()
-            .map(|g| g.clone())
-            .unwrap_or_else(|_| String::new());
+            .lock().map_or_else(|_| String::new(), |g| g.clone());
         f.debug_struct("FluentLocalizerHandle")
             .field("default_locale", &default_locale)
             .finish()
@@ -387,6 +387,7 @@ impl Default for FluentLocalizerHandle {
 
 impl FluentLocalizerHandle {
     /// Create a new Fluent localizer with the given default locale.
+    #[must_use] 
     pub fn create(default_locale: &str) -> Self {
         Self {
             ptr: Box::into_raw(Box::new(FluentLocalizerInner {
@@ -401,17 +402,16 @@ impl FluentLocalizerHandle {
 
     /// Get a reference to the inner data.
     #[inline]
-    fn inner(&self) -> &FluentLocalizerInner {
+    const fn inner(&self) -> &FluentLocalizerInner {
         unsafe { &*self.ptr }
     }
 
     /// Get the default locale string.
+    #[must_use] 
     pub fn get_default_locale(&self) -> AzString {
         self.inner()
             .default_locale
-            .lock()
-            .map(|g| AzString::from(g.clone()))
-            .unwrap_or_else(|_| AzString::from("en-US"))
+            .lock().map_or_else(|_| AzString::from("en-US"), |g| AzString::from(g.clone()))
     }
 
     /// Set the default locale.
@@ -435,7 +435,7 @@ impl FluentLocalizerHandle {
         if let Ok(mut guard) = self.inner().fallback_chain.lock() {
             guard.insert(
                 locale.to_string(),
-                fallbacks.iter().map(|s| s.to_string()).collect(),
+                fallbacks.iter().map(|s| (*s).to_string()).collect(),
             );
         }
     }
@@ -448,6 +448,7 @@ impl FluentLocalizerHandle {
     ///
     /// # Returns
     /// `true` if the resource was successfully added, `false` if there were errors.
+    #[must_use] 
     pub fn add_resource(&self, locale: &str, source: &str) -> bool {
         if let Ok(mut bundles) = self.inner().bundles.lock() {
             let bundle = bundles.entry(locale.to_string()).or_insert_with(|| {
@@ -461,7 +462,8 @@ impl FluentLocalizerHandle {
         }
     }
 
-    /// Add a Fluent resource from a U8Vec (for C API compatibility).
+    /// Add a Fluent resource from a `U8Vec` (for C API compatibility).
+    #[must_use] 
     pub fn add_resource_from_bytes(&self, locale: &str, data: &[u8]) -> bool {
         match std::str::from_utf8(data) {
             Ok(source) => self.add_resource(locale, source),
@@ -499,6 +501,7 @@ impl FluentLocalizerHandle {
     /// │   ├── main.fluent
     /// │   └── errors.fluent
     /// ```
+    #[must_use] 
     pub fn load_from_zip_with_locale(
         &self,
         data: &[u8],
@@ -512,7 +515,7 @@ impl FluentLocalizerHandle {
                     files_loaded: 0,
                     files_failed: 1,
                     errors: FluentLoadErrorVec::from_vec(vec![FluentLoadError::OpenArchive(
-                        AzString::from(format!("Failed to open ZIP: {}", e)),
+                        AzString::from(format!("Failed to open ZIP: {e}")),
                     )]),
                 }
             }
@@ -528,8 +531,7 @@ impl FluentLocalizerHandle {
                 Err(e) => {
                     files_failed += 1;
                     errors.push(FluentLoadError::ReadEntry(AzString::from(format!(
-                        "Failed to read file {}: {}",
-                        i, e
+                        "Failed to read file {i}: {e}"
                     ))));
                     continue;
                 }
@@ -545,16 +547,12 @@ impl FluentLocalizerHandle {
             // Use locale override or extract from filename
             let locale = match locale_override {
                 Some(l) => l.to_string(),
-                None => match extract_locale_from_path(&name) {
-                    Some(l) => l,
-                    None => {
-                        files_failed += 1;
-                        errors.push(FluentLoadError::UnknownLocale(AzString::from(format!(
-                            "Could not determine locale from path: {}",
-                            name
-                        ))));
-                        continue;
-                    }
+                None => if let Some(l) = extract_locale_from_path(&name) { l } else {
+                    files_failed += 1;
+                    errors.push(FluentLoadError::UnknownLocale(AzString::from(format!(
+                        "Could not determine locale from path: {name}"
+                    ))));
+                    continue;
                 },
             };
 
@@ -563,8 +561,7 @@ impl FluentLocalizerHandle {
             if let Err(e) = file.read_to_string(&mut content) {
                 files_failed += 1;
                 errors.push(FluentLoadError::ReadFile(AzString::from(format!(
-                    "Failed to read {}: {}",
-                    name, e
+                    "Failed to read {name}: {e}"
                 ))));
                 continue;
             }
@@ -575,8 +572,7 @@ impl FluentLocalizerHandle {
             } else {
                 files_failed += 1;
                 errors.push(FluentLoadError::Parse(AzString::from(format!(
-                    "Failed to parse {}",
-                    name
+                    "Failed to parse {name}"
                 ))));
             }
         }
@@ -589,16 +585,19 @@ impl FluentLocalizerHandle {
     }
 
     /// Load translations from a ZIP archive (auto-detect locale from filename).
+    #[must_use] 
     pub fn load_from_zip(&self, data: &[u8]) -> FluentZipLoadResult {
         self.load_from_zip_with_locale(data, None)
     }
 
-    /// Load translations from a ZIP archive (U8Vec for FFI).
+    /// Load translations from a ZIP archive (`U8Vec` for FFI).
+    #[must_use] 
     pub fn load_from_zip_bytes(&self, data: &U8Vec) -> FluentZipLoadResult {
         self.load_from_zip(data.as_slice())
     }
 
-    /// Load translations from a ZIP archive with explicit locale (U8Vec for FFI).
+    /// Load translations from a ZIP archive with explicit locale (`U8Vec` for FFI).
+    #[must_use] 
     pub fn load_from_zip_bytes_with_locale(
         &self,
         data: &U8Vec,
@@ -612,6 +611,7 @@ impl FluentLocalizerHandle {
     /// # Arguments
     /// * `path` - Path to a .fluent file or a .zip file
     /// * `locale_override` - If Some, use this locale. If None, detect from filename.
+    #[must_use] 
     pub fn load_from_path(&self, path: &str, locale_override: Option<&str>) -> FluentZipLoadResult {
         let path_obj = std::path::Path::new(path);
 
@@ -623,7 +623,7 @@ impl FluentLocalizerHandle {
                     files_loaded: 0,
                     files_failed: 1,
                     errors: FluentLoadErrorVec::from_vec(vec![FluentLoadError::ReadFile(
-                        AzString::from(format!("Failed to read file '{}': {}", path, e)),
+                        AzString::from(format!("Failed to read file '{path}': {e}")),
                     )]),
                 }
             }
@@ -647,21 +647,17 @@ impl FluentLocalizerHandle {
         match extension {
             "zip" => self.load_from_zip_with_locale(&data, locale.as_deref()),
             "fluent" | "ftl" => {
-                let locale = match locale {
-                    Some(l) => l,
-                    None => {
+                let Some(locale) = locale else {
                         return FluentZipLoadResult {
                             files_loaded: 0,
                             files_failed: 1,
                             errors: FluentLoadErrorVec::from_vec(vec![
                                 FluentLoadError::UnknownLocale(AzString::from(format!(
-                                    "Could not determine locale from filename: {}",
-                                    path
+                                    "Could not determine locale from filename: {path}"
                                 ))),
                             ]),
                         }
-                    }
-                };
+                    };
 
                 match std::str::from_utf8(&data) {
                     Ok(content) => {
@@ -676,7 +672,7 @@ impl FluentLocalizerHandle {
                                 files_loaded: 0,
                                 files_failed: 1,
                                 errors: FluentLoadErrorVec::from_vec(vec![FluentLoadError::Parse(
-                                    AzString::from(format!("Failed to parse {}", path)),
+                                    AzString::from(format!("Failed to parse {path}")),
                                 )]),
                             }
                         }
@@ -685,7 +681,7 @@ impl FluentLocalizerHandle {
                         files_loaded: 0,
                         files_failed: 1,
                         errors: FluentLoadErrorVec::from_vec(vec![FluentLoadError::InvalidUtf8(
-                            AzString::from(format!("Invalid UTF-8 in {}: {}", path, e)),
+                            AzString::from(format!("Invalid UTF-8 in {path}: {e}")),
                         )]),
                     },
                 }
@@ -695,8 +691,7 @@ impl FluentLocalizerHandle {
                 files_failed: 1,
                 errors: FluentLoadErrorVec::from_vec(vec![FluentLoadError::UnknownExtension(
                     AzString::from(format!(
-                        "Unknown file extension: {} (expected .fluent, .ftl, or .zip)",
-                        extension
+                        "Unknown file extension: {extension} (expected .fluent, .ftl, or .zip)"
                     )),
                 )]),
             },
@@ -712,6 +707,7 @@ impl FluentLocalizerHandle {
     ///
     /// # Returns
     /// The translated string, or the message ID if not found.
+    #[must_use] 
     pub fn translate(&self, locale: AzString, message_id: AzString, args: FmtArgVec) -> AzString {
         let locale = locale.as_str();
         let message_id = message_id.as_str();
@@ -736,9 +732,7 @@ impl FluentLocalizerHandle {
         let default_locale = self
             .inner()
             .default_locale
-            .lock()
-            .map(|g| g.clone())
-            .unwrap_or_else(|_| "en-US".to_string());
+            .lock().map_or_else(|_| "en-US".to_string(), |g| g.clone());
 
         if locale != default_locale {
             if let Some(result) = self.try_translate(&default_locale, message_id, &args) {
@@ -760,21 +754,21 @@ impl FluentLocalizerHandle {
     }
 
     /// Check if a message ID exists in the given locale.
+    #[must_use] 
     pub fn has_message(&self, locale: &str, message_id: &str) -> bool {
         self.inner()
             .bundles
             .lock()
             .ok()
-            .map(|bundles| {
+            .is_some_and(|bundles| {
                 bundles
                     .get(locale)
-                    .map(|b| b.has_message(message_id))
-                    .unwrap_or(false)
+                    .is_some_and(|b| b.has_message(message_id))
             })
-            .unwrap_or(false)
     }
 
     /// Get the list of all loaded locales.
+    #[must_use] 
     pub fn get_loaded_locales(&self) -> Vec<AzString> {
         self.inner()
             .bundles
@@ -785,6 +779,7 @@ impl FluentLocalizerHandle {
     }
 
     /// Get information about all loaded languages.
+    #[must_use] 
     pub fn get_language_info(&self) -> FluentLanguageInfoVec {
         self.inner()
             .bundles
@@ -833,6 +828,7 @@ impl FluentLocalizerHandle {
 ///
 /// Returns `Ok` if the syntax is valid, or a list of error strings.
 /// Each error string has the format "line:column: message".
+#[must_use] 
 pub fn check_fluent_syntax(source: &str) -> FluentSyntaxCheckResult {
     match parser::parse(source) {
         Ok(_) => FluentSyntaxCheckResult::Ok,
@@ -842,7 +838,7 @@ pub fn check_fluent_syntax(source: &str) -> FluentSyntaxCheckResult {
                 .map(|e| {
                     let message = format!("{:?}", e.kind);
                     let (line, column) = get_error_position(source, e.pos.start);
-                    AzString::from(format!("{}:{}: {}", line, column, message))
+                    AzString::from(format!("{line}:{column}: {message}"))
                 })
                 .collect();
             FluentSyntaxCheckResult::Errors(syntax_errors.into())
@@ -851,11 +847,12 @@ pub fn check_fluent_syntax(source: &str) -> FluentSyntaxCheckResult {
 }
 
 /// Check the syntax of a Fluent file from bytes.
+#[must_use] 
 pub fn check_fluent_syntax_bytes(data: &[u8]) -> FluentSyntaxCheckResult {
     match std::str::from_utf8(data) {
         Ok(source) => check_fluent_syntax(source),
         Err(e) => FluentSyntaxCheckResult::Errors(
-            vec![AzString::from(format!("0:0: Invalid UTF-8: {}", e))].into(),
+            vec![AzString::from(format!("0:0: Invalid UTF-8: {e}"))].into(),
         ),
     }
 }
@@ -889,7 +886,7 @@ use crate::zip::{ZipFile, ZipFileEntry, ZipWriteConfig};
 /// Create a ZIP archive from Fluent file entries.
 ///
 /// # Arguments
-/// * `entries` - List of ZipFileEntry to include in the ZIP
+/// * `entries` - List of `ZipFileEntry` to include in the ZIP
 ///
 /// # Returns
 /// The ZIP file as a byte vector, or an error message.
@@ -908,32 +905,16 @@ pub fn create_fluent_zip_from_strings(files: Vec<(String, String)>) -> Result<Ve
     create_fluent_zip(entries)
 }
 
-/// Export all translations from a FluentLocalizerHandle to a ZIP archive.
+/// Export all translations from a `FluentLocalizerHandle` to a ZIP archive.
 pub fn export_to_zip(localizer: &FluentLocalizerHandle) -> Result<Vec<u8>, String> {
-    let bundles = localizer
+    
+    let entries = localizer
         .inner()
         .bundles
         .lock()
-        .map_err(|e| format!("Lock error: {:?}", e))?;
+        .map_err(|e| format!("Lock error: {e:?}"))?.collect();
 
-    let entries: Vec<ZipFileEntry> = bundles
-        .iter()
-        .flat_map(|(locale, bundle)| {
-            bundle
-                .sources
-                .iter()
-                .enumerate()
-                .map(|(i, source)| {
-                    let path = if bundle.sources.len() == 1 {
-                        format!("{}.fluent", locale)
-                    } else {
-                        format!("{}/part_{}.fluent", locale, i)
-                    };
-                    ZipFileEntry::file(path, source.clone().into_bytes())
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    
 
     create_fluent_zip(entries)
 }

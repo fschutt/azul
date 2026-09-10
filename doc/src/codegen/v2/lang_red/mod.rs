@@ -190,9 +190,9 @@ fn should_emit_struct(s: &StructDef, config: &CodegenConfig) -> bool {
 fn emit_unit_enum(b: &mut CodeBuilder, e: &EnumDef) {
     // Unit enums are C `enum`s (int-sized). Emit `#define AzFoo_Bar N`.
     let mut idx: i64 = 0;
-    for v in &e.variants {
+    for (ref mut idx, v) in (0_i64..).zip(e.variants.iter()) {
         b.line(&format!("#define Az{}_{} {}", e.name, v.name, idx));
-        idx += 1;
+        *idx += 1;
     }
 }
 

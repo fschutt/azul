@@ -753,7 +753,7 @@ fn bundle_e2e_web_runner() {
         };
         let mut names: Vec<_> = entries
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |x| x == "mjs"))
+            .filter(|e| e.path().extension().is_some_and(|x| x == "mjs"))
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .collect();
         names.sort(); // deterministic bundle → stable content hash

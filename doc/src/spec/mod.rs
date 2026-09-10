@@ -160,7 +160,7 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
                 .filter(|a| !a.starts_with("--") && !is_flag_value(sub_args, a, &["--review-md"]))
                 .map(|s| s.as_str())
                 .collect();
-            let patch_dir = positional.first().map(|s| *s);
+            let patch_dir = positional.first().copied();
             if patch_dir.is_none() || review_md.is_none() {
                 return print_subcommand_help("review-arch");
             }
@@ -184,7 +184,7 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
                 })
                 .map(|s| s.as_str())
                 .collect();
-            let patch_dir = positional.first().map(|s| *s);
+            let patch_dir = positional.first().copied();
             if patch_dir.is_none() || review_md.is_none() {
                 return print_subcommand_help("refactor-md");
             }
@@ -208,7 +208,7 @@ pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Re
                 .filter(|a| !a.starts_with("--") && !is_flag_value(sub_args, a, flags))
                 .map(|s| s.as_str())
                 .collect();
-            let patch_dir = positional.first().map(|s| *s);
+            let patch_dir = positional.first().copied();
             if patch_dir.is_none() || review_md.is_none() {
                 return print_subcommand_help("groups-json");
             }
@@ -621,7 +621,7 @@ pub(crate) fn cmd_build_all(
         let total_groups = groups.len();
 
         for (group_idx, group) in groups.iter().enumerate() {
-            let group_refs: Vec<&extractor::ExtractedParagraph> = group.iter().copied().collect();
+            let group_refs: Vec<&extractor::ExtractedParagraph> = group.to_vec();
             let prompt = reviewer::generate_grouped_prompt(
                 &fp.node,
                 &group_refs,
@@ -899,9 +899,8 @@ fn cmd_status(config: &SpecConfig, workspace_root: &std::path::Path) -> Result<(
         } else {
             0
         };
-        let bar: String = std::iter::repeat('#')
-            .take(filled)
-            .chain(std::iter::repeat('.').take(bar_width - filled))
+        let bar: String = std::iter::repeat_n('#', filled)
+            .chain(std::iter::repeat_n('.', bar_width - filled))
             .collect();
 
         let status = if marked == para_count {
@@ -1075,7 +1074,7 @@ fn cmd_preview(
         .map_err(|e| format!("Failed to read prompts dir: {}", e))?
         .flatten()
         .filter(|e| e.path().extension().map(|x| x == "md").unwrap_or(false))
-        .filter(|e| filter.map_or(true, |f| e.file_name().to_string_lossy().contains(f)))
+        .filter(|e| filter.is_none_or(|f| e.file_name().to_string_lossy().contains(f)))
         .collect();
     prompt_files.sort_by_key(|e| e.file_name());
 

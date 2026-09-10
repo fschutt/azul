@@ -300,7 +300,7 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<ReftestOutcome>
 
     // Generate JSON results
     println!("Generating JSON results");
-    generate_json_results(&output_dir, &*final_enhanced_results, passed_tests)?;
+    generate_json_results(&output_dir, &final_enhanced_results, passed_tests)?;
 
     println!(
         "Testing complete. Results saved to {}",
@@ -329,8 +329,7 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<ReftestOutcome>
 /// If test_dir exists and contains tests, it will show "X tests found (not run)".
 /// If test_dir doesn't exist or is empty, it will show "0 tests found".
 ///
-/// This function also copies existing reftest results and images from the standard
-
+/// This function also copies existing reftest results and images from the standard///
 /// Copy a reftest report, repointing its stylesheet at the current design
 /// system on the way.
 ///
@@ -651,7 +650,7 @@ pub fn find_test_files(dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
         let entry = entry?;
         let path = entry.path();
 
-        if path.is_file() && path.extension().map_or(false, |ext| ext == "xht") {
+        if path.is_file() && path.extension().is_some_and(|ext| ext == "xht") {
             test_files.push(path);
         }
     }
@@ -1368,6 +1367,12 @@ pub struct CssWarningCollector {
     pub warnings: Vec<CssWarningType>,
 }
 
+impl Default for CssWarningCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CssWarningCollector {
     /// Create a new CSS warning collector
     pub fn new() -> Self {
@@ -1403,7 +1408,7 @@ impl CssWarningCollector {
             for decl in rule.declarations.as_ref() {
                 match decl {
                     CssDeclaration::Static(prop) => {
-                        self.validate_property(&prop);
+                        self.validate_property(prop);
                     }
                     CssDeclaration::Dynamic(dynamic) => {
                         self.validate_property(&dynamic.default_value);
@@ -1747,7 +1752,6 @@ impl DebugData {
 }
 
 /// Debug data collector for the reftest runner
-
 pub fn format_display_list_for_debug_solver3(display_list: &azul_layout::DisplayList3) -> String {
     use std::fmt::Write;
     let mut output = String::new();
@@ -1902,7 +1906,7 @@ fn generate_enhanced_html_report(
     git_hash: &str,
     is_chrome_installed: bool,
 ) -> anyhow::Result<()> {
-    let mut file = File::create(&report_path)?;
+    let mut file = File::create(report_path)?;
 
     // Read the HTML template
     let html_template = include_str!("./report_template.html");
@@ -1928,7 +1932,7 @@ fn generate_enhanced_html_report(
         .replace(
             "{TEST_DATA_BASE64}",
             &base64::prelude::BASE64_STANDARD
-                .encode(&serde_json::to_string(&results).unwrap_or_default()),
+                .encode(serde_json::to_string(&results).unwrap_or_default()),
         );
 
     // Write HTML to file

@@ -357,7 +357,7 @@ fn path_claims(line: &str, top_level: &BTreeSet<String>) -> Vec<String> {
         // `path/to/thing.rs:83` — a line number is a pointer at the file, not
         // part of its name. Ranges too.
         let token = token
-            .trim_end_matches(|c: char| c == '.' || c == ',' || c == ';' || c == ')')
+            .trim_end_matches(['.', ',', ';', ')'])
             .split(':')
             .next()
             .unwrap_or("");

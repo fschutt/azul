@@ -410,7 +410,7 @@ pub fn to_pascal_case(s: &str) -> String {
 /// `'` line comment. We collapse newlines into spaces — `'` only
 /// terminates at end-of-line.
 pub fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }
 
 /// Idiomatic VB6 method-name conversion. VB6 has many reserved

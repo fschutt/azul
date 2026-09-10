@@ -349,7 +349,7 @@ fn emit_wrapper_method(builder: &mut CodeBuilder, class: &str, func: &FunctionDe
         // handle in a fresh wrapper instance. If self_by_value, mark
         // the old wrapper consumed before constructing the new one.
         if self_by_value {
-            builder.line(&format!("| _ret |"));
+            builder.line(&"| _ret |".to_string());
             builder.line(&format!("_ret := self class wrap: ({}).", prim_call));
             builder.line("handle := nil.");
             builder.line("^ _ret");
@@ -358,7 +358,7 @@ fn emit_wrapper_method(builder: &mut CodeBuilder, class: &str, func: &FunctionDe
         }
     } else {
         if self_by_value {
-            builder.line(&format!("| _ret |"));
+            builder.line(&"| _ret |".to_string());
             builder.line(&format!("_ret := {}.", prim_call));
             builder.line("handle := nil.");
             builder.line("^ _ret");
@@ -394,7 +394,7 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
                     "\"Construct the {}.{} variant — unit (no payload).\"",
                     e.name, v.name
                 ));
-                builder.line(&format!("| u |"));
+                builder.line(&"| u |".to_string());
                 builder.line(&format!("u := {} new.", ffi_name));
                 builder.line(&format!(
                     "(u {}) tag: ({} {}).",

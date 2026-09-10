@@ -71,7 +71,7 @@ fn emit_string_helpers(b: &mut CodeBuilder) {
 
 fn emit_extern(b: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     for d in &func.doc {
-        b.line(&format!("// {}", d.replace('\n', " ").replace('\r', " ")));
+        b.line(&format!("// {}", d.replace(['\n', '\r'], " ")));
     }
 
     // Functions with a callback-wrapper arg export a triple in the DLL; we

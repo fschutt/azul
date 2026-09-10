@@ -883,7 +883,7 @@ pub fn generate_vec_from_std_vector_impl(
 ///   - Non-copy payloads: `&&`-qualified (consuming) — ownership of the payload transfers into the
 ///     wrapper and the Option resets to None, mirroring the C++23 `toStdExpected() &&` shape (no
 ///     double free).
-/// Payloads without a wrapper class keep the historical raw-payload form.
+///     Payloads without a wrapper class keep the historical raw-payload form.
 pub fn emit_option_to_std_optional(
     code: &mut String,
     inner_type: &str,
@@ -1580,7 +1580,7 @@ pub fn generate_call_args_sv_overload(
                 ArgRefKind::Ptr | ArgRefKind::PtrMut | ArgRefKind::Ref | ArgRefKind::RefMut
             );
             if is_pointer {
-                result.push(format!("{}", escaped_name));
+                result.push(escaped_name.to_string());
             } else {
                 result.push(format!("std::move({})", escaped_name));
             }

@@ -36,20 +36,24 @@ pub struct IcuLocalizer {
 }
 
 impl IcuLocalizer {
+    #[must_use] 
     pub fn new(locale_str: &str) -> Self {
         Self {
             locale_string: AzString::from(locale_str),
         }
     }
 
+    #[must_use] 
     pub fn from_system_language(system_language: &AzString) -> Self {
         Self::new(system_language.as_str())
     }
 
+    #[must_use] 
     pub fn get_locale(&self) -> AzString {
         self.locale_string.clone()
     }
 
+    #[must_use] 
     pub fn get_language(&self) -> AzString {
         let lang = self
             .locale_string
@@ -94,9 +98,7 @@ impl IcuLocalizer {
             fmt.setNumberStyle(NSNumberFormatterStyle::DecimalStyle);
             fmt.setLocale(Some(&self.make_ns_locale()));
             let n = NSNumber::new_i64(value);
-            fmt.stringFromNumber(&n)
-                .map(|s| AzString::from(s.to_string()))
-                .unwrap_or_else(|| AzString::from(value.to_string()))
+            fmt.stringFromNumber(&n).map_or_else(|| AzString::from(value.to_string()), |s| AzString::from(s.to_string()))
         }
     }
 
@@ -113,9 +115,7 @@ impl IcuLocalizer {
             fmt.setMinimumFractionDigits(dp);
             fmt.setMaximumFractionDigits(dp);
             let n = NSNumber::new_f64(value);
-            fmt.stringFromNumber(&n)
-                .map(|s| AzString::from(s.to_string()))
-                .unwrap_or_else(|| AzString::from(value_str))
+            fmt.stringFromNumber(&n).map_or_else(|| AzString::from(value_str), |s| AzString::from(s.to_string()))
         }
     }
 
@@ -155,8 +155,8 @@ impl IcuLocalizer {
     // ── List formatting ─────────────────────────────────────────────────────
 
     pub fn format_list(&mut self, items: &[AzString], list_type: ListType) -> AzString {
-        if let ListType::Unit = list_type {
-            let strs: Vec<&str> = items.iter().map(|s| s.as_str()).collect();
+        if list_type == ListType::Unit {
+            let strs: Vec<&str> = items.iter().map(AzString::as_str).collect();
             return AzString::from(strs.join(", "));
         }
         unsafe {
@@ -171,14 +171,11 @@ impl IcuLocalizer {
             let array = NSArray::<AnyObject>::from_slice(&any_refs);
             let formatter = NSListFormatter::new();
             formatter.setLocale(Some(&self.make_ns_locale()));
-            match formatter.stringFromItems(&array) {
-                Some(result) => AzString::from(result.to_string()),
-                None => {
-                    let str_refs: Vec<&NSString> = ns_strings.iter().map(|s| s.as_ref()).collect();
-                    let str_array = NSArray::from_slice(&str_refs);
-                    let result = NSListFormatter::localizedStringByJoiningStrings(&str_array);
-                    AzString::from(result.to_string())
-                }
+            if let Some(result) = formatter.stringFromItems(&array) { AzString::from(result.to_string()) } else {
+                let str_refs: Vec<&NSString> = ns_strings.iter().map(AsRef::as_ref).collect();
+                let str_array = NSArray::from_slice(&str_refs);
+                let result = NSListFormatter::localizedStringByJoiningStrings(&str_array);
+                AzString::from(result.to_string())
             }
         }
     }
@@ -305,7 +302,7 @@ impl Clone for IcuLocalizer {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-fn ns_date_style(length: FormatLength) -> NSDateFormatterStyle {
+const fn ns_date_style(length: FormatLength) -> NSDateFormatterStyle {
     match length {
         FormatLength::Short => NSDateFormatterStyle::ShortStyle,
         FormatLength::Medium => NSDateFormatterStyle::MediumStyle,
@@ -313,9 +310,9 @@ fn ns_date_style(length: FormatLength) -> NSDateFormatterStyle {
     }
 }
 
-unsafe fn gregorian() -> Option<Retained<NSCalendar>> {
+unsafe fn gregorian() -> Option<Retained<NSCalendar>> { unsafe {
     NSCalendar::calendarWithIdentifier(NSCalendarIdentifierGregorian)
-}
+}}
 
 /// Clamp an out-of-range date component to `i32` range before handing it to
 /// `NSDateComponents`. Every value reachable through the public API (u8 date
@@ -328,16 +325,16 @@ fn clamp_component(v: isize) -> isize {
     v.clamp(i32::MIN as isize, i32::MAX as isize)
 }
 
-unsafe fn make_ns_date(year: i32, month: isize, day: isize) -> Option<Retained<NSDate>> {
+unsafe fn make_ns_date(year: i32, month: isize, day: isize) -> Option<Retained<NSDate>> { unsafe {
     let cal = gregorian()?;
     let c = NSDateComponents::new();
     c.setYear(year as isize);
     c.setMonth(clamp_component(month));
     c.setDay(clamp_component(day));
     cal.dateFromComponents(&c)
-}
+}}
 
-unsafe fn make_ns_time(hour: isize, minute: isize, second: isize) -> Option<Retained<NSDate>> {
+unsafe fn make_ns_time(hour: isize, minute: isize, second: isize) -> Option<Retained<NSDate>> { unsafe {
     let cal = gregorian()?;
     let c = NSDateComponents::new();
     // Set a known-good date so dateFromComponents doesn't fail
@@ -349,7 +346,7 @@ unsafe fn make_ns_time(hour: isize, minute: isize, second: isize) -> Option<Reta
     c.setMinute(clamp_component(minute));
     c.setSecond(clamp_component(second));
     cal.dateFromComponents(&c)
-}
+}}
 
 unsafe fn make_ns_datetime(
     year: i32,
@@ -358,7 +355,7 @@ unsafe fn make_ns_datetime(
     hour: isize,
     minute: isize,
     second: isize,
-) -> Option<Retained<NSDate>> {
+) -> Option<Retained<NSDate>> { unsafe {
     let cal = gregorian()?;
     let c = NSDateComponents::new();
     c.setYear(year as isize);
@@ -368,7 +365,7 @@ unsafe fn make_ns_datetime(
     c.setMinute(clamp_component(minute));
     c.setSecond(clamp_component(second));
     cal.dateFromComponents(&c)
-}
+}}
 
 // ─── Generated adversarial tests ──────────────────────────────────────────────
 

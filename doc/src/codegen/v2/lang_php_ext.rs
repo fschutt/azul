@@ -89,11 +89,11 @@ pub fn generate(ir: &CodegenIR) -> Result<String> {
 /// The handle tables the PHP side uses:
 /// * `HANDLES` — `id → JSON snapshot` for refany_create/get.
 /// * `CALLBACKS` — `id → function-name String` for register_<kind>_callback.
-/// Phase 49 stores callable names (not Zvals) because Zvals are
-/// per-request-rooted; the user-facing API today is "pass a named
-/// function or a string callable name" rather than "pass an
-/// anonymous closure". Phase 50 plumbs refcount-rooted closures
-/// through a per-call wrapper Zval.
+///   Phase 49 stores callable names (not Zvals) because Zvals are
+///   per-request-rooted; the user-facing API today is "pass a named
+///   function or a string callable name" rather than "pass an
+///   anonymous closure". Phase 50 plumbs refcount-rooted closures
+///   through a per-call wrapper Zval.
 fn emit_handle_table(builder: &mut CodeBuilder) {
     builder.line("// ------------------------------------------------------------------------");
     builder.line("// Handle tables — keyed by the host-handle id libazul stamps onto");
@@ -452,7 +452,7 @@ pub fn azul_refany_set(id: u64, value: String) -> bool {
 /// — until then users must pass a named function or string callable.
 fn emit_callback_kind_helpers(builder: &mut CodeBuilder, cb: &super::ir::CallbackTypedefDef) {
     let wrapper = wrapper_name(cb);
-    let fn_name = callback_helper_fn_name(&wrapper);
+    let fn_name = callback_helper_fn_name(wrapper);
     let _ = has_return(cb); // Reserved for Phase 50 — return-arity-aware dispatch.
 
     builder.line(&format!(
@@ -668,7 +668,7 @@ fn emit_class(builder: &mut CodeBuilder, struct_def: &StructDef, ir: &CodegenIR)
 ///   `Callback` kind) to a plain DOM node.
 /// * `Azul\WindowCreateOptions::create(cb_handle)` — build window options whose
 ///   `window_state.layout_callback` is the LayoutCallback wrapper for `cb_handle`.
-/// Emitted INSIDE the class's `#[php_impl]` block (caller is at method indent).
+///   Emitted INSIDE the class's `#[php_impl]` block (caller is at method indent).
 fn emit_class_extras(builder: &mut CodeBuilder, bare: &str) {
     match bare {
         "Dom" => builder.raw(DOM_ON_CLICK_METHOD),

@@ -954,7 +954,7 @@ fn emit_ocaml_vec_to_array_if_primitive(
              ~length:__len)",
         );
     } else {
-        builder.line(&format!("if Ctypes.is_null __ptr || __len = 0 then [||]"));
+        builder.line(&"if Ctypes.is_null __ptr || __len = 0 then [||]".to_string());
         builder.line("else");
         builder.indent();
         builder.line(&format!(
@@ -1189,7 +1189,7 @@ fn emit_method_impl(
         // access to THIS wrapper's record rather than the first
         // record-with-`raw`-field it can find globally (all wrappers
         // share the `raw` label).
-        params.push(format!("(self : t)"));
+        params.push("(self : t)".to_string());
     }
     // For instance methods the first IR arg IS the implicit self —
     // skip it regardless of how api.json named it. Same fix the

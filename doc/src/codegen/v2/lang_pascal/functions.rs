@@ -136,8 +136,7 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
             let safe = d
                 .replace('{', "(")
                 .replace('}', ")")
-                .replace('\n', " ")
-                .replace('\r', " ");
+                .replace(['\n', '\r'], " ");
             builder.line(&format!("{{ {} }}", safe));
         }
     }

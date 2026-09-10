@@ -1667,18 +1667,16 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                         func.method_name, self_recv, return_type
                     ));
                 }
+            } else if needs_py_param {
+                builder.line(&format!(
+                    "fn {}({}, py: Python<'_>, {}) -> {} {{",
+                    func.method_name, self_recv, args_str, return_type
+                ));
             } else {
-                if needs_py_param {
-                    builder.line(&format!(
-                        "fn {}({}, py: Python<'_>, {}) -> {} {{",
-                        func.method_name, self_recv, args_str, return_type
-                    ));
-                } else {
-                    builder.line(&format!(
-                        "fn {}({}, {}) -> {} {{",
-                        func.method_name, self_recv, args_str, return_type
-                    ));
-                }
+                builder.line(&format!(
+                    "fn {}({}, {}) -> {} {{",
+                    func.method_name, self_recv, args_str, return_type
+                ));
             }
         } else {
             if args.is_empty() {
@@ -1690,18 +1688,16 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
                 } else {
                     builder.line(&format!("fn {}() -> {} {{", func.method_name, return_type));
                 }
+            } else if needs_py_param {
+                builder.line(&format!(
+                    "fn {}(py: Python<'_>, {}) -> {} {{",
+                    func.method_name, args_str, return_type
+                ));
             } else {
-                if needs_py_param {
-                    builder.line(&format!(
-                        "fn {}(py: Python<'_>, {}) -> {} {{",
-                        func.method_name, args_str, return_type
-                    ));
-                } else {
-                    builder.line(&format!(
-                        "fn {}({}) -> {} {{",
-                        func.method_name, args_str, return_type
-                    ));
-                }
+                builder.line(&format!(
+                    "fn {}({}) -> {} {{",
+                    func.method_name, args_str, return_type
+                ));
             }
         }
 
@@ -1770,7 +1766,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         if self_var_lower != self_var {
             self_vars.push(self_var_lower);
         }
-        self_vars.sort_by(|a, b| b.len().cmp(&a.len()));
+        self_vars.sort_by_key(|b| std::cmp::Reverse(b.len()));
         let is_method_mut = func.kind == FunctionKind::MethodMut;
 
         // Does the receiver type implement Clone? If not, `_self.clone()` would
@@ -2044,7 +2040,7 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
         if ret_type_str.is_empty() || ret_type_str == format!("{}()", prefix) {
             // Void return
             if has_statements {
-                builder.line(&format!("{}", transformed_body));
+                builder.line(&transformed_body.to_string());
             } else {
                 builder.line(&format!("let _: () = {};", transformed_body));
             }
@@ -2569,12 +2565,11 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
     fn function_has_unsupported_args(&self, func: &FunctionDef, ir: &CodegenIR) -> bool {
         // For &mut self methods, only skip if the class is unsendable
         // Sendable classes can have mutable methods!
-        if func.kind == FunctionKind::MethodMut {
-            if self.class_needs_unsendable(&func.class_name, ir) {
+        if func.kind == FunctionKind::MethodMut
+            && self.class_needs_unsendable(&func.class_name, ir) {
                 return true;
             }
             // Sendable class - &mut self is allowed, continue checking args
-        }
 
         for arg in &func.args {
             // RefAny is ALWAYS allowed - becomes Py<PyAny>
@@ -2663,8 +2658,8 @@ fn create_py_refany_with_json(wrapper: PyDataWrapper) -> azul_core::refany::RefA
     /// 1. A trampoline `extern "C"` fn is generated for the callback typedef (mirrors the gating in
     ///    `generate_callback_trampolines`), and
     /// 2. The wrapper struct exists and has an `OptionRefAny` field to store the Python callable.
-    /// When either is false there is no way to store/invoke the Python callable,
-    /// so the consuming method must be skipped.
+    ///    When either is false there is no way to store/invoke the Python callable,
+    ///    so the consuming method must be skipped.
     fn callback_arg_is_bridgeable(&self, cb_info: &CallbackArgInfo, ir: &CodegenIR) -> bool {
         // (2) wrapper struct must exist and have an OptionRefAny callable slot.
         let wrapper = match ir

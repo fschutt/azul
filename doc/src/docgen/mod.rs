@@ -36,8 +36,8 @@ fn html_root_matches_site_and_ui() {
 /// * `inline_css` - If true, CSS will be inlined into index.html to prevent FOUC. If false, only a
 ///   link to main.css is used (faster for development).
 /// * `hostname` - Base URL used to interpolate `$HOSTNAME` markers inside
-///                installation commands. Production: `https://azul.rs`;
-///                debug deploy: `http://localhost:8000`.
+///   installation commands. Production: `https://azul.rs`;
+///   debug deploy: `http://localhost:8000`.
 pub fn generate_docs(
     api_data: &ApiData,
     imageoutput_path: &Path,
@@ -51,7 +51,7 @@ pub fn generate_docs(
     docs.insert(
         "index.html".to_string(),
         generate_index_html(
-            &api_data,
+            api_data,
             imageoutput_path,
             imageoutput_url,
             inline_css,
@@ -343,27 +343,27 @@ impl ExampleRendered {
 
         // Write screenshot files
         let _ = std::fs::write(
-            imageoutput_path.join(&format!("{name}.windows.light.png")),
+            imageoutput_path.join(format!("{name}.windows.light.png")),
             &e.screenshot.windows_light,
         );
         let _ = std::fs::write(
-            imageoutput_path.join(&format!("{name}.windows.dark.png")),
+            imageoutput_path.join(format!("{name}.windows.dark.png")),
             &e.screenshot.windows_dark,
         );
         let _ = std::fs::write(
-            imageoutput_path.join(&format!("{name}.linux.light.png")),
+            imageoutput_path.join(format!("{name}.linux.light.png")),
             &e.screenshot.linux_light,
         );
         let _ = std::fs::write(
-            imageoutput_path.join(&format!("{name}.linux.dark.png")),
+            imageoutput_path.join(format!("{name}.linux.dark.png")),
             &e.screenshot.linux_dark,
         );
         let _ = std::fs::write(
-            imageoutput_path.join(&format!("{name}.mac.light.png")),
+            imageoutput_path.join(format!("{name}.mac.light.png")),
             &e.screenshot.mac_light,
         );
         let _ = std::fs::write(
-            imageoutput_path.join(&format!("{name}.mac.dark.png")),
+            imageoutput_path.join(format!("{name}.mac.dark.png")),
             &e.screenshot.mac_dark,
         );
 
@@ -450,7 +450,7 @@ fn generate_index_html(
     let examples = latest_version
         .examples
         .iter()
-        .map(|s| s.load(examples_path, &imagepath))
+        .map(|s| s.load(examples_path, imagepath))
         .collect::<anyhow::Result<Vec<LoadedExample>>>()?;
 
     let ex: Vec<ExampleRendered> = examples
@@ -546,7 +546,7 @@ fn generate_index_html(
         .replace("$$JAVASCRIPT_EXAMPLES$$", &ex_json)
         .replace("$$JAVASCRIPT_INSTALLATION$$", &installation_json)
         .replace("$$LATEST_VERSION$$", latest_version_str)
-        .replace("$$LATEST_DATE$$", &latest_version_date))
+        .replace("$$LATEST_DATE$$", latest_version_date))
 }
 
 /// Generate JavaScript-compatible installation instructions
@@ -1034,8 +1034,7 @@ document.addEventListener('DOMContentLoaded', function () {{
 }
 
 pub fn get_sidebar() -> String {
-    format!(
-        "
+    "
         <nav>
         <ul class='nav-grid'>
           <li><a href='https://azul.rs/ui'>overview</a></li>\
@@ -1052,8 +1051,7 @@ pub fn get_sidebar() -> String {
           <li><a href='https://azul.rs/ui/donate'>donate</a></li>
         </ul>
       </nav>
-    "
-    )
+    ".to_string()
 }
 
 // ===========================================================================
@@ -1118,8 +1116,8 @@ pub fn azlin_theme_toggle() -> &'static str {
 
 /// Head tags for docs pages: fonts (Grenze Gotisch / EB Garamond / Fira Sans
 /// + Red Hat Mono), favicon, prism theme, search css, flora.css +
-/// azul-docs.css (linked in debug, inlined in prod - same rule as the /ui
-/// landing).
+///   azul-docs.css (linked in debug, inlined in prod - same rule as the /ui
+///   landing).
 pub fn get_docs_head_tags(inline_css: bool, page_css: Option<&str>) -> String {
     let base_url: &str = if inline_css { HTML_ROOT } else { UI_PATH };
 

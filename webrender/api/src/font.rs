@@ -128,17 +128,14 @@ pub enum FontTemplate {
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize, Ord, PartialOrd)]
+#[derive(Default)]
 pub enum FontRenderMode {
+    #[default]
     Mono = 0,
     Alpha,
     Subpixel,
 }
 
-impl Default for FontRenderMode {
-    fn default() -> Self {
-        FontRenderMode::Mono
-    }
-}
 
 impl FontRenderMode {
     // Combine two font render modes such that the lesser amount of AA limits the AA of the result.
@@ -274,7 +271,7 @@ impl SyntheticItalics {
 
     pub fn from_degrees(degrees: f32) -> Self {
         SyntheticItalics {
-            angle: (degrees.max(-89.0).min(89.0) * Self::ANGLE_SCALE) as i16,
+            angle: (degrees.clamp(-89.0, 89.0) * Self::ANGLE_SCALE) as i16,
         }
     }
 
@@ -356,16 +353,12 @@ impl Default for FontInstancePlatformOptions {
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Deserialize, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize)]
+#[derive(Default)]
 pub struct FontInstancePlatformOptions {
     pub unused: u32,
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-impl Default for FontInstancePlatformOptions {
-    fn default() -> FontInstancePlatformOptions {
-        FontInstancePlatformOptions { unused: 0 }
-    }
-}
 
 #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
 #[repr(u8)]
@@ -451,7 +444,7 @@ impl Default for GlyphInstance {
 
 impl Eq for GlyphInstance {}
 
-#[allow(clippy::derive_hash_xor_eq)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 impl Hash for GlyphInstance {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Note: this is inconsistent with the Eq impl for -0.0 (don't care).

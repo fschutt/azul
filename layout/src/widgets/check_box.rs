@@ -216,7 +216,7 @@ impl CheckBox {
     #[must_use]
     pub fn create(checked: bool) -> Self {
         Self {
-            theme: crate::widgets::themes::OptionUiTheme::None,
+            theme: OptionUiTheme::None,
             check_box_state: CheckBoxStateWrapper {
                 inner: CheckBoxState { checked },
                 ..Default::default()
@@ -269,8 +269,8 @@ impl CheckBox {
     #[must_use]
     pub fn dom(self) -> Dom {
         let theme = match self.theme {
-            crate::widgets::themes::OptionUiTheme::Some(theme) => theme,
-            crate::widgets::themes::OptionUiTheme::None => crate::widgets::themes::UiTheme::Flat,
+            OptionUiTheme::Some(theme) => theme,
+            OptionUiTheme::None => crate::widgets::themes::UiTheme::Flat,
         };
         match theme {
             crate::widgets::themes::UiTheme::Flat => crate::widgets::themes::flat::check_box(self),
@@ -288,6 +288,7 @@ pub mod input {
     use super::{CheckBoxOnToggle, CheckBoxStateWrapper};
     use crate::callbacks::CallbackInfo;
 
+    #[must_use] 
     pub extern "C" fn default_on_checkbox_clicked(
         mut check_box: RefAny,
         mut info: CallbackInfo,

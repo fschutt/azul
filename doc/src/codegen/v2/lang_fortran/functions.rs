@@ -154,7 +154,7 @@ pub(crate) fn fortran_alias_for(c_symbol: &str) -> String {
 fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     if !func.doc.is_empty() {
         for d in &func.doc {
-            let safe = d.replace('\r', " ").replace('\n', " ");
+            let safe = d.replace(['\r', '\n'], " ");
             builder.line(&format!("! {}", safe));
         }
     }

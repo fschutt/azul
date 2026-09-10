@@ -251,7 +251,7 @@ fn emit_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::CallbackTypede
     ));
     builder.indent();
     let user_args_list: Vec<String> = (0..n_args).map(|i| format!("$_[{}]", i + 1)).collect();
-    builder.line(&format!("my $id = $_[0];"));
+    builder.line(&"my $id = $_[0];".to_string());
     builder.line("my $sub = $_handles{$id};");
     builder.line("return unless defined $sub;");
     if has_ret {

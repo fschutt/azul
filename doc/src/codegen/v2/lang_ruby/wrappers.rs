@@ -168,9 +168,7 @@ fn emit_class_wrapper(
         };
         // Ruby method names are snake_case; the smart name is already
         // snake_case from the detector.
-        builder.line(&format!(
-            "# Smart builder: pass any Ruby object + a Proc/lambda/block."
-        ));
+        builder.line(&"# Smart builder: pass any Ruby object + a Proc/lambda/block.".to_string());
         builder.line(&format!(
             "# Delegates to {} which already auto-registers via _register_callback.",
             func.method_name

@@ -64,6 +64,7 @@ pub type TileSize = u16;
 /// Various settings that the caller can select based on desired tradeoffs
 /// between rendering quality and performance / power usage.
 #[derive(Copy, Clone, Deserialize, Serialize)]
+#[derive(Default)]
 pub struct QualitySettings {
     /// If true, disable creating separate picture cache slices when the
     /// scroll root changes. This gives maximum opportunity to find an
@@ -72,15 +73,6 @@ pub struct QualitySettings {
     pub force_subpixel_aa_where_possible: bool,
 }
 
-impl Default for QualitySettings {
-    fn default() -> Self {
-        QualitySettings {
-            // Prefer performance over maximum subpixel AA quality, since WR
-            // already enables subpixel AA in more situations than other browsers.
-            force_subpixel_aa_where_possible: false,
-        }
-    }
-}
 
 /// An epoch identifies the state of a pipeline in time.
 ///
@@ -224,16 +216,13 @@ pub struct SampledScrollOffset {
 /// for a definition of scroll-linked effect.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Default)]
 pub enum HasScrollLinkedEffect {
     Yes,
+    #[default]
     No,
 }
 
-impl Default for HasScrollLinkedEffect {
-    fn default() -> Self {
-        HasScrollLinkedEffect::No
-    }
-}
 
 #[repr(C)]
 pub struct MinimapData {
@@ -447,9 +436,9 @@ impl<T: Copy> PropertyBindingKey<T> {
     }
 }
 
-impl<T> Into<u64> for PropertyBindingKey<T> {
-    fn into(self) -> u64 {
-        self.id.to_u64()
+impl<T> From<PropertyBindingKey<T>> for u64 {
+    fn from(val: PropertyBindingKey<T>) -> Self {
+        val.id.to_u64()
     }
 }
 
@@ -493,7 +482,7 @@ impl<T> From<T> for PropertyBinding<T> {
 impl From<PropertyBindingKey<ColorF>> for PropertyBindingKey<ColorU> {
     fn from(key: PropertyBindingKey<ColorF>) -> PropertyBindingKey<ColorU> {
         PropertyBindingKey {
-            id: key.id.clone(),
+            id: key.id,
             _phantom: PhantomData,
         }
     }
@@ -502,7 +491,7 @@ impl From<PropertyBindingKey<ColorF>> for PropertyBindingKey<ColorU> {
 impl From<PropertyBindingKey<ColorU>> for PropertyBindingKey<ColorF> {
     fn from(key: PropertyBindingKey<ColorU>) -> PropertyBindingKey<ColorF> {
         PropertyBindingKey {
-            id: key.id.clone(),
+            id: key.id,
             _phantom: PhantomData,
         }
     }
@@ -722,9 +711,9 @@ bitflags! {
         /// If set, dump picture cache invalidation debug to console.
         const INVALIDATION_DBG = 1 << 23;
         /// Collect and dump profiler statistics to captures.
-        const PROFILER_CAPTURE = (1 as u32) << 25; // need "as u32" until we have cbindgen#556
+        const PROFILER_CAPTURE = 1_u32 << 25; // need "as u32" until we have cbindgen#556
         /// Invalidate picture tiles every frames (useful when inspecting GPU work in external tools).
-        const FORCE_PICTURE_INVALIDATION = (1 as u32) << 26;
+        const FORCE_PICTURE_INVALIDATION = 1_u32 << 26;
         /// Display window visibility on screen.
         const WINDOW_VISIBILITY_DBG     = 1 << 27;
         /// Render large blobs with at a smaller size (incorrectly). This is a temporary workaround for

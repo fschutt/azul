@@ -78,7 +78,7 @@ impl Report {
 
         out.push_str("=== AUTOFIX REPORT ===\n\n");
 
-        out.push_str(&format!("Summary:\n"));
+        out.push_str(&"Summary:\n".to_string());
         out.push_str(&format!(
             "  Types analyzed: {}\n",
             self.summary.total_types_analyzed
@@ -95,7 +95,7 @@ impl Report {
             "  Duplicates skipped: {}\n",
             self.summary.duplicates_skipped
         ));
-        out.push_str("\n");
+        out.push('\n');
 
         if !self.path_corrections.is_empty() {
             out.push_str("Path Corrections:\n");
@@ -103,7 +103,7 @@ impl Report {
                 out.push_str(&format!("  {} : {} -> {}\n", pc.type_name, pc.from, pc.to));
                 out.push_str(&format!("    Reason: {}\n", pc.reason));
             }
-            out.push_str("\n");
+            out.push('\n');
         }
 
         if !self.types_to_remove.is_empty() {
@@ -111,7 +111,7 @@ impl Report {
             for ty in &self.types_to_remove {
                 out.push_str(&format!("  - {}\n", ty));
             }
-            out.push_str("\n");
+            out.push('\n');
         }
 
         if !self.warnings.is_empty() {
@@ -119,7 +119,7 @@ impl Report {
             for w in &self.warnings {
                 out.push_str(&format!("  ! {}\n", w));
             }
-            out.push_str("\n");
+            out.push('\n');
         }
 
         if !self.errors.is_empty() {
@@ -127,7 +127,7 @@ impl Report {
             for e in &self.errors {
                 out.push_str(&format!("  x {}\n", e));
             }
-            out.push_str("\n");
+            out.push('\n');
         }
 
         out

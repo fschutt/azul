@@ -171,5 +171,5 @@ fn emit_defcfun(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
 }
 
 fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }

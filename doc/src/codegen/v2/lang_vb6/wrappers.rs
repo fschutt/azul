@@ -162,9 +162,9 @@ pub fn emit_class_module(s: &StructDef, ir: &CodegenIR, config: &CodegenConfig) 
     // Wrap-existing factory: takes a Long pointer to a populated FFI
     // record and copies its bytes into m_raw, claiming ownership.
     builder.line("' WrapRaw: take ownership of an existing AzXxx record (passed via VarPtr).");
-    builder.line(&format!("Public Sub WrapRaw(ByVal rawPtr As Long)"));
+    builder.line(&"Public Sub WrapRaw(ByVal rawPtr As Long)".to_string());
     builder.indent();
-    builder.line(&format!("CopyMemory m_raw, ByVal rawPtr, LenB(m_raw)"));
+    builder.line(&"CopyMemory m_raw, ByVal rawPtr, LenB(m_raw)".to_string());
     builder.line("m_owned = True");
     builder.dedent();
     builder.line("End Sub");
@@ -295,7 +295,7 @@ fn emit_init_sub(
         builder.line(&format!("' Pseudo: m_raw = {}", call));
     } else {
         // Constructor returns Long (a pointer) or void.
-        builder.line(&format!("Dim ret_ As Long"));
+        builder.line(&"Dim ret_ As Long".to_string());
         builder.line(&format!("ret_ = {}", call));
         builder.line("If ret_ <> 0 Then");
         builder.indent();

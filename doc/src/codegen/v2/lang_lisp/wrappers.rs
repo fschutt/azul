@@ -505,5 +505,5 @@ fn idiomatic_method_name(method_name: &str) -> String {
 }
 
 fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }

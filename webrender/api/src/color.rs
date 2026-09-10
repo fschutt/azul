@@ -132,7 +132,7 @@ impl Ord for PremultipliedColorF {
     }
 }
 
-#[allow(clippy::derive_hash_xor_eq)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 impl Hash for PremultipliedColorF {
     fn hash<H: Hasher>(&self, state: &mut H) {
         // Note: this is inconsistent with the Eq impl for -0.0 (don't care).
@@ -165,7 +165,7 @@ impl ColorU {
 }
 
 fn round_to_int(x: f32) -> u8 {
-    debug_assert!((0.0 <= x) && (x <= 1.0), "{} should be between 0 and 1", x);
+    debug_assert!((0.0..=1.0).contains(&x), "{} should be between 0 and 1", x);
     let f = (255.0 * x) + 0.5;
     let val = f.floor();
     debug_assert!(val <= 255.0);

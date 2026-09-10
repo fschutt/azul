@@ -47,7 +47,7 @@ use super::super::{
 /// payload and before the `CDEF;` terminator.
 pub fn cdef_extension(ir: &CodegenIR) -> String {
     let mut out = String::new();
-    out.push_str("\n");
+    out.push('\n');
     out.push_str("/* ──────────────────────────────────────────────────────────── */\n");
     out.push_str("/* Managed-FFI runtime: host-invoker C-ABI exports.            */\n");
     out.push_str("/* Languages with declarative FFI bindings (ruby-ffi, JNA,     */\n");

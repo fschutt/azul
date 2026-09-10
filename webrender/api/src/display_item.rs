@@ -477,10 +477,7 @@ impl NormalBorder {
 
         #[inline]
         fn renders_small_border_solid(style: BorderStyle) -> bool {
-            match style {
-                BorderStyle::Groove | BorderStyle::Ridge => true,
-                _ => false,
-            }
+            matches!(style, BorderStyle::Groove | BorderStyle::Ridge)
         }
 
         let normalize_side = |side: &mut BorderSide, width: f32| {
@@ -1086,10 +1083,10 @@ pub struct FloodPrimitive {
 
 impl FloodPrimitive {
     pub fn sanitize(&mut self) {
-        self.color.r = self.color.r.min(1.0).max(0.0);
-        self.color.g = self.color.g.min(1.0).max(0.0);
-        self.color.b = self.color.b.min(1.0).max(0.0);
-        self.color.a = self.color.a.min(1.0).max(0.0);
+        self.color.r = self.color.r.clamp(0.0, 1.0);
+        self.color.g = self.color.g.clamp(0.0, 1.0);
+        self.color.b = self.color.b.clamp(0.0, 1.0);
+        self.color.a = self.color.a.clamp(0.0, 1.0);
     }
 }
 
@@ -1110,7 +1107,7 @@ pub struct OpacityPrimitive {
 
 impl OpacityPrimitive {
     pub fn sanitize(&mut self) {
-        self.opacity = self.opacity.min(1.0).max(0.0);
+        self.opacity = self.opacity.clamp(0.0, 1.0);
     }
 }
 

@@ -1815,7 +1815,7 @@ pub fn collect_all_referenced_types_from_api(api_data: &crate::api::ApiData) -> 
 
     // Include callback_typedefs - they can be referenced and need patches
     // (e.g. FooDestructorType is referenced from FooDestructor enum)
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (_module_name, module_data) in &version_data.api {
             for (_class_name, class_data) in &module_data.classes {
                 types.extend(extract_types_from_class_data(class_data));
@@ -1835,7 +1835,7 @@ pub fn collect_all_referenced_types_from_api_with_chains(
     let mut types = BTreeSet::new();
     let mut chains: BTreeMap<String, String> = BTreeMap::new();
 
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (_module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Track types from functions with their chain
@@ -2051,7 +2051,7 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
     // Phase 1: Collect all "entry point" types from functions and constructors
     let mut types_to_process: Vec<String> = Vec::new();
 
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (_module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Add the class itself if it has functions or constructors
@@ -2068,12 +2068,11 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
                     .unwrap_or(false);
                 let is_callback_typedef = class_data.callback_typedef.is_some();
 
-                if has_functions || has_constructors || is_callback_typedef {
-                    if !reachable_types.contains(class_name) {
+                if (has_functions || has_constructors || is_callback_typedef)
+                    && !reachable_types.contains(class_name) {
                         reachable_types.insert(class_name.clone());
                         types_to_process.push(class_name.clone());
                     }
-                }
 
                 // Extract types from functions
                 if let Some(functions) = &class_data.functions {
@@ -2125,7 +2124,7 @@ pub fn find_unused_types(api_data: &crate::api::ApiData) -> Vec<UnusedTypeInfo> 
 
     while !types_to_process.is_empty() && iteration < max_iterations {
         iteration += 1;
-        let current_batch: Vec<String> = types_to_process.drain(..).collect();
+        let current_batch: Vec<String> = std::mem::take(&mut types_to_process);
 
         for type_name in current_batch {
             if let Some(class_data) = type_definitions.get(&type_name) {
@@ -2327,7 +2326,7 @@ fn find_unused_types_simulating_removal(
     // Phase 1: Collect entry points (functions, constructors, callbacks)
     let mut types_to_process: Vec<String> = Vec::new();
 
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (_module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Skip removed types
@@ -2348,12 +2347,11 @@ fn find_unused_types_simulating_removal(
                 let is_callback_typedef = class_data.callback_typedef.is_some();
 
                 // If this type has functions/constructors/callbacks, it's an entry point
-                if has_functions || has_constructors || is_callback_typedef {
-                    if !reachable_types.contains(class_name) {
+                if (has_functions || has_constructors || is_callback_typedef)
+                    && !reachable_types.contains(class_name) {
                         reachable_types.insert(class_name.clone());
                         types_to_process.push(class_name.clone());
                     }
-                }
 
                 // Also mark types referenced by functions/constructors as reachable
                 if let Some(functions) = &class_data.functions {
@@ -2397,7 +2395,7 @@ fn find_unused_types_simulating_removal(
 
     while !types_to_process.is_empty() && iteration < max_iterations {
         iteration += 1;
-        let current_batch: Vec<String> = types_to_process.drain(..).collect();
+        let current_batch: Vec<String> = std::mem::take(&mut types_to_process);
 
         for type_name in current_batch {
             if let Some(class_data) = type_definitions.get(&type_name) {
@@ -2539,7 +2537,7 @@ pub fn generate_removal_patches(unused_types: &[UnusedTypeInfo]) -> Vec<crate::p
 pub fn remove_empty_modules(api_data: &mut ApiData) -> usize {
     let mut total_removed = 0;
 
-    for (_version_name, version_data) in &mut api_data.0 {
+    for version_data in api_data.0.values_mut() {
         let empty_modules: Vec<String> = version_data
             .api
             .iter()
@@ -2599,7 +2597,7 @@ fn extract_array_info(type_str: &str) -> (String, Option<usize>) {
 pub fn normalize_array_types(api_data: &mut ApiData) -> usize {
     let mut count = 0;
 
-    for (_version_name, version_data) in &mut api_data.0 {
+    for version_data in api_data.0.values_mut() {
         for (_module_name, module_data) in &mut version_data.api {
             for (_class_name, class_data) in &mut module_data.classes {
                 // Process struct fields
@@ -2645,7 +2643,7 @@ pub fn normalize_type_aliases(api_data: &mut ApiData) -> usize {
 
     let mut count = 0;
 
-    for (_version_name, version_data) in &mut api_data.0 {
+    for version_data in api_data.0.values_mut() {
         for (_module_name, module_data) in &mut version_data.api {
             for (_class_name, class_data) in &mut module_data.classes {
                 if let Some(type_alias) = &mut class_data.type_alias {
@@ -2742,7 +2740,7 @@ pub fn normalize_enum_variant_types(api_data: &mut ApiData) -> usize {
 
     let mut count = 0;
 
-    for (_version_name, version_data) in &mut api_data.0 {
+    for version_data in api_data.0.values_mut() {
         for (_module_name, module_data) in &mut version_data.api {
             for (_class_name, class_data) in &mut module_data.classes {
                 if let Some(enum_fields) = &mut class_data.enum_fields {

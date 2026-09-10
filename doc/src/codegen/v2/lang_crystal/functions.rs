@@ -53,7 +53,7 @@ pub fn generate_funs(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig
 
 fn emit_fun(b: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
     for d in &func.doc {
-        b.line(&format!("  # {}", d.replace('\n', " ").replace('\r', " ")));
+        b.line(&format!("  # {}", d.replace(['\n', '\r'], " ")));
     }
 
     // Functions with a callback-wrapper arg export a triple in the DLL; we

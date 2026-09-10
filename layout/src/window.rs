@@ -14578,7 +14578,7 @@ impl LayoutWindow {
         #[cfg(feature = "icu")]
         {
             self.icu_localizer =
-                crate::icu::IcuLocalizerHandle::from_system_language(&system_style.language);
+                IcuLocalizerHandle::from_system_language(&system_style.language);
         }
         self.system_style = Some(system_style);
     }
@@ -14641,7 +14641,7 @@ impl LayoutWindow {
         self.icu_localizer.set_locale(locale);
     }
 
-    /// Initialize the ICU localizer from a SystemStyle.
+    /// Initialize the ICU localizer from a `SystemStyle`.
     ///
     /// This is a convenience method that extracts the language from the system style.
     pub fn init_icu_from_system_style(&mut self, system_style: &azul_css::system::SystemStyle) {

@@ -373,7 +373,7 @@ fn emit_wrapper_class(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
     // flags `is_debug`. Existing AzString toString override is left in
     // place since it accesses the underlying U8Vec directly (no helper
     // round-trip).
-    emit_toString_if_supported(builder, s, ir);
+    emit_to_string_if_supported(builder, s, ir);
 
     // Phase I.1.2 (Java): emit Iterable<T>.iterator() when the Vec
     // shape was detected AND the element has a wrapper class. The
@@ -474,7 +474,7 @@ fn emit_equals_hashcode_if_supported(
 /// codegen-emitted `Az<X>_toDbgString` C export when TypeTraits.is_debug
 /// is set and the helper actually exists. Skips when this is the String
 /// wrapper class — that already has a vec-direct toString.
-fn emit_toString_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
+fn emit_to_string_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if matches!(s.category, TypeCategory::String) {
         return;
     }
@@ -790,7 +790,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                         if let Some(ref payload_ty) = sv.payload_type {
                             return ReturnIdiom::Option {
                                 payload_ty: payload_ty.clone(),
-                                ref_kind: sv.payload_ref_kind.clone(),
+                                ref_kind: sv.payload_ref_kind,
                             };
                         }
                     }
@@ -800,7 +800,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                         if let Some(ref payload_ty) = ov.payload_type {
                             return ReturnIdiom::Result {
                                 payload_ty: payload_ty.clone(),
-                                ref_kind: ov.payload_ref_kind.clone(),
+                                ref_kind: ov.payload_ref_kind,
                             };
                         }
                     }
@@ -819,7 +819,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                     if types.len() == 1 {
                         return ReturnIdiom::Option {
                             payload_ty: types[0].0.clone(),
-                            ref_kind: types[0].1.clone(),
+                            ref_kind: types[0].1,
                         };
                     }
                 }
@@ -831,7 +831,7 @@ fn classify_return(func: &FunctionDef, ir: &CodegenIR) -> ReturnIdiom {
                     if types.len() == 1 {
                         return ReturnIdiom::Result {
                             payload_ty: types[0].0.clone(),
-                            ref_kind: types[0].1.clone(),
+                            ref_kind: types[0].1,
                         };
                     }
                 }
@@ -1126,7 +1126,7 @@ fn emit_wrapper_method(
             .as_deref()
             .map(|r| r.trim())
             .filter(|r| has_wrapper_class(r, ir))
-            .map(|r| wrapper_class_name(r))
+            .map(wrapper_class_name)
     } else {
         None
     };

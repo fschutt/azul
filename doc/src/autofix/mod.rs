@@ -115,7 +115,7 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         let path = entry.path();
         if path.is_dir() {
             collect_rs_files(&path, out);
-        } else if path.extension().map_or(false, |e| e == "rs") {
+        } else if path.extension().is_some_and(|e| e == "rs") {
             out.push(path);
         }
     }
@@ -970,7 +970,7 @@ fn generate_combined_patch(
                         .iter()
                         .map(|arg| patch_format::CallbackArgDef {
                             arg_type: arg.ty.clone(),
-                            ref_kind: arg.ref_kind.clone(),
+                            ref_kind: arg.ref_kind,
                             name: arg.name.clone(),
                         })
                         .collect(),
@@ -988,8 +988,8 @@ fn generate_combined_patch(
                     arg_index: *arg_index,
                     old_type: old_type.clone(),
                     new_type: new_type.clone(),
-                    old_ref: old_ref_kind.clone(),
-                    new_ref: new_ref_kind.clone(),
+                    old_ref: *old_ref_kind,
+                    new_ref: *new_ref_kind,
                 });
             }
             diff::ModificationKind::CallbackReturnChanged { old_type, new_type } => {
@@ -1232,7 +1232,7 @@ fn generate_removal_patch(removal: &str) -> String {
     use patch_format::*;
 
     let parts: Vec<&str> = removal.splitn(2, ':').collect();
-    let type_name = parts.get(0).unwrap_or(&removal);
+    let type_name = parts.first().unwrap_or(&removal);
     let path = parts.get(1);
 
     let mut patch = AutofixPatch::new(format!("Remove unused type {}", type_name));
@@ -2210,7 +2210,7 @@ pub fn check_ffi_safety(
     }
 
     // Check for () unit type in api.json function signatures
-    for (_version_name, version) in &api_data.0 {
+    for version in api_data.0.values() {
         for (module_name, module) in &version.api {
             for (class_name, class_def) in &module.classes {
                 let file_path = format!("api.json - {}.{}", module_name, class_name);
@@ -2272,7 +2272,7 @@ pub fn check_ffi_safety(
     }
 
     // Check api.json types for repr mismatches AND struct issues
-    for (_version_name, version) in &api_data.0 {
+    for version in api_data.0.values() {
         for (module_name, module) in &version.api {
             for (class_name, class_def) in &module.classes {
                 let file_path = format!("api.json - {}.{}", module_name, class_name);
@@ -3101,7 +3101,7 @@ pub fn check_doc_characters(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
         None
     }
 
-    for (_version_key, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (module_name, module_data) in &version_data.api {
             // Check module documentation
             if let Some(doc_lines) = &module_data.doc {
@@ -4824,7 +4824,7 @@ pub fn check_reserved_keywords(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
 
     let mut warnings = Vec::new();
 
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Check type name
@@ -4960,7 +4960,7 @@ pub fn check_reserved_keywords(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
 pub fn check_enum_variant_method_collisions(api_data: &ApiData) -> Vec<FfiSafetyWarning> {
     let mut warnings = Vec::new();
 
-    for (_version_name, version_data) in &api_data.0 {
+    for version_data in api_data.0.values() {
         for (module_name, module_data) in &version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 let Some(enum_fields_groups) = &class_data.enum_fields else {

@@ -869,14 +869,14 @@ fn c_size_of_struct(s: &StructDef, ir: &CodegenIR, visiting: &mut Vec<String>) -
             max_align = fa;
         }
         // Align offset up to fa.
-        offset = (offset + fa - 1) / fa * fa;
+        offset = offset.div_ceil(fa) * fa;
         offset += fs;
     }
     if max_align == 0 {
         max_align = 1;
     }
     // Round size up to struct alignment.
-    let size = (offset + max_align - 1) / max_align * max_align;
+    let size = offset.div_ceil(max_align) * max_align;
     (size, max_align)
 }
 
@@ -902,11 +902,11 @@ fn c_size_of_tagged_enum(
                     if fa > al {
                         al = fa;
                     }
-                    off = (off + fa - 1) / fa * fa;
+                    off = off.div_ceil(fa) * fa;
                     off += fs;
                 }
                 let sz = if al > 0 {
-                    (off + al - 1) / al * al
+                    off.div_ceil(al) * al
                 } else {
                     off
                 };
@@ -923,11 +923,11 @@ fn c_size_of_tagged_enum(
                     if fa > al {
                         al = fa;
                     }
-                    off = (off + fa - 1) / fa * fa;
+                    off = off.div_ceil(fa) * fa;
                     off += fs;
                 }
                 let sz = if al > 0 {
-                    (off + al - 1) / al * al
+                    off.div_ceil(al) * al
                 } else {
                     off
                 };
@@ -947,13 +947,13 @@ fn c_size_of_tagged_enum(
     let head = if max_payload_align == 0 {
         1
     } else {
-        ((1 + max_payload_align - 1) / max_payload_align) * max_payload_align
+        1_usize.div_ceil(max_payload_align) * max_payload_align
     };
     let total = head + max_payload_size;
     let aligned = if max_payload_align == 0 {
         total
     } else {
-        (total + max_payload_align - 1) / max_payload_align * max_payload_align
+        total.div_ceil(max_payload_align) * max_payload_align
     };
     (aligned, max_payload_align.max(1))
 }

@@ -264,7 +264,7 @@ fn pascalize_method_name(name: &str) -> String {
             out.extend(c.to_uppercase());
             upper_next = false;
         } else {
-            out.extend(c.to_ascii_lowercase().to_string().chars());
+            out.push_str(&c.to_ascii_lowercase().to_string());
         }
     }
     out

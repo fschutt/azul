@@ -520,5 +520,5 @@ fn emit_close(builder: &mut CodeBuilder) {
 /// Strip newlines / disallowed characters from a doc string so it fits
 /// on a single Lisp `;` comment line.
 fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }

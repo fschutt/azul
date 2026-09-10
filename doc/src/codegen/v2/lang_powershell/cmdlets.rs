@@ -210,7 +210,7 @@ fn emit_shim(builder: &mut CodeBuilder, s: &StructDef, func: &FunctionDef) {
     }
     for (idx, a) in user_args.iter().enumerate() {
         let position = if takes_self { idx + 1 } else { idx };
-        let pstype = ps_type_of(*a, takes_self);
+        let pstype = ps_type_of(a, takes_self);
         let mut name_pascal = snake_to_pascal_param(&a.name);
         // Avoid colliding with the implicit `$Instance` (the self param)
         // when an api.json arg is also named `instance`. PowerShell

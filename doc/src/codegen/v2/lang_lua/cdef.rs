@@ -191,7 +191,7 @@ fn strip_preprocessor(c_header: &str) -> String {
     let mut in_fn_body = false;
     let mut fn_brace_depth: i32 = 0;
 
-    while let Some(line) = iter.next() {
+    for line in iter {
         let trimmed = line.trim_start();
 
         // Currently skipping a function body — track braces and bail when
@@ -272,9 +272,7 @@ fn strip_preprocessor(c_header: &str) -> String {
             if skip_depth == 0 && saw_outer_guard {
                 continue;
             }
-            if skip_depth > 0 {
-                skip_depth -= 1;
-            }
+            skip_depth = skip_depth.saturating_sub(1);
             continue;
         }
         if skip_depth > 0 {

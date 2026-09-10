@@ -345,5 +345,5 @@ pub fn to_pascal_case(s: &str) -> String {
 /// `'` line comment. We collapse newlines into spaces — `'` only
 /// terminates at end-of-line so apostrophes are fine inside.
 pub fn sanitize_comment(s: &str) -> String {
-    s.replace('\n', " ").replace('\r', " ")
+    s.replace(['\n', '\r'], " ")
 }

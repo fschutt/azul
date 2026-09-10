@@ -94,30 +94,24 @@ fn should_emit_struct(s: &StructDef) -> bool {
     if !s.generic_params.is_empty() {
         return false;
     }
-    match s.category {
-        TypeCategory::Recursive
+    !matches!(s.category, TypeCategory::Recursive
         | TypeCategory::VecRef
         | TypeCategory::Boxed
         | TypeCategory::GenericTemplate
         | TypeCategory::DestructorOrClone
-        | TypeCategory::CallbackTypedef => false,
-        _ => true,
-    }
+        | TypeCategory::CallbackTypedef)
 }
 
 fn should_emit_enum(e: &EnumDef) -> bool {
     if !e.generic_params.is_empty() {
         return false;
     }
-    match e.category {
-        TypeCategory::Recursive
+    !matches!(e.category, TypeCategory::Recursive
         | TypeCategory::VecRef
         | TypeCategory::Boxed
         | TypeCategory::GenericTemplate
         | TypeCategory::DestructorOrClone
-        | TypeCategory::CallbackTypedef => false,
-        _ => true,
-    }
+        | TypeCategory::CallbackTypedef)
 }
 
 fn is_unit_only_enum(e: &EnumDef) -> bool {

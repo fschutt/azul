@@ -83,7 +83,7 @@ pub fn generate_review_prompt(
     for url in &node.spec_urls {
         prompt.push_str(&format!("- {}\n", url));
     }
-    prompt.push_str("\n");
+    prompt.push('\n');
 
     // Extracted spec paragraphs
     if !spec_paragraphs.is_empty() {
@@ -104,7 +104,7 @@ pub fn generate_review_prompt(
         prompt.push_str("```rust\n");
         prompt.push_str(content);
         if !content.ends_with('\n') {
-            prompt.push_str("\n");
+            prompt.push('\n');
         }
         prompt.push_str("```\n\n");
     }
@@ -349,7 +349,7 @@ pub fn save_review_result(result: &ReviewResult, output_dir: &Path) -> std::io::
     let output_path = output_dir.join(&filename);
 
     let json = serde_json::to_string_pretty(result)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        .map_err(|e| std::io::Error::other(e))?;
 
     std::fs::write(&output_path, &json)?;
 
@@ -460,7 +460,7 @@ pub fn generate_holistic_prompt(tree: &SkillTree, results_dir: &Path) -> String 
                     for issue in &result.issues {
                         prompt.push_str(&format!("- {}\n", issue));
                     }
-                    prompt.push_str("\n");
+                    prompt.push('\n');
                 }
             }
         }
